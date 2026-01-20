@@ -35,6 +35,8 @@ impl Session {
         local_name: &Name,
         tx: SessionTransmitter,
         tx_signals: mpsc::Sender<SessionMessage>,
+        shutdown_send: bool, // if true, do not produce any message
+        shutdown_receive: bool, // if true do not send messages to the application
     ) -> Self {
         let timer_settings = if let Some(duration) = session_config.interval
             && let Some(max_retries) = session_config.max_retries
@@ -52,6 +54,7 @@ impl Session {
             session_config.session_type,
             tx.clone(),
             Some(tx_signals.clone()),
+            shutdown_send,
         );
         let receiver = SessionReceiver::new(
             timer_settings,
@@ -60,6 +63,7 @@ impl Session {
             session_config.session_type,
             tx.clone(),
             Some(tx_signals.clone()),
+            shutdown_receive,
         );
 
         Session {
@@ -278,6 +282,8 @@ mod tests {
             &local_name,
             tx.clone(),
             tx_signal.clone(),
+            false,
+            false,
         );
 
         // Add the remote endpoint to the session sender
@@ -415,6 +421,8 @@ mod tests {
             &local_name,
             tx.clone(),
             tx_signal.clone(),
+            false,
+            false,
         );
 
         // Receive message 1 from slim
@@ -626,6 +634,8 @@ mod tests {
             &sender_name,
             tx_sender.clone(),
             tx_signal_sender.clone(),
+            false,
+            false,
         );
 
         // Add receiver as endpoint for sender
@@ -657,6 +667,8 @@ mod tests {
             &receiver_name,
             tx_receiver.clone(),
             tx_signal_receiver.clone(),
+            false,
+            false,
         );
 
         // Add sender as endpoint for receiver

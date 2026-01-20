@@ -304,6 +304,45 @@ impl Service {
             identity_provider_config,
             identity_verifier_config,
             self.inner.clone(),
+            false,
+            false,
+        )
+        .await
+        .map(Arc::new)
+    }
+
+    /// Create a new App with authentication configuration and shutdown flags (async version)
+    ///
+    /// This method initializes authentication providers/verifiers and creates a App
+    /// on this service instance. It also set the shutdown flags for send and receive.
+    /// If set to true, the app will inibit the sending or receiving of messages.
+    ///
+    /// # Arguments
+    /// * `base_name` - The base name for the app (without ID)
+    /// * `identity_provider_config` - Configuration for proving identity to others
+    /// * `identity_verifier_config` - Configuration for verifying identity of others
+    /// * `shutdown_send` - If true, the app will inhibit sending messages
+    /// * `shutdown_receive` - If true, the app will inhibit receiving messages
+    ///
+    /// # Returns
+    /// * `Ok(Arc<App>)` - Successfully created adapter
+    /// * `Err(SlimError)` - If adapter creation fails
+    pub async fn create_app_async_with_shutdown_flags(
+        &self,
+        base_name: Arc<Name>,
+        identity_provider_config: IdentityProviderConfig,
+        identity_verifier_config: IdentityVerifierConfig,
+        shutdown_send: bool,
+        shutdown_receive: bool,
+    ) -> Result<Arc<crate::app::App>, SlimError> {
+        let slim_name: SlimName = base_name.as_ref().into();
+        create_app_async_internal(
+            slim_name,
+            identity_provider_config,
+            identity_verifier_config,
+            self.inner.clone(),
+            shutdown_send,
+            shutdown_receive,
         )
         .await
         .map(Arc::new)
@@ -366,6 +405,43 @@ impl Service {
         ))
     }
 
+    /// Create a new App with authentication configuration and shutdown flags (blocking version)
+    ///
+    /// This method initializes authentication providers/verifiers and creates a App
+    /// on this service instance. It also set the shutdown flags for send and receive.
+    /// If set to true, the app will inibit the sending or receiving of messages.
+    ///
+    /// # Arguments
+    /// * `base_name` - The base name for the app (without ID)
+    /// * `identity_provider_config` - Configuration for proving identity to others
+    /// * `identity_verifier_config` - Configuration for verifying identity of others
+    /// * `shutdown_send` - If true, the app will inhibit sending messages
+    /// * `shutdown_receive` - If true, the app will inhibit receiving messages
+    ///
+    /// # Returns
+    /// * `Ok(Arc<App>)` - Successfully created adapter
+    /// * `Err(SlimError)` - If adapter creation fails
+    pub async fn create_app_with_shutdown_flags(
+        &self,
+        base_name: Arc<Name>,
+        identity_provider_config: IdentityProviderConfig,
+        identity_verifier_config: IdentityVerifierConfig,
+        shutdown_send: bool,
+        shutdown_receive: bool,
+    ) -> Result<Arc<crate::app::App>, SlimError> {
+        let slim_name: SlimName = base_name.as_ref().into();
+        create_app_async_internal(
+            slim_name,
+            identity_provider_config,
+            identity_verifier_config,
+            self.inner.clone(),
+            shutdown_send,
+            shutdown_receive,
+        )
+        .await
+        .map(Arc::new)
+    }
+
     /// Create a new App with SharedSecret authentication (helper function)
     ///
     /// This is a convenience function for creating a SLIM application using SharedSecret authentication
@@ -406,6 +482,8 @@ pub(crate) async fn create_app_async_internal(
     identity_provider_config: IdentityProviderConfig,
     identity_verifier_config: IdentityVerifierConfig,
     service: Arc<SlimService>,
+    shutdown_send: bool,
+    shutdown_receive: bool,
 ) -> Result<crate::app::App, SlimError> {
     // Convert configurations to actual providers/verifiers
     let mut identity_provider: AuthProvider = identity_provider_config.try_into()?;
@@ -433,7 +511,7 @@ pub(crate) async fn create_app_async_internal(
     let app_name = base_name.with_id(id_hash);
 
     // Create the app using the provided service
-    let (app, rx) = service.create_app(&app_name, identity_provider, identity_verifier)?;
+    let (app, rx) = service.create_app(&app_name, identity_provider, identity_verifier, shutdown_send, shutdown_receive)?;
 
     Ok(crate::app::App::from_parts(
         Arc::new(app),
@@ -938,7 +1016,7 @@ mod tests {
         let (provider, verifier) = create_test_auth();
 
         let result =
-            create_app_async_internal(base_name, provider, verifier, service.inner.clone()).await;
+            create_app_async_internal(base_name, provider, verifier, service.inner.clone(), false, false).await;
 
         assert!(result.is_ok(), "Should create app via internal function");
         let app = result.unwrap();

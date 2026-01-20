@@ -80,6 +80,10 @@ where
     /// once a new session is created on reception of a join request, store it temporarily
     /// in this map waiting for the welcome message before notifying it to the application
     to_notify: SyncRwLock<HashMap<u32, SessionContext>>,
+
+    /// shutdown flags. if set the session will prevent sending or receiving messages
+    shutdown_send: bool,
+    shutdown_receive: bool,
 }
 
 impl<P, V, T> SessionLayer<P, V, T>
@@ -99,6 +103,8 @@ where
         tx_app: Sender<Result<Notification, SessionError>>,
         transmitter: T,
         storage_path: std::path::PathBuf,
+        shutdown_send: bool,
+        shutdown_receive: bool,
     ) -> Self {
         let (tx_session, rx_session) = tokio::sync::mpsc::channel(16);
 
@@ -116,6 +122,8 @@ where
             storage_path,
             tx_session,
             to_notify: SyncRwLock::new(HashMap::new()),
+            shutdown_send,
+            shutdown_receive,
         };
 
         sl.listen_from_sessions(rx_session);
@@ -283,6 +291,8 @@ where
                 .with_tx(tx)
                 .with_tx_to_session_layer(self.tx_session.clone())
                 .with_routes_cache(self.routes_cache.clone())
+                .with_shutdown_send(self.shutdown_send)
+                .with_shutdown_receive(self.shutdown_receive)
                 .ready()?;
 
             // Perform the async build operation without holding any lock
@@ -724,6 +734,8 @@ mod tests {
             tx_app,
             transmitter,
             storage_path,
+            false,
+            false,
         );
 
         (session_layer, rx_slim, rx_app, rx_transmitter)

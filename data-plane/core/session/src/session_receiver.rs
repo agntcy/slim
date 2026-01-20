@@ -83,6 +83,10 @@ pub struct SessionReceiver {
 
     /// drain state - when true, no new messages from app are accepted
     draining_state: ReceiverDrainStatus,
+
+    /// shutdown receive flag. if set no message is deliverd to the app
+    /// the receiver will simply send acks on message reception
+    shutdown_receive: bool,
 }
 
 #[allow(dead_code)]
@@ -97,6 +101,7 @@ impl SessionReceiver {
         session_type: ProtoSessionType,
         tx: SessionTransmitter,
         tx_signals: Option<Sender<SessionMessage>>,
+        shutdown_receive: bool,
     ) -> Self {
         let factory = if let Some(settings) = timer_settings
             && let Some(tx) = tx_signals
@@ -115,6 +120,7 @@ impl SessionReceiver {
             local_name,
             tx,
             draining_state: ReceiverDrainStatus::NotDraining,
+            shutdown_receive,
         }
     }
 
@@ -154,6 +160,16 @@ impl SessionReceiver {
     }
 
     pub async fn on_publish_message(&mut self, message: Message) -> Result<(), SessionError> {
+        // if shutdown_receive is true we just ack the message and do not deliver it to the app
+        if self.shutdown_receive {
+            debug!(
+                id = %message.get_id(),
+                source = %message.get_source(),
+                "receiver is shutdown, ack message without delivering to app",
+            );
+            return self.send_ack(&message).await;
+        }
+
         if self.timer_factory.is_none() || message.contains_metadata(PUBLISH_TO) {
             debug!(
                 id = %message.get_id(),
@@ -194,6 +210,16 @@ impl SessionReceiver {
     }
 
     pub async fn on_rtx_message(&mut self, message: Message) -> Result<(), SessionError> {
+        // if shutdown_receive is true this message should not be received
+        // in any case we drop it
+        if self.shutdown_receive {
+            debug!(
+                id = %message.get_id(),
+                source = %message.get_source(),
+                "receiver is shutdown, drop rtx reply message",
+            );
+            return Ok(());
+        }
         // in case we get the and RTX reply the session must be reliable
         let source = message.get_source();
         let id = message.get_id();
@@ -405,6 +431,7 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
+            false,
         );
 
         // Create test message 1
@@ -517,6 +544,7 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
+            false,
         );
 
         // Create test message 1
@@ -744,6 +772,7 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
+            false,
         );
 
         // Create test message 1
@@ -902,6 +931,7 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
+            false,
         );
 
         // Create test message 1
@@ -1071,6 +1101,7 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
+            false,
         );
 
         // Create and send message 1 from remote1
@@ -1206,6 +1237,7 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
+            false,
         );
 
         // Send messages 1, 2, 3 from remote1 (complete sequence)
@@ -1413,6 +1445,7 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
+            false,
         );
 
         // Send message 3 with PUBLISH_TO (out of order)
@@ -1481,6 +1514,7 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
+            false,
         );
 
         // Send message with PUBLISH_TO in a P2P session
@@ -1544,6 +1578,7 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
+            false,
         );
 
         // Send normal message 1
@@ -1667,6 +1702,7 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             None,
+            false,
         );
 
         // Send message with PUBLISH_TO
@@ -1728,6 +1764,7 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
+            false,
         );
 
         // Send message 1 normally
@@ -1868,6 +1905,7 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
+            false,
         );
 
         // Send PUBLISH_TO message from remote1

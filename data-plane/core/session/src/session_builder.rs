@@ -119,6 +119,8 @@ where
     tx_to_session_layer: Option<tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>>,
     routes_cache: Option<SessionRoutes>,
     graceful_shutdown_timeout: Option<std::time::Duration>,
+    shutdown_send: bool,
+    shutdown_receive: bool,
     _target: PhantomData<Target>,
     _state: PhantomData<State>,
 }
@@ -142,6 +144,8 @@ where
             tx_to_session_layer: None,
             routes_cache: None,
             graceful_shutdown_timeout: None,
+            shutdown_send: false,
+            shutdown_receive: false,
             _target: PhantomData,
             _state: PhantomData,
         }
@@ -205,6 +209,16 @@ where
         self
     }
 
+    pub fn with_shutdown_send(mut self, shutdown_send: bool) -> Self {
+        self.shutdown_send = shutdown_send;
+        self
+    }
+
+    pub fn with_shutdown_receive(mut self, shutdown_receive: bool) -> Self {
+        self.shutdown_receive = shutdown_receive;
+        self
+    }
+
     pub fn ready(self) -> Result<SessionBuilder<P, V, Target, Ready>, SessionError> {
         // Verify all required fields are set
         if self.id.is_none()
@@ -233,6 +247,8 @@ where
             tx_to_session_layer: self.tx_to_session_layer,
             routes_cache: self.routes_cache,
             graceful_shutdown_timeout: self.graceful_shutdown_timeout,
+            shutdown_send: self.shutdown_send,
+            shutdown_receive: self.shutdown_receive,
             _target: PhantomData,
             _state: PhantomData,
         })
@@ -342,6 +358,8 @@ where
             &self.source.clone().unwrap(),
             self.tx.clone().unwrap(),
             tx_session.clone(),
+            self.shutdown_send,
+            self.shutdown_receive,
         );
 
         let settings = SessionSettings {

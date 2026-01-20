@@ -283,6 +283,8 @@ impl Service {
         app_name: &Name,
         identity_provider: P,
         identity_verifier: V,
+        shutdonwn_send: bool,
+        shutdown_receive: bool,
     ) -> Result<
         (
             App<P, V>,
@@ -324,6 +326,8 @@ impl Service {
             tx_slim,
             tx_app,
             storage_path,
+            shutdonwn_send,
+            shutdown_receive,
         );
 
         // start message processing using the rx channel
@@ -671,6 +675,8 @@ mod tests {
                 &subscriber_name,
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                false,
+                false,
             )
             .expect("failed to create app");
 
@@ -681,6 +687,8 @@ mod tests {
                 &publisher_name,
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                false,
+                false,
             )
             .expect("failed to create app");
 
@@ -790,6 +798,8 @@ mod tests {
                 &name,
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                false,
+                false,
             )
             .expect("failed to create app");
 
@@ -860,6 +870,8 @@ mod tests {
                 &app_name,
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                false,
+                false,
             )
             .expect("failed to create app");
 

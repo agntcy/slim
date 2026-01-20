@@ -78,6 +78,8 @@ where
         tx_slim: SlimChannelSender,
         tx_app: mpsc::Sender<Result<Notification, SessionError>>,
         storage_path: std::path::PathBuf,
+        shutdown_send: bool,
+        shutdown_receive: bool,
     ) -> Self {
         // Create identity interceptor
         let identity_interceptor = Arc::new(IdentityInterceptor::new(
@@ -104,6 +106,8 @@ where
             tx_app,
             transmitter,
             storage_path,
+            shutdown_send,
+            shutdown_receive,
         ));
 
         // Create a new cancellation token for the app receiver loop
@@ -386,6 +390,8 @@ mod tests {
             tx_slim,
             tx_app,
             std::path::PathBuf::from("/tmp/test_storage"),
+            false,
+            false,
         )
     }
 
@@ -403,6 +409,8 @@ mod tests {
             tx_slim.clone(),
             tx_app.clone(),
             std::path::PathBuf::from("/tmp/test_storage"),
+            false,
+            false,
         );
 
         let config = SessionConfig {
@@ -441,6 +449,8 @@ mod tests {
             tx_slim.clone(),
             tx_app.clone(),
             std::path::PathBuf::from("/tmp/test_storage"),
+            false,
+            false,
         );
 
         let config = SessionConfig {
@@ -482,6 +492,8 @@ mod tests {
             tx_slim.clone(),
             tx_app.clone(),
             std::path::PathBuf::from("/tmp/test_storage"),
+            false,
+            false,
         );
 
         let config = SessionConfig {
@@ -536,6 +548,8 @@ mod tests {
             tx_slim,
             tx_app,
             std::path::PathBuf::from("/tmp/test_storage"),
+            false,
+            false,
         );
 
         // send join_request message to create the session
@@ -670,6 +684,8 @@ mod tests {
             tx_slim,
             tx_app,
             std::path::PathBuf::from("/tmp/test_storage"),
+            false,
+            false,
         );
 
         let mut session_config =
@@ -875,6 +891,8 @@ mod tests {
                 &subscriber_name,
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                false,
+                false,
             )
             .unwrap();
 
@@ -883,6 +901,8 @@ mod tests {
                 &publisher_name,
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                false,
+                false,
             )
             .unwrap();
 
@@ -1030,6 +1050,8 @@ mod tests {
                 &moderator_name,
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                false,
+                false,
             )
             .unwrap();
 
@@ -1045,6 +1067,8 @@ mod tests {
                     &participant_name,
                     SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                     SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                    false,
+                    false,
                 )
                 .unwrap();
 
@@ -1178,6 +1202,8 @@ mod tests {
                 &sender_name,
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                false,
+                false,
             )
             .unwrap();
 
@@ -1186,6 +1212,8 @@ mod tests {
                 &receiver_name,
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                false,
+                false,
             )
             .unwrap();
 
@@ -1348,6 +1376,8 @@ mod tests {
                 &moderator_name,
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                false,
+                false,
             )
             .unwrap();
 
@@ -1356,6 +1386,8 @@ mod tests {
                 &participant1_name,
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                false,
+                false,
             )
             .unwrap();
 
@@ -1364,6 +1396,8 @@ mod tests {
                 &participant2_name,
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                false,
+                false,
             )
             .unwrap();
 

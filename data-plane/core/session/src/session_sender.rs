@@ -85,6 +85,10 @@ pub struct SessionSender {
 
     /// oneshot senders to signal when network acks are received for each message
     ack_notifiers: HashMap<u32, oneshot::Sender<Result<(), SessionError>>>,
+
+    // shutdown_send flag. if set no message is sent to the network
+    // and all messages are dropped
+    shutdown_send: bool,
 }
 
 #[allow(dead_code)]
@@ -97,6 +101,7 @@ impl SessionSender {
         session_type: ProtoSessionType,
         tx: SessionTransmitter,
         tx_signals: Option<Sender<SessionMessage>>,
+        shutdown_send: bool,
     ) -> Self {
         let factory = if let Some(settings) = timer_settings
             && let Some(tx) = tx_signals
@@ -119,6 +124,7 @@ impl SessionSender {
             to_flush: false,
             draining_state: SenderDrainStatus::NotDraining,
             ack_notifiers: HashMap::new(),
+            shutdown_send,
         }
     }
 
@@ -128,6 +134,12 @@ impl SessionSender {
         mut message: Message,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<(), SessionError> {
+        // if shutdown_send is true we drop all messages
+        if self.shutdown_send {
+            debug!("sender is shutdown, drop message");
+            return Ok(());
+        }
+
         if self.draining_state == SenderDrainStatus::Completed {
             if let Some(tx) = ack_tx {
                 let _ = tx.send(Err(SessionError::SessionDrainingDrop));
@@ -594,6 +606,7 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
+            false,
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
@@ -673,6 +686,7 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
+            false,
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
@@ -811,6 +825,7 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
+            false,
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
@@ -891,6 +906,7 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
+            false,
         );
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
@@ -1010,6 +1026,7 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
+            false,
         );
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
@@ -1192,6 +1209,7 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
+            false,
         );
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
@@ -1301,6 +1319,7 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
+            false,
         );
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
@@ -1438,6 +1457,7 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
+            false,
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
@@ -1584,6 +1604,7 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
+            false,
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
@@ -1654,6 +1675,7 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
+            false,
         );
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
@@ -1730,6 +1752,7 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
+            false,
         );
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let unknown_remote = Name::from_strings(["org", "ns", "unknown"]);
@@ -1780,6 +1803,7 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
+            false,
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
@@ -1838,6 +1862,7 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
+            false,
         );
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
@@ -1921,6 +1946,7 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
+            false,
         );
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
@@ -2010,6 +2036,7 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
+            false,
         );
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
@@ -2082,6 +2109,7 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
+            false,
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
@@ -2164,6 +2192,7 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
+            false,
         );
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);

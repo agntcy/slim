@@ -102,6 +102,8 @@ impl App {
             identity_provider_config,
             identity_verifier_config,
             service_arc,
+            false,
+            false,
         )
         .await
     }
