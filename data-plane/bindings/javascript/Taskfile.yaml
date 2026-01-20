@@ -62,7 +62,7 @@ tasks:
     silent: true
 
   generate:
-    desc: Generate all JavaScript/TypeScript bindings (React Native + WASM)
+    desc: Generate React Native JSI bindings
     deps:
       - task: adapter:bindings:build:all
         vars:
@@ -70,8 +70,9 @@ tasks:
       - task: install-uniffi-bindgen-react-native
     cmds:
       - task: generate:react-native
-      - task: generate:wasm
-      - echo "✅ All bindings generated successfully"
+      # WASM generation disabled - tokio incompatibility with WASM targets
+      # - task: generate:wasm
+      - echo "✅ React Native bindings generated successfully"
     silent: true
 
   generate:react-native:
@@ -90,57 +91,60 @@ tasks:
           --cpp-dir ../javascript/generated/cpp \
           --library \
           '{{.LIB_PATH}}'
+      - echo "🔧 Fixing generator bug (async public → public async)... {{.TASKFILE_DIR}}"
+      - sed -i '' 's/async public/public async/g' {{.TASKFILE_DIR}}/generated/typescript/slim_bindings.ts
+      - sed -i '' 's/async static/static async/g' {{.TASKFILE_DIR}}/generated/typescript/slim_bindings.ts
       - echo "✅ React Native bindings generated in generated/"
     silent: true
 
-  generate:wasm:
-    desc: Generate WASM bindings from compiled library
-    deps:
-      - task: adapter:bindings:build:all
-        vars:
-          PROFILE: release
-      - task: install-uniffi-bindgen-react-native
-    cmds:
-      - echo "🔧 Generating WASM crate structure..."
-      - mkdir -p generated/wasm generated/typescript
-      - |
-        ubrn generate wasm wasm-crate \
-          --out-dir generated/wasm \
-          --library \
-          '{{.LIB_PATH}}'
-      - echo "🔧 Generating WASM TypeScript bindings..."
-      - |
-        ubrn generate wasm bindings \
-          --ts-dir generated/typescript \
-          --out-dir generated/wasm \
-          --library \
-          '{{.LIB_PATH}}'
-      - echo "✅ WASM bindings generated in generated/wasm/"
-    silent: true
+  # WASM generation disabled due to tokio incompatibility with WASM targets
+  # generate:wasm:
+  #   desc: Generate WASM bindings from compiled library (note - compilation not supported yet)
+  #   deps:
+  #     - task: adapter:bindings:build:all
+  #       vars:
+  #         PROFILE: release
+  #     - task: install-uniffi-bindgen-react-native
+  #   cmds:
+  #     - echo "🔧 Generating WASM bindings..."
+  #     - echo "⚠️  Note - WASM generation is placeholder (tokio incompatibility)"
+  #     - mkdir -p generated/wasm generated/typescript
+  #     - |
+  #       cd {{.BINDINGS_DIR}} && ubrn generate wasm bindings \
+  #         --ts-dir ../javascript/generated/typescript \
+  #         --cpp-dir ../javascript/generated/wasm \
+  #         --library \
+  #         '{{.LIB_PATH}}'
+  #     - echo "🔧 Fixing generator bug (async public → public async)... {{.TASKFILE_DIR}}"
+  #     - sed -i '' 's/async public/public async/g' {{.TASKFILE_DIR}}/generated/typescript/slim_bindings.ts
+  #     - sed -i '' 's/async static/static async/g' {{.TASKFILE_DIR}}/generated/typescript/slim_bindings.ts
+  #     - echo "✅ WASM TypeScript bindings generated (module compilation skipped)"
+  #   silent: true
 
-  build:wasm:
-    desc: Build WASM module from generated bindings
-    deps:
-      - task: generate:wasm
-      - task: install-wasm-tools
-    cmds:
-      - echo "🦀 Building WASM module..."
-      - echo "⚠️  Note - WASM build requires adapter crate to support wasm32-unknown-unknown target"
-      - echo "⚠️  The adapter currently uses tokio which doesn't support WASM without feature flags"
-      - echo "⚠️  Bindings are generated but WASM compilation is not yet supported"
-      - echo "❌ WASM build skipped - see README for details"
-    silent: true
+  # WASM build disabled - see generate:wasm above
+  # build:wasm:
+  #   desc: Build WASM module from generated bindings
+  #   deps:
+  #     - task: generate:wasm
+  #     - task: install-wasm-tools
+  #   cmds:
+  #     - echo "🦀 Building WASM module..."
+  #     - echo "⚠️  Note - WASM build requires adapter crate to support wasm32-unknown-unknown target"
+  #     - echo "⚠️  The adapter currently uses tokio which doesn't support WASM without feature flags"
+  #     - echo "⚠️  Bindings are generated but WASM compilation is not yet supported"
+  #     - echo "❌ WASM build skipped - see README for details"
+  #   silent: true
 
-  build:wasm:nodejs:
-    desc: Build WASM module for Node.js environment
-    deps:
-      - task: generate:wasm
-      - task: install-wasm-tools
-    cmds:
-      - echo "🦀 Building WASM module for Node.js..."
-      - cd generated/wasm && wasm-pack build --target nodejs --release
-      - echo "✅ WASM module built for Node.js in generated/wasm/pkg/"
-    silent: true
+  # build:wasm:nodejs:
+  #   desc: Build WASM module for Node.js environment
+  #   deps:
+  #     - task: generate:wasm
+  #     - task: install-wasm-tools
+  #   cmds:
+  #     - echo "🦀 Building WASM module for Node.js..."
+  #     - cd generated/wasm && wasm-pack build --target nodejs --release
+  #     - echo "✅ WASM module built for Node.js in generated/wasm/pkg/"
+  #   silent: true
 
   install:
     desc: Install npm dependencies
@@ -150,46 +154,221 @@ tasks:
     silent: true
 
   test:
-    desc: Run all tests
+    desc: Run all tests (unit + E2E)
     deps:
-      - task: generate
-      - task: build:wasm:nodejs
-      - task: install
+      - install
     cmds:
       - echo "🧪 Running all tests..."
-      - npm test
-      - echo "✅ All tests passed"
+      - npm test  # Unit tests
+      - task: test:e2e
+
+  check-prerequisites:ios:
+    desc: Check if iOS E2E prerequisites are installed
+    cmds:
+      - |
+        echo "🔍 Checking iOS E2E prerequisites..."
+        
+        # Check for Xcode (not just Command Line Tools)
+        if ! xcodebuild -version > /dev/null 2>&1; then
+          echo "❌ ERROR: Xcode is not installed or not properly configured"
+          echo ""
+          echo "iOS E2E tests require the FULL Xcode application (not Command Line Tools)."
+          echo ""
+          echo "To install:"
+          echo "  1. Install Xcode from Mac App Store: https://apps.apple.com/app/xcode/id497799835"
+          echo "  2. Accept license: sudo xcodebuild -license accept"
+          echo "  3. Set developer directory: sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer"
+          echo ""
+          echo "To verify installation:"
+          echo "  xcodebuild -version"
+          echo "  xcrun --show-sdk-path --sdk iphoneos"
+          echo ""
+          exit 1
+        fi
+        
+        # Check for iOS SDK
+        if ! xcrun --show-sdk-path --sdk iphoneos > /dev/null 2>&1; then
+          echo "❌ ERROR: iOS SDK not found"
+          echo ""
+          echo "Your Xcode installation is incomplete or misconfigured."
+          echo ""
+          echo "Try:"
+          echo "  1. Ensure Xcode.app is in /Applications/"
+          echo "  2. Run: sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer"
+          echo "  3. Run: xcodebuild -downloadAllPlatforms"
+          echo ""
+          exit 1
+        fi
+        
+        # Check for CocoaPods
+        if ! command -v pod > /dev/null 2>&1; then
+          echo "❌ ERROR: CocoaPods is not installed"
+          echo ""
+          echo "CocoaPods is required to install React Native iOS dependencies."
+          echo ""
+          echo "To install:"
+          echo "  sudo gem install cocoapods"
+          echo ""
+          echo "To verify installation:"
+          echo "  pod --version"
+          echo ""
+          exit 1
+        fi
+        
+        # Check for Maestro
+        if ! command -v maestro > /dev/null 2>&1; then
+          echo "❌ ERROR: Maestro is not installed"
+          echo ""
+          echo "Maestro is required to run E2E tests."
+          echo ""
+          echo "To install:"
+          echo '  curl -Ls "https://get.maestro.mobile.dev" | bash'
+          echo ""
+          echo "To verify installation:"
+          echo "  maestro --version"
+          echo ""
+          exit 1
+        fi
+        
+        echo "✅ All iOS E2E prerequisites are installed"
+    silent: false
+
+  check-prerequisites:android:
+    desc: Check if Android E2E prerequisites are installed
+    cmds:
+      - |
+        echo "🔍 Checking Android E2E prerequisites..."
+        
+        # Check for Android SDK
+        if ! command -v adb > /dev/null 2>&1; then
+          echo "❌ ERROR: Android SDK is not installed"
+          echo ""
+          echo "Android E2E tests require Android SDK and tools."
+          echo ""
+          echo "To install:"
+          echo "  1. Install Android Studio: https://developer.android.com/studio"
+          echo "  2. Open Android Studio and install SDK tools via SDK Manager"
+          echo "  3. Add to PATH: export PATH=\$PATH:\$ANDROID_HOME/platform-tools"
+          echo ""
+          exit 1
+        fi
+        
+        # Check for Maestro
+        if ! command -v maestro > /dev/null 2>&1; then
+          echo "❌ ERROR: Maestro is not installed"
+          echo ""
+          echo "Maestro is required to run E2E tests."
+          echo ""
+          echo "To install:"
+          echo '  curl -Ls "https://get.maestro.mobile.dev" | bash'
+          echo ""
+          exit 1
+        fi
+        
+        echo "✅ All Android E2E prerequisites are installed"
+    silent: false
+
+  test:e2e:setup:
+    desc: Set up React Native test app
+    dir: examples/react-native/test-app
+    cmds:
+      - echo "📱 Setting up React Native test app..."
+      - npm install
+      - |
+        if [ -d "ios" ]; then
+          cd ios && pod install && cd ..
+        fi
+      - echo "✅ Test app ready"
     silent: true
+
+  test:e2e:ios:
+    desc: Run E2E tests on iOS simulator
+    deps:
+      - check-prerequisites:ios
+      - generate:react-native
+      - test:e2e:setup
+    dir: examples/react-native/test-app
+    cmds:
+      - echo "🍎 Running iOS E2E tests..."
+      - echo "Starting Metro bundler..."
+      - npx react-native start --reset-cache > /tmp/metro.log 2>&1 &
+      - sleep 5
+      - echo "Building and launching app on iOS simulator (Debug mode for faster builds)..."
+      - echo "This may take 2-3 minutes on first run..."
+      - npx react-native run-ios --mode Debug > /tmp/rn-ios.log 2>&1 &
+      - echo "Waiting for app to launch (120s)..."
+      - sleep 120
+      - echo "Running Maestro tests..."
+      - maestro test maestro/smoke-tests.yaml || (echo "Tests failed"; exit 1)
+      - echo "Cleaning up..."
+      - killall node || true
+      - killall Simulator || true
+      - echo "✅ iOS E2E tests passed"
+
+  test:e2e:android:
+    desc: Run E2E tests on Android emulator
+    deps:
+      - check-prerequisites:android
+      - generate:react-native
+      - test:e2e:setup
+    dir: examples/react-native/test-app
+    cmds:
+      - echo "🤖 Running Android E2E tests..."
+      - echo "Starting Android app..."
+      - npx react-native run-android --mode release > /tmp/rn-android.log 2>&1 &
+      - echo "Waiting for app to launch (30s)..."
+      - sleep 30
+      - echo "Running Maestro tests..."
+      - maestro test maestro/smoke-tests.yaml || (echo "Tests failed"; exit 1)
+      - echo "Cleaning up..."
+      - adb emu kill || true
+      - echo "✅ Android E2E tests passed"
+
+  test:e2e:
+    desc: Run E2E tests on current platform
+    cmds:
+      - |
+        if [ "$(uname)" = "Darwin" ]; then
+          echo "Detected macOS - running iOS tests"
+          task test:e2e:ios
+        else
+          echo "Detected Linux - running Android tests"
+          task test:e2e:android
+        fi
 
   test:unit:
     desc: Run unit tests only
     deps:
-      - task: build:wasm:nodejs
-      - task: install
+      - install
     cmds:
       - echo "🧪 Running unit tests..."
       - npm run test:unit
     silent: true
 
   test:integration:
-    desc: Run integration tests only
+    desc: Run integration tests (requires native bindings)
     deps:
-      - task: build:wasm:nodejs
-      - task: install
+      - install
     cmds:
       - echo "🧪 Running integration tests..."
       - npm run test:integration
     silent: true
 
+  test:watch:
+    desc: Run tests in watch mode
+    deps:
+      - install
+    cmds:
+      - echo "👀 Running tests in watch mode..."
+      - npm run test:watch
+
   test:coverage:
     desc: Run tests with coverage report
     deps:
-      - task: build:wasm:nodejs
-      - task: install
+      - install
     cmds:
       - echo "📊 Running tests with coverage..."
       - npm run test:coverage
-      - echo "✅ Coverage report generated"
     silent: true
 
   clean:
