@@ -93,7 +93,7 @@ tasks:
       - task: rust:toolchain:run-command
         vars:
           COMMAND: |
-            rustup target add {{.TARGET}}
+            rustup target add $(arch)
 
             UV_ARGS=(
               --no-default-groups
