@@ -4,11 +4,10 @@
 use crate::common::{service_and_method_to_name, DEADLINE_KEY, MAX_TIMEOUT};
 use crate::context::MessageContext;
 use crate::error::{Result, SRPCError};
+use slim_bindings::App as BindingsApp;
 use futures::stream::StreamExt;
-use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::ProtoSessionType;
 use slim_datapath::messages::Name;
-use slim_service::app::App;
 use slim_session::session_controller::SessionController;
 use slim_session::SessionConfig;
 use std::collections::HashMap;
@@ -18,25 +17,17 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio_stream::Stream;
 use tracing::info;
 
-pub struct Channel<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
+pub struct Channel {
     remote: Name,
-    app: Arc<App<P, V>>,
+    app: Arc<BindingsApp>,
     conn_id: u64,
 }
 
-impl<P, V> Channel<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
-    pub fn new(remote: Name, app: App<P, V>, conn_id: u64) -> Self {
+impl Channel {
+    pub fn new(remote: Name, app: Arc<BindingsApp>, conn_id: u64) -> Self {
         Self {
             remote,
-            app: Arc::new(app),
+            app,
             conn_id,
         }
     }
@@ -60,9 +51,12 @@ where
 
         // Set route using the stored connection ID
         self.app
-            .set_route(&service_name, self.conn_id)
+            .set_route_async(
+                Arc::new(slim_bindings::Name::from(&service_name)),
+                self.conn_id,
+            )
             .await
-            .map_err(SRPCError::SetRoute)?;
+            .map_err(|e| SRPCError::ParseIdentity(format!("SetRoute failed: {}", e)))?;
 
         info!("Creating session for service {}", service_name);
 
@@ -75,8 +69,9 @@ where
             metadata: HashMap::new(),
         };
 
-        let (session_ctx, init_ack) = self
-            .app
+        // Use internal app to create session
+        let internal_app = self.app.inner_app();
+        let (session_ctx, init_ack) = internal_app
             .create_session(config, service_name.clone(), None)
             .await
             .map_err(SRPCError::SessionCreationError)?;
@@ -249,7 +244,8 @@ where
 
         let (_ctx, response) = self.receive_unary(&mut session_ctx, deadline).await?;
 
-        self.app.delete_session(&session).ok();
+        // Use internal app to delete session
+        self.app.inner_app().delete_session(&session).ok();
 
         Ok(response)
     }
@@ -289,7 +285,8 @@ where
 
         let (_ctx, response) = self.receive_unary(&mut session_ctx, deadline).await?;
 
-        self.app.delete_session(&session).ok();
+        // Use internal app to delete session
+        self.app.inner_app().delete_session(&session).ok();
 
         Ok(response)
     }

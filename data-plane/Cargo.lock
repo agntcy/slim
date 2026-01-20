@@ -358,6 +358,7 @@ version = "0.1.0"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
+ "agntcy-slim-bindings",
  "agntcy-slim-config",
  "agntcy-slim-datapath",
  "agntcy-slim-service",

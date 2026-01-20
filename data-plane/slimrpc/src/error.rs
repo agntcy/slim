@@ -58,6 +58,15 @@ pub enum SRPCError {
 
     #[error("Failed to initialize session: {0}")]
     SessionInit(#[source] slim_session::SessionError),
+    
+    #[error("Bindings error: {0}")]
+    BindingsError(String),
+}
+
+impl From<slim_bindings::SlimError> for SRPCError {
+    fn from(err: slim_bindings::SlimError) -> Self {
+        SRPCError::BindingsError(err.to_string())
+    }
 }
 
 pub type Result<T> = std::result::Result<T, SRPCError>;

@@ -5,15 +5,14 @@ use crate::common::{method_to_name, DEADLINE_KEY, MAX_TIMEOUT};
 use crate::context::{MessageContext, SessionContext};
 use crate::error::{Result, SRPCError};
 use crate::rpc::{RPCHandler, RPCHandlerType};
+use slim_bindings::App as BindingsApp;
 use futures::StreamExt;
-use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::messages::Name;
-use slim_service::app::App;
 use slim_session::{Notification, SessionError};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::{mpsc::Receiver, RwLock};
 use tracing::{error, info, warn};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -31,30 +30,20 @@ impl ServiceMethod {
     }
 }
 
-pub struct Server<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
-    app: Arc<App<P, V>>,
-    notification_rx: Receiver<std::result::Result<Notification, SessionError>>,
+pub struct Server {
+    app: Arc<BindingsApp>,
+    notification_rx: Arc<RwLock<Receiver<std::result::Result<Notification, SessionError>>>>,
     handlers: HashMap<ServiceMethod, Arc<RPCHandler>>,
     name_to_handler: HashMap<Name, Arc<RPCHandler>>,
     conn_id: u64,
 }
 
-impl<P, V> Server<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
-    pub fn new(
-        app: App<P, V>,
-        notification_rx: Receiver<std::result::Result<Notification, SessionError>>,
-        conn_id: u64,
-    ) -> Self {
+impl Server {
+    pub fn new(app: Arc<BindingsApp>, conn_id: u64) -> Self {
+        let notification_rx = app.notification_receiver();
+        
         Self {
-            app: Arc::new(app),
+            app,
             notification_rx,
             handlers: HashMap::new(),
             name_to_handler: HashMap::new(),
@@ -79,22 +68,26 @@ where
     }
 
     pub async fn run(mut self) -> Result<()> {
+        // Get internal app for operations
+        let internal_app = self.app.inner_app();
+        let app_name = internal_app.app_name();
+        
         info!(
             "Subscribing to {} with conn_id {}",
-            self.app.app_name(),
+            app_name,
             self.conn_id
         );
 
         // Subscribe to local name with connection ID
-        self.app
-            .subscribe(self.app.app_name(), Some(self.conn_id))
+        internal_app
+            .subscribe(app_name, Some(self.conn_id))
             .await
             .map_err(SRPCError::Subscription)?;
 
         // Subscribe to all handler names
         for (service_method, handler) in &self.handlers {
             let subscription_name = method_to_name(
-                self.app.app_name(),
+                app_name,
                 &service_method.service,
                 &service_method.method,
             )?;
@@ -104,7 +97,7 @@ where
                 subscription_name, self.conn_id
             );
 
-            self.app
+            internal_app
                 .subscribe(&subscription_name, Some(self.conn_id))
                 .await
                 .map_err(SRPCError::Subscription)?;
@@ -115,6 +108,9 @@ where
 
         info!("Server running, waiting for sessions");
 
+        // Get a mutable reference to the notification receiver
+        let mut rx = self.notification_rx.write().await;
+
         // Wait for notifications
         loop {
             tokio::select! {
@@ -122,7 +118,7 @@ where
                     info!("Shutdown signal received");
                     break;
                 }
-                notification = self.notification_rx.recv() => {
+                notification = rx.recv() => {
                     let notification = match notification {
                         None => {
                             info!("Notification channel closed");
@@ -193,7 +189,7 @@ where
     async fn handle_session(
         session_ctx: slim_session::context::SessionContext,
         handler: Arc<RPCHandler>,
-        app: Arc<App<P, V>>,
+        app: Arc<BindingsApp>,
     ) -> Result<()> {
         let session = session_ctx
             .session_arc()
@@ -267,11 +263,11 @@ where
                     .await
                     .ok();
 
-                app.delete_session(&session).ok();
+                app.inner_app().delete_session(&session).ok();
             }
             Err(_) => {
                 warn!("Session timed out after {:?}", timeout);
-                app.delete_session(&session).ok();
+                app.inner_app().delete_session(&session).ok();
             }
         }
 

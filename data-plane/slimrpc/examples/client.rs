@@ -1,12 +1,14 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use agntcy_slimrpc::{Channel, SLIMAppConfig};
+mod common;
+
+use agntcy_slimrpc::Channel;
 use anyhow::{Context, Result};
 use clap::Parser;
+use common::{SLIMAppConfig, create_local_app, split_id};
 use futures::stream;
 use futures::StreamExt;
-use slim_config::component::ComponentBuilder;
 use std::time::Duration;
 use tracing::{info, Level};
 
@@ -70,23 +72,16 @@ async fn main() -> Result<()> {
     info!("RPC Type: {}", args.rpc_type);
 
     // Create SLIM app configuration
-    let config = SLIMAppConfig::new(args.local, args.endpoint, args.secret)
+    let config = SLIMAppConfig::with_shared_secret(args.local, args.endpoint, args.secret)
         .with_opentelemetry(args.opentelemetry);
 
-    // Create SLIM service
-    let service = slim_service::Service::builder()
-        .build("slimrpc-client".to_string())
-        .context("Failed to create service")?;
-
-    // Create local app
-    let (app, _rx, conn_id) = agntcy_slimrpc::common::create_local_app(&config, &service)
-        .await
-        .context("Failed to create local app")?;
+    // Create SLIM app and connect
+    let (app, conn_id) = create_local_app(&config).await.context("Failed to create local app")?;
 
     info!("Connected to SLIM service with conn_id: {}", conn_id);
 
     // Parse remote identity
-    let remote_name = agntcy_slimrpc::common::split_id(&args.remote)
+    let remote_name = split_id(&args.remote)
         .context("Failed to parse remote identity")?;
 
     // Create channel with the connection ID
@@ -132,10 +127,7 @@ async fn main() -> Result<()> {
 }
 
 async fn unary_unary_example(
-    channel: &Channel<
-        slim_auth::shared_secret::SharedSecret,
-        slim_auth::shared_secret::SharedSecret,
-    >,
+    channel: &Channel,
     method: &str,
     message: &str,
     timeout: Option<Duration>,
@@ -157,10 +149,7 @@ async fn unary_unary_example(
 }
 
 async fn unary_stream_example(
-    channel: &Channel<
-        slim_auth::shared_secret::SharedSecret,
-        slim_auth::shared_secret::SharedSecret,
-    >,
+    channel: &Channel,
     method: &str,
     message: &str,
     timeout: Option<Duration>,
@@ -189,10 +178,7 @@ async fn unary_stream_example(
 }
 
 async fn stream_unary_example(
-    channel: &Channel<
-        slim_auth::shared_secret::SharedSecret,
-        slim_auth::shared_secret::SharedSecret,
-    >,
+    channel: &Channel,
     method: &str,
     message: &str,
     iterations: usize,
@@ -221,10 +207,7 @@ async fn stream_unary_example(
 }
 
 async fn stream_stream_example(
-    channel: &Channel<
-        slim_auth::shared_secret::SharedSecret,
-        slim_auth::shared_secret::SharedSecret,
-    >,
+    channel: &Channel,
     method: &str,
     message: &str,
     iterations: usize,

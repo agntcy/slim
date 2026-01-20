@@ -1,16 +1,18 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+mod common;
+
 use agntcy_slimrpc::{
-    MessageContext, RPCHandler, RequestStream, ResponseStream, SLIMAppConfig, Server,
+    MessageContext, RPCHandler, RequestStream, ResponseStream, Server,
     SessionContext, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
 };
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use clap::Parser;
+use common::{SLIMAppConfig, create_local_app};
 use futures::stream;
 use futures::StreamExt;
-use slim_config::component::ComponentBuilder;
 use std::collections::HashMap;
 use tracing::{info, Level};
 
@@ -196,23 +198,16 @@ async fn main() -> Result<()> {
     info!("Endpoint: {}", args.endpoint);
 
     // Create SLIM app configuration
-    let config = SLIMAppConfig::new(args.local, args.endpoint, args.secret)
+    let config = SLIMAppConfig::with_shared_secret(args.local, args.endpoint, args.secret)
         .with_opentelemetry(args.opentelemetry);
 
-    // Create SLIM service
-    let service = slim_service::Service::builder()
-        .build("slimrpc-server".to_string())
-        .context("Failed to create service")?;
-
-    // Create local app
-    let (app, rx, conn_id) = agntcy_slimrpc::common::create_local_app(&config, &service)
-        .await
-        .context("Failed to create local app")?;
+    // Create SLIM app and connect
+    let (app, conn_id) = create_local_app(&config).await.context("Failed to create local app")?;
 
     info!("Connected to SLIM service with conn_id: {}", conn_id);
 
     // Create server with the connection ID
-    let mut server = Server::new(app, rx, conn_id);
+    let mut server = Server::new(app, conn_id);
 
     // Register EchoService handlers
     let mut echo_handlers: HashMap<String, RPCHandler> = HashMap::new();

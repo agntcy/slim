@@ -9,7 +9,7 @@ pub mod rpc;
 pub mod server;
 
 pub use channel::Channel;
-pub use common::{SLIMAppConfig, DEADLINE_KEY, MAX_TIMEOUT};
+pub use common::{DEADLINE_KEY, MAX_TIMEOUT};
 pub use context::{MessageContext, SessionContext};
 pub use error::SRPCError;
 pub use rpc::{

@@ -3,12 +3,14 @@ name = "agntcy-slimrpc"
 version = "0.1.0"
 edition = "2021"
 license = { workspace = true }
+autoexamples = false
 
 [dependencies]
 
 # SLIM dependencies
 agntcy-slim = { workspace = true }
 agntcy-slim-auth = { workspace = true }
+agntcy-slim-bindings = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-service = { workspace = true, features = ["session"] }
