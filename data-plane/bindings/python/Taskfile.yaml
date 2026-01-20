@@ -89,7 +89,7 @@ tasks:
         sh: 'echo {{.TARGET}} | cut -d"-" -f4 || echo ""'
       INTERPRETERS: '{{.INTERPRETERS | default "3.10 3.11 3.12 3.13 3.14"}}'
     cmds:
-      - uv python install {{.INTERPRETERS}}
+      - uv python install {{.ARCH}}
       - task: rust:toolchain:run-command
         vars:
           COMMAND: |
@@ -149,7 +149,7 @@ tasks:
         # Detect system and architecture
         OS=$(uname -s | tr '[:upper:]' '[:lower:]')
         ARCH=$(uname -m)
-        
+
         # Normalize architecture names
         case "$ARCH" in
           x86_64|amd64)
@@ -163,7 +163,7 @@ tasks:
             exit 1
             ;;
         esac
-        
+
         # Determine wheel file based on OS
         if [ -n "{{.WHEEL}}" ]; then
           WHEEL_FILE="{{.WHEEL}}"
@@ -189,12 +189,12 @@ tasks:
               ;;
           esac
         fi
-        
+
         echo "🔍 Detected system: $OS ($ARCH)"
         echo "🧪 Testing wheel installation: $WHEEL_FILE"
         echo "Python versions: {{.INTERPRETERS}}"
         echo ""
-        
+
         if [ ! -f "$WHEEL_FILE" ]; then
           echo "❌ Wheel file not found: $WHEEL_FILE"
           echo ""
@@ -202,16 +202,16 @@ tasks:
           ls -1 dist/*.whl 2>/dev/null || echo "  (no wheels found)"
           exit 1
         fi
-        
+
         uv python install {{.INTERPRETERS}}
-        
+
         FAILED=0
         for py_version in {{.INTERPRETERS}}; do
           echo "Testing Python ${py_version}..."
-          
+
           VENV_DIR=".test-venv-${py_version}"
           rm -rf "$VENV_DIR"
-          
+
           if uv venv "$VENV_DIR" --python "${py_version}" 2>&1; then
             if uv pip install --python "$VENV_DIR" "$WHEEL_FILE" 2>&1; then
               if uv run --python "$VENV_DIR" python -c "import slim_bindings; print('  ✅ Module imported successfully')" 2>&1; then
@@ -228,11 +228,11 @@ tasks:
             echo "  ❌ Python ${py_version}: Failed to create venv"
             FAILED=$((FAILED + 1))
           fi
-          
+
           rm -rf "$VENV_DIR"
           echo ""
         done
-        
+
         if [ $FAILED -eq 0 ]; then
           echo "✅ All Python versions tested successfully!"
         else
