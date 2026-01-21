@@ -135,8 +135,6 @@ async fn main() {
                 .expect("Failed to create SharedSecret"),
             SharedSecret::new(local_name, TEST_VALID_SECRET)
                 .expect("Failed to create SharedSecret"),
-            false,
-            false,
         )
         .expect("failed to create app");
 

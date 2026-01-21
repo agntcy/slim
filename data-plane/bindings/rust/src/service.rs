@@ -149,10 +149,10 @@ impl From<SlimService> for Service {
 /// Indicates whether the App can send, receive, both, or neither.
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
 pub enum Direction {
-    Send,          // Can only send (shutdown_send: false, shutdown_receive: true)
-    Recv,          // Can only receive (shutdown_send: true, shutdown_receive: false)
-    Bidirectional, // Can send and receive (shutdown_send: false, shutdown_receive: false)
-    Shutdown,      // Neither send nor receive (shutdown_send: true, shutdown_receive: true)
+    Send,          // Can only send data messages (shutdown_send: false, shutdown_receive: true)
+    Recv,          // Can only receive data messages (shutdown_send: true, shutdown_receive: false)
+    Bidirectional, // Can send and receive data messages (shutdown_send: false, shutdown_receive: false)
+    None, // Neither send nor receive data messages (shutdown_send: true, shutdown_receive: true)
 }
 
 #[uniffi::export]
@@ -348,7 +348,7 @@ impl Service {
             Direction::Send => (false, true),
             Direction::Recv => (true, false),
             Direction::Bidirectional => (false, false),
-            Direction::Shutdown => (true, true),
+            Direction::None => (true, true),
         };
         create_app_async_internal(
             slim_name,
@@ -518,7 +518,7 @@ pub(crate) async fn create_app_async_internal(
     let app_name = base_name.with_id(id_hash);
 
     // Create the app using the provided service
-    let (app, rx) = service.create_app(
+    let (app, rx) = service.create_app_with_shutdown_flags(
         &app_name,
         identity_provider,
         identity_verifier,

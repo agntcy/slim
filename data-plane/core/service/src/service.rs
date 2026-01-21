@@ -283,6 +283,32 @@ impl Service {
         app_name: &Name,
         identity_provider: P,
         identity_verifier: V,
+    ) -> Result<
+        (
+            App<P, V>,
+            mpsc::Receiver<Result<Notification, SessionError>>,
+        ),
+        ServiceError,
+    >
+    where
+        P: TokenProvider + Send + Sync + Clone + 'static,
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
+        self.create_app_with_shutdown_flags(
+            app_name,
+            identity_provider,
+            identity_verifier,
+            false,
+            false,
+        )
+    }
+
+    #[cfg(feature = "session")]
+    pub fn create_app_with_shutdown_flags<P, V>(
+        &self,
+        app_name: &Name,
+        identity_provider: P,
+        identity_verifier: V,
         shutdonwn_send: bool,
         shutdown_receive: bool,
     ) -> Result<
@@ -675,8 +701,6 @@ mod tests {
                 &subscriber_name,
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-                false,
-                false,
             )
             .expect("failed to create app");
 
@@ -687,8 +711,6 @@ mod tests {
                 &publisher_name,
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-                false,
-                false,
             )
             .expect("failed to create app");
 
@@ -798,8 +820,6 @@ mod tests {
                 &name,
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-                false,
-                false,
             )
             .expect("failed to create app");
 
@@ -870,8 +890,6 @@ mod tests {
                 &app_name,
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-                false,
-                false,
             )
             .expect("failed to create app");
 

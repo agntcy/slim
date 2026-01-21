@@ -904,8 +904,6 @@ mod tests {
                 &subscriber_name,
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-                false,
-                false,
             )
             .unwrap();
 
@@ -914,8 +912,6 @@ mod tests {
                 &publisher_name,
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-                false,
-                false,
             )
             .unwrap();
 
@@ -1063,8 +1059,6 @@ mod tests {
                 &moderator_name,
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-                false,
-                false,
             )
             .unwrap();
 
@@ -1080,8 +1074,6 @@ mod tests {
                     &participant_name,
                     SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                     SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-                    false,
-                    false,
                 )
                 .unwrap();
 
@@ -1215,8 +1207,6 @@ mod tests {
                 &sender_name,
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-                false,
-                false,
             )
             .unwrap();
 
@@ -1225,8 +1215,6 @@ mod tests {
                 &receiver_name,
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-                false,
-                false,
             )
             .unwrap();
 
@@ -1389,8 +1377,6 @@ mod tests {
                 &moderator_name,
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-                false,
-                false,
             )
             .unwrap();
 
@@ -1399,8 +1385,6 @@ mod tests {
                 &participant1_name,
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-                false,
-                false,
             )
             .unwrap();
 
@@ -1409,8 +1393,6 @@ mod tests {
                 &participant2_name,
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-                false,
-                false,
             )
             .unwrap();
 
