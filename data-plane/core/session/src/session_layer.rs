@@ -35,6 +35,27 @@ use super::{SessionError, session_controller::handle_channel_discovery_message};
 use crate::interceptor::SessionInterceptorProvider;
 use crate::traits::Transmitter; // needed for add_interceptor
 
+/// Direction enum for session creation
+/// Indicates whether the session can send, receive, both, or neither data messages.
+#[derive(Clone, Copy, Debug)]
+pub enum Direction {
+    Send,          // Can only send data messages (shutdown_send: false, shutdown_receive: true)
+    Recv,          // Can only receive data messages (shutdown_send: true, shutdown_receive: false)
+    Bidirectional, // Can send and receive data messages (shutdown_send: false, shutdown_receive: false)
+    None, // Neither send nor receive data messages (shutdown_send: true, shutdown_receive: true)
+}
+
+impl Direction {
+    pub fn to_flags(self) -> (bool, bool) {
+        match self {
+            Direction::Send => (false, true),
+            Direction::Recv => (true, false),
+            Direction::Bidirectional => (false, false),
+            Direction::None => (true, true),
+        }
+    }
+}
+
 /// SessionLayer manages sessions and their lifecycle
 pub struct SessionLayer<P, V, T = AppTransmitter>
 where
@@ -81,9 +102,8 @@ where
     /// in this map waiting for the welcome message before notifying it to the application
     to_notify: SyncRwLock<HashMap<u32, SessionContext>>,
 
-    /// shutdown flags. if set the session will prevent sending or receiving messages
-    shutdown_send: bool,
-    shutdown_receive: bool,
+    /// direction to use for the new sessions
+    direction: Direction,
 }
 
 impl<P, V, T> SessionLayer<P, V, T>
@@ -103,8 +123,7 @@ where
         tx_app: Sender<Result<Notification, SessionError>>,
         transmitter: T,
         storage_path: std::path::PathBuf,
-        shutdown_send: bool,
-        shutdown_receive: bool,
+        direction: Direction,
     ) -> Self {
         let (tx_session, rx_session) = tokio::sync::mpsc::channel(16);
 
@@ -122,8 +141,7 @@ where
             storage_path,
             tx_session,
             to_notify: SyncRwLock::new(HashMap::new()),
-            shutdown_send,
-            shutdown_receive,
+            direction,
         };
 
         sl.listen_from_sessions(rx_session);
@@ -291,8 +309,7 @@ where
                 .with_tx(tx)
                 .with_tx_to_session_layer(self.tx_session.clone())
                 .with_routes_cache(self.routes_cache.clone())
-                .with_shutdown_send(self.shutdown_send)
-                .with_shutdown_receive(self.shutdown_receive)
+                .with_direction(self.direction)
                 .ready()?;
 
             // Perform the async build operation without holding any lock
@@ -734,8 +751,7 @@ mod tests {
             tx_app,
             transmitter,
             storage_path,
-            false,
-            false,
+            Direction::Bidirectional,
         );
 
         (session_layer, rx_slim, rx_app, rx_transmitter)

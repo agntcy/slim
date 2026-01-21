@@ -9,6 +9,7 @@ use std::sync::Arc;
 use display_error_chain::ErrorChainExt;
 use parking_lot::RwLock as SyncRwLock;
 use slim_datapath::errors::ErrorPayload;
+use slim_session::Direction;
 use tokio::sync::mpsc;
 use tracing::{debug, error};
 
@@ -80,7 +81,7 @@ where
         tx_app: mpsc::Sender<Result<Notification, SessionError>>,
         storage_path: std::path::PathBuf,
     ) -> Self {
-        Self::new_with_shutdown_flags(
+        Self::new_with_direction(
             app_name,
             identity_provider,
             identity_verifier,
@@ -88,14 +89,13 @@ where
             tx_slim,
             tx_app,
             storage_path,
-            false,
-            false,
+            Direction::Bidirectional,
         )
     }
 
-    /// Create new App instance with shutdown flags
+    /// Create new App instance with direction
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new_with_shutdown_flags(
+    pub(crate) fn new_with_direction(
         app_name: &Name,
         identity_provider: P,
         identity_verifier: V,
@@ -103,8 +103,7 @@ where
         tx_slim: SlimChannelSender,
         tx_app: mpsc::Sender<Result<Notification, SessionError>>,
         storage_path: std::path::PathBuf,
-        shutdown_send: bool,
-        shutdown_receive: bool,
+        direction: Direction,
     ) -> Self {
         // Create identity interceptor
         let identity_interceptor = Arc::new(IdentityInterceptor::new(
@@ -131,8 +130,7 @@ where
             tx_app,
             transmitter,
             storage_path,
-            shutdown_send,
-            shutdown_receive,
+            direction,
         ));
 
         // Create a new cancellation token for the app receiver loop

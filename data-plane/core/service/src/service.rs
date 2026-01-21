@@ -32,9 +32,9 @@ use slim_datapath::messages::Name;
 use crate::app::App;
 use crate::errors::ServiceError;
 #[cfg(feature = "session")]
-use slim_session::SessionError;
-#[cfg(feature = "session")]
 use slim_session::notification::Notification;
+#[cfg(feature = "session")]
+use slim_session::{Direction, SessionError};
 
 // Define the kind of the component as static string
 pub const KIND: &str = "slim";
@@ -294,23 +294,21 @@ impl Service {
         P: TokenProvider + Send + Sync + Clone + 'static,
         V: Verifier + Send + Sync + Clone + 'static,
     {
-        self.create_app_with_shutdown_flags(
+        self.create_app_with_direction(
             app_name,
             identity_provider,
             identity_verifier,
-            false,
-            false,
+            Direction::Bidirectional,
         )
     }
 
     #[cfg(feature = "session")]
-    pub fn create_app_with_shutdown_flags<P, V>(
+    pub fn create_app_with_direction<P, V>(
         &self,
         app_name: &Name,
         identity_provider: P,
         identity_verifier: V,
-        shutdonwn_send: bool,
-        shutdown_receive: bool,
+        direction: Direction,
     ) -> Result<
         (
             App<P, V>,
@@ -344,7 +342,7 @@ impl Service {
         let (tx_app, rx_app) = mpsc::channel(128);
 
         // create app
-        let app = App::new_with_shutdown_flags(
+        let app = App::new_with_direction(
             app_name,
             identity_provider,
             identity_verifier,
@@ -352,8 +350,7 @@ impl Service {
             tx_slim,
             tx_app,
             storage_path,
-            shutdonwn_send,
-            shutdown_receive,
+            direction,
         );
 
         // start message processing using the rx channel

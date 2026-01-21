@@ -11,7 +11,7 @@ use tokio::sync::mpsc::{self};
 use tracing::debug;
 
 use crate::{
-    MessageDirection,
+    Direction, MessageDirection,
     common::SessionMessage,
     errors::SessionError,
     session_config::SessionConfig,
@@ -35,8 +35,7 @@ impl Session {
         local_name: &Name,
         tx: SessionTransmitter,
         tx_signals: mpsc::Sender<SessionMessage>,
-        shutdown_send: bool,    // if true, do not produce any message
-        shutdown_receive: bool, // if true do not send messages to the application
+        direction: Direction,
     ) -> Self {
         let timer_settings = if let Some(duration) = session_config.interval
             && let Some(max_retries) = session_config.max_retries
@@ -47,6 +46,8 @@ impl Session {
         } else {
             None
         };
+
+        let (shutdown_send, shutdown_receive) = direction.to_flags();
 
         let sender = SessionSender::new(
             timer_settings.clone(),
@@ -282,8 +283,7 @@ mod tests {
             &local_name,
             tx.clone(),
             tx_signal.clone(),
-            false,
-            false,
+            Direction::Bidirectional,
         );
 
         // Add the remote endpoint to the session sender
@@ -421,8 +421,7 @@ mod tests {
             &local_name,
             tx.clone(),
             tx_signal.clone(),
-            false,
-            false,
+            Direction::Bidirectional,
         );
 
         // Receive message 1 from slim
@@ -634,8 +633,7 @@ mod tests {
             &sender_name,
             tx_sender.clone(),
             tx_signal_sender.clone(),
-            false,
-            false,
+            Direction::Bidirectional,
         );
 
         // Add receiver as endpoint for sender
@@ -667,8 +665,7 @@ mod tests {
             &receiver_name,
             tx_receiver.clone(),
             tx_signal_receiver.clone(),
-            false,
-            false,
+            Direction::Bidirectional,
         );
 
         // Add sender as endpoint for receiver

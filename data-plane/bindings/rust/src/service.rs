@@ -145,16 +145,6 @@ impl From<SlimService> for Service {
     }
 }
 
-/// Direction enum for App creation with shutdown flags
-/// Indicates whether the App can send, receive, both, or neither.
-#[derive(Clone, Copy, Debug, uniffi::Enum)]
-pub enum Direction {
-    Send,          // Can only send data messages (shutdown_send: false, shutdown_receive: true)
-    Recv,          // Can only receive data messages (shutdown_send: true, shutdown_receive: false)
-    Bidirectional, // Can send and receive data messages (shutdown_send: false, shutdown_receive: false)
-    None, // Neither send nor receive data messages (shutdown_send: true, shutdown_receive: true)
-}
-
 #[uniffi::export]
 impl Service {
     /// Create a new Service with the given name
@@ -314,49 +304,41 @@ impl Service {
             identity_provider_config,
             identity_verifier_config,
             self.inner.clone(),
-            false,
-            false,
+            crate::app::Direction::Bidirectional,
         )
         .await
         .map(Arc::new)
     }
 
-    /// Create a new App with authentication configuration and shutdown flags (async version)
+    /// Create a new App with authentication configuration and traffic direction (async version)
     ///
-    /// This method initializes authentication providers/verifiers and creates a App
-    /// on this service instance. It also set the shutdown flags for send and receive.
-    /// If set to true, the app will inibit the sending or receiving of messages.
+    /// This method initializes authentication providers/verifiers and creates an App
+    /// on this service instance. The direction parameter controls whether the app
+    /// can send messages, receive messages, both, or neither.
     ///
     /// # Arguments
     /// * `base_name` - The base name for the app (without ID)
     /// * `identity_provider_config` - Configuration for proving identity to others
     /// * `identity_verifier_config` - Configuration for verifying identity of others
-    /// * `direction` - Indicates whether the App can send, receive, both, or neither.
+    /// * `direction` - Traffic direction: Send, Recv, Bidirectional, or None
     ///
     /// # Returns
     /// * `Ok(Arc<App>)` - Successfully created adapter
     /// * `Err(SlimError)` - If adapter creation fails
     pub async fn create_app_with_direction_async(
         &self,
-        base_name: Arc<Name>,
+        name: Arc<Name>,
         identity_provider_config: IdentityProviderConfig,
         identity_verifier_config: IdentityVerifierConfig,
-        direction: Direction,
+        direction: crate::app::Direction,
     ) -> Result<Arc<crate::app::App>, SlimError> {
-        let slim_name: SlimName = base_name.as_ref().into();
-        let (shutdown_send, shutdown_receive) = match direction {
-            Direction::Send => (false, true),
-            Direction::Recv => (true, false),
-            Direction::Bidirectional => (false, false),
-            Direction::None => (true, true),
-        };
+        let slim_name: SlimName = name.as_ref().into();
         create_app_async_internal(
             slim_name,
             identity_provider_config,
             identity_verifier_config,
             self.inner.clone(),
-            shutdown_send,
-            shutdown_receive,
+            direction,
         )
         .await
         .map(Arc::new)
@@ -419,17 +401,17 @@ impl Service {
         ))
     }
 
-    /// Create a new App with authentication configuration and shutdown flags (blocking version)
+    /// Create a new App with authentication configuration and traffic direction (blocking version)
     ///
-    /// This method initializes authentication providers/verifiers and creates a App
-    /// on this service instance. It also set the shutdown flags for send and receive.
-    /// If set to true, the app will inibit the sending or receiving of messages.
+    /// This method initializes authentication providers/verifiers and creates an App
+    /// on this service instance. The direction parameter controls whether the app
+    /// can send messages, receive messages, both, or neither.
     ///
     /// # Arguments
     /// * `base_name` - The base name for the app (without ID)
     /// * `identity_provider_config` - Configuration for proving identity to others
     /// * `identity_verifier_config` - Configuration for verifying identity of others
-    /// * `direction` - Indicates whether the App can send, receive, both, or neither.
+    /// * `direction` - Traffic direction: Send, Recv, Bidirectional, or None
     ///
     /// # Returns
     /// * `Ok(Arc<App>)` - Successfully created adapter
@@ -439,7 +421,7 @@ impl Service {
         base_name: Arc<Name>,
         identity_provider_config: IdentityProviderConfig,
         identity_verifier_config: IdentityVerifierConfig,
-        direction: Direction,
+        direction: crate::app::Direction,
     ) -> Result<Arc<crate::app::App>, SlimError> {
         get_runtime().block_on(self.create_app_with_direction_async(
             base_name,
@@ -489,8 +471,7 @@ pub(crate) async fn create_app_async_internal(
     identity_provider_config: IdentityProviderConfig,
     identity_verifier_config: IdentityVerifierConfig,
     service: Arc<SlimService>,
-    shutdown_send: bool,
-    shutdown_receive: bool,
+    direction: crate::app::Direction,
 ) -> Result<crate::app::App, SlimError> {
     // Convert configurations to actual providers/verifiers
     let mut identity_provider: AuthProvider = identity_provider_config.try_into()?;
@@ -518,12 +499,11 @@ pub(crate) async fn create_app_async_internal(
     let app_name = base_name.with_id(id_hash);
 
     // Create the app using the provided service
-    let (app, rx) = service.create_app_with_shutdown_flags(
+    let (app, rx) = service.create_app_with_direction(
         &app_name,
         identity_provider,
         identity_verifier,
-        shutdown_send,
-        shutdown_receive,
+        direction.into(),
     )?;
 
     Ok(crate::app::App::from_parts(
@@ -1033,8 +1013,7 @@ mod tests {
             provider,
             verifier,
             service.inner.clone(),
-            false,
-            false,
+            crate::app::Direction::Bidirectional,
         )
         .await;
 

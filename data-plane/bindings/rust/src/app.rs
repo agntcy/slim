@@ -30,10 +30,43 @@ use futures_timer::Delay;
 use slim_datapath::messages::Name as SlimName;
 use slim_service::Service as SlimService;
 use slim_service::app::App as SlimApp;
+use slim_session::Direction as CoreDirection;
 
 use slim_session::SessionConfig as SlimSessionConfig;
 use slim_session::session_controller::SessionController;
 use slim_session::{Notification, SessionError as SlimSessionError};
+
+/// Direction enum
+/// Indicates whether the App can send, receive, both, or neither.
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum Direction {
+    Send,          // Can only send data messages (shutdown_send: false, shutdown_receive: true)
+    Recv,          // Can only receive data messages (shutdown_send: true, shutdown_receive: false)
+    Bidirectional, // Can send and receive data messages (shutdown_send: false, shutdown_receive: false)
+    None, // Neither send nor receive data messages (shutdown_send: true, shutdown_receive: true)
+}
+
+impl From<Direction> for CoreDirection {
+    fn from(direction: Direction) -> Self {
+        match direction {
+            Direction::Send => CoreDirection::Send,
+            Direction::Recv => CoreDirection::Recv,
+            Direction::Bidirectional => CoreDirection::Bidirectional,
+            Direction::None => CoreDirection::None,
+        }
+    }
+}
+
+impl From<CoreDirection> for Direction {
+    fn from(direction: CoreDirection) -> Self {
+        match direction {
+            CoreDirection::Send => Direction::Send,
+            CoreDirection::Recv => Direction::Recv,
+            CoreDirection::Bidirectional => Direction::Bidirectional,
+            CoreDirection::None => Direction::None,
+        }
+    }
+}
 
 // ============================================================================
 // Return Types
@@ -102,10 +135,41 @@ impl App {
             identity_provider_config,
             identity_verifier_config,
             service_arc,
-            false,
-            false,
+            Direction::Bidirectional,
         )
         .await
+    }
+
+    /// Create a new App with traffic direction (async version)
+    ///
+    /// This is a convenience function for creating a SLIM application with configurable
+    /// traffic direction (send-only, receive-only, bidirectional, or none).
+    /// This is the async version for use in async contexts.
+    ///
+    /// # Arguments
+    /// * `name` - The base name for the app (without ID)
+    /// * `identity_provider_config` - Configuration for proving identity to others
+    /// * `identity_verifier_config` - Configuration for verifying identity of others
+    /// * `direction` - Traffic direction for sessions (Send, Recv, Bidirectional, or None)
+    ///
+    /// # Returns
+    /// * `Ok(Arc<App>)` - Successfully created app
+    /// * `Err(SlimError)` - If app creation fails
+    pub async fn new_with_direction_async(
+        name: Arc<Name>,
+        identity_provider_config: IdentityProviderConfig,
+        identity_verifier_config: IdentityVerifierConfig,
+        direction: Direction,
+    ) -> Result<Arc<App>, SlimError> {
+        // Delegate to the global service's async create_app_with_direction method
+        get_global_service()
+            .create_app_with_direction_async(
+                name,
+                identity_provider_config,
+                identity_verifier_config,
+                direction,
+            )
+            .await
     }
 
     /// Create a new App with SharedSecret authentication (async version)
@@ -165,6 +229,36 @@ impl App {
             .await
             .map(Arc::new)
         })
+    }
+
+    /// Create a new App with traffic direction (blocking version)
+    ///
+    /// This is a convenience function for creating a SLIM application with configurable
+    /// traffic direction (send-only, receive-only, bidirectional, or none).
+    ///
+    /// # Arguments
+    /// * `name` - The base name for the app (without ID)
+    /// * `identity_provider_config` - Configuration for proving identity to others
+    /// * `identity_verifier_config` - Configuration for verifying identity of others
+    /// * `direction` - Traffic direction for sessions (Send, Recv, Bidirectional, or None)
+    ///
+    /// # Returns
+    /// * `Ok(Arc<App>)` - Successfully created app
+    /// * `Err(SlimError)` - If app creation fails
+    #[uniffi::constructor]
+    pub fn new_with_direction(
+        name: Arc<Name>,
+        identity_provider_config: IdentityProviderConfig,
+        identity_verifier_config: IdentityVerifierConfig,
+        direction: Direction,
+    ) -> Result<Arc<App>, SlimError> {
+        // Delegate to the global service's blocking method
+        get_global_service().create_app_with_direction(
+            name,
+            identity_provider_config,
+            identity_verifier_config,
+            direction,
+        )
     }
 
     /// Create a new App with SharedSecret authentication (blocking version)
