@@ -7,6 +7,7 @@ use slim_datapath::messages::Name as SlimName;
 
 /// Name type for SLIM (Secure Low-Latency Interactive Messaging)
 #[derive(Debug, Clone, PartialEq, uniffi::Object)]
+#[uniffi::export(Display, Debug, Eq)]
 pub struct Name {
     inner: SlimName,
 }
@@ -72,10 +73,6 @@ impl Name {
     /// Get the name ID
     pub fn id(&self) -> u64 {
         self.inner.id()
-    }
-
-    pub fn as_string(&self) -> String {
-        self.to_string()
     }
 }
 

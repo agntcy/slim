@@ -107,16 +107,3 @@ target "control-plane" {
   ]
   tags = get_tag(target.docker-metadata-action.tags, "${target.control-plane.name}")
 }
-
-target "bindings-examples" {
-  contexts = {
-    src = "."
-  }
-  dockerfile = "./data-plane/python/bindings/examples/Dockerfile"
-  target     = "slim-bindings-examples"
-  inherits = [
-    "_common",
-    "docker-metadata-action",
-  ]
-  tags = get_tag(target.docker-metadata-action.tags, "${target.bindings-examples.name}")
-}

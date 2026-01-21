@@ -1,0 +1,102 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = [
+    "maturin~=1.11",
+    "ziglang~=0.14.0; sys_platform == 'linux' or sys_platform == 'darwin'",
+    "maturin[patchelf]>=1.8.2; sys_platform == 'linux'",
+    "uniffi-bindgen==0.28.3"
+]
+build-backend = "maturin"
+
+[project]
+name = "slim-bindings"
+version = "0.7.0"
+description = "Python bindings for SLIM (Secure Low-Latency Interactive Messaging) using UniFFI"
+requires-python = ">=3.10"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [
+    {name = "AGNTCY Contributors", email = "slim@agntcy.io"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+
+[project.urls]
+Repository = "https://github.com/agntcy/slim"
+Issues = "https://github.com/agntcy/slim/issues"
+
+[project.optional-dependencies]
+examples = [
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "prompt-toolkit>=3.0.52",
+    "pyyaml>=6.0.3",
+    "tomli>=2.4.0"
+]
+
+[project.scripts]
+slim-bindings-group = "examples.group:main"
+slim-bindings-p2p = "examples.point_to_point:main"
+slim-bindings-server = "examples.slim:main"
+
+[dependency-groups]
+building = [
+    "maturin~=1.11",
+    "ziglang~=0.14.0; sys_platform == 'linux' or sys_platform == 'darwin'",
+    "maturin[patchelf]>=1.8.2; sys_platform == 'linux'",
+    "uniffi-bindgen==0.28.3"
+]
+
+testing = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+linting = [
+    "griffe>=1.5.5",
+    "pyright>=1.1.0",
+    "ruff>=0.9.3",
+    "mypy>=1.14.1",
+]
+
+[tool.maturin]
+bindings = "uniffi"
+manifest-path = "../rust/Cargo.toml"
+module-name = "slim_bindings"
+python-source = "."
+python-packages = ["examples"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+markers = [
+    "integration: marks tests as integration tests (need running server)",
+]
+
+[tool.ruff]
+extend-exclude = ["slim_bindings/_slim_bindings.pyi"]
+
+[tool.ruff.lint]
+extend-select = ["Q", "RUF100", "C90", "I", "UP"]
+extend-ignore = [
+    "E721", # using type() instead of isinstance() - we use this in tests
+]
+flake8-quotes = { inline-quotes = "double", multiline-quotes = "double" }
+mccabe = { max-complexity = 13 }
+isort = { known-first-party = ["slim_bindings", "tests"] }
+
+
+[tool.uv]
+default-groups = ["building", "testing", "linting"]
