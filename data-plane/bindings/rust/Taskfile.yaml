@@ -45,28 +45,31 @@ tasks:
         TARGET_ABI="{{.TARGET_ABI}}"
         TARGET_OS="{{.TARGET_OS}}"
 
-        if [[ "$TARGET_ABI" == "gnu" ]]; then
-          LIBC_VERSION=".{{.GNU_CLIB_VERSION}}"
-        fi
-
         ARGS=()
 
         # Use regular cargo build for Windows, zigbuild for others
         if [[ "$TARGET_OS" == "linux" ]]; then
+          # For Linux, use zigbuild with libc version for gnu targets
+          LIBC_VERSION=""
+          if [[ "$TARGET_ABI" == "gnu" ]]; then
+            LIBC_VERSION=".{{.GNU_CLIB_VERSION}}"
+          fi
+
           ARGS=(
             "zigbuild"
+            "--target"
+            "{{.TARGET}}$LIBC_VERSION"
+            {{.RELEASE}}
           )
         else
+          # For Windows/macOS, use regular cargo build without libc version
           ARGS=(
             "build"
+            "--target"
+            "{{.TARGET}}"
+            {{.RELEASE}}
           )
         fi
-
-        ARGS+=(
-          "--target"
-          "{{.TARGET}}"
-          {{.RELEASE}}
-        )
 
         echo cargo ${ARGS[*]}
         PATH="{{.TOOLS_INSTALL_DIR}}:$PATH" cargo "${ARGS[@]}"
