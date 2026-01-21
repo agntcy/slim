@@ -40,3 +40,8 @@ jobs:
     name: Data plane - Go bindings test
     needs: [data-plane-build-and-test]
     uses: ./.github/workflows/reusable-go-bindings-build-and-test.yaml
+
+  data-plane-dotnet-bindings-test:
+    name: Data plane - .NET bindings test
+    needs: [data-plane-build-and-test]
+    uses: ./.github/workflows/reusable-dotnet-build-and-test.yaml

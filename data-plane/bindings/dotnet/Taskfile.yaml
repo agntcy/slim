@@ -1,0 +1,215 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: "3"
+
+vars:
+  UNIFFI_BINDGEN_CS_VERSION: "v0.9.0+v0.28.3"
+  CONFIG: '{{.CONFIG | default "Release"}}'
+  RUST_PROFILE: '{{if eq .CONFIG "Release"}}release{{else}}debug{{end}}'
+  PROFILE: '{{.PROFILE | default "release"}}'
+  RUST_TARGET_DIR: "../../target/{{.RUST_PROFILE}}"
+
+tasks:
+  default:
+    cmds:
+      - task -l
+
+  setup:
+    desc: Build rust library and generate C# bindings
+    cmds:
+      - task: generate
+
+  build-rust:
+    desc: Build the rust bindings library
+    dir: ../rust
+    cmds:
+      - cargo build {{if eq .RUST_PROFILE "release"}}--release{{end}}
+
+  generate:
+    desc: Generate C# bindings from rust library
+    deps: [build-rust]
+    cmds:
+      - cargo install uniffi-bindgen-cs --git https://github.com/NordSecurity/uniffi-bindgen-cs.git --tag {{.UNIFFI_BINDGEN_CS_VERSION}} 2>/dev/null || true
+      - mkdir -p Slim/generated
+      - |
+        lib="{{.RUST_TARGET_DIR}}/libslim_bindings.dylib"
+        [ -f "$lib" ] || lib="{{.RUST_TARGET_DIR}}/libslim_bindings.so"
+        [ -f "$lib" ] || lib="{{.RUST_TARGET_DIR}}/slim_bindings.dll"
+        cd ../rust && uniffi-bindgen-cs --library "$OLDPWD/$lib" --out-dir "$OLDPWD/Slim/generated"
+
+  copy-native:
+    desc: Copy native library to runtimes folder for packaging
+    deps: [build-rust]
+    vars:
+      RID:
+        sh: |
+          case "$(uname -s)-$(uname -m)" in
+            Darwin-arm64) echo "osx-arm64" ;;
+            Darwin-x86_64) echo "osx-x64" ;;
+            Linux-x86_64) echo "linux-x64" ;;
+            Linux-aarch64) echo "linux-arm64" ;;
+            *) echo "unknown" ;;
+          esac
+    cmds:
+      - mkdir -p runtimes/{{.RID}}/native
+      - |
+        for ext in dylib so dll; do
+          src="{{.RUST_TARGET_DIR}}/libslim_bindings.$ext"
+          [ -f "$src" ] || src="{{.RUST_TARGET_DIR}}/slim_bindings.$ext"
+          if [ -f "$src" ]; then
+            cp "$src" "runtimes/{{.RID}}/native/"
+            exit 0
+          fi
+        done
+        echo "No library found in {{.RUST_TARGET_DIR}}" && exit 1
+
+  build:
+    desc: Build the C# project (generates bindings first)
+    deps: [generate, copy-native]
+    cmds:
+      - dotnet build Slim.sln -c {{.CONFIG}}
+
+  test:
+    desc: Run all tests
+    cmds:
+      - dotnet test Slim.sln -c {{.CONFIG}} {{.CLI_ARGS}}
+
+  test:smoke:
+    desc: Run smoke tests (no server required)
+    cmds:
+      - dotnet test Slim.sln -c {{.CONFIG}} --filter "Category!=Integration" {{.CLI_ARGS}}
+
+  pack:
+    desc: Create NuGet package (local platform only)
+    deps: [build]
+    cmds:
+      - dotnet pack Slim/Slim.csproj -c Release -o packages/
+
+  list-runtimes:
+    desc: List all native libraries in runtimes folder
+    cmds:
+      - |
+        for rid in osx-arm64 osx-x64 linux-x64 linux-arm64 win-x64; do
+          if [ -d "runtimes/$rid/native" ]; then
+            ls -lh "runtimes/$rid/native/" 2>/dev/null
+          else
+            echo "$rid: not built"
+          fi
+        done
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -rf runtimes packages Slim/generated
+      - dotnet clean Slim.sln 2>/dev/null || true
+
+  ci:
+    desc: CI build - copies pre-built artifacts, generates bindings, builds, tests, packs
+    vars:
+      ARTIFACTS_DIR: '{{.ARTIFACTS_DIR | default "../../../artifacts"}}'
+    cmds:
+      - task: ci:prepare-runtimes
+        vars:
+          ARTIFACTS_DIR: "{{.ARTIFACTS_DIR}}"
+      - task: ci:generate
+        vars:
+          ARTIFACTS_DIR: "{{.ARTIFACTS_DIR}}"
+      - dotnet build Slim.sln -c Release
+      - dotnet test Slim.sln -c Release --filter "Category!=Integration"
+      - dotnet pack Slim/Slim.csproj -c Release -o packages/
+
+  ci:prepare-runtimes:
+    desc: Copy pre-built native libraries from artifacts to runtimes folder
+    internal: true
+    vars:
+      ARTIFACTS_DIR: '{{.ARTIFACTS_DIR}}'
+    cmds:
+      - |
+        declare -A RID_MAP=(
+          ["x86_64-unknown-linux-gnu"]="linux-x64"
+          ["x86_64-unknown-linux-musl"]="linux-musl-x64"
+          ["aarch64-unknown-linux-gnu"]="linux-arm64"
+          ["aarch64-unknown-linux-musl"]="linux-musl-arm64"
+          ["x86_64-apple-darwin"]="osx-x64"
+          ["aarch64-apple-darwin"]="osx-arm64"
+          ["x86_64-pc-windows-msvc"]="win-x64"
+          ["x86_64-pc-windows-gnu"]="win-x64"
+        )
+
+        for platform_dir in {{.ARTIFACTS_DIR}}/bindings-*/; do
+          if [ -d "$platform_dir" ]; then
+            target=$(basename "$platform_dir" | sed 's/^bindings-//')
+            rid="${RID_MAP[$target]}"
+
+            if [ -n "$rid" ]; then
+              echo "Copying $target -> runtimes/$rid/native/"
+              mkdir -p "runtimes/$rid/native"
+
+              for file in "$platform_dir"/*.dylib "$platform_dir"/*.so "$platform_dir"/*.dll; do
+                if [ -f "$file" ]; then
+                  filename=$(basename "$file")
+                  if [[ "$filename" == *"dylib" ]]; then
+                    cp "$file" "runtimes/$rid/native/libslim_bindings.dylib"
+                  elif [[ "$filename" == *"so" ]]; then
+                    cp "$file" "runtimes/$rid/native/libslim_bindings.so"
+                  elif [[ "$filename" == *"dll" ]]; then
+                    cp "$file" "runtimes/$rid/native/slim_bindings.dll"
+                  fi
+                fi
+              done
+            fi
+          fi
+        done
+
+        echo "Native libraries prepared:"
+        find runtimes -type f -ls 2>/dev/null || echo "No runtimes found"
+
+  ci:generate:
+    desc: Generate C# bindings from pre-built library
+    internal: true
+    vars:
+      ARTIFACTS_DIR: '{{.ARTIFACTS_DIR}}'
+    cmds:
+      - cargo install uniffi-bindgen-cs --git https://github.com/NordSecurity/uniffi-bindgen-cs.git --tag {{.UNIFFI_BINDGEN_CS_VERSION}} 2>/dev/null || true
+      - mkdir -p Slim/generated
+      - |
+        # Find a library matching the host architecture (x86_64 on CI runners)
+        # uniffi-bindgen-cs must be able to load the library to extract metadata
+        HOST_ARCH=$(uname -m)
+        case "$HOST_ARCH" in
+          x86_64)  ARCH_PATTERN="x86_64" ;;
+          aarch64) ARCH_PATTERN="aarch64" ;;
+          arm64)   ARCH_PATTERN="aarch64" ;;
+          *)       ARCH_PATTERN="$HOST_ARCH" ;;
+        esac
+        
+        LIB=$(find {{.ARTIFACTS_DIR}} -name "*.so" -type f | grep -i "$ARCH_PATTERN" | head -1)
+        if [ -z "$LIB" ]; then
+          echo "ERROR: No .so library found matching host architecture ($HOST_ARCH)"
+          echo "Available libraries:"
+          find {{.ARTIFACTS_DIR}} -name "*.so" -type f
+          exit 1
+        fi
+        
+        LIB=$(cd "$(dirname "$LIB")" && pwd)/$(basename "$LIB")
+        echo "Host architecture: $HOST_ARCH"
+        echo "Source library: $LIB"
+        
+        # uniffi-bindgen-cs derives the DllImport library name from the input filename.
+        # Create a temp copy with the generic name so bindings use "slim_bindings" not "slim_bindings_x86_64_linux_gnu"
+        TEMP_DIR=$(mktemp -d)
+        GENERIC_LIB="$TEMP_DIR/libslim_bindings.so"
+        cp "$LIB" "$GENERIC_LIB"
+        echo "Using library: $GENERIC_LIB"
+        
+        cd ../rust && uniffi-bindgen-cs --library "$GENERIC_LIB" --out-dir "$OLDPWD/Slim/generated"
+        
+        rm -rf "$TEMP_DIR"
+        
+        # Verify generation succeeded
+        if [ ! -f "$OLDPWD/Slim/generated/slim_bindings.cs" ]; then
+          echo "ERROR: slim_bindings.cs was not generated"
+          exit 1
+        fi
+        echo "Generated: $(ls -la $OLDPWD/Slim/generated/)"
