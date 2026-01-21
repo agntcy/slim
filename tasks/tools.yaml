@@ -166,6 +166,7 @@ tasks:
         fi
       - mv zig-{{.DETECTED_ARCH}}-{{.DETECTED_OS}}-{{.ZIG_VERSION}}/* "{{.TOOLS_INSTALL_DIR}}"
       - echo "Zig installed to {{.TOOLS_INSTALL_DIR}}"
+      - task: tools:dlltool-wrapper
 
   tools:dlltool-wrapper:
     desc: Create dlltool wrapper script for MinGW cross-compilation

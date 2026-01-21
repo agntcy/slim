@@ -11,11 +11,6 @@ includes:
     taskfile: ../tasks/tools.yaml
     flatten: true
 
-  go-bindings:
-    taskfile: ../data-plane/bindings/go/Taskfile.yaml
-    dir: ../data-plane/bindings/go
-
-
 vars:
   REPO_ROOT:
     sh: git rev-parse --show-toplevel
@@ -190,7 +185,7 @@ tasks:
     deps:
       - control-plane:proto:generate
       - control-plane:go-bindings:setup
-      - go-bindings:adapter:bindings:install-zig
+      - tools:install-zig
     dir: slimctl/cmd
     cmds:
       - task: control-plane:gogen
