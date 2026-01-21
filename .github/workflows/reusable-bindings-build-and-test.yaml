@@ -54,6 +54,10 @@ jobs:
             os: linux
             target: x86_64-unknown-linux-gnu
             exclude: ${{ github.event_name == 'pull_request' }}
+          - runner: windows-11-arm
+            os: windows
+            target: aarch64-pc-windows-msvc
+            exclude: ${{ github.event_name == 'pull_request' }}
           - runner: ubuntu-24.04
             os: linux
             target: aarch64-unknown-linux-musl
@@ -70,10 +74,6 @@ jobs:
             os: linux
             target: x86_64-pc-windows-gnu
             exclude: ${{ github.event_name == 'pull_request' }}
-          # https://github.com/astral-sh/uv/issues/12906
-          # - runner: windows-11-arm
-          #   os: windows
-          #   target: aarch64
           - runner: macos-15-intel
             os: macos
             target: x86_64-apple-darwin
@@ -137,6 +137,21 @@ jobs:
         with:
           name: bindings-${{ matrix.platform.target }}
           path: ./data-plane/target/${{ matrix.platform.target }}/release/*slim_bindings*
+      - name: Install uv
+        if: "!contains(matrix.platform.target, 'windows-gnu')"
+        uses: ./.github/actions/setup-python
+        with:
+          uv-install: 'true'
+      - name: Generate python wheels
+        if: "!contains(matrix.platform.target, 'windows-gnu')"
+        working-directory: ./data-plane/bindings/python
+        run: task python:bindings:packaging TARGET=${{ matrix.platform.target }} PROFILE=release
+      - name: Upload wheels
+        if: "!contains(matrix.platform.target, 'windows-gnu')"
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.platform.target }}
+          path: ./data-plane/bindings/python/dist
 
   go-bindings-build-and-test:
     runs-on: ${{ inputs.runner }}
