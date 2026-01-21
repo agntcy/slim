@@ -53,35 +53,35 @@ jobs:
           - runner: ubuntu-24.04
             os: linux
             target: x86_64-unknown-linux-gnu
-            exclude: ${{ github.event_name == 'pull_request' }}
+            exclude: false
           - runner: windows-11-arm
             os: windows
             target: aarch64-pc-windows-msvc
-            exclude: ${{ github.event_name == 'pull_request' }}
+            exclude: false
           - runner: ubuntu-24.04
             os: linux
             target: aarch64-unknown-linux-musl
-            exclude: ${{ github.event_name == 'pull_request' }}
+            exclude: false
           - runner: ubuntu-24.04
             os: linux
             target: aarch64-unknown-linux-gnu
-            exclude: ${{ github.event_name == 'pull_request' }}
+            exclude: false
           - runner: windows-latest
             os: windows
             target: x86_64-pc-windows-msvc
-            exclude: ${{ github.event_name == 'pull_request' }}
+            exclude: false
           - runner: ubuntu-24.04
             os: linux
             target: x86_64-pc-windows-gnu
-            exclude: ${{ github.event_name == 'pull_request' }}
+            exclude: false
           - runner: macos-15-intel
             os: macos
             target: x86_64-apple-darwin
-            exclude: ${{ github.event_name == 'pull_request' }}
+            exclude: false
           - runner: macos-15
             os: macos
             target: aarch64-apple-darwin
-            exclude: ${{ github.event_name == 'pull_request' }}
+            exclude: false
         exclude:
           - platform:
               exclude: true
