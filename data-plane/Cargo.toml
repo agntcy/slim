@@ -30,8 +30,6 @@ default-members = [
     "testing",
 ]
 
-exclude = ["integrations/mcp-proxy"]
-
 resolver = "2"
 
 [workspace.dependencies]

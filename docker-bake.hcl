@@ -73,28 +73,6 @@ target "slim-debug" {
   tags = get_tag(target.docker-metadata-action.tags, "${target.slim-debug.name}")
 }
 
-target "mcp-proxy" {
-  context = "."
-  dockerfile = "./data-plane/integrations/mcp-proxy/Dockerfile"
-  target = "mcp-proxy-release"
-  inherits = [
-    "_common",
-    "docker-metadata-action",
-  ]
-  tags = get_tag(target.docker-metadata-action.tags, "${target.mcp-proxy.name}")
-}
-
-target "mcp-proxy-debug" {
-  context = "."
-  dockerfile = "./data-plane/integrations/mcp-proxy/Dockerfile"
-  target = "mcp-proxy-debug"
-  inherits = [
-    "_common",
-    "docker-metadata-action",
-  ]
-  tags = get_tag(target.docker-metadata-action.tags, "${target.mcp-proxy-debug.name}")
-}
-
 target "control-plane" {
   contexts = {
     src = "."

@@ -185,7 +185,7 @@ tasks:
     deps:
       - control-plane:proto:generate
       - control-plane:go-bindings:setup
-      - tools:install-zig
+      - tools:zig
     dir: slimctl/cmd
     cmds:
       - task: control-plane:gogen

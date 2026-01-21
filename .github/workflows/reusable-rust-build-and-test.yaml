@@ -52,7 +52,7 @@ on:
         type: string
         default: .
       task-prefix:
-        description: "Prefix to use for task commands data-plane or mcp-proxy"
+        description: "Prefix to use for task commands like 'data-plane'"
         type: string
         default: data-plane
 

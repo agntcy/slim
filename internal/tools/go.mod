@@ -11,7 +11,7 @@ require (
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.5.1
 	google.golang.org/protobuf v1.36.5
 	helm.sh/helm/v3 v3.19.0
-	k8s.io/kubernetes v1.34.1
+	k8s.io/kubernetes v1.34.2
 	sigs.k8s.io/kind v0.30.0
 )
 
