@@ -33,7 +33,7 @@ on:
         default: v0.4.0+v0.28.3
 env:
   LIBRARY_NAME: slim_bindings
-  PYTHON_VERSION: '3.10'
+  PYTHON_VERSION: '3.11'
 
 jobs:
   generate-matrix:
