@@ -171,6 +171,8 @@ tasks:
     desc: Create dlltool wrapper script for MinGW cross-compilation
     status:
       - test -f "{{.TOOLS_INSTALL_DIR}}/{{.DETECTED_ARCH}}-w64-mingw32-dlltool"
+    deps:
+      - tools:dir
     cmds:
       - |
         cat > "{{.TOOLS_INSTALL_DIR}}/{{.DETECTED_ARCH}}-w64-mingw32-dlltool" << 'EOF'
