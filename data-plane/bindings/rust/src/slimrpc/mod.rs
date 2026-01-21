@@ -3,17 +3,19 @@
 
 pub mod channel;
 pub mod common;
+pub mod config;
 pub mod context;
 pub mod error;
 pub mod rpc;
 pub mod server;
 
-pub use channel::Channel;
+pub use channel::RpcChannel;
 pub use common::{DEADLINE_KEY, MAX_TIMEOUT};
-pub use context::{MessageContext, SessionContext};
+pub use config::{RpcAppConnection, RpcAppConfig, create_and_connect_app, create_and_connect_app_async, new_rpc_app_config};
+pub use context::{MessageContext, RpcMessageContext, SessionContext};
 pub use error::SRPCError;
 pub use rpc::{
-    RPCHandler, RPCHandlerType, RequestStream, ResponseStream, StreamStreamHandler,
-    StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
+    RpcHandler, RpcHandlerType, RequestStream, ResponseStream,
+    StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
 };
-pub use server::Server;
+pub use server::RpcServer;

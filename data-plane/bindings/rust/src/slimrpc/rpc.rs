@@ -10,14 +10,19 @@ use std::pin::Pin;
 pub type RequestStream<T> = Pin<Box<dyn Stream<Item = Result<(T, MessageContext)>> + Send>>;
 pub type ResponseStream<T> = Pin<Box<dyn Stream<Item = Result<T>> + Send>>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RPCHandlerType {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum RpcHandlerType {
     UnaryUnary,
     UnaryStream,
     StreamUnary,
     StreamStream,
 }
 
+// UniFFI callback interface for foreign language implementations
+// Note: This will be defined in a .udl file or via proc-macro in a future update
+// For now, we keep the Rust-only handler traits
+
+// Internal Rust async traits (not exported via UniFFI)
 #[async_trait]
 pub trait UnaryUnaryHandler<Req, Res>: Send + Sync {
     async fn call(
@@ -56,20 +61,20 @@ pub trait StreamStreamHandler<Req, Res>: Send + Sync {
     ) -> Result<ResponseStream<Res>>;
 }
 
-pub enum RPCHandler {
+pub enum RpcHandler {
     UnaryUnary(Box<dyn UnaryUnaryHandler<Vec<u8>, Vec<u8>>>),
     UnaryStream(Box<dyn UnaryStreamHandler<Vec<u8>, Vec<u8>>>),
     StreamUnary(Box<dyn StreamUnaryHandler<Vec<u8>, Vec<u8>>>),
     StreamStream(Box<dyn StreamStreamHandler<Vec<u8>, Vec<u8>>>),
 }
 
-impl RPCHandler {
-    pub fn handler_type(&self) -> RPCHandlerType {
+impl RpcHandler {
+    pub fn handler_type(&self) -> RpcHandlerType {
         match self {
-            RPCHandler::UnaryUnary(_) => RPCHandlerType::UnaryUnary,
-            RPCHandler::UnaryStream(_) => RPCHandlerType::UnaryStream,
-            RPCHandler::StreamUnary(_) => RPCHandlerType::StreamUnary,
-            RPCHandler::StreamStream(_) => RPCHandlerType::StreamStream,
+            RpcHandler::UnaryUnary(_) => RpcHandlerType::UnaryUnary,
+            RpcHandler::UnaryStream(_) => RpcHandlerType::UnaryStream,
+            RpcHandler::StreamUnary(_) => RpcHandlerType::StreamUnary,
+            RpcHandler::StreamStream(_) => RpcHandlerType::StreamStream,
         }
     }
 }

@@ -4,7 +4,7 @@
 use super::common::{method_to_name, DEADLINE_KEY, MAX_TIMEOUT};
 use super::context::{MessageContext, SessionContext};
 use super::error::{Result, SRPCError};
-use super::rpc::{RPCHandler, RPCHandlerType};
+use super::rpc::{RpcHandler, RpcHandlerType};
 use crate::App as BindingsApp;
 use futures::StreamExt;
 use slim_datapath::messages::Name;
@@ -30,62 +30,65 @@ impl ServiceMethod {
     }
 }
 
-pub struct Server {
+#[derive(uniffi::Object)]
+pub struct RpcServer {
     app: Arc<BindingsApp>,
     notification_rx: Arc<RwLock<Receiver<std::result::Result<Notification, SessionError>>>>,
-    handlers: HashMap<ServiceMethod, Arc<RPCHandler>>,
-    name_to_handler: HashMap<Name, Arc<RPCHandler>>,
+    handlers: HashMap<ServiceMethod, Arc<RpcHandler>>,
+    name_to_handler: HashMap<Name, Arc<RpcHandler>>,
     conn_id: u64,
 }
 
-impl Server {
-    pub fn new(app: Arc<BindingsApp>, conn_id: u64) -> Self {
+#[uniffi::export]
+impl RpcServer {
+    /// Create a new RPC server
+    #[uniffi::constructor]
+    pub fn new(app: Arc<BindingsApp>, conn_id: u64) -> Arc<Self> {
         let notification_rx = app.notification_receiver();
         
-        Self {
+        Arc::new(Self {
             app,
             notification_rx,
             handlers: HashMap::new(),
             name_to_handler: HashMap::new(),
             conn_id,
-        }
+        })
     }
-
-    pub fn register_method_handlers(
-        &mut self,
-        service_name: impl Into<String>,
-        handlers: HashMap<String, RPCHandler>,
-    ) {
-        let service = service_name.into();
-        for (method_name, handler) in handlers {
-            self.register_rpc(&service, &method_name, handler);
-        }
+    
+    /// Run server (blocking) - NOTE: Consumes self
+    pub fn run(self: Arc<Self>) -> Result<()> {
+        crate::get_runtime().block_on(async {
+            self.run_async().await
+        })
     }
-
-    pub fn register_rpc(&mut self, service_name: &str, method_name: &str, handler: RPCHandler) {
-        let service_method = ServiceMethod::new(service_name, method_name);
-        self.handlers.insert(service_method, Arc::new(handler));
-    }
-
-    pub async fn run(mut self) -> Result<()> {
+    
+    /// Run server (async) - NOTE: Consumes self
+    pub async fn run_async(self: Arc<Self>) -> Result<()> {
+        // Extract the inner RpcServer by trying to unwrap the Arc
+        // If there are other references, this will fail
+        let mut server = match Arc::try_unwrap(self) {
+            Ok(server) => server,
+            Err(_) => return Err(SRPCError::Session("Cannot run server: Arc has multiple references".to_string())),
+        };
+        
         // Get internal app for operations
-        let internal_app = self.app.inner_app();
+        let internal_app = server.app.inner_app();
         let app_name = internal_app.app_name();
         
         info!(
             "Subscribing to {} with conn_id {}",
             app_name,
-            self.conn_id
+            server.conn_id
         );
 
         // Subscribe to local name with connection ID
         internal_app
-            .subscribe(app_name, Some(self.conn_id))
+            .subscribe(app_name, Some(server.conn_id))
             .await
             .map_err(SRPCError::Subscription)?;
 
         // Subscribe to all handler names
-        for (service_method, handler) in &self.handlers {
+        for (service_method, handler) in &server.handlers {
             let subscription_name = method_to_name(
                 app_name,
                 &service_method.service,
@@ -94,22 +97,22 @@ impl Server {
 
             info!(
                 "Subscribing to {} with conn_id {}",
-                subscription_name, self.conn_id
+                subscription_name, server.conn_id
             );
 
             internal_app
-                .subscribe(&subscription_name, Some(self.conn_id))
+                .subscribe(&subscription_name, Some(server.conn_id))
                 .await
                 .map_err(SRPCError::Subscription)?;
 
-            self.name_to_handler
+            server.name_to_handler
                 .insert(subscription_name, handler.clone());
         }
 
         info!("Server running, waiting for sessions");
 
         // Get a mutable reference to the notification receiver
-        let mut rx = self.notification_rx.write().await;
+        let mut rx = server.notification_rx.write().await;
 
         // Wait for notifications
         loop {
@@ -154,19 +157,19 @@ impl Server {
                             let normalized_source = session.source().clone().with_id(Name::NULL_COMPONENT);
 
                             // Match handler by normalized source
-                            let handler = self.name_to_handler.get(&normalized_source);
+                            let handler = server.name_to_handler.get(&normalized_source);
                             if handler.is_none() {
                                 error!(
                                     "No handler found for source: {} (normalized: {}) (available handlers: {:?})",
                                     session.dst(),
                                     normalized_source,
-                                    self.name_to_handler.keys().collect::<Vec<_>>()
+                                    server.name_to_handler.keys().collect::<Vec<_>>()
                                 );
                                 continue;
                             }
 
                             let handler = handler.unwrap().clone();
-                            let app = self.app.clone();
+                            let app = server.app.clone();
 
                             tokio::spawn(async move {
                                 if let Err(e) = Self::handle_session(ctx, handler, app).await {
@@ -185,10 +188,43 @@ impl Server {
         info!("Server shutting down");
         Ok(())
     }
+}
+
+// Internal Rust-only implementation (not exported via UniFFI)
+impl RpcServer {
+    /// Create a new RPC server (Rust-only, returns owned Server)
+    pub fn new_rust(app: Arc<BindingsApp>, conn_id: u64) -> Self {
+        let notification_rx = app.notification_receiver();
+        
+        Self {
+            app,
+            notification_rx,
+            handlers: HashMap::new(),
+            name_to_handler: HashMap::new(),
+            conn_id,
+        }
+    }
+
+    /// Register method handlers (Rust-only, requires RpcHandler trait objects)
+    pub fn register_method_handlers(
+        &mut self,
+        service_name: impl Into<String>,
+        handlers: HashMap<String, RpcHandler>,
+    ) {
+        let service = service_name.into();
+        for (method_name, handler) in handlers {
+            self.register_rpc(&service, &method_name, handler);
+        }
+    }
+
+    pub fn register_rpc(&mut self, service_name: &str, method_name: &str, handler: RpcHandler) {
+        let service_method = ServiceMethod::new(service_name, method_name);
+        self.handlers.insert(service_method, Arc::new(handler));
+    }
 
     async fn handle_session(
         session_ctx: slim_session::context::SessionContext,
-        handler: Arc<RPCHandler>,
+        handler: Arc<RpcHandler>,
         app: Arc<BindingsApp>,
     ) -> Result<()> {
         let session = session_ctx
@@ -241,7 +277,7 @@ impl Server {
                 // Send end of stream for streaming responses
                 if matches!(
                     handler.handler_type(),
-                    RPCHandlerType::UnaryStream | RPCHandlerType::StreamStream
+                    RpcHandlerType::UnaryStream | RpcHandlerType::StreamStream
                 ) {
                     let mut metadata = HashMap::new();
                     metadata.insert("code".to_string(), "0".to_string());
@@ -275,7 +311,7 @@ impl Server {
     }
 
     async fn call_handler(
-        handler: &RPCHandler,
+        handler: &RpcHandler,
         mut session_ctx: slim_session::context::SessionContext,
         session_context: SessionContext,
     ) -> Result<Vec<Vec<u8>>> {
@@ -284,7 +320,7 @@ impl Server {
             .ok_or_else(|| SRPCError::Session("Failed to get session".to_string()))?;
 
         match handler {
-            RPCHandler::UnaryUnary(h) => {
+            RpcHandler::UnaryUnary(h) => {
                 // Get single request
                 let msg = session_ctx
                     .rx
@@ -307,7 +343,7 @@ impl Server {
                 let response = h.call(request, msg_ctx, session_context).await?;
                 Ok(vec![response])
             }
-            RPCHandler::UnaryStream(h) => {
+            RpcHandler::UnaryStream(h) => {
                 // Get single request
                 let msg = session_ctx
                     .rx
@@ -336,7 +372,7 @@ impl Server {
 
                 Ok(responses)
             }
-            RPCHandler::StreamUnary(h) => {
+            RpcHandler::StreamUnary(h) => {
                 // Create request stream - pass ownership of rx to the stream
                 let (tx, rx_stream) = tokio::sync::mpsc::unbounded_channel();
                 let (_session_weak, rx) = session_ctx.into_parts();
@@ -349,7 +385,7 @@ impl Server {
                 let response = h.call(request_stream, session_context).await?;
                 Ok(vec![response])
             }
-            RPCHandler::StreamStream(h) => {
+            RpcHandler::StreamStream(h) => {
                 // Create request stream - pass ownership of rx to the stream
                 let (tx, rx_stream) = tokio::sync::mpsc::unbounded_channel();
                 let (_session_weak, rx) = session_ctx.into_parts();

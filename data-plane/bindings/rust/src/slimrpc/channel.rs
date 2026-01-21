@@ -17,19 +17,243 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio_stream::Stream;
 use tracing::info;
 
-pub struct Channel {
+#[derive(uniffi::Object)]
+pub struct RpcChannel {
     remote: Name,
     app: Arc<BindingsApp>,
     conn_id: u64,
 }
 
-impl Channel {
-    pub fn new(remote: Name, app: Arc<BindingsApp>, conn_id: u64) -> Self {
+#[uniffi::export]
+impl RpcChannel {
+    /// Create a new RPC channel to a remote service
+    #[uniffi::constructor]
+    pub fn new(remote_name: String, app: Arc<BindingsApp>, conn_id: u64) -> Result<Arc<Self>> {
+        let parts: Vec<&str> = remote_name.split('/').collect();
+        if parts.len() < 3 {
+            return Err(SRPCError::InvalidId(format!(
+                "Remote name must be in format organization/namespace/service, got: {}",
+                remote_name
+            )));
+        }
+        
+        let remote = Name::from_strings([parts[0], parts[1], parts[2]]).with_id(0);
+        
+        Ok(Arc::new(Self {
+            remote,
+            app,
+            conn_id,
+        }))
+    }
+    
+    /// Call unary-unary RPC (blocking)
+    pub fn call_unary_unary(
+        &self,
+        method: String,
+        request: Vec<u8>,
+        timeout_secs: Option<u64>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<Vec<u8>> {
+        crate::get_runtime().block_on(async {
+            self.call_unary_unary_async(method, request, timeout_secs, metadata).await
+        })
+    }
+    
+    /// Call unary-unary RPC (async)
+    pub async fn call_unary_unary_async(
+        &self,
+        method: String,
+        request: Vec<u8>,
+        timeout_secs: Option<u64>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<Vec<u8>> {
+        let timeout = timeout_secs.map(Duration::from_secs);
+        self.unary_unary(&method, request, timeout, metadata).await
+    }
+    
+    /// Call unary-stream RPC (blocking, returns all responses as Vec)
+    pub fn call_unary_stream(
+        &self,
+        method: String,
+        request: Vec<u8>,
+        timeout_secs: Option<u64>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<Vec<Vec<u8>>> {
+        crate::get_runtime().block_on(async {
+            self.call_unary_stream_async(method, request, timeout_secs, metadata).await
+        })
+    }
+    
+    /// Call unary-stream RPC (async, returns all responses as Vec)
+    pub async fn call_unary_stream_async(
+        &self,
+        method: String,
+        request: Vec<u8>,
+        timeout_secs: Option<u64>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<Vec<Vec<u8>>> {
+        let timeout = timeout_secs.map(Duration::from_secs);
+        let mut stream = self.unary_stream(&method, request, timeout, metadata).await?;
+        let mut results = Vec::new();
+        while let Some(item) = stream.next().await {
+            results.push(item?);
+        }
+        Ok(results)
+    }
+    
+    /// Call stream-unary RPC (blocking)
+    pub fn call_stream_unary(
+        &self,
+        method: String,
+        requests: Vec<Vec<u8>>,
+        timeout_secs: Option<u64>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<Vec<u8>> {
+        crate::get_runtime().block_on(async {
+            self.call_stream_unary_async(method, requests, timeout_secs, metadata).await
+        })
+    }
+    
+    /// Call stream-unary RPC (async)
+    pub async fn call_stream_unary_async(
+        &self,
+        method: String,
+        requests: Vec<Vec<u8>>,
+        timeout_secs: Option<u64>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<Vec<u8>> {
+        let timeout = timeout_secs.map(Duration::from_secs);
+        let request_stream = Box::pin(futures::stream::iter(requests));
+        self.stream_unary(&method, request_stream, timeout, metadata).await
+    }
+    
+    /// Call stream-stream RPC (blocking, returns all responses as Vec)
+    pub fn call_stream_stream(
+        &self,
+        method: String,
+        requests: Vec<Vec<u8>>,
+        timeout_secs: Option<u64>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<Vec<Vec<u8>>> {
+        crate::get_runtime().block_on(async {
+            self.call_stream_stream_async(method, requests, timeout_secs, metadata).await
+        })
+    }
+    
+    /// Call stream-stream RPC (async, returns all responses as Vec)
+    pub async fn call_stream_stream_async(
+        &self,
+        method: String,
+        requests: Vec<Vec<u8>>,
+        timeout_secs: Option<u64>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<Vec<Vec<u8>>> {
+        let timeout = timeout_secs.map(Duration::from_secs);
+        let request_stream = Box::pin(futures::stream::iter(requests));
+        let mut stream = self.stream_stream(&method, request_stream, timeout, metadata).await?;
+        let mut results = Vec::new();
+        while let Some(item) = stream.next().await {
+            results.push(item?);
+        }
+        Ok(results)
+    }
+}
+
+// Internal implementation helpers (not exported via UniFFI)
+impl RpcChannel {
+    /// Internal constructor from Name (for Rust code)
+    pub(crate) fn new_internal(remote: Name, app: Arc<BindingsApp>, conn_id: u64) -> Self {
         Self {
             remote,
             app,
             conn_id,
         }
+    }
+
+    /// Internal helper for unary-unary calls
+    pub async fn unary_unary(
+        &self,
+        method: &str,
+        request: Vec<u8>,
+        timeout: Option<Duration>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<Vec<u8>> {
+        let (service_name, session, mut session_ctx, metadata) =
+            self.common_setup(method, metadata).await?;
+        let deadline = compute_deadline(timeout);
+
+        self.send_unary(request, &session, &service_name, metadata, deadline)
+            .await?;
+
+        let (_ctx, response) = self.receive_unary(&mut session_ctx, deadline).await?;
+
+        // Use internal app to delete session
+        self.app.inner_app().delete_session(&session).ok();
+
+        Ok(response)
+    }
+
+    /// Internal helper for unary-stream calls
+    pub async fn unary_stream(
+        &self,
+        method: &str,
+        request: Vec<u8>,
+        timeout: Option<Duration>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<Vec<u8>>> + Send>>> {
+        let (service_name, session, session_ctx, metadata) =
+            self.common_setup(method, metadata).await?;
+        let deadline = compute_deadline(timeout);
+
+        self.send_unary(request, &session, &service_name, metadata, deadline)
+            .await?;
+
+        let stream = self.receive_stream(session_ctx, deadline).await?;
+
+        Ok(stream)
+    }
+
+    /// Internal helper for stream-unary calls
+    pub async fn stream_unary(
+        &self,
+        method: &str,
+        request_stream: Pin<Box<dyn Stream<Item = Vec<u8>> + Send>>,
+        timeout: Option<Duration>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<Vec<u8>> {
+        let (service_name, session, mut session_ctx, metadata) =
+            self.common_setup(method, metadata).await?;
+        let deadline = compute_deadline(timeout);
+
+        self.send_stream(request_stream, &session, &service_name, metadata, deadline)
+            .await?;
+
+        let (_ctx, response) = self.receive_unary(&mut session_ctx, deadline).await?;
+
+        // Use internal app to delete session
+        self.app.inner_app().delete_session(&session).ok();
+
+        Ok(response)
+    }
+
+    /// Internal helper for stream-stream calls
+    pub async fn stream_stream(
+        &self,
+        method: &str,
+        request_stream: Pin<Box<dyn Stream<Item = Vec<u8>> + Send>>,
+        timeout: Option<Duration>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<Vec<u8>>> + Send>>> {
+        let (service_name, session, session_ctx, metadata) =
+            self.common_setup(method, metadata).await?;
+        let deadline = compute_deadline(timeout);
+
+        self.send_stream(request_stream, &session, &service_name, metadata, deadline)
+            .await?;
+
+        let stream = self.receive_stream(session_ctx, deadline).await?;
+
+        Ok(stream)
     }
 
     async fn common_setup(
@@ -226,88 +450,6 @@ impl Channel {
         };
 
         Ok(Box::pin(stream))
-    }
-
-    pub async fn unary_unary(
-        &self,
-        method: &str,
-        request: Vec<u8>,
-        timeout: Option<Duration>,
-        metadata: Option<HashMap<String, String>>,
-    ) -> Result<Vec<u8>> {
-        let (service_name, session, mut session_ctx, metadata) =
-            self.common_setup(method, metadata).await?;
-        let deadline = compute_deadline(timeout);
-
-        self.send_unary(request, &session, &service_name, metadata, deadline)
-            .await?;
-
-        let (_ctx, response) = self.receive_unary(&mut session_ctx, deadline).await?;
-
-        // Use internal app to delete session
-        self.app.inner_app().delete_session(&session).ok();
-
-        Ok(response)
-    }
-
-    pub async fn unary_stream(
-        &self,
-        method: &str,
-        request: Vec<u8>,
-        timeout: Option<Duration>,
-        metadata: Option<HashMap<String, String>>,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<Vec<u8>>> + Send>>> {
-        let (service_name, session, session_ctx, metadata) =
-            self.common_setup(method, metadata).await?;
-        let deadline = compute_deadline(timeout);
-
-        self.send_unary(request, &session, &service_name, metadata, deadline)
-            .await?;
-
-        let stream = self.receive_stream(session_ctx, deadline).await?;
-
-        Ok(stream)
-    }
-
-    pub async fn stream_unary(
-        &self,
-        method: &str,
-        request_stream: Pin<Box<dyn Stream<Item = Vec<u8>> + Send>>,
-        timeout: Option<Duration>,
-        metadata: Option<HashMap<String, String>>,
-    ) -> Result<Vec<u8>> {
-        let (service_name, session, mut session_ctx, metadata) =
-            self.common_setup(method, metadata).await?;
-        let deadline = compute_deadline(timeout);
-
-        self.send_stream(request_stream, &session, &service_name, metadata, deadline)
-            .await?;
-
-        let (_ctx, response) = self.receive_unary(&mut session_ctx, deadline).await?;
-
-        // Use internal app to delete session
-        self.app.inner_app().delete_session(&session).ok();
-
-        Ok(response)
-    }
-
-    pub async fn stream_stream(
-        &self,
-        method: &str,
-        request_stream: Pin<Box<dyn Stream<Item = Vec<u8>> + Send>>,
-        timeout: Option<Duration>,
-        metadata: Option<HashMap<String, String>>,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<Vec<u8>>> + Send>>> {
-        let (service_name, session, session_ctx, metadata) =
-            self.common_setup(method, metadata).await?;
-        let deadline = compute_deadline(timeout);
-
-        self.send_stream(request_stream, &session, &service_name, metadata, deadline)
-            .await?;
-
-        let stream = self.receive_stream(session_ctx, deadline).await?;
-
-        Ok(stream)
     }
 }
 

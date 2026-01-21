@@ -3,7 +3,8 @@
 
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, uniffi::Error)]
+#[uniffi(flat_error)]
 pub enum SRPCError {
     #[error("RPC response error: code={0}, message={1}")]
     ResponseError(i32, String),

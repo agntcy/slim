@@ -5,10 +5,10 @@ mod common;
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use common::{SLIMAppConfig, create_local_app, split_id};
+use common::{RpcAppConnection, RpcAppConfig, create_local_app};
 use futures::stream;
 use futures::StreamExt;
-use slim_bindings::Channel;
+use slim_bindings::RpcChannel;
 use std::time::Duration;
 use tracing::{info, Level};
 
@@ -72,20 +72,17 @@ async fn main() -> Result<()> {
     info!("RPC Type: {}", args.rpc_type);
 
     // Create SLIM app configuration
-    let config = SLIMAppConfig::with_shared_secret(args.local, args.endpoint, args.secret)
+    let config = RpcAppConfig::with_shared_secret(args.local, args.endpoint, args.secret)
         .with_opentelemetry(args.opentelemetry);
 
     // Create SLIM app and connect
-    let (app, conn_id) = create_local_app(&config).await.context("Failed to create local app")?;
+    let RpcAppConnection { app, connection_id: conn_id } = create_local_app(config).await.context("Failed to create local app")?;
 
     info!("Connected to SLIM service with conn_id: {}", conn_id);
 
-    // Parse remote identity
-    let remote_name = split_id(&args.remote)
-        .context("Failed to parse remote identity")?;
-
-    // Create channel with the connection ID
-    let channel = Channel::new(remote_name, app, conn_id);
+    // Create RPC channel (no need to parse remote_name, RpcChannel::new does it)
+    let channel = RpcChannel::new(args.remote.clone(), app, conn_id)
+        .context("Failed to create RPC channel")?;
 
     let timeout = Some(Duration::from_secs(args.timeout));
 
@@ -127,7 +124,7 @@ async fn main() -> Result<()> {
 }
 
 async fn unary_unary_example(
-    channel: &Channel,
+    channel: &RpcChannel,
     method: &str,
     message: &str,
     timeout: Option<Duration>,
@@ -149,7 +146,7 @@ async fn unary_unary_example(
 }
 
 async fn unary_stream_example(
-    channel: &Channel,
+    channel: &RpcChannel,
     method: &str,
     message: &str,
     timeout: Option<Duration>,
@@ -178,7 +175,7 @@ async fn unary_stream_example(
 }
 
 async fn stream_unary_example(
-    channel: &Channel,
+    channel: &RpcChannel,
     method: &str,
     message: &str,
     iterations: usize,
@@ -207,7 +204,7 @@ async fn stream_unary_example(
 }
 
 async fn stream_stream_example(
-    channel: &Channel,
+    channel: &RpcChannel,
     method: &str,
     message: &str,
     iterations: usize,

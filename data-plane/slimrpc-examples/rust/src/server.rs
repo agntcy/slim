@@ -6,12 +6,17 @@ mod common;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use clap::Parser;
-use common::{SLIMAppConfig, create_local_app};
+use common::{RpcAppConnection, RpcAppConfig, create_local_app};
 use futures::stream;
 use futures::StreamExt;
 use slim_bindings::{
-    RpcMessageContext as MessageContext, RPCHandler, RequestStream, ResponseStream,
-    RpcSessionContext as SessionContext, Server, StreamStreamHandler, StreamUnaryHandler,
+    RpcMessageContext as MessageContext,
+    RpcSessionContext as SessionContext,
+    RpcServer,
+};
+use slim_bindings::slimrpc::{
+    RpcHandler, RequestStream, ResponseStream,
+    StreamStreamHandler, StreamUnaryHandler,
     UnaryStreamHandler, UnaryUnaryHandler,
 };
 use std::collections::HashMap;
@@ -199,43 +204,44 @@ async fn main() -> Result<()> {
     info!("Endpoint: {}", args.endpoint);
 
     // Create SLIM app configuration
-    let config = SLIMAppConfig::with_shared_secret(args.local, args.endpoint, args.secret)
+    let config = RpcAppConfig::with_shared_secret(args.local, args.endpoint, args.secret)
         .with_opentelemetry(args.opentelemetry);
 
     // Create SLIM app and connect
-    let (app, conn_id) = create_local_app(&config).await.context("Failed to create local app")?;
+    let RpcAppConnection { app, connection_id: conn_id } = create_local_app(config).await.context("Failed to create local app")?;
 
     info!("Connected to SLIM service with conn_id: {}", conn_id);
 
     // Create server with the connection ID
-    let mut server = Server::new(app, conn_id);
+    // Create RPC server (using Rust-specific constructor)
+    let mut server_owned = RpcServer::new_rust(app, conn_id);
 
     // Register EchoService handlers
-    let mut echo_handlers: HashMap<String, RPCHandler> = HashMap::new();
+    let mut echo_handlers: HashMap<String, RpcHandler> = HashMap::new();
     echo_handlers.insert(
         "Echo".to_string(),
-        RPCHandler::UnaryUnary(Box::new(EchoUnaryHandler)),
+        RpcHandler::UnaryUnary(Box::new(EchoUnaryHandler)),
     );
     echo_handlers.insert(
         "EchoStream".to_string(),
-        RPCHandler::UnaryStream(Box::new(EchoUnaryStreamHandler)),
+        RpcHandler::UnaryStream(Box::new(EchoUnaryStreamHandler)),
     );
     echo_handlers.insert(
         "StreamEcho".to_string(),
-        RPCHandler::StreamUnary(Box::new(EchoStreamUnaryHandler)),
+        RpcHandler::StreamUnary(Box::new(EchoStreamUnaryHandler)),
     );
     echo_handlers.insert(
         "StreamEchoStream".to_string(),
-        RPCHandler::StreamStream(Box::new(EchoStreamStreamHandler)),
+        RpcHandler::StreamStream(Box::new(EchoStreamStreamHandler)),
     );
 
-    server.register_method_handlers("EchoService", echo_handlers);
+    server_owned.register_method_handlers("EchoService", echo_handlers);
 
     // Register simple echo handler
-    server.register_rpc(
+    server_owned.register_rpc(
         "SimpleService",
         "Echo",
-        RPCHandler::UnaryUnary(Box::new(SimpleEchoHandler)),
+        RpcHandler::UnaryUnary(Box::new(SimpleEchoHandler)),
     );
 
     info!("Server registered handlers:");
@@ -247,7 +253,11 @@ async fn main() -> Result<()> {
 
     // Run server
     info!("Server is running...");
-    server.run().await?;
+    
+    // For Rust async examples, wrap in Arc and use run_async
+    use std::sync::Arc;
+    let server = Arc::new(server_owned);
+    server.run_async().await?;
 
     Ok(())
 }
