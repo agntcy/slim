@@ -30,7 +30,7 @@ tasks:
     desc: "Run the linter"
     cmds:
       - task: data-plane:lintall
-      - task: data-plane:python:lint
+      - task: data-plane:bindings:lint
 
   data-plane:build:strip:
     desc: "Build the project and strip the debug symbols"
