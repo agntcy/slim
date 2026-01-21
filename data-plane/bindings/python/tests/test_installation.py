@@ -10,14 +10,14 @@ import slim_bindings
 
 
 def main():
-    print("🚀 SLIM Python Bindings Installation Test")
+    print("SLIM Python Bindings Installation Test")
     print("=" * 50)
 
     # Initialize SLIM (required before any operations)
     slim_bindings.initialize_with_defaults()
-    print("✅ SLIM initialized successfully")
+    print("SLIM initialized successfully")
 
-    print("✅ Installation test passed!")
+    print("Installation test passed!")
 
 
 if __name__ == "__main__":
