@@ -201,6 +201,9 @@ jobs:
       run:
         shell: bash
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Setup QEMU for ARM64 emulation
         if: matrix.platform.use_qemu == true
         uses: docker/setup-qemu-action@v3
@@ -244,6 +247,7 @@ jobs:
           # Run test in ARM64 container
           docker run --rm --platform linux/arm64 \
             -v $(pwd):/workspace \
+            -v $(pwd):/repo:ro \
             -w /workspace \
             $ALPINE_VARIANT \
             sh -c "
@@ -271,28 +275,8 @@ jobs:
               go run github.com/${{ env.GO_BINDINGS_REPO }}/cmd/slim-bindings-setup@$VERSION
               echo '✅ Downloaded native libraries'
 
-              # Create test program
-              cat << 'EOF' > main.go
-          package main
-
-          import (
-          	\"fmt\"
-
-          	slim \"github.com/${{ env.GO_BINDINGS_REPO }}\"
-          )
-
-          func main() {
-          	fmt.Println(\"🚀 SLIM Go Bindings Test\")
-          	fmt.Println(\"========================\")
-
-          	slim.InitializeWithDefaults()
-          	fmt.Println(\"✅ SLIM initialized successfully\")
-
-          	fmt.Println(\"✅ Test passed!\")
-          }
-          EOF
-
-              echo '✅ Created test program'
+              # Copy test program from repo
+              cp /repo/data-plane/bindings/go/tests/test_installation.go main.go
 
               # Run test
               go run main.go
@@ -340,29 +324,8 @@ jobs:
           go run github.com/${{ env.GO_BINDINGS_REPO }}/cmd/slim-bindings-setup@$VERSION
           echo "✅ Downloaded native libraries"
 
-          # Create a test program
-          cat << 'EOF' > main.go
-          package main
-
-          import (
-          	"fmt"
-
-          	slim "github.com/${{ env.GO_BINDINGS_REPO }}"
-          )
-
-          func main() {
-          	fmt.Println("🚀 SLIM Go Bindings Test")
-          	fmt.Println("========================")
-
-          	// Initialize SLIM (required before any operations)
-          	slim.InitializeWithDefaults()
-          	fmt.Println("✅ SLIM initialized successfully")
-
-          	fmt.Println("✅ Test passed!")
-          }
-          EOF
-
-          echo "✅ Created test program"
+          # Copy test program from repo
+          cp ./data-plane/bindings/go/tests/test_installation.go main.go
 
           # Run the test program
           go run main.go

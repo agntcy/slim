@@ -33,6 +33,7 @@ on:
         default: v0.4.0+v0.28.3
 env:
   LIBRARY_NAME: slim_bindings
+  PYTHON_VERSION: '3.10'
 
 jobs:
   generate-matrix:
@@ -203,7 +204,7 @@ jobs:
 
   go-bindings-build-and-test:
     runs-on: ${{ inputs.runner }}
-    needs: 
+    needs:
       - generate-matrix
       - build-libraries
 
@@ -272,7 +273,7 @@ jobs:
   python-bindings-test:
     name: Test Python Wheels (${{ matrix.platform.target }})
     runs-on: ${{ matrix.platform.runner }}
-    needs: 
+    needs:
       - generate-matrix
       - build-libraries
     strategy:
@@ -282,6 +283,9 @@ jobs:
       run:
         shell: bash
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Setup QEMU for ARM64 emulation
         if: matrix.platform.use_qemu == true
         uses: docker/setup-qemu-action@v3
@@ -292,7 +296,7 @@ jobs:
         if: matrix.platform.os != 'linux'
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Download Python wheels
         uses: actions/download-artifact@v4
@@ -311,7 +315,7 @@ jobs:
         run: |
           echo "📦 Testing Python wheel"
           echo "🖥️  Platform: ${{ matrix.platform.target }}"
-          
+
           # Determine platform for container selection
           if [[ "${{ matrix.platform.target }}" == *"aarch64"* ]]; then
             PLATFORM="linux/arm64"
@@ -323,9 +327,9 @@ jobs:
 
           # Determine libc variant for container selection
           if [[ "${{ matrix.platform.target }}" == *"musl"* ]]; then
-            CONTAINER_IMAGE="python:3.10-alpine"
+            CONTAINER_IMAGE="python:${{ env.PYTHON_VERSION }}-alpine"
           else
-            CONTAINER_IMAGE="python:3.10-slim"
+            CONTAINER_IMAGE="python:${{ env.PYTHON_VERSION }}-slim"
           fi
 
           # Define Docker flags
@@ -333,6 +337,7 @@ jobs:
             --rm
             --platform "$PLATFORM"
             -v "$(pwd)/wheels:/wheels"
+            -v "$(pwd):/repo:ro"
             -w /workspace
           )
 
@@ -354,22 +359,8 @@ jobs:
             pip install "$WHEEL"
             echo "✅ Wheel installed successfully"
 
-            # Create test program
-            cat > test_bindings.py << "EOF"
-          import slim_bindings
-
-          print("🚀 SLIM Python Bindings Test")
-          print("========================")
-
-          # Initialize SLIM
-          slim_bindings.initialize_with_defaults()
-          print("✅ SLIM initialized successfully")
-
-          print("✅ Test passed!")
-          EOF
-
-            echo "✅ Created test program"
-            python test_bindings.py
+            # Run test program
+            python /repo/data-plane/bindings/python/tests/test_installation.py
 
             echo ""
             echo "🎉 All tests passed on ${{ matrix.platform.target }}!"
@@ -399,24 +390,8 @@ jobs:
           pip install "$WHEEL"
           echo "✅ Wheel installed successfully"
 
-          # Define test program
-          cat > test_bindings.py << "EOF"
-          import slim_bindings
-
-          print("🚀 SLIM Python Bindings Test")
-          print("========================")
-
-          # Initialize SLIM (required before any operations)
-          slim_bindings.initialize_with_defaults()
-          print("✅ SLIM initialized successfully")
-
-          print("✅ Test passed!")
-          EOF
-
-          echo "✅ Created test program"
-
           # Run the test program
-          python test_bindings.py
+          python ./data-plane/bindings/python/tests/test_installation.py
 
           echo ""
           echo "🎉 All tests passed on ${{ matrix.platform.target }}!"
