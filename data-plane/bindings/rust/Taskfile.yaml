@@ -47,9 +47,9 @@ tasks:
 
         ARGS=()
 
-        # Use regular cargo build for Windows, zigbuild for others
-        if [[ "$TARGET_OS" == "linux" ]]; then
-          # For Linux, use zigbuild with libc version for gnu targets
+        # Use zigbuild for Linux or gnu targets, cargo build for others
+        if [[ "$TARGET_OS" == "linux" || "$TARGET_ABI" == "gnu" ]]; then
+          # For Linux or gnu targets, use zigbuild with libc version for gnu ABI
           LIBC_VERSION=""
           if [[ "$TARGET_ABI" == "gnu" ]]; then
             LIBC_VERSION=".{{.GNU_CLIB_VERSION}}"
@@ -62,7 +62,7 @@ tasks:
             {{.RELEASE}}
           )
         else
-          # For Windows/macOS, use regular cargo build without libc version
+          # For Windows MSVC/macOS, use regular cargo build without libc version
           ARGS=(
             "build"
             "--target"
