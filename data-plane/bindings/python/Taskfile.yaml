@@ -72,6 +72,8 @@ tasks:
 
   python:bindings:packaging:
     desc: "Generate Python wheels for multiple Python versions (3.10, 3.11, 3.12, 3.13, 3.14) using Maturin"
+    deps:
+      - tools:zig
     vars:
       INTERPRETERS: '{{.INTERPRETERS | default "3.10 3.11 3.12 3.13 3.14"}}'
     cmds:
