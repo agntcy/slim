@@ -273,7 +273,7 @@ tasks:
       TARGETOS: '{{.TARGETOS | default "linux"}}'
       TARGETARCH: '{{.TARGETARCH | default "amd64"}}'
       _DEFAULT_ZIG_DIR:
-        sh: echo "{{.REPO_ROOT}}/data-plane/bindings/rust/.tools/zig"
+        sh: echo "{{.TOOLS_INSTALL_DIR}}"
       ZIG_DIR: '{{.ZIG_DIR | default ._DEFAULT_ZIG_DIR}}'
       GIT_COMMIT:
         sh: git log -n 1 --format=%h
