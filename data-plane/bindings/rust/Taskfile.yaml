@@ -43,14 +43,28 @@ tasks:
       - |
         # Determine the correct libc version based on TARGET_ABI
         TARGET_ABI="{{.TARGET_ABI}}"
+        TARGET_OS="{{.TARGET_OS}}"
+
         if [[ "$TARGET_ABI" == "gnu" ]]; then
           LIBC_VERSION=".{{.GNU_CLIB_VERSION}}"
         fi
 
-        ARGS=(
-          "zigbuild"
+        ARGS=()
+
+        # Use regular cargo build for Windows, zigbuild for others
+        if [[ "$TARGET_OS" == "linux" ]]; then
+          ARGS=(
+            "zigbuild"
+          )
+        else
+          ARGS=(
+            "build"
+          )
+        fi
+
+        ARGS+=(
           "--target"
-          "{{.TARGET}}$LIBC_VERSION"
+          "{{.TARGET}}"
           {{.RELEASE}}
         )
 
