@@ -47,8 +47,26 @@ tasks:
 
         ARGS=()
 
-        # Use zigbuild for Linux or gnu targets, cargo build for others
-        if [[ "$TARGET_OS" == "linux" || "$TARGET_ABI" == "gnu" ]]; then
+        # Determine whether to use cargo build or cargo zigbuild
+        # - Native builds: use regular cargo build
+        # - Apple targets (iOS, macOS): use regular cargo build (zigbuild not compatible)
+        # - Linux/gnu targets: use zigbuild with libc version for gnu ABI
+        # - Other cross-compilation targets: use zigbuild
+        if [[ "{{.TARGET}}" == "" || "{{.TARGET}}" == "$(rustc -vV | sed -n 's|host: ||p')" ]]; then
+          # Native build
+          ARGS=(
+            "build"
+            {{.RELEASE}}
+          )
+        elif [[ "{{.TARGET}}" == *"apple-ios"* || "{{.TARGET}}" == *"apple-darwin"* ]]; then
+          # Apple targets (iOS, iOS Simulator, macOS) - use regular cargo build
+          ARGS=(
+            "build"
+            "--target"
+            "{{.TARGET}}"
+            {{.RELEASE}}
+          )
+        elif [[ "$TARGET_OS" == "linux" || "$TARGET_ABI" == "gnu" ]]; then
           # For Linux or gnu targets, use zigbuild with libc version for gnu ABI
           LIBC_VERSION=""
           if [[ "$TARGET_ABI" == "gnu" ]]; then
@@ -62,9 +80,9 @@ tasks:
             {{.RELEASE}}
           )
         else
-          # For Windows MSVC/macOS, use regular cargo build without libc version
+          # Other cross-compilation targets (e.g., Windows MSVC) - use zigbuild
           ARGS=(
-            "build"
+            "zigbuild"
             "--target"
             "{{.TARGET}}"
             {{.RELEASE}}

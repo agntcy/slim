@@ -28,10 +28,15 @@ Pod::Spec.new do |s|
   s.libraries = 'c++', 'resolv'
   
   # Required for JSI
+  s.dependency "React-Core"
+  s.dependency "React-callinvoker"
+  s.dependency "React-jsi"
+  
   s.pod_target_xcconfig = {
     "USE_HEADERMAP" => "YES",
-    "HEADER_SEARCH_PATHS" => "\"$(PODS_ROOT)/Headers/Public/React-Codegen/react/renderer/components\" \"$(PODS_TARGET_SRCROOT)/generated/cpp\" \"$(PODS_TARGET_SRCROOT)/node_modules/uniffi-bindgen-react-native/cpp/includes\"",
-    "EXCLUDED_ARCHS[sdk=iphonesimulator*]" => "x86_64"
+    "HEADER_SEARCH_PATHS" => "\"$(PODS_ROOT)/Headers/Public/React-Codegen/react/renderer/components\" \"$(PODS_TARGET_SRCROOT)/generated/cpp\" \"$(PODS_TARGET_SRCROOT)/node_modules/uniffi-bindgen-react-native/cpp/includes\" \"$(PODS_ROOT)/Headers/Private/React-Core\" \"$(PODS_ROOT)/Headers/Public/React-jsi\"",
+    "EXCLUDED_ARCHS[sdk=iphonesimulator*]" => "x86_64",
+    "CLANG_CXX_LANGUAGE_STANDARD" => "c++20"
   }
   
   # Force load the Rust library to ensure all UniFFI symbols are included
