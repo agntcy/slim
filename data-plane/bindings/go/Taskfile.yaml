@@ -14,10 +14,6 @@ includes:
 vars:
   # The Rust UniFFI bindings crate - in bindings/adapter (sibling to bindings/go)
   BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
-  PROFILE: '{{.PROFILE | default "release"}}'
-  CURRENT_TARGET:
-    sh: 'rustc -vV | sed -n "s|host: ||p"'
-  TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
   SERVICE_TARGET: "{{.TASKFILE_DIR}}/../../target/{{.TARGET}}/{{.PROFILE}}"
   LIB_NAME: slim_bindings
   _DEFAULT_LIB_PATH:

@@ -4,7 +4,6 @@
 [build-system]
 requires = [
     "maturin~=1.11",
-    "ziglang~=0.14.0; sys_platform == 'linux' or sys_platform == 'darwin'",
     "maturin[patchelf]>=1.8.2; sys_platform == 'linux'",
     "uniffi-bindgen==0.28.3"
 ]
@@ -52,7 +51,6 @@ slim-bindings-server = "examples.slim:main"
 [dependency-groups]
 building = [
     "maturin~=1.11",
-    "ziglang~=0.14.0; sys_platform == 'linux' or sys_platform == 'darwin'",
     "maturin[patchelf]>=1.8.2; sys_platform == 'linux'",
     "uniffi-bindgen==0.28.3"
 ]
@@ -98,4 +96,4 @@ isort = { known-first-party = ["slim_bindings", "tests"] }
 
 
 [tool.uv]
-default-groups = ["building", "testing", "linting"]
+default-groups = []

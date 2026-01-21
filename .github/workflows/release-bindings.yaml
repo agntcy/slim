@@ -5,10 +5,6 @@
 name: Release Bindings
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/release-bindings.yaml'
-      - '.github/workflows/reusable-bindings-build-and-test.yaml'
   push:
     tags:
       - 'slim-bindings-libs-*'
