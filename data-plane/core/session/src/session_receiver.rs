@@ -111,11 +111,9 @@ impl SessionReceiver {
             None
         };
 
-        if shutdown_receive {
-            tracing::info!(
-                "creating session receiver with shutdown_receive=true, no messages will be delivered to the app"
-            );
-        }
+        tracing::debug!(
+           %shutdown_receive, "creating session receiver"
+        );
 
         SessionReceiver {
             buffer: HashMap::new(),

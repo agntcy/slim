@@ -70,8 +70,32 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     /// Create new App instance
-    #[allow(clippy::too_many_arguments)]
+    #[allow(dead_code)]
     pub(crate) fn new(
+        app_name: &Name,
+        identity_provider: P,
+        identity_verifier: V,
+        conn_id: u64,
+        tx_slim: SlimChannelSender,
+        tx_app: mpsc::Sender<Result<Notification, SessionError>>,
+        storage_path: std::path::PathBuf,
+    ) -> Self {
+        Self::new_with_shutdown_flags(
+            app_name,
+            identity_provider,
+            identity_verifier,
+            conn_id,
+            tx_slim,
+            tx_app,
+            storage_path,
+            false,
+            false,
+        )
+    }
+
+    /// Create new App instance with shutdown flags
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_with_shutdown_flags(
         app_name: &Name,
         identity_provider: P,
         identity_verifier: V,
@@ -391,8 +415,6 @@ mod tests {
             tx_slim,
             tx_app,
             std::path::PathBuf::from("/tmp/test_storage"),
-            false,
-            false,
         )
     }
 
@@ -410,8 +432,6 @@ mod tests {
             tx_slim.clone(),
             tx_app.clone(),
             std::path::PathBuf::from("/tmp/test_storage"),
-            false,
-            false,
         );
 
         let config = SessionConfig {
@@ -450,8 +470,6 @@ mod tests {
             tx_slim.clone(),
             tx_app.clone(),
             std::path::PathBuf::from("/tmp/test_storage"),
-            false,
-            false,
         );
 
         let config = SessionConfig {
@@ -493,8 +511,6 @@ mod tests {
             tx_slim.clone(),
             tx_app.clone(),
             std::path::PathBuf::from("/tmp/test_storage"),
-            false,
-            false,
         );
 
         let config = SessionConfig {
@@ -549,8 +565,6 @@ mod tests {
             tx_slim,
             tx_app,
             std::path::PathBuf::from("/tmp/test_storage"),
-            false,
-            false,
         );
 
         // send join_request message to create the session
@@ -685,8 +699,6 @@ mod tests {
             tx_slim,
             tx_app,
             std::path::PathBuf::from("/tmp/test_storage"),
-            false,
-            false,
         );
 
         let mut session_config =

@@ -111,11 +111,9 @@ impl SessionSender {
             None
         };
 
-        if shutdown_send {
-            tracing::info!(
-                "creating session sender with shutdown_send=true, no messages will be sent to the network"
-            );
-        }
+        tracing::debug!(
+           %shutdown_send, "creating session sender"
+        );
 
         SessionSender {
             buffer: ProducerBuffer::with_capacity(512),
@@ -203,11 +201,15 @@ impl SessionSender {
         // if shutdown_send is true we drop all messages but we signal success
         // to the application using the ack channel if provided
         if self.shutdown_send {
-            debug!("sender is shutdown, drop message");
+            debug!(message_id = %message.get_id(), "sender is shutdown, drop message");
             if let Some(tx) = ack_tx {
-                let _ = tx.send(Ok(()));
+                let _ = tx.send(Err(SessionError::SessionSenderShutdown {
+                    id: message.get_id(),
+                }));
             }
-            return Ok(());
+            return Err(SessionError::SessionSenderShutdown {
+                id: message.get_id(),
+            });
         }
 
         let is_publish_to = message.metadata.contains_key(PUBLISH_TO);

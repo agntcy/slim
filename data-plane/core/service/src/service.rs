@@ -318,7 +318,7 @@ impl Service {
         let (tx_app, rx_app) = mpsc::channel(128);
 
         // create app
-        let app = App::new(
+        let app = App::new_with_shutdown_flags(
             app_name,
             identity_provider,
             identity_verifier,
