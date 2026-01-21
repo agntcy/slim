@@ -19,10 +19,10 @@ vars:
   CARGO_COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete cargo-deny typos-cli"
 
 tasks:
-  data-plane:python:lint:
+  data-plane:bindings:lint:
     desc: "Python linter"
     internal: true
-    dir: ./python/bindings
+    dir: ./bindings/python
     cmds:
       - task python:bindings:lint
 
