@@ -31,12 +31,12 @@ func main() {
 	// create shared secret provider and verifier
 	identityProvider := slim.IdentityProviderConfigSharedSecret{
 		Data: sharedSecret,
-		Id:   appName.AsString(),
+		Id:   appName.String(),
 	}
 
 	identityVerifier := slim.IdentityVerifierConfigSharedSecret{
 		Data: sharedSecret,
-		Id:   appName.AsString(),
+		Id:   appName.String(),
 	}
 
 	app, err := slim.NewApp(

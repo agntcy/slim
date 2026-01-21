@@ -248,7 +248,7 @@ impl Service {
     }
 
     pub async fn shutdown(&self) -> Result<(), ServiceError> {
-        info!("shutting down service");
+        debug!("shutting down service");
 
         // Cancel and drain all server cancellation tokens
         for (endpoint, token) in self.cancellation_tokens.write().drain() {

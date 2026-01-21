@@ -645,7 +645,7 @@ impl MessageProcessor {
     }
 
     async fn send_error_to_local_app(&self, conn_index: u64, err: DataPathError) {
-        info!(%conn_index, "sending error to local application");
+        debug!(%conn_index, "sending error to local application");
         let connection = self.forwarder().get_connection(conn_index);
         match connection {
             Some(conn) => {
@@ -799,12 +799,12 @@ impl MessageProcessor {
                         }
                     }
                     _ = &mut watch => {
-                        debug!(%conn_index, "shutting down stream on drain");
+                        info!(%conn_index, "shutting down stream on drain");
                         try_to_reconnect = false;
                         break;
                     }
                     _ = token_clone.cancelled() => {
-                        debug!(%conn_index, "shutting down stream on cancellation token");
+                        info!(%conn_index, "shutting down stream on cancellation token");
                         try_to_reconnect = false;
                         break;
                     }
