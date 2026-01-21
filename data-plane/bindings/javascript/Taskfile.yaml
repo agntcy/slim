@@ -5,15 +5,15 @@ version: '3'
 
 includes:
   adapter:
-    taskfile: "../adapter/Taskfile.yaml"
+    taskfile: "../rust/Taskfile.yaml"
     internal: false
   rust:
     taskfile: ../../../tasks/rust.yaml
     internal: true
 
 vars:
-  # The Rust UniFFI bindings crate - in bindings/adapter (sibling to bindings/javascript)
-  BINDINGS_DIR: "{{.TASKFILE_DIR}}/../adapter"
+  # The Rust UniFFI bindings crate - in bindings/rust (sibling to bindings/javascript)
+  BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
   PROFILE: '{{.PROFILE | default "release"}}'
   CURRENT_TARGET:
     sh: 'rustc -vV | sed -n "s|host: ||p"'
@@ -75,8 +75,17 @@ tasks:
       - echo "✅ React Native bindings generated successfully"
     silent: true
 
+  build:ios-simulator:
+    desc: Build Rust library for iOS simulator
+    cmds:
+      - task: adapter:bindings:build:all
+        vars:
+          TARGET: aarch64-apple-ios-sim
+          PROFILE: debug
+
   generate:react-native:
     desc: Generate React Native JSI bindings from compiled library
+    dir: "{{.TASKFILE_DIR}}"
     deps:
       - task: adapter:bindings:build:all
         vars:
@@ -171,67 +180,35 @@ tasks:
         # Check for Xcode (not just Command Line Tools)
         if ! xcodebuild -version > /dev/null 2>&1; then
           echo "❌ ERROR: Xcode is not installed or not properly configured"
-          echo ""
           echo "iOS E2E tests require the FULL Xcode application (not Command Line Tools)."
-          echo ""
-          echo "To install:"
-          echo "  1. Install Xcode from Mac App Store: https://apps.apple.com/app/xcode/id497799835"
-          echo "  2. Accept license: sudo xcodebuild -license accept"
-          echo "  3. Set developer directory: sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer"
-          echo ""
-          echo "To verify installation:"
-          echo "  xcodebuild -version"
-          echo "  xcrun --show-sdk-path --sdk iphoneos"
-          echo ""
+          echo "Install: https://apps.apple.com/app/xcode/id497799835"
+          echo "Then run: sudo xcodebuild -license accept"
           exit 1
         fi
         
         # Check for iOS SDK
         if ! xcrun --show-sdk-path --sdk iphoneos > /dev/null 2>&1; then
           echo "❌ ERROR: iOS SDK not found"
-          echo ""
-          echo "Your Xcode installation is incomplete or misconfigured."
-          echo ""
-          echo "Try:"
-          echo "  1. Ensure Xcode.app is in /Applications/"
-          echo "  2. Run: sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer"
-          echo "  3. Run: xcodebuild -downloadAllPlatforms"
-          echo ""
+          echo "Run: sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer"
           exit 1
         fi
         
         # Check for CocoaPods
         if ! command -v pod > /dev/null 2>&1; then
           echo "❌ ERROR: CocoaPods is not installed"
-          echo ""
-          echo "CocoaPods is required to install React Native iOS dependencies."
-          echo ""
-          echo "To install:"
-          echo "  sudo gem install cocoapods"
-          echo ""
-          echo "To verify installation:"
-          echo "  pod --version"
-          echo ""
+          echo "Install: sudo gem install cocoapods"
           exit 1
         fi
         
         # Check for Maestro
         if ! command -v maestro > /dev/null 2>&1; then
           echo "❌ ERROR: Maestro is not installed"
-          echo ""
-          echo "Maestro is required to run E2E tests."
-          echo ""
-          echo "To install:"
-          echo '  curl -Ls "https://get.maestro.mobile.dev" | bash'
-          echo ""
-          echo "To verify installation:"
-          echo "  maestro --version"
-          echo ""
+          echo 'Install: curl -Ls "https://get.maestro.mobile.dev" | bash'
           exit 1
         fi
         
         echo "✅ All iOS E2E prerequisites are installed"
-    silent: false
+    silent: true
 
   check-prerequisites:android:
     desc: Check if Android E2E prerequisites are installed
@@ -266,7 +243,7 @@ tasks:
         fi
         
         echo "✅ All Android E2E prerequisites are installed"
-    silent: false
+    silent: true
 
   test:e2e:setup:
     desc: Set up React Native test app
@@ -285,6 +262,7 @@ tasks:
     desc: Run E2E tests on iOS simulator
     deps:
       - check-prerequisites:ios
+      - build:ios-simulator
       - generate:react-native
       - test:e2e:setup
     dir: examples/react-native/test-app
@@ -381,75 +359,6 @@ tasks:
       - rm -rf coverage/
       - cd {{.BINDINGS_DIR}} && cargo clean
       - echo "✅ Clean complete"
-    silent: true
-
-  # React Native Examples
-  example:react-native:simple:
-    desc: Run simple React Native example
-    deps:
-      - task: generate:react-native
-    dir: examples/react-native/simple
-    cmds:
-      - echo "🚀 Running React Native simple example..."
-      - echo "Note - This requires a React Native environment setup"
-      - npm install
-      - npx react-native run-ios
-    silent: true
-
-  example:react-native:p2p:
-    desc: Run React Native point-to-point example
-    deps:
-      - task: generate:react-native
-    dir: examples/react-native/point-to-point
-    cmds:
-      - echo "🚀 Running React Native point-to-point example..."
-      - npm install
-      - npx react-native run-ios
-    silent: true
-
-  example:react-native:group:
-    desc: Run React Native group messaging example
-    deps:
-      - task: generate:react-native
-    dir: examples/react-native/group
-    cmds:
-      - echo "🚀 Running React Native group example..."
-      - npm install
-      - npx react-native run-ios
-    silent: true
-
-  # Web/WASM Examples
-  example:web:simple:
-    desc: Run simple web/WASM example
-    deps:
-      - task: build:wasm
-    dir: examples/web/simple
-    cmds:
-      - echo "🌐 Running web simple example..."
-      - npm install
-      - npm run dev
-    silent: true
-
-  example:web:p2p:
-    desc: Run web point-to-point example
-    deps:
-      - task: build:wasm
-    dir: examples/web/point-to-point
-    cmds:
-      - echo "🌐 Running web point-to-point example..."
-      - npm install
-      - npm run dev
-    silent: true
-
-  example:web:group:
-    desc: Run web group messaging example
-    deps:
-      - task: build:wasm
-    dir: examples/web/group
-    cmds:
-      - echo "🌐 Running web group example..."
-      - npm install
-      - npm run dev
     silent: true
 
   # Development helpers
