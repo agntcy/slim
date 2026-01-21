@@ -11,11 +11,6 @@ includes:
     taskfile: ../tasks/tools.yaml
     flatten: true
 
-  go-bindings:
-    taskfile: ../data-plane/bindings/go/Taskfile.yaml
-    dir: ../data-plane/bindings/go
-
-
 vars:
   REPO_ROOT:
     sh: git rev-parse --show-toplevel
@@ -190,7 +185,7 @@ tasks:
     deps:
       - control-plane:proto:generate
       - control-plane:go-bindings:setup
-      - go-bindings:adapter:bindings:install-zig
+      - tools:zig
     dir: slimctl/cmd
     cmds:
       - task: control-plane:gogen
@@ -278,7 +273,7 @@ tasks:
       TARGETOS: '{{.TARGETOS | default "linux"}}'
       TARGETARCH: '{{.TARGETARCH | default "amd64"}}'
       _DEFAULT_ZIG_DIR:
-        sh: echo "{{.REPO_ROOT}}/data-plane/bindings/rust/.tools/zig"
+        sh: echo "{{.TOOLS_INSTALL_DIR}}"
       ZIG_DIR: '{{.ZIG_DIR | default ._DEFAULT_ZIG_DIR}}'
       GIT_COMMIT:
         sh: git log -n 1 --format=%h

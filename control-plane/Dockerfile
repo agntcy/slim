@@ -8,7 +8,7 @@ SHELL ["/usr/bin/bash", "-c"]
 WORKDIR /
 
 # Install unzip and xz-utils (for tar.xz extraction)
-RUN apt update && apt install -y unzip curl
+RUN apt update && apt install -y unzip curl xz-utils
 
 # Copy all the necessary sources from the repo root
 COPY . /ctx
