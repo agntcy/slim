@@ -9,6 +9,10 @@ on:
     tags:
       - 'slim-bindings-libs-*'
 
+  pull_request:
+    paths:
+      - '.github/workflows/release-bindings.yaml'
+
 env:
   LIBRARY_NAME: slim_bindings
   GO_BINDINGS_REPO: agntcy/slim-bindings-go
@@ -96,6 +100,7 @@ jobs:
   release-go-bindings:
     name: "Release Go Bindings"
     needs: build-and-test-bindings
+    if: startsWith(github.ref, 'skip')
     uses: ./.github/workflows/reusable-go-bindings-release.yaml
     secrets:
       gh-token: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
@@ -123,8 +128,8 @@ jobs:
       - name: Show files
         run: ls -l dist
 
-      - name: Publish package distributions to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
-          packages-dir: dist
+      # - name: Publish package distributions to PyPI
+      #   uses: pypa/gh-action-pypi-publish@release/v1
+      #   with:
+      #     password: ${{ secrets.PYPI_API_TOKEN }}
+      #     packages-dir: dist
