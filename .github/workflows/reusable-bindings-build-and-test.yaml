@@ -359,8 +359,8 @@ jobs:
             pip install "$WHEEL"
             echo "✅ Wheel installed successfully"
 
-            # Run test program
-            python /repo/data-plane/bindings/python/tests/test_installation.py
+            # Run installation test
+            python /repo/.github/tests/python/test_installation.py
 
             echo ""
             echo "🎉 All tests passed on ${{ matrix.platform.target }}!"
@@ -390,8 +390,8 @@ jobs:
           pip install "$WHEEL"
           echo "✅ Wheel installed successfully"
 
-          # Run the test program
-          python ./data-plane/bindings/python/tests/test_installation.py
+          # Run installation test
+          python ./.github/tests/python/test_installation.py
 
           echo ""
           echo "🎉 All tests passed on ${{ matrix.platform.target }}!"

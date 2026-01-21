@@ -15,6 +15,9 @@ includes:
 env:
   PATH: "{{.TOOLS_INSTALL_DIR}}/zig:{{.PATH}}"
 
+vars:
+  GNU_CLIB_VERSION: 2.28
+
 tasks:
   default:
     cmds:
@@ -38,22 +41,16 @@ tasks:
       - echo "🦀 Building Rust bindings library... {{.TARGET}}"
       - rustup target add {{.TARGET}}
       - |
-        ARGS=()
-
-        # Depending on the target, we can either use cargo-zigbuild or regular cargo build
-        if [[ "{{.TARGET}}" == "" || "{{.TARGET}}" == "$(rustc -vV | sed -n 's|host: ||p')" ]]; then
-          ARGS+=(
-            "build"
-          )
-        else
-          ARGS+=(
-            "zigbuild"
-          )
+        # Determine the correct libc version based on TARGET_ABI
+        TARGET_ABI="{{.TARGET_ABI}}"
+        if [[ "$TARGET_ABI" == "gnu" ]]; then
+          LIBC_VERSION=".{{.GNU_CLIB_VERSION}}"
         fi
 
-        ARGS+=(
+        ARGS=(
+          "zigbuild"
           "--target"
-          "{{.TARGET}}"
+          "{{.TARGET}}$LIBC_VERSION"
           {{.RELEASE}}
         )
 
