@@ -1,9 +1,19 @@
 #import "AgntcySlimBindings.h"
 #import <React/RCTBridge+Private.h>
 #import <React/RCTUtils.h>
-#import <ReactCommon/RCTTurboModule.h>
-#import <jsi/jsi.h>
 #import "../generated/cpp/slim_bindings.hpp"
+
+#ifdef RCT_NEW_ARCH_ENABLED
+#import <React-RCTAppDelegate/RCTAppDelegate.h>
+#import <ReactCommon/RCTTurboModuleManager.h>
+#else
+#import <React/RCTBridge.h>
+#endif
+
+#ifdef __cplusplus
+#import "jsi/jsi.h"
+using namespace facebook;
+#endif
 
 // Declare the private runtime property on RCTCxxBridge
 @interface RCTCxxBridge (JSIRuntime)

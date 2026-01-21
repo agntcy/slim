@@ -6,9 +6,6 @@ node_modules/
 # Generated bindings
 generated/
 
-# WASM-related (disabled - tokio incompatibility)
-wasm/
-examples/web/
 
 # Build outputs
 dist/

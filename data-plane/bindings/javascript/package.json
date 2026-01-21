@@ -2,11 +2,15 @@
   "name": "@agntcy/slim-bindings",
   "version": "0.7.0",
   "description": "JavaScript/TypeScript bindings for SLIM data plane - React Native support",
-  "main": "./generated/typescript/index.ts",
-  "types": "./generated/typescript/index.d.ts",
-  "react-native": "./generated/typescript/index.ts",
+  "main": "./src/index.ts",
+  "types": "./src/index.d.ts",
+  "react-native": "./src/index.ts",
   "files": [
+    "src/",
     "generated/",
+    "ios/",
+    "AgntcySlimBindings.podspec",
+    "react-native.config.js",
     "README.md",
     "LICENSE"
   ],
