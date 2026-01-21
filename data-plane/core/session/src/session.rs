@@ -35,7 +35,7 @@ impl Session {
         local_name: &Name,
         tx: SessionTransmitter,
         tx_signals: mpsc::Sender<SessionMessage>,
-        shutdown_send: bool, // if true, do not produce any message
+        shutdown_send: bool,    // if true, do not produce any message
         shutdown_receive: bool, // if true do not send messages to the application
     ) -> Self {
         let timer_settings = if let Some(duration) = session_config.interval

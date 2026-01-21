@@ -70,6 +70,7 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     /// Create new App instance
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         app_name: &Name,
         identity_provider: P,

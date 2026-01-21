@@ -84,7 +84,7 @@ pub struct SessionReceiver {
     /// drain state - when true, no new messages from app are accepted
     draining_state: ReceiverDrainStatus,
 
-    /// shutdown receive flag. if set no message is deliverd to the app
+    /// shutdown receive flag. if set no message is delivered to the app
     /// the receiver will simply send acks on message reception
     shutdown_receive: bool,
 }
@@ -110,6 +110,12 @@ impl SessionReceiver {
         } else {
             None
         };
+
+        if shutdown_receive {
+            tracing::info!(
+                "creating session receiver with shutdown_receive=true, no messages will be delivered to the app"
+            );
+        }
 
         SessionReceiver {
             buffer: HashMap::new(),
@@ -142,9 +148,7 @@ impl SessionReceiver {
                     message.remove_metadata(PUBLISH_TO);
                 }
 
-                if self.timer_factory.is_some() {
-                    self.send_ack(&message).await?;
-                }
+                self.send_ack(&message).await?;
                 self.on_publish_message(message).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::RtxReply => {
@@ -165,9 +169,9 @@ impl SessionReceiver {
             debug!(
                 id = %message.get_id(),
                 source = %message.get_source(),
-                "receiver is shutdown, ack message without delivering to app",
+                "receiver is disabled, do not deliver message to app",
             );
-            return self.send_ack(&message).await;
+            return Ok(());
         }
 
         if self.timer_factory.is_none() || message.contains_metadata(PUBLISH_TO) {
@@ -189,6 +193,12 @@ impl SessionReceiver {
     }
 
     pub async fn send_ack(&mut self, message: &Message) -> Result<(), SessionError> {
+        // we need to send an ack message only if the factory is not none
+        // in this case the session is reliable and the producer is expecting acks
+        if self.timer_factory.is_none() {
+            return Ok(());
+        }
+
         let publish_meta = message.contains_metadata(PUBLISH_TO).then(|| {
             std::iter::once((PUBLISH_TO.to_string(), TRUE_VAL.to_string()))
                 .collect::<std::collections::HashMap<_, _>>()

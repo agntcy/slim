@@ -111,6 +111,12 @@ impl SessionSender {
             None
         };
 
+        if shutdown_send {
+            tracing::info!(
+                "creating session sender with shutdown_send=true, no messages will be sent to the network"
+            );
+        }
+
         SessionSender {
             buffer: ProducerBuffer::with_capacity(512),
             timer_factory: factory,
@@ -134,12 +140,6 @@ impl SessionSender {
         mut message: Message,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<(), SessionError> {
-        // if shutdown_send is true we drop all messages
-        if self.shutdown_send {
-            debug!("sender is shutdown, drop message");
-            return Ok(());
-        }
-
         if self.draining_state == SenderDrainStatus::Completed {
             if let Some(tx) = ack_tx {
                 let _ = tx.send(Err(SessionError::SessionDrainingDrop));
@@ -200,6 +200,16 @@ impl SessionSender {
         mut message: Message,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<(), SessionError> {
+        // if shutdown_send is true we drop all messages but we signal success
+        // to the application using the ack channel if provided
+        if self.shutdown_send {
+            debug!("sender is shutdown, drop message");
+            if let Some(tx) = ack_tx {
+                let _ = tx.send(Ok(()));
+            }
+            return Ok(());
+        }
+
         let is_publish_to = message.metadata.contains_key(PUBLISH_TO);
 
         // if is_publish_to and the message destination is not

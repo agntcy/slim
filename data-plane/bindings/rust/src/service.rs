@@ -327,7 +327,7 @@ impl Service {
     /// # Returns
     /// * `Ok(Arc<App>)` - Successfully created adapter
     /// * `Err(SlimError)` - If adapter creation fails
-    pub async fn create_app_async_with_shutdown_flags(
+    pub async fn create_app_with_shutdown_flags_async(
         &self,
         base_name: Arc<Name>,
         identity_provider_config: IdentityProviderConfig,
@@ -421,7 +421,7 @@ impl Service {
     /// # Returns
     /// * `Ok(Arc<App>)` - Successfully created adapter
     /// * `Err(SlimError)` - If adapter creation fails
-    pub async fn create_app_with_shutdown_flags(
+    pub fn create_app_with_shutdown_flags(
         &self,
         base_name: Arc<Name>,
         identity_provider_config: IdentityProviderConfig,
@@ -429,17 +429,13 @@ impl Service {
         shutdown_send: bool,
         shutdown_receive: bool,
     ) -> Result<Arc<crate::app::App>, SlimError> {
-        let slim_name: SlimName = base_name.as_ref().into();
-        create_app_async_internal(
-            slim_name,
+        get_runtime().block_on(self.create_app_with_shutdown_flags_async(
+            base_name,
             identity_provider_config,
             identity_verifier_config,
-            self.inner.clone(),
             shutdown_send,
             shutdown_receive,
-        )
-        .await
-        .map(Arc::new)
+        ))
     }
 
     /// Create a new App with SharedSecret authentication (helper function)
@@ -511,7 +507,13 @@ pub(crate) async fn create_app_async_internal(
     let app_name = base_name.with_id(id_hash);
 
     // Create the app using the provided service
-    let (app, rx) = service.create_app(&app_name, identity_provider, identity_verifier, shutdown_send, shutdown_receive)?;
+    let (app, rx) = service.create_app(
+        &app_name,
+        identity_provider,
+        identity_verifier,
+        shutdown_send,
+        shutdown_receive,
+    )?;
 
     Ok(crate::app::App::from_parts(
         Arc::new(app),
@@ -1015,8 +1017,15 @@ mod tests {
         let base_name = create_test_name();
         let (provider, verifier) = create_test_auth();
 
-        let result =
-            create_app_async_internal(base_name, provider, verifier, service.inner.clone(), false, false).await;
+        let result = create_app_async_internal(
+            base_name,
+            provider,
+            verifier,
+            service.inner.clone(),
+            false,
+            false,
+        )
+        .await;
 
         assert!(result.is_ok(), "Should create app via internal function");
         let app = result.unwrap();

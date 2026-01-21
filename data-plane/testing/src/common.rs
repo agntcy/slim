@@ -68,6 +68,8 @@ pub async fn create_and_subscribe_app(
         name,
         SharedSecret::new(&name.to_string(), TEST_VALID_SECRET)?,
         SharedSecret::new(&name.to_string(), TEST_VALID_SECRET)?,
+        false,
+        false,
     )?;
 
     svc.run().await?;

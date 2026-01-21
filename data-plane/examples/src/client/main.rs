@@ -123,6 +123,8 @@ async fn main() -> Result<()> {
                 .expect("Failed to create SharedSecret"),
             SharedSecret::new(&local_name.to_string(), secret)
                 .expect("Failed to create SharedSecret"),
+            false,
+            false,
         )
         .with_context(|| format!("Failed to create app for name {}", local_name))?;
 
