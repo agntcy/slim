@@ -73,10 +73,15 @@ The following changes constitute **MAJOR** version bumps:
 
 ### 1. Protocol Buffer (Proto) Changes
 
-Changes to the proto files in `data-plane/core/datapath/proto/` that break
-wire compatibility:
+Changes to the proto files that break wire compatibility. This applies to
+both:
+- **Data Plane Proto**: `data-plane/core/datapath/proto/` (SLIM-to-SLIM
+  data plane communication)
+- **Control Plane Proto**: `proto/controller/v1/` (SLIM-to-controller
+  communication)
 
 **Breaking**:
+
 - Removing fields from messages
 - Changing field numbers
 - Changing field types (e.g., `string` to `bytes`)
@@ -85,6 +90,7 @@ wire compatibility:
 - Changing service method signatures
 
 **Non-breaking** (can be MINOR):
+
 - Adding new optional fields
 - Adding new enum values (with proper default handling)
 - Adding new messages
@@ -109,6 +115,7 @@ Focus on items marked with UniFFI attributes (`#[uniffi::export]`,
 `#[derive(uniffi::Record)]`, `#[derive(uniffi::Object)]`, etc.).
 
 **Breaking**:
+
 - Removing public functions, structs, enums, or traits marked with UniFFI
   attributes
 - Changing function signatures (parameter types, return types, or order)
@@ -119,6 +126,7 @@ Focus on items marked with UniFFI attributes (`#[uniffi::export]`,
 - Removing or changing methods on UniFFI objects
 
 **Non-breaking** (can be MINOR):
+
 - Adding new public functions, structs, enums, or traits with UniFFI
   attributes
 - Adding new optional parameters with defaults
@@ -130,6 +138,7 @@ Focus on items marked with UniFFI attributes (`#[uniffi::export]`,
 #### Generated Language Bindings Impact
 
 Since Python, Go, and other language bindings are generated from Rust:
+
 - Breaking changes in Rust bindings automatically become breaking changes
   in **all** language bindings
 - New Rust API additions automatically become available in **all** language
@@ -140,12 +149,14 @@ Since Python, Go, and other language bindings are generated from Rust:
 ### 3. Configuration Schema Changes
 
 **Breaking**:
+
 - Removing configuration options
 - Changing required fields
 - Changing configuration value formats or types
 - Changing default behaviors that affect functionality
 
 **Non-breaking** (can be MINOR):
+
 - Adding new optional configuration fields
 - Adding new configuration sections with sensible defaults
 - Deprecating configuration options (with backwards compatibility)
@@ -155,48 +166,48 @@ Since Python, Go, and other language bindings are generated from Rust:
 The following changes warrant a **MINOR** version bump:
 
 1. **New Features**:
-   - New session types or messaging patterns
-   - New authentication methods
-   - New configuration options (optional)
-   - New API methods in bindings (additive only)
+    - New session types or messaging patterns
+    - New authentication methods
+    - New configuration options (optional)
+    - New API methods in bindings (additive only)
 
 2. **Protocol Extensions**:
-   - New optional proto fields
-   - New message types
-   - New service methods
+    - New optional proto fields
+    - New message types
+    - New service methods
 
 3. **Performance Improvements**:
-   - Optimizations that don't change behavior
-   - New optional performance features
+    - Optimizations that don't change behavior
+    - New optional performance features
 
 4. **Internal Refactoring**:
-   - Changes to private/internal APIs
-   - Dependency updates that don't affect public API
+    - Changes to private/internal APIs
+    - Dependency updates that don't affect public API
 
 ## Patch-Level Changes (PATCH version)
 
 The following changes warrant a **PATCH** version bump:
 
 1. **Bug Fixes**:
-   - Fixes for incorrect behavior
-   - Security patches
-   - Memory leak fixes
-   - Error handling improvements
+    - Fixes for incorrect behavior
+    - Security patches
+    - Memory leak fixes
+    - Error handling improvements
 
 2. **Documentation**:
-   - Documentation updates
-   - Code comment improvements
-   - Example fixes
+    - Documentation updates
+    - Code comment improvements
+    - Example fixes
 
 3. **Internal Changes**:
-   - Test improvements
-   - Build system updates
-   - CI/CD improvements
-   - Logging improvements
+    - Test improvements
+    - Build system updates
+    - CI/CD improvements
+    - Logging improvements
 
 4. **Performance**:
-   - Minor performance optimizations
-   - Dependency updates (no API changes)
+    - Minor performance optimizations
+    - Dependency updates (no API changes)
 
 ## Pre-1.0 Versioning
 
@@ -218,6 +229,7 @@ SLIM is a multi-component project with several versioned artifacts:
 ### Core Libraries (Rust Crates)
 
 Each core library is versioned independently:
+
 - `agntcy-slim` (main library)
 - `agntcy-slim-datapath` (core data plane)
 - `agntcy-slim-service` (public service API)
@@ -228,6 +240,7 @@ Each core library is versioned independently:
 
 All language bindings are **generated from** `agntcy-slim-bindings` using
 UniFFI and track its version:
+
 - Python: `slim-bindings` (PyPI) - generated via UniFFI
 - Go: Go module - generated via UniFFI
 - Others as available - all generated from the same Rust source
@@ -249,10 +262,10 @@ When breaking changes occur:
 For every **MAJOR** version release, the following must be provided:
 
 1. **Migration Guide**: Detailed documentation in CHANGELOG.md showing:
-   - What changed
-   - Why it changed
-   - How to migrate existing code
-   - Before/after code examples
+    - What changed
+    - Why it changed
+    - How to migrate existing code
+    - Before/after code examples
 
 2. **Deprecation Warnings**: When possible, deprecate features in a MINOR
    release before removing in MAJOR release
@@ -281,6 +294,7 @@ Before releasing, reviewers should verify:
 
 The wire protocol (protobuf messages) is the most critical compatibility
 boundary. Changes here affect:
+
 - Communication between different SLIM versions
 - Stored message formats
 - Client-server compatibility
@@ -295,23 +309,24 @@ boundary. Changes here affect:
 ### Security Releases
 
 Security fixes may be backported to older MAJOR versions when feasible:
+
 - Critical vulnerabilities: Backport to last 2 major versions
 - Security patches released as PATCH versions
 
 ## Summary Table
 
-| Change Type                | Version | Examples                  |
-|----------------------------|---------|---------------------------|
-| Remove proto fields        | MAJOR   | Deleting message fields   |
-| Change proto field types   | MAJOR   | `string` → `bytes`        |
-| Remove public API          | MAJOR   | Delete binding function   |
-| Change function signature  | MAJOR   | Add required parameter    |
-| Add proto field (optional) | MINOR   | New optional field        |
-| Add new API method         | MINOR   | New binding function      |
-| Add new feature            | MINOR   | New session type          |
-| Fix bug                    | PATCH   | Correct error handling    |
-| Update documentation       | PATCH   | README improvements       |
-| Performance improvement    | PATCH   | Optimize internal code    |
+| Change Type                | Version | Examples                |
+| -------------------------- | ------- | ----------------------- |
+| Remove proto fields        | MAJOR   | Deleting message fields |
+| Change proto field types   | MAJOR   | `string` → `bytes`      |
+| Remove public API          | MAJOR   | Delete binding function |
+| Change function signature  | MAJOR   | Add required parameter  |
+| Add proto field (optional) | MINOR   | New optional field      |
+| Add new API method         | MINOR   | New binding function    |
+| Add new feature            | MINOR   | New session type        |
+| Fix bug                    | PATCH   | Correct error handling  |
+| Update documentation       | PATCH   | README improvements     |
+| Performance improvement    | PATCH   | Optimize internal code  |
 
 ## Questions and Clarifications
 
