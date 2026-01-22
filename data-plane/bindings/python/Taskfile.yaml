@@ -46,8 +46,6 @@ tasks:
 
   python:bindings:build:
     desc: "Build the Python bindings using Maturin"
-    deps:
-      - python:bindings:clean
     vars:
       PROFILE: '{{.PROFILE | default "debug"}}'
       RELEASE:
@@ -57,7 +55,7 @@ tasks:
       - task: rust:toolchain:run-command
         vars:
           COMMAND: |
-            uv run --no-cache maturin develop --uv {{.RELEASE}}
+            uv run maturin develop --uv {{.RELEASE}}
       - echo "✅ Build complete"
 
   python:bindings:test:
@@ -66,7 +64,7 @@ tasks:
       - python:bindings:build
       - python:bindings:devdeps
     cmds:
-      - uv run --no-cache pytest -s {{.TESTS}}
+      - uv run pytest -s {{.TESTS}}
     vars:
       TARGET: '{{.TESTS | default ""}}'
 
@@ -86,11 +84,6 @@ tasks:
         fi
 
         rustup target add {{.TARGET}}
-
-        UV_ARGS=(
-          --no-default-groups
-          --group building
-        )
 
         MATURIN_ARGS=(
           {{.RELEASE}}

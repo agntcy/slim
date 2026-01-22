@@ -76,17 +76,9 @@ tasks:
 
   data-plane:bindings:test:
     desc: "Test the Python bindings"
-    dir: ./python/bindings
+    dir: ./bindings/python
     cmds:
       - task python:bindings:test TESTS={{.TESTS}}
-    vars:
-      TESTS: '{{.TESTS | default ""}}'
-
-  data-plane:bindings:test:coverage:
-    desc: "Test the Python bindings with coverage"
-    dir: ./python/bindings
-    cmds:
-      - task python:bindings:test:coverage TESTS={{.TESTS}}
     vars:
       TESTS: '{{.TESTS | default ""}}'
 

@@ -96,4 +96,4 @@ isort = { known-first-party = ["slim_bindings", "tests"] }
 
 
 [tool.uv]
-default-groups = []
+default-groups = ["building"]
