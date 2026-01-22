@@ -111,7 +111,7 @@ impl SessionSender {
             None
         };
 
-        tracing::debug!(
+        debug!(
            %shutdown_send, "creating session sender"
         );
 
