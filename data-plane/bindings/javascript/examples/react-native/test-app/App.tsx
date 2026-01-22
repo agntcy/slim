@@ -121,8 +121,8 @@ function App(): React.JSX.Element {
 
       // Test 3: Create Name
       try {
-        const name = new slimBindings.Name('org', 'test', 'v1', 123n);
-        const nameStr = name.asString();
+        const name = slimBindings.Name.newWithId('org', 'test', 'v1', 123n);
+        const nameStr = name.toString();
         const isValid = nameStr.startsWith('org/test/v1');
         results.push({
           name: 'create-name',
@@ -140,7 +140,7 @@ function App(): React.JSX.Element {
       // Test 4: Create Service and App with SharedSecret
       try {
         const service = slimBindings.getGlobalService();
-        const appName = new slimBindings.Name('org', 'app', 'v1', 456n);
+        const appName = slimBindings.Name.newWithId('org', 'app', 'v1', 456n);
         const app = service.createAppWithSecret(
           appName,
           'test-secret-must-be-at-least-32-bytes!',
