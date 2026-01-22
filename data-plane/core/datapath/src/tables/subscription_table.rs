@@ -630,24 +630,26 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 Err(DataPathError::NoMatch(name.clone()))
             }
             Some(state) => {
-                // first try to send the message to the local connections
-                // if no local connection exists or the message cannot
-                // be sent try on remote ones
-                let local_out = state.get_all_connections(name.id(), incoming_conn, true);
-                if let Some(out) = local_out {
-                    debug!(?out, "found local connections");
-                    return Ok(out);
+                let mut all_connections = Vec::new();
+                
+                // Collect local connections
+                if let Some(local_out) = state.get_all_connections(name.id(), incoming_conn, true) {
+                    debug!(?local_out, "found local connections");
+                    all_connections.extend(local_out);
                 }
 
-                debug!("no local connection available, trying remote connections");
-                let remote_out = state.get_all_connections(name.id(), incoming_conn, false);
-                if let Some(out) = remote_out {
-                    debug!(?out, "found remote connections");
-                    return Ok(out);
+                // Collect remote connections
+                if let Some(remote_out) = state.get_all_connections(name.id(), incoming_conn, false) {
+                    debug!(?remote_out, "found remote connections");
+                    all_connections.extend(remote_out);
                 }
 
-                debug!(%name, "no connection available (local/remote)");
-                Err(DataPathError::NoMatch(name.clone()))
+                if all_connections.is_empty() {
+                    debug!(%name, "no connection available (local/remote)");
+                    Err(DataPathError::NoMatch(name.clone()))
+                } else {
+                    Ok(all_connections)
+                }
             }
         }
     }
