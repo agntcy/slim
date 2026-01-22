@@ -260,6 +260,7 @@ tasks:
               case "{{.TARGETARCH}}" in
                 amd64) ZIG_TARGET="x86_64-windows-gnu" ;;
                 arm64) ZIG_TARGET="aarch64-windows-gnu" ;;
+                x86_64) ZIG_TARGET="x86_64-windows-gnu" ;;
                 *) echo "❌ Unsupported TARGETARCH: {{.TARGETARCH}}"; exit 1 ;;
               esac
               ;;
@@ -270,7 +271,7 @@ tasks:
           esac
 
           # Verify Zig is available
-          ZIG="{{.ZIG_DIR}}/zig"
+          ZIG="{{.ZIG_INSTALL_DIR}}/zig"
           if [ ! -f "$ZIG" ]; then
             echo "❌ Error: Zig binary not found at $ZIG"
             exit 1
@@ -278,9 +279,11 @@ tasks:
 
           echo "   Using Zig target: $ZIG_TARGET"
 
-          # Configure Zig as the C/C++ compiler
-          export CC="$ZIG cc -target $ZIG_TARGET"
-          export CXX="$ZIG c++ -target $ZIG_TARGET"
+          # Configure Zig as the C/C++ compiler with explicit runtime library
+          # Use -rtlib=compiler-rt to link Zig's compiler runtime which includes unwinding
+          # Use --unwindlib=libunwind to link Zig's unwinding library for exception handling
+          export CC="$ZIG cc -target $ZIG_TARGET -rtlib=compiler-rt -lunwind"
+          export CXX="$ZIG c++ -target $ZIG_TARGET -rtlib=compiler-rt -lunwind"
         fi
 
         # Execute build with configured context
@@ -301,18 +304,6 @@ tasks:
         else
           echo "✅ Successfully cross-compiled $BINARY for {{.TARGETOS}}/{{.TARGETARCH}}"
         fi
-    vars:
-      TARGETOS: '{{.TARGETOS | default "linux"}}'
-      TARGETARCH: '{{.TARGETARCH | default "amd64"}}'
-      _DEFAULT_ZIG_DIR:
-        sh: echo "{{.TOOLS_INSTALL_DIR}}"
-      ZIG_DIR: '{{.ZIG_DIR | default ._DEFAULT_ZIG_DIR}}'
-      GIT_COMMIT:
-        sh: git log -n 1 --format=%h
-      BUILD_DATE:
-        sh: date -u +'%Y-%m-%dT%H:%M:%SZ'
-      VERSION:
-        sh: pushd {{.REPO_ROOT}} > /dev/null && task version && popd > /dev/null
 
   control-plane:token-service:build:
     desc: Build token service
@@ -343,8 +334,7 @@ tasks:
     cmds:
       - task: control-plane:control-plane:build
       - task: control-plane:token-service:build
-      # - task: control-plane:slimctl:build
-
+      - task: control-plane:slimctl:build
 
 
   #  control plane related tasks
