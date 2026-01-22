@@ -146,74 +146,106 @@ tasks:
 
   control-plane:go-bindings:setup:
     desc: Downloads the OS / Arch specific bindings library
+    requires:
+      vars: [TARGETOS, TARGETARCH]
+    vars:
+      BINDINGS_VERSION: '{{.BINDINGS_VERSION | default "latest"}}'
+      TARGETABI: '{{.TARGETABI | default "gnu"}}'
     dir: slimctl
     cmds:
       - task: control-plane:modtidy
       - |
-        # Run the setup tool to download native libraries
-        go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup
+        echo "📦 Downloading bindings for {{.TARGETOS}}/{{.TARGETARCH}}/{{.TARGETABI}}"
+        # Unset GOOS/GOARCH so the tool is built for the current platform
+        unset GOOS
+        unset GOARCH
+        # But download bindings for the target platform
+        go run \
+          github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup@{{.BINDINGS_VERSION}} \
+          -os={{.TARGETOS}} \
+          -arch={{.TARGETARCH}} \
+          -abi={{.TARGETABI}}
 
   control-plane:slimctl:build:
-    desc: Build slimctl
-    deps:
-      - control-plane:proto:generate
-      - control-plane:go-bindings:setup
-    dir: slimctl/cmd
-    cmds:
-      - task: control-plane:gogen
-      - |
-        CGO_ENABLED=1 \
-        go build -o \
-          {{.OUTPUT_DIR}}/bin/slimctl \
-          -ldflags \
-          " \
-            -X '{{.MAIN_MODULE}}/control-plane/slimctl/internal/cmd/version.semVersion={{.VERSION}}'
-            -X '{{.MAIN_MODULE}}/control-plane/slimctl/internal/cmd/version.gitCommit={{.GIT_COMMIT}}'
-            -X '{{.MAIN_MODULE}}/control-plane/slimctl/internal/cmd/version.buildDate={{.BUILD_DATE}}'
-            {{.FLAGS}} \
-          "
+    desc: Cross-compile slimctl using Zig (accepts TARGETOS and TARGETARCH, defaults to current platform)
+    
     vars:
+      CURRENT_OS:
+        sh: go env GOHOSTOS
+      CURRENT_ARCH:
+        sh: go env GOHOSTARCH
+
+      DETECTED_TARGETOS: 
+        sh: go env GOOS
+      
+      DETECTED_TARGETARCH: 
+        sh: go env GOARCH
+
+      TARGETOS: '{{.TARGETOS | default .DETECTED_TARGETOS}}'
+      TARGETARCH: '{{.TARGETARCH | default .DETECTED_TARGETARCH}}'
+      
+      TARGETABI: '{{.TARGETABI | default "gnu"}}'
+
+      TOOLS_DIR: "{{.REPO_ROOT}}/.tools"
+      ZIG_INSTALL_DIR: "{{.ZIG_INSTALL_DIR | default .TOOLS_DIR}}"
+
       GIT_COMMIT:
         sh: git log -n 1 --format=%h
       BUILD_DATE:
         sh: date -u +'%Y-%m-%dT%H:%M:%SZ'
       VERSION:
         sh: pushd {{.REPO_ROOT}} > /dev/null && task version && popd > /dev/null
+      FLAGS: '{{.FLAGS | default ""}}'
 
-  control-plane:slimctl:crossbuild:
-    desc: Cross-compile slimctl using Zig (accepts TARGETOS and TARGETARCH)
+
     deps:
       - control-plane:proto:generate
-      - control-plane:go-bindings:setup
-      - tools:zig
+      - task: control-plane:go-bindings:setup
+        vars:
+          TARGETOS: "{{.TARGETOS}}"
+          TARGETARCH: "{{.TARGETARCH}}"
+          TARGETABI: "{{.TARGETABI | default \"gnu\"}}"
+      - task: tools:zig
+      
     dir: slimctl/cmd
     cmds:
       - task: control-plane:gogen
       - |
-        # Detect current platform
-        CURRENT_OS=$(go env GOOS)
-        CURRENT_ARCH=$(go env GOARCH)
-
+        # Debug: Show detected and target platforms
+        echo "📊 Platform Detection:"
+        echo "   CURRENT_OS:    {{.CURRENT_OS}}"
+        echo "   CURRENT_ARCH:  {{.CURRENT_ARCH}}"
+        echo "   TARGETOS:      {{.TARGETOS}}"
+        echo "   TARGETARCH:    {{.TARGETARCH}}"
+        echo ""
+        
         # Determine output binary name
         BINARY="slimctl"
         [ "{{.TARGETOS}}" = "windows" ] && BINARY="slimctl.exe"
-
+        
         # Setup build context based on native vs cross-compilation
-        if [ "{{.TARGETOS}}" = "$CURRENT_OS" ] && [ "{{.TARGETARCH}}" = "$CURRENT_ARCH" ]; then
+        if [ "{{.TARGETOS}}" = "{{.CURRENT_OS}}" ] && [ "{{.TARGETARCH}}" = "{{.CURRENT_ARCH}}" ]; then
           # Native build
           echo "🔨 Building slimctl for native platform ({{.TARGETOS}}/{{.TARGETARCH}})"
           BUILD_MODE="native"
+          # Unset CC/CXX and CGO flags to use system defaults
+          unset CC
+          unset CXX
+          unset CGO_CFLAGS
+          unset CGO_LDFLAGS
         else
           # Cross-compilation - setup Zig compiler
-          echo "🔨 Cross-compiling slimctl from $CURRENT_OS/$CURRENT_ARCH to {{.TARGETOS}}/{{.TARGETARCH}}"
+          echo "🔨 Cross-compiling slimctl from {{.CURRENT_OS}}/{{.CURRENT_ARCH}} to {{.TARGETOS}}/{{.TARGETARCH}}"
           BUILD_MODE="cross"
-
+          
           # Map GOOS/GOARCH to Zig target triple
           case "{{.TARGETOS}}" in
             linux)
               case "{{.TARGETARCH}}" in
                 amd64) ZIG_TARGET="x86_64-linux-gnu" ;;
                 arm64) ZIG_TARGET="aarch64-linux-gnu" ;;
+                x86_64) ZIG_TARGET="x86_64-linux-gnu" ;;
+
                 *) echo "❌ Unsupported TARGETARCH: {{.TARGETARCH}}"; exit 1 ;;
               esac
               ;;
