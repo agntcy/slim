@@ -523,7 +523,7 @@ jobs:
   build-dotnet-bindings:
     name: Build .NET Bindings
     runs-on: ubuntu-latest
-    needs: build-libraries
+    needs: build-and-test-bindings
     defaults:
       run:
         shell: bash
