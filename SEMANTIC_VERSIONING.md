@@ -380,18 +380,3 @@ Security fixes may be backported to older MAJOR versions when feasible:
 | Fix bug                    | PATCH   | Correct error handling  |
 | Update documentation       | PATCH   | README improvements     |
 | Performance improvement    | PATCH   | Optimize internal code  |
-
-## Questions and Clarifications
-
-For questions about whether a change is breaking, consult:
-
-1. This document
-2. Project maintainers
-3. Create an issue for discussion before implementing potentially breaking
-   changes
-
----
-
-**Document Version**: 1.0  
-**Last Updated**: 2025  
-**Status**: Active
