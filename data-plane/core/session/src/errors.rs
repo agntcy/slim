@@ -120,6 +120,8 @@ pub enum SessionError {
     MessageSendRetryFailed { id: u32 },
     #[error("message receive retries exhausted for id={id}")]
     MessageReceiveRetryFailed { id: u32 },
+    #[error("session sender is shutdown, cannot send messages")]
+    SessionSenderShutdown,
 
     // Message construction and extraction contexts
     #[error("missing payload: {context}")]

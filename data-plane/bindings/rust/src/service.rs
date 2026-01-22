@@ -304,6 +304,41 @@ impl Service {
             identity_provider_config,
             identity_verifier_config,
             self.inner.clone(),
+            crate::app::Direction::Bidirectional,
+        )
+        .await
+        .map(Arc::new)
+    }
+
+    /// Create a new App with authentication configuration and traffic direction (async version)
+    ///
+    /// This method initializes authentication providers/verifiers and creates an App
+    /// on this service instance. The direction parameter controls whether the app
+    /// can send messages, receive messages, both, or neither.
+    ///
+    /// # Arguments
+    /// * `base_name` - The base name for the app (without ID)
+    /// * `identity_provider_config` - Configuration for proving identity to others
+    /// * `identity_verifier_config` - Configuration for verifying identity of others
+    /// * `direction` - Traffic direction: Send, Recv, Bidirectional, or None
+    ///
+    /// # Returns
+    /// * `Ok(Arc<App>)` - Successfully created adapter
+    /// * `Err(SlimError)` - If adapter creation fails
+    pub async fn create_app_with_direction_async(
+        &self,
+        name: Arc<Name>,
+        identity_provider_config: IdentityProviderConfig,
+        identity_verifier_config: IdentityVerifierConfig,
+        direction: crate::app::Direction,
+    ) -> Result<Arc<crate::app::App>, SlimError> {
+        let slim_name: SlimName = name.as_ref().into();
+        create_app_async_internal(
+            slim_name,
+            identity_provider_config,
+            identity_verifier_config,
+            self.inner.clone(),
+            direction,
         )
         .await
         .map(Arc::new)
@@ -366,6 +401,36 @@ impl Service {
         ))
     }
 
+    /// Create a new App with authentication configuration and traffic direction (blocking version)
+    ///
+    /// This method initializes authentication providers/verifiers and creates an App
+    /// on this service instance. The direction parameter controls whether the app
+    /// can send messages, receive messages, both, or neither.
+    ///
+    /// # Arguments
+    /// * `base_name` - The base name for the app (without ID)
+    /// * `identity_provider_config` - Configuration for proving identity to others
+    /// * `identity_verifier_config` - Configuration for verifying identity of others
+    /// * `direction` - Traffic direction: Send, Recv, Bidirectional, or None
+    ///
+    /// # Returns
+    /// * `Ok(Arc<App>)` - Successfully created adapter
+    /// * `Err(SlimError)` - If adapter creation fails
+    pub fn create_app_with_direction(
+        &self,
+        base_name: Arc<Name>,
+        identity_provider_config: IdentityProviderConfig,
+        identity_verifier_config: IdentityVerifierConfig,
+        direction: crate::app::Direction,
+    ) -> Result<Arc<crate::app::App>, SlimError> {
+        get_runtime().block_on(self.create_app_with_direction_async(
+            base_name,
+            identity_provider_config,
+            identity_verifier_config,
+            direction,
+        ))
+    }
+
     /// Create a new App with SharedSecret authentication (helper function)
     ///
     /// This is a convenience function for creating a SLIM application using SharedSecret authentication
@@ -406,6 +471,7 @@ pub(crate) async fn create_app_async_internal(
     identity_provider_config: IdentityProviderConfig,
     identity_verifier_config: IdentityVerifierConfig,
     service: Arc<SlimService>,
+    direction: crate::app::Direction,
 ) -> Result<crate::app::App, SlimError> {
     // Convert configurations to actual providers/verifiers
     let mut identity_provider: AuthProvider = identity_provider_config.try_into()?;
@@ -433,7 +499,12 @@ pub(crate) async fn create_app_async_internal(
     let app_name = base_name.with_id(id_hash);
 
     // Create the app using the provided service
-    let (app, rx) = service.create_app(&app_name, identity_provider, identity_verifier)?;
+    let (app, rx) = service.create_app_with_direction(
+        &app_name,
+        identity_provider,
+        identity_verifier,
+        direction.into(),
+    )?;
 
     Ok(crate::app::App::from_parts(
         Arc::new(app),
@@ -937,8 +1008,14 @@ mod tests {
         let base_name = create_test_name();
         let (provider, verifier) = create_test_auth();
 
-        let result =
-            create_app_async_internal(base_name, provider, verifier, service.inner.clone()).await;
+        let result = create_app_async_internal(
+            base_name,
+            provider,
+            verifier,
+            service.inner.clone(),
+            crate::app::Direction::Bidirectional,
+        )
+        .await;
 
         assert!(result.is_ok(), "Should create app via internal function");
         let app = result.unwrap();
