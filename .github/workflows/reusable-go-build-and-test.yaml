@@ -91,6 +91,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Go
+        id: setup-go
         uses: ./.github/actions/setup-go
 
       - name: Install dependencies
@@ -271,6 +272,13 @@ jobs:
           - os: darwin
             arch: arm64
             runner: macos-15  # Apple Silicon macOS
+          # Windows builds
+          - os: windows
+            arch: amd64
+            runner: ubuntu-latest
+          - os: windows
+            arch: arm64
+            runner: ubuntu-latest
 
     steps:
       - name: Checkout Repo
@@ -288,7 +296,6 @@ jobs:
         env:
           GOOS: ${{matrix.os}}
           GOARCH: ${{matrix.arch}}
-          GOARM: ${{matrix.goarm}}
           CGO_ENABLED: ${{ inputs.cgo-enabled }}
         run: |
           which go
