@@ -101,10 +101,10 @@ pub use session::{Session, SessionConfig, SessionType};
 
 // SLIMRpc re-exports
 pub use slimrpc::{
-    RpcAppConnection, RpcChannel, RpcMessageContext, RpcHandlerType,
-    SRPCError, RpcServer, SessionContext as RpcSessionContext, RpcAppConfig,
-    create_and_connect_app, create_and_connect_app_async, new_rpc_app_config,
-    DEADLINE_KEY, MAX_TIMEOUT,
+    Channel, Code, Codec, Context, Decoder, Encoder, HandlerResponse, HandlerType, Metadata,
+    MessageContext as RpcMessageContext, RpcChannel, RpcContext, RpcError, RpcHandler,
+    RpcResponseStream, RpcServer, Server, ServiceRegistry, SessionContext as RpcSessionContext,
+    Status, StatusError, DEADLINE_KEY, MAX_TIMEOUT, STATUS_CODE_KEY,
 };
 
 // UniFFI scaffolding setup (must be at crate root)

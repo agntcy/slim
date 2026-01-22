@@ -9,8 +9,10 @@
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use crate::slimrpc::{Metadata, DEADLINE_KEY};
-use crate::{MessageContext as SlimMessageContext, Name, Session};
+use slim_datapath::messages::Name;
+use slim_session::context::SessionContext as SlimSessionContext;
+
+use crate::{Metadata, DEADLINE_KEY};
 
 /// Context passed to RPC handlers
 ///
@@ -33,21 +35,29 @@ pub struct Context {
 
 impl Context {
     /// Create a new context from a session
-    pub fn from_session(session: &Session) -> Result<Self, crate::SlimError> {
-        let metadata = Metadata::from_map(session.metadata()?);
+    pub fn from_session(session: &SlimSessionContext) -> Self {
+        // Get metadata from session controller
+        let session_arc = session.session_arc();
+        let metadata = if let Some(controller) = session_arc {
+            Metadata::from_map(controller.metadata())
+        } else {
+            Metadata::new()
+        };
         let deadline = Self::parse_deadline(&metadata);
 
-        Ok(Self {
-            session: SessionContext::from_session(session)?,
+        Self {
+            session: SessionContext::from_session(session),
             message: None,
             metadata,
             deadline,
-        })
+        }
     }
 
-    /// Create a new context with message context
-    pub fn with_message_context(mut self, msg_ctx: &SlimMessageContext) -> Self {
-        self.message = Some(MessageContext::from_slim_message_context(msg_ctx));
+    /// Create a new context with message metadata
+    pub fn with_message_metadata(mut self, msg_metadata: std::collections::HashMap<String, String>) -> Self {
+        let msg_meta = Metadata::from_map(msg_metadata);
+        // Merge message metadata into context metadata
+        self.metadata.merge(msg_meta);
         self
     }
 
@@ -134,22 +144,33 @@ pub struct SessionContext {
     /// Session ID
     session_id: String,
     /// Source name (sender)
-    source: Arc<Name>,
+    source: Name,
     /// Destination name (receiver)
-    destination: Arc<Name>,
+    destination: Name,
     /// Session metadata
     metadata: Metadata,
 }
 
 impl SessionContext {
-    /// Create from a SLIM session
-    pub fn from_session(session: &Session) -> Result<Self, crate::SlimError> {
-        Ok(Self {
-            session_id: session.session_id()?.to_string(),
-            source: Arc::new(session.source()?),
-            destination: Arc::new(session.destination()?),
-            metadata: Metadata::from_map(session.metadata()?),
-        })
+    /// Create from a SLIM session context
+    pub fn from_session(session: &SlimSessionContext) -> Self {
+        let session_arc = session.session_arc();
+        if let Some(controller) = session_arc {
+            Self {
+                session_id: controller.id().to_string(),
+                source: controller.source().clone(),
+                destination: controller.dst().clone(),
+                metadata: Metadata::from_map(controller.metadata()),
+            }
+        } else {
+            // Fallback if session is already closed
+            Self {
+                session_id: session.session_id().to_string(),
+                source: Name::from_strings(["", "", ""]),
+                destination: Name::from_strings(["", "", ""]),
+                metadata: Metadata::new(),
+            }
+        }
     }
 
     /// Get the session ID
@@ -177,29 +198,28 @@ impl SessionContext {
 #[derive(Debug, Clone)]
 pub struct MessageContext {
     /// Source name from message
-    source: Arc<Name>,
+    source: Name,
     /// Destination name from message
-    destination: Option<Arc<Name>>,
+    destination: Option<Name>,
     /// Payload type
     payload_type: String,
     /// Message metadata
     metadata: Metadata,
-    /// Input connection ID
-    input_connection: u64,
-    /// Identity
-    identity: String,
 }
 
 impl MessageContext {
-    /// Create from SLIM message context
-    pub fn from_slim_message_context(msg_ctx: &SlimMessageContext) -> Self {
+    /// Create a new message context
+    pub fn new(
+        source: Name,
+        destination: Option<Name>,
+        payload_type: String,
+        metadata: Metadata,
+    ) -> Self {
         Self {
-            source: msg_ctx.source_name.clone(),
-            destination: msg_ctx.destination_name.clone(),
-            payload_type: msg_ctx.payload_type.clone(),
-            metadata: Metadata::from_map(msg_ctx.metadata.clone()),
-            input_connection: msg_ctx.input_connection,
-            identity: msg_ctx.identity.clone(),
+            source,
+            destination,
+            payload_type,
+            metadata,
         }
     }
 
@@ -210,7 +230,7 @@ impl MessageContext {
 
     /// Get the destination name
     pub fn destination(&self) -> Option<&Name> {
-        self.destination.as_deref()
+        self.destination.as_ref()
     }
 
     /// Get the payload type
@@ -221,16 +241,6 @@ impl MessageContext {
     /// Get the message metadata
     pub fn metadata(&self) -> &Metadata {
         &self.metadata
-    }
-
-    /// Get the input connection ID
-    pub fn input_connection(&self) -> u64 {
-        self.input_connection
-    }
-
-    /// Get the identity
-    pub fn identity(&self) -> &str {
-        &self.identity
     }
 }
 
@@ -277,13 +287,15 @@ mod tests {
     #[test]
     fn test_context_set_timeout() {
         let session_metadata = HashMap::new();
+        let ctx_session = SessionContext {
+            session_id: "test-session".to_string(),
+            source: Name::from_strings(["org", "ns", "app"]),
+            destination: Name::from_strings(["org", "ns", "dest"]),
+            metadata: Metadata::from_map(session_metadata),
+        };
+        
         let mut ctx = Context {
-            session: SessionContext {
-                session_id: "test-session".to_string(),
-                source: Arc::new(Name::new("org".into(), "ns".into(), "app".into())),
-                destination: Arc::new(Name::new("org".into(), "ns".into(), "dest".into())),
-                metadata: Metadata::from_map(session_metadata),
-            },
+            session: ctx_session,
             message: None,
             metadata: Metadata::new(),
             deadline: None,
@@ -297,13 +309,15 @@ mod tests {
     #[test]
     fn test_remaining_time() {
         let session_metadata = HashMap::new();
+        let ctx_session = SessionContext {
+            session_id: "test-session".to_string(),
+            source: Name::from_strings(["org", "ns", "app"]),
+            destination: Name::from_strings(["org", "ns", "dest"]),
+            metadata: Metadata::from_map(session_metadata),
+        };
+        
         let mut ctx = Context {
-            session: SessionContext {
-                session_id: "test-session".to_string(),
-                source: Arc::new(Name::new("org".into(), "ns".into(), "app".into())),
-                destination: Arc::new(Name::new("org".into(), "ns".into(), "dest".into())),
-                metadata: Metadata::from_map(session_metadata),
-            },
+            session: ctx_session,
             message: None,
             metadata: Metadata::new(),
             deadline: None,

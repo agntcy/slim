@@ -117,6 +117,18 @@ impl App {
         }
     }
 
+    /// Get a reference to the core SlimApp instance
+    ///
+    /// This allows direct access to the core SLIM API methods without going through
+    /// the bindings layer. Useful for advanced use cases that need core functionality.
+    ///
+    /// # Note
+    /// This is a public internal method that exposes the core app. Use with caution as it
+    /// bypasses the bindings layer abstractions.
+    pub fn core_app(&self) -> &Arc<SlimApp<AuthProvider, AuthVerifier>> {
+        &self.app
+    }
+
     /// Async constructor - Create a new App with complete creation logic
     ///
     /// This is the recommended entry point for language bindings to avoid nested block_on issues.

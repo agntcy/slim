@@ -15,13 +15,23 @@
 //! SlimRPC uses SLIM sessions as the underlying transport mechanism. Each RPC call creates
 //! a new session, exchanges messages, and closes the session upon completion.
 //!
+//! ## Core Types
+//!
+//! This crate works directly with core SLIM types:
+//! - `slim_service::app::App` - The SLIM application instance
+//! - `slim_session::context::SessionContext` - Session context for RPC calls
+//! - `slim_datapath::messages::Name` - SLIM names for service addressing
+//!
 //! ## Client Example
 //!
 //! ```rust,ignore
 //! use slimrpc::{Channel, Context};
+//! use slim_datapath::messages::Name;
+//! use std::sync::Arc;
 //!
 //! // Create a channel
-//! let channel = Channel::new(app, remote_name);
+//! let remote = Name::from_strings(["org".into(), "namespace".into(), "service".into());
+//! let channel = Channel::new(app.clone(), remote);
 //!
 //! // Make an RPC call (typically through generated code)
 //! let response = channel.unary("MyService", "MyMethod", request, None, None).await?;
@@ -44,7 +54,8 @@
 //! }
 //!
 //! // Register and run server
-//! let mut server = Server::new(app, base_name);
+//! let base_name = Name::from_strings(["org".into(), "namespace".into(), "service".into());
+//! let mut server = Server::new(app, base_name, None);
 //! server.registry().register_unary_unary("MyService", "MyMethod", handler);
 //! server.serve().await?;
 //! ```
@@ -52,20 +63,20 @@
 mod channel;
 mod codec;
 mod context;
-mod ffi;
 mod metadata;
 mod server;
+mod session_wrapper;
 mod status;
 
 #[cfg(test)]
-mod tests;
+mod e2e_tests;
 
 pub use channel::Channel;
 pub use codec::{Codec, Decoder, Encoder};
 pub use context::{Context, MessageContext, SessionContext};
-pub use ffi::{RpcChannel, RpcContext, RpcError, RpcHandler, RpcResponseStream, RpcServer};
 pub use metadata::Metadata;
 pub use server::{HandlerResponse, HandlerType, Server, ServiceRegistry};
+pub use session_wrapper::{ReceivedMessage, Session};
 pub use status::{Code, Status, StatusError};
 
 /// Key used in metadata for RPC deadline/timeout

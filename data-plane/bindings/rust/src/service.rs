@@ -247,12 +247,11 @@ impl Service {
 
         // Spawn in tokio runtime since connect internally uses tokio::spawn
         let handle = runtime.spawn(async move {
-            inner
+            let res = inner
                 .connect(&core_config)
-                .await
-                .map_err(|e| SlimError::ServiceError {
-                    message: format!("Failed to connect: {}", e),
-                })
+                .await?;
+
+            Ok(res)
         });
 
         handle.await.map_err(|e| SlimError::InternalError {

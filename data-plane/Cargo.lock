@@ -356,6 +356,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "agntcy-slimrpc"
+version = "0.1.0"
+dependencies = [
+ "agntcy-slim-auth",
+ "agntcy-slim-config",
+ "agntcy-slim-datapath",
+ "agntcy-slim-service",
+ "agntcy-slim-session",
+ "agntcy-slim-testing",
+ "async-stream",
+ "async-trait",
+ "display-error-chain",
+ "futures",
+ "futures-timer",
+ "parking_lot",
+ "rand 0.9.2",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-stream",
+ "tokio-test",
+ "tracing",
+ "tracing-test",
+]
+
+[[package]]
 name = "agntcy-slimrpc-examples"
 version = "0.1.0"
 dependencies = [
