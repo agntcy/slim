@@ -631,7 +631,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
             }
             Some(state) => {
                 let mut all_connections = Vec::new();
-                
+
                 // Collect local connections
                 if let Some(local_out) = state.get_all_connections(name.id(), incoming_conn, true) {
                     debug!(?local_out, "found local connections");
@@ -639,7 +639,8 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 }
 
                 // Collect remote connections
-                if let Some(remote_out) = state.get_all_connections(name.id(), incoming_conn, false) {
+                if let Some(remote_out) = state.get_all_connections(name.id(), incoming_conn, false)
+                {
                     debug!(?remote_out, "found remote connections");
                     all_connections.extend(remote_out);
                 }
@@ -832,5 +833,89 @@ mod tests {
 
         assert_eq!(h[&name2].1, vec![3]);
         assert_eq!(h[&name2].2, vec![] as Vec<u64>);
+    }
+
+    #[test]
+    fn test_match_all_with_mixed_local_and_remote_connections() {
+        let name = Name::from_strings(["agntcy", "default", "service"]);
+        let t = SubscriptionTableImpl::default();
+
+        // Add local connections
+        assert!(t.add_subscription(name.clone(), 1, true).is_ok());
+        assert!(t.add_subscription(name.clone(), 2, true).is_ok());
+
+        // Add remote connections
+        assert!(t.add_subscription(name.clone(), 3, false).is_ok());
+        assert!(t.add_subscription(name.clone(), 4, false).is_ok());
+
+        // Test match_all returns both local and remote connections
+        let result = t.match_all(&name, 100).unwrap();
+        assert_eq!(
+            result.len(),
+            4,
+            "Should return all 4 connections (2 local + 2 remote)"
+        );
+        assert!(result.contains(&1), "Should contain local connection 1");
+        assert!(result.contains(&2), "Should contain local connection 2");
+        assert!(result.contains(&3), "Should contain remote connection 3");
+        assert!(result.contains(&4), "Should contain remote connection 4");
+
+        // Test excluding incoming connection works for local
+        let result = t.match_all(&name, 1).unwrap();
+        assert_eq!(
+            result.len(),
+            3,
+            "Should return 3 connections (excluding conn 1)"
+        );
+        assert!(
+            !result.contains(&1),
+            "Should not contain incoming connection 1"
+        );
+        assert!(result.contains(&2), "Should contain local connection 2");
+        assert!(result.contains(&3), "Should contain remote connection 3");
+        assert!(result.contains(&4), "Should contain remote connection 4");
+
+        // Test excluding incoming connection works for remote
+        let result = t.match_all(&name, 3).unwrap();
+        assert_eq!(
+            result.len(),
+            3,
+            "Should return 3 connections (excluding conn 3)"
+        );
+        assert!(result.contains(&1), "Should contain local connection 1");
+        assert!(result.contains(&2), "Should contain local connection 2");
+        assert!(
+            !result.contains(&3),
+            "Should not contain incoming connection 3"
+        );
+        assert!(result.contains(&4), "Should contain remote connection 4");
+
+        // Test match_one prefers local over remote
+        for _ in 0..20 {
+            let result = t.match_one(&name, 100).unwrap();
+            assert!(
+                result == 1 || result == 2,
+                "match_one should always prefer local connections"
+            );
+        }
+
+        // Remove all local connections
+        assert!(t.remove_subscription(&name, 1, true).is_ok());
+        assert!(t.remove_subscription(&name, 2, true).is_ok());
+
+        // Now match_all should only return remote connections
+        let result = t.match_all(&name, 100).unwrap();
+        assert_eq!(result.len(), 2, "Should return only 2 remote connections");
+        assert!(result.contains(&3), "Should contain remote connection 3");
+        assert!(result.contains(&4), "Should contain remote connection 4");
+
+        // And match_one should fall back to remote
+        for _ in 0..20 {
+            let result = t.match_one(&name, 100).unwrap();
+            assert!(
+                result == 3 || result == 4,
+                "Should return remote connections"
+            );
+        }
     }
 }
