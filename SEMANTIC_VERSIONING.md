@@ -266,15 +266,28 @@ Once SLIM reaches `1.0.0`, strict semantic versioning will be enforced.
 
 SLIM is a multi-component project with several versioned artifacts:
 
-### Core Libraries (Rust Crates)
+### Core Components
 
-Each core library is versioned independently:
+The following components define the versioning for SLIM:
 
-- `agntcy-slim` (main library)
-- `agntcy-slim-datapath` (core data plane)
-- `agntcy-slim-service` (public service API)
-- `agntcy-slim-bindings` (FFI bindings - source for all language bindings)
-- Other supporting crates
+- `agntcy-slim` - Defines the version of the SLIM node executable (the
+  data plane)
+- `agntcy-slim-bindings` - Defines the version of all language bindings
+  (source for UniFFI-generated bindings)
+- `control-plane` - Defines the version of the SLIM control plane server
+- `slimctl` - Defines the version of the SLIM CLI tool
+
+**Version Synchronization**: All core components listed above **must be
+versioned together** and keep their versions in sync. Different versions
+across these components are **not guaranteed** to be able to communicate
+with each other. This ensures clear compatibility guarantees and prevents
+confusion about which component versions can interoperate.
+
+Other internal crates (e.g., `agntcy-slim-datapath`, `agntcy-slim-service`)
+and modules follow internal versioning and are not used directly by end
+users. However, these internal crates are still published on crates.io and
+follow semantic versioning policies if they are used as dependencies by
+external projects.
 
 ### Language Bindings
 
@@ -292,10 +305,15 @@ The version of language binding packages should match the
 
 When breaking changes occur:
 
-1. **Proto changes**: Trigger MAJOR version bump across all components
-2. **Binding API changes**: Trigger MAJOR version bump for affected binding
-   packages
-3. **Internal changes**: May only affect specific crates
+1. **Protocol behavior changes**: Trigger MAJOR version bump across all
+   components due to loss of interoperability
+2. **Proto schema changes**: Trigger MAJOR version bump across all
+   components
+3. **Binding API changes**: Trigger MAJOR version bump across **all
+   components** including data plane, control plane, and all language
+   bindings. This maintains version synchronization and avoids confusion
+   about which versions can communicate with each other.
+4. **Internal changes**: May only affect specific crates
 
 ## Migration Path Requirements
 
