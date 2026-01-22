@@ -104,8 +104,7 @@ tasks:
   data-plane:coverage-full:
     desc: "Run full tests coverage including Python bindings"
     cmds:
-      - task: data-plane:toolchain:test:coverage
+      - task: data-plane:test:coverage
         vars:
           ARGS: "{{.GLOBAL_ARGS}} --all-targets --locked --all-features"
-      - task: data-plane:bindings:test:coverage
       - task: data-plane:core:test
