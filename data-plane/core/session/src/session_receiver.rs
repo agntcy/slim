@@ -83,6 +83,10 @@ pub struct SessionReceiver {
 
     /// drain state - when true, no new messages from app are accepted
     draining_state: ReceiverDrainStatus,
+
+    /// shutdown receive flag. if set no message is delivered to the app
+    /// the receiver will simply send acks on message reception
+    shutdown_receive: bool,
 }
 
 #[allow(dead_code)]
@@ -97,6 +101,7 @@ impl SessionReceiver {
         session_type: ProtoSessionType,
         tx: SessionTransmitter,
         tx_signals: Option<Sender<SessionMessage>>,
+        shutdown_receive: bool,
     ) -> Self {
         let factory = if let Some(settings) = timer_settings
             && let Some(tx) = tx_signals
@@ -105,6 +110,10 @@ impl SessionReceiver {
         } else {
             None
         };
+
+        tracing::debug!(
+           %shutdown_receive, "creating session receiver"
+        );
 
         SessionReceiver {
             buffer: HashMap::new(),
@@ -115,6 +124,7 @@ impl SessionReceiver {
             local_name,
             tx,
             draining_state: ReceiverDrainStatus::NotDraining,
+            shutdown_receive,
         }
     }
 
@@ -136,9 +146,7 @@ impl SessionReceiver {
                     message.remove_metadata(PUBLISH_TO);
                 }
 
-                if self.timer_factory.is_some() {
-                    self.send_ack(&message).await?;
-                }
+                self.send_ack(&message).await?;
                 self.on_publish_message(message).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::RtxReply => {
@@ -154,6 +162,16 @@ impl SessionReceiver {
     }
 
     pub async fn on_publish_message(&mut self, message: Message) -> Result<(), SessionError> {
+        // if shutdown_receive is true we just ack the message and do not deliver it to the app
+        if self.shutdown_receive {
+            debug!(
+                id = %message.get_id(),
+                source = %message.get_source(),
+                "receiver is disabled, do not deliver message to app",
+            );
+            return Ok(());
+        }
+
         if self.timer_factory.is_none() || message.contains_metadata(PUBLISH_TO) {
             debug!(
                 id = %message.get_id(),
@@ -173,6 +191,12 @@ impl SessionReceiver {
     }
 
     pub async fn send_ack(&mut self, message: &Message) -> Result<(), SessionError> {
+        // we need to send an ack message only if the factory is not none
+        // in this case the session is reliable and the producer is expecting acks
+        if self.timer_factory.is_none() {
+            return Ok(());
+        }
+
         let publish_meta = message.contains_metadata(PUBLISH_TO).then(|| {
             std::iter::once((PUBLISH_TO.to_string(), TRUE_VAL.to_string()))
                 .collect::<std::collections::HashMap<_, _>>()
@@ -405,6 +429,7 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
+            false,
         );
 
         // Create test message 1
@@ -517,6 +542,7 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
+            false,
         );
 
         // Create test message 1
@@ -744,6 +770,7 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
+            false,
         );
 
         // Create test message 1
@@ -902,6 +929,7 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
+            false,
         );
 
         // Create test message 1
@@ -1071,6 +1099,7 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
+            false,
         );
 
         // Create and send message 1 from remote1
@@ -1206,6 +1235,7 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
+            false,
         );
 
         // Send messages 1, 2, 3 from remote1 (complete sequence)
@@ -1413,6 +1443,7 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
+            false,
         );
 
         // Send message 3 with PUBLISH_TO (out of order)
@@ -1481,6 +1512,7 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
+            false,
         );
 
         // Send message with PUBLISH_TO in a P2P session
@@ -1544,6 +1576,7 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
+            false,
         );
 
         // Send normal message 1
@@ -1667,6 +1700,7 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             None,
+            false,
         );
 
         // Send message with PUBLISH_TO
@@ -1728,6 +1762,7 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
+            false,
         );
 
         // Send message 1 normally
@@ -1868,6 +1903,7 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
+            false,
         );
 
         // Send PUBLISH_TO message from remote1
@@ -1933,5 +1969,386 @@ mod tests {
                 .expect("error in received ack");
             assert!(ack.metadata.contains_key(PUBLISH_TO));
         }
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_shutdown_receive_out_of_order_messages() {
+        // Test 3: Send messages 1, 3, 2 out of order with shutdown_receive=true.
+        // Verify all ACKs are sent but no messages reach the app, and no RTX requests are generated.
+        let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let local_name = Name::from_strings(["org", "ns", "local"]);
+        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+
+        let mut receiver = SessionReceiver::new(
+            Some(settings),
+            10,
+            local_name.clone(),
+            ProtoSessionType::PointToPoint,
+            tx,
+            Some(tx_signal),
+            true, // shutdown_receive enabled
+        );
+
+        // Send messages out of order: 1, 3, 2
+        let message_order = [1u32, 3u32, 2u32];
+        for msg_id in message_order.iter() {
+            let mut message = Message::builder()
+                .source(remote_name.clone())
+                .destination(local_name.clone())
+                .application_payload(
+                    &format!("test_payload_{}", msg_id),
+                    vec![*msg_id as u8, (*msg_id + 1) as u8],
+                )
+                .build_publish()
+                .unwrap();
+            message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+            message.get_session_header_mut().set_message_id(*msg_id);
+            message.get_session_header_mut().set_session_id(10);
+            message.get_slim_header_mut().set_incoming_conn(Some(1));
+
+            receiver
+                .on_message(message)
+                .await
+                .unwrap_or_else(|_| panic!("error sending message{}", msg_id));
+        }
+
+        // Verify all 3 ACKs were sent (in the order messages were received: 1, 3, 2)
+        let expected_order = [1u32, 3u32, 2u32];
+        for expected_id in expected_order {
+            let ack = timeout(Duration::from_millis(100), rx_slim.recv())
+                .await
+                .unwrap_or_else(|_| panic!("timeout waiting for ack{}", expected_id))
+                .expect("channel closed")
+                .unwrap_or_else(|_| panic!("error in received ack{}", expected_id));
+
+            assert_eq!(ack.get_dst(), remote_name);
+            assert_eq!(
+                ack.get_session_message_type(),
+                slim_datapath::api::ProtoSessionMessageType::MsgAck
+            );
+            assert_eq!(ack.get_session_header().get_message_id(), expected_id);
+        }
+
+        // Verify no messages were delivered to app
+        let res = timeout(Duration::from_millis(100), rx_app.recv()).await;
+        assert!(
+            res.is_err(),
+            "Expected no messages to app but got: {:?}",
+            res
+        );
+
+        // Verify no RTX requests were sent (even though messages arrived out of order)
+        let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
+        assert!(res.is_err(), "Expected no RTX requests but got: {:?}", res);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_shutdown_receive_multiple_senders() {
+        // Test 4: Two senders send messages simultaneously with shutdown_receive=true.
+        // Verify ACKs go to both senders but no messages reach the app.
+        let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let local_name = Name::from_strings(["org", "ns", "local"]);
+        let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
+        let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
+
+        let mut receiver = SessionReceiver::new(
+            Some(settings),
+            10,
+            local_name.clone(),
+            ProtoSessionType::Multicast,
+            tx,
+            Some(tx_signal),
+            true, // shutdown_receive enabled
+        );
+
+        // Send message 1 from remote1
+        let mut message1_r1 = Message::builder()
+            .source(remote1_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_r1_1", vec![1, 2, 3])
+            .build_publish()
+            .unwrap();
+        message1_r1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+        message1_r1.get_session_header_mut().set_message_id(1);
+        message1_r1.get_session_header_mut().set_session_id(10);
+        message1_r1.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        receiver
+            .on_message(message1_r1)
+            .await
+            .expect("error sending message1 from remote1");
+
+        // Send message 1 from remote2
+        let mut message1_r2 = Message::builder()
+            .source(remote2_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_r2_1", vec![4, 5, 6])
+            .build_publish()
+            .unwrap();
+        message1_r2.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+        message1_r2.get_session_header_mut().set_message_id(1);
+        message1_r2.get_session_header_mut().set_session_id(10);
+        message1_r2.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        receiver
+            .on_message(message1_r2)
+            .await
+            .expect("error sending message1 from remote2");
+
+        // Send message 2 from remote1
+        let mut message2_r1 = Message::builder()
+            .source(remote1_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_r1_2", vec![7, 8, 9])
+            .build_publish()
+            .unwrap();
+        message2_r1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+        message2_r1.get_session_header_mut().set_message_id(2);
+        message2_r1.get_session_header_mut().set_session_id(10);
+        message2_r1.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        receiver
+            .on_message(message2_r1)
+            .await
+            .expect("error sending message2 from remote1");
+
+        // Send message 2 from remote2
+        let mut message2_r2 = Message::builder()
+            .source(remote2_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_r2_2", vec![10, 11, 12])
+            .build_publish()
+            .unwrap();
+        message2_r2.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+        message2_r2.get_session_header_mut().set_message_id(2);
+        message2_r2.get_session_header_mut().set_session_id(10);
+        message2_r2.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        receiver
+            .on_message(message2_r2)
+            .await
+            .expect("error sending message2 from remote2");
+
+        // Collect all 4 ACKs
+        let mut received_acks = Vec::new();
+        for _ in 0..4 {
+            let ack = timeout(Duration::from_millis(100), rx_slim.recv())
+                .await
+                .expect("timeout waiting for ack")
+                .expect("channel closed")
+                .expect("error in received ack");
+            received_acks.push((ack.get_dst(), ack.get_session_header().get_message_id()));
+        }
+
+        // Verify all ACKs were sent to correct destinations
+        assert!(received_acks.contains(&(remote1_name.clone(), 1)));
+        assert!(received_acks.contains(&(remote1_name.clone(), 2)));
+        assert!(received_acks.contains(&(remote2_name.clone(), 1)));
+        assert!(received_acks.contains(&(remote2_name.clone(), 2)));
+
+        // Verify no messages were delivered to app
+        let res = timeout(Duration::from_millis(100), rx_app.recv()).await;
+        assert!(
+            res.is_err(),
+            "Expected no messages to app but got: {:?}",
+            res
+        );
+
+        // Verify no RTX requests were sent
+        let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
+        assert!(res.is_err(), "Expected no RTX requests but got: {:?}", res);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_shutdown_receive_publish_to_messages() {
+        // Test 5: Verify that even PUBLISH_TO messages (which normally bypass buffering)
+        // are not delivered to the app when shutdown_receive=true, but still generate ACKs.
+        let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let local_name = Name::from_strings(["org", "ns", "local"]);
+        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+
+        let mut receiver = SessionReceiver::new(
+            Some(settings),
+            10,
+            local_name.clone(),
+            ProtoSessionType::Multicast,
+            tx,
+            Some(tx_signal),
+            true, // shutdown_receive enabled
+        );
+
+        // Send normal message 1
+        let mut message1 = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_1", vec![1, 2, 3])
+            .build_publish()
+            .unwrap();
+        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+        message1.get_session_header_mut().set_message_id(1);
+        message1.get_session_header_mut().set_session_id(10);
+        message1.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        receiver
+            .on_message(message1)
+            .await
+            .expect("error sending message1");
+
+        // Send PUBLISH_TO message (ID 100)
+        let mut message_pt = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_publish_to", vec![100, 101, 102])
+            .build_publish()
+            .unwrap();
+        message_pt.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+        message_pt.get_session_header_mut().set_message_id(100);
+        message_pt.get_session_header_mut().set_session_id(10);
+        message_pt.get_slim_header_mut().set_incoming_conn(Some(1));
+        message_pt
+            .metadata
+            .insert(PUBLISH_TO.to_string(), TRUE_VAL.to_string());
+
+        receiver
+            .on_message(message_pt)
+            .await
+            .expect("error sending publish_to message");
+
+        // Send normal message 2
+        let mut message2 = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_2", vec![4, 5, 6])
+            .build_publish()
+            .unwrap();
+        message2.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+        message2.get_session_header_mut().set_message_id(2);
+        message2.get_session_header_mut().set_session_id(10);
+        message2.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        receiver
+            .on_message(message2)
+            .await
+            .expect("error sending message2");
+
+        // Verify all 3 ACKs were sent (including PUBLISH_TO)
+        let mut received_acks = Vec::new();
+        for _ in 0..3 {
+            let ack = timeout(Duration::from_millis(100), rx_slim.recv())
+                .await
+                .expect("timeout waiting for ack")
+                .expect("channel closed")
+                .expect("error in received ack");
+
+            let has_publish_to = ack.metadata.contains_key(PUBLISH_TO);
+            received_acks.push((ack.get_session_header().get_message_id(), has_publish_to));
+        }
+
+        // Verify ACKs for message 1, 100 (with PUBLISH_TO), and 2
+        assert!(received_acks.contains(&(1, false)));
+        assert!(received_acks.contains(&(100, true))); // PUBLISH_TO message should have metadata in ACK
+        assert!(received_acks.contains(&(2, false)));
+
+        // Verify no messages were delivered to app (including PUBLISH_TO message)
+        let res = timeout(Duration::from_millis(100), rx_app.recv()).await;
+        assert!(
+            res.is_err(),
+            "Expected no messages to app (including PUBLISH_TO) but got: {:?}",
+            res
+        );
+
+        // Verify no RTX requests were sent
+        let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
+        assert!(res.is_err(), "Expected no RTX requests but got: {:?}", res);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_shutdown_receive_unreliable_mode() {
+        // Test: Verify shutdown_receive works in unreliable mode (no timer_factory, no ACKs)
+        // Messages should be dropped without being delivered to app.
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let local_name = Name::from_strings(["org", "ns", "local"]);
+        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+
+        let mut receiver = SessionReceiver::new(
+            None, // No timer settings = unreliable mode
+            10,
+            local_name.clone(),
+            ProtoSessionType::PointToPoint,
+            tx,
+            None, // No signal channel in unreliable mode
+            true, // shutdown_receive enabled
+        );
+
+        // Send messages 1, 2, 3
+        for msg_id in 1..=3 {
+            let mut message = Message::builder()
+                .source(remote_name.clone())
+                .destination(local_name.clone())
+                .application_payload(
+                    &format!("test_payload_{}", msg_id),
+                    vec![msg_id as u8, (msg_id + 1) as u8],
+                )
+                .build_publish()
+                .unwrap();
+            message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+            message
+                .get_session_header_mut()
+                .set_message_id(msg_id as u32);
+            message.get_session_header_mut().set_session_id(10);
+            message.get_slim_header_mut().set_incoming_conn(Some(1));
+
+            receiver
+                .on_message(message)
+                .await
+                .unwrap_or_else(|_| panic!("error sending message{}", msg_id));
+        }
+
+        // In unreliable mode with shutdown_receive, no ACKs should be sent
+        let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
+        assert!(
+            res.is_err(),
+            "Expected no ACKs in unreliable mode but got: {:?}",
+            res
+        );
+
+        // Verify no messages were delivered to app
+        let res = timeout(Duration::from_millis(100), rx_app.recv()).await;
+        assert!(
+            res.is_err(),
+            "Expected no messages to app but got: {:?}",
+            res
+        );
+
+        // Verify buffer is not used (unreliable mode doesn't use buffer)
+        assert!(
+            receiver.buffer.is_empty(),
+            "Expected empty buffer in unreliable mode"
+        );
     }
 }

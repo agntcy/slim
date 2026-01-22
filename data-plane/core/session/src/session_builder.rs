@@ -7,7 +7,7 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::messages::Name;
 
 use crate::{
-    common::SessionMessage, errors::SessionError, session_config::SessionConfig,
+    Direction, common::SessionMessage, errors::SessionError, session_config::SessionConfig,
     session_controller::SessionController, session_moderator::SessionModerator,
     session_participant::SessionParticipant, session_routes::SessionRoutes,
     session_settings::SessionSettings, traits::MessageHandler, transmitter::SessionTransmitter,
@@ -119,6 +119,7 @@ where
     tx_to_session_layer: Option<tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>>,
     routes_cache: Option<SessionRoutes>,
     graceful_shutdown_timeout: Option<std::time::Duration>,
+    direction: Direction,
     _target: PhantomData<Target>,
     _state: PhantomData<State>,
 }
@@ -142,6 +143,7 @@ where
             tx_to_session_layer: None,
             routes_cache: None,
             graceful_shutdown_timeout: None,
+            direction: Direction::Bidirectional,
             _target: PhantomData,
             _state: PhantomData,
         }
@@ -205,6 +207,11 @@ where
         self
     }
 
+    pub fn with_direction(mut self, direction: Direction) -> Self {
+        self.direction = direction;
+        self
+    }
+
     pub fn ready(self) -> Result<SessionBuilder<P, V, Target, Ready>, SessionError> {
         // Verify all required fields are set
         if self.id.is_none()
@@ -233,6 +240,7 @@ where
             tx_to_session_layer: self.tx_to_session_layer,
             routes_cache: self.routes_cache,
             graceful_shutdown_timeout: self.graceful_shutdown_timeout,
+            direction: self.direction,
             _target: PhantomData,
             _state: PhantomData,
         })
@@ -342,6 +350,7 @@ where
             &self.source.clone().unwrap(),
             self.tx.clone().unwrap(),
             tx_session.clone(),
+            self.direction,
         );
 
         let settings = SessionSettings {
