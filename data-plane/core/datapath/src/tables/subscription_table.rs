@@ -769,16 +769,17 @@ mod tests {
         // test local vs remote
         assert!(t.add_subscription(name1.clone(), 2, true).is_ok());
 
-        // returns one match on connection 2
+        // returns both local (2) and remote (1) connections
         let out = t.match_all(&name1, 100).unwrap();
-        assert_eq!(out.len(), 1);
+        assert_eq!(out.len(), 2);
         assert!(out.contains(&2));
+        assert!(out.contains(&1));
 
         // returns one match on connection 2
         let out = t.match_one(&name1, 100).unwrap();
         assert_eq!(out, 2);
 
-        // fallback on remote connection and return one match on connection 1
+        // returns both local (2) and remote (1) connections, excluding incoming connection (2)
         let out = t.match_all(&name1, 2).unwrap();
         assert_eq!(out.len(), 1);
         assert!(out.contains(&1));
