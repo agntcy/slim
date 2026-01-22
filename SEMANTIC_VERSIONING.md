@@ -71,7 +71,43 @@ maintains full compatibility.
 
 The following changes constitute **MAJOR** version bumps:
 
-### 1. Protocol Buffer (Proto) Changes
+### 1. Protocol Behavior Changes
+
+Changes to the communication protocol behavior that break interoperability
+between different versions. This applies to both:
+- **Data Plane Protocol**: SLIM-to-SLIM data plane communication
+- **Control Plane Protocol**: SLIM-to-controller communication
+
+**Critical**: Protocol behavior changes that break interoperability
+require a **MAJOR** version bump, **even if the public API remains
+unchanged**. Loss of interoperability between versions is a breaking
+change regardless of API stability.
+
+**Important**: Wire compatibility (protobuf schema compatibility) is
+**not sufficient** for protocol compatibility. Even if the protobuf
+messages are wire-compatible, changes in protocol behavior can break
+communication between versions.
+
+**Breaking**:
+
+- Changing message exchange patterns (e.g., adding required handshake
+  messages, removing automatic acknowledgments)
+- Changing when messages are sent (e.g., automatically sending subscription
+  messages vs. requiring explicit requests)
+- Changing message ordering requirements or timing expectations
+- Changing required vs. optional message flows
+- Changing state machine behavior or session lifecycle expectations
+- Modifying error handling behavior that affects message flow
+- Changing authentication or authorization flows
+
+**Non-breaking** (can be MINOR):
+
+- Adding optional message exchange patterns with graceful degradation
+- Adding new optional features that older versions can safely ignore
+- Performance optimizations that don't change message flows
+- Internal state changes that don't affect external behavior
+
+### 2. Protocol Buffer (Proto) Schema Changes
 
 Changes to the proto files that break wire compatibility. This applies to
 both:
@@ -79,6 +115,10 @@ both:
   data plane communication)
 - **Control Plane Proto**: `proto/controller/v1/` (SLIM-to-controller
   communication)
+
+**Note**: Wire-compatible protobuf changes are necessary but **not
+sufficient** for protocol compatibility. See "Protocol Behavior Changes"
+above.
 
 **Breaking**:
 
@@ -97,7 +137,7 @@ both:
 - Adding new service methods
 - Marking fields as deprecated (with migration path)
 
-### 2. Public Binding APIs
+### 3. Public Binding APIs
 
 Changes to the public APIs exposed by the Rust bindings in
 `data-plane/bindings/rust/`.
@@ -146,7 +186,7 @@ Since Python, Go, and other language bindings are generated from Rust:
 - No separate versioning needed for individual language bindings - they
   track the Rust bindings version
 
-### 3. Configuration Schema Changes
+### 4. Configuration Schema Changes
 
 **Breaking**:
 
@@ -277,27 +317,40 @@ For every **MAJOR** version release, the following must be provided:
 
 Before releasing, reviewers should verify:
 
-1. **Proto Files**: Compare
-   `data-plane/core/datapath/proto/v1/data_plane.proto` with previous
-   version
-2. **Rust Bindings API**: Review changes in
+1. **Protocol Behavior**: Review changes in message exchange patterns,
+   timing, ordering, and state machine behavior for both data plane and
+   control plane communication
+2. **Proto Files**: Compare `data-plane/core/datapath/proto/v1/data_plane.proto`
+   and `proto/controller/v1/controller.proto` with previous versions
+3. **Rust Bindings API**: Review changes in
    `data-plane/bindings/rust/src/lib.rs` and all public modules marked
    with UniFFI attributes
-3. **Configuration**: Check `ServiceConfiguration` and related config
+4. **Configuration**: Check `ServiceConfiguration` and related config
    structs
-4. **Core Service**: Review `data-plane/core/service/src/lib.rs` public
+5. **Core Service**: Review `data-plane/core/service/src/lib.rs` public
    exports
 
 ## Additional Considerations
 
-### Wire Protocol Compatibility
+### Protocol Compatibility
 
-The wire protocol (protobuf messages) is the most critical compatibility
-boundary. Changes here affect:
+Protocol compatibility encompasses both wire compatibility and behavioral
+compatibility:
 
+**Wire Protocol Compatibility** (protobuf schema):
 - Communication between different SLIM versions
 - Stored message formats
-- Client-server compatibility
+- Message serialization/deserialization
+
+**Protocol Behavior Compatibility** (message flows and patterns):
+- Message exchange sequences and timing
+- Required vs. optional message flows
+- State machine behavior and session lifecycles
+- Client-server interaction patterns
+
+Both aspects must be considered when evaluating breaking changes. A change
+can be wire-compatible but behaviorally incompatible, which still
+constitutes a breaking change.
 
 ### Dependency Versioning
 
