@@ -276,9 +276,6 @@ jobs:
           - os: windows
             arch: amd64
             runner: ubuntu-latest
-          - os: windows
-            arch: arm64
-            runner: ubuntu-24.04-arm
 
     steps:
       - name: Checkout Repo
