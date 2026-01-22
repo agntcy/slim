@@ -203,13 +203,9 @@ impl SessionSender {
         if self.shutdown_send {
             debug!(message_id = %message.get_id(), "sender is shutdown, drop message");
             if let Some(tx) = ack_tx {
-                let _ = tx.send(Err(SessionError::SessionSenderShutdown {
-                    id: message.get_id(),
-                }));
+                let _ = tx.send(Err(SessionError::SessionSenderShutdown));
             }
-            return Err(SessionError::SessionSenderShutdown {
-                id: message.get_id(),
-            });
+            return Err(SessionError::SessionSenderShutdown);
         }
 
         let is_publish_to = message.metadata.contains_key(PUBLISH_TO);
@@ -2289,7 +2285,7 @@ mod tests {
     #[traced_test]
     async fn test_shutdown_send_sequential_messages() {
         // Test: Send messages 1, 2, 3 sequentially with shutdown_send=true.
-        // Verify no messages reach SLIM, ack notifiers receive success immediately.
+        // Verify no messages reach SLIM, ack notifiers receive errors.
         let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
@@ -2331,21 +2327,33 @@ mod tests {
             // Create oneshot channel for ack notification
             let (ack_tx, ack_rx) = oneshot::channel();
 
-            sender
-                .on_message(message, Some(ack_tx))
-                .await
-                .unwrap_or_else(|_| panic!("error sending message{}", msg_id));
+            let result = sender.on_message(message, Some(ack_tx)).await;
 
-            // Verify ack notifier receives immediate success
+            // Verify on_message returns error when shutdown_send is true
+            assert!(
+                result.is_err(),
+                "Expected error from on_message but got: {:?}",
+                result
+            );
+            assert!(
+                matches!(result, Err(SessionError::SessionSenderShutdown)),
+                "Expected SessionSenderShutdown error"
+            );
+
+            // Verify ack notifier receives error
             let ack_result = timeout(Duration::from_millis(100), ack_rx)
                 .await
                 .unwrap_or_else(|_| panic!("timeout waiting for ack notification {}", msg_id))
                 .unwrap_or_else(|_| panic!("channel closed for message {}", msg_id));
 
             assert!(
-                ack_result.is_ok(),
-                "Expected Ok result but got: {:?}",
+                ack_result.is_err(),
+                "Expected error result but got: {:?}",
                 ack_result
+            );
+            assert!(
+                matches!(ack_result, Err(SessionError::SessionSenderShutdown)),
+                "Expected SessionSenderShutdown error in ack notifier"
             );
         }
 
@@ -2365,7 +2373,7 @@ mod tests {
     #[traced_test]
     async fn test_shutdown_send_multiple_endpoints() {
         // Test: Add multiple endpoints and send messages with shutdown_send=true.
-        // Verify no messages reach SLIM but ack notifiers get success.
+        // Verify no messages reach SLIM and an error is returned.
         let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
@@ -2414,21 +2422,33 @@ mod tests {
 
             let (ack_tx, ack_rx) = oneshot::channel();
 
-            sender
-                .on_message(message, Some(ack_tx))
-                .await
-                .unwrap_or_else(|_| panic!("error sending message {}", msg_num));
+            let result = sender.on_message(message, Some(ack_tx)).await;
 
-            // Verify ack notifier receives immediate success
+            // Verify on_message returns error when shutdown_send is true
+            assert!(
+                result.is_err(),
+                "Expected error from on_message but got: {:?}",
+                result
+            );
+            assert!(
+                matches!(result, Err(SessionError::SessionSenderShutdown)),
+                "Expected SessionSenderShutdown error"
+            );
+
+            // Verify ack notifier receives error
             let ack_result = timeout(Duration::from_millis(100), ack_rx)
                 .await
                 .unwrap_or_else(|_| panic!("timeout waiting for ack {}", msg_num))
                 .unwrap_or_else(|_| panic!("channel closed for message {}", msg_num));
 
             assert!(
-                ack_result.is_ok(),
-                "Expected Ok result but got: {:?}",
+                ack_result.is_err(),
+                "Expected error result but got: {:?}",
                 ack_result
+            );
+            assert!(
+                matches!(ack_result, Err(SessionError::SessionSenderShutdown)),
+                "Expected SessionSenderShutdown error in ack notifier"
             );
         }
 
@@ -2489,10 +2509,16 @@ mod tests {
             .unwrap();
         message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
 
-        sender
-            .on_message(message, None)
-            .await
-            .expect("error sending message");
+        let result = sender.on_message(message, None).await;
+        assert!(
+            result.is_err(),
+            "Expected error from on_message but got: {:?}",
+            result
+        );
+        assert!(
+            matches!(result, Err(SessionError::SessionSenderShutdown)),
+            "Expected SessionSenderShutdown error"
+        );
 
         // Verify no message was sent to SLIM
         let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
@@ -2581,21 +2607,33 @@ mod tests {
 
             let (ack_tx, ack_rx) = oneshot::channel();
 
-            sender
-                .on_message(message, Some(ack_tx))
-                .await
-                .unwrap_or_else(|_| panic!("error sending message{}", msg_id));
+            let result = sender.on_message(message, Some(ack_tx)).await;
 
-            // Verify ack notifier receives immediate success
+            // Verify on_message returns error when shutdown_send is true
+            assert!(
+                result.is_err(),
+                "Expected error from on_message but got: {:?}",
+                result
+            );
+            assert!(
+                matches!(result, Err(SessionError::SessionSenderShutdown)),
+                "Expected SessionSenderShutdown error"
+            );
+
+            // Verify ack notifier receives error
             let ack_result = timeout(Duration::from_millis(100), ack_rx)
                 .await
                 .unwrap_or_else(|_| panic!("timeout waiting for ack {}", msg_id))
                 .unwrap_or_else(|_| panic!("channel closed for message {}", msg_id));
 
             assert!(
-                ack_result.is_ok(),
-                "Expected Ok result but got: {:?}",
+                ack_result.is_err(),
+                "Expected error result but got: {:?}",
                 ack_result
+            );
+            assert!(
+                matches!(ack_result, Err(SessionError::SessionSenderShutdown)),
+                "Expected SessionSenderShutdown error in ack notifier"
             );
         }
 
