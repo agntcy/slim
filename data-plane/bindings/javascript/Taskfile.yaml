@@ -106,55 +106,6 @@ tasks:
       - echo "✅ React Native bindings generated in generated/"
     silent: true
 
-  # WASM generation disabled due to tokio incompatibility with WASM targets
-  # generate:wasm:
-  #   desc: Generate WASM bindings from compiled library (note - compilation not supported yet)
-  #   deps:
-  #     - task: adapter:bindings:build:all
-  #       vars:
-  #         PROFILE: release
-  #     - task: install-uniffi-bindgen-react-native
-  #   cmds:
-  #     - echo "🔧 Generating WASM bindings..."
-  #     - echo "⚠️  Note - WASM generation is placeholder (tokio incompatibility)"
-  #     - mkdir -p generated/wasm generated/typescript
-  #     - |
-  #       cd {{.BINDINGS_DIR}} && ubrn generate wasm bindings \
-  #         --ts-dir ../javascript/generated/typescript \
-  #         --cpp-dir ../javascript/generated/wasm \
-  #         --library \
-  #         '{{.LIB_PATH}}'
-  #     - echo "🔧 Fixing generator bug (async public → public async)... {{.TASKFILE_DIR}}"
-  #     - sed -i '' 's/async public/public async/g' {{.TASKFILE_DIR}}/generated/typescript/slim_bindings.ts
-  #     - sed -i '' 's/async static/static async/g' {{.TASKFILE_DIR}}/generated/typescript/slim_bindings.ts
-  #     - echo "✅ WASM TypeScript bindings generated (module compilation skipped)"
-  #   silent: true
-
-  # WASM build disabled - see generate:wasm above
-  # build:wasm:
-  #   desc: Build WASM module from generated bindings
-  #   deps:
-  #     - task: generate:wasm
-  #     - task: install-wasm-tools
-  #   cmds:
-  #     - echo "🦀 Building WASM module..."
-  #     - echo "⚠️  Note - WASM build requires adapter crate to support wasm32-unknown-unknown target"
-  #     - echo "⚠️  The adapter currently uses tokio which doesn't support WASM without feature flags"
-  #     - echo "⚠️  Bindings are generated but WASM compilation is not yet supported"
-  #     - echo "❌ WASM build skipped - see README for details"
-  #   silent: true
-
-  # build:wasm:nodejs:
-  #   desc: Build WASM module for Node.js environment
-  #   deps:
-  #     - task: generate:wasm
-  #     - task: install-wasm-tools
-  #   cmds:
-  #     - echo "🦀 Building WASM module for Node.js..."
-  #     - cd generated/wasm && wasm-pack build --target nodejs --release
-  #     - echo "✅ WASM module built for Node.js in generated/wasm/pkg/"
-  #   silent: true
-
   install:
     desc: Install npm dependencies
     cmds:
@@ -275,7 +226,7 @@ tasks:
       - echo "This may take 2-3 minutes on first run..."
       - npx react-native run-ios --mode Debug > /tmp/rn-ios.log 2>&1 &
       - echo "Waiting for app to launch (120s)..."
-      - sleep 120
+      - sleep 60
       - echo "Running Maestro tests..."
       - maestro test maestro/smoke-tests.yaml || (echo "Tests failed"; exit 1)
       - echo "Cleaning up..."
