@@ -48,11 +48,12 @@ pub use interceptor::SessionInterceptorProvider;
 // Session Config
 pub use session_config::SessionConfig;
 
+// Session Layer
+pub use session_layer::{Direction, SessionLayer};
+
 // Common Session Types - internal use
 pub use common::{MessageDirection, SESSION_RANGE, SessionMessage, SlimChannelSender};
 
-// Session layer
-pub use session_layer::SessionLayer;
 // Public exports for external crates (like Python bindings)
 pub use common::{AppChannelReceiver, SESSION_UNSPECIFIED};
 
