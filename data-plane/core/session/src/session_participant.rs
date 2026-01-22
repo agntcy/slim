@@ -399,6 +399,13 @@ where
 
             if name != self.common.settings.source {
                 debug!(name = %msg.get_source(), "add endpoint to the session");
+                // add a route to the new endpoint, this is needed in case of message retransmission
+                // skip the moderator as the route is already added in on_join_request
+                if self.moderator_name.as_ref() != Some(&name) {
+                    self.common
+                        .add_route(&name, msg.get_incoming_conn())
+                        .await?;
+                }
                 self.add_endpoint(&name).await?;
             }
         }
@@ -454,6 +461,10 @@ where
                 self.group_list.insert(name.clone());
 
                 debug!(name  = %msg.get_source(), "add endpoint to session");
+                // add a route to the new endpoint, this is needed in case of message retransmission
+                self.common
+                    .add_route(&name, msg.get_incoming_conn())
+                    .await?;
                 self.add_endpoint(&name).await?;
             }
         } else {
@@ -467,6 +478,10 @@ where
                 self.group_list.remove(&name);
 
                 debug!(name = %msg.get_source(), "remove endpoint from session");
+                // remove a route to the endpoint
+                self.common
+                    .delete_route(&name, msg.get_incoming_conn())
+                    .await?;
                 self.inner.remove_endpoint(&name);
             }
         }
@@ -570,6 +585,14 @@ where
             self.common
                 .delete_subscription(&self.common.settings.destination, conn_id)
                 .await?;
+        }
+
+        // remove also all the routes to the other participants except the moderator
+        // it will be removed in disconnect_from_moderator
+        for n in self.group_list.iter() {
+            if self.moderator_name.as_ref() != Some(n) {
+                self.common.delete_route(n, self.conn_id.unwrap()).await?;
+            }
         }
 
         Ok(())
