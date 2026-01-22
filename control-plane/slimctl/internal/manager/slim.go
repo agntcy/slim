@@ -13,11 +13,6 @@ import (
 	slim "github.com/agntcy/slim-bindings-go"
 )
 
-// defaultSecret is used for local development/testing purposes.
-// This is intentionally hardcoded for local CLI tool usage only.
-// #nosec G101 -- This is a development-only secret, not for production use
-const defaultSecret = "slimctl-dev-secret-do-not-use-in-production"
-
 // Manager defines management operations for a local slim instance.
 type Manager interface {
 	Start(ctx context.Context) error
@@ -49,28 +44,10 @@ func (s *manager) Start(_ context.Context) error {
 	s.Logger.Info("Starting slim instance")
 
 	// Initialize crypto
-	slim.InitializeCryptoProvider()
-
-	// Create server app
-	serverName := slim.Name{
-		Components: []string{"system", "server", "node"},
-		Id:         nil,
-	}
-
-	app, err := slim.CreateAppWithSecret(serverName, defaultSecret)
-	if err != nil {
-		s.Logger.Error("failed to create server app", zap.Error(err))
-		return fmt.Errorf("failed to create server app: %w", err)
-	}
-	defer app.Destroy()
-
-	fmt.Printf("✅ Server app created (ID: %d)\n", app.Id())
+	slim.InitializeWithDefaults()
 
 	// Start server
-	config := slim.ServerConfig{
-		Endpoint: s.Endpoint,
-		Tls:      slim.TlsConfig{Insecure: true},
-	}
+	config := slim.NewInsecureServerConfig(s.Endpoint)
 
 	fmt.Printf("🌐 Starting server on %s...\n", s.Endpoint)
 	fmt.Println("   Waiting for clients to connect...")
@@ -79,7 +56,7 @@ func (s *manager) Start(_ context.Context) error {
 	// Run server in goroutine (it blocks)
 	serverErr := make(chan error, 1)
 	go func() {
-		if err := app.RunServer(config); err != nil {
+		if err := slim.GetGlobalService().RunServer(config); err != nil {
 			serverErr <- err
 		}
 	}()

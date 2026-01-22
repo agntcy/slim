@@ -339,7 +339,6 @@ where
         let source = msg.get_source();
         self.moderator_name = Some(source.clone());
 
-        tracing::info!("[ROUTE on join request] add route to dst {} via conn {:?}", &source, msg.try_get_incoming_conn());
         self.common
             .add_route(&source, msg.get_incoming_conn())
             .await?;
@@ -400,10 +399,12 @@ where
 
             if name != self.common.settings.source {
                 debug!(name = %msg.get_source(), "add endpoint to the session");
-                // add a rotute to the new endpoint, this is need in case of message retransmission
+                // add a route to the new endpoint, this is needed in case of message retransmission
+                // skip the moderator as the route is already added in on_join_request
                 if self.moderator_name.as_ref() != Some(&name) {
-                    tracing::info!("[ROUTE add on welcome] add route to dst {} via conn {}", &name, msg.get_incoming_conn());
-                    self.common.add_route(&name, msg.get_incoming_conn()).await?;
+                    self.common
+                        .add_route(&name, msg.get_incoming_conn())
+                        .await?;
                 }
                 self.add_endpoint(&name).await?;
             }
@@ -460,9 +461,10 @@ where
                 self.group_list.insert(name.clone());
 
                 debug!(name  = %msg.get_source(), "add endpoint to session");
-                // add a rotute to the new endpoint, this is need in case of message retransmission
-                tracing::info!("[ROUTE add on group update] add route to dst {} via conn {}", &name, msg.get_incoming_conn());
-                self.common.add_route(&name, msg.get_incoming_conn()).await?;
+                // add a route to the new endpoint, this is needed in case of message retransmission
+                self.common
+                    .add_route(&name, msg.get_incoming_conn())
+                    .await?;
                 self.add_endpoint(&name).await?;
             }
         } else {
@@ -476,9 +478,10 @@ where
                 self.group_list.remove(&name);
 
                 debug!(name = %msg.get_source(), "remove endpoint from session");
-                // remove a rotute to the endpoint
-                tracing::info!("[ROUTE remove endpoint] remove route to dst {} ", &name);
-                self.common.add_route(&name, msg.get_incoming_conn()).await?;
+                // remove a route to the endpoint
+                self.common
+                    .delete_route(&name, msg.get_incoming_conn())
+                    .await?;
                 self.inner.remove_endpoint(&name);
             }
         }
@@ -562,7 +565,6 @@ where
             return Ok(());
         }
 
-        tracing::info!("[ROUTE join] add route to dst {} via conn {:?}", &self.common.settings.destination, msg.try_get_incoming_conn());
         self.common
             .add_route(&self.common.settings.destination, msg.get_incoming_conn())
             .await?;
@@ -577,7 +579,6 @@ where
         }
 
         if let Some(conn_id) = self.conn_id {
-            tracing::info!("[ROUTE disconnect from group] removing route to dst {} via conn {}", &self.common.settings.destination, conn_id);
             self.common
                 .delete_route(&self.common.settings.destination, conn_id)
                 .await?;
@@ -587,9 +588,9 @@ where
         }
 
         // remove also all the routes to the other participants except the moderator
+        // it will be removed in disconnect_from_moderator
         for n in self.group_list.iter() {
             if self.moderator_name.as_ref() != Some(n) {
-                tracing::info!("[ROUTE disconnect from group] removing route to dst {} via conn {}", n, self.conn_id.unwrap());
                 self.common.delete_route(n, self.conn_id.unwrap()).await?;
             }
         }
@@ -599,7 +600,6 @@ where
 
     async fn disconnect_from_moderator(&self) -> Result<(), SessionError> {
         if let Some(conn_id) = self.conn_id {
-            tracing::info!("[ROUTE disconnect from moderator] removing route to dst {} via conn {}", self.moderator_name.as_ref().unwrap(), conn_id);
             self.common
                 .delete_route(self.moderator_name.as_ref().unwrap(), conn_id)
                 .await?;
