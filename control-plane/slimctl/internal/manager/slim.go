@@ -13,11 +13,6 @@ import (
 	slim "github.com/agntcy/slim-bindings-go"
 )
 
-// defaultSecret is used for local development/testing purposes.
-// This is intentionally hardcoded for local CLI tool usage only.
-// #nosec G101 -- This is a development-only secret, not for production use
-const defaultSecret = "slimctl-dev-secret-do-not-use-in-production"
-
 // Manager defines management operations for a local slim instance.
 type Manager interface {
 	Start(ctx context.Context) error
@@ -50,18 +45,6 @@ func (s *manager) Start(_ context.Context) error {
 
 	// Initialize crypto
 	slim.InitializeWithDefaults()
-
-	// Create server app
-	serverName := slim.NewName("system", "server", "node")
-
-	app, err := slim.GetGlobalService().CreateAppWithSecret(serverName, defaultSecret)
-	if err != nil {
-		s.Logger.Error("failed to create server app", zap.Error(err))
-		return fmt.Errorf("failed to create server app: %w", err)
-	}
-	defer app.Destroy()
-
-	fmt.Printf("✅ Server app created (ID: %d)\n", app.Id())
 
 	// Start server
 	config := slim.NewInsecureServerConfig(s.Endpoint)

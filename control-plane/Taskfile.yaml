@@ -197,7 +197,6 @@ tasks:
         sh: pushd {{.REPO_ROOT}} > /dev/null && task version && popd > /dev/null
       FLAGS: '{{.FLAGS | default ""}}'
 
-
     deps:
       - control-plane:proto:generate
       - task: control-plane:go-bindings:setup
@@ -217,8 +216,6 @@ tasks:
         echo "   CURRENT_ARCH:  {{.CURRENT_ARCH}}"
         echo "   TARGETOS:      {{.TARGETOS}}"
         echo "   TARGETARCH:    {{.TARGETARCH}}"
-        echo ""
-        
         # Determine output binary name
         BINARY="slimctl"
         [ "{{.TARGETOS}}" = "windows" ] && BINARY="slimctl.exe"
@@ -236,8 +233,7 @@ tasks:
         else
           # Cross-compilation - setup Zig compiler
           echo "🔨 Cross-compiling slimctl from {{.CURRENT_OS}}/{{.CURRENT_ARCH}} to {{.TARGETOS}}/{{.TARGETARCH}}"
-          BUILD_MODE="cross"
-          
+          BUILD_MODE="cross"         
           # Map GOOS/GOARCH to Zig target triple
           case "{{.TARGETOS}}" in
             linux)
@@ -277,7 +273,7 @@ tasks:
             exit 1
           fi
 
-          echo "   Using Zig target: $ZIG_TARGET"
+          echo "Using Zig target: $ZIG_TARGET"
 
           # Configure Zig as the C/C++ compiler with explicit runtime library
           # Use -rtlib=compiler-rt to link Zig's compiler runtime which includes unwinding
