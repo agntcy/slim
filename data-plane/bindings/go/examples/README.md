@@ -14,15 +14,7 @@ task generate      # Generate Go bindings from compiled library
 
 ## Examples
 
-### 1. Simple Example
-
-Demonstrates basic SLIM operations: app creation, session management, and publishing.
-
-```bash
-task example
-```
-
-### 2. Point-to-Point Example
+### 1. Point-to-Point Example
 
 Demonstrates 1:1 messaging between two peers with request/reply pattern.
 
@@ -41,7 +33,7 @@ task example:p2p:alice
 task example:p2p:bob
 ```
 
-### 3. Group Example
+### 2. Group Example
 
 Demonstrates group messaging with moderator-participant pattern and concurrent message handling.
 
@@ -77,7 +69,6 @@ task help
 ```
 examples/
 ├── common/          # Shared utilities (ID parsing)
-├── simple/          # Basic SLIM usage
 ├── point_to_point/  # 1:1 messaging
 └── group/           # Group messaging
 ```

@@ -11,7 +11,7 @@ use tokio::sync::mpsc::{self};
 use tracing::debug;
 
 use crate::{
-    MessageDirection,
+    Direction, MessageDirection,
     common::SessionMessage,
     errors::SessionError,
     session_config::SessionConfig,
@@ -35,6 +35,7 @@ impl Session {
         local_name: &Name,
         tx: SessionTransmitter,
         tx_signals: mpsc::Sender<SessionMessage>,
+        direction: Direction,
     ) -> Self {
         let timer_settings = if let Some(duration) = session_config.interval
             && let Some(max_retries) = session_config.max_retries
@@ -46,12 +47,15 @@ impl Session {
             None
         };
 
+        let (shutdown_send, shutdown_receive) = direction.to_flags();
+
         let sender = SessionSender::new(
             timer_settings.clone(),
             session_id,
             session_config.session_type,
             tx.clone(),
             Some(tx_signals.clone()),
+            shutdown_send,
         );
         let receiver = SessionReceiver::new(
             timer_settings,
@@ -60,6 +64,7 @@ impl Session {
             session_config.session_type,
             tx.clone(),
             Some(tx_signals.clone()),
+            shutdown_receive,
         );
 
         Session {
@@ -278,6 +283,7 @@ mod tests {
             &local_name,
             tx.clone(),
             tx_signal.clone(),
+            Direction::Bidirectional,
         );
 
         // Add the remote endpoint to the session sender
@@ -415,6 +421,7 @@ mod tests {
             &local_name,
             tx.clone(),
             tx_signal.clone(),
+            Direction::Bidirectional,
         );
 
         // Receive message 1 from slim
@@ -626,6 +633,7 @@ mod tests {
             &sender_name,
             tx_sender.clone(),
             tx_signal_sender.clone(),
+            Direction::Bidirectional,
         );
 
         // Add receiver as endpoint for sender
@@ -657,6 +665,7 @@ mod tests {
             &receiver_name,
             tx_receiver.clone(),
             tx_signal_receiver.clone(),
+            Direction::Bidirectional,
         );
 
         // Add sender as endpoint for receiver

@@ -28,6 +28,36 @@ vars:
 
   PROTOC_VERSION: "29.0"
 
+  DETECTED_OS:
+    sh: |
+        if [[ "{{OS}}" == "linux" ]]; then
+          echo "linux"
+        elif [[ "{{OS}}" == "darwin" ]]; then
+          echo "macos"
+        elif [[ "{{OS}}" == "windows" ]]; then
+          echo "windows"
+        else
+          echo "unknown"
+        fi
+
+  DETECTED_ARCH:
+    sh: |
+        if [[ "{{ARCH}}" == "amd64" ]]; then
+          echo "x86_64"
+        elif [[ "{{ARCH}}" == "arm64" ]]; then
+          echo "aarch64"
+        else
+          echo "unknown"
+        fi
+
+  EXTENSION:
+    sh: |
+        if [[ "{{.DETECTED_OS}}" == "windows" ]]; then
+          echo "zip"
+        else
+          echo "tar.xz"
+        fi
+
 tasks:
   tools:foreach:
     internal: true
@@ -114,3 +144,42 @@ tasks:
     cmds:
       - task: tools:protoc
       - task: tools:go-tools
+      - task: tools:zig
+
+  tools:zig:
+    desc: Install Zig locally for all platforms via direct download
+    dir: "{{.TMP_FOLDER}}"
+    status:
+      - test -f "{{.TOOLS_INSTALL_DIR}}/zig" || test -f "{{.TOOLS_INSTALL_DIR}}/zig.exe"
+    deps:
+      - tools:dir
+    vars:
+      ZIG_VERSION: '{{.ZIG_VERSION | default "0.14.1"}}'
+      DOWNLOAD_BASE: "https://ziglang.org/download/{{.ZIG_VERSION}}/zig-{{.DETECTED_ARCH}}-{{.DETECTED_OS}}-{{.ZIG_VERSION}}.{{.EXTENSION}}"
+    cmds:
+      - curl -L "{{.DOWNLOAD_BASE}}" -o "zig.{{.EXTENSION}}"
+      - |
+        if [[ "{{.EXTENSION}}" == "zip" ]]; then
+          unzip -q "zig.{{.EXTENSION}}" -d .
+        else
+          tar -xf "zig.{{.EXTENSION}}" -C .
+        fi
+      - mv zig-{{.DETECTED_ARCH}}-{{.DETECTED_OS}}-{{.ZIG_VERSION}}/* "{{.TOOLS_INSTALL_DIR}}"
+      - echo "Zig installed to {{.TOOLS_INSTALL_DIR}}"
+      - task: tools:dlltool-wrapper
+
+  tools:dlltool-wrapper:
+    desc: Create dlltool wrapper script for MinGW cross-compilation
+    status:
+      - test -f "{{.TOOLS_INSTALL_DIR}}/{{.DETECTED_ARCH}}-w64-mingw32-dlltool"
+    deps:
+      - tools:dir
+    cmds:
+      - |
+        cat > "{{.TOOLS_INSTALL_DIR}}/{{.DETECTED_ARCH}}-w64-mingw32-dlltool" << 'EOF'
+        #!/usr/bin/env sh
+        # Wrapper script to use Zig's dlltool instead of MinGW's dlltool
+        exec "{{.TOOLS_INSTALL_DIR}}/zig" dlltool "$@"
+        EOF
+      - chmod +x "{{.TOOLS_INSTALL_DIR}}/{{.DETECTED_ARCH}}-w64-mingw32-dlltool"
+      - echo "Created dlltool wrapper at {{.TOOLS_INSTALL_DIR}}/{{.DETECTED_ARCH}}-w64-mingw32-dlltool"
