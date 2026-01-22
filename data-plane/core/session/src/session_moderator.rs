@@ -288,6 +288,7 @@ where
         if self.common.settings.config.session_type == ProtoSessionType::Multicast
             && let Some(conn) = self.conn_id
         {
+            tracing::info!("[ROUTE shutdown] Removing route to dst {} via conn {}", &self.common.settings.destination, conn);
             self.common
                 .delete_route(&self.common.settings.destination, conn)
                 .await?;
@@ -598,6 +599,7 @@ where
                 // here we assume that the destination is reachable from the
                 // same connection from where we got the message from the controller
                 let dst = Name::from(dst_name);
+                tracing::info!("[ROUTE discovery request] Adding route to dst {} via conn {:?}", dst, msg.try_get_incoming_conn());
                 self.common
                     .add_route(&dst, msg.get_incoming_conn())
                     .await
@@ -668,6 +670,7 @@ where
         self.join(msg.get_source(), msg.get_incoming_conn()).await?;
 
         // set a route to the remote participant
+        tracing::info!("[ROUTE discovery reply] Adding route to dst {} via conn {:?}", &msg.get_source(), msg.try_get_incoming_conn());
         self.common
             .add_route(&msg.get_source(), msg.get_incoming_conn())
             .await?;
@@ -677,6 +680,7 @@ where
         // all the times because the messages from the remote endpoints may come from
         // different connections. In case the route exists already it will be just ignored
         if self.common.settings.config.session_type == ProtoSessionType::Multicast {
+            tracing::info!("[ROUTE discovery reply] Adding route to dst {} (GROUP) via conn {:?}", &msg.get_source(), msg.try_get_incoming_conn());
             self.common
                 .add_route(&self.common.settings.destination, msg.get_incoming_conn())
                 .await?;
@@ -1133,6 +1137,7 @@ where
         let msg_id = msg.get_id();
 
         // delete the route to the source of the message
+        tracing::info!("[ROUTE leave reply] Removing route to dst {} via conn {:?}", &msg.get_source(), msg.try_get_incoming_conn());
         self.common
             .delete_route(&msg.get_source(), msg.get_incoming_conn())
             .await?;
