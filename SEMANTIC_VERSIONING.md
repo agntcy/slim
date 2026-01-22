@@ -35,7 +35,7 @@ to work with the new major version.
 **Compatibility**: Backwards compatible with limitations
 
 Minor version upgrades maintain backwards compatibility at the **wire
-protocol** and **core API** level, but:
+protocol**, **configuration file** and **core API** level, but:
 
 - New features may be introduced that are not available in older versions
 - Applications built against version `0.N.x` can communicate with
