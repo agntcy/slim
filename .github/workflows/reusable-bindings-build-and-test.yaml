@@ -113,6 +113,13 @@ jobs:
                 "python-platform": "macosx_11_0_arm64",
                 "exclude": ${{ github.event_name == 'pull_request' }}
               }
+            ],
+            "exclude": [
+              {
+                "platform": {
+                  "exclude": true
+                }
+              }
             ]
           }'
 
@@ -273,8 +280,6 @@ jobs:
   python-bindings-test:
     name: Test Python Wheels (${{ matrix.platform.target }})
     runs-on: ${{ matrix.platform.runner }}
-    # Skip excluded platforms on PRs, but run all on tag pushes and main branch
-    if: ${{ !matrix.platform.exclude || github.event_name != 'pull_request' }}
     needs:
       - generate-matrix
       - build-libraries
