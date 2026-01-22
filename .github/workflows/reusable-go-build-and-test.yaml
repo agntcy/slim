@@ -264,7 +264,7 @@ jobs:
             runner: ubuntu-latest
           - os: linux
             arch: arm64
-            runner: ubuntu-24.04-arm64
+            runner: ubuntu-24.04-arm
           # macOS builds - use native runners for better performance
           - os: darwin
             arch: amd64
@@ -278,7 +278,7 @@ jobs:
             runner: ubuntu-latest
           - os: windows
             arch: arm64
-            runner: ubuntu-24.04-arm64
+            runner: ubuntu-24.04-arm
 
     steps:
       - name: Checkout Repo
