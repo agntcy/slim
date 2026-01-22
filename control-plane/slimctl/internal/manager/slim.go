@@ -49,15 +49,12 @@ func (s *manager) Start(_ context.Context) error {
 	s.Logger.Info("Starting slim instance")
 
 	// Initialize crypto
-	slim.InitializeCryptoProvider()
+	slim.InitializeWithDefaults()
 
 	// Create server app
-	serverName := slim.Name{
-		Components: []string{"system", "server", "node"},
-		Id:         nil,
-	}
+	serverName := slim.NewName("system", "server", "node")
 
-	app, err := slim.CreateAppWithSecret(serverName, defaultSecret)
+	app, err := slim.GetGlobalService().CreateAppWithSecret(serverName, defaultSecret)
 	if err != nil {
 		s.Logger.Error("failed to create server app", zap.Error(err))
 		return fmt.Errorf("failed to create server app: %w", err)
@@ -67,10 +64,7 @@ func (s *manager) Start(_ context.Context) error {
 	fmt.Printf("✅ Server app created (ID: %d)\n", app.Id())
 
 	// Start server
-	config := slim.ServerConfig{
-		Endpoint: s.Endpoint,
-		Tls:      slim.TlsConfig{Insecure: true},
-	}
+	config := slim.NewInsecureServerConfig(s.Endpoint)
 
 	fmt.Printf("🌐 Starting server on %s...\n", s.Endpoint)
 	fmt.Println("   Waiting for clients to connect...")
@@ -79,7 +73,7 @@ func (s *manager) Start(_ context.Context) error {
 	// Run server in goroutine (it blocks)
 	serverErr := make(chan error, 1)
 	go func() {
-		if err := app.RunServer(config); err != nil {
+		if err := slim.GetGlobalService().RunServer(config); err != nil {
 			serverErr <- err
 		}
 	}()
