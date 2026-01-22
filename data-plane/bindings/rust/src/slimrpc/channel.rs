@@ -1,6 +1,40 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+//! RPC Channel implementation for SlimRPC
+//!
+//! This module implements async bidirectional streaming for RPC calls, inspired by
+//! Go's goroutine-based concurrency model:
+//!
+//! ## Async Streaming Architecture
+//!
+//! ### Client-side (RpcChannel):
+//! - **Unary-Unary**: Send single request, await single response
+//! - **Unary-Stream**: Send single request, receive response stream
+//! - **Stream-Unary**: Send request stream synchronously, await single response
+//! - **Stream-Stream**: Send requests asynchronously in background task (tokio::spawn),
+//!   receive responses concurrently via stream - enables true bidirectional streaming
+//!
+//! ### Server-side (RpcServer):
+//! - Each session is handled in a separate tokio task (like Go goroutines)
+//! - Request streams are read asynchronously using `spawn_request_reader` task
+//! - Response streams are sent asynchronously as they're generated
+//! - No buffering of responses - streaming happens in real-time
+//!
+//! ## Example: Stream-Stream Flow
+//!
+//! ```text
+//! Client:                          Server:
+//!   |                                |
+//!   | spawn send task --------------->|
+//!   | (sends requests async)         | spawn request reader
+//!   |                                | (reads requests async)
+//!   |                                |
+//!   | await response stream <---------|
+//!   | (receives concurrently)        | generate responses
+//!   |                                | (streamed as produced)
+//! ```
+
 use super::common::{service_and_method_to_name, DEADLINE_KEY, MAX_TIMEOUT};
 use super::context::MessageContext;
 use super::error::{Result, SRPCError};
@@ -237,6 +271,7 @@ impl RpcChannel {
     }
 
     /// Internal helper for stream-stream calls
+    /// Sends requests asynchronously while receiving responses concurrently (true bidirectional streaming)
     pub async fn stream_stream(
         &self,
         method: &str,
@@ -248,9 +283,10 @@ impl RpcChannel {
             self.common_setup(method, metadata).await?;
         let deadline = compute_deadline(timeout);
 
-        self.send_stream(request_stream, &session, &service_name, metadata, deadline)
-            .await?;
+        // Send requests asynchronously in background task (like Go goroutine)
+        let _send_handle = self.send_stream_async(request_stream, &session, &service_name, metadata, deadline);
 
+        // Immediately start receiving responses (concurrent with sending)
         let stream = self.receive_stream(session_ctx, deadline).await?;
 
         Ok(stream)
@@ -360,6 +396,46 @@ impl RpcChannel {
             .map_err(SRPCError::PublishError)?;
 
         Ok(())
+    }
+    
+    /// Send stream asynchronously in a background task (for true bidirectional streaming)
+    fn send_stream_async(
+        &self,
+        request_stream: Pin<Box<dyn Stream<Item = Vec<u8>> + Send>>,
+        session: &Arc<SessionController>,
+        service_name: &Name,
+        mut metadata: HashMap<String, String>,
+        deadline: f64,
+    ) -> tokio::task::JoinHandle<()> {
+        metadata.insert(DEADLINE_KEY.to_string(), deadline.to_string());
+
+        let session_clone = session.clone();
+        let service_name_clone = service_name.clone();
+        let metadata_clone = metadata.clone();
+        
+        tokio::spawn(async move {
+            let mut stream = request_stream;
+            while let Some(request) = stream.next().await {
+                if let Err(e) = session_clone
+                    .publish(&service_name_clone, request, None, Some(metadata_clone.clone()))
+                    .await
+                {
+                    tracing::error!("Error publishing request: {:?}", e);
+                    return;
+                }
+            }
+
+            // Send end of stream
+            let mut end_metadata = metadata_clone.clone();
+            end_metadata.insert("code".to_string(), "0".to_string());
+
+            if let Err(e) = session_clone
+                .publish(&service_name_clone, vec![], None, Some(end_metadata))
+                .await
+            {
+                tracing::error!("Error sending end of stream: {:?}", e);
+            }
+        })
     }
 
     async fn receive_unary(

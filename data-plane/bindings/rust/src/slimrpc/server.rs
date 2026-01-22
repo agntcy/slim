@@ -1,13 +1,38 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+//! RPC Server implementation for SlimRPC
+//!
+//! This module implements async request/response processing for RPC handlers,
+//! inspired by Go's goroutine-based server model:
+//!
+//! ## Server Architecture
+//!
+//! - **Session Handling**: Each incoming session spawns a tokio task (like Go goroutines)
+//! - **Request Streams**: For streaming requests, `spawn_request_reader` runs in a
+//!   background task, reading messages from the session and forwarding them via channels
+//! - **Response Streams**: Responses are sent asynchronously as they're generated,
+//!   without buffering, enabling true streaming
+//!
+//! ## Handler Processing
+//!
+//! - **UnaryUnary**: Receive single request, send single response
+//! - **UnaryStream**: Receive single request, stream responses as generated
+//! - **StreamUnary**: Stream requests via background reader, send single response
+//! - **StreamStream**: Stream requests via background reader, stream responses as
+//!   generated - fully bidirectional async processing
+//!
+//! The key difference from the Python implementation is that responses are sent
+//! immediately as they're produced, rather than being collected first.
+
 use super::common::{method_to_name, DEADLINE_KEY, MAX_TIMEOUT};
 use super::context::{MessageContext, SessionContext};
 use super::error::{Result, SRPCError};
-use super::rpc::{RpcHandler, RpcHandlerType};
+use super::rpc::RpcHandler;
 use crate::App as BindingsApp;
 use futures::StreamExt;
 use slim_datapath::messages::Name;
+use slim_session::session_controller::SessionController;
 use slim_session::{Notification, SessionError};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -254,39 +279,16 @@ impl RpcServer {
             })
             .unwrap_or(Duration::from_secs(MAX_TIMEOUT));
 
-        // Call handler based on type
+        // Call handler based on type and stream responses asynchronously
         let result = tokio::time::timeout(
             timeout,
-            Self::call_handler(handler.as_ref(), session_ctx, session_context),
+            Self::call_handler_streaming(handler.as_ref(), session_ctx, session_context, session.clone()),
         )
         .await;
 
         match result {
-            Ok(Ok(responses)) => {
-                // Send responses
-                for response in responses {
-                    let mut metadata = HashMap::new();
-                    metadata.insert("code".to_string(), "0".to_string()); // OK
-
-                    session
-                        .publish(session.dst(), response, None, Some(metadata))
-                        .await
-                        .map_err(SRPCError::PublishError)?;
-                }
-
-                // Send end of stream for streaming responses
-                if matches!(
-                    handler.handler_type(),
-                    RpcHandlerType::UnaryStream | RpcHandlerType::StreamStream
-                ) {
-                    let mut metadata = HashMap::new();
-                    metadata.insert("code".to_string(), "0".to_string());
-
-                    session
-                        .publish(session.dst(), vec![], None, Some(metadata))
-                        .await
-                        .map_err(SRPCError::PublishError)?;
-                }
+            Ok(Ok(())) => {
+                // Success - handler already sent responses
             }
             Ok(Err(e)) => {
                 error!("Handler error: {:?}", e);
@@ -310,15 +312,13 @@ impl RpcServer {
         Ok(())
     }
 
-    async fn call_handler(
+    /// Call handler and stream responses asynchronously as they're generated
+    async fn call_handler_streaming(
         handler: &RpcHandler,
         mut session_ctx: slim_session::context::SessionContext,
         session_context: SessionContext,
-    ) -> Result<Vec<Vec<u8>>> {
-        let _session = session_ctx
-            .session_arc()
-            .ok_or_else(|| SRPCError::Session("Failed to get session".to_string()))?;
-
+        session: Arc<SessionController>,
+    ) -> Result<()> {
         match handler {
             RpcHandler::UnaryUnary(h) => {
                 // Get single request
@@ -341,7 +341,16 @@ impl RpcServer {
                     .clone();
 
                 let response = h.call(request, msg_ctx, session_context).await?;
-                Ok(vec![response])
+                
+                let mut metadata = HashMap::new();
+                metadata.insert("code".to_string(), "0".to_string());
+                
+                session
+                    .publish(session.dst(), response, None, Some(metadata))
+                    .await
+                    .map_err(SRPCError::PublishError)?;
+
+                Ok(())
             }
             RpcHandler::UnaryStream(h) => {
                 // Get single request
@@ -364,13 +373,28 @@ impl RpcServer {
                     .clone();
 
                 let mut response_stream = h.call(request, msg_ctx, session_context).await?;
-                let mut responses = Vec::new();
 
+                // Stream responses asynchronously as they're generated
                 while let Some(response) = response_stream.next().await {
-                    responses.push(response?);
+                    let response = response?;
+                    let mut metadata = HashMap::new();
+                    metadata.insert("code".to_string(), "0".to_string());
+                    
+                    session
+                        .publish(session.dst(), response, None, Some(metadata))
+                        .await
+                        .map_err(SRPCError::PublishError)?;
                 }
 
-                Ok(responses)
+                // Send end of stream
+                let mut metadata = HashMap::new();
+                metadata.insert("code".to_string(), "0".to_string());
+                session
+                    .publish(session.dst(), vec![], None, Some(metadata))
+                    .await
+                    .map_err(SRPCError::PublishError)?;
+
+                Ok(())
             }
             RpcHandler::StreamUnary(h) => {
                 // Create request stream - pass ownership of rx to the stream
@@ -383,7 +407,16 @@ impl RpcServer {
                     tokio_stream::wrappers::UnboundedReceiverStream::new(rx_stream),
                 );
                 let response = h.call(request_stream, session_context).await?;
-                Ok(vec![response])
+                
+                let mut metadata = HashMap::new();
+                metadata.insert("code".to_string(), "0".to_string());
+                
+                session
+                    .publish(session.dst(), response, None, Some(metadata))
+                    .await
+                    .map_err(SRPCError::PublishError)?;
+
+                Ok(())
             }
             RpcHandler::StreamStream(h) => {
                 // Create request stream - pass ownership of rx to the stream
@@ -396,13 +429,28 @@ impl RpcServer {
                     tokio_stream::wrappers::UnboundedReceiverStream::new(rx_stream),
                 );
                 let mut response_stream = h.call(request_stream, session_context).await?;
-                let mut responses = Vec::new();
 
+                // Stream responses asynchronously as they're generated
                 while let Some(response) = response_stream.next().await {
-                    responses.push(response?);
+                    let response = response?;
+                    let mut metadata = HashMap::new();
+                    metadata.insert("code".to_string(), "0".to_string());
+                    
+                    session
+                        .publish(session.dst(), response, None, Some(metadata))
+                        .await
+                        .map_err(SRPCError::PublishError)?;
                 }
 
-                Ok(responses)
+                // Send end of stream
+                let mut metadata = HashMap::new();
+                metadata.insert("code".to_string(), "0".to_string());
+                session
+                    .publish(session.dst(), vec![], None, Some(metadata))
+                    .await
+                    .map_err(SRPCError::PublishError)?;
+
+                Ok(())
             }
         }
     }

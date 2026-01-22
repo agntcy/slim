@@ -20,7 +20,7 @@ use slim_bindings::slimrpc::{
     UnaryStreamHandler, UnaryUnaryHandler,
 };
 use std::collections::HashMap;
-use tracing::{info, Level};
+use tracing::info;
 
 #[derive(Parser, Debug)]
 #[command(name = "slimrpc-server")]
@@ -60,7 +60,7 @@ impl UnaryUnaryHandler<Vec<u8>, Vec<u8>> for EchoUnaryHandler {
             request_str, msg_ctx.source_name, session_ctx.session_id
         );
 
-        let response = format!("Echo: {}", request_str);
+        let response = format!("Echo unary: {}", request_str);
         Ok(response.into_bytes())
     }
 }
@@ -117,7 +117,7 @@ impl StreamUnaryHandler<Vec<u8>, Vec<u8>> for EchoStreamUnaryHandler {
         }
 
         let response = format!(
-            "Echo: Received {} messages: [{}]",
+            "Echo stream-unary: Received {} messages: [{}]",
             messages.len(),
             messages.join(", ")
         );
@@ -135,24 +135,30 @@ impl StreamStreamHandler<Vec<u8>, Vec<u8>> for EchoStreamStreamHandler {
         session_ctx: SessionContext,
     ) -> slim_bindings::slimrpc::error::Result<ResponseStream<Vec<u8>>> {
         info!(
-            "StreamStream: Receiving stream in session {}",
+            "StreamStream: Receiving stream in session {} (processing asynchronously)",
             session_ctx.session_id
         );
 
+        // Create channel for responses
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
+        // Spawn task to process requests and generate responses asynchronously
+        // This demonstrates true bidirectional streaming - processing requests
+        // as they arrive and sending responses immediately
         tokio::spawn(async move {
             while let Some(result) = request_stream.next().await {
                 match result {
                     Ok((request, msg_ctx)) => {
                         let request_str = String::from_utf8_lossy(&request);
                         info!(
-                            "StreamStream: Received '{}' from {}",
+                            "StreamStream: Received '{}' from {} - processing immediately",
                             request_str, msg_ctx.source_name
                         );
 
+                        // Process and send response immediately (async)
                         let response = format!("Echo: {}", request_str);
                         if tx.send(Ok(response.into_bytes())).is_err() {
+                            info!("StreamStream: Response channel closed");
                             break;
                         }
                     }
@@ -162,6 +168,7 @@ impl StreamStreamHandler<Vec<u8>, Vec<u8>> for EchoStreamStreamHandler {
                     }
                 }
             }
+            info!("StreamStream: Finished processing request stream");
         });
 
         Ok(Box::pin(
@@ -194,22 +201,19 @@ impl UnaryUnaryHandler<Vec<u8>, Vec<u8>> for SimpleEchoHandler {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize tracing
-    tracing_subscriber::fmt().with_max_level(Level::INFO).init();
-
     let args = Args::parse();
 
+    // Create SLIM app configuration and connect (this initializes tracing internally)
+    let config = RpcAppConfig::with_shared_secret(args.local.clone(), args.endpoint.clone(), args.secret)
+        .with_opentelemetry(args.opentelemetry);
+    
+    // Create SLIM app and connect
+    let RpcAppConnection { app, connection_id: conn_id } = create_local_app(config).await.context("Failed to create local app")?;
+    
+    // Now logging is available
     info!("Starting SLIMRpc server");
     info!("Local: {}", args.local);
     info!("Endpoint: {}", args.endpoint);
-
-    // Create SLIM app configuration
-    let config = RpcAppConfig::with_shared_secret(args.local, args.endpoint, args.secret)
-        .with_opentelemetry(args.opentelemetry);
-
-    // Create SLIM app and connect
-    let RpcAppConnection { app, connection_id: conn_id } = create_local_app(config).await.context("Failed to create local app")?;
-
     info!("Connected to SLIM service with conn_id: {}", conn_id);
 
     // Create server with the connection ID
