@@ -255,7 +255,7 @@ tasks:
             windows)
               case "{{.TARGETARCH}}" in
                 amd64) ZIG_TARGET="x86_64-windows-gnu" ;;
-                arm64) ZIG_TARGET="aarch64-windows-gnu" ;;
+                arm64) ZIG_TARGET="x86_64-windows-gnu" ;;
                 x86_64) ZIG_TARGET="x86_64-windows-gnu" ;;
                 *) echo "❌ Unsupported TARGETARCH: {{.TARGETARCH}}"; exit 1 ;;
               esac
