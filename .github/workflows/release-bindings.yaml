@@ -9,10 +9,6 @@ on:
     tags:
       - 'slim-bindings-libs-*'
 
-  pull_request:
-    paths:
-      - '.github/workflows/release-bindings.yaml'
-
 env:
   LIBRARY_NAME: slim_bindings
   GO_BINDINGS_REPO: agntcy/slim-bindings-go
@@ -89,6 +85,7 @@ jobs:
             - macOS x86_64 (Intel)
             - macOS aarch64 (Apple Silicon)
             - Windows x86_64 (GNU and MSVC)
+            - Windows aarch64 (MSVC)
 
             Built from commit: ${{ github.sha }}
           files: ./release-artifacts/*.zip
