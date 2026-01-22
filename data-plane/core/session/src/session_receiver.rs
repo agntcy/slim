@@ -136,8 +136,6 @@ impl SessionReceiver {
         match message.get_session_message_type() {
             slim_datapath::api::ProtoSessionMessageType::Msg => {
                 debug!("received message");
-                tracing::info!("received message on local name {}, session_id {}, msg id {}, source {}, destination {}, incoming_conn {:?}", 
-                    self.local_name, self.session_id, message.get_id(), message.get_source(), message.get_dst(), message.try_get_incoming_conn());
                 if self.draining_state == ReceiverDrainStatus::Initiated {
                     // draining period is started, do no accept any new message
                     return Err(SessionError::SessionDrainingDrop);
@@ -152,7 +150,6 @@ impl SessionReceiver {
                 self.on_publish_message(message).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::RtxReply => {
-                tracing::info!("received rtx reply on session_id {}, msg id {}, source {}, destination {}", self.session_id, message.get_id(), message.get_source(), message.get_dst());
                 debug!("received rtx message");
                 self.on_rtx_message(message).await?;
             }
@@ -197,7 +194,6 @@ impl SessionReceiver {
         // we need to send an ack message only if the factory is not none
         // in this case the session is reliable and the producer is expecting acks
         if self.timer_factory.is_none() {
-            tracing::info!("no ack sent on session_id {}, source {}, destination {} as session is unreliable", self.session_id, message.get_source(), message.get_dst());
             return Ok(());
         }
 
@@ -218,8 +214,6 @@ impl SessionReceiver {
             publish_meta,
         )?;
 
-        tracing::info!("sending ack for message id {}, local_name {}, session_id {}, source {}, destination {}", 
-            message.get_id(), self.local_name, self.session_id, ack.get_source(), ack.get_dst());
         self.tx.send_to_slim(Ok(ack)).await
     }
 

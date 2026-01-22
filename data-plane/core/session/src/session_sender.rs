@@ -111,7 +111,7 @@ impl SessionSender {
             None
         };
 
-        tracing::debug!(
+        debug!(
            %shutdown_send, "creating session sender"
         );
 
@@ -148,8 +148,6 @@ impl SessionSender {
         match message.get_session_message_type() {
             slim_datapath::api::ProtoSessionMessageType::Msg => {
                 debug!("received message");
-                tracing::info!("received message to send session_id {}, source {}, destination {}, incoming_conn {:?}", 
-                self.session_id, message.get_source(), message.get_dst(), message.try_get_incoming_conn());
                 if self.draining_state == SenderDrainStatus::Initiated {
                     if let Some(tx) = ack_tx {
                         let _ = tx.send(Err(SessionError::SessionDrainingDrop));
@@ -165,8 +163,6 @@ impl SessionSender {
             }
             slim_datapath::api::ProtoSessionMessageType::MsgAck => {
                 debug!("received ack message");
-                tracing::info!("received ack message on session_id {}, source {}, destination {}, incoming_conn {:?}", 
-                self.session_id, message.get_source(), message.get_dst(), message.try_get_incoming_conn());
                 if let Some(tx) = ack_tx {
                     let _ = tx.send(Ok(()));
                 }
@@ -177,7 +173,6 @@ impl SessionSender {
             }
             slim_datapath::api::ProtoSessionMessageType::RtxRequest => {
                 debug!("received rtx message");
-                tracing::info!("received rtx request message on session_id {}, source {}, destination {}", self.session_id, message.get_source(), message.get_dst());
                 if let Some(tx) = ack_tx {
                     let _ = tx.send(Ok(()));
                 }
@@ -188,7 +183,6 @@ impl SessionSender {
                 self.on_rtx_message(message).await?;
             }
             _ => {
-                tracing::info!("received unexpected message on session_id {}, source {}, destination {}", self.session_id, message.get_source(), message.get_dst());
                 debug!("unexpected message type");
                 if let Some(tx) = ack_tx {
                     let _ = tx.send(Ok(()));
@@ -319,7 +313,7 @@ impl SessionSender {
             };
 
             for n in &endpoints_to_track {
-                tracing::info!(%message_id, remote = %n, "add timer for message");
+                debug!(%message_id, remote = %n, "add timer for message");
                 if let Some(acks) = self.pending_acks_per_endpoint.get_mut(n) {
                     acks.insert(message_id);
                 } else {
@@ -425,7 +419,7 @@ impl SessionSender {
     }
 
     pub async fn on_timer_timeout(&mut self, id: u32) -> Result<(), SessionError> {
-        tracing::info!(%id, "message timeout");
+        debug!(%id, "message timeout");
 
         if id > MAX_PUBLISH_ID {
             // this must be a message sent with publish_to, so get the message from the pending acks map
@@ -443,7 +437,7 @@ impl SessionSender {
             // send the message to those destinations
             if let Some((gt, _)) = self.pending_acks.get(&id) {
                 for n in &gt.missing_timers {
-                    tracing::info!(%id, dst = %n, "resend message");
+                    debug!(%id, dst = %n, "resend message");
                     let mut m = message.clone();
                     m.get_slim_header_mut().set_destination(n);
 
