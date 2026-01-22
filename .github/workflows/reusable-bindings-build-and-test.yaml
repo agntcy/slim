@@ -127,7 +127,7 @@ jobs:
           echo "matrix=$(echo $MATRIX | jq -c .)" >> $GITHUB_OUTPUT
 
           # Create filtered matrix (exclude windows-gnu for Python tests)
-          MATRIX_NO_WIN_GNU=$(echo $MATRIX | jq -c '{platform: [.platform[] | select(.target != "x86_64-pc-windows-gnu")]}')
+          MATRIX_NO_WIN_GNU=$(echo $MATRIX | jq -c '{platform: [.platform[] | select(.target != "x86_64-pc-windows-gnu")], exclude: .exclude}')
           echo "matrix-no-windows-gnu=$(echo $MATRIX_NO_WIN_GNU | jq -c .)" >> $GITHUB_OUTPUT
 
   build-libraries:
@@ -247,7 +247,7 @@ jobs:
 
       - name: Generate Go bindings
         run: |
-          task generate LIB_PATH=./artifacts/lib${{ env.LIBRARY_NAME }}_x86_64_linux_musl.a
+          task generate LIB_PATH=./artifacts/lib${{ env.LIBRARY_NAME }}_x86_64_linux_gnu.a
 
           echo "📁 Generated files:"
           find ./generated -type f
