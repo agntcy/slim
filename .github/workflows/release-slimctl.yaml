@@ -66,6 +66,7 @@ jobs:
         run: |
           docker run --rm \
             --privileged \
+            --entrypoint="" \
             -e CGO_ENABLED=1 \
             -e GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}" \
             -v /var/run/docker.sock:/var/run/docker.sock \
