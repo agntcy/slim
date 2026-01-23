@@ -1129,7 +1129,10 @@ mod test {
         let client = ClientConfig::with_endpoint("http://localhost:1234");
         let uri = client.parse_endpoint_uri().expect("valid http uri");
         assert_eq!(uri.scheme_str(), Some("http"));
-        assert_eq!(uri.authority().map(|auth| auth.as_str()), Some("localhost:1234"));
+        assert_eq!(
+            uri.authority().map(|auth| auth.as_str()),
+            Some("localhost:1234")
+        );
     }
 
     #[test]
@@ -1176,10 +1179,8 @@ mod test {
 
     #[tokio::test]
     async fn test_connect_tcp_channel_non_lazy_error() {
-        let mut client =
-            ClientConfig::with_endpoint("http://127.0.0.1:0").with_connect_timeout(
-                Duration::from_millis(50),
-            );
+        let mut client = ClientConfig::with_endpoint("http://127.0.0.1:0")
+            .with_connect_timeout(Duration::from_millis(50));
         client.backoff = BackoffConfig::new_fixed_interval(Duration::from_millis(0), 1);
 
         let uri = client.parse_endpoint_uri().expect("valid http uri");
