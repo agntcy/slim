@@ -87,11 +87,28 @@ The `goreleaser/goreleaser-cross:v1.23` container includes:
 2. Prepare job creates GitHub release
 3. Build-and-release job:
    - Checks out code with full history
-   - Generates protobuf code
+   - Generates protobuf code (once for all builds)
    - Runs goreleaser-cross container
-   - Container builds all platforms with CGO
+   - For each platform build:
+     - Downloads platform-specific Go bindings (via pre-build hook)
+     - Cross-compiles slimctl with CGO
    - Uploads all artifacts to GitHub release
-   - Creates Homebrew cask PR
+   - Creates Homebrew formula PR
+
+## Build Flow
+
+```
+Generate Proto (once)
+     ↓
+GoReleaser Cross Container
+     ↓
+For each platform (darwin/amd64, darwin/arm64, linux/amd64, linux/arm64, windows/amd64):
+     ├─ Download platform-specific bindings
+     ├─ Setup CGO cross-compilation toolchain
+     └─ Build slimctl binary
+     ↓
+Upload artifacts to GitHub
+```
 
 ## References
 

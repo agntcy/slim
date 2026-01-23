@@ -2,6 +2,11 @@ version: 2
 
 dist: .dist/slimctl
 
+# Disable validation to allow custom tag patterns like slimctl-v1.0.0
+# This prevents failures on patch versions or pre-releases
+git:
+  tag_sort: -version:refname
+
 env:
   - CGO_ENABLED=1
 
@@ -35,6 +40,8 @@ builds:
         - cmd: go mod tidy
           dir: control-plane/slimctl
           output: true
+        - cmd: task control-plane:go-bindings:setup TARGETOS={{ .Os }} TARGETARCH={{ .Arch }}
+          output: true
 
 archives:
   - name_template: "slimctl_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
@@ -44,6 +51,16 @@ checksum:
 
 changelog:
   disable: true
+
+release:
+  # Disable GitHub release validation to support custom tag patterns
+  disable: false
+  # Allow pre-releases (e.g., v1.0.0-rc1, v1.0.0-beta.1)
+  prerelease: auto
+  # Don't fail on missing tag or version validation
+  mode: keep-existing
+  # Custom tag format
+  name_template: "{{.Tag}}"
 
 brews:
   - name: slimctl
