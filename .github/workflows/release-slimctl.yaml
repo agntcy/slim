@@ -82,24 +82,40 @@ jobs:
         run: |
           TAG=${GITHUB_REF#refs/tags/}
           echo "Uploading artifacts to release $TAG"
-          gh release upload "$TAG" .dist/*.tar.gz .dist/*.zip --clobber
+          
+          # Find and upload all archives
+          find .dist -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec gh release upload "$TAG" {} --clobber \;
+          
+          # Upload checksums
+          if [ -f .dist/slimctl_checksums.txt ]; then
+            gh release upload "$TAG" .dist/slimctl_checksums.txt --clobber
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Copy cask to tap
+      - name: Copy formula to Casks directory
         run: |
           mkdir -p ./Casks
-          if [ -f .dist/homebrew/Casks/slimctl.rb ]; then
-            cp .dist/homebrew/Casks/slimctl.rb ./Casks/slimctl.rb
+          # GoReleaser v2 with brews generates formula in different location
+          if [ -f .dist/slimctl.rb ]; then
+            cp .dist/slimctl.rb ./Casks/slimctl.rb
+          elif [ -f .dist/Casks/slimctl.rb ]; then
+            cp .dist/Casks/slimctl.rb ./Casks/slimctl.rb
+          else
+            echo "Warning: Homebrew formula not found"
+            ls -la .dist/ || true
           fi
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v7
         with:
-          commit-message: Update cask for slimctl
-          title: Update slimctl cask to latest version
-          body: Update cask to reflect release changes
-          branch: update-cask
+          commit-message: Update Homebrew formula for slimctl
+          title: Update slimctl formula to latest version
+          body: |
+            Update Homebrew formula to reflect release changes
+            
+            Release: ${{ github.ref_name }}
+          branch: update-slimctl-formula
           base: main
       
 

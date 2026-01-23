@@ -45,36 +45,30 @@ checksum:
 changelog:
   disable: true
 
-homebrew_casks:
+brews:
   - name: slimctl
     description: "A CLI tool for managing SLIM Devices"
-    homepage: "https://github.com/agntcy/slim/control-plane/slimctl"
+    homepage: "https://github.com/agntcy/slim"
+    
+    # Use Casks directory for compatibility
     directory: Casks
-    hooks:
-      post:
-        # workaround for the problem described here: https://goreleaser.com/customization/homebrew_casks/#signing-and-notarizing
-        install: |
-          system "chmod", "+x", "#{staged_path}/slimctl"
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/slimctl"]
-          end
-
-    binaries:
-      - slimctl
-
-    url:
-      template: "https://github.com/agntcy/slim/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
-      using: ":homebrew_curl"
-
-    skip_upload: false
-
+    
     repository:
       owner: agntcy
-      name: "slim"
-
+      name: slim
       branch: brew
       token: "{{ .Env.GITHUB_TOKEN }}"
-
       pull_request:
         enabled: true
         draft: false
+    
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    
+    # Only include darwin builds for Homebrew
+    ids:
+      - slimctl
+    
+    install: |
+      bin.install "slimctl"
