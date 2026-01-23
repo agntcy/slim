@@ -96,39 +96,12 @@ impl Channel {
 
         tracing::debug!("Created session for {}-{}", service_name, method_name);
 
-        // Encode and send request
-        let request_bytes = request.encode_to_vec()?;
-        let handle = session
-            .publish(
-                request_bytes,
-                Some("msg".to_string()),
-                Some(ctx.metadata().as_map().clone()),
-            )
+        // Send request
+        self.send_request(&session, &ctx, request, service_name, method_name)
             .await?;
 
-        tracing::debug!("Sent request for {}-{}", service_name, method_name);
-        handle.await.map_err(|e| {
-            Status::internal(format!(
-                "Failed to complete sending request for {}-{}: {}",
-                service_name,
-                method_name,
-                e.chain().to_string()
-            ))
-        })?;
-
-        // Receive response
-        let received = session.get_message(None).await?;
-
-        // Check status code
-        let code = self.parse_status_code(received.metadata.get(STATUS_CODE_KEY))?;
-        if code != Code::Ok {
-            let message = String::from_utf8_lossy(&received.payload).to_string();
-            return Err(Status::new(code, message));
-        }
-
-        // Decode response
-        let response = Res::decode(&received.payload)?;
-        Ok(response)
+        // Receive and decode response
+        self.receive_response(&session).await
     }
 
     /// Make a unary-stream RPC call
@@ -155,21 +128,9 @@ impl Channel {
                 .create_session(&service_name, &method_name, timeout, metadata)
                 .await?;
 
-            // Encode and send request
-            let request_bytes = request.encode_to_vec()?;
-            let handle = session
-                .publish(request_bytes, Some("msg".to_string()), Some(ctx.metadata().as_map().clone()))
+            // Send request
+            channel.send_request(&session, &ctx, request, &service_name, &method_name)
                 .await?;
-
-            tracing::debug!("Sent request for {}-{}", service_name, method_name);
-            handle.await.map_err(|e| {
-                Status::internal(format!(
-                    "Failed to complete sending request for {}-{}: {}",
-                    service_name,
-                    method_name,
-                    e.chain().to_string()
-                ))
-            })?;
 
             // Receive streaming responses
             loop {
@@ -205,7 +166,7 @@ impl Channel {
         &self,
         service_name: &str,
         method_name: &str,
-        mut request_stream: S,
+        request_stream: S,
         timeout: Option<Duration>,
         metadata: Option<Metadata>,
     ) -> Result<Res, Status>
@@ -218,57 +179,12 @@ impl Channel {
             .create_session(service_name, method_name, timeout, metadata)
             .await?;
 
-        // Send all requests
-        let mut handles = vec![];
-        while let Some(request) = request_stream.next().await {
-            let request_bytes = request.encode_to_vec()?;
-            let handle = session
-                .publish(
-                    request_bytes,
-                    Some("msg".to_string()),
-                    Some(ctx.metadata().as_map().clone()),
-                )
-                .await?;
-
-            handles.push(handle);
-        }
-
-        // Send end-of-stream marker
-        let mut end_metadata = ctx.metadata().as_map().clone();
-        end_metadata.insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
-        let handle = session
-            .publish(Vec::new(), Some("msg".to_string()), Some(end_metadata))
-            .await?;
-        handles.push(handle);
-
-        // Wait for all requests to be sent
-        let results = join_all(handles).await;
-        for result in results {
-            result.map_err(|e| {
-                Status::internal(format!(
-                    "Failed to complete sending request for {}-{}: {}",
-                    service_name,
-                    method_name,
-                    e.chain().to_string()
-                ))
-            })?;
-        }
-
-        // Receive single response
-        let received = session
-            .get_message(None)
+        // Send all requests and end-of-stream marker
+        self.send_request_stream(&session, &ctx, request_stream, service_name, method_name)
             .await?;
 
-        // Check status code
-        let code = self.parse_status_code(received.metadata.get(STATUS_CODE_KEY))?;
-        if code != Code::Ok {
-            let message = String::from_utf8_lossy(&received.payload).to_string();
-            return Err(Status::new(code, message));
-        }
-
-        // Decode response
-        let response = Res::decode(&received.payload)?;
-        Ok(response)
+        // Receive and decode single response
+        self.receive_response(&session).await
     }
 
     /// Make a stream-stream RPC call
@@ -278,7 +194,7 @@ impl Channel {
         &self,
         service_name: &str,
         method_name: &str,
-        mut request_stream: S,
+        request_stream: S,
         timeout: Option<Duration>,
         metadata: Option<Metadata>,
     ) -> impl Stream<Item = Result<Res, Status>>
@@ -291,6 +207,8 @@ impl Channel {
         let method_name = method_name.to_string();
         let channel = self.clone();
 
+       println!("Creating session for {}-{}", service_name, method_name);
+
         try_stream! {
             let (session, ctx) = channel
                 .create_session(&service_name, &method_name, timeout, metadata)
@@ -299,20 +217,13 @@ impl Channel {
             // Send requests in background task
             let session_bg = session.clone();
             let ctx_clone = ctx.clone();
+            let service_name_clone = service_name.clone();
+            let method_name_clone = method_name.clone();
+            let channel_bg = channel.clone();
             tokio::spawn(async move {
-                while let Some(request) = request_stream.next().await {
-                    if let Ok(request_bytes) = request.encode_to_vec() {
-                        let _ = session_bg
-                            .publish(request_bytes, Some("msg".to_string()), Some(ctx_clone.metadata().as_map().clone()))
-                            .await;
-                    }
-                }
-                // Send end-of-stream marker
-                let mut end_metadata = ctx_clone.metadata().as_map().clone();
-                end_metadata.insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
-                let _ = session_bg
-                    .publish(Vec::new(), Some("msg".to_string()), Some(end_metadata))
-                    .await;
+                println!("Starting background task to send request stream for {}-{}", service_name_clone, method_name_clone);
+                let res = channel_bg.send_request_stream(&session_bg, &ctx_clone, request_stream, &service_name_clone, &method_name_clone).await;
+                println!("Finished sending request stream for {}-{} with result: {:?}", service_name_clone, method_name_clone, res);
             });
 
             // Receive streaming responses
@@ -438,6 +349,115 @@ impl Channel {
     pub fn connection_id(&self) -> Option<u64> {
         self.connection_id
     }
+
+    // Helper methods for common RPC patterns
+
+    /// Send a single request and wait for completion
+    async fn send_request<Req>(
+        &self,
+        session: &Session,
+        ctx: &Context,
+        request: Req,
+        service_name: &str,
+        method_name: &str,
+    ) -> Result<(), Status>
+    where
+        Req: Encoder,
+    {
+        let request_bytes = request.encode()?;
+        let handle = session
+            .publish(
+                request_bytes,
+                Some("msg".to_string()),
+                Some(ctx.metadata().as_map().clone()),
+            )
+            .await?;
+
+        tracing::debug!("Sent request for {}-{}", service_name, method_name);
+        handle.await.map_err(|e| {
+            Status::internal(format!(
+                "Failed to complete sending request for {}-{}: {}",
+                service_name,
+                method_name,
+                e.chain().to_string()
+            ))
+        })?;
+
+        Ok(())
+    }
+
+    /// Send a stream of requests followed by end-of-stream marker
+    async fn send_request_stream<Req, S>(
+        &self,
+        session: &Session,
+        ctx: &Context,
+        mut request_stream: S,
+        service_name: &str,
+        method_name: &str,
+    ) -> Result<(), Status>
+    where
+        Req: Encoder,
+        S: Stream<Item = Req> + Unpin,
+    {
+        let mut handles = vec![];
+        while let Some(request) = request_stream.next().await {
+            println!("Sending request for {}-{}", service_name, method_name);
+            let request_bytes = request.encode()?;
+            let handle = session
+                .publish(
+                    request_bytes,
+                    Some("msg".to_string()),
+                    Some(ctx.metadata().as_map().clone()),
+                )
+                .await?;
+            println!("Sent request for {}-{}", service_name, method_name);
+            handles.push(handle);
+        }
+
+        // Send end-of-stream marker
+        let mut end_metadata = ctx.metadata().as_map().clone();
+        end_metadata.insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
+        let handle = session
+            .publish(Vec::new(), Some("msg".to_string()), Some(end_metadata))
+            .await?;
+        handles.push(handle);
+
+        // Wait for all requests to be sent
+        let results = join_all(handles).await;
+        for result in results {
+            result.map_err(|e| {
+                Status::internal(format!(
+                    "Failed to complete sending request for {}-{}: {}",
+                    service_name,
+                    method_name,
+                    e.chain().to_string()
+                ))
+            })?;
+        }
+
+        Ok(())
+    }
+
+    /// Receive and decode a single response
+    async fn receive_response<Res>(&self, session: &Session) -> Result<Res, Status>
+    where
+        Res: Decoder,
+    {
+        let received = session.get_message(None).await?;
+
+        // Check status code
+        let code = self.parse_status_code(received.metadata.get(STATUS_CODE_KEY))?;
+        if code != Code::Ok {
+            let message = String::from_utf8_lossy(&received.payload).to_string();
+            return Err(Status::new(code, message));
+        }
+
+        // Decode response
+        let response = Res::decode(&received.payload)?;
+        Ok(response)
+    }
+
+
 }
 
 #[cfg(test)]

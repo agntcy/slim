@@ -16,6 +16,7 @@ agntcy-slim-session = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 display-error-chain = { workspace = true }
+drain = { workspace = true }
 futures = { workspace = true }
 futures-timer = { workspace = true }
 parking_lot = { workspace = true }
@@ -23,10 +24,13 @@ rand = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
 agntcy-slim-config = { workspace = true }
 agntcy-slim-testing = { workspace = true }
+bincode = { workspace = true }
+serde = { workspace = true }
 tokio-test = { workspace = true }
 tracing-test = { workspace = true }

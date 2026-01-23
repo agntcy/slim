@@ -30,12 +30,17 @@ pub struct ReceivedMessage {
     pub payload: Vec<u8>,
 }
 
-/// Thin wrapper around SessionContext for RPC operations
-pub struct Session {
+/// Internal session state shared across clones
+struct SessionInner {
     /// The underlying session controller
     controller: Arc<slim_session::session_controller::SessionController>,
-    /// Receiver for incoming messages
-    rx: Arc<RwLock<AppChannelReceiver>>,
+    /// Receiver for incoming messages (wrapped in RwLock for concurrent access)
+    rx: RwLock<AppChannelReceiver>,
+}
+
+/// Thin wrapper around SessionContext for RPC operations
+pub struct Session {
+    inner: Arc<SessionInner>,
 }
 
 impl Session {
@@ -47,29 +52,31 @@ impl Session {
             .expect("Session controller should be available");
 
         Self {
-            controller,
-            rx: Arc::new(RwLock::new(rx)),
+            inner: Arc::new(SessionInner {
+                controller,
+                rx: RwLock::new(rx),
+            }),
         }
     }
 
     /// Get the session ID
-    pub fn session_id(&self) -> u32 {
-        self.controller.id()
+    pub async fn session_id(&self) -> u32 {
+        self.inner.controller.id()
     }
 
     /// Get the source name
-    pub fn source(&self) -> &Name {
-        self.controller.source()
+    pub async fn source(&self) -> Name {
+        self.inner.controller.source().clone()
     }
 
     /// Get the destination name
-    pub fn destination(&self) -> &Name {
-        self.controller.dst()
+    pub async fn destination(&self) -> Name {
+        self.inner.controller.dst().clone()
     }
 
     /// Get session metadata
-    pub fn metadata(&self) -> std::collections::HashMap<String, String> {
-        self.controller.metadata()
+    pub async fn metadata(&self) -> std::collections::HashMap<String, String> {
+        self.inner.controller.metadata()
     }
 
     /// Publish a message through this session
@@ -85,13 +92,13 @@ impl Session {
         let flags = SlimHeaderFlags::new(0, None, None, None, None);
 
         let mut msg = ProtoMessage::builder()
-            .source(self.controller.source().clone())
-            .destination(self.controller.dst().clone())
+            .source(self.inner.controller.source().clone())
+            .destination(self.inner.controller.dst().clone())
             .identity("")
             .flags(flags)
-            .session_type(self.controller.session_type())
+            .session_type(self.inner.controller.session_type())
             .session_message_type(ProtoSessionMessageType::Msg)
-            .session_id(self.controller.id())
+            .session_id(self.inner.controller.id())
             .message_id(rand::random::<u32>())
             .application_payload(&ct, data)
             .build_publish()
@@ -103,7 +110,7 @@ impl Session {
             }
         }
 
-        let handle = self
+        let handle = self.inner
             .controller
             .publish_message(msg)
             .await
@@ -114,16 +121,16 @@ impl Session {
 
     /// Receive a message from the session with optional timeout
     pub async fn get_message(&self, timeout: Option<Duration>) -> Result<ReceivedMessage, Status> {
-        let mut rx = self.rx.write().await;
-
         let recv_future = async {
-            let msg = rx
-                .recv()
-                .await
-                .ok_or_else(|| Status::internal("Session closed"))?
-                .map_err(|e: SessionError| {
-                    Status::internal(format!("Receive error: {}", e.chain().to_string()))
-                })?;
+            let msg = {
+                let mut rx = self.inner.rx.write().await;
+                rx.recv()
+                    .await
+                    .ok_or_else(|| Status::internal("Session closed"))?
+                    .map_err(|e: SessionError| {
+                        Status::internal(format!("Receive error: {}", e.chain().to_string()))
+                    })?
+            };
 
             // Extract payload from the proto message
             let payload = if let Some(content) = msg.get_payload() {
@@ -161,17 +168,16 @@ impl Session {
         }
     }
 
-    /// Get the underlying session controller
-    pub fn controller(&self) -> &Arc<slim_session::session_controller::SessionController> {
-        &self.controller
+    /// Get a clone of the underlying session controller
+    pub async fn controller(&self) -> Arc<slim_session::session_controller::SessionController> {
+        self.inner.controller.clone()
     }
 }
 
 impl Clone for Session {
     fn clone(&self) -> Self {
         Self {
-            controller: Arc::clone(&self.controller),
-            rx: Arc::clone(&self.rx),
+            inner: Arc::clone(&self.inner),
         }
     }
 }

@@ -14,132 +14,18 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use futures::stream::{self, StreamExt};
     use futures::pin_mut;
+    use futures::stream::{self, StreamExt};
     use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
     use slim_auth::shared_secret::SharedSecret;
+    use slim_config::component::id::{ID, Kind};
     use slim_datapath::messages::Name;
     use slim_service::service::Service;
-    use slim_config::component::id::{ID, Kind};
     use slim_testing::utils::TEST_VALID_SECRET;
     use tokio::sync::Mutex;
 
-    use crate::{
-        Channel, Code, Context, Decoder, Encoder, Server, Status,
-    };
-
-    // ============================================================================
-    // Test Message Types
-    // ============================================================================
-
-    /// Simple request message for testing
-    #[derive(Debug, Clone, Default, PartialEq)]
-    struct TestRequest {
-        pub message: String,
-        pub value: i32,
-    }
-
-    impl Encoder for TestRequest {
-        fn encode(&self, buf: &mut Vec<u8>) -> Result<(), Status> {
-            // Simple encoding: message length + message bytes + value as 4 bytes
-            let msg_bytes = self.message.as_bytes();
-            buf.extend_from_slice(&(msg_bytes.len() as u32).to_le_bytes());
-            buf.extend_from_slice(msg_bytes);
-            buf.extend_from_slice(&self.value.to_le_bytes());
-            Ok(())
-        }
-
-        fn encoded_len(&self) -> usize {
-            4 + self.message.len() + 4
-        }
-    }
-
-    impl Decoder for TestRequest {
-        fn decode(buf: &[u8]) -> Result<Self, Status> {
-            if buf.len() < 8 {
-                return Err(Status::invalid_argument("Buffer too small"));
-            }
-
-            let msg_len = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]) as usize;
-            if buf.len() < 4 + msg_len + 4 {
-                return Err(Status::invalid_argument("Invalid buffer length"));
-            }
-
-            let message = String::from_utf8(buf[4..4 + msg_len].to_vec())
-                .map_err(|e| Status::invalid_argument(format!("Invalid UTF-8: {}", e)))?;
-
-            let value_start = 4 + msg_len;
-            let value = i32::from_le_bytes([
-                buf[value_start],
-                buf[value_start + 1],
-                buf[value_start + 2],
-                buf[value_start + 3],
-            ]);
-
-            Ok(TestRequest { message, value })
-        }
-
-        fn merge(&mut self, buf: &[u8]) -> Result<(), Status> {
-            let decoded = Self::decode(buf)?;
-            self.message = decoded.message;
-            self.value = decoded.value;
-            Ok(())
-        }
-    }
-
-    /// Simple response message for testing
-    #[derive(Debug, Clone, Default, PartialEq)]
-    struct TestResponse {
-        pub result: String,
-        pub count: i32,
-    }
-
-    impl Encoder for TestResponse {
-        fn encode(&self, buf: &mut Vec<u8>) -> Result<(), Status> {
-            let result_bytes = self.result.as_bytes();
-            buf.extend_from_slice(&(result_bytes.len() as u32).to_le_bytes());
-            buf.extend_from_slice(result_bytes);
-            buf.extend_from_slice(&self.count.to_le_bytes());
-            Ok(())
-        }
-
-        fn encoded_len(&self) -> usize {
-            4 + self.result.len() + 4
-        }
-    }
-
-    impl Decoder for TestResponse {
-        fn decode(buf: &[u8]) -> Result<Self, Status> {
-            if buf.len() < 8 {
-                return Err(Status::invalid_argument("Buffer too small"));
-            }
-
-            let result_len = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]) as usize;
-            if buf.len() < 4 + result_len + 4 {
-                return Err(Status::invalid_argument("Invalid buffer length"));
-            }
-
-            let result = String::from_utf8(buf[4..4 + result_len].to_vec())
-                .map_err(|e| Status::invalid_argument(format!("Invalid UTF-8: {}", e)))?;
-
-            let count_start = 4 + result_len;
-            let count = i32::from_le_bytes([
-                buf[count_start],
-                buf[count_start + 1],
-                buf[count_start + 2],
-                buf[count_start + 3],
-            ]);
-
-            Ok(TestResponse { result, count })
-        }
-
-        fn merge(&mut self, buf: &[u8]) -> Result<(), Status> {
-            let decoded = Self::decode(buf)?;
-            self.result = decoded.result;
-            self.count = decoded.count;
-            Ok(())
-        }
-    }
+    use crate::{Channel, Code, Context, RequestStream, Server, Status};
+    use crate::test_utils::{TestRequest, TestResponse};
 
     // ============================================================================
     // Test 1: Unary-Unary RPC
@@ -156,12 +42,20 @@ mod tests {
         let server_name = Name::from_strings(["org", "ns", "server"]);
         let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
         let (server_app, server_notifications) = service
-            .create_app(&server_name, AuthProvider::shared_secret(secret.clone()), AuthVerifier::shared_secret(secret.clone()))
+            .create_app(
+                &server_name,
+                AuthProvider::shared_secret(secret.clone()),
+                AuthVerifier::shared_secret(secret.clone()),
+            )
             .unwrap();
         let server_app = Arc::new(server_app);
 
         // Create and configure server
-        let server = Server::new(server_app.clone(), server_name.clone(), server_notifications);
+        let server = Server::new(
+            server_app.clone(),
+            server_name.clone(),
+            server_notifications,
+        );
 
         // Register unary-unary handler
         server.registry().register_unary_unary(
@@ -187,7 +81,11 @@ mod tests {
         // Create client app using the same service
         let client_name = Name::from_strings(["org", "ns", "client"]);
         let (client_app, _client_notifications) = service
-            .create_app(&client_name, AuthProvider::shared_secret(secret.clone()), AuthVerifier::shared_secret(secret))
+            .create_app(
+                &client_name,
+                AuthProvider::shared_secret(secret.clone()),
+                AuthVerifier::shared_secret(secret),
+            )
             .unwrap();
         let client_app = Arc::new(client_app);
 
@@ -210,27 +108,40 @@ mod tests {
         assert_eq!(response.count, 84);
 
         // Cleanup
+        tracing::info!("Shutting down server...");
         server.shutdown().await;
-        drop(client_app);
-        drop(server_app);
-        let _ = tokio::time::timeout(Duration::from_millis(100), server_handle).await;
-        drop(service);
+
+        // Wait for server task to finiss
+        tracing::info!("Waiting for server task to finish...");
+        server_handle.await.unwrap();
+
+        // Shutdown the data-plane as well
+        tracing::info!("Shutting down service...");
+        service.shutdown().await.unwrap();
     }
 
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_unary_unary_error_handling() {
         let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-service-error").unwrap();
-        let service = Arc::new(Service::new(id));
+        let service = Service::new(id);
 
         let server_name = Name::from_strings(["org", "ns", "server"]);
         let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
         let (server_app, server_notifications) = service
-            .create_app(&server_name, AuthProvider::shared_secret(secret.clone()), AuthVerifier::shared_secret(secret.clone()))
+            .create_app(
+                &server_name,
+                AuthProvider::shared_secret(secret.clone()),
+                AuthVerifier::shared_secret(secret.clone()),
+            )
             .unwrap();
         let server_app = Arc::new(server_app);
 
-        let server = Server::new(server_app.clone(), server_name.clone(), server_notifications);
+        let server = Server::new(
+            server_app.clone(),
+            server_name.clone(),
+            server_notifications,
+        );
 
         // Register handler that returns an error
         server.registry().register_unary_unary(
@@ -250,7 +161,11 @@ mod tests {
 
         let client_name = Name::from_strings(["org", "ns", "client"]);
         let (client_app, _) = service
-            .create_app(&client_name, AuthProvider::shared_secret(secret.clone()), AuthVerifier::shared_secret(secret))
+            .create_app(
+                &client_name,
+                AuthProvider::shared_secret(secret.clone()),
+                AuthVerifier::shared_secret(secret),
+            )
             .unwrap();
         let client_app = Arc::new(client_app);
         let channel = Channel::new(client_app.clone(), server_name);
@@ -260,19 +175,27 @@ mod tests {
             value: 1,
         };
 
-        let result: Result<TestResponse, Status> =
-            channel.unary("TestService", "ErrorMethod", request, None, None).await;
+        let result: Result<TestResponse, Status> = channel
+            .unary("TestService", "ErrorMethod", request, None, None)
+            .await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
+        println!("{}", err);
         assert_eq!(err.code(), Code::InvalidArgument);
         assert_eq!(err.message(), Some("Invalid input"));
 
+        // Cleanup
+        tracing::info!("Shutting down server...");
         server.shutdown().await;
-        drop(client_app);
-        drop(server_app);
-        let _ = tokio::time::timeout(Duration::from_millis(100), server_handle).await;
-        drop(service);
+
+        // Wait for server task to finish
+        tracing::info!("Waiting for server task to finish...");
+        server_handle.await.unwrap();
+
+        // Shutdown the data-plane as well
+        tracing::info!("Shutting down service...");
+        service.shutdown().await.unwrap();
     }
 
     // ============================================================================
@@ -282,23 +205,32 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_stream_unary_rpc() {
-        let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-service-stream-unary").unwrap();
+        let id =
+            ID::new_with_name(Kind::new("slim").unwrap(), "test-service-stream-unary").unwrap();
         let service = Arc::new(Service::new(id));
 
         let server_name = Name::from_strings(["org", "ns", "server"]);
         let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
         let (server_app, server_notifications) = service
-            .create_app(&server_name, AuthProvider::shared_secret(secret.clone()), AuthVerifier::shared_secret(secret.clone()))
+            .create_app(
+                &server_name,
+                AuthProvider::shared_secret(secret.clone()),
+                AuthVerifier::shared_secret(secret.clone()),
+            )
             .unwrap();
         let server_app = Arc::new(server_app);
 
-        let server = Server::new(server_app.clone(), server_name.clone(), server_notifications);
+        let server = Server::new(
+            server_app.clone(),
+            server_name.clone(),
+            server_notifications,
+        );
 
         // Register stream-unary handler that sums all values
         server.registry().register_stream_unary(
             "TestService",
             "Sum",
-            |mut request_stream: Box<dyn futures::Stream<Item = Result<TestRequest, Status>> + Send + Unpin + 'static>, _ctx: Context| async move {
+            |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
                 let mut total = 0;
                 let mut messages = Vec::new();
 
@@ -324,7 +256,11 @@ mod tests {
 
         let client_name = Name::from_strings(["org", "ns", "client"]);
         let (client_app, _) = service
-            .create_app(&client_name, AuthProvider::shared_secret(secret.clone()), AuthVerifier::shared_secret(secret))
+            .create_app(
+                &client_name,
+                AuthProvider::shared_secret(secret.clone()),
+                AuthVerifier::shared_secret(secret),
+            )
             .unwrap();
         let client_app = Arc::new(client_app);
         let channel = Channel::new(client_app.clone(), server_name);
@@ -355,11 +291,17 @@ mod tests {
         assert_eq!(response.result, "one, two, three");
         assert_eq!(response.count, 6);
 
+        // Cleanup
+        tracing::info!("Shutting down server...");
         server.shutdown().await;
-        drop(client_app);
-        drop(server_app);
-        let _ = tokio::time::timeout(Duration::from_millis(100), server_handle).await;
-        drop(service);
+
+        // Wait for server task to finish
+        tracing::info!("Waiting for server task to finish...");
+        server_handle.await.unwrap();
+
+        // Shutdown the data-plane as well
+        tracing::info!("Shutting down service...");
+        service.shutdown().await.unwrap();
     }
 
     // ============================================================================
@@ -369,17 +311,26 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_unary_stream_rpc() {
-        let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-service-unary-stream").unwrap();
+        let id =
+            ID::new_with_name(Kind::new("slim").unwrap(), "test-service-unary-stream").unwrap();
         let service = Arc::new(Service::new(id));
 
         let server_name = Name::from_strings(["org", "ns", "server"]);
         let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
         let (server_app, server_notifications) = service
-            .create_app(&server_name, AuthProvider::shared_secret(secret.clone()), AuthVerifier::shared_secret(secret.clone()))
+            .create_app(
+                &server_name,
+                AuthProvider::shared_secret(secret.clone()),
+                AuthVerifier::shared_secret(secret.clone()),
+            )
             .unwrap();
         let server_app = Arc::new(server_app);
 
-        let server = Server::new(server_app.clone(), server_name.clone(), server_notifications);
+        let server = Server::new(
+            server_app.clone(),
+            server_name.clone(),
+            server_notifications,
+        );
 
         // Register unary-stream handler that generates a sequence
         server.registry().register_unary_stream(
@@ -407,7 +358,11 @@ mod tests {
 
         let client_name = Name::from_strings(["org", "ns", "client"]);
         let (client_app, _) = service
-            .create_app(&client_name, AuthProvider::shared_secret(secret.clone()), AuthVerifier::shared_secret(secret))
+            .create_app(
+                &client_name,
+                AuthProvider::shared_secret(secret.clone()),
+                AuthVerifier::shared_secret(secret),
+            )
             .unwrap();
         let client_app = Arc::new(client_app);
         let channel = Channel::new(client_app.clone(), server_name);
@@ -434,11 +389,17 @@ mod tests {
         assert_eq!(responses[4].result, "item-5");
         assert_eq!(responses[4].count, 5);
 
+        // Cleanup
+        tracing::info!("Shutting down server...");
         server.shutdown().await;
-        drop(client_app);
-        drop(server_app);
-        let _ = tokio::time::timeout(Duration::from_millis(100), server_handle).await;
-        drop(service);
+
+        // Wait for server task to finish
+        tracing::info!("Waiting for server task to finish...");
+        server_handle.await.unwrap();
+
+        // Shutdown the data-plane as well
+        tracing::info!("Shutting down service...");
+        service.shutdown().await.unwrap();
     }
 
     // ============================================================================
@@ -448,17 +409,26 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_stream_stream_rpc() {
-        let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-service-stream-stream").unwrap();
+        let id =
+            ID::new_with_name(Kind::new("slim").unwrap(), "test-service-stream-stream").unwrap();
         let service = Arc::new(Service::new(id));
 
         let server_name = Name::from_strings(["org", "ns", "server"]);
         let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
         let (server_app, server_notifications) = service
-            .create_app(&server_name, AuthProvider::shared_secret(secret.clone()), AuthVerifier::shared_secret(secret.clone()))
+            .create_app(
+                &server_name,
+                AuthProvider::shared_secret(secret.clone()),
+                AuthVerifier::shared_secret(secret.clone()),
+            )
             .unwrap();
         let server_app = Arc::new(server_app);
 
-        let server = Server::new(server_app.clone(), server_name.clone(), server_notifications);
+        let server = Server::new(
+            server_app.clone(),
+            server_name.clone(),
+            server_notifications,
+        );
 
         // Register stream-stream handler that transforms each request
         server.registry().register_stream_stream(
@@ -485,7 +455,11 @@ mod tests {
 
         let client_name = Name::from_strings(["org", "ns", "client"]);
         let (client_app, _) = service
-            .create_app(&client_name, AuthProvider::shared_secret(secret.clone()), AuthVerifier::shared_secret(secret))
+            .create_app(
+                &client_name,
+                AuthProvider::shared_secret(secret.clone()),
+                AuthVerifier::shared_secret(secret),
+            )
             .unwrap();
         let client_app = Arc::new(client_app);
         let channel = Channel::new(client_app.clone(), server_name);
@@ -527,11 +501,17 @@ mod tests {
         assert_eq!(responses[2].result, "RPC");
         assert_eq!(responses[2].count, 30);
 
+        // Cleanup
+        tracing::info!("Shutting down server...");
         server.shutdown().await;
-        drop(client_app);
-        drop(server_app);
-        let _ = tokio::time::timeout(Duration::from_millis(100), server_handle).await;
-        drop(service);
+
+        // Wait for server task to finish
+        tracing::info!("Waiting for server task to finish...");
+        server_handle.await.unwrap();
+
+        // Shutdown the data-plane as well
+        tracing::info!("Shutting down service...");
+        service.shutdown().await.unwrap();
     }
 
     // ============================================================================
@@ -541,22 +521,31 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_empty_stream_unary() {
-        let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-service-empty-stream").unwrap();
+        let id =
+            ID::new_with_name(Kind::new("slim").unwrap(), "test-service-empty-stream").unwrap();
         let service = Arc::new(Service::new(id));
 
         let server_name = Name::from_strings(["org", "ns", "server"]);
         let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
         let (server_app, server_notifications) = service
-            .create_app(&server_name, AuthProvider::shared_secret(secret.clone()), AuthVerifier::shared_secret(secret.clone()))
+            .create_app(
+                &server_name,
+                AuthProvider::shared_secret(secret.clone()),
+                AuthVerifier::shared_secret(secret.clone()),
+            )
             .unwrap();
         let server_app = Arc::new(server_app);
 
-        let server = Server::new(server_app.clone(), server_name.clone(), server_notifications);
+        let server = Server::new(
+            server_app.clone(),
+            server_name.clone(),
+            server_notifications,
+        );
 
         server.registry().register_stream_unary(
             "TestService",
             "EmptySum",
-            |mut request_stream: Box<dyn futures::Stream<Item = Result<TestRequest, Status>> + Send + Unpin + 'static>, _ctx: Context| async move {
+            |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
                 let mut count = 0;
                 while let Some(_) = request_stream.next().await {
                     count += 1;
@@ -578,7 +567,11 @@ mod tests {
 
         let client_name = Name::from_strings(["org", "ns", "client"]);
         let (client_app, _) = service
-            .create_app(&client_name, AuthProvider::shared_secret(secret.clone()), AuthVerifier::shared_secret(secret))
+            .create_app(
+                &client_name,
+                AuthProvider::shared_secret(secret.clone()),
+                AuthVerifier::shared_secret(secret),
+            )
             .unwrap();
         let client_app = Arc::new(client_app);
         let channel = Channel::new(client_app.clone(), server_name);
@@ -594,11 +587,17 @@ mod tests {
         assert_eq!(response.result, "empty");
         assert_eq!(response.count, 0);
 
+        // Cleanup
+        tracing::info!("Shutting down server...");
         server.shutdown().await;
-        drop(client_app);
-        drop(server_app);
-        let _ = tokio::time::timeout(Duration::from_millis(100), server_handle).await;
-        drop(service);
+
+        // Wait for server task to finish
+        tracing::info!("Waiting for server task to finish...");
+        server_handle.await.unwrap();
+
+        // Shutdown the data-plane as well
+        tracing::info!("Shutting down service...");
+        service.shutdown().await.unwrap();
     }
 
     #[tokio::test]
@@ -610,11 +609,19 @@ mod tests {
         let server_name = Name::from_strings(["org", "ns", "server"]);
         let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
         let (server_app, server_notifications) = service
-            .create_app(&server_name, AuthProvider::shared_secret(secret.clone()), AuthVerifier::shared_secret(secret.clone()))
+            .create_app(
+                &server_name,
+                AuthProvider::shared_secret(secret.clone()),
+                AuthVerifier::shared_secret(secret.clone()),
+            )
             .unwrap();
         let server_app = Arc::new(server_app);
 
-        let server = Server::new(server_app.clone(), server_name.clone(), server_notifications);
+        let server = Server::new(
+            server_app.clone(),
+            server_name.clone(),
+            server_notifications,
+        );
 
         let call_counter = Arc::new(Mutex::new(0));
         let counter_clone = call_counter.clone();
@@ -647,7 +654,11 @@ mod tests {
 
         let client_name = Name::from_strings(["org", "ns", "client"]);
         let (client_app, _) = service
-            .create_app(&client_name, AuthProvider::shared_secret(secret.clone()), AuthVerifier::shared_secret(secret))
+            .create_app(
+                &client_name,
+                AuthProvider::shared_secret(secret.clone()),
+                AuthVerifier::shared_secret(secret),
+            )
             .unwrap();
         let client_app = Arc::new(client_app);
         let channel = Arc::new(Channel::new(client_app.clone(), server_name));
@@ -682,10 +693,16 @@ mod tests {
         let final_count = *call_counter.lock().await;
         assert_eq!(final_count, 5);
 
+        // Cleanup
+        tracing::info!("Shutting down server...");
         server.shutdown().await;
-        drop(client_app);
-        drop(server_app);
-        let _ = tokio::time::timeout(Duration::from_millis(100), server_handle).await;
-        drop(service);
+
+        // Wait for server task to finish
+        tracing::info!("Waiting for server task to finish...");
+        server_handle.await.unwrap();
+
+        // Shutdown the data-plane as well
+        tracing::info!("Shutting down service...");
+        service.shutdown().await.unwrap();
     }
 }

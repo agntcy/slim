@@ -68,9 +68,6 @@ mod server;
 mod session_wrapper;
 mod status;
 
-#[cfg(test)]
-mod e2e_tests;
-
 pub use channel::Channel;
 pub use codec::{Codec, Decoder, Encoder};
 pub use context::{Context, MessageContext, SessionContext};
@@ -90,3 +87,45 @@ pub const MAX_TIMEOUT: u64 = 36000;
 
 /// Result type for SlimRPC operations
 pub type Result<T> = std::result::Result<T, Status>;
+
+/// Type alias for request streams in stream-based RPC handlers
+///
+/// This represents a pinned, boxed stream of requests that can be used
+/// in stream-unary and stream-stream RPC handlers.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use slimrpc::{RequestStream, Status};
+///
+/// async fn handler(mut stream: RequestStream<MyRequest>) -> Result<MyResponse, Status> {
+///     while let Some(request) = stream.next().await {
+///         let req = request?;
+///         // Process request
+///     }
+///     Ok(response)
+/// }
+/// ```
+pub type RequestStream<T> = std::pin::Pin<Box<dyn futures::Stream<Item = Result<T>> + Send>>;
+
+/// Type alias for response streams in stream-based RPC handlers
+///
+/// This represents a stream of responses that can be returned from
+/// unary-stream and stream-stream RPC handlers.
+///
+/// Note: While this type can represent the return value, handlers typically
+/// return concrete stream types (like those from `futures::stream::iter`) which
+/// are then automatically converted.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use slimrpc::{Status, Result};
+/// use futures::stream::{self, Stream};
+///
+/// async fn handler(request: MyRequest) -> Result<impl Stream<Item = Result<MyResponse>>, Status> {
+///     let responses = vec![response1, response2, response3];
+///     Ok(stream::iter(responses.into_iter().map(Ok)))
+/// }
+/// ```
+pub type ResponseStream<T> = std::pin::Pin<Box<dyn futures::Stream<Item = Result<T>> + Send>>;

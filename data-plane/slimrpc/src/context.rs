@@ -6,7 +6,6 @@
 //! Provides context information for RPC handlers including metadata, deadlines,
 //! session information, and message routing details.
 
-use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use slim_datapath::messages::Name;
@@ -293,7 +292,7 @@ mod tests {
             destination: Name::from_strings(["org", "ns", "dest"]),
             metadata: Metadata::from_map(session_metadata),
         };
-        
+
         let mut ctx = Context {
             session: ctx_session,
             message: None,
@@ -315,7 +314,7 @@ mod tests {
             destination: Name::from_strings(["org", "ns", "dest"]),
             metadata: Metadata::from_map(session_metadata),
         };
-        
+
         let mut ctx = Context {
             session: ctx_session,
             message: None,
