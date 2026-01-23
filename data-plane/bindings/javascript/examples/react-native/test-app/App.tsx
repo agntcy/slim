@@ -9,6 +9,7 @@ import {
   View,
   useColorScheme,
 } from 'react-native';
+import PointToPointDemo from './PointToPointDemo';
 
 // Import SLIM bindings
 // Note: These will be available once the app is built with the native module
@@ -61,6 +62,7 @@ interface TestResult {
 
 function App(): React.JSX.Element {
   const isDarkMode = useColorScheme() === 'dark';
+  const [currentScreen, setCurrentScreen] = useState<'tests' | 'p2p'>('tests');
   const [status, setStatus] = useState<string>('Not Started');
   const [testResults, setTestResults] = useState<TestResult[]>([]);
   const [isRunning, setIsRunning] = useState(false);
@@ -69,6 +71,46 @@ function App(): React.JSX.Element {
     backgroundColor: isDarkMode ? '#000' : '#fff',
     flex: 1,
   };
+
+  // Show P2P Demo if selected
+  if (currentScreen === 'p2p') {
+    return (
+      <SafeAreaView style={backgroundStyle}>
+        <StatusBar
+          barStyle={isDarkMode ? 'light-content' : 'dark-content'}
+          backgroundColor={backgroundStyle.backgroundColor}
+        />
+        <View style={styles.tabBar}>
+          <TouchableOpacity
+            style={styles.tabButton}
+            onPress={() => setCurrentScreen('tests')}>
+            <Text style={[styles.tabText, {color: isDarkMode ? '#aaa' : '#666'}]}>
+              Unit Tests
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tabButton, styles.tabButtonActive]}
+            onPress={() => setCurrentScreen('p2p')}>
+            <Text style={[styles.tabText, styles.tabTextActive]}>
+              P2P Demo
+            </Text>
+          </TouchableOpacity>
+        </View>
+        {!slimBindings ? (
+          <View style={[styles.container, {backgroundColor: isDarkMode ? '#111' : '#f5f5f5'}]}>
+            <Text style={[styles.title, {color: isDarkMode ? '#fff' : '#000'}]}>
+              SLIM Bindings Not Loaded
+            </Text>
+            <Text style={[styles.errorText, {color: isDarkMode ? '#f88' : '#c00'}]}>
+              {bindingsError || 'Please wait for bindings to load...'}
+            </Text>
+          </View>
+        ) : (
+          <PointToPointDemo slimBindings={slimBindings} />
+        )}
+      </SafeAreaView>
+    );
+  }
 
   const runTests = async () => {
     console.log('[DEBUG] runTests called, slimBindings:', slimBindings ? 'LOADED' : 'NULL');
@@ -193,6 +235,22 @@ function App(): React.JSX.Element {
         barStyle={isDarkMode ? 'light-content' : 'dark-content'}
         backgroundColor={backgroundStyle.backgroundColor}
       />
+      <View style={styles.tabBar}>
+        <TouchableOpacity
+          style={[styles.tabButton, styles.tabButtonActive]}
+          onPress={() => setCurrentScreen('tests')}>
+          <Text style={[styles.tabText, styles.tabTextActive]}>
+            Unit Tests
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.tabButton}
+          onPress={() => setCurrentScreen('p2p')}>
+          <Text style={[styles.tabText, {color: isDarkMode ? '#aaa' : '#666'}]}>
+            P2P Demo
+          </Text>
+        </TouchableOpacity>
+      </View>
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         style={backgroundStyle}>
@@ -294,6 +352,30 @@ function App(): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
+  tabBar: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ddd',
+  },
+  tabButton: {
+    flex: 1,
+    padding: 15,
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+  },
+  tabButtonActive: {
+    backgroundColor: '#fff',
+    borderBottomWidth: 2,
+    borderBottomColor: '#007AFF',
+  },
+  tabText: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  tabTextActive: {
+    color: '#007AFF',
+    fontWeight: '600',
+  },
   container: {
     padding: 20,
     minHeight: '100%',
