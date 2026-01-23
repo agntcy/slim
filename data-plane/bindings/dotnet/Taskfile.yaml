@@ -1,0 +1,366 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: '3'
+
+includes:
+  rust:
+    taskfile: ../../../tasks/rust.yaml
+    internal: true
+  adapter:
+    taskfile: ../rust/Taskfile.yaml
+    internal: false
+  tools:
+    taskfile: ../../../tasks/tools.yaml
+    internal: true
+    flatten: true
+
+vars:
+  # Rust bindings directory
+  BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
+  
+  # Rust library name
+  LIB_NAME: slim_bindings
+  
+  # Build profile (debug or release)
+  PROFILE: '{{.PROFILE | default "release"}}'
+  RELEASE:
+    sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
+  
+  # Current target
+  CURRENT_TARGET:
+    sh: 'rustc -vV | sed -n "s|host: ||p"'
+  TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
+  
+  # Target directory for built libraries
+  TARGET_DIR: "{{.BINDINGS_DIR}}/../../target"
+  LIB_PATH: "{{.TARGET_DIR}}/{{.TARGET}}/{{.PROFILE}}"
+  
+  # Runtimes directory for NuGet packaging
+  RUNTIMES_DIR: "{{.TASKFILE_DIR}}/runtimes"
+  
+  # Generated bindings directory
+  GENERATED_DIR: "{{.TASKFILE_DIR}}/Slim/generated"
+  
+  # Supported platforms for NuGet packaging
+  # Format: TARGET|RID|LIB_EXT
+  PLATFORMS: |
+    x86_64-unknown-linux-gnu|linux-x64|so
+    aarch64-unknown-linux-gnu|linux-arm64|so
+    x86_64-unknown-linux-musl|linux-musl-x64|so
+    aarch64-unknown-linux-musl|linux-musl-arm64|so
+    x86_64-apple-darwin|osx-x64|dylib
+    aarch64-apple-darwin|osx-arm64|dylib
+    x86_64-pc-windows-gnu|win-x64|dll
+
+env:
+  PATH: "{{.TOOLS_INSTALL_DIR}}/zig:{{.PATH}}"
+
+tasks:
+  default:
+    desc: "List available tasks"
+    cmds:
+      - task -l
+
+  _get-lib-info:
+    desc: "Internal: Get library path, RID, and name for current platform"
+    internal: true
+    vars:
+      PROFILE_VAR: '{{.PROFILE | default "release"}}'
+    cmds:
+      - |
+        TARGET="{{.CURRENT_TARGET}}"
+        echo "{{.PLATFORMS}}" | while IFS='|' read -r target rid ext; do
+          if [[ "$target" == "$TARGET" ]]; then
+            case "$ext" in
+              so|dylib) lib_name="lib{{.LIB_NAME}}.$ext" ;;
+              dll) lib_name="{{.LIB_NAME}}.$ext" ;;
+            esac
+            lib_path="{{.TARGET_DIR}}/$target/{{.PROFILE_VAR}}/$lib_name"
+            echo "$lib_path|$rid|$lib_name"
+            exit 0
+          fi
+        done
+        echo "ERROR: Target $TARGET not found in PLATFORMS" >&2
+        exit 1
+    silent: true
+
+  install-uniffi-bindgen-cs:
+    desc: "Install uniffi-bindgen-cs for C# bindings generation"
+    status:
+      - which uniffi-bindgen-cs
+    cmds:
+      - cargo install uniffi-bindgen-cs --git https://github.com/NordSecurity/uniffi-bindgen-cs.git --tag v0.9.0+v0.28.3
+    silent: true
+
+  build:rust:all:
+    desc: "Build Rust libraries for all target platforms"
+    cmds:
+      - |
+        echo "{{.PLATFORMS}}" | while IFS='|' read -r target rid ext; do
+          [[ -n "$target" ]] && task adapter:bindings:build:all TARGET="$target" PROFILE={{.PROFILE}}
+        done
+    silent: true
+
+  copy:runtimes:
+    desc: "Copy native libraries to runtimes directory for NuGet packaging"
+    deps:
+      - build:rust:all
+    cmds:
+      - rm -rf {{.RUNTIMES_DIR}}
+      - mkdir -p {{.RUNTIMES_DIR}}
+      - |
+        echo "{{.PLATFORMS}}" | while IFS='|' read -r target rid ext; do
+          if [[ -n "$target" ]]; then
+            case "$ext" in
+              so|dylib) lib_name="lib{{.LIB_NAME}}.$ext" ;;
+              dll) lib_name="{{.LIB_NAME}}.$ext" ;;
+            esac
+            runtime_dir="{{.RUNTIMES_DIR}}/$rid/native"
+            mkdir -p "$runtime_dir"
+            src="{{.TARGET_DIR}}/$target/{{.PROFILE}}/$lib_name"
+            if [[ -f "$src" ]]; then
+              cp "$src" "$runtime_dir/"
+            else
+              echo "WARNING: Library not found: $src"
+            fi
+          fi
+        done
+    silent: true
+
+  generate:
+    desc: "Generate C# bindings using uniffi-bindgen-cs"
+    deps:
+      - install-uniffi-bindgen-cs
+    cmds:
+      - |
+        # Determine library file to use for binding generation
+        if [[ -n "{{.BINDGEN_LIB}}" ]]; then
+          lib_file="{{.BINDGEN_LIB}}"
+        else
+          task adapter:bindings:build:all TARGET={{.CURRENT_TARGET}} PROFILE=release
+          # uniffi-bindgen-cs requires .a (static library) to extract UniFFI metadata
+          lib_file="{{.TARGET_DIR}}/{{.CURRENT_TARGET}}/release/lib{{.LIB_NAME}}.a"
+        fi
+        
+        [[ ! -f "$lib_file" ]] && echo "ERROR: Library not found: $lib_file" && exit 1
+        
+        rm -rf {{.GENERATED_DIR}}
+        mkdir -p {{.GENERATED_DIR}}
+        uniffi-bindgen-cs --library --out-dir {{.GENERATED_DIR}} "$lib_file"
+        
+        if [[ ! -f "{{.GENERATED_DIR}}/slim_bindings.cs" ]]; then
+          echo "ERROR: Failed to generate slim_bindings.cs"
+          exit 1
+        fi
+        echo "Bindings generated successfully"
+    silent: true
+
+  copy:runtime:current:
+    desc: "Copy native library for current platform to runtimes directory"
+    deps:
+      - generate
+    cmds:
+      - |
+        # Determine source library and extract platform info
+        if [[ -n "{{.BINDGEN_LIB}}" ]]; then
+          # BINDGEN_LIB points to .a file (used for generation)
+          # We need to find the corresponding .so/.dylib/.dll for runtime
+          bindgen_lib="{{.BINDGEN_LIB}}"
+          
+          # Extract RID and lib_name from TARGET and PLATFORMS mapping
+          TARGET="{{.TARGET}}"
+          while IFS='|' read -r target rid ext; do
+            if [[ "$target" == "$TARGET" ]]; then
+              RID="$rid"
+              case "$ext" in
+                so|dylib) lib_name="lib{{.LIB_NAME}}.$ext" ;;
+                dll) lib_name="{{.LIB_NAME}}.$ext" ;;
+              esac
+              break
+            fi
+          done <<< "{{.PLATFORMS}}"
+          
+          if [[ -z "$RID" ]]; then
+            echo "ERROR: Target $TARGET not found in PLATFORMS"
+            exit 1
+          fi
+          
+          # Find runtime library in same directory as .a file
+          # Artifacts may have target suffix in filename (e.g., libslim_bindings_x86_64_linux_gnu.so)
+          src_dir=$(dirname "$bindgen_lib")
+          src="$src_dir/$lib_name"
+          
+          # If base name doesn't exist, try with target suffix
+          if [[ ! -f "$src" ]]; then
+            # Convert target triple to underscores (e.g., x86_64-unknown-linux-gnu -> x86_64_linux_gnu)
+            target_suffix=$(echo "$TARGET" | sed 's/-unknown-/-/' | tr '-' '_')
+            case "$ext" in
+              so|dylib) src="$src_dir/lib{{.LIB_NAME}}_${target_suffix}.$ext" ;;
+              dll) src="$src_dir/{{.LIB_NAME}}_${target_suffix}.$ext" ;;
+            esac
+          fi
+          
+          if [[ ! -f "$src" ]]; then
+            echo "ERROR: Runtime library not found: $src"
+            echo "Looking for runtime library..."
+            echo "Checked: $src_dir/$lib_name"
+            echo "Checked: $src"
+            echo "Available files:"
+            ls -lah "$src_dir"
+            exit 1
+          fi
+        else
+          LIB_INFO=$(task _get-lib-info PROFILE=release)
+          src=$(echo "$LIB_INFO" | cut -d'|' -f1)
+          RID=$(echo "$LIB_INFO" | cut -d'|' -f2)
+          lib_name=$(echo "$LIB_INFO" | cut -d'|' -f3)
+          [[ ! -f "$src" ]] && echo "ERROR: Library not found: $src" && exit 1
+        fi
+        
+        runtime_dir="{{.RUNTIMES_DIR}}/$RID/native"
+        mkdir -p "$runtime_dir"
+        cp "$src" "$runtime_dir/$lib_name"
+        echo "Runtime library copied: $runtime_dir/$lib_name"
+    silent: true
+
+  build:
+    desc: "Build the .NET solution"
+    deps:
+      - generate
+      - copy:runtime:current
+    cmds:
+      - dotnet build Slim.sln --configuration Release
+    silent: true
+
+  test:smoke:
+    desc: "Run smoke tests only (no server required)"
+    deps:
+      - build
+    cmds:
+      - dotnet test Slim.Tests/Slim.Tests.csproj --configuration Release --filter "FullyQualifiedName~SmokeTests" --verbosity normal
+    silent: true
+
+  test:integration:
+    desc: "Run integration tests (requires running SLIM server)"
+    deps:
+      - build
+    cmds:
+      - echo "WARNING - Make sure SLIM server is running"
+      - dotnet test Slim.Tests/Slim.Tests.csproj --configuration Release --filter "FullyQualifiedName~IntegrationTests" --verbosity normal
+    silent: true
+
+  test:all:
+    desc: "Run all tests (smoke + integration, requires running SLIM server)"
+    deps:
+      - build
+    cmds:
+      - echo "WARNING - Make sure SLIM server is running for integration tests"
+      - dotnet test Slim.Tests/Slim.Tests.csproj --configuration Release --verbosity normal
+    silent: true
+
+  pack:
+    desc: "Create NuGet package with all runtime libraries (every major OS and platform)"
+    deps:
+      - task: copy:runtimes
+        vars:
+          PROFILE: "release"
+      - task: generate
+    vars:
+      VERSION:
+        sh: grep '^version = ' ../rust/Cargo.toml | sed 's/version = "\(.*\)"/\1/'
+    cmds:
+      - dotnet pack Slim/Slim.csproj --configuration Release --output ./nupkg -p:Version={{.VERSION}}
+      - echo "Built NuGet package version {{.VERSION}}"
+      - ls -lh nupkg/*.nupkg
+    silent: true
+
+  publish:
+    desc: "Publish NuGet package to NuGet.org"
+    deps:
+      - pack
+    env:
+      NUGET_AUTH_TOKEN: "{{.NUGET_API_TOKEN}}"
+    cmds:
+      - |
+        PACKAGE=$(ls nupkg/*.nupkg | head -1)
+        echo "Publishing package: $PACKAGE"
+        dotnet nuget push "$PACKAGE" \
+          --source https://api.nuget.org/v3/index.json \
+          --skip-duplicate
+        echo "Successfully published to NuGet.org"
+    silent: true
+
+  test:verify-package:
+    desc: "Verify NuGet package can be installed and works locally"
+    deps:
+      - pack
+    cmds:
+      - |
+        echo "Verifying NuGet package installation..."
+        TEST_DIR=$(mktemp -d)
+        trap "rm -rf $TEST_DIR" EXIT
+        
+        cd "$TEST_DIR"
+        echo "Testing in: $TEST_DIR"
+        
+        # Create a test console application
+        dotnet new console -n SlimBindingsTest
+        cd SlimBindingsTest
+        
+        # Add local NuGet source
+        NUPKG_PATH="{{.TASKFILE_DIR}}/nupkg"
+        dotnet nuget add source "$NUPKG_PATH" --name "LocalPackages"
+        
+        # Find the package
+        PACKAGE=$(ls "$NUPKG_PATH"/*.nupkg | head -1)
+        PACKAGE_NAME=$(basename "$PACKAGE" | sed 's/\.[0-9].*//')
+        VERSION=$(basename "$PACKAGE" | sed -n 's/.*\.\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*.*\)\.nupkg/\1/p')
+        
+        echo "Package: $PACKAGE_NAME"
+        echo "Version: $VERSION"
+        
+        # Install the package
+        dotnet add package "$PACKAGE_NAME" --version "$VERSION" --source "LocalPackages"
+        echo "Package installed successfully"
+        
+        # Copy test program
+        cp "{{.TASKFILE_DIR}}/../../.github/tests/dotnet/test_installation.cs" ./Program.cs
+        
+        # Build and run
+        dotnet build
+        dotnet run
+        
+        echo ""
+        echo "Package verification complete!"
+    silent: true
+
+  ci:
+    desc: "Run CI pipeline: generate, build, test, and pack"
+    deps:
+      - generate
+      - copy:runtime:current
+    vars:
+      VERSION:
+        sh: |
+          if [[ -n "{{.VERSION}}" ]]; then
+            echo "{{.VERSION}}"
+          else
+            grep '^version = ' ../rust/Cargo.toml | sed 's/version = "\(.*\)"/\1/'
+          fi
+    cmds:
+      - dotnet build Slim.sln --configuration Release
+      - dotnet test Slim.Tests/Slim.Tests.csproj --configuration Release --filter "FullyQualifiedName~SmokeTests" --verbosity normal
+      - |
+        if [[ -n "{{.ARTIFACTS_DIR}}" ]]; then
+          mkdir -p {{.ARTIFACTS_DIR}}
+          dotnet pack Slim/Slim.csproj --configuration Release --output {{.ARTIFACTS_DIR}} -p:Version={{.VERSION}}
+          echo "Built NuGet package version {{.VERSION}}"
+        fi
+
+  clean:
+    desc: "Clean all build artifacts"
+    cmds:
+      - dotnet clean Slim.sln
+      - rm -rf {{.TARGET_DIR}} {{.RUNTIMES_DIR}} {{.GENERATED_DIR}} nupkg/ Slim/bin/ Slim/obj/ Slim.Tests/bin/ Slim.Tests/obj/
+    silent: true

@@ -1,0 +1,235 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+name: Reusable .NET Bindings Release
+
+on:
+  workflow_call:
+    inputs:
+      library-name:
+        description: Name of the library
+        required: false
+        type: string
+        default: slim_bindings
+      dotnet-version:
+        description: .NET SDK version
+        required: false
+        type: string
+        default: "8.0.x"
+      dotnet-bindings-working-directory:
+        description: Working directory for .NET bindings
+        required: false
+        type: string
+        default: ./data-plane/bindings/dotnet
+      nuget-package-name:
+        description: NuGet package name
+        required: false
+        type: string
+        default: Agntcy.Slim
+    secrets:
+      nuget-api-token:
+        description: NuGet API token for publishing
+        required: true
+
+env:
+  LIBRARY_NAME: ${{ inputs.library-name }}
+  NUGET_PACKAGE_NAME: ${{ inputs.nuget-package-name }}
+
+jobs:
+  # ==========================================================================
+  # Job 1: Publish NuGet package
+  # ==========================================================================
+  release-dotnet-bindings:
+    name: Release .NET Bindings
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.dotnet-bindings-working-directory }}
+    steps:
+      - name: Checkout source repo
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      # Download NuGet package artifact
+      - name: Download NuGet Package Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dotnet-bindings-nuget
+          path: ${{ inputs.dotnet-bindings-working-directory }}/nupkg
+
+      - name: List downloaded artifacts
+        run: |
+          echo "Downloaded NuGet package:"
+          ls -lah ./nupkg/
+
+      - name: Extract version from tag
+        id: extract-version
+        run: |
+          # Extract version from tag name (remove 'slim-bindings-' prefix)
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#slim-bindings-}"
+          echo "Extracted version: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Determine if pre-release
+        id: prerelease
+        run: |
+          VERSION="${{ steps.extract-version.outputs.version }}"
+          if [[ "$VERSION" =~ (alpha|beta|rc) ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+            echo "This is a pre-release version"
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+            echo "This is a stable release"
+          fi
+
+      - name: Publish to NuGet.org
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.nuget-api-token }}
+        run: |
+          PACKAGE=$(ls ./nupkg/*.nupkg | head -1)
+          echo "Publishing package: $PACKAGE"
+          
+          dotnet nuget push "$PACKAGE" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+          
+          echo "Successfully published to NuGet.org"
+
+  # ==========================================================================
+  # Job 2: Test the published .NET bindings work as expected
+  # ==========================================================================
+  test-dotnet-bindings:
+    name: Test .NET Bindings (${{ matrix.platform.target }})
+    runs-on: ${{ matrix.platform.runner }}
+    needs: release-dotnet-bindings
+    if: startsWith(github.ref, 'refs/tags/slim-bindings-')
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          # Linux x86_64 variants
+          - runner: ubuntu-24.04
+            os: linux
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04
+            os: linux
+            target: x86_64-unknown-linux-musl
+          # Windows variant
+          - runner: windows-latest
+            os: windows
+            target: x86_64-pc-windows-msvc
+          # macOS variants
+          - runner: macos-15-intel
+            os: macos
+            target: x86_64-apple-darwin
+          - runner: macos-15
+            os: macos
+            target: aarch64-apple-darwin
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Wait for NuGet package propagation
+        run: |
+          echo "Waiting 60 seconds for NuGet.org package index to update..."
+          sleep 60
+
+      - name: Test bindings installation and usage
+        run: |
+          # Extract version from tag name
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#slim-bindings-}"
+          echo "Testing version: $VERSION"
+          echo "Platform: ${{ matrix.platform.target }}"
+          echo "Runner: ${{ matrix.platform.runner }}"
+
+          # Create a temporary test directory
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            TEST_DIR=$(mktemp -d -p "$RUNNER_TEMP")
+          else
+            TEST_DIR=$(mktemp -d)
+          fi
+          cd "$TEST_DIR"
+          echo "Testing in: $TEST_DIR"
+
+          # Create a test console application
+          dotnet new console -n SlimBindingsTest
+          cd SlimBindingsTest
+
+          # Install the package from NuGet.org
+          echo "Installing package ${{ env.NUGET_PACKAGE_NAME }} version $VERSION"
+          dotnet add package ${{ env.NUGET_PACKAGE_NAME }} --version $VERSION
+          echo "Package installed successfully"
+
+          # Copy and run test program
+          cp $GITHUB_WORKSPACE/.github/tests/dotnet/test_installation.cs ./Program.cs
+
+          # Build and run
+          dotnet build
+          dotnet run
+
+          echo ""
+          echo "All tests passed on ${{ matrix.platform.target }}!"
+
+      - name: Test result summary
+        if: success()
+        run: |
+          echo ".NET bindings verification completed successfully on ${{ matrix.platform.target }}"
+          echo "The published package is working correctly."
+
+  # ==========================================================================
+  # Job 3: Finalize release - create summary
+  # ==========================================================================
+  finalize-dotnet-release:
+    name: Finalize Release
+    runs-on: ubuntu-latest
+    needs: test-dotnet-bindings
+    if: startsWith(github.ref, 'refs/tags/slim-bindings-')
+    steps:
+      - name: Extract version
+        id: extract-version
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#slim-bindings-}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Verify package availability
+        run: |
+          VERSION="${{ steps.extract-version.outputs.version }}"
+          echo "Verifying package is discoverable on NuGet.org..."
+          
+          # Query NuGet API to verify package availability
+          RESPONSE=$(curl -s "https://api.nuget.org/v3/registration5-semver1/${{ env.NUGET_PACKAGE_NAME }}/index.json")
+          
+          if echo "$RESPONSE" | grep -q "$VERSION"; then
+            echo "Package version $VERSION is discoverable on NuGet.org"
+          else
+            echo "Package might still be indexing on NuGet.org"
+          fi
+
+      - name: Release complete
+        run: |
+          VERSION="${{ steps.extract-version.outputs.version }}"
+          echo ""
+          echo "Release $VERSION complete!"
+          echo ".NET bindings published to https://www.nuget.org/packages/${{ env.NUGET_PACKAGE_NAME }}"
+          echo "Version: $VERSION"
+          echo "All tests passed on 5 platforms"
+          echo ""
+          echo "Install with:"
+          echo "  dotnet add package ${{ env.NUGET_PACKAGE_NAME }} --version $VERSION"
