@@ -726,11 +726,13 @@ impl ClientConfig {
     fn map_transport_error(err: tonic::transport::Error) -> ConfigError {
         #[cfg(target_family = "unix")]
         {
-            if let Some(source) = StdErrorTrait::source(&err)
-                && let Some(io_err) = source.downcast_ref::<std::io::Error>()
-            {
-                let cloned = std::io::Error::new(io_err.kind(), io_err.to_string());
-                return ConfigError::UnixSocketConnect(cloned);
+            let mut source: Option<&(dyn StdErrorTrait + 'static)> = Some(&err);
+            while let Some(err_ref) = source {
+                if let Some(io_err) = err_ref.downcast_ref::<std::io::Error>() {
+                    let cloned = std::io::Error::new(io_err.kind(), io_err.to_string());
+                    return ConfigError::UnixSocketConnect(cloned);
+                }
+                source = err_ref.source();
             }
         }
 
@@ -1079,6 +1081,8 @@ mod test {
     #[allow(unused_imports)]
     use super::*;
     use crate::tls::common::CaSource;
+    use hyper_util::rt::TokioIo;
+    use tower::service_fn;
     use tracing_test::traced_test;
 
     #[test]
@@ -1118,6 +1122,146 @@ mod test {
 
         let res = parse_rate_limit("100");
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_parse_endpoint_uri_http() {
+        let client = ClientConfig::with_endpoint("http://localhost:1234");
+        let uri = client.parse_endpoint_uri().expect("valid http uri");
+        assert_eq!(uri.scheme_str(), Some("http"));
+        assert_eq!(uri.authority().map(|auth| auth.as_str()), Some("localhost:1234"));
+    }
+
+    #[test]
+    fn test_parse_endpoint_uri_unix() {
+        let client = ClientConfig::with_endpoint("unix://tmp/slim.sock");
+        let uri = client.parse_endpoint_uri().expect("valid unix uri");
+        assert_eq!(uri.scheme_str(), Some("unix"));
+        assert_eq!(uri.authority().map(|auth| auth.as_str()), Some("localhost"));
+        assert_eq!(uri.path(), "/tmp/slim.sock");
+    }
+
+    #[test]
+    fn test_parse_endpoint_uri_unix_missing_path() {
+        let client = ClientConfig::with_endpoint("unix://");
+        let err = client.parse_endpoint_uri().expect_err("missing unix path");
+        assert!(matches!(err, ConfigError::UnixSocketMissingPath));
+    }
+
+    #[cfg(target_family = "unix")]
+    #[test]
+    fn test_parse_unix_socket_path_normalizes() {
+        let path =
+            ClientConfig::parse_unix_socket_path("unix://tmp/slim.sock?foo=bar#frag").unwrap();
+        assert_eq!(path, std::path::PathBuf::from("/tmp/slim.sock"));
+    }
+
+    #[cfg(target_family = "unix")]
+    #[test]
+    fn test_parse_unix_socket_path_missing() {
+        let err = ClientConfig::parse_unix_socket_path("unix://").unwrap_err();
+        assert!(matches!(err, ConfigError::UnixSocketMissingPath));
+
+        let err = ClientConfig::parse_unix_socket_path("unix:///").unwrap_err();
+        assert!(matches!(err, ConfigError::UnixSocketMissingPath));
+    }
+
+    #[tokio::test]
+    async fn test_connect_tcp_channel_lazy_ok() {
+        let client = ClientConfig::with_endpoint("http://127.0.0.1:0");
+        let uri = client.parse_endpoint_uri().expect("valid http uri");
+        let channel = client.connect_tcp_channel(uri, true).await;
+        assert!(channel.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_connect_tcp_channel_non_lazy_error() {
+        let mut client =
+            ClientConfig::with_endpoint("http://127.0.0.1:0").with_connect_timeout(
+                Duration::from_millis(50),
+            );
+        client.backoff = BackoffConfig::new_fixed_interval(Duration::from_millis(0), 1);
+
+        let uri = client.parse_endpoint_uri().expect("valid http uri");
+        let err = client
+            .connect_tcp_channel(uri, false)
+            .await
+            .expect_err("expected connect error");
+        assert!(matches!(err, ConfigError::TransportError(_)));
+    }
+
+    #[cfg(target_family = "unix")]
+    #[tokio::test]
+    async fn test_connect_unix_channel_lazy_ok() {
+        let mut client = ClientConfig::with_endpoint("unix:///tmp/slim-test.sock");
+        client.tls_setting.insecure = true;
+
+        let uri = client.parse_endpoint_uri().expect("valid unix uri");
+        let channel = client.connect_unix_channel(uri, true).await;
+        assert!(channel.is_ok());
+    }
+
+    #[cfg(target_family = "unix")]
+    #[tokio::test]
+    async fn test_connect_unix_channel_non_lazy_error() {
+        let mut client = ClientConfig::with_endpoint("unix:///tmp/slim-missing.sock");
+        client.tls_setting.insecure = true;
+        client.backoff = BackoffConfig::new_fixed_interval(Duration::from_millis(0), 1);
+
+        let uri = client.parse_endpoint_uri().expect("valid unix uri");
+        let err = client
+            .connect_unix_channel(uri, false)
+            .await
+            .expect_err("expected unix socket connect error");
+        assert!(matches!(err, ConfigError::UnixSocketConnect(_)));
+    }
+
+    #[cfg(not(target_family = "unix"))]
+    #[tokio::test]
+    async fn test_connect_unix_channel_unsupported() {
+        let client = ClientConfig::with_endpoint("unix:///tmp/slim.sock");
+        let uri = client.parse_endpoint_uri().expect("valid unix uri");
+        let err = client
+            .connect_unix_channel(uri, true)
+            .await
+            .expect_err("expected unix socket unsupported");
+        assert!(matches!(err, ConfigError::UnixSocketUnsupported));
+    }
+
+    #[cfg(target_family = "unix")]
+    #[tokio::test]
+    async fn test_map_transport_error_maps_io() {
+        let endpoint = tonic::transport::Endpoint::from_static("http://localhost");
+        let connector = service_fn(|_uri: Uri| async move {
+            Err::<TokioIo<tokio::io::DuplexStream>, std::io::Error>(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "boom",
+            ))
+        });
+        let err = endpoint
+            .connect_with_connector(connector)
+            .await
+            .expect_err("expected connect error");
+        let mapped = ClientConfig::map_transport_error(err);
+        assert!(matches!(mapped, ConfigError::UnixSocketConnect(_)));
+    }
+
+    #[cfg(not(target_family = "unix"))]
+    #[tokio::test]
+    async fn test_map_transport_error_transport() {
+        let endpoint = tonic::transport::Endpoint::from_static("http://localhost");
+        let connector = service_fn(|_uri: Uri| async move {
+            Err::<TokioIo<tokio::io::DuplexStream>, std::io::Error>(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "boom",
+            ))
+        });
+        let err = endpoint
+            .connect_with_connector(connector)
+            .await
+            .expect_err("expected connect error");
+        let mapped = ClientConfig::map_transport_error(err);
+        assert!(matches!(mapped, ConfigError::TransportError(_)));
     }
 
     #[tokio::test]
