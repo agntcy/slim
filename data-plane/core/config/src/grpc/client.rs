@@ -560,18 +560,17 @@ impl ClientConfig {
         // Parse headers
         let header_map = self.parse_headers()?;
 
-        // Create the channel with or without retry based on lazy flag
-        #[cfg(target_family = "unix")]
-        let is_unix = self.endpoint.starts_with("unix://");
+        let uri = self.parse_endpoint_uri()?;
 
-        #[cfg(not(target_family = "unix"))]
-        let is_unix = false;
-
-        let channel = if is_unix {
-            self.connect_unix_channel(lazy).await?
-        } else {
-            let uri = self.parse_endpoint_uri()?;
+        let channel = if uri.scheme_str() == Some("unix") {
+            if cfg!(not(target_family = "unix")) {
+                return Err(ConfigError::UnixSocketUnsupported);
+            }
+            self.connect_unix_channel(uri, lazy).await?
+        } else if uri.scheme_str() == Some("http") || uri.scheme_str() == Some("https") {
             self.connect_tcp_channel(uri, lazy).await?
+        } else {
+            return Err(ConfigError::InvalidEndpointScheme);
         };
 
         // Apply authentication and headers
@@ -586,14 +585,34 @@ impl ClientConfig {
         Ok(())
     }
 
-    /// Parses the endpoint string into a URI for TCP/HTTP endpoints.
-    /// Unix domain socket endpoints are handled separately and should not reach here.
+    /// Parses the endpoint string into a URI for TCP/HTTP, Unix domain socket endpoints.
     fn parse_endpoint_uri(&self) -> Result<Uri, ConfigError> {
-        #[cfg(not(target_family = "unix"))]
+        // Special case for the unix scheme because it doesn't have an
+        // authority in the URI and the Uri parser doesn't like this today,
+        // so we build our own URI with a fake localhost authority.
         if self.endpoint.starts_with("unix://") {
-            return Err(ConfigError::UnixSocketUnsupported);
-        }
+            let Some(path) = self.endpoint.strip_prefix("unix://") else {
+                return Err(ConfigError::UnixSocketMissingPath);
+            };
 
+            if path.trim_matches('/').is_empty() {
+                return Err(ConfigError::UnixSocketMissingPath);
+            }
+
+            let normalized = if path.starts_with('/') {
+                path.to_string()
+            } else {
+                format!("/{path}")
+            };
+
+            let uri = Uri::builder()
+                .scheme("unix")
+                .authority("localhost")
+                .path_and_query(normalized.as_str())
+                .build()
+                .map_err(ConfigError::UnixSocketInvalidPath)?;
+            return Ok(uri);
+        }
         Ok(Uri::from_str(&self.endpoint)?)
     }
 
@@ -704,11 +723,6 @@ impl ClientConfig {
         Ok(PathBuf::from(normalized))
     }
 
-    #[cfg(target_family = "unix")]
-    fn unix_placeholder_uri() -> Uri {
-        Uri::from_static("http://[::]:50051")
-    }
-
     fn map_transport_error(err: tonic::transport::Error) -> ConfigError {
         #[cfg(target_family = "unix")]
         {
@@ -765,14 +779,14 @@ impl ClientConfig {
     }
 
     #[cfg(target_family = "unix")]
-    async fn connect_unix_channel(&self, lazy: bool) -> Result<Channel, ConfigError> {
+    async fn connect_unix_channel(&self, uri: Uri, lazy: bool) -> Result<Channel, ConfigError> {
         if !self.tls_setting.insecure {
             // TLS handshakes are unnecessary over local UDS and currently unsupported
             return Err(ConfigError::UnixSocketTlsUnsupported);
         }
 
         let socket_path = Arc::new(Self::parse_unix_socket_path(&self.endpoint)?);
-        let builder = self.create_channel_builder(Self::unix_placeholder_uri())?;
+        let builder = self.create_channel_builder(uri)?;
 
         let make_connector = || {
             let path = socket_path.clone();
@@ -824,7 +838,7 @@ impl ClientConfig {
     }
 
     #[cfg(not(target_family = "unix"))]
-    async fn connect_unix_channel(&self, _lazy: bool) -> Result<Channel, ConfigError> {
+    async fn connect_unix_channel(&self, _uri: Uri, _lazy: bool) -> Result<Channel, ConfigError> {
         Err(ConfigError::UnixSocketUnsupported)
     }
 

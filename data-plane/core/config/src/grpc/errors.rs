@@ -21,6 +21,8 @@ pub enum ConfigError {
     EndpointParse(#[from] std::net::AddrParseError),
     #[error("URI parse error")]
     UriParse(#[from] http::uri::InvalidUri),
+    #[error("invalid endpoint scheme")]
+    InvalidEndpointScheme,
 
     // Network / transport
     #[error("transport error")]
@@ -35,6 +37,8 @@ pub enum ConfigError {
     UnixSocketMissingPath,
     #[error("unix domain sockets require tls.insecure=true")]
     UnixSocketTlsUnsupported,
+    #[error("invalid unix domain socket path")]
+    UnixSocketInvalidPath(#[source] http::Error),
 
     #[cfg(target_family = "unix")]
     #[error("failed to connect to unix domain socket")]
