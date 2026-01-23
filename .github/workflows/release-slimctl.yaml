@@ -72,12 +72,7 @@ jobs:
             -v $(pwd):/workspace \
             -w /workspace \
             goreleaser/goreleaser-cross:v1.23 \
-            sh -c "
-              # Install task runner
-              go install github.com/go-task/task/v3/cmd/task@latest
-              # Run goreleaser (skip validation to support custom tag patterns)
-              goreleaser release --clean --skip=validate
-            "
+            /bin/bash -c 'go install github.com/go-task/task/v3/cmd/task@latest && goreleaser release --clean --skip=validate'
 
       - name: Upload artifacts to release
         run: |
