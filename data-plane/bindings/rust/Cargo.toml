@@ -20,6 +20,7 @@ agntcy-slim-service = { workspace = true, features = ["session"] }
 agntcy-slim-session = { workspace = true }
 agntcy-slim-signal = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
+agntcy-slimrpc = { workspace = true }
 
 # External dependencies
 async-stream = { workspace = true }

@@ -271,14 +271,20 @@ struct ServerInner {
     /// Optional connection ID for subscription propagation
     #[allow(dead_code)]
     connection_id: Option<u64>,
-    /// Notification receiver for incoming sessions
-    notification_rx: tokio::sync::Mutex<Option<mpsc::Receiver<Result<Notification, SessionError>>>>,
+    /// Notification receiver for incoming sessions (either owned or shared)
+    notification_rx: tokio::sync::Mutex<Option<NotificationReceiver>>,
     /// Cancellation token for shutdown
     cancellation_token: CancellationToken,
     /// Drain signal for graceful shutdown
     drain_signal: RwLock<Option<drain::Signal>>,
     /// Drain watch for session handlers
     drain_watch: RwLock<Option<drain::Watch>>,
+}
+
+/// Enum to hold either an owned or shared notification receiver
+enum NotificationReceiver {
+    Owned(mpsc::Receiver<Result<Notification, SessionError>>),
+    Shared(Arc<tokio::sync::RwLock<mpsc::Receiver<Result<Notification, SessionError>>>>),
 }
 
 /// RPC Server
@@ -326,7 +332,51 @@ impl Server {
                 base_name,
                 tasks: RwLock::new(Vec::new()),
                 connection_id,
-                notification_rx: tokio::sync::Mutex::new(Some(notification_rx)),
+                notification_rx: tokio::sync::Mutex::new(Some(NotificationReceiver::Owned(notification_rx))),
+                cancellation_token: CancellationToken::new(),
+                drain_signal: RwLock::new(Some(drain_signal)),
+                drain_watch: RwLock::new(Some(drain_watch)),
+            }),
+        }
+    }
+
+    /// Create a new RPC server with shared notification receiver
+    ///
+    /// # Arguments
+    /// * `app` - The SLIM app to use for communication
+    /// * `base_name` - The base name for this server (e.g., "org/namespace/app")
+    /// * `notification_rx` - Shared Arc to the notification receiver
+    pub fn new_with_shared_rx(
+        app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
+        base_name: Name,
+        notification_rx: Arc<tokio::sync::RwLock<mpsc::Receiver<Result<Notification, SessionError>>>>,
+    ) -> Self {
+        Self::new_with_shared_rx_and_connection(app, base_name, None, notification_rx)
+    }
+
+    /// Create a new RPC server with shared notification receiver and connection ID
+    ///
+    /// # Arguments
+    /// * `app` - The SLIM app to use for communication
+    /// * `base_name` - The base name for this server (e.g., "org/namespace/app")
+    /// * `connection_id` - Optional connection ID for subscription propagation to next SLIM node
+    /// * `notification_rx` - Shared Arc to the notification receiver
+    pub fn new_with_shared_rx_and_connection(
+        app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
+        base_name: Name,
+        connection_id: Option<u64>,
+        notification_rx: Arc<tokio::sync::RwLock<mpsc::Receiver<Result<Notification, SessionError>>>>,
+    ) -> Self {
+        let (drain_signal, drain_watch) = drain::channel();
+
+        Self {
+            inner: Arc::new(ServerInner {
+                app,
+                registry: ServiceRegistry::new(),
+                base_name,
+                tasks: RwLock::new(Vec::new()),
+                connection_id,
+                notification_rx: tokio::sync::Mutex::new(Some(NotificationReceiver::Shared(notification_rx))),
                 cancellation_token: CancellationToken::new(),
                 drain_signal: RwLock::new(Some(drain_signal)),
                 drain_watch: RwLock::new(Some(drain_watch)),
@@ -423,33 +473,54 @@ impl Server {
         &self,
         timeout: Option<std::time::Duration>,
     ) -> Result<SessionContext, Status> {
-        let mut rx = self
-            .inner
-            .notification_rx
-            .lock()
-            .await
-            .take()
-            .ok_or_else(|| Status::internal("notification receiver already taken"))?;
-
-        let recv_fut = rx.recv();
-        let notification_opt = if let Some(dur) = timeout {
-            // Runtime-agnostic timeout using futures-timer
-            futures::pin_mut!(recv_fut);
-            let delay = Delay::new(dur);
-            futures::pin_mut!(delay);
-
-            match futures::future::select(recv_fut, delay).await {
-                futures::future::Either::Left((result, _)) => result,
-                futures::future::Either::Right(_) => {
-                    return Err(Status::deadline_exceeded("listen_for_session timed out"));
-                }
+        let mut rx_guard = self.inner.notification_rx.lock().await;
+        let rx_opt = rx_guard.take();
+        
+        let notification_opt = match rx_opt {
+            Some(NotificationReceiver::Owned(mut rx)) => {
+                let result = if let Some(dur) = timeout {
+                    // Runtime-agnostic timeout using tokio::time
+                    tokio::select! {
+                        result = rx.recv() => result,
+                        _ = tokio::time::sleep(dur) => {
+                            *rx_guard = Some(NotificationReceiver::Owned(rx));
+                            return Err(Status::deadline_exceeded("listen_for_session timed out"));
+                        }
+                    }
+                } else {
+                    rx.recv().await
+                };
+                
+                // Put the receiver back
+                *rx_guard = Some(NotificationReceiver::Owned(rx));
+                result
             }
-        } else {
-            recv_fut.await
+            Some(NotificationReceiver::Shared(rx_arc)) => {
+                // For shared receiver, put it back immediately and work with the Arc
+                *rx_guard = Some(NotificationReceiver::Shared(rx_arc.clone()));
+                drop(rx_guard);
+                
+                // Now lock and receive from the shared receiver
+                let result = if let Some(dur) = timeout {
+                    // Runtime-agnostic timeout using tokio::time
+                    let mut rx = rx_arc.write().await;
+                    tokio::select! {
+                        result = rx.recv() => result,
+                        _ = tokio::time::sleep(dur) => {
+                            return Err(Status::deadline_exceeded("listen_for_session timed out"));
+                        }
+                    }
+                } else {
+                    let mut rx = rx_arc.write().await;
+                    rx.recv().await
+                };
+                
+                result
+            }
+            None => {
+                return Err(Status::internal("notification receiver not available"));
+            }
         };
-
-        // Put the receiver back
-        *self.inner.notification_rx.lock().await = Some(rx);
 
         if notification_opt.is_none() {
             return Err(Status::internal("notification channel closed"));

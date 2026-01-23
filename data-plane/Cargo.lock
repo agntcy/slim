@@ -89,6 +89,7 @@ dependencies = [
  "agntcy-slim-signal",
  "agntcy-slim-testing",
  "agntcy-slim-tracing",
+ "agntcy-slimrpc",
  "async-stream",
  "async-trait",
  "display-error-chain",

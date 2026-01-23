@@ -22,9 +22,87 @@ use slim_service::service::Service;
 use slim_testing::utils::TEST_VALID_SECRET;
 use tokio::sync::Mutex;
 
-
 use agntcy_slimrpc::{Channel, Code, Context, RequestStream, Server, Status};
 use slim_testing::slimrpc::{TestRequest, TestResponse};
+
+// ============================================================================
+// Test Helpers
+// ============================================================================
+
+/// Test environment containing service, server, and client components
+struct TestEnv {
+    service: Arc<Service>,
+    server: Server,
+    server_handle: Option<tokio::task::JoinHandle<()>>,
+    channel: Channel,
+}
+
+impl TestEnv {
+    /// Create a new test environment with server and client
+    async fn new(test_name: &str) -> Self {
+        let id = ID::new_with_name(Kind::new("slim").unwrap(), test_name).unwrap();
+        let service = Arc::new(Service::new(id));
+
+        let server_name = Name::from_strings(["org", "ns", "server"]);
+        let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
+
+        let (server_app, server_notifications) = service
+            .create_app(
+                &server_name,
+                AuthProvider::shared_secret(secret.clone()),
+                AuthVerifier::shared_secret(secret.clone()),
+            )
+            .unwrap();
+        let server_app = Arc::new(server_app);
+
+        let server = Server::new(
+            server_app.clone(),
+            server_name.clone(),
+            server_notifications,
+        );
+
+        // Start server in background
+        let server_clone = server.clone();
+        let server_handle = tokio::spawn(async move {
+            let _ = server_clone.serve().await;
+        });
+
+        // Give server time to start
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Create client
+        let client_name = Name::from_strings(["org", "ns", "client"]);
+        let (client_app, _) = service
+            .create_app(
+                &client_name,
+                AuthProvider::shared_secret(secret.clone()),
+                AuthVerifier::shared_secret(secret),
+            )
+            .unwrap();
+        let client_app = Arc::new(client_app);
+        let channel = Channel::new(client_app.clone(), server_name.clone());
+
+        Self {
+            service,
+            server,
+            server_handle: Some(server_handle),
+            channel,
+        }
+    }
+
+    /// Clean shutdown of the test environment
+    async fn shutdown(&mut self) {
+        tracing::info!("Shutting down server...");
+        self.server.shutdown().await;
+
+        tracing::info!("Waiting for server task to finish...");
+        let handle = self.server_handle.take().unwrap();
+        handle.await.unwrap();
+
+        tracing::info!("Shutting down service...");
+        self.service.shutdown().await.unwrap();
+    }
+}
 
 // ============================================================================
 // Test 1: Unary-Unary RPC
@@ -33,31 +111,9 @@ use slim_testing::slimrpc::{TestRequest, TestResponse};
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_unary_unary_rpc() {
-    // Create a single service that both apps will use
-    let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-service-unary").unwrap();
-    let service = Arc::new(Service::new(id));
+    let mut env = TestEnv::new("test-service-unary").await;
 
-    // Create server app
-    let server_name = Name::from_strings(["org", "ns", "server"]);
-    let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
-    let (server_app, server_notifications) = service
-        .create_app(
-            &server_name,
-            AuthProvider::shared_secret(secret.clone()),
-            AuthVerifier::shared_secret(secret.clone()),
-        )
-        .unwrap();
-    let server_app = Arc::new(server_app);
-
-    // Create and configure server
-    let server = Server::new(
-        server_app.clone(),
-        server_name.clone(),
-        server_notifications,
-    );
-
-    // Register unary-unary handler
-    server.registry().register_unary_unary(
+    env.server.registry().register_unary_unary(
         "TestService",
         "Echo",
         |request: TestRequest, _ctx: Context| async move {
@@ -68,36 +124,13 @@ async fn test_unary_unary_rpc() {
         },
     );
 
-    // Start server in background
-    let server_clone = server.clone();
-    let server_handle = tokio::spawn(async move {
-        let _ = server_clone.serve().await;
-    });
-
-    // Give server time to start
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    // Create client app using the same service
-    let client_name = Name::from_strings(["org", "ns", "client"]);
-    let (client_app, _client_notifications) = service
-        .create_app(
-            &client_name,
-            AuthProvider::shared_secret(secret.clone()),
-            AuthVerifier::shared_secret(secret),
-        )
-        .unwrap();
-    let client_app = Arc::new(client_app);
-
-    // Create channel
-    let channel = Channel::new(client_app.clone(), server_name);
-
-    // Make unary call
     let request = TestRequest {
         message: "Hello".to_string(),
         value: 42,
     };
 
-    let response: TestResponse = channel
+    let response: TestResponse = env
+        .channel
         .unary("TestService", "Echo", request, None, None)
         .await
         .expect("Unary call failed");
@@ -106,44 +139,15 @@ async fn test_unary_unary_rpc() {
     assert_eq!(response.result, "Echo: Hello");
     assert_eq!(response.count, 84);
 
-    // Cleanup
-    tracing::info!("Shutting down server...");
-    server.shutdown().await;
-
-    // Wait for server task to finiss
-    tracing::info!("Waiting for server task to finish...");
-    server_handle.await.unwrap();
-
-    // Shutdown the data-plane as well
-    tracing::info!("Shutting down service...");
-    service.shutdown().await.unwrap();
+    env.shutdown().await;
 }
 
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_unary_unary_error_handling() {
-    let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-service-error").unwrap();
-    let service = Service::new(id);
+    let mut env = TestEnv::new("test-service-error").await;
 
-    let server_name = Name::from_strings(["org", "ns", "server"]);
-    let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
-    let (server_app, server_notifications) = service
-        .create_app(
-            &server_name,
-            AuthProvider::shared_secret(secret.clone()),
-            AuthVerifier::shared_secret(secret.clone()),
-        )
-        .unwrap();
-    let server_app = Arc::new(server_app);
-
-    let server = Server::new(
-        server_app.clone(),
-        server_name.clone(),
-        server_notifications,
-    );
-
-    // Register handler that returns an error
-    server.registry().register_unary_unary(
+    env.server.registry().register_unary_unary(
         "TestService",
         "ErrorMethod",
         |_request: TestRequest, _ctx: Context| async move {
@@ -151,30 +155,13 @@ async fn test_unary_unary_error_handling() {
         },
     );
 
-    let server_clone = server.clone();
-    let server_handle = tokio::spawn(async move {
-        let _ = server_clone.serve().await;
-    });
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    let client_name = Name::from_strings(["org", "ns", "client"]);
-    let (client_app, _) = service
-        .create_app(
-            &client_name,
-            AuthProvider::shared_secret(secret.clone()),
-            AuthVerifier::shared_secret(secret),
-        )
-        .unwrap();
-    let client_app = Arc::new(client_app);
-    let channel = Channel::new(client_app.clone(), server_name);
-
     let request = TestRequest {
         message: "test".to_string(),
         value: 1,
     };
 
-    let result: Result<TestResponse, Status> = channel
+    let result: Result<TestResponse, Status> = env
+        .channel
         .unary("TestService", "ErrorMethod", request, None, None)
         .await;
 
@@ -184,17 +171,7 @@ async fn test_unary_unary_error_handling() {
     assert_eq!(err.code(), Code::InvalidArgument);
     assert_eq!(err.message(), Some("Invalid input"));
 
-    // Cleanup
-    tracing::info!("Shutting down server...");
-    server.shutdown().await;
-
-    // Wait for server task to finish
-    tracing::info!("Waiting for server task to finish...");
-    server_handle.await.unwrap();
-
-    // Shutdown the data-plane as well
-    tracing::info!("Shutting down service...");
-    service.shutdown().await.unwrap();
+    env.shutdown().await;
 }
 
 // ============================================================================
@@ -204,28 +181,9 @@ async fn test_unary_unary_error_handling() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_stream_unary_rpc() {
-    let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-service-stream-unary").unwrap();
-    let service = Arc::new(Service::new(id));
+    let mut env = TestEnv::new("test-service-stream-unary").await;
 
-    let server_name = Name::from_strings(["org", "ns", "server"]);
-    let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
-    let (server_app, server_notifications) = service
-        .create_app(
-            &server_name,
-            AuthProvider::shared_secret(secret.clone()),
-            AuthVerifier::shared_secret(secret.clone()),
-        )
-        .unwrap();
-    let server_app = Arc::new(server_app);
-
-    let server = Server::new(
-        server_app.clone(),
-        server_name.clone(),
-        server_notifications,
-    );
-
-    // Register stream-unary handler that sums all values
-    server.registry().register_stream_unary(
+    env.server.registry().register_stream_unary(
         "TestService",
         "Sum",
         |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
@@ -245,25 +203,6 @@ async fn test_stream_unary_rpc() {
         },
     );
 
-    let server_clone = server.clone();
-    let server_handle = tokio::spawn(async move {
-        let _ = server_clone.serve().await;
-    });
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    let client_name = Name::from_strings(["org", "ns", "client"]);
-    let (client_app, _) = service
-        .create_app(
-            &client_name,
-            AuthProvider::shared_secret(secret.clone()),
-            AuthVerifier::shared_secret(secret),
-        )
-        .unwrap();
-    let client_app = Arc::new(client_app);
-    let channel = Channel::new(client_app.clone(), server_name);
-
-    // Create request stream
     let requests = vec![
         TestRequest {
             message: "one".to_string(),
@@ -280,7 +219,8 @@ async fn test_stream_unary_rpc() {
     ];
     let request_stream = stream::iter(requests);
 
-    let response: TestResponse = channel
+    let response: TestResponse = env
+        .channel
         .stream_unary("TestService", "Sum", request_stream, None, None)
         .await
         .expect("Stream-unary call failed");
@@ -289,17 +229,7 @@ async fn test_stream_unary_rpc() {
     assert_eq!(response.result, "one, two, three");
     assert_eq!(response.count, 6);
 
-    // Cleanup
-    tracing::info!("Shutting down server...");
-    server.shutdown().await;
-
-    // Wait for server task to finish
-    tracing::info!("Waiting for server task to finish...");
-    server_handle.await.unwrap();
-
-    // Shutdown the data-plane as well
-    tracing::info!("Shutting down service...");
-    service.shutdown().await.unwrap();
+    env.shutdown().await;
 }
 
 // ============================================================================
@@ -318,30 +248,9 @@ async fn test_stream_unary_rpc() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_stream_unary_error_handling() {
-    let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-service-stream-unary-error").unwrap();
-    let service = Arc::new(Service::new(id));
+    let mut env = TestEnv::new("test-service-stream-unary-error").await;
 
-    let server_name = Name::from_strings(["org", "ns", "server"]);
-    let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
-    let (server_app, server_notifications) = service
-        .create_app(
-            &server_name,
-            AuthProvider::shared_secret(secret.clone()),
-            AuthVerifier::shared_secret(secret.clone()),
-        )
-        .unwrap();
-    let server_app = Arc::new(server_app);
-
-    let server = Server::new(
-        server_app.clone(),
-        server_name.clone(),
-        server_notifications,
-    );
-
-    // Register stream-unary handler that validates input and returns error on invalid data
-    // The handler demonstrates proper error handling for RequestStream<T> where each
-    // item is a Result<T, Status>
-    server.registry().register_stream_unary(
+    env.server.registry().register_stream_unary(
         "TestService",
         "SumWithValidation",
         |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
@@ -357,9 +266,10 @@ async fn test_stream_unary_error_handling() {
                 // Validate input - return error if value is negative
                 if req.value < 0 {
                     tracing::info!("Received invalid value: {}", req.value);
-                    return Err(Status::invalid_argument(
-                        format!("Negative values not allowed: {}", req.value)
-                    ));
+                    return Err(Status::invalid_argument(format!(
+                        "Negative values not allowed: {}",
+                        req.value
+                    )));
                 }
 
                 total += req.value;
@@ -373,25 +283,6 @@ async fn test_stream_unary_error_handling() {
         },
     );
 
-    let server_clone = server.clone();
-    let server_handle = tokio::spawn(async move {
-        let _ = server_clone.serve().await;
-    });
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    let client_name = Name::from_strings(["org", "ns", "client"]);
-    let (client_app, _) = service
-        .create_app(
-            &client_name,
-            AuthProvider::shared_secret(secret.clone()),
-            AuthVerifier::shared_secret(secret),
-        )
-        .unwrap();
-    let client_app = Arc::new(client_app);
-    let channel = Channel::new(client_app.clone(), server_name);
-
-    // Create request stream with an invalid value (negative) that should trigger an error
     // Note: The client sends Stream<Item = TestRequest>, not Stream<Item = Result<...>>
     // The Result wrapper is added by the transport layer on the server side
     let requests = vec![
@@ -414,8 +305,15 @@ async fn test_stream_unary_error_handling() {
     ];
     let request_stream = stream::iter(requests);
 
-    let response: Result<TestResponse, Status> = channel
-        .stream_unary("TestService", "SumWithValidation", request_stream, None, None)
+    let response: Result<TestResponse, Status> = env
+        .channel
+        .stream_unary(
+            "TestService",
+            "SumWithValidation",
+            request_stream,
+            None,
+            None,
+        )
         .await;
 
     // Verify that the error was propagated back
@@ -423,20 +321,14 @@ async fn test_stream_unary_error_handling() {
     let err = response.unwrap_err();
     assert_eq!(err.code(), Code::InvalidArgument);
     let msg = err.message().unwrap();
-    assert!(msg.contains("Negative values not allowed"), "Error message was: {}", msg);
+    assert!(
+        msg.contains("Negative values not allowed"),
+        "Error message was: {}",
+        msg
+    );
     assert!(msg.contains("-5"), "Error message was: {}", msg);
 
-    // Cleanup
-    tracing::info!("Shutting down server...");
-    server.shutdown().await;
-
-    // Wait for server task to finish
-    tracing::info!("Waiting for server task to finish...");
-    server_handle.await.unwrap();
-
-    // Shutdown the data-plane as well
-    tracing::info!("Shutting down service...");
-    service.shutdown().await.unwrap();
+    env.shutdown().await;
 }
 
 // ============================================================================
@@ -446,30 +338,9 @@ async fn test_stream_unary_error_handling() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_unary_stream_rpc() {
-    let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-service-unary-stream").unwrap();
-    let service = Arc::new(Service::new(id));
+    let mut env = TestEnv::new("test-service-unary-stream").await;
 
-    let server_name = Name::from_strings(["org", "ns", "server"]);
-    let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
-    let (server_app, server_notifications) = service
-        .create_app(
-            &server_name,
-            AuthProvider::shared_secret(secret.clone()),
-            AuthVerifier::shared_secret(secret.clone()),
-        )
-        .unwrap();
-    let server_app = Arc::new(server_app);
-
-    let server = Server::new(
-        server_app.clone(),
-        server_name.clone(),
-        server_notifications,
-    );
-
-    // Register unary-stream handler that generates a sequence
-    // This demonstrates proper streaming - responses are generated incrementally
-    // rather than collected upfront
-    server.registry().register_unary_stream(
+    env.server.registry().register_unary_stream(
         "TestService",
         "Generate",
         |request: TestRequest, _ctx: Context| async move {
@@ -495,39 +366,27 @@ async fn test_unary_stream_rpc() {
         },
     );
 
-    let server_clone = server.clone();
-    let server_handle = tokio::spawn(async move {
-        let _ = server_clone.serve().await;
-    });
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    let client_name = Name::from_strings(["org", "ns", "client"]);
-    let (client_app, _) = service
-        .create_app(
-            &client_name,
-            AuthProvider::shared_secret(secret.clone()),
-            AuthVerifier::shared_secret(secret),
-        )
-        .unwrap();
-    let client_app = Arc::new(client_app);
-    let channel = Channel::new(client_app.clone(), server_name);
-
     let request = TestRequest {
         message: "item".to_string(),
         value: 5,
     };
 
-    let response_stream = channel.unary_stream("TestService", "Generate", request, None, None);
-    pin_mut!(response_stream);
+    let responses = {
+        let response_stream =
+            env.channel
+                .unary_stream("TestService", "Generate", request, None, None);
+        pin_mut!(response_stream);
 
-    // Collect all responses
-    let mut responses = Vec::new();
-    while let Some(result) = response_stream.next().await {
-        let response: TestResponse = result.expect("Stream item failed");
-        tracing::info!("Received response: {:?}", response);
-        responses.push(response);
-    }
+        // Collect all responses
+        let mut responses = Vec::new();
+        while let Some(result) = response_stream.next().await {
+            let response: TestResponse = result.expect("Stream item failed");
+            tracing::info!("Received response: {:?}", response);
+            responses.push(response);
+        }
+
+        responses
+    };
 
     // Verify responses
     assert_eq!(responses.len(), 5);
@@ -536,17 +395,7 @@ async fn test_unary_stream_rpc() {
     assert_eq!(responses[4].result, "item-5");
     assert_eq!(responses[4].count, 5);
 
-    // Cleanup
-    tracing::info!("Shutting down server...");
-    server.shutdown().await;
-
-    // Wait for server task to finish
-    tracing::info!("Waiting for server task to finish...");
-    server_handle.await.unwrap();
-
-    // Shutdown the data-plane as well
-    tracing::info!("Shutting down service...");
-    service.shutdown().await.unwrap();
+    env.shutdown().await;
 }
 
 // ============================================================================
@@ -561,29 +410,9 @@ async fn test_unary_stream_rpc() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_unary_stream_error_handling() {
-    let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-service-unary-stream-error").unwrap();
-    let service = Arc::new(Service::new(id));
+    let mut env = TestEnv::new("test-service-unary-stream-error").await;
 
-    let server_name = Name::from_strings(["org", "ns", "server"]);
-    let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
-    let (server_app, server_notifications) = service
-        .create_app(
-            &server_name,
-            AuthProvider::shared_secret(secret.clone()),
-            AuthVerifier::shared_secret(secret.clone()),
-        )
-        .unwrap();
-    let server_app = Arc::new(server_app);
-
-    let server = Server::new(
-        server_app.clone(),
-        server_name.clone(),
-        server_notifications,
-    );
-
-    // Register unary-stream handler that generates responses and then an error
-    // This demonstrates error handling in response streams
-    server.registry().register_unary_stream(
+    env.server.registry().register_unary_stream(
         "TestService",
         "GenerateWithError",
         |request: TestRequest, _ctx: Context| async move {
@@ -615,48 +444,36 @@ async fn test_unary_stream_error_handling() {
         },
     );
 
-    let server_clone = server.clone();
-    let server_handle = tokio::spawn(async move {
-        let _ = server_clone.serve().await;
-    });
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    let client_name = Name::from_strings(["org", "ns", "client"]);
-    let (client_app, _) = service
-        .create_app(
-            &client_name,
-            AuthProvider::shared_secret(secret.clone()),
-            AuthVerifier::shared_secret(secret),
-        )
-        .unwrap();
-    let client_app = Arc::new(client_app);
-    let channel = Channel::new(client_app.clone(), server_name);
-
     // Request 10 items, but handler will error after 3
     let request = TestRequest {
         message: "item".to_string(),
         value: 10,
     };
 
-    let response_stream = channel.unary_stream("TestService", "GenerateWithError", request, None, None);
-    pin_mut!(response_stream);
+    let (responses, error_received) = {
+        let response_stream =
+            env.channel
+                .unary_stream("TestService", "GenerateWithError", request, None, None);
+        pin_mut!(response_stream);
 
-    // Collect responses until we hit the error
-    let mut responses: Vec<TestResponse> = Vec::new();
-    let mut error_received = None;
+        // Collect responses until we hit the error
+        let mut responses: Vec<TestResponse> = Vec::new();
+        let mut error_received = None;
 
-    while let Some(result) = response_stream.next().await {
-        match result {
-            Ok(response) => {
-                responses.push(response);
-            }
-            Err(status) => {
-                error_received = Some(status);
-                break;
+        while let Some(result) = response_stream.next().await {
+            match result {
+                Ok(response) => {
+                    responses.push(response);
+                }
+                Err(status) => {
+                    error_received = Some(status);
+                    break;
+                }
             }
         }
-    }
+
+        (responses, error_received)
+    };
 
     // Verify we received 3 successful responses before the error
     assert_eq!(responses.len(), 3);
@@ -670,17 +487,7 @@ async fn test_unary_stream_error_handling() {
     assert_eq!(err.code(), Code::Internal);
     assert!(err.message().unwrap().contains("Failed to generate item 4"));
 
-    // Cleanup
-    tracing::info!("Shutting down server...");
-    server.shutdown().await;
-
-    // Wait for server task to finish
-    tracing::info!("Waiting for server task to finish...");
-    server_handle.await.unwrap();
-
-    // Shutdown the data-plane as well
-    tracing::info!("Shutting down service...");
-    service.shutdown().await.unwrap();
+    env.shutdown().await;
 }
 
 // ============================================================================
@@ -690,31 +497,9 @@ async fn test_unary_stream_error_handling() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_stream_stream_rpc() {
-    let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-service-stream-stream").unwrap();
-    let service = Arc::new(Service::new(id));
+    let mut env = TestEnv::new("test-service-stream-stream").await;
 
-    let server_name = Name::from_strings(["org", "ns", "server"]);
-    let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
-    let (server_app, server_notifications) = service
-        .create_app(
-            &server_name,
-            AuthProvider::shared_secret(secret.clone()),
-            AuthVerifier::shared_secret(secret.clone()),
-        )
-        .unwrap();
-    let server_app = Arc::new(server_app);
-
-    let server = Server::new(
-        server_app.clone(),
-        server_name.clone(),
-        server_notifications,
-    );
-
-    // Register stream-stream handler that transforms each request
-    // This demonstrates proper bidirectional streaming - requests are processed
-    // incrementally as they arrive, and responses are sent immediately without
-    // waiting for the entire input stream to complete
-    server.registry().register_stream_stream(
+    env.server.registry().register_stream_stream(
         "TestService",
         "Transform",
         |request_stream, _ctx: Context| async move {
@@ -732,24 +517,6 @@ async fn test_stream_stream_rpc() {
         },
     );
 
-    let server_clone = server.clone();
-    let server_handle = tokio::spawn(async move {
-        let _ = server_clone.serve().await;
-    });
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    let client_name = Name::from_strings(["org", "ns", "client"]);
-    let (client_app, _) = service
-        .create_app(
-            &client_name,
-            AuthProvider::shared_secret(secret.clone()),
-            AuthVerifier::shared_secret(secret),
-        )
-        .unwrap();
-    let client_app = Arc::new(client_app);
-    let channel = Channel::new(client_app.clone(), server_name);
-
     // Create request stream
     let requests = vec![
         TestRequest {
@@ -765,18 +532,24 @@ async fn test_stream_stream_rpc() {
             value: 3,
         },
     ];
-    let request_stream = stream::iter(requests);
 
-    let response_stream =
-        channel.stream_stream("TestService", "Transform", request_stream, None, None);
-    pin_mut!(response_stream);
+    let responses = {
+        let request_stream = stream::iter(requests);
 
-    // Collect all responses
-    let mut responses = Vec::new();
-    while let Some(result) = response_stream.next().await {
-        let response: TestResponse = result.expect("Stream item failed");
-        responses.push(response);
-    }
+        let response_stream =
+            env.channel
+                .stream_stream("TestService", "Transform", request_stream, None, None);
+        pin_mut!(response_stream);
+
+        // Collect all responses
+        let mut responses = Vec::new();
+        while let Some(result) = response_stream.next().await {
+            let response: TestResponse = result.expect("Stream item failed");
+            responses.push(response);
+        }
+
+        responses
+    };
 
     // Verify responses
     assert_eq!(responses.len(), 3);
@@ -787,17 +560,7 @@ async fn test_stream_stream_rpc() {
     assert_eq!(responses[2].result, "RPC");
     assert_eq!(responses[2].count, 30);
 
-    // Cleanup
-    tracing::info!("Shutting down server...");
-    server.shutdown().await;
-
-    // Wait for server task to finish
-    tracing::info!("Waiting for server task to finish...");
-    server_handle.await.unwrap();
-
-    // Shutdown the data-plane as well
-    tracing::info!("Shutting down service...");
-    service.shutdown().await.unwrap();
+    env.shutdown().await;
 }
 
 // ============================================================================
@@ -812,29 +575,9 @@ async fn test_stream_stream_rpc() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_stream_stream_with_async_processing() {
-    let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-service-stream-stream-async").unwrap();
-    let service = Arc::new(Service::new(id));
+    let mut env = TestEnv::new("test-service-stream-stream-async").await;
 
-    let server_name = Name::from_strings(["org", "ns", "server"]);
-    let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
-    let (server_app, server_notifications) = service
-        .create_app(
-            &server_name,
-            AuthProvider::shared_secret(secret.clone()),
-            AuthVerifier::shared_secret(secret.clone()),
-        )
-        .unwrap();
-    let server_app = Arc::new(server_app);
-
-    let server = Server::new(
-        server_app.clone(),
-        server_name.clone(),
-        server_notifications,
-    );
-
-    // Register stream-stream handler using channel pattern for async processing
-    // This pattern is useful when you need to do complex async work per request
-    server.registry().register_stream_stream(
+    env.server.registry().register_stream_stream(
         "TestService",
         "ProcessAsync",
         |mut request_stream: agntcy_slimrpc::RequestStream<TestRequest>, _ctx: Context| async move {
@@ -872,25 +615,6 @@ async fn test_stream_stream_with_async_processing() {
         },
     );
 
-    let server_clone = server.clone();
-    let server_handle = tokio::spawn(async move {
-        let _ = server_clone.serve().await;
-    });
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    let client_name = Name::from_strings(["org", "ns", "client"]);
-    let (client_app, _) = service
-        .create_app(
-            &client_name,
-            AuthProvider::shared_secret(secret.clone()),
-            AuthVerifier::shared_secret(secret),
-        )
-        .unwrap();
-    let client_app = Arc::new(client_app);
-    let channel = Channel::new(client_app.clone(), server_name);
-
-    // Create request stream
     let requests = vec![
         TestRequest {
             message: "alpha".to_string(),
@@ -901,18 +625,24 @@ async fn test_stream_stream_with_async_processing() {
             value: 2,
         },
     ];
-    let request_stream = stream::iter(requests);
 
-    let response_stream =
-        channel.stream_stream("TestService", "ProcessAsync", request_stream, None, None);
-    pin_mut!(response_stream);
+    let responses = {
+        let request_stream = stream::iter(requests);
 
-    // Collect all responses
-    let mut responses = Vec::new();
-    while let Some(result) = response_stream.next().await {
-        let response: TestResponse = result.expect("Stream item failed");
-        responses.push(response);
-    }
+        let response_stream =
+            env.channel
+                .stream_stream("TestService", "ProcessAsync", request_stream, None, None);
+        pin_mut!(response_stream);
+
+        // Collect all responses
+        let mut responses = Vec::new();
+        while let Some(result) = response_stream.next().await {
+            let response: TestResponse = result.expect("Stream item failed");
+            responses.push(response);
+        }
+
+        responses
+    };
 
     // Verify responses
     assert_eq!(responses.len(), 2);
@@ -921,17 +651,7 @@ async fn test_stream_stream_with_async_processing() {
     assert_eq!(responses[1].result, "Processed: beta");
     assert_eq!(responses[1].count, 200);
 
-    // Cleanup
-    tracing::info!("Shutting down server...");
-    server.shutdown().await;
-
-    // Wait for server task to finish
-    tracing::info!("Waiting for server task to finish...");
-    server_handle.await.unwrap();
-
-    // Shutdown the data-plane as well
-    tracing::info!("Shutting down service...");
-    service.shutdown().await.unwrap();
+    env.shutdown().await;
 }
 
 // ============================================================================
@@ -941,27 +661,9 @@ async fn test_stream_stream_with_async_processing() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_empty_stream_unary() {
-    let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-service-empty-stream").unwrap();
-    let service = Arc::new(Service::new(id));
+    let mut env = TestEnv::new("test-service-empty-stream").await;
 
-    let server_name = Name::from_strings(["org", "ns", "server"]);
-    let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
-    let (server_app, server_notifications) = service
-        .create_app(
-            &server_name,
-            AuthProvider::shared_secret(secret.clone()),
-            AuthVerifier::shared_secret(secret.clone()),
-        )
-        .unwrap();
-    let server_app = Arc::new(server_app);
-
-    let server = Server::new(
-        server_app.clone(),
-        server_name.clone(),
-        server_notifications,
-    );
-
-    server.registry().register_stream_unary(
+    env.server.registry().register_stream_unary(
         "TestService",
         "EmptySum",
         |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
@@ -977,28 +679,11 @@ async fn test_empty_stream_unary() {
         },
     );
 
-    let server_clone = server.clone();
-    let server_handle = tokio::spawn(async move {
-        let _ = server_clone.serve().await;
-    });
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    let client_name = Name::from_strings(["org", "ns", "client"]);
-    let (client_app, _) = service
-        .create_app(
-            &client_name,
-            AuthProvider::shared_secret(secret.clone()),
-            AuthVerifier::shared_secret(secret),
-        )
-        .unwrap();
-    let client_app = Arc::new(client_app);
-    let channel = Channel::new(client_app.clone(), server_name);
-
     // Empty stream
     let request_stream = stream::iter(Vec::<TestRequest>::new());
 
-    let response: TestResponse = channel
+    let response: TestResponse = env
+        .channel
         .stream_unary("TestService", "EmptySum", request_stream, None, None)
         .await
         .expect("Empty stream-unary call failed");
@@ -1006,46 +691,18 @@ async fn test_empty_stream_unary() {
     assert_eq!(response.result, "empty");
     assert_eq!(response.count, 0);
 
-    // Cleanup
-    tracing::info!("Shutting down server...");
-    server.shutdown().await;
-
-    // Wait for server task to finish
-    tracing::info!("Waiting for server task to finish...");
-    server_handle.await.unwrap();
-
-    // Shutdown the data-plane as well
-    tracing::info!("Shutting down service...");
-    service.shutdown().await.unwrap();
+    env.shutdown().await;
 }
 
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_concurrent_unary_calls() {
-    let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-service-concurrent").unwrap();
-    let service = Arc::new(Service::new(id));
-
-    let server_name = Name::from_strings(["org", "ns", "server"]);
-    let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
-    let (server_app, server_notifications) = service
-        .create_app(
-            &server_name,
-            AuthProvider::shared_secret(secret.clone()),
-            AuthVerifier::shared_secret(secret.clone()),
-        )
-        .unwrap();
-    let server_app = Arc::new(server_app);
-
-    let server = Server::new(
-        server_app.clone(),
-        server_name.clone(),
-        server_notifications,
-    );
+    let mut env = TestEnv::new("test-service-concurrent").await;
 
     let call_counter = Arc::new(Mutex::new(0));
     let counter_clone = call_counter.clone();
 
-    server.registry().register_unary_unary(
+    env.server.registry().register_unary_unary(
         "TestService",
         "Count",
         move |request: TestRequest, _ctx: Context| {
@@ -1064,25 +721,7 @@ async fn test_concurrent_unary_calls() {
         },
     );
 
-    let server_clone = server.clone();
-    let server_handle = tokio::spawn(async move {
-        let _ = server_clone.serve().await;
-    });
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    let client_name = Name::from_strings(["org", "ns", "client"]);
-    let (client_app, _) = service
-        .create_app(
-            &client_name,
-            AuthProvider::shared_secret(secret.clone()),
-            AuthVerifier::shared_secret(secret),
-        )
-        .unwrap();
-    let client_app = Arc::new(client_app);
-    let channel = Arc::new(Channel::new(client_app.clone(), server_name));
-
-    // Make multiple concurrent calls
+    let channel = Arc::new(env.channel.clone());
     let mut handles = vec![];
     for i in 0..5 {
         let channel_clone = channel.clone();
@@ -1112,15 +751,5 @@ async fn test_concurrent_unary_calls() {
     let final_count = *call_counter.lock().await;
     assert_eq!(final_count, 5);
 
-    // Cleanup
-    tracing::info!("Shutting down server...");
-    server.shutdown().await;
-
-    // Wait for server task to finish
-    tracing::info!("Waiting for server task to finish...");
-    server_handle.await.unwrap();
-
-    // Shutdown the data-plane as well
-    tracing::info!("Shutting down service...");
-    service.shutdown().await.unwrap();
+    env.shutdown().await;
 }

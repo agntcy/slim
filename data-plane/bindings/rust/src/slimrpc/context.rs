@@ -1,181 +1,162 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-//! Context types for SlimRPC request handling
+//! RPC Context types for UniFFI
 //!
-//! Provides context information for RPC handlers including metadata, deadlines,
-//! session information, and message routing details.
+//! Provides UniFFI-compatible wrappers around the core SlimRPC context types.
 
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
-use crate::slimrpc::{Metadata, DEADLINE_KEY};
-use crate::{MessageContext as SlimMessageContext, Name, Session};
+#[cfg(test)]
+use std::time::Duration;
 
-/// Context passed to RPC handlers
+use crate::Name;
+
+use super::metadata::Metadata;
+
+/// Context passed to RPC handlers (UniFFI-compatible)
 ///
 /// Contains all contextual information about an RPC call including:
 /// - Session information (source, destination, session ID)
 /// - Metadata (key-value pairs)
 /// - Deadline/timeout information
-/// - Message routing details
-#[derive(Debug, Clone)]
-pub struct Context {
+#[derive(Debug, Clone, uniffi::Object)]
+pub struct RpcContext {
     /// Session context information
-    session: SessionContext,
-    /// Message context information (for individual messages in streams)
-    message: Option<MessageContext>,
+    session: Arc<RpcSessionContext>,
     /// Request metadata
-    metadata: Metadata,
-    /// Deadline for the RPC call
-    deadline: Option<SystemTime>,
+    metadata: Arc<Metadata>,
+    /// Deadline for the RPC call (seconds since UNIX epoch)
+    deadline_secs: Option<f64>,
 }
 
-impl Context {
-    /// Create a new context from a session
-    pub fn from_session(session: &Session) -> Result<Self, crate::SlimError> {
-        let metadata = Metadata::from_map(session.metadata()?);
-        let deadline = Self::parse_deadline(&metadata);
-
-        Ok(Self {
-            session: SessionContext::from_session(session)?,
-            message: None,
-            metadata,
-            deadline,
-        })
-    }
-
-    /// Create a new context with message context
-    pub fn with_message_context(mut self, msg_ctx: &SlimMessageContext) -> Self {
-        self.message = Some(MessageContext::from_slim_message_context(msg_ctx));
-        self
-    }
-
+#[uniffi::export]
+impl RpcContext {
     /// Get the session context
-    pub fn session(&self) -> &SessionContext {
-        &self.session
-    }
-
-    /// Get the message context (if available)
-    pub fn message(&self) -> Option<&MessageContext> {
-        self.message.as_ref()
+    pub fn session(&self) -> Arc<RpcSessionContext> {
+        self.session.clone()
     }
 
     /// Get the request metadata
-    pub fn metadata(&self) -> &Metadata {
-        &self.metadata
+    pub fn metadata(&self) -> Arc<Metadata> {
+        self.metadata.clone()
     }
 
-    /// Get a mutable reference to metadata
-    pub fn metadata_mut(&mut self) -> &mut Metadata {
-        &mut self.metadata
+    /// Get the deadline as seconds since UNIX epoch
+    pub fn deadline_secs(&self) -> Option<f64> {
+        self.deadline_secs
     }
 
-    /// Get the deadline for this RPC call
-    pub fn deadline(&self) -> Option<SystemTime> {
-        self.deadline
-    }
-
-    /// Get the remaining time until deadline
-    pub fn remaining_time(&self) -> Option<Duration> {
-        self.deadline.and_then(|deadline| {
-            SystemTime::now()
+    /// Get the remaining time until deadline in seconds
+    pub fn remaining_time_secs(&self) -> Option<f64> {
+        self.deadline_secs.and_then(|deadline_secs| {
+            let now = SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
-                .ok()
-                .and_then(|now| {
-                    deadline
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .ok()
-                        .and_then(|d| d.checked_sub(now))
-                })
+                .ok()?
+                .as_secs_f64();
+            let remaining = deadline_secs - now;
+            if remaining > 0.0 {
+                Some(remaining)
+            } else {
+                Some(0.0)
+            }
         })
     }
 
     /// Check if the deadline has been exceeded
     pub fn is_deadline_exceeded(&self) -> bool {
-        if let Some(deadline) = self.deadline {
-            SystemTime::now() > deadline
+        if let Some(remaining) = self.remaining_time_secs() {
+            remaining <= 0.0
         } else {
             false
         }
     }
+}
 
-    /// Parse deadline from metadata
-    fn parse_deadline(metadata: &Metadata) -> Option<SystemTime> {
-        metadata.get(DEADLINE_KEY).and_then(|deadline_str| {
-            deadline_str.parse::<f64>().ok().and_then(|seconds| {
-                SystemTime::UNIX_EPOCH.checked_add(Duration::from_secs_f64(seconds))
-            })
-        })
+// Internal conversion methods
+impl RpcContext {
+    /// Create from core context
+    pub(crate) fn from_core(context: agntcy_slimrpc::Context) -> Self {
+        let session = RpcSessionContext::from_core(context.session());
+        let metadata = Metadata::from_core(context.metadata().clone());
+        let deadline_secs = context.deadline().and_then(|d| {
+            d.duration_since(SystemTime::UNIX_EPOCH)
+                .ok()
+                .map(|dur| dur.as_secs_f64())
+        });
+
+        Self {
+            session: Arc::new(session),
+            metadata: Arc::new(metadata),
+            deadline_secs,
+        }
     }
 
-    /// Set the deadline
-    pub fn set_deadline(&mut self, deadline: SystemTime) {
-        self.deadline = Some(deadline);
-        let seconds = deadline
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs_f64();
-        self.metadata.insert(DEADLINE_KEY, seconds.to_string());
+    /// Create from core context (alias for from_core)
+    pub(crate) fn from_core_context(context: agntcy_slimrpc::Context) -> Self {
+        Self::from_core(context)
     }
 
-    /// Set the deadline from a duration
-    pub fn set_timeout(&mut self, timeout: Duration) {
-        let deadline = SystemTime::now()
-            .checked_add(timeout)
-            .unwrap_or(SystemTime::now());
-        self.set_deadline(deadline);
+    /// Convert to core context (approximation - some information may be lost)
+    pub(crate) fn to_core(&self) -> agntcy_slimrpc::Context {
+        // Note: This is a lossy conversion as we can't fully reconstruct the core context
+        // from the FFI-friendly representation. This should primarily be used for reading.
+        unimplemented!("Context to_core conversion not fully implemented - use from_core instead")
     }
 }
 
-/// Session-level context information
-#[derive(Debug, Clone)]
-pub struct SessionContext {
+/// Session-level context information (UniFFI-compatible)
+#[derive(Debug, Clone, uniffi::Object)]
+pub struct RpcSessionContext {
     /// Session ID
     session_id: String,
     /// Source name (sender)
     source: Arc<Name>,
     /// Destination name (receiver)
     destination: Arc<Name>,
-    /// Session metadata
-    metadata: Metadata,
+    /// Session metadata as HashMap
+    metadata: Arc<Metadata>,
 }
 
-impl SessionContext {
-    /// Create from a SLIM session
-    pub fn from_session(session: &Session) -> Result<Self, crate::SlimError> {
-        Ok(Self {
-            session_id: session.session_id()?.to_string(),
-            source: Arc::new(session.source()?),
-            destination: Arc::new(session.destination()?),
-            metadata: Metadata::from_map(session.metadata()?),
-        })
-    }
-
+#[uniffi::export]
+impl RpcSessionContext {
     /// Get the session ID
-    pub fn session_id(&self) -> &str {
-        &self.session_id
+    pub fn session_id(&self) -> String {
+        self.session_id.clone()
     }
 
     /// Get the source name
-    pub fn source(&self) -> &Name {
-        &self.source
+    pub fn source(&self) -> Arc<Name> {
+        self.source.clone()
     }
 
     /// Get the destination name
-    pub fn destination(&self) -> &Name {
-        &self.destination
+    pub fn destination(&self) -> Arc<Name> {
+        self.destination.clone()
     }
 
     /// Get the session metadata
-    pub fn metadata(&self) -> &Metadata {
-        &self.metadata
+    pub fn metadata(&self) -> Arc<Metadata> {
+        self.metadata.clone()
     }
 }
 
-/// Message-level context information
-#[derive(Debug, Clone)]
-pub struct MessageContext {
+impl RpcSessionContext {
+    /// Create from core session context
+    pub(crate) fn from_core(context: &agntcy_slimrpc::SessionContext) -> Self {
+        Self {
+            session_id: context.session_id().to_string(),
+            source: Arc::new(Name::from_slim_name(context.source().clone())),
+            destination: Arc::new(Name::from_slim_name(context.destination().clone())),
+            metadata: Arc::new(Metadata::from_core(context.metadata().clone())),
+        }
+    }
+}
+
+/// Message-level context information (UniFFI-compatible)
+#[derive(Debug, Clone, uniffi::Object)]
+pub struct RpcMessageContext {
     /// Source name from message
     source: Arc<Name>,
     /// Destination name from message
@@ -183,138 +164,162 @@ pub struct MessageContext {
     /// Payload type
     payload_type: String,
     /// Message metadata
-    metadata: Metadata,
-    /// Input connection ID
-    input_connection: u64,
-    /// Identity
-    identity: String,
+    metadata: Arc<Metadata>,
 }
 
-impl MessageContext {
-    /// Create from SLIM message context
-    pub fn from_slim_message_context(msg_ctx: &SlimMessageContext) -> Self {
-        Self {
-            source: msg_ctx.source_name.clone(),
-            destination: msg_ctx.destination_name.clone(),
-            payload_type: msg_ctx.payload_type.clone(),
-            metadata: Metadata::from_map(msg_ctx.metadata.clone()),
-            input_connection: msg_ctx.input_connection,
-            identity: msg_ctx.identity.clone(),
-        }
-    }
-
+#[uniffi::export]
+impl RpcMessageContext {
     /// Get the source name
-    pub fn source(&self) -> &Name {
-        &self.source
+    pub fn source(&self) -> Arc<Name> {
+        self.source.clone()
     }
 
     /// Get the destination name
-    pub fn destination(&self) -> Option<&Name> {
-        self.destination.as_deref()
+    pub fn destination(&self) -> Option<Arc<Name>> {
+        self.destination.clone()
     }
 
     /// Get the payload type
-    pub fn payload_type(&self) -> &str {
-        &self.payload_type
+    pub fn payload_type(&self) -> String {
+        self.payload_type.clone()
     }
 
     /// Get the message metadata
-    pub fn metadata(&self) -> &Metadata {
-        &self.metadata
+    pub fn metadata(&self) -> Arc<Metadata> {
+        self.metadata.clone()
     }
+}
 
-    /// Get the input connection ID
-    pub fn input_connection(&self) -> u64 {
-        self.input_connection
-    }
-
-    /// Get the identity
-    pub fn identity(&self) -> &str {
-        &self.identity
+impl RpcMessageContext {
+    /// Create from core message context
+    pub(crate) fn from_core(context: &agntcy_slimrpc::MessageContext) -> Self {
+        Self {
+            source: Arc::new(Name::from_slim_name(context.source().clone())),
+            destination: context
+                .destination()
+                .map(|d| Arc::new(Name::from_slim_name(d.clone()))),
+            payload_type: context.payload_type().to_string(),
+            metadata: Arc::new(Metadata::from_core(context.metadata().clone())),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
     #[test]
-    fn test_context_deadline_parsing() {
-        let mut metadata = Metadata::new();
-        let deadline_time = SystemTime::now()
-            .checked_add(Duration::from_secs(60))
-            .unwrap();
-        let seconds = deadline_time
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs_f64();
-        metadata.insert(DEADLINE_KEY, seconds.to_string());
-
-        let parsed = Context::parse_deadline(&metadata);
-        assert!(parsed.is_some());
-    }
-
-    #[test]
-    fn test_context_deadline_exceeded() {
-        let mut metadata = Metadata::new();
-        let past_deadline = SystemTime::now()
-            .checked_sub(Duration::from_secs(60))
-            .unwrap();
-        let seconds = past_deadline
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs_f64();
-        metadata.insert(DEADLINE_KEY, seconds.to_string());
-
-        let deadline = Context::parse_deadline(&metadata);
-        assert!(deadline.is_some());
-        if let Some(d) = deadline {
-            assert!(SystemTime::now() > d);
-        }
-    }
-
-    #[test]
-    fn test_context_set_timeout() {
-        let session_metadata = HashMap::new();
-        let mut ctx = Context {
-            session: SessionContext {
-                session_id: "test-session".to_string(),
-                source: Arc::new(Name::new("org".into(), "ns".into(), "app".into())),
-                destination: Arc::new(Name::new("org".into(), "ns".into(), "dest".into())),
-                metadata: Metadata::from_map(session_metadata),
-            },
-            message: None,
+    fn test_rpc_session_context_creation() {
+        let ctx = RpcSessionContext {
+            session_id: "test-session".to_string(),
+            source: Arc::new(Name::new(
+                "org".to_string(),
+                "ns".to_string(),
+                "client".to_string(),
+            )),
+            destination: Arc::new(Name::new(
+                "org".to_string(),
+                "ns".to_string(),
+                "server".to_string(),
+            )),
             metadata: Metadata::new(),
-            deadline: None,
         };
 
-        ctx.set_timeout(Duration::from_secs(30));
-        assert!(ctx.deadline().is_some());
+        assert_eq!(ctx.session_id, "test-session");
+        assert_eq!(ctx.source.components().len(), 3);
+        assert_eq!(ctx.destination.components().len(), 3);
+    }
+
+    #[test]
+    fn test_rpc_message_context_creation() {
+        let ctx = RpcMessageContext {
+            source: Arc::new(Name::new(
+                "org".to_string(),
+                "ns".to_string(),
+                "client".to_string(),
+            )),
+            destination: Some(Arc::new(Name::new(
+                "org".to_string(),
+                "ns".to_string(),
+                "server".to_string(),
+            ))),
+            payload_type: "msg".to_string(),
+            metadata: Metadata::new(),
+        };
+
+        assert_eq!(ctx.payload_type, "msg");
+        assert!(ctx.destination.is_some());
+    }
+
+    #[test]
+    fn test_rpc_context_deadline() {
+        let session = RpcSessionContext {
+            session_id: "test-session".to_string(),
+            source: Arc::new(Name::new(
+                "org".to_string(),
+                "ns".to_string(),
+                "client".to_string(),
+            )),
+            destination: Arc::new(Name::new(
+                "org".to_string(),
+                "ns".to_string(),
+                "server".to_string(),
+            )),
+            metadata: Metadata::new(),
+        };
+
+        let future_time = SystemTime::now() + Duration::from_secs(60);
+        let deadline_secs = future_time
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64();
+
+        let ctx = RpcContext {
+            session: Arc::new(session),
+            metadata: Metadata::new(),
+            deadline_secs: Some(deadline_secs),
+        };
+
+        assert!(ctx.deadline_secs().is_some());
         assert!(!ctx.is_deadline_exceeded());
-    }
-
-    #[test]
-    fn test_remaining_time() {
-        let session_metadata = HashMap::new();
-        let mut ctx = Context {
-            session: SessionContext {
-                session_id: "test-session".to_string(),
-                source: Arc::new(Name::new("org".into(), "ns".into(), "app".into())),
-                destination: Arc::new(Name::new("org".into(), "ns".into(), "dest".into())),
-                metadata: Metadata::from_map(session_metadata),
-            },
-            message: None,
-            metadata: Metadata::new(),
-            deadline: None,
-        };
-
-        ctx.set_timeout(Duration::from_secs(60));
-        let remaining = ctx.remaining_time();
+        
+        let remaining = ctx.remaining_time_secs();
         assert!(remaining.is_some());
         if let Some(r) = remaining {
-            // Should be close to 60 seconds, allow some margin
-            assert!(r.as_secs() >= 59 && r.as_secs() <= 60);
+            assert!(r > 0.0 && r <= 60.0);
         }
+    }
+
+    #[test]
+    fn test_rpc_context_deadline_exceeded() {
+        let session = RpcSessionContext {
+            session_id: "test-session".to_string(),
+            source: Arc::new(Name::new(
+                "org".to_string(),
+                "ns".to_string(),
+                "client".to_string(),
+            )),
+            destination: Arc::new(Name::new(
+                "org".to_string(),
+                "ns".to_string(),
+                "server".to_string(),
+            )),
+            metadata: Metadata::new(),
+        };
+
+        let past_time = SystemTime::now() - Duration::from_secs(60);
+        let deadline_secs = past_time
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64();
+
+        let ctx = RpcContext {
+            session: Arc::new(session),
+            metadata: Metadata::new(),
+            deadline_secs: Some(deadline_secs),
+        };
+
+        assert!(ctx.is_deadline_exceeded());
+        assert_eq!(ctx.remaining_time_secs(), Some(0.0));
     }
 }

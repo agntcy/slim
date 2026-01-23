@@ -26,6 +26,19 @@ pub trait Codec: Encoder + Decoder {}
 // Blanket implementation
 impl<T: Encoder + Decoder> Codec for T {}
 
+// Standard implementations for Vec<u8> (pass-through)
+impl Encoder for Vec<u8> {
+    fn encode(&self) -> Result<Vec<u8>, Status> {
+        Ok(self.clone())
+    }
+}
+
+impl Decoder for Vec<u8> {
+    fn decode(buf: &[u8]) -> Result<Self, Status> {
+        Ok(buf.to_vec())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

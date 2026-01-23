@@ -62,7 +62,7 @@ mod session;
 pub mod slimrpc;
 
 // Public re-exports
-pub use app::{App, SessionWithCompletion};
+pub use app::{App, Direction, SessionWithCompletion};
 pub use build_info::{BuildInfo, get_build_info, get_version};
 pub use client_config::{
     BackoffConfig, ClientConfig, ExponentialBackoff, KeepaliveConfig, ProxyConfig,
@@ -102,9 +102,11 @@ pub use session::{Session, SessionConfig, SessionType};
 // SLIMRpc re-exports
 pub use slimrpc::{
     Channel, Code, Codec, Context, Decoder, Encoder, HandlerResponse, HandlerType, Metadata,
-    MessageContext as RpcMessageContext, RpcChannel, RpcContext, RpcError, RpcHandler,
-    RpcResponseStream, RpcServer, Server, ServiceRegistry, SessionContext as RpcSessionContext,
-    Status, StatusError, DEADLINE_KEY, MAX_TIMEOUT, STATUS_CODE_KEY,
+    RpcChannel, RpcContext, RpcError, RpcHandler, RpcMessageContext, RpcResponseStream,
+    RpcServer, RpcSessionContext, Server, Status, StatusError, DEADLINE_KEY,
+    MAX_TIMEOUT, STATUS_CODE_KEY, StreamResult, UnaryUnaryHandler, UnaryStreamHandler,
+    StreamUnaryHandler, StreamStreamHandler, RequestStream, ResponseStream, RequestSender,
+    VectorRequestSender,
 };
 
 // UniFFI scaffolding setup (must be at crate root)

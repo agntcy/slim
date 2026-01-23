@@ -1,434 +1,489 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-//! Client-side RPC channel implementation
+//! RPC Channel bindings for UniFFI
 //!
-//! Provides a Channel type for making RPC calls to remote services.
-//! Supports all gRPC streaming patterns over SLIM sessions.
+//! Provides a UniFFI-compatible wrapper around the core SlimRPC Channel type.
 
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
-use async_stream::try_stream;
-use futures::StreamExt;
-use futures::stream::Stream;
-use slim_session::context::SessionContext;
+use crate::errors::SlimError;
+use crate::{get_runtime, App, Name};
 
-use crate::slimrpc::{
-    Code, Context, MAX_TIMEOUT, Metadata, STATUS_CODE_KEY, Status,
-    codec::{Decoder, Encoder},
-};
-use crate::{App, Session};
-use slim_datapath::api::ProtoSessionType;
-use slim_datapath::messages::Name;
-use slim_session::SessionConfig;
+use agntcy_slimrpc::Channel as CoreChannel;
 
-/// Client-side channel for making RPC calls
+use super::metadata::Metadata;
+use super::rpc::{ResponseStream, StreamResult};
+
+/// Client-side RPC channel for making RPC calls
 ///
-/// A Channel manages the connection to a remote service and provides methods
-/// for making RPC calls with different streaming patterns.
-#[derive(Clone)]
-pub struct Channel {
-    /// The SLIM app instance
-    app: Arc<App>,
-    /// Remote service name (base name, will be extended with service/method)
-    remote: Name,
-    /// Optional connection ID for session creation propagation
-    connection_id: Option<u64>,
+/// A UniFFI-compatible wrapper around the core SlimRPC Channel that provides
+/// methods for making RPC calls with different streaming patterns.
+#[derive(uniffi::Object)]
+pub struct RpcChannel {
+    /// The underlying core channel
+    channel: CoreChannel,
 }
 
-impl Channel {
-    /// Create a new channel
+#[uniffi::export]
+impl RpcChannel {
+    /// Create a new RPC channel
     ///
     /// # Arguments
     /// * `app` - The SLIM app to use for communication
     /// * `remote` - The base name of the remote service
-    pub fn new(app: Arc<App>, remote: Name) -> Self {
-        Self::new_with_connection(app, remote, None)
+    #[uniffi::constructor]
+    pub fn new(app: Arc<App>, remote: Arc<Name>) -> Arc<Self> {
+        let slim_name = remote.as_slim_name();
+        let core_channel = CoreChannel::new(app.inner_app().clone(), slim_name);
+
+        Arc::new(Self {
+            channel: core_channel,
+        })
     }
 
-    /// Create a new channel with optional connection ID
+    /// Create a new RPC channel with connection ID
     ///
     /// # Arguments
     /// * `app` - The SLIM app to use for communication
     /// * `remote` - The base name of the remote service
-    /// * `connection_id` - Optional connection ID for session creation propagation to next SLIM node
-    pub fn new_with_connection(app: Arc<App>, remote: Name, connection_id: Option<u64>) -> Self {
-        Self {
-            app,
-            remote: remote,
-            connection_id,
-        }
+    /// * `connection_id` - Optional connection ID for session propagation
+    #[uniffi::constructor]
+    pub fn new_with_connection(
+        app: Arc<App>,
+        remote: Arc<Name>,
+        connection_id: Option<u64>,
+    ) -> Arc<Self> {
+        let slim_name = remote.as_slim_name();
+        let core_channel = CoreChannel::new_with_connection(app.inner_app().clone(), slim_name, connection_id);
+
+        Arc::new(Self {
+            channel: core_channel,
+        })
     }
 
-    /// Create a channel from an existing app
-    pub fn from_app(app: Arc<App>, remote: Name) -> Self {
-        Self::new(app, remote)
-    }
-
-    /// Make a unary-unary RPC call
+    /// Make a unary-unary RPC call (blocking)
     ///
     /// Sends a single request and receives a single response.
-    pub async fn unary<Req, Res>(
+    ///
+    /// # Arguments
+    /// * `service_name` - The service name
+    /// * `method_name` - The method name
+    /// * `request` - The serialized request bytes
+    /// * `timeout_secs` - Optional timeout in seconds
+    /// * `metadata` - Optional metadata
+    ///
+    /// # Returns
+    /// The serialized response bytes
+    pub fn unary(
         &self,
-        service_name: &str,
-        method_name: &str,
-        request: Req,
-        timeout: Option<Duration>,
-        metadata: Option<Metadata>,
-    ) -> Result<Res, Status>
-    where
-        Req: Encoder,
-        Res: Decoder,
-    {
-        tracing::info!("Creating session for {}-{}", service_name, method_name);
+        service_name: String,
+        method_name: String,
+        request: Vec<u8>,
+        timeout_secs: Option<u64>,
+        metadata: Option<Arc<Metadata>>,
+    ) -> Result<Vec<u8>, SlimError> {
+        let runtime = get_runtime();
+        runtime.block_on(self.unary_async(service_name, method_name, request, timeout_secs, metadata))
+    }
 
-        let (session, ctx) = self
-            .create_session(service_name, method_name, timeout, metadata)
-            .await?;
+    /// Make a unary-unary RPC call (async)
+    ///
+    /// Sends a single request and receives a single response.
+    ///
+    /// # Arguments
+    /// * `service_name` - The service name
+    /// * `method_name` - The method name
+    /// * `request` - The serialized request bytes
+    /// * `timeout_secs` - Optional timeout in seconds
+    /// * `metadata` - Optional metadata
+    ///
+    /// # Returns
+    /// The serialized response bytes
+    pub async fn unary_async(
+        &self,
+        service_name: String,
+        method_name: String,
+        request: Vec<u8>,
+        timeout_secs: Option<u64>,
+        metadata: Option<Arc<Metadata>>,
+    ) -> Result<Vec<u8>, SlimError> {
+        let timeout = timeout_secs.map(Duration::from_secs);
+        let core_metadata = metadata.map(|m| m.to_core());
 
-        tracing::info!("Created session for {}-{}", service_name, method_name);
-
-        // Encode and send request
-        let request_bytes = request.encode_to_vec()?;
-        session
-            .publish_async(
-                request_bytes,
-                Some("msg".to_string()),
-                Some(ctx.metadata().as_map().clone()),
+        let response = self
+            .channel
+            .unary(
+                &service_name,
+                &method_name,
+                request,
+                timeout,
+                core_metadata,
             )
             .await
-            .map_err(|e| Status::internal(format!("Failed to send request: {}", e)))?;
+            .map_err(|e| SlimError::RpcError {
+                message: format!("RPC call failed: {}", e),
+            })?;
 
-        // Receive response
-        let received = session
-            .get_message_async(None)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to receive response: {}", e)))?;
-
-        // Check status code
-        let code = self.parse_status_code(received.context.metadata.get(STATUS_CODE_KEY))?;
-        if code != Code::Ok {
-            let message = String::from_utf8_lossy(&received.payload).to_string();
-            return Err(Status::new(code, message));
-        }
-
-        // Decode response
-        let response = Res::decode(&received.payload)?;
         Ok(response)
     }
 
-    /// Make a unary-stream RPC call
-    ///
-    /// Sends a single request and receives a stream of responses.
-    pub fn unary_stream<Req, Res>(
-        &self,
-        service_name: &str,
-        method_name: &str,
-        request: Req,
-        timeout: Option<Duration>,
-        metadata: Option<Metadata>,
-    ) -> impl Stream<Item = Result<Res, Status>>
-    where
-        Req: Encoder + Send + 'static,
-        Res: Decoder + Send + 'static,
-    {
-        let service_name = service_name.to_string();
-        let method_name = method_name.to_string();
-        let channel = self.clone();
-
-        try_stream! {
-            let (session, ctx) = channel
-                .create_session(&service_name, &method_name, timeout, metadata)
-                .await?;
-
-            // Encode and send request
-            let request_bytes = request.encode_to_vec()?;
-            session
-                .publish_async(request_bytes, Some("msg".to_string()), Some(ctx.metadata().as_map().clone()))
-                .await
-                .map_err(|e| Status::internal(format!("Failed to send request: {}", e)))?;
-
-            // Receive streaming responses
-            loop {
-                let received = session
-                    .get_message_async(None)
-                    .await
-                    .map_err(|e| Status::internal(format!("Failed to receive response: {}", e)))?;
-
-                // Check status code
-                let code = channel.parse_status_code(received.context.metadata.get(STATUS_CODE_KEY))?;
-
-                // Empty message with OK code signals end of stream
-                if code == Code::Ok && received.payload.is_empty() {
-                    break;
-                }
-
-                if code != Code::Ok {
-                    let message = String::from_utf8_lossy(&received.payload).to_string();
-                    Err(Status::new(code, message))?;
-                }
-
-                // Decode and yield response
-                let response = Res::decode(&received.payload)?;
-                yield response;
-            }
-        }
+    /// Get the remote service name
+    pub fn remote(&self) -> Arc<Name> {
+        Arc::new(Name::from_slim_name(self.channel.remote().clone()))
     }
 
-    /// Make a stream-unary RPC call
+    /// Get the connection ID
+    pub fn connection_id(&self) -> Option<u64> {
+        self.channel.connection_id()
+    }
+
+    /// Make a unary-stream RPC call (blocking)
     ///
-    /// Sends a stream of requests and receives a single response.
-    pub async fn stream_unary<Req, Res, S>(
+    /// Sends a single request and receives multiple responses via a stream.
+    ///
+    /// # Arguments
+    /// * `service_name` - The service name
+    /// * `method_name` - The method name
+    /// * `request` - The serialized request bytes
+    /// * `timeout_secs` - Optional timeout in seconds
+    /// * `metadata` - Optional metadata
+    ///
+    /// # Returns
+    /// A ResponseReceiver for reading the stream of responses
+    pub fn unary_stream(
         &self,
-        service_name: &str,
-        method_name: &str,
-        mut request_stream: S,
-        timeout: Option<Duration>,
-        metadata: Option<Metadata>,
-    ) -> Result<Res, Status>
-    where
-        Req: Encoder,
-        Res: Decoder,
-        S: Stream<Item = Req> + Unpin,
-    {
-        let (session, ctx) = self
-            .create_session(service_name, method_name, timeout, metadata)
-            .await?;
+        service_name: String,
+        method_name: String,
+        request: Vec<u8>,
+        timeout_secs: Option<u64>,
+        metadata: Option<Arc<Metadata>>,
+    ) -> Result<Arc<dyn ResponseStream>, SlimError> {
+        let runtime = get_runtime();
+        runtime.block_on(self.unary_stream_async(service_name, method_name, request, timeout_secs, metadata))
+    }
 
-        // Send all requests
-        while let Some(request) = request_stream.next().await {
-            let request_bytes = request.encode_to_vec()?;
-            session
-                .publish_async(
-                    request_bytes,
-                    Some("msg".to_string()),
-                    Some(ctx.metadata().as_map().clone()),
-                )
-                .await
-                .map_err(|e| Status::internal(format!("Failed to send request: {}", e)))?;
-        }
+    /// Make a unary-stream RPC call (async)
+    ///
+    /// Sends a single request and receives multiple responses via a stream.
+    ///
+    /// # Arguments
+    /// * `service_name` - The service name
+    /// * `method_name` - The method name
+    /// * `request` - The serialized request bytes
+    /// * `timeout_secs` - Optional timeout in seconds
+    /// * `metadata` - Optional metadata
+    ///
+    /// # Returns
+    /// A ResponseReceiver for reading the stream of responses
+    pub async fn unary_stream_async(
+        &self,
+        service_name: String,
+        method_name: String,
+        request: Vec<u8>,
+        timeout_secs: Option<u64>,
+        metadata: Option<Arc<Metadata>>,
+    ) -> Result<Arc<dyn ResponseStream>, SlimError> {
+        use futures::StreamExt;
+        
+        let timeout = timeout_secs.map(Duration::from_secs);
+        let core_metadata = metadata.map(|m| m.to_core());
+        
+        // Clone channel for use in spawned task
+        let channel = self.channel.clone();
 
-        // Send end-of-stream marker
-        let mut end_metadata = ctx.metadata().as_map().clone();
-        end_metadata.insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
-        session
-            .publish_async(Vec::new(), Some("msg".to_string()), Some(end_metadata))
+        // Spawn a task to collect the stream into a channel
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            let stream = channel.unary_stream(
+                &service_name,
+                &method_name,
+                request,
+                timeout,
+                core_metadata,
+            );
+            
+            futures::pin_mut!(stream);
+            while let Some(result) = stream.next().await {
+                let send_result = match result {
+                    Ok(data) => tx.send(Ok(data)),
+                    Err(e) => tx.send(Err(e)),
+                };
+                if send_result.is_err() {
+                    break; // Receiver dropped
+                }
+            }
+        });
+
+        // Create a receiver that reads from the channel
+        Ok(Arc::new(ResponseReceiver {
+            rx: Arc::new(tokio::sync::Mutex::new(rx)),
+        }))
+    }
+
+    /// Make a stream-unary RPC call (blocking)
+    ///
+    /// Sends multiple requests via a sender and receives a single response.
+    ///
+    /// # Arguments
+    /// * `service_name` - The service name
+    /// * `method_name` - The method name
+    /// * `request_sender` - A RequestSender for sending requests
+    /// * `timeout_secs` - Optional timeout in seconds
+    /// * `metadata` - Optional metadata
+    ///
+    /// # Returns
+    /// The serialized response bytes
+    pub fn stream_unary(
+        &self,
+        service_name: String,
+        method_name: String,
+        request_sender: Arc<dyn RequestSender>,
+        timeout_secs: Option<u64>,
+        metadata: Option<Arc<Metadata>>,
+    ) -> Result<Vec<u8>, SlimError> {
+        let runtime = get_runtime();
+        runtime.block_on(self.stream_unary_async(service_name, method_name, request_sender, timeout_secs, metadata))
+    }
+
+    /// Make a stream-unary RPC call (async)
+    ///
+    /// Sends multiple requests via a sender and receives a single response.
+    ///
+    /// # Arguments
+    /// * `service_name` - The service name
+    /// * `method_name` - The method name
+    /// * `request_sender` - A RequestSender for sending requests
+    /// * `timeout_secs` - Optional timeout in seconds
+    /// * `metadata` - Optional metadata
+    ///
+    /// # Returns
+    /// The serialized response bytes
+    pub async fn stream_unary_async(
+        &self,
+        service_name: String,
+        method_name: String,
+        request_sender: Arc<dyn RequestSender>,
+        timeout_secs: Option<u64>,
+        metadata: Option<Arc<Metadata>>,
+    ) -> Result<Vec<u8>, SlimError> {
+        let timeout = timeout_secs.map(Duration::from_secs);
+        let core_metadata = metadata.map(|m| m.to_core());
+
+        // Create a stream from the sender
+        let request_stream = RequestSenderStream { sender: request_sender };
+
+        let response = self
+            .channel
+            .stream_unary(
+                &service_name,
+                &method_name,
+                request_stream,
+                timeout,
+                core_metadata,
+            )
             .await
-            .map_err(|e| Status::internal(format!("Failed to send end-of-stream: {}", e)))?;
+            .map_err(|e| SlimError::RpcError {
+                message: format!("RPC call failed: {}", e),
+            })?;
 
-        // Receive single response
-        let received = session
-            .get_message_async(None)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to receive response: {}", e)))?;
-
-        // Check status code
-        let code = self.parse_status_code(received.context.metadata.get(STATUS_CODE_KEY))?;
-        if code != Code::Ok {
-            let message = String::from_utf8_lossy(&received.payload).to_string();
-            return Err(Status::new(code, message));
-        }
-
-        // Decode response
-        let response = Res::decode(&received.payload)?;
         Ok(response)
     }
 
-    /// Make a stream-stream RPC call
+    /// Make a stream-stream RPC call (blocking)
     ///
-    /// Sends a stream of requests and receives a stream of responses.
-    pub fn stream_stream<Req, Res, S>(
+    /// Sends multiple requests via a sender and receives multiple responses via a receiver.
+    ///
+    /// # Arguments
+    /// * `service_name` - The service name
+    /// * `method_name` - The method name
+    /// * `request_sender` - A RequestSender for sending requests
+    /// * `timeout_secs` - Optional timeout in seconds
+    /// * `metadata` - Optional metadata
+    ///
+    /// # Returns
+    /// A ResponseReceiver for reading the stream of responses
+    pub fn stream_stream(
         &self,
-        service_name: &str,
-        method_name: &str,
-        mut request_stream: S,
-        timeout: Option<Duration>,
-        metadata: Option<Metadata>,
-    ) -> impl Stream<Item = Result<Res, Status>>
-    where
-        Req: Encoder + Send + 'static,
-        Res: Decoder + Send + 'static,
-        S: Stream<Item = Req> + Unpin + Send + 'static,
-    {
-        let service_name = service_name.to_string();
-        let method_name = method_name.to_string();
-        let channel = self.clone();
+        service_name: String,
+        method_name: String,
+        request_sender: Arc<dyn RequestSender>,
+        timeout_secs: Option<u64>,
+        metadata: Option<Arc<Metadata>>,
+    ) -> Result<Arc<dyn ResponseStream>, SlimError> {
+        let runtime = get_runtime();
+        runtime.block_on(self.stream_stream_async(service_name, method_name, request_sender, timeout_secs, metadata))
+    }
 
-        try_stream! {
-            let (session, ctx) = channel
-                .create_session(&service_name, &method_name, timeout, metadata)
-                .await?;
+    /// Make a stream-stream RPC call (async)
+    ///
+    /// Sends multiple requests via a sender and receives multiple responses via a receiver.
+    ///
+    /// # Arguments
+    /// * `service_name` - The service name
+    /// * `method_name` - The method name
+    /// * `request_sender` - A RequestSender for sending requests
+    /// * `timeout_secs` - Optional timeout in seconds
+    /// * `metadata` - Optional metadata
+    ///
+    /// # Returns
+    /// A ResponseReceiver for reading the stream of responses
+    pub async fn stream_stream_async(
+        &self,
+        service_name: String,
+        method_name: String,
+        request_sender: Arc<dyn RequestSender>,
+        timeout_secs: Option<u64>,
+        metadata: Option<Arc<Metadata>>,
+    ) -> Result<Arc<dyn ResponseStream>, SlimError> {
+        use futures::StreamExt;
+        
+        let timeout = timeout_secs.map(Duration::from_secs);
+        let core_metadata = metadata.map(|m| m.to_core());
+        
+        // Clone channel for use in spawned task
+        let channel = self.channel.clone();
 
-            // Send requests in background task
-            let session_bg = Arc::clone(&session);
-            let ctx_clone = ctx.clone();
-            tokio::spawn(async move {
-                while let Some(request) = request_stream.next().await {
-                    if let Ok(request_bytes) = request.encode_to_vec() {
-                        let _ = session_bg
-                            .publish_async(request_bytes, Some("msg".to_string()), Some(ctx_clone.metadata().as_map().clone()))
-                            .await;
-                    }
+        // Create a stream from the sender
+        let request_stream = RequestSenderStream { sender: request_sender };
+
+        // Spawn a task to collect the stream into a channel
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            let stream = channel.stream_stream(
+                &service_name,
+                &method_name,
+                request_stream,
+                timeout,
+                core_metadata,
+            );
+            
+            futures::pin_mut!(stream);
+            while let Some(result) = stream.next().await {
+                let send_result = match result {
+                    Ok(data) => tx.send(Ok(data)),
+                    Err(e) => tx.send(Err(e)),
+                };
+                if send_result.is_err() {
+                    break; // Receiver dropped
                 }
-                // Send end-of-stream marker
-                let mut end_metadata = ctx_clone.metadata().as_map().clone();
-                end_metadata.insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
-                let _ = session_bg
-                    .publish_async(Vec::new(), Some("msg".to_string()), Some(end_metadata))
-                    .await;
-            });
-
-            // Receive streaming responses
-            loop {
-                let received = session
-                    .get_message_async(None)
-                    .await
-                    .map_err(|e| Status::internal(format!("Failed to receive response: {}", e)))?;
-
-                // Check status code
-                let code = channel.parse_status_code(received.context.metadata.get(STATUS_CODE_KEY))?;
-
-                // Empty message with OK code signals end of stream
-                if code == Code::Ok && received.payload.is_empty() {
-                    break;
-                }
-
-                if code != Code::Ok {
-                    let message = String::from_utf8_lossy(&received.payload).to_string();
-                    Err(Status::new(code, message))?;
-                }
-
-                // Decode and yield response
-                let response = Res::decode(&received.payload)?;
-                yield response;
             }
-        }
+        });
+
+        // Create a receiver that reads from the channel
+        Ok(Arc::new(ResponseReceiver {
+            rx: Arc::new(tokio::sync::Mutex::new(rx)),
+        }))
     }
+}
 
-    /// Create a session for an RPC call
-    async fn create_session(
-        &self,
-        service_name: &str,
-        method_name: &str,
-        timeout: Option<Duration>,
-        metadata: Option<Metadata>,
-    ) -> Result<(SessionContext, Context), Status> {
-        // Build the full method name: org/namespace/ServiceName-MethodName
-        let method_full_name = self.build_method_name(service_name, method_name);
-
-        // Set route to method full name
-        if let Some(conn_id) = self.connection_id {
-            self.app
-                .core_app()
-                .set_route(&method_full_name, conn_id)
-                .await
-                .map_err(|e| Status::unavailable(format!("Failed to set route: {}", e)))?;
-        }
-
-        // Create session configuration
-        let timeout_duration = timeout.unwrap_or(Duration::from_secs(MAX_TIMEOUT));
-        let config = SessionConfig {
-            session_type: ProtoSessionType::PointToPoint,
-            mls_enabled: false,
-            max_retries: Some(3),
-            interval: Some(Duration::from_secs(1)),
-            initiator: true,
-            metadata: metadata
-                .as_ref()
-                .map(|m| m.as_map().clone())
-                .unwrap_or_default(),
-        };
-
-        // Create the session with optional connection ID for propagation
-        tracing::debug!(
-            "Creating session for {}/{} with connection_id: {:?}",
-            service_name,
-            method_name,
-            self.connection_id
-        );
-
-        let (session, completion) = self
-            .app
-            .core_app()
-            .create_session(config, method_full_name.clone())
-            .await
-            .map_err(|e| Status::unavailable(format!("Failed to create session: {}", e)))?;
-
-        // Wait for handshake completion
-        completion
-            .await
-            .map_err(|e| Status::unavailable(format!("Session handshake failed: {}", e)))?;
-
-        // Create context
-        let mut ctx = Context::from_session(session.as_ref())
-            .map_err(|e| Status::internal(format!("Failed to create context: {}", e)))?;
-
-        // Set deadline
-        let deadline = SystemTime::now()
-            .checked_add(timeout_duration)
-            .unwrap_or_else(|| SystemTime::now() + Duration::from_secs(MAX_TIMEOUT));
-        ctx.set_deadline(deadline);
-
-        // Merge in user metadata
-        if let Some(meta) = metadata {
-            ctx.metadata_mut().merge(meta);
-        }
-
-        Ok((session, ctx))
+// Internal helper methods
+impl RpcChannel {
+    /// Get the underlying core channel
+    pub(crate) fn core_channel(&self) -> &CoreChannel {
+        &self.channel
     }
+}
 
-    /// Build the full method name from service and method
-    fn build_method_name(&self, service_name: &str, method_name: &str) -> Name {
-        let components = self.remote.components();
-        Name::new(
-            components[0].clone(),
-            components[1].clone(),
-            format!("{}-{}-{}", components[2], service_name, method_name),
-        )
-    }
+// Note: Codec implementations for Vec<u8> are provided in the core slimrpc crate
 
-    /// Parse status code from metadata value
-    fn parse_status_code(&self, code_str: Option<&String>) -> Result<Code, Status> {
-        match code_str {
-            Some(s) => s
-                .parse::<i32>()
-                .ok()
-                .and_then(Code::from_i32)
-                .ok_or_else(|| Status::internal(format!("Invalid status code: {}", s))),
-            None => Ok(Code::Ok), // Default to OK if not present
+/// Async trait for sending requests from client side
+#[uniffi::export(with_foreign)]
+#[async_trait::async_trait]
+pub trait RequestSender: Send + Sync {
+    /// Get the next request to send
+    /// Returns End when done sending, Error on failure
+    async fn next(&self) -> StreamResult;
+}
+
+/// Helper implementation of RequestSender that sends from a vector
+/// 
+/// This is useful for testing and simple use cases where you have
+/// all requests ready upfront.
+pub struct VectorRequestSender {
+    requests: Arc<tokio::sync::Mutex<std::vec::IntoIter<Vec<u8>>>>,
+}
+
+impl VectorRequestSender {
+    /// Create a new VectorRequestSender from a vector of requests
+    pub fn new(requests: Vec<Vec<u8>>) -> Self {
+        Self {
+            requests: Arc::new(tokio::sync::Mutex::new(requests.into_iter())),
         }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_build_method_name() {
-        // Note: This test would require a real App instance, which needs more setup
-        // Skipping actual instantiation in unit test
-        let remote = Name::new(
-            "org".to_string(),
-            "namespace".to_string(),
-            "service".to_string(),
-        );
-
-        // Test the name building logic separately
-        let components = remote.components();
-        let expected = format!("{}-{}-{}", components[2], "MyService", "MyMethod");
-        assert_eq!(expected, "service-MyService-MyMethod");
-    }
-
-    #[test]
-    fn test_parse_status_code() {
-        // Note: This test would require a real App instance
-        // Testing parse logic only
-
-        // Test status code parsing
-        assert_eq!(Code::from_i32(0), Some(Code::Ok));
-        assert_eq!(Code::from_i32(13), Some(Code::Internal));
-        assert_eq!(Code::from_i32(999), None);
+#[async_trait::async_trait]
+impl RequestSender for VectorRequestSender {
+    async fn next(&self) -> StreamResult {
+        let mut iter = self.requests.lock().await;
+        match iter.next() {
+            Some(data) => StreamResult::Data { value: data },
+            None => StreamResult::End,
+        }
     }
 }
+
+/// Internal adapter to convert RequestSender into a Stream
+struct RequestSenderStream {
+    sender: Arc<dyn RequestSender>,
+}
+
+impl futures::Stream for RequestSenderStream {
+    type Item = Vec<u8>;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        let sender = Arc::clone(&self.sender);
+        let fut = async move { sender.next().await };
+        
+        futures::pin_mut!(fut);
+        match fut.poll(cx) {
+            std::task::Poll::Ready(result) => match result {
+                StreamResult::Data { value } => std::task::Poll::Ready(Some(value)),
+                StreamResult::End => std::task::Poll::Ready(None),
+                StreamResult::Error { .. } => std::task::Poll::Ready(None),
+            },
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
+/// Internal response receiver that reads from a channel
+struct ResponseReceiver {
+    rx: Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, agntcy_slimrpc::Status>>>>,
+}
+
+#[async_trait::async_trait]
+impl ResponseStream for ResponseReceiver {
+    async fn send(&self, _response: Vec<u8>) -> Result<(), super::error::Status> {
+        Err(super::error::Status::new(
+            super::error::Code::Unimplemented,
+            "ResponseReceiver does not support send - use for reading only",
+        ))
+    }
+
+    async fn close(&self) {
+        // No-op for receiver
+    }
+}
+
+// Implement RequestStream for ResponseReceiver to allow reading
+#[async_trait::async_trait]
+impl super::rpc::RequestStream for ResponseReceiver {
+    async fn next(&self) -> StreamResult {
+        let mut rx = self.rx.lock().await;
+        match rx.recv().await {
+            Some(Ok(data)) => StreamResult::Data { value: data },
+            Some(Err(e)) => StreamResult::Error {
+                status: super::error::Status::from_core(e),
+            },
+            None => StreamResult::End,
+        }
+    }
+}
+
+

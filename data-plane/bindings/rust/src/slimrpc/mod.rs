@@ -1,81 +1,63 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-//! # SlimRPC - gRPC-like RPC framework over SLIM
+//! # SlimRPC Bindings - UniFFI Language Bindings
 //!
-//! SlimRPC provides a gRPC-compatible RPC framework built on top of the SLIM messaging protocol.
-//! It supports all standard gRPC interaction patterns:
-//! - Unary-Unary: Single request, single response
-//! - Unary-Stream: Single request, streaming responses
-//! - Stream-Unary: Streaming requests, single response
-//! - Stream-Stream: Streaming requests, streaming responses
+//! This module provides language-agnostic FFI bindings for SlimRPC using UniFFI.
+//! It enables integration with Go, Python, Kotlin, Swift, and other languages.
 //!
 //! ## Architecture
 //!
-//! SlimRPC uses SLIM sessions as the underlying transport mechanism. Each RPC call creates
-//! a new session, exchanges messages, and closes the session upon completion.
+//! The module wraps the core slimrpc types to be UniFFI-compatible:
 //!
-//! ## Client Example
+//! - **`RpcChannel`**: Client-side channel for making RPC calls
+//! - **`RpcServer`**: Server-side RPC server for handling requests
+//! - **`RpcContext`**: Context information for RPC handlers
+//! - **`Status`**: RPC status codes and error information
+//! - **`Metadata`**: Key-value metadata for RPC calls
+//!
+//! ## Usage
+//!
+//! ### Client Example
 //!
 //! ```rust,ignore
-//! use slimrpc::{Channel, Context};
+//! use slim_bindings::{App, RpcChannel};
 //!
-//! // Create a channel
-//! let channel = Channel::new(app, remote_name);
+//! // Create app
+//! let app = App::new(app_name, provider_config, verifier_config, false)?;
 //!
-//! // Make an RPC call (typically through generated code)
+//! // Create RPC channel
+//! let remote = Name { components: vec!["org".into(), "ns".into(), "service".into()], id: None };
+//! let channel = RpcChannel::new(Arc::new(app), remote);
+//!
+//! // Make RPC call (typically through generated code)
 //! let response = channel.unary("MyService", "MyMethod", request, None, None).await?;
-//! ```
-//!
-//! ## Server Example
-//!
-//! ```rust,ignore
-//! use slimrpc::{Server, Context, Status};
-//! use async_trait::async_trait;
-//!
-//! // Implement service trait (typically generated from protobuf)
-//! struct MyServiceImpl;
-//!
-//! #[async_trait]
-//! impl MyService for MyServiceImpl {
-//!     async fn my_method(&self, request: Request, context: Context) -> Result<Response, Status> {
-//!         Ok(Response::default())
-//!     }
-//! }
-//!
-//! // Register and run server
-//! let mut server = Server::new(app, base_name);
-//! server.registry().register_unary_unary("MyService", "MyMethod", handler);
-//! server.serve().await?;
 //! ```
 
 mod channel;
 mod codec;
 mod context;
-mod ffi;
+mod error;
 mod metadata;
+mod rpc;
 mod server;
-mod status;
 
-#[cfg(test)]
-mod tests;
-
-pub use channel::Channel;
+pub use channel::{RequestSender, RpcChannel, VectorRequestSender};
 pub use codec::{Codec, Decoder, Encoder};
-pub use context::{Context, MessageContext, SessionContext};
-pub use ffi::{RpcChannel, RpcContext, RpcError, RpcHandler, RpcResponseStream, RpcServer};
+pub use context::{RpcContext, RpcMessageContext, RpcSessionContext};
+pub use error::{Code, RpcError, Status, StatusError};
 pub use metadata::Metadata;
-pub use server::{HandlerResponse, HandlerType, Server, ServiceRegistry};
-pub use status::{Code, Status, StatusError};
+pub use rpc::{
+    RequestStream, ResponseStream, StreamResult, StreamStreamHandler, StreamUnaryHandler,
+    UnaryStreamHandler, UnaryUnaryHandler,
+};
+pub use server::{
+    HandlerResponse, HandlerType, RpcHandler, RpcResponseStream, RpcServer,
+};
 
-/// Key used in metadata for RPC deadline/timeout
-pub const DEADLINE_KEY: &str = "slimrpc-deadline";
-
-/// Key used in metadata for RPC status code
-pub const STATUS_CODE_KEY: &str = "slimrpc-code";
-
-/// Maximum timeout in seconds (10 hours)
-pub const MAX_TIMEOUT: u64 = 36000;
-
-/// Result type for SlimRPC operations
-pub type Result<T> = std::result::Result<T, Status>;
+// Re-export core types with RPC prefix for clarity
+pub use agntcy_slimrpc::{
+    Channel, Context, MessageContext as CoreMessageContext,
+    Server, SessionContext as CoreSessionContext,
+    MAX_TIMEOUT, DEADLINE_KEY, STATUS_CODE_KEY,
+};
