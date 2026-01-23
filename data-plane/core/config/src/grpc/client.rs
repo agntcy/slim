@@ -1234,10 +1234,7 @@ mod test {
     async fn test_map_transport_error_maps_io() {
         let endpoint = tonic::transport::Endpoint::from_static("http://localhost");
         let connector = service_fn(|_uri: Uri| async move {
-            Err::<TokioIo<tokio::io::DuplexStream>, std::io::Error>(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "boom",
-            ))
+            Err::<TokioIo<tokio::io::DuplexStream>, std::io::Error>(std::io::Error::other("boom"))
         });
         let err = endpoint
             .connect_with_connector(connector)
