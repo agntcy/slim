@@ -15,6 +15,9 @@ includes:
 env:
   PATH: "{{.TOOLS_INSTALL_DIR}}/zig:{{.PATH}}"
 
+vars:
+  GNU_CLIB_VERSION: 2.28
+
 tasks:
   default:
     cmds:
@@ -38,24 +41,35 @@ tasks:
       - echo "🦀 Building Rust bindings library... {{.TARGET}}"
       - rustup target add {{.TARGET}}
       - |
+        # Determine the correct libc version based on TARGET_ABI
+        TARGET_ABI="{{.TARGET_ABI}}"
+        TARGET_OS="{{.TARGET_OS}}"
+
         ARGS=()
 
-        # Depending on the target, we can either use cargo-zigbuild or regular cargo build
-        if [[ "{{.TARGET}}" == "" || "{{.TARGET}}" == "$(rustc -vV | sed -n 's|host: ||p')" ]]; then
-          ARGS+=(
-            "build"
+        # Use zigbuild for Linux or gnu targets, cargo build for others
+        if [[ "$TARGET_OS" == "linux" || "$TARGET_ABI" == "gnu" ]]; then
+          # For Linux or gnu targets, use zigbuild with libc version for gnu ABI
+          LIBC_VERSION=""
+          if [[ "$TARGET_ABI" == "gnu" ]]; then
+            LIBC_VERSION=".{{.GNU_CLIB_VERSION}}"
+          fi
+
+          ARGS=(
+            "zigbuild"
+            "--target"
+            "{{.TARGET}}$LIBC_VERSION"
+            {{.RELEASE}}
           )
         else
-          ARGS+=(
-            "zigbuild"
+          # For Windows MSVC/macOS, use regular cargo build without libc version
+          ARGS=(
+            "build"
+            "--target"
+            "{{.TARGET}}"
+            {{.RELEASE}}
           )
         fi
-
-        ARGS+=(
-          "--target"
-          "{{.TARGET}}"
-          {{.RELEASE}}
-        )
 
         echo cargo ${ARGS[*]}
         PATH="{{.TOOLS_INSTALL_DIR}}:$PATH" cargo "${ARGS[@]}"

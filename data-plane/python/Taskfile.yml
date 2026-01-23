@@ -17,9 +17,6 @@ includes:
     taskfile: ../../tasks/tools.yaml
     internal: true
     flatten: true
-  bindings:
-    taskfile: ./bindings/Taskfile.yaml
-    flatten: true
   slimrpc:
     taskfile: ./integrations/slimrpc/Taskfile.yaml
 
@@ -32,20 +29,8 @@ tasks:
     desc: "Build and package the Python bindings and examples"
     cmds:
       - mkdir -p ./dist
-      - task: python:bindings:packaging
-      - mv ./bindings/dist/* ./dist
       - uv build --package slim-bindings-examples
       - uv build --package slimrpc
-
-  python:examples:build:
-    desc: "Build the Python bindings examples"
-    deps:
-      - task: python:bindings:build
-    cmds:
-      - task: rust:toolchain:run-command
-        vars:
-          COMMAND: |
-            uv sync --frozen --no-dev --no-editable --package slim-bindings-examples
 
   python:generate-proto:
     desc: "Generate proto files for the Python bindings"

@@ -20,7 +20,11 @@ vars:
   TARGET_ARGS:
     sh: '[[ -z "{{.TARGET}}" ]] && echo '''' || echo ''--target {{.TARGET}}'''
   TARGET_ARCH:
-    sh: "echo {{.TARGET}} | cut -d'-' -f1"
+    sh: 'echo {{.TARGET}} | cut -d"-" -f1'
+  TARGET_OS:
+    sh: 'echo {{.TARGET}} | cut -d"-" -f3'
+  TARGET_ABI:
+    sh: 'echo {{.TARGET}} | cut -d"-" -f4 || echo ""'
 
   LLVM_VERSION: '{{ .LLVM_VERSION | default "19" }}'
   OBJCOPY: 'llvm-objcopy-{{.LLVM_VERSION}}'

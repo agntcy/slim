@@ -27,13 +27,16 @@ import datetime
 import uuid
 
 import pytest
+from conftest import ServerFixture
 
 import slim_bindings
 
 LONG_SECRET = "e4aaecb9ae0b23b82086bb8a8633e01fba16ae8d9c1379a613c00838"
 
 
-async def _create_participant(server, test_id, index):
+async def _create_participant(
+    server: ServerFixture, test_id: str, index: int
+) -> tuple[slim_bindings.App, int | None, str]:
     """Create and setup a participant app."""
     part_name = f"participant_{index}"
     name = slim_bindings.Name("org", f"test_{test_id}", part_name)
@@ -41,7 +44,9 @@ async def _create_participant(server, test_id, index):
     conn_id = None
     if server.local_service:
         svc = slim_bindings.Service(f"svcparticipant{index}")
-        conn_id = await svc.connect_async(server.get_client_config())
+        client_config = server.get_client_config()
+        assert client_config is not None
+        conn_id = await svc.connect_async(client_config)
     else:
         svc = server.service
 
@@ -57,7 +62,9 @@ async def _create_participant(server, test_id, index):
     return participant, conn_id, part_name
 
 
-async def _create_group_session(participant, chat_name, mls_enabled):
+async def _create_group_session(
+    participant: slim_bindings.App, chat_name: slim_bindings.Name, mls_enabled: bool
+) -> slim_bindings.Session:
     """Create a group session and return it."""
     session_config = slim_bindings.SessionConfig(
         session_type=slim_bindings.SessionType.GROUP,
@@ -200,9 +207,6 @@ async def test_group(server, mls_enabled):
         )
         print(f"Creating participant {part_name}...")
 
-        # Store the session for moderator to close later
-        recv_session = None
-
         if index == 0:
             print(f"{part_name} -> Creating new group sessions...")
             session = await _create_group_session(participant, chat_name, mls_enabled)
@@ -219,6 +223,7 @@ async def test_group(server, mls_enabled):
         # Track if this participant was called
         called = False
         first_message = True
+        recv_session: slim_bindings.Session | None = None
 
         # if this is the first participant, publish the message to start the chain
         if index == 0:
@@ -240,7 +245,9 @@ async def test_group(server, mls_enabled):
                     )
                     if new_session:
                         recv_session = new_session
+                    # recv_session should already be defined from previous iteration
 
+                assert recv_session is not None
                 # receive message from session
                 received_msg = await recv_session.get_message_async(
                     timeout=datetime.timedelta(seconds=30)

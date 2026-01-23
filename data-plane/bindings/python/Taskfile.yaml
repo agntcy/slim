@@ -10,30 +10,42 @@ shopt: [globstar]
 
 verbose: false
 
-env:
-  SHARED_SECRET: "demo-secret-key-for-examples012345"
-
 includes:
   rust:
     taskfile: ../../../tasks/rust.yaml
     internal: true
+    vars:
+      PROFILE: '{{.PROFILE | default "release"}}'
+  tools:
+    taskfile: ../../../tasks/tools.yaml
+    internal: true
+    flatten: true
+
+env:
+  SHARED_SECRET: "demo-secret-key-for-examples012345"
 
 tasks:
   default:
     cmds:
       - task -l
 
+  python:bindings:devdeps:
+    internal: true
+    cmds:
+      - uv sync --group linting --group testing
+
   python:bindings:lint:
     desc: "Lint the Python bindings"
+    deps:
+       - python:bindings:devdeps
     cmds:
+      - uv sync --group linting
       - uv run ruff check
       - uv run ruff format --check
       - uv run mypy --ignore-missing-imports --explicit-package-bases .
 
   python:bindings:build:
     desc: "Build the Python bindings using Maturin"
-    deps:
-      - python:bindings:clean
     vars:
       PROFILE: '{{.PROFILE | default "debug"}}'
       RELEASE:
@@ -43,99 +55,176 @@ tasks:
       - task: rust:toolchain:run-command
         vars:
           COMMAND: |
-            uv run --no-cache maturin develop --uv {{.RELEASE}}
+            uv run maturin develop --uv {{.RELEASE}}
       - echo "✅ Build complete"
 
   python:bindings:test:
     desc: "Test the Python bindings"
     deps:
       - python:bindings:build
+      - python:bindings:devdeps
     cmds:
-      - uv run --no-cache pytest -s {{.TESTS}}
-    vars:
-      TARGET: '{{.TESTS | default ""}}'
-
-  python:bindings:test:integration:
-    desc: Run integration tests only
-    deps: [python:bindings:build]
-    cmds:
-      - echo "Running integration tests...\n"
-      - SLIM_INTEGRATION_TEST=1 uv run pytest tests/integration_test.py -v -s
-      - echo "✅ Integration tests passed"
-
-  python:bindings:test:coverage:
-    desc: "Test the Python bindings with coverage"
-    deps:
-      - python:bindings:build
-    cmds:
-      - uv run pytest --cov=slim_bindings --cov-report=lcov:coverage.lcov --cov-report=html --cov-report=term -s {{.TESTS}}
+      - uv run pytest -s {{.TESTS}}
     vars:
       TARGET: '{{.TESTS | default ""}}'
 
   python:bindings:packaging:
     desc: "Generate Python wheels for multiple Python versions (3.10, 3.11, 3.12, 3.13, 3.14) using Maturin"
+    deps:
+      - tools:zig
     vars:
-      PROFILE: '{{.PROFILE | default "release"}}'
-      RELEASE:
-        sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
-      _TARGET:
-        sh: 'rustc -vV | grep "host: " | cut -d" " -f2'
-      TARGET: '{{.TARGET | default ._TARGET}}'
-      ARCH:
-        sh: 'echo {{.TARGET}} | cut -d"-" -f1'
-      OS:
-        sh: 'echo {{.TARGET}} | cut -d"-" -f3'
-      C_LIB:
-        sh: 'echo {{.TARGET}} | cut -d"-" -f4 || echo ""'
       INTERPRETERS: '{{.INTERPRETERS | default "3.10 3.11 3.12 3.13 3.14"}}'
     cmds:
-      - uv python install {{.INTERPRETERS}}
-      - task: rust:toolchain:run-command
-        vars:
-          COMMAND: |
-            rustup target add {{.TARGET}}
+      - |
+        # Force aarch64 Python on Windows ARM64, as uv defaults to x86_64 even on ARM64
+        if [[ "{{.TARGET_ARCH}}" = "aarch64" && "{{.TARGET_OS}}" = "windows" ]]; then
+          uv python install "aarch64"
+        else
+          uv python install
+        fi
 
-            UV_ARGS=(
-              --no-default-groups
-              --group building
-            )
+        rustup target add {{.TARGET}}
 
-            MATURIN_ARGS=(
-              {{.RELEASE}}
-              --out dist
-              --target {{.TARGET}}
-              --frozen
-              -i {{.INTERPRETERS}}
-            )
+        MATURIN_ARGS=(
+          {{.RELEASE}}
+          --out dist
+          --target {{.TARGET}}
+          --frozen
+          -i {{.INTERPRETERS}}
+        )
 
-            if [[ "{{.C_LIB}}" = "gnu" ]]; then
-              MATURIN_ARGS+=(
-                --compatibility manylinux_2_28
-                --zig
-              )
-            elif [[ "{{.C_LIB}}" = "musl" ]]; then
-              MATURIN_ARGS+=(
-                --compatibility musllinux_1_2
-                --zig
-              )
+        if [[ "{{.TARGET_ABI}}" = "gnu" ]]; then
+          MATURIN_ARGS+=(
+            --compatibility manylinux_2_28
+            --zig
+          )
+        elif [[ "{{.TARGET_ABI}}" = "musl" ]]; then
+          MATURIN_ARGS+=(
+            --compatibility musllinux_1_2
+            --zig
+          )
+        fi
+
+        # Workaround for windows
+        if [[ "{{.TARGET_OS}}" = "windows" ]]; then
+          uv sync ${UV_ARGS[@]}
+          uv run ${UV_ARGS[@]} maturin develop --uv {{.RELEASE}}
+
+          # This file is a leftover from the previous build, delete it otherwise
+          # maturin will try to add it to the wheel, and it will fail
+          rm -f slim_bindings/*.pyd
+        fi
+
+        echo "Running maturin with the following args: ${MATURIN_ARGS[@]}"
+
+        PATH=${PATH}:{{.TOOLS_INSTALL_DIR}} \
+        uv run                              \
+          ${UV_ARGS[@]}                     \
+          maturin build                     \
+          ${MATURIN_ARGS[@]}
+
+  python:bindings:test:wheel:
+    desc: "Test wheel installation across Python versions 3.10-3.14"
+    vars:
+      WHEEL: '{{.WHEEL | default ""}}'
+      VERSION:
+        sh: grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/'
+      INTERPRETERS: '{{.INTERPRETERS | default "3.10 3.11 3.12 3.13 3.14"}}'
+    cmds:
+      - |
+        # Detect system and architecture
+        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+        ARCH=$(uname -m)
+
+        # Normalize architecture names
+        case "$ARCH" in
+          x86_64|amd64)
+            ARCH="x86_64"
+            ;;
+          aarch64|arm64)
+            ARCH="aarch64"
+            ;;
+          *)
+            echo "❌ Unsupported architecture: $ARCH"
+            exit 1
+            ;;
+        esac
+
+        # Determine wheel file based on OS
+        if [ -n "{{.WHEEL}}" ]; then
+          WHEEL_FILE="{{.WHEEL}}"
+        else
+          case "$OS" in
+            linux)
+              WHEEL_FILE="dist/slim_bindings-{{.VERSION}}-py3-none-manylinux_2_28_${ARCH}.whl"
+              ;;
+            darwin)
+              # macOS universal2 wheel
+              WHEEL_FILE="dist/slim_bindings-{{.VERSION}}-py3-none-macosx_11_0_${ARCH}.whl"
+              # Fallback to universal2
+              if [ ! -f "$WHEEL_FILE" ]; then
+                WHEEL_FILE="dist/slim_bindings-{{.VERSION}}-py3-none-macosx_11_0_universal2.whl"
+              fi
+              ;;
+            mingw*|msys*|cygwin*)
+              WHEEL_FILE="dist/slim_bindings-{{.VERSION}}-py3-none-win_${ARCH}.whl"
+              ;;
+            *)
+              echo "❌ Unsupported OS: $OS"
+              exit 1
+              ;;
+          esac
+        fi
+
+        echo "🔍 Detected system: $OS ($ARCH)"
+        echo "🧪 Testing wheel installation: $WHEEL_FILE"
+        echo "Python versions: {{.INTERPRETERS}}"
+        echo ""
+
+        if [ ! -f "$WHEEL_FILE" ]; then
+          echo "❌ Wheel file not found: $WHEEL_FILE"
+          echo ""
+          echo "Available wheels in dist/:"
+          ls -1 dist/*.whl 2>/dev/null || echo "  (no wheels found)"
+          exit 1
+        fi
+
+        uv python install {{.INTERPRETERS}}
+
+        FAILED=0
+        for py_version in {{.INTERPRETERS}}; do
+          echo "Testing Python ${py_version}..."
+
+          VENV_DIR=".test-venv-${py_version}"
+          rm -rf "$VENV_DIR"
+
+          if uv venv "$VENV_DIR" --python "${py_version}" 2>&1; then
+            if uv pip install --python "$VENV_DIR" "$WHEEL_FILE" 2>&1; then
+              if uv run --python "$VENV_DIR" python -c "import slim_bindings; print('  ✅ Module imported successfully')" 2>&1; then
+                echo "  ✅ Python ${py_version}: Installation and import successful"
+              else
+                echo "  ❌ Python ${py_version}: Import failed"
+                FAILED=$((FAILED + 1))
+              fi
+            else
+              echo "  ❌ Python ${py_version}: Installation failed"
+              FAILED=$((FAILED + 1))
             fi
+          else
+            echo "  ❌ Python ${py_version}: Failed to create venv"
+            FAILED=$((FAILED + 1))
+          fi
 
-            # Workaround for windows
-            if [[ "{{.OS}}" = "windows" ]]; then
-              uv sync ${UV_ARGS[@]}
-              uv run ${UV_ARGS[@]} maturin develop --uv {{.RELEASE}}
+          rm -rf "$VENV_DIR"
+          echo ""
+        done
 
-              # This file is a leftover from the previous build, delete it otherwise
-              # maturin will try to add it to the wheel, and it will fail
-              rm -f slim_bindings/*.pyd
-            fi
-
-            echo "Running maturin with the following args: ${MATURIN_ARGS[@]}"
-
-            uv run                            \
-              ${UV_ARGS[@]}                   \
-              maturin build                   \
-              ${MATURIN_ARGS[@]}
+        if [ $FAILED -eq 0 ]; then
+          echo "✅ All Python versions tested successfully!"
+        else
+          echo "❌ $FAILED Python version(s) failed"
+          exit 1
+        fi
 
   python:bindings:clean:
     desc: Clean build artifacts

@@ -76,8 +76,8 @@ async def test_end_to_end(server):
         await app_alice.set_route_async(bob_name, conn_id_alice)
 
     await asyncio.sleep(1)
-    print(alice_name.as_string())
-    print(bob_name.as_string())
+    print(alice_name)
+    print(bob_name)
 
     # create point to point session
     session_context_alice = await app_alice.create_session_async(
