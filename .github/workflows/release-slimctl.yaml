@@ -39,104 +39,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  release-matrix:
+  build-and-release:
     needs: prepare
-    runs-on: ${{ matrix.runner }}
-    
-    permissions:
-      contents: write
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # macOS builds - native runners
-          - goos: darwin
-            goarch: amd64
-            runner: macos-15-intel
-            use_cross: false
-          - goos: darwin
-            goarch: arm64
-            runner: macos-15
-            use_cross: false
-          # Linux builds - using goreleaser-cross for CGO
-          - goos: linux
-            goarch: amd64
-            runner: ubuntu-latest
-            use_cross: true
-          - goos: linux
-            goarch: arm64
-            runner: ubuntu-24.04-arm
-            use_cross: true
-          # Windows builds - using goreleaser-cross for CGO cross-compilation
-          - goos: windows
-            goarch: amd64
-            runner: ubuntu-latest
-            use_cross: true
-
-    defaults:
-      run:
-        shell: bash
-
-    steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Go (non-cross builds)
-        if: ${{ !matrix.use_cross }}
-        uses: ./.github/actions/setup-go
-
-      - name: Generate Go protobuf and gRPC code (non-cross builds)
-        if: ${{ !matrix.use_cross }}
-        run: task control-plane:proto:generate
-
-      - name: Set up Docker Buildx (for cross builds)
-        if: matrix.use_cross
-        uses: docker/setup-buildx-action@v3
-
-      - name: Run GoReleaser (native build)
-        if: ${{ !matrix.use_cross }}
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: release --split --skip=validate
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-
-      - name: Run GoReleaser Cross (CGO cross-compilation)
-        if: matrix.use_cross
-        run: |
-          docker run --rm \
-            --privileged \
-            -e CGO_ENABLED=1 \
-            -e GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}" \
-            -e GOOS=${{ matrix.goos }} \
-            -e GOARCH=${{ matrix.goarch }} \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v $(pwd):/workspace \
-            -w /workspace \
-            goreleaser/goreleaser-cross:v1.23 \
-            release --split --skip=validate
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: artifacts-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: .dist/*
-          retention-days: 1
-
-  finalize:
-    needs: release-matrix
     runs-on: ubuntu-latest
     
     permissions:
       contents: write
       pull-requests: write
+
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - name: Checkout Repo
@@ -150,26 +63,35 @@ jobs:
       - name: Generate Go protobuf and gRPC code
         run: task control-plane:proto:generate
 
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: .dist
-          pattern: artifacts-*
-          merge-multiple: true
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Merge and finalize release
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: continue --merge
+      - name: Run GoReleaser with goreleaser-cross
+        run: |
+          docker run --rm \
+            --privileged \
+            -e CGO_ENABLED=1 \
+            -e GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}" \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v $(pwd):/workspace \
+            -w /workspace \
+            goreleaser/goreleaser-cross:v1.23 \
+            release --clean
+
+      - name: Upload artifacts to release
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          echo "Uploading artifacts to release $TAG"
+          gh release upload "$TAG" .dist/*.tar.gz .dist/*.zip --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Copy cask to tap
         run: |
           mkdir -p ./Casks
-          cp .dist/slimctl/homebrew/Casks/slimctl.rb ./Casks/slimctl.rb
+          if [ -f .dist/homebrew/Casks/slimctl.rb ]; then
+            cp .dist/homebrew/Casks/slimctl.rb ./Casks/slimctl.rb
+          fi
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v7

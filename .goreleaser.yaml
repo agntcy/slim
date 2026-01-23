@@ -23,12 +23,12 @@ builds:
       - -X github.com/agntcy/slim/control-plane/slimctl/internal/cmd/version.gitCommit={{.Commit}}
       - -X github.com/agntcy/slim/control-plane/slimctl/internal/cmd/version.buildDate={{.Date}}
 
-    # Exclude combinations that don't make sense or aren't supported
+    # Exclude unsupported combinations
     ignore:
-      - goos: windows
-        goarch: arm64  # Windows ARM64 support is experimental
       - goos: darwin
-        goarch: 386    # macOS doesn't support 32-bit
+        goarch: 386
+      - goos: windows
+        goarch: 386
 
     hooks:
       pre:
