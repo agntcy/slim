@@ -1,0 +1,11 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+# Example configuration for running SLIM in insecure mode (no TLS)
+# This is suitable for local development and testing only.
+# DO NOT use in production environments.
+
+endpoint: "127.0.0.1:8080"
+
+tls:
+  insecure: true

@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	slim "github.com/agntcy/slim-bindings-go"
+	"github.com/agntcy/slim/control-plane/slimctl/internal/config"
 )
 
 // Manager defines management operations for a local slim instance.
@@ -22,20 +23,37 @@ type Manager interface {
 
 // Service is the default implementation of Manager.
 type manager struct {
-	Logger   *zap.Logger
-	Endpoint string
-	Port     string
+	Logger     *zap.Logger
+	SlimConfig *config.SlimConfig
 }
 
 // NewManager creates a new Manager. If logger is nil, a no-op logger is used.
-func NewManager(logger *zap.Logger, endpoint, port string) Manager {
+// Deprecated: Use NewManagerWithConfig instead.
+func NewManager(logger *zap.Logger, endpoint, _ string) Manager {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+	// Convert legacy parameters to SlimConfig for backward compatibility
+	slimConfig := &config.SlimConfig{
+		Endpoint: endpoint,
+		TLS: config.TLSConfig{
+			Insecure: true, // Legacy behavior was insecure
+		},
+	}
+	return &manager{
+		Logger:     logger,
+		SlimConfig: slimConfig,
+	}
+}
+
+// NewManagerWithConfig creates a new Manager with a SlimConfig. If logger is nil, a no-op logger is used.
+func NewManagerWithConfig(logger *zap.Logger, slimConfig *config.SlimConfig) Manager {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
 	return &manager{
-		Logger:   logger,
-		Endpoint: endpoint,
-		Port:     port,
+		Logger:     logger,
+		SlimConfig: slimConfig,
 	}
 }
 
@@ -46,17 +64,31 @@ func (s *manager) Start(_ context.Context) error {
 	// Initialize crypto
 	slim.InitializeWithDefaults()
 
-	// Start server
-	config := slim.NewInsecureServerConfig(s.Endpoint)
+	// Create server configuration from SlimConfig
+	serverConfig, err := s.SlimConfig.ToServerConfig()
+	if err != nil {
+		s.Logger.Error("failed to create server config", zap.Error(err))
+		return fmt.Errorf("failed to create server config: %w", err)
+	}
 
-	fmt.Printf("🌐 Starting server on %s...\n", s.Endpoint)
+	endpoint := s.SlimConfig.Endpoint
+
+	// Display startup information
+	fmt.Printf("🌐 Starting server on %s...\n", endpoint)
+	if !s.SlimConfig.TLS.Insecure {
+		fmt.Println("   TLS enabled")
+		fmt.Printf("   Certificate: %s\n", s.SlimConfig.TLS.CertFile)
+		fmt.Printf("   Key: %s\n", s.SlimConfig.TLS.KeyFile)
+	} else {
+		fmt.Println("   Running in insecure mode (no TLS)")
+	}
 	fmt.Println("   Waiting for clients to connect...")
 	fmt.Println()
 
 	// Run server in goroutine (it blocks)
 	serverErr := make(chan error, 1)
 	go func() {
-		if err := slim.GetGlobalService().RunServer(config); err != nil {
+		if err := slim.GetGlobalService().RunServer(serverConfig); err != nil {
 			serverErr <- err
 		}
 	}()
@@ -66,7 +98,7 @@ func (s *manager) Start(_ context.Context) error {
 
 	fmt.Println("✅ Server running and listening")
 	fmt.Println()
-	fmt.Printf("📡 Endpoint: %s\n", s.Endpoint)
+	fmt.Printf("📡 Endpoint: %s\n", endpoint)
 	fmt.Println()
 	fmt.Println("Press Ctrl+C to stop")
 
