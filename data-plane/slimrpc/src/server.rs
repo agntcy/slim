@@ -350,7 +350,7 @@ enum NotificationReceiver {
 /// # #[derive(Default)]
 /// # struct Request {}
 /// # impl slim_rpc::Decoder for Request {
-/// #     fn decode(_buf: Vec<u8>) -> std::result::Result<Self, Status> { Ok(Request::default()) }
+/// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(Request::default()) }
 /// # }
 /// # #[derive(Default)]
 /// # struct Response {}
@@ -535,7 +535,7 @@ impl Server {
     /// # #[derive(Default)]
     /// # struct Request { name: String }
     /// # impl slim_rpc::Decoder for Request {
-    /// #     fn decode(_buf: Vec<u8>) -> std::result::Result<Self, Status> { Ok(Request::default()) }
+    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(Request::default()) }
     /// # }
     /// # #[derive(Default)]
     /// # struct Response { greeting: String }
@@ -591,7 +591,7 @@ impl Server {
     /// # #[derive(Default)]
     /// # struct Request { count: i32 }
     /// # impl slim_rpc::Decoder for Request {
-    /// #     fn decode(_buf: Vec<u8>) -> std::result::Result<Self, Status> { Ok(Request::default()) }
+    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(Request::default()) }
     /// # }
     /// # #[derive(Default)]
     /// # struct Response { value: i32 }
@@ -649,7 +649,7 @@ impl Server {
     /// # #[derive(Default)]
     /// # struct Request { value: i32 }
     /// # impl slim_rpc::Decoder for Request {
-    /// #     fn decode(_buf: Vec<u8>) -> std::result::Result<Self, Status> { Ok(Request::default()) }
+    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(Request::default()) }
     /// # }
     /// # #[derive(Default)]
     /// # struct Response { sum: i32 }
@@ -711,7 +711,7 @@ impl Server {
     /// # #[derive(Default)]
     /// # struct Request { message: String }
     /// # impl slim_rpc::Decoder for Request {
-    /// #     fn decode(_buf: Vec<u8>) -> std::result::Result<Self, Status> { Ok(Request::default()) }
+    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(Request::default()) }
     /// # }
     /// # #[derive(Default)]
     /// # struct Response { reply: String }

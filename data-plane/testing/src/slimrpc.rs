@@ -24,9 +24,9 @@ impl Encoder for TestRequest {
 }
 
 impl Decoder for TestRequest {
-    fn decode(buf: Vec<u8>) -> Result<Self, Status> {
+    fn decode(buf: impl Into<Vec<u8>>) -> Result<Self, Status> {
         let (decoded, _len): (TestRequest, usize) =
-            bincode::decode_from_slice(&buf, bincode::config::standard())
+            bincode::decode_from_slice(&buf.into(), bincode::config::standard())
                 .map_err(|e| Status::invalid_argument(format!("Decoding error: {}", e)))?;
 
         Ok(decoded)
@@ -49,9 +49,9 @@ impl Encoder for TestResponse {
 }
 
 impl Decoder for TestResponse {
-    fn decode(buf: Vec<u8>) -> Result<Self, Status> {
+    fn decode(buf: impl Into<Vec<u8>>) -> Result<Self, Status> {
         let (decoded, _len): (TestResponse, usize) =
-            bincode::decode_from_slice(&buf, bincode::config::standard())
+            bincode::decode_from_slice(&buf.into(), bincode::config::standard())
                 .map_err(|e| Status::invalid_argument(format!("Decoding error: {}", e)))?;
 
         Ok(decoded)

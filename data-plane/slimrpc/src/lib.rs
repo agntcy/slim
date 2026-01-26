@@ -39,7 +39,7 @@
 //! # #[derive(Default)]
 //! # struct Response {}
 //! # impl slim_rpc::Decoder for Response {
-//! #     fn decode(_buf: Vec<u8>) -> std::result::Result<Self, Status> { Ok(Response::default()) }
+//! #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(Response::default()) }
 //! # }
 //! # let request = Request::default();
 //! // Create a channel
@@ -64,7 +64,7 @@
 //! # #[derive(Default)]
 //! # struct Request {}
 //! # impl slim_rpc::Decoder for Request {
-//! #     fn decode(_buf: Vec<u8>) -> std::result::Result<Self, Status> { Ok(Request::default()) }
+//! #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(Request::default()) }
 //! # }
 //! # #[derive(Default)]
 //! # struct Response {}
@@ -167,7 +167,7 @@ pub type Result<T> = std::result::Result<T, Status>;
 /// # #[derive(Default)]
 /// # struct MyRequest {}
 /// # impl slim_rpc::Decoder for MyRequest {
-/// #     fn decode(_buf: Vec<u8>) -> std::result::Result<Self, Status> { Ok(MyRequest::default()) }
+/// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(MyRequest::default()) }
 /// # }
 /// # #[derive(Default)]
 /// # struct MyResponse {}
@@ -201,7 +201,7 @@ pub type RequestStream<T> = Box<dyn futures::Stream<Item = Result<T>> + Send + U
 /// # #[derive(Default, Clone)]
 /// # struct MyRequest {}
 /// # impl slim_rpc::Decoder for MyRequest {
-/// #     fn decode(_buf: Vec<u8>) -> std::result::Result<Self, Status> { Ok(MyRequest::default()) }
+/// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(MyRequest::default()) }
 /// # }
 /// # #[derive(Default, Clone)]
 /// # struct MyResponse {}

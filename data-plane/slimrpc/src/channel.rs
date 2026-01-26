@@ -162,7 +162,7 @@ impl Channel {
     /// # #[derive(Default)]
     /// # struct Response {}
     /// # impl slim_rpc::Decoder for Response {
-    /// #     fn decode(_buf: Vec<u8>) -> std::result::Result<Self, Status> { Ok(Response::default()) }
+    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(Response::default()) }
     /// # }
     /// # async fn example(channel: Channel) -> std::result::Result<(), Status> {
     /// let request = Request::default();
@@ -247,7 +247,7 @@ impl Channel {
     /// # #[derive(Default)]
     /// # struct Response { value: i32 }
     /// # impl slim_rpc::Decoder for Response {
-    /// #     fn decode(_buf: Vec<u8>) -> std::result::Result<Self, Status> { Ok(Response::default()) }
+    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(Response::default()) }
     /// # }
     /// # async fn example(channel: Channel) -> std::result::Result<(), Status> {
     /// let request = Request { count: 10 };
@@ -319,8 +319,6 @@ impl Channel {
                 let response = Res::decode(received.payload)?;
                 yield response;
             }
-
-            // Stream completed successfully, keep session in cache
         }
     }
 
@@ -352,7 +350,7 @@ impl Channel {
     /// # #[derive(Default)]
     /// # struct Response { total: usize }
     /// # impl slim_rpc::Decoder for Response {
-    /// #     fn decode(_buf: Vec<u8>) -> std::result::Result<Self, Status> { Ok(Response::default()) }
+    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(Response::default()) }
     /// # }
     /// # async fn example(channel: Channel) -> std::result::Result<(), Status> {
     /// let requests = vec![
@@ -440,7 +438,7 @@ impl Channel {
     /// # #[derive(Default)]
     /// # struct Response { reply: String }
     /// # impl slim_rpc::Decoder for Response {
-    /// #     fn decode(_buf: Vec<u8>) -> std::result::Result<Self, Status> { Ok(Response::default()) }
+    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(Response::default()) }
     /// # }
     /// # async fn example(channel: Channel) -> std::result::Result<(), Status> {
     /// let requests = vec![
@@ -481,8 +479,6 @@ impl Channel {
         let service_name = service_name.to_string();
         let method_name = method_name.to_string();
         let channel = self.clone();
-
-        println!("Creating session for {}-{}", service_name, method_name);
 
         try_stream! {
             let (session, ctx, lock) = channel
@@ -526,8 +522,6 @@ impl Channel {
                 let response = Res::decode(received.payload)?;
                 yield response;
             }
-
-            // Stream completed successfully, keep session in cache
         }
     }
 
@@ -791,7 +785,6 @@ impl Channel {
     {
         let mut handles = vec![];
         while let Some(request) = request_stream.next().await {
-            println!("Sending request for {}-{}", service_name, method_name);
             let request_bytes = request.encode()?;
             let handle = session
                 .publish(
@@ -800,7 +793,6 @@ impl Channel {
                     Some(ctx.metadata().as_map().clone()),
                 )
                 .await?;
-            println!("Sent request for {}-{}", service_name, method_name);
             handles.push(handle);
         }
 

@@ -17,7 +17,7 @@ pub trait Encoder {
 /// Trait for decoding messages from bytes
 pub trait Decoder: Default {
     /// Decode a message from bytes
-    fn decode(buf: Vec<u8>) -> Result<Self, Status>;
+    fn decode(buf: impl Into<Vec<u8>>) -> Result<Self, Status>;
 }
 
 /// Combined codec trait for types that can be both encoded and decoded
@@ -34,8 +34,8 @@ impl Encoder for Vec<u8> {
 }
 
 impl Decoder for Vec<u8> {
-    fn decode(buf: Vec<u8>) -> Result<Self, Status> {
-        Ok(buf)
+    fn decode(buf: impl Into<Vec<u8>>) -> Result<Self, Status> {
+        Ok(buf.into())
     }
 }
 
@@ -56,8 +56,8 @@ mod tests {
     }
 
     impl Decoder for TestMessage {
-        fn decode(buf: Vec<u8>) -> Result<Self, Status> {
-            Ok(TestMessage { data: buf })
+        fn decode(buf: impl Into<Vec<u8>>) -> Result<Self, Status> {
+            Ok(TestMessage { data: buf.into() })
         }
     }
 
