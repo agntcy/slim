@@ -2,39 +2,18 @@ version: 2
 
 dist: .dist/slimctl
 
+# Skip builds - binaries are pre-built by the reusable workflow
+# We'll create archives manually in the GitHub Actions workflow
 builds:
-  - main: cmd/main.go
-    id: slimctl
-    binary: slimctl
-    dir: control-plane/slimctl
-    goos:
-      - darwin
-      - linux
-      - windows
-    goarch:
-      - amd64
-      - arm64
-      - 386
+  - skip: true
 
-    ldflags:
-      - -X github.com/agntcy/slim/control-plane/slimctl/internal/cmd/version.semVersion={{.Version}}
-      - -X github.com/agntcy/slim/control-plane/slimctl/internal/cmd/version.gitCommit={{.Commit}}
-      - -X github.com/agntcy/slim/control-plane/slimctl/internal/cmd/version.buildDate={{.Date}}
-
-    hooks:
-      pre:
-        - cmd: go mod tidy
-          dir: control-plane/slimctl
-          output: true
-        - cmd: task control-plane:gogen
-          dir: control-plane
-          output: true
-
+# Disable archives since we're creating them manually
 archives:
-  - name_template: "slimctl_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  - format: binary
 
+# Disable checksums since we're creating them manually  
 checksum:
-  name_template: "slimctl_checksums.txt"
+  disable: true
 
 changelog:
   disable: true
