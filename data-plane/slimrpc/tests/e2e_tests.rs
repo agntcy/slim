@@ -1338,3 +1338,252 @@ async fn test_concurrent_calls_serialized() {
 
     env.shutdown().await;
 }
+
+/// Test that multiple calls to the same server from the same client
+/// towards different gRPC handler types all work correctly
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_multiple_handler_types_same_client() {
+    let mut env = TestEnv::new("test-multi-handlers").await;
+
+    // Counters to track calls to each handler
+    let unary_count = Arc::new(Mutex::new(0));
+    let stream_unary_count = Arc::new(Mutex::new(0));
+    let unary_stream_count = Arc::new(Mutex::new(0));
+    let stream_stream_count = Arc::new(Mutex::new(0));
+
+    // Register unary-unary handler
+    let uu_counter = unary_count.clone();
+    env.server
+        .register_unary_unary(
+            "MultiService",
+            "UnaryUnary",
+            move |request: TestRequest, _ctx: Context| {
+                let counter = uu_counter.clone();
+                async move {
+                    let mut c = counter.lock().await;
+                    *c += 1;
+                    drop(c);
+
+                    Ok(TestResponse {
+                        result: format!("UnaryUnary: {}", request.message),
+                        count: request.value * 10,
+                    })
+                }
+            },
+        )
+        .await
+        .expect("Failed to register unary-unary");
+
+    // Register stream-unary handler
+    let su_counter = stream_unary_count.clone();
+    env.server
+        .register_stream_unary(
+            "MultiService",
+            "StreamUnary",
+            move |mut stream: RequestStream<TestRequest>, _ctx: Context| {
+                let counter = su_counter.clone();
+                async move {
+                    let mut c = counter.lock().await;
+                    *c += 1;
+                    drop(c);
+
+                    let mut sum = 0;
+                    let mut messages = vec![];
+                    while let Some(result) = stream.next().await {
+                        let req = result?;
+                        sum += req.value;
+                        messages.push(req.message);
+                    }
+
+                    Ok(TestResponse {
+                        result: format!("StreamUnary: {}", messages.join(",")),
+                        count: sum,
+                    })
+                }
+            },
+        )
+        .await
+        .expect("Failed to register stream-unary");
+
+    // Register unary-stream handler
+    let us_counter = unary_stream_count.clone();
+    env.server
+        .register_unary_stream(
+            "MultiService",
+            "UnaryStream",
+            move |request: TestRequest, _ctx: Context| {
+                let counter = us_counter.clone();
+                async move {
+                    let mut c = counter.lock().await;
+                    *c += 1;
+                    drop(c);
+
+                    let responses = (0..request.value).map(move |i| {
+                        Ok(TestResponse {
+                            result: format!("UnaryStream-{}: {}", i, request.message.clone()),
+                            count: i,
+                        })
+                    });
+
+                    Ok(stream::iter(responses))
+                }
+            },
+        )
+        .await
+        .expect("Failed to register unary-stream");
+
+    // Register stream-stream handler
+    let ss_counter = stream_stream_count.clone();
+    env.server
+        .register_stream_stream(
+            "MultiService",
+            "StreamStream",
+            move |mut stream: RequestStream<TestRequest>, _ctx: Context| {
+                let counter = ss_counter.clone();
+                async move {
+                    let mut c = counter.lock().await;
+                    *c += 1;
+                    drop(c);
+
+                    let response_stream = async_stream::stream! {
+                        while let Some(result) = stream.next().await {
+                            match result {
+                                Ok(req) => {
+                                    yield Ok(TestResponse {
+                                        result: format!("StreamStream: {}", req.message),
+                                        count: req.value * 100,
+                                    });
+                                }
+                                Err(e) => {
+                                    yield Err(e);
+                                    break;
+                                }
+                            }
+                        }
+                    };
+
+                    Ok(response_stream)
+                }
+            },
+        )
+        .await
+        .expect("Failed to register stream-stream");
+
+    // Now test calling each handler multiple times from the same client
+
+    // Test 1: Call unary-unary handler twice
+    for i in 0..2 {
+        let req = TestRequest {
+            message: format!("uu-call-{}", i),
+            value: i + 1,
+        };
+        let resp: TestResponse = env
+            .channel
+            .unary("MultiService", "UnaryUnary", req, None, None)
+            .await
+            .expect("UnaryUnary call failed");
+
+        assert_eq!(resp.result, format!("UnaryUnary: uu-call-{}", i));
+        assert_eq!(resp.count, (i + 1) * 10);
+    }
+
+    // Test 2: Call stream-unary handler twice
+    for i in 0..2 {
+        let requests = vec![
+            TestRequest {
+                message: format!("su-msg-{}-1", i),
+                value: 1,
+            },
+            TestRequest {
+                message: format!("su-msg-{}-2", i),
+                value: 2,
+            },
+            TestRequest {
+                message: format!("su-msg-{}-3", i),
+                value: 3,
+            },
+        ];
+
+        let resp: TestResponse = env
+            .channel
+            .stream_unary(
+                "MultiService",
+                "StreamUnary",
+                stream::iter(requests),
+                None,
+                None,
+            )
+            .await
+            .expect("StreamUnary call failed");
+
+        assert_eq!(
+            resp.result,
+            format!("StreamUnary: su-msg-{}-1,su-msg-{}-2,su-msg-{}-3", i, i, i)
+        );
+        assert_eq!(resp.count, 6);
+    }
+
+    // Test 3: Call unary-stream handler twice
+    for i in 0..2 {
+        let req = TestRequest {
+            message: format!("us-call-{}", i),
+            value: 3,
+        };
+
+        let response_stream =
+            env.channel
+                .unary_stream("MultiService", "UnaryStream", req, None, None);
+
+        pin_mut!(response_stream);
+
+        let mut count = 0;
+        while let Some(result) = response_stream.next().await {
+            let resp: TestResponse = result.expect("Stream item failed");
+            assert_eq!(resp.result, format!("UnaryStream-{}: us-call-{}", count, i));
+            assert_eq!(resp.count, count);
+            count += 1;
+        }
+        assert_eq!(count, 3);
+    }
+
+    // Test 4: Call stream-stream handler twice
+    for i in 0..2 {
+        let requests = vec![
+            TestRequest {
+                message: format!("ss-msg-{}-1", i),
+                value: 1,
+            },
+            TestRequest {
+                message: format!("ss-msg-{}-2", i),
+                value: 2,
+            },
+        ];
+
+        let response_stream =
+            env.channel
+                .stream_stream("MultiService", "StreamStream", stream::iter(requests), None, None);
+
+        pin_mut!(response_stream);
+
+        let mut received = vec![];
+        while let Some(result) = response_stream.next().await {
+            let resp: TestResponse = result.expect("Stream item failed");
+            received.push(resp);
+        }
+
+        assert_eq!(received.len(), 2);
+        assert_eq!(received[0].result, format!("StreamStream: ss-msg-{}-1", i));
+        assert_eq!(received[0].count, 100);
+        assert_eq!(received[1].result, format!("StreamStream: ss-msg-{}-2", i));
+        assert_eq!(received[1].count, 200);
+    }
+
+    // Verify each handler was called the expected number of times
+    assert_eq!(*unary_count.lock().await, 2);
+    assert_eq!(*stream_unary_count.lock().await, 2);
+    assert_eq!(*unary_stream_count.lock().await, 2);
+    assert_eq!(*stream_stream_count.lock().await, 2);
+
+    env.shutdown().await;
+}

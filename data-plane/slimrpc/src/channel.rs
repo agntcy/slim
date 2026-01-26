@@ -47,6 +47,18 @@ impl Clone for CachedSession {
     }
 }
 
+/// Inner channel state
+struct ChannelInner {
+    /// The SLIM app instance
+    app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
+    /// Remote service name (base name, will be extended with service/method)
+    remote: Name,
+    /// Optional connection ID for session creation propagation
+    connection_id: Option<u64>,
+    /// Cache of sessions keyed by (service_name, method_name)
+    session_cache: Mutex<HashMap<String, CachedSession>>,
+}
+
 /// Client-side channel for making RPC calls
 ///
 /// A Channel manages the connection to a remote service and provides methods
@@ -56,14 +68,7 @@ impl Clone for CachedSession {
 /// Only one RPC can be active on a session at a time (no multiplexing).
 #[derive(Clone)]
 pub struct Channel {
-    /// The SLIM app instance
-    app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
-    /// Remote service name (base name, will be extended with service/method)
-    remote: Name,
-    /// Optional connection ID for session creation propagation
-    connection_id: Option<u64>,
-    /// Cache of sessions keyed by (service_name, method_name)
-    session_cache: Arc<Mutex<HashMap<String, CachedSession>>>,
+    inner: Arc<ChannelInner>,
 }
 
 impl Channel {
@@ -120,10 +125,12 @@ impl Channel {
         connection_id: Option<u64>,
     ) -> Self {
         Self {
-            app,
-            remote,
-            connection_id,
-            session_cache: Arc::new(Mutex::new(HashMap::new())),
+            inner: Arc::new(ChannelInner {
+                app,
+                remote,
+                connection_id,
+                session_cache: Mutex::new(HashMap::new()),
+            }),
         }
     }
 
@@ -378,7 +385,7 @@ impl Channel {
         S: Stream<Item = Req> + Unpin,
     {
         let (session, ctx, lock) = self
-            .get_or_create_session(service_name, method_name, timeout, metadata)
+            .get_or_create_session(service_name, method_name, timeout, metadata.clone())
             .await?;
 
         // Acquire lock to ensure only one RPC at a time
@@ -536,7 +543,7 @@ impl Channel {
 
         // Try to get from cache first
         {
-            let cache = self.session_cache.lock().await;
+            let cache = self.inner.session_cache.lock().await;
             if let Some(cached) = cache.get(&cache_key) {
                 tracing::debug!(
                     "Reusing cached session for {}/{}",
@@ -560,7 +567,7 @@ impl Channel {
 
         // Store in cache
         {
-            let mut cache = self.session_cache.lock().await;
+            let mut cache = self.inner.session_cache.lock().await;
             cache.insert(
                 cache_key,
                 CachedSession {
@@ -577,7 +584,7 @@ impl Channel {
     /// Remove a session from the cache and delete it from the app
     async fn remove_session_from_cache(&self, service_name: &str, method_name: &str) {
         let cache_key = format!("{}/{}", service_name, method_name);
-        let mut cache = self.session_cache.lock().await;
+        let mut cache = self.inner.session_cache.lock().await;
         if let Some(cached) = cache.remove(&cache_key) {
             tracing::debug!(
                 "Removed session from cache for {}/{}",
@@ -586,7 +593,7 @@ impl Channel {
             );
 
             // Close the session properly
-            let _ = cached.session.close(&self.app).await;
+            let _ = cached.session.close(&self.inner.app).await;
         }
     }
 
@@ -607,7 +614,7 @@ impl Channel {
 
         // Build method-specific subscription name (e.g., org/namespace/app-Service-Method)
         let method_subscription_name =
-            crate::build_method_subscription_name(&self.remote, service_name, method_name);
+            crate::build_method_subscription_name(&self.inner.remote, service_name, method_name);
 
         // Create the session with optional connection ID for propagation
         tracing::debug!(
@@ -615,7 +622,7 @@ impl Channel {
             service_name,
             method_name,
             method_subscription_name,
-            self.connection_id
+            self.inner.connection_id
         );
 
         // Create session configuration
@@ -630,7 +637,7 @@ impl Channel {
 
         // Create session to the method-specific subscription name
         let (session_ctx, completion) = self
-            .app
+            .inner.app
             .create_session(slim_config, method_subscription_name.clone(), None)
             .await
             .map_err(|e| Status::unavailable(format!("Failed to create session: {}", e)))?;
@@ -683,7 +690,7 @@ impl Channel {
     /// # }
     /// ```
     pub fn app(&self) -> &Arc<SlimApp<AuthProvider, AuthVerifier>> {
-        &self.app
+        &self.inner.app
     }
 
     /// Get the remote service name
@@ -698,7 +705,7 @@ impl Channel {
     /// # }
     /// ```
     pub fn remote(&self) -> &Name {
-        &self.remote
+        &self.inner.remote
     }
 
     /// Get the optional connection ID used for session propagation
@@ -714,7 +721,7 @@ impl Channel {
     /// # }
     /// ```
     pub fn connection_id(&self) -> Option<u64> {
-        self.connection_id
+        self.inner.connection_id
     }
 
     /// Close a cached session for a specific service/method
