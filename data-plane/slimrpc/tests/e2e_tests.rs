@@ -667,6 +667,8 @@ async fn test_empty_stream_unary() {
         "TestService",
         "EmptySum",
         |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
+            println!("Processing empty stream...");
+
             let mut count = 0;
             while let Some(_) = request_stream.next().await {
                 count += 1;

@@ -759,17 +759,18 @@ impl Server {
                 session_result = self.listen_for_session(None) => {
                     let session_ctx = session_result?;
 
-                    // Spawn a task to handle this session
+                    // Spawn a task to handle this session (processes multiple RPCs in a loop)
                     let server = self.clone();
                     let handle = tokio::spawn(async move {
-                        let session = session_ctx.session.clone();
+                        let session_weak = session_ctx.session.clone();
+                        let session = Session::new(session_ctx);
 
-                        if let Err(e) = server.handle_session(session_ctx).await {
+                        if let Err(e) = server.handle_session_with_wrapper(session).await {
                             tracing::error!("Error handling session: {}", e);
                         }
 
-                        // Delete the session
-                        if let Some(session) = session.upgrade() {
+                        // Delete the session when done
+                        if let Some(session) = session_weak.upgrade() {
                             if let Ok(handle) = server.inner.app.delete_session(session.as_ref()) {
                                 let _ = handle.await;
                             }
@@ -892,8 +893,8 @@ impl Server {
         }
     }
 
-    /// Handle an incoming session
-    async fn handle_session(&self, session_ctx: SessionContext) -> Result<(), Status> {
+    /// Handle an incoming session wrapper (processes multiple RPCs in a loop)
+    async fn handle_session_with_wrapper(&self, session: Session) -> Result<(), Status> {
         // Get a drain watch handle for this session
         let drain_watch = self
             .inner
@@ -902,69 +903,102 @@ impl Server {
             .clone()
             .ok_or_else(|| Status::internal("drain watch not available"))?;
 
-        // Create context from the session context
-        let ctx = Context::from_session(&session_ctx);
+        // Create initial context from session wrapper
+        let initial_ctx = Context::from_session_wrapper(&session).await;
 
-        // Wrap the session context
-        let session = Session::new(session_ctx);
-
-        // Extract service and method from metadata
-        let metadata = session.metadata().await;
-        let service_name = metadata
-            .get("slimrpc-service")
-            .ok_or_else(|| Status::invalid_argument("Missing service name in metadata"))?
-            .clone();
-        let method_name = metadata
-            .get("slimrpc-method")
-            .ok_or_else(|| Status::invalid_argument("Missing method name in metadata"))?
-            .clone();
-
-        // Get the handler based on type
-        let method_path = format!("{}/{}", service_name, method_name);
-
-        // Try to get as a stream handler first (for stream-unary and stream-stream)
-        if let Some((stream_handler, handler_type)) =
-            self.inner.registry.get_stream_handler(&method_path)
-        {
-            return self
-                .handle_stream_based_method(stream_handler, handler_type, &session, ctx)
-                .await;
-        }
-
-        // Otherwise get as a regular handler (for unary-unary and unary-stream)
-        let (handler, handler_type) = self
-            .inner
-            .registry
-            .get_handler(&method_path)
-            .ok_or_else(|| Status::unimplemented(format!("Method not found: {}", method_path)))?;
-
-        // Check deadline
-        if ctx.is_deadline_exceeded() {
-            return self
-                .send_error(&session, Status::deadline_exceeded("Deadline exceeded"))
-                .await;
-        }
-
-        // Handle based on type (only unary-input handlers reach here)
-        tokio::select! {
-            result = async {
-                match handler_type {
-                    HandlerType::UnaryUnary => {
-                        self.handle_unary_unary(handler, &session, ctx).await
-                    }
-                    HandlerType::UnaryStream => {
-                        self.handle_unary_stream(handler, &session, ctx).await
-                    }
-                    _ => {
-                        Err(Status::internal("Invalid handler type for unary-input method"))
+        // Loop to handle multiple RPCs on the same session
+        loop {
+            // Wait for the first message of the next RPC
+            let first_message = tokio::select! {
+                result = session.get_message(None) => {
+                    match result {
+                        Ok(msg) => msg,
+                        Err(e) => {
+                            tracing::debug!("Session closed or error receiving message: {}", e);
+                            break;
+                        }
                     }
                 }
-            } => result,
-            _ = drain_watch.clone().signaled() => {
-                tracing::debug!("Session handler terminated due to server shutdown");
-                Err(Status::unavailable("Server is shutting down"))
+                _ = drain_watch.clone().signaled() => {
+                    tracing::debug!("Session handler terminated due to server shutdown");
+                    return Err(Status::unavailable("Server is shutting down"));
+                }
+            };
+
+            // Extract service and method from message metadata
+            let service_name = match first_message.metadata.get("slimrpc-service") {
+                Some(name) => name.clone(),
+                None => {
+                    tracing::debug!("Missing service name in message metadata");
+                    continue;
+                }
+            };
+            let method_name = match first_message.metadata.get("slimrpc-method") {
+                Some(name) => name.clone(),
+                None => {
+                    tracing::debug!("Missing method name in message metadata");
+                    continue;
+                }
+            };
+
+            tracing::debug!("Processing RPC: {}/{}", service_name, method_name);
+
+            // Create context for this RPC by cloning initial context and adding message metadata
+            let ctx = initial_ctx.clone().with_message_metadata(first_message.metadata.clone());
+
+            // Get the handler based on type
+            let method_path = format!("{}/{}", service_name, method_name);
+
+            // Try to get as a stream handler first (for stream-unary and stream-stream)
+            let result = if let Some((stream_handler, handler_type)) =
+                self.inner.registry.get_stream_handler(&method_path)
+            {
+                self
+                    .handle_stream_based_method(stream_handler, handler_type, &session, ctx, first_message, &drain_watch)
+                    .await
+            } else if let Some((handler, handler_type)) = self.inner.registry.get_handler(&method_path) {
+                // Check deadline
+                if ctx.is_deadline_exceeded() {
+                    self
+                        .send_error(&session, Status::deadline_exceeded("Deadline exceeded"))
+                        .await
+                } else {
+                    // Handle based on type (only unary-input handlers reach here)
+                    tokio::select! {
+                        result = async {
+                            match handler_type {
+                                HandlerType::UnaryUnary => {
+                                    self.handle_unary_unary(handler, &session, ctx, first_message).await
+                                }
+                                HandlerType::UnaryStream => {
+                                    self.handle_unary_stream(handler, &session, ctx, first_message).await
+                                }
+                                _ => {
+                                    Err(Status::internal("Invalid handler type for unary-input method"))
+                                }
+                            }
+                        } => result,
+                        _ = drain_watch.clone().signaled() => {
+                            tracing::debug!("Session handler terminated due to server shutdown");
+                            return Err(Status::unavailable("Server is shutting down"));
+                        }
+                    }
+                }
+            } else {
+                self.send_error(&session, Status::unimplemented(format!("Method not found: {}", method_path))).await
+            };
+
+            if let Err(e) = result {
+                tracing::error!("Error handling RPC {}: {}", method_path, e);
+                // On error, break the loop and close the session
+                break;
             }
+
+            // Successfully handled one RPC, continue to handle next RPC on same session
+            tracing::debug!("Completed RPC {}, ready for next RPC on same session", method_path);
         }
+
+        Ok(())
     }
 
     /// Handle unary-unary RPC
@@ -973,12 +1007,10 @@ impl Server {
         handler: RpcHandler,
         session: &Session,
         ctx: Context,
+        first_message: crate::ReceivedMessage,
     ) -> Result<(), Status> {
-        // Receive request
-        let received = session
-            .get_message(None)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to receive request: {}", e)))?;
+        // Use the first message that was already received
+        let received = first_message;
 
         // Call handler
         let response = match handler(received.payload, ctx).await {
@@ -1018,12 +1050,10 @@ impl Server {
         handler: RpcHandler,
         session: &Session,
         ctx: Context,
+        first_message: crate::ReceivedMessage,
     ) -> Result<(), Status> {
-        // Receive request
-        let received = session
-            .get_message(None)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to receive request: {}", e)))?;
+        // Use the first message that was already received
+        let received = first_message;
 
         // Clone metadata before moving ctx into handler
         let end_metadata = ctx.metadata().as_map().clone();
@@ -1087,20 +1117,17 @@ impl Server {
         handler_type: HandlerType,
         session: &Session,
         ctx: Context,
+        first_message: crate::ReceivedMessage,
+        drain_watch: &drain::Watch,
     ) -> Result<(), Status> {
-        // Get a drain watch handle for this session
-        let drain_watch = self
-            .inner
-            .drain_watch
-            .read()
-            .clone()
-            .ok_or_else(|| Status::internal("drain watch not available"))?;
-
         // Create a stream of incoming requests
         let session_clone = session.clone();
         let drain_for_stream = drain_watch.clone();
 
         let request_stream = stream! {
+            // Yield the first message
+            yield Ok(first_message.payload);
+
             loop {
                 let received_result = tokio::select! {
                     result = session_clone.get_message(None) => result,
@@ -1110,7 +1137,7 @@ impl Server {
                     }
                 };
 
-                println!("Received message in stream-based method");
+                tracing::debug!("Received message in stream-based method");
 
                 let received = match received_result {
                     Ok(msg) => msg,

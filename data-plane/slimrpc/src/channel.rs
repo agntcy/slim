@@ -6,6 +6,7 @@
 //! Provides a Channel type for making RPC calls to remote services.
 //! Supports all gRPC streaming patterns over SLIM sessions.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -14,6 +15,7 @@ use display_error_chain::ErrorChainExt;
 use futures::StreamExt;
 use futures::future::join_all;
 use futures::stream::Stream;
+use tokio::sync::Mutex;
 
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_datapath::api::ProtoSessionType;
@@ -31,10 +33,33 @@ const RPC_SERVICE_KEY: &str = "slimrpc-service";
 /// Metadata key for RPC method name
 const RPC_METHOD_KEY: &str = "slimrpc-method";
 
+/// Cached session entry with lock for serialization
+struct CachedSession {
+    /// The session instance
+    session: Session,
+    /// Context for the session
+    context: Context,
+    /// Mutex to ensure only one RPC at a time
+    lock: Arc<Mutex<()>>,
+}
+
+impl Clone for CachedSession {
+    fn clone(&self) -> Self {
+        Self {
+            session: self.session.clone(),
+            context: self.context.clone(),
+            lock: Arc::clone(&self.lock),
+        }
+    }
+}
+
 /// Client-side channel for making RPC calls
 ///
 /// A Channel manages the connection to a remote service and provides methods
 /// for making RPC calls with different streaming patterns.
+/// 
+/// Sessions are cached and reused for multiple RPC calls to improve performance.
+/// Only one RPC can be active on a session at a time (no multiplexing).
 #[derive(Clone)]
 pub struct Channel {
     /// The SLIM app instance
@@ -43,6 +68,8 @@ pub struct Channel {
     remote: Name,
     /// Optional connection ID for session creation propagation
     connection_id: Option<u64>,
+    /// Cache of sessions keyed by (service_name, method_name)
+    session_cache: Arc<Mutex<HashMap<String, CachedSession>>>,
 }
 
 impl Channel {
@@ -102,6 +129,7 @@ impl Channel {
             app,
             remote,
             connection_id,
+            session_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -159,20 +187,30 @@ impl Channel {
         Req: Encoder,
         Res: Decoder,
     {
-        tracing::debug!("Creating session for {}-{}", service_name, method_name);
+        tracing::debug!("Getting session for {}-{}", service_name, method_name);
 
-        let (session, ctx) = self
-            .create_session(service_name, method_name, timeout, metadata)
+        let (session, ctx, lock) = self
+            .get_or_create_session(service_name, method_name, timeout, metadata)
             .await?;
 
-        tracing::debug!("Created session for {}-{}", service_name, method_name);
+        // Acquire lock to ensure only one RPC at a time
+        let _guard = lock.lock().await;
+
+        tracing::debug!("Acquired session lock for {}-{}", service_name, method_name);
 
         // Send request
         self.send_request(&session, &ctx, request, service_name, method_name)
             .await?;
 
         // Receive and decode response
-        self.receive_response(&session).await
+        let result = self.receive_response(&session).await;
+        
+        // If there was an error, remove the session from cache
+        if result.is_err() {
+            self.remove_session_from_cache(service_name, method_name).await;
+        }
+        
+        result
     }
 
     /// Make a unary-stream RPC call
@@ -240,9 +278,12 @@ impl Channel {
         let channel = self.clone();
 
         try_stream! {
-            let (session, ctx) = channel
-                .create_session(&service_name, &method_name, timeout, metadata)
+            let (session, ctx, lock) = channel
+                .get_or_create_session(&service_name, &method_name, timeout, metadata)
                 .await?;
+
+            // Acquire lock to ensure only one RPC at a time
+            let _guard = lock.lock().await;
 
             // Send request
             channel.send_request(&session, &ctx, request, &service_name, &method_name)
@@ -272,6 +313,8 @@ impl Channel {
                 let response = Res::decode(received.payload)?;
                 yield response;
             }
+            
+            // Stream completed successfully, keep session in cache
         }
     }
 
@@ -335,16 +378,26 @@ impl Channel {
         Res: Decoder,
         S: Stream<Item = Req> + Unpin,
     {
-        let (session, ctx) = self
-            .create_session(service_name, method_name, timeout, metadata)
+        let (session, ctx, lock) = self
+            .get_or_create_session(service_name, method_name, timeout, metadata)
             .await?;
+
+        // Acquire lock to ensure only one RPC at a time
+        let _guard = lock.lock().await;
 
         // Send all requests and end-of-stream marker
         self.send_request_stream(&session, &ctx, request_stream, service_name, method_name)
             .await?;
 
         // Receive and decode single response
-        self.receive_response(&session).await
+        let result = self.receive_response(&session).await;
+        
+        // If there was an error, remove the session from cache
+        if result.is_err() {
+            self.remove_session_from_cache(service_name, method_name).await;
+        }
+        
+        result
     }
 
     /// Make a stream-stream RPC call
@@ -421,9 +474,12 @@ impl Channel {
         println!("Creating session for {}-{}", service_name, method_name);
 
         try_stream! {
-            let (session, ctx) = channel
-                .create_session(&service_name, &method_name, timeout, metadata)
+            let (session, ctx, lock) = channel
+                .get_or_create_session(&service_name, &method_name, timeout, metadata)
                 .await?;
+
+            // Acquire lock to ensure only one RPC at a time
+            let _guard = lock.lock().await;
 
             // Send requests in background task
             let session_bg = session.clone();
@@ -459,6 +515,54 @@ impl Channel {
                 let response = Res::decode(received.payload)?;
                 yield response;
             }
+            
+            // Stream completed successfully, keep session in cache
+        }
+    }
+
+    /// Get or create a session for an RPC call from the cache
+    async fn get_or_create_session(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        timeout: Option<Duration>,
+        metadata: Option<Metadata>,
+    ) -> Result<(Session, Context, Arc<Mutex<()>>), Status> {
+        let cache_key = format!("{}/{}", service_name, method_name);
+        
+        // Try to get from cache first
+        {
+            let cache = self.session_cache.lock().await;
+            if let Some(cached) = cache.get(&cache_key) {
+                tracing::debug!("Reusing cached session for {}/{}", service_name, method_name);
+                return Ok((cached.session.clone(), cached.context.clone(), cached.lock.clone()));
+            }
+        }
+        
+        // Create new session if not in cache
+        tracing::debug!("Creating new session for {}/{}", service_name, method_name);
+        let (session, ctx) = self.create_session(service_name, method_name, timeout, metadata).await?;
+        let lock = Arc::new(Mutex::new(()));
+        
+        // Store in cache
+        {
+            let mut cache = self.session_cache.lock().await;
+            cache.insert(cache_key, CachedSession {
+                session: session.clone(),
+                context: ctx.clone(),
+                lock: lock.clone(),
+            });
+        }
+        
+        Ok((session, ctx, lock))
+    }
+    
+    /// Remove a session from the cache
+    async fn remove_session_from_cache(&self, service_name: &str, method_name: &str) {
+        let cache_key = format!("{}/{}", service_name, method_name);
+        let mut cache = self.session_cache.lock().await;
+        if cache.remove(&cache_key).is_some() {
+            tracing::debug!("Removed failed session from cache for {}/{}", service_name, method_name);
         }
     }
 
@@ -587,6 +691,28 @@ impl Channel {
     /// ```
     pub fn connection_id(&self) -> Option<u64> {
         self.connection_id
+    }
+
+    /// Close a cached session for a specific service/method
+    ///
+    /// This removes the session from the cache. The next RPC call will create a new session.
+    /// This is useful for explicitly closing a session when you know you won't need it again.
+    ///
+    /// # Arguments
+    /// * `service_name` - The name of the service
+    /// * `method_name` - The name of the method
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use slim_rpc::Channel;
+    /// # async fn example(channel: Channel) {
+    /// // Close the session for a specific method
+    /// channel.close_session("MyService", "MyMethod").await;
+    /// # }
+    /// ```
+    pub async fn close_session(&self, service_name: &str, method_name: &str) {
+        self.remove_session_from_cache(service_name, method_name).await;
     }
 
     // Helper methods for common RPC patterns

@@ -52,6 +52,28 @@ impl Context {
         }
     }
 
+    /// Create a new context from a Session wrapper
+    pub async fn from_session_wrapper(session: &crate::Session) -> Self {
+        let session_id = session.session_id().await.to_string();
+        let source = session.source().await;
+        let destination = session.destination().await;
+        let metadata_map = session.metadata().await;
+        let metadata = Metadata::from_map(metadata_map);
+        let deadline = Self::parse_deadline(&metadata);
+
+        Self {
+            session: SessionContext {
+                session_id,
+                source,
+                destination,
+                metadata: metadata.clone(),
+            },
+            message: None,
+            metadata,
+            deadline,
+        }
+    }
+
     /// Create a new context with message metadata
     pub fn with_message_metadata(
         mut self,
