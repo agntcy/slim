@@ -188,7 +188,7 @@ impl Channel {
         Req: Encoder,
         Res: Decoder,
     {
-        tracing::debug!("Getting session for {}-{}", service_name, method_name);
+        tracing::debug!(%service_name, %method_name, "Getting session");
 
         let (session, ctx, lock) = self
             .get_or_create_session(service_name, method_name, timeout, metadata)
@@ -197,7 +197,7 @@ impl Channel {
         // Acquire lock to ensure only one RPC at a time
         let _guard = lock.lock().await;
 
-        tracing::debug!("Acquired session lock for {}-{}", service_name, method_name);
+        tracing::debug!(%service_name, %method_name, "Acquired session lock");
 
         // Send request
         self.send_request(&session, &ctx, request, service_name, method_name)
@@ -545,11 +545,7 @@ impl Channel {
         {
             let cache = self.inner.session_cache.lock().await;
             if let Some(cached) = cache.get(&cache_key) {
-                tracing::debug!(
-                    "Reusing cached session for {}/{}",
-                    service_name,
-                    method_name
-                );
+                tracing::debug!(%service_name, %method_name, "Reusing cached session");
                 return Ok((
                     cached.session.clone(),
                     cached.context.clone(),
@@ -559,7 +555,7 @@ impl Channel {
         }
 
         // Create new session if not in cache
-        tracing::debug!("Creating new session for {}/{}", service_name, method_name);
+        tracing::debug!(%service_name, %method_name, "Creating new session");
         let (session, ctx) = self
             .create_session(service_name, method_name, timeout, metadata)
             .await?;
@@ -586,11 +582,7 @@ impl Channel {
         let cache_key = format!("{}/{}", service_name, method_name);
         let mut cache = self.inner.session_cache.lock().await;
         if let Some(cached) = cache.remove(&cache_key) {
-            tracing::debug!(
-                "Removed session from cache for {}/{}",
-                service_name,
-                method_name
-            );
+            tracing::debug!(%service_name, %method_name, "Removed session from cache");
 
             // Close the session properly
             let _ = cached.session.close(&self.inner.app).await;
@@ -618,11 +610,11 @@ impl Channel {
 
         // Create the session with optional connection ID for propagation
         tracing::debug!(
-            "Creating session for {}/{} to subscription: {} with connection_id: {:?}",
-            service_name,
-            method_name,
-            method_subscription_name,
-            self.inner.connection_id
+            %service_name,
+            %method_name,
+            %method_subscription_name,
+            connection_id = ?self.inner.connection_id,
+            "Creating session"
         );
 
         // Create session configuration
@@ -637,7 +629,8 @@ impl Channel {
 
         // Create session to the method-specific subscription name
         let (session_ctx, completion) = self
-            .inner.app
+            .inner
+            .app
             .create_session(slim_config, method_subscription_name.clone(), None)
             .await
             .map_err(|e| Status::unavailable(format!("Failed to create session: {}", e)))?;
@@ -770,7 +763,7 @@ impl Channel {
             )
             .await?;
 
-        tracing::debug!("Sent request for {}-{}", service_name, method_name);
+        tracing::debug!(%service_name, %method_name, "Sent request");
         handle.await.map_err(|e| {
             Status::internal(format!(
                 "Failed to complete sending request for {}-{}: {}",

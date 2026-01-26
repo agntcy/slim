@@ -1560,9 +1560,13 @@ async fn test_multiple_handler_types_same_client() {
             },
         ];
 
-        let response_stream =
-            env.channel
-                .stream_stream("MultiService", "StreamStream", stream::iter(requests), None, None);
+        let response_stream = env.channel.stream_stream(
+            "MultiService",
+            "StreamStream",
+            stream::iter(requests),
+            None,
+            None,
+        );
 
         pin_mut!(response_stream);
 

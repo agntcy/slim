@@ -24,7 +24,7 @@ use tokio_util::sync::CancellationToken;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_datapath::messages::Name;
 use slim_service::app::App as SlimApp;
-use slim_session::context::SessionContext;
+
 use slim_session::errors::SessionError;
 use slim_session::notification::Notification;
 
@@ -504,7 +504,7 @@ impl Server {
             .register_subscription(subscription_name.clone(), method_path);
 
         // Subscribe immediately
-        tracing::info!("Subscribing to {}", subscription_name);
+        tracing::info!(%subscription_name, "Subscribing");
         self.inner
             .app
             .subscribe(&subscription_name, self.inner.connection_id)
@@ -807,8 +807,8 @@ impl Server {
     /// ```
     pub async fn serve(&self) -> Result<(), Status> {
         tracing::info!(
-            "SlimRPC server starting on base_name: {}",
-            self.inner.base_name
+            base_name = %self.inner.base_name,
+            "SlimRPC server starting"
         );
 
         // Main server loop - listen for sessions
@@ -832,7 +832,7 @@ impl Server {
                     let method_path = self.inner.registry.get_method_from_subscription(&subscription_name)
                         .ok_or_else(|| Status::internal(format!("Unknown subscription: {}", subscription_name)))?;
 
-                    tracing::debug!("Received session for method: {} (subscription: {})", method_path, subscription_name);
+                    tracing::debug!(%method_path, %subscription_name, "Received session for method");
 
                     // Spawn a task to handle this session
                     let server = self.clone();
@@ -841,7 +841,7 @@ impl Server {
                         let session = Session::new(session_ctx);
 
                         if let Err(e) = server.handle_session_direct(session, &method_path).await {
-                            tracing::error!("Error handling session for {}: {}", method_path, e);
+                            tracing::error!(%method_path, error = %e, "Error handling session");
                         }
 
                         // Delete the session when done
@@ -965,7 +965,7 @@ impl Server {
                     match result {
                         Ok(msg) => msg,
                         Err(e) => {
-                            tracing::debug!("Session closed or error receiving message: {}", e);
+                            tracing::debug!(error = %e, "Session closed or error receiving message");
                             break;
                         }
                     }
@@ -976,7 +976,7 @@ impl Server {
                 }
             };
 
-            tracing::debug!("Processing RPC: {}", method_path);
+            tracing::debug!(%method_path, "Processing RPC");
 
             // Create context for this RPC by cloning initial context and adding message metadata
             let ctx = initial_ctx
@@ -1034,15 +1034,15 @@ impl Server {
             };
 
             if let Err(e) = result {
-                tracing::error!("Error handling RPC {}: {}", method_path, e);
+                tracing::error!(%method_path, error = %e, "Error handling RPC");
                 // On error, break the loop and close the session
                 break;
             }
 
             // Successfully handled one RPC, continue to handle next RPC on same session
             tracing::debug!(
-                "Completed RPC {}, ready for next RPC on same session",
-                method_path
+                %method_path,
+                "Completed RPC, ready for next RPC on same session"
             );
         }
 
@@ -1064,7 +1064,7 @@ impl Server {
         let response = match handler(received.payload, ctx).await {
             Ok(resp) => resp,
             Err(status) => {
-                tracing::debug!("Handler returned error: {:?}", status);
+                tracing::debug!(?status, "Handler returned error");
                 return self.send_error(session, status).await;
             }
         };
@@ -1110,7 +1110,7 @@ impl Server {
         let response = match handler(received.payload, ctx).await {
             Ok(resp) => resp,
             Err(status) => {
-                tracing::debug!("Handler returned error: {:?}", status);
+                tracing::debug!(?status, "Handler returned error");
                 return self.send_error(session, status).await;
             }
         };
@@ -1236,7 +1236,7 @@ impl Server {
             result = handler(boxed_stream, ctx) => match result {
                 Ok(resp) => resp,
                 Err(status) => {
-                    tracing::debug!("Handler returned error: {:?}", status);
+                    tracing::debug!(?status, "Handler returned error");
                     return self.send_error(session, status).await;
                 }
             },

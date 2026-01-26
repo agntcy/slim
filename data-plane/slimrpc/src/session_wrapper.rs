@@ -187,7 +187,7 @@ impl Session {
         &self,
         app: &Arc<SlimApp<AuthProvider, AuthVerifier>>,
     ) -> Result<(), Status> {
-        tracing::debug!("Closing session {}", self.inner.controller.id());
+        tracing::debug!(session_id = %self.inner.controller.id(), "Closing session");
 
         if let Ok(handle) = app.delete_session(self.inner.controller.as_ref()) {
             handle.await.map_err(|e| {
@@ -196,12 +196,9 @@ impl Session {
                     e.chain().to_string()
                 ))
             })?;
-            tracing::debug!(
-                "Successfully deleted session {}",
-                self.inner.controller.id()
-            );
+            tracing::debug!(session_id = %self.inner.controller.id(), "Successfully deleted session");
         } else {
-            tracing::warn!("Failed to delete session {}", self.inner.controller.id());
+            tracing::warn!(session_id = %self.inner.controller.id(), "Failed to delete session");
         }
 
         Ok(())
