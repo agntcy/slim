@@ -65,9 +65,7 @@ impl Context {
 
     /// Get the remaining time until deadline in seconds
     pub fn remaining_time(&self) -> Option<f64> {
-        self.inner
-            .remaining_time()
-            .map(|d| d.as_secs_f64())
+        self.inner.remaining_time().map(|d| d.as_secs_f64())
     }
 
     /// Check if the deadline has been exceeded

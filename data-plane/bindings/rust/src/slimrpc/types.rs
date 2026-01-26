@@ -7,9 +7,9 @@
 //! Since UniFFI doesn't support Rust async streams, we provide synchronous
 //! pull/push interfaces backed by async channels.
 
+use futures::StreamExt;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use futures::StreamExt;
 
 use crate::slimrpc::error::RpcError;
 
@@ -21,7 +21,9 @@ use crate::slimrpc::error::RpcError;
 #[derive(uniffi::Object)]
 pub struct RequestStream {
     /// Inner stream wrapped in a mutex for interior mutability
-    inner: Arc<Mutex<Box<dyn futures::Stream<Item = Result<Vec<u8>, slim_rpc::Status>> + Send + Unpin>>>,
+    inner: Arc<
+        Mutex<Box<dyn futures::Stream<Item = Result<Vec<u8>, slim_rpc::Status>> + Send + Unpin>>,
+    >,
 }
 
 impl RequestStream {
@@ -93,8 +95,10 @@ impl ResponseSink {
     }
 
     /// Get the receiver side of the channel
-    pub(crate) fn receiver(
-    ) -> (Self, tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, slim_rpc::Status>>) {
+    pub(crate) fn receiver() -> (
+        Self,
+        tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, slim_rpc::Status>>,
+    ) {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = Self::new(tx);
         (sink, rx)
@@ -124,14 +128,12 @@ impl ResponseSink {
         drop(closed);
 
         let sender = self.sender.lock().await;
-        sender
-            .send(Ok(data))
-            .map_err(|_| {
-                RpcError::new(
-                    crate::slimrpc::error::RpcCode::Unavailable,
-                    "Failed to send response".to_string(),
-                )
-            })
+        sender.send(Ok(data)).map_err(|_| {
+            RpcError::new(
+                crate::slimrpc::error::RpcCode::Unavailable,
+                "Failed to send response".to_string(),
+            )
+        })
     }
 
     /// Send an error to the response stream and close it (blocking version)
@@ -157,14 +159,12 @@ impl ResponseSink {
 
         let sender = self.sender.lock().await;
         let status: slim_rpc::Status = error.into();
-        sender
-            .send(Err(status))
-            .map_err(|_| {
-                RpcError::new(
-                    crate::slimrpc::error::RpcCode::Unavailable,
-                    "Failed to send error".to_string(),
-                )
-            })
+        sender.send(Err(status)).map_err(|_| {
+            RpcError::new(
+                crate::slimrpc::error::RpcCode::Unavailable,
+                "Failed to send error".to_string(),
+            )
+        })
     }
 
     /// Close the response stream (blocking version)
@@ -209,7 +209,8 @@ impl ResponseSink {
 ///
 /// This type represents the return value of streaming handlers.
 /// It's an alias for compatibility with the handler trait definitions.
-pub type ResponseStream = Box<dyn futures::Stream<Item = Result<Vec<u8>, slim_rpc::Status>> + Send + Unpin>;
+pub type ResponseStream =
+    Box<dyn futures::Stream<Item = Result<Vec<u8>, slim_rpc::Status>> + Send + Unpin>;
 
 #[cfg(test)]
 mod tests {
@@ -236,7 +237,7 @@ mod tests {
 
         let msg3 = request_stream.next_async().await;
         match msg3 {
-            StreamMessage::End => {},
+            StreamMessage::End => {}
             _ => panic!("Expected end"),
         }
     }
@@ -264,7 +265,7 @@ mod tests {
         let (sink, mut rx) = ResponseSink::receiver();
 
         sink.send_async(vec![1, 2, 3]).await.unwrap();
-        
+
         let error = RpcError::new(
             crate::slimrpc::error::RpcCode::Internal,
             "Test error".to_string(),

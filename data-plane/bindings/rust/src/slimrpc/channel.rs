@@ -41,7 +41,7 @@ impl Channel {
     pub fn new(app: Arc<App>, remote: Arc<Name>) -> Arc<Self> {
         let slim_name = remote.as_ref().clone().into();
         let inner = CoreChannel::new(app.inner().clone(), slim_name);
-        
+
         Arc::new(Self { inner })
     }
 
@@ -62,7 +62,12 @@ impl Channel {
         request: Vec<u8>,
         timeout_ms: Option<u64>,
     ) -> Result<Vec<u8>, RpcError> {
-        crate::get_runtime().block_on(self.call_unary_async(service_name, method_name, request, timeout_ms))
+        crate::get_runtime().block_on(self.call_unary_async(
+            service_name,
+            method_name,
+            request,
+            timeout_ms,
+        ))
     }
 
     /// Make a unary-to-unary RPC call (async version)
@@ -83,14 +88,11 @@ impl Channel {
         timeout_ms: Option<u64>,
     ) -> Result<Vec<u8>, RpcError> {
         let timeout = timeout_ms.map(Duration::from_millis);
-        
+
         self.inner
             .unary(&service_name, &method_name, request, timeout, None)
             .await
-            .map_err(|e| RpcError::new(
-                e.code().into(),
-                e.message().unwrap_or("").to_string(),
-            ))
+            .map_err(|e| RpcError::new(e.code().into(), e.message().unwrap_or("").to_string()))
     }
 
     /// Make a unary-to-stream RPC call (blocking version)
@@ -114,7 +116,12 @@ impl Channel {
         request: Vec<u8>,
         timeout_ms: Option<u64>,
     ) -> Result<Arc<ResponseStreamReader>, RpcError> {
-        crate::get_runtime().block_on(self.call_unary_stream_async(service_name, method_name, request, timeout_ms))
+        crate::get_runtime().block_on(self.call_unary_stream_async(
+            service_name,
+            method_name,
+            request,
+            timeout_ms,
+        ))
     }
 
     /// Make a unary-to-stream RPC call (async version)
@@ -140,15 +147,21 @@ impl Channel {
     ) -> Result<Arc<ResponseStreamReader>, RpcError> {
         let timeout = timeout_ms.map(Duration::from_millis);
         let channel = self.inner.clone();
-        
+
         // Create a channel to transfer stream items
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        
+
         // Spawn a task to consume the stream and forward to the channel
         tokio::spawn(async move {
-            let stream = channel.unary_stream::<Vec<u8>, Vec<u8>>(&service_name, &method_name, request, timeout, None);
+            let stream = channel.unary_stream::<Vec<u8>, Vec<u8>>(
+                &service_name,
+                &method_name,
+                request,
+                timeout,
+                None,
+            );
             let mut stream = Box::pin(stream);
-            
+
             while let Some(item) = stream.next().await {
                 if tx.send(item).is_err() {
                     // Receiver dropped, stop consuming
@@ -156,11 +169,11 @@ impl Channel {
                 }
             }
         });
-        
+
         // Convert receiver to a BoxStream
         let receiver_stream = UnboundedReceiverStream::new(rx);
         let boxed_stream = Box::pin(receiver_stream);
-        
+
         Ok(Arc::new(ResponseStreamReader::new(boxed_stream)))
     }
 }
@@ -178,7 +191,9 @@ impl Channel {
 #[derive(uniffi::Object)]
 pub struct ResponseStreamReader {
     /// Inner stream wrapped for async access
-    inner: Arc<tokio::sync::Mutex<futures::stream::BoxStream<'static, Result<Vec<u8>, slim_rpc::Status>>>>,
+    inner: Arc<
+        tokio::sync::Mutex<futures::stream::BoxStream<'static, Result<Vec<u8>, slim_rpc::Status>>>,
+    >,
 }
 
 impl ResponseStreamReader {

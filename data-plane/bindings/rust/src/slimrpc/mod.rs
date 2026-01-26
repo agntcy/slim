@@ -66,7 +66,7 @@ mod types;
 
 // Re-export core slimrpc types that don't need wrapping
 pub use slim_rpc::{
-    Code, Codec, Decoder, Encoder, Metadata, DEADLINE_KEY, MAX_TIMEOUT, STATUS_CODE_KEY,
+    Code, Codec, DEADLINE_KEY, Decoder, Encoder, MAX_TIMEOUT, Metadata, STATUS_CODE_KEY,
 };
 
 // Re-export our wrapper types
@@ -87,6 +87,6 @@ pub use stream::{
 pub use types::{ResponseSink, ResponseStream, StreamMessage};
 
 // Legacy compatibility re-exports
-pub use slim_rpc::Server;
 pub use channel::Channel;
 pub use context::Context;
+pub use slim_rpc::Server;

@@ -12,9 +12,9 @@
 use std::sync::Arc;
 
 use slim_bindings::{
-    initialize_with_defaults, App, Direction, IdentityProviderConfig,
-    IdentityVerifierConfig, Name, RpcCode, RpcError, RpcServer, StreamMessage,
-    StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
+    App, Direction, IdentityProviderConfig, IdentityVerifierConfig, Name, RpcCode, RpcError,
+    RpcServer, StreamMessage, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler,
+    UnaryUnaryHandler, initialize_with_defaults,
 };
 
 // ============================================================================
@@ -277,19 +277,19 @@ impl TestEnv {
         // Get notification receiver - need to extract from the Arc<RwLock>
         let notification_rx_arc = server_app.notification_receiver();
         let mut rx_guard = notification_rx_arc.write().await;
-        
+
         // Create a new channel to transfer notifications
         let (tx, rx) = tokio::sync::mpsc::channel(100);
-        
+
         // Replace the receiver in the app with a dummy
         let original_rx = std::mem::replace(&mut *rx_guard, {
             let (dummy_tx, dummy_rx) = tokio::sync::mpsc::channel(1);
             drop(dummy_tx);
             dummy_rx
         });
-        
+
         drop(rx_guard);
-        
+
         // Forward notifications from original to new receiver
         tokio::spawn(async move {
             let mut original_rx = original_rx;

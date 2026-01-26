@@ -113,16 +113,19 @@ impl TestEnv {
 async fn test_unary_unary_rpc() {
     let mut env = TestEnv::new("test-service-unary").await;
 
-    env.server.register_unary_unary(
-        "TestService",
-        "Echo",
-        |request: TestRequest, _ctx: Context| async move {
-            Ok(TestResponse {
-                result: format!("Echo: {}", request.message),
-                count: request.value * 2,
-            })
-        },
-    );
+    env.server
+        .register_unary_unary(
+            "TestService",
+            "Echo",
+            |request: TestRequest, _ctx: Context| async move {
+                Ok(TestResponse {
+                    result: format!("Echo: {}", request.message),
+                    count: request.value * 2,
+                })
+            },
+        )
+        .await
+        .expect("Failed to register method");
 
     let request = TestRequest {
         message: "Hello".to_string(),
@@ -147,13 +150,16 @@ async fn test_unary_unary_rpc() {
 async fn test_unary_unary_error_handling() {
     let mut env = TestEnv::new("test-service-error").await;
 
-    env.server.register_unary_unary(
-        "TestService",
-        "ErrorMethod",
-        |_request: TestRequest, _ctx: Context| async move {
-            Err::<TestResponse, _>(Status::invalid_argument("Invalid input"))
-        },
-    );
+    env.server
+        .register_unary_unary(
+            "TestService",
+            "ErrorMethod",
+            |_request: TestRequest, _ctx: Context| async move {
+                Err::<TestResponse, _>(Status::invalid_argument("Invalid input"))
+            },
+        )
+        .await
+        .expect("Failed to register method");
 
     let request = TestRequest {
         message: "test".to_string(),
@@ -183,25 +189,28 @@ async fn test_unary_unary_error_handling() {
 async fn test_stream_unary_rpc() {
     let mut env = TestEnv::new("test-service-stream-unary").await;
 
-    env.server.register_stream_unary(
-        "TestService",
-        "Sum",
-        |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
-            let mut total = 0;
-            let mut messages = Vec::new();
+    env.server
+        .register_stream_unary(
+            "TestService",
+            "Sum",
+            |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
+                let mut total = 0;
+                let mut messages = Vec::new();
 
-            while let Some(req_result) = request_stream.next().await {
-                let req: TestRequest = req_result?;
-                total += req.value;
-                messages.push(req.message);
-            }
+                while let Some(req_result) = request_stream.next().await {
+                    let req: TestRequest = req_result?;
+                    total += req.value;
+                    messages.push(req.message);
+                }
 
-            Ok(TestResponse {
-                result: messages.join(", "),
-                count: total,
-            })
-        },
-    );
+                Ok(TestResponse {
+                    result: messages.join(", "),
+                    count: total,
+                })
+            },
+        )
+        .await
+        .expect("Failed to register method");
 
     let requests = vec![
         TestRequest {
@@ -250,38 +259,41 @@ async fn test_stream_unary_rpc() {
 async fn test_stream_unary_error_handling() {
     let mut env = TestEnv::new("test-service-stream-unary-error").await;
 
-    env.server.register_stream_unary(
-        "TestService",
-        "SumWithValidation",
-        |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
-            let mut total = 0;
-            let mut messages = Vec::new();
+    env.server
+        .register_stream_unary(
+            "TestService",
+            "SumWithValidation",
+            |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
+                let mut total = 0;
+                let mut messages = Vec::new();
 
-            // Iterate over the stream of Results
-            while let Some(req_result) = request_stream.next().await {
-                // Each item is a Result<TestRequest, Status>
-                // Use ? to propagate any errors from the stream (network, deserialization, etc.)
-                let req = req_result?;
+                // Iterate over the stream of Results
+                while let Some(req_result) = request_stream.next().await {
+                    // Each item is a Result<TestRequest, Status>
+                    // Use ? to propagate any errors from the stream (network, deserialization, etc.)
+                    let req = req_result?;
 
-                // Validate input - return error if value is negative
-                if req.value < 0 {
-                    tracing::info!("Received invalid value: {}", req.value);
-                    return Err(Status::invalid_argument(format!(
-                        "Negative values not allowed: {}",
-                        req.value
-                    )));
+                    // Validate input - return error if value is negative
+                    if req.value < 0 {
+                        tracing::info!("Received invalid value: {}", req.value);
+                        return Err(Status::invalid_argument(format!(
+                            "Negative values not allowed: {}",
+                            req.value
+                        )));
+                    }
+
+                    total += req.value;
+                    messages.push(req.message);
                 }
 
-                total += req.value;
-                messages.push(req.message);
-            }
-
-            Ok(TestResponse {
-                result: messages.join(", "),
-                count: total,
-            })
-        },
-    );
+                Ok(TestResponse {
+                    result: messages.join(", "),
+                    count: total,
+                })
+            },
+        )
+        .await
+        .expect("Failed to register method");
 
     // Note: The client sends Stream<Item = TestRequest>, not Stream<Item = Result<...>>
     // The Result wrapper is added by the transport layer on the server side
@@ -340,31 +352,34 @@ async fn test_stream_unary_error_handling() {
 async fn test_unary_stream_rpc() {
     let mut env = TestEnv::new("test-service-unary-stream").await;
 
-    env.server.register_unary_stream(
-        "TestService",
-        "Generate",
-        |request: TestRequest, _ctx: Context| async move {
-            let count = request.value;
-            let message = request.message.clone();
+    env.server
+        .register_unary_stream(
+            "TestService",
+            "Generate",
+            |request: TestRequest, _ctx: Context| async move {
+                let count = request.value;
+                let message = request.message.clone();
 
-            // Create an async stream that generates responses incrementally
+                // Create an async stream that generates responses incrementally
 
-            // register current time
-            let response_stream = async_stream::stream! {
-                for i in 1..=count {
-                    // Simulate some async work (optional)
-                    tokio::time::sleep(Duration::from_millis(1)).await;
+                // register current time
+                let response_stream = async_stream::stream! {
+                    for i in 1..=count {
+                        // Simulate some async work (optional)
+                        tokio::time::sleep(Duration::from_millis(1)).await;
 
-                    yield Ok(TestResponse {
-                        result: format!("{}-{}", message, i),
-                        count: i,
-                    });
-                }
-            };
+                        yield Ok(TestResponse {
+                            result: format!("{}-{}", message, i),
+                            count: i,
+                        });
+                    }
+                };
 
-            Ok(response_stream)
-        },
-    );
+                Ok(response_stream)
+            },
+        )
+        .await
+        .expect("Failed to register method");
 
     let request = TestRequest {
         message: "item".to_string(),
@@ -412,37 +427,40 @@ async fn test_unary_stream_rpc() {
 async fn test_unary_stream_error_handling() {
     let mut env = TestEnv::new("test-service-unary-stream-error").await;
 
-    env.server.register_unary_stream(
-        "TestService",
-        "GenerateWithError",
-        |request: TestRequest, _ctx: Context| async move {
-            let count = request.value;
-            let message = request.message.clone();
+    env.server
+        .register_unary_stream(
+            "TestService",
+            "GenerateWithError",
+            |request: TestRequest, _ctx: Context| async move {
+                let count = request.value;
+                let message = request.message.clone();
 
-            // Create an async stream that generates some responses then an error
-            let response_stream = async_stream::stream! {
-                for i in 1..=count {
-                    // After 3 items, simulate an error condition
-                    if i > 3 {
-                        tracing::info!("Simulating error after {} responses", i - 1);
-                        yield Err(Status::internal(
-                            format!("Failed to generate item {}", i)
-                        ));
-                        break;
+                // Create an async stream that generates some responses then an error
+                let response_stream = async_stream::stream! {
+                    for i in 1..=count {
+                        // After 3 items, simulate an error condition
+                        if i > 3 {
+                            tracing::info!("Simulating error after {} responses", i - 1);
+                            yield Err(Status::internal(
+                                format!("Failed to generate item {}", i)
+                            ));
+                            break;
+                        }
+
+                        tokio::time::sleep(Duration::from_millis(1)).await;
+
+                        yield Ok(TestResponse {
+                            result: format!("{}-{}", message, i),
+                            count: i,
+                        });
                     }
+                };
 
-                    tokio::time::sleep(Duration::from_millis(1)).await;
-
-                    yield Ok(TestResponse {
-                        result: format!("{}-{}", message, i),
-                        count: i,
-                    });
-                }
-            };
-
-            Ok(response_stream)
-        },
-    );
+                Ok(response_stream)
+            },
+        )
+        .await
+        .expect("Failed to register method");
 
     // Request 10 items, but handler will error after 3
     let request = TestRequest {
@@ -499,23 +517,26 @@ async fn test_unary_stream_error_handling() {
 async fn test_stream_stream_rpc() {
     let mut env = TestEnv::new("test-service-stream-stream").await;
 
-    env.server.register_stream_stream(
-        "TestService",
-        "Transform",
-        |request_stream, _ctx: Context| async move {
-            // Using .map() processes items as they arrive (lazy/incremental)
-            // For more complex async processing, use async_stream or spawn a task
-            // with a channel (see the SlimRPC examples for the channel pattern)
-            Ok(request_stream.map(|req_result| {
-                req_result.and_then(|req: TestRequest| {
-                    Ok(TestResponse {
-                        result: req.message.to_uppercase(),
-                        count: req.value * 10,
+    env.server
+        .register_stream_stream(
+            "TestService",
+            "Transform",
+            |request_stream, _ctx: Context| async move {
+                // Using .map() processes items as they arrive (lazy/incremental)
+                // For more complex async processing, use async_stream or spawn a task
+                // with a channel (see the SlimRPC examples for the channel pattern)
+                Ok(request_stream.map(|req_result| {
+                    req_result.and_then(|req: TestRequest| {
+                        Ok(TestResponse {
+                            result: req.message.to_uppercase(),
+                            count: req.value * 10,
+                        })
                     })
-                })
-            }))
-        },
-    );
+                }))
+            },
+        )
+        .await
+        .expect("Failed to register method");
 
     // Create request stream
     let requests = vec![
@@ -577,43 +598,46 @@ async fn test_stream_stream_rpc() {
 async fn test_stream_stream_with_async_processing() {
     let mut env = TestEnv::new("test-service-stream-stream-async").await;
 
-    env.server.register_stream_stream(
-        "TestService",
-        "ProcessAsync",
-        |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
-            // Create channel for responses
-            let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    env.server
+        .register_stream_stream(
+            "TestService",
+            "ProcessAsync",
+            |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
+                // Create channel for responses
+                let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-            // Spawn task to process requests asynchronously
-            tokio::spawn(async move {
-                while let Some(req_result) = request_stream.next().await {
-                    match req_result {
-                        Ok(req) => {
-                            // Simulate some async processing work
-                            tokio::time::sleep(Duration::from_millis(5)).await;
+                // Spawn task to process requests asynchronously
+                tokio::spawn(async move {
+                    while let Some(req_result) = request_stream.next().await {
+                        match req_result {
+                            Ok(req) => {
+                                // Simulate some async processing work
+                                tokio::time::sleep(Duration::from_millis(5)).await;
 
-                            let response = TestResponse {
-                                result: format!("Processed: {}", req.message),
-                                count: req.value * 100,
-                            };
+                                let response = TestResponse {
+                                    result: format!("Processed: {}", req.message),
+                                    count: req.value * 100,
+                                };
 
-                            if tx.send(Ok(response)).is_err() {
-                                tracing::warn!("Response channel closed");
+                                if tx.send(Ok(response)).is_err() {
+                                    tracing::warn!("Response channel closed");
+                                    break;
+                                }
+                            }
+                            Err(e) => {
+                                let _ = tx.send(Err(e));
                                 break;
                             }
                         }
-                        Err(e) => {
-                            let _ = tx.send(Err(e));
-                            break;
-                        }
                     }
-                }
-            });
+                });
 
-            // Return stream from the receiver
-            Ok(tokio_stream::wrappers::UnboundedReceiverStream::new(rx))
-        },
-    );
+                // Return stream from the receiver
+                Ok(tokio_stream::wrappers::UnboundedReceiverStream::new(rx))
+            },
+        )
+        .await
+        .expect("Failed to register method");
 
     let requests = vec![
         TestRequest {
@@ -663,23 +687,26 @@ async fn test_stream_stream_with_async_processing() {
 async fn test_empty_stream_unary() {
     let mut env = TestEnv::new("test-service-empty-stream").await;
 
-    env.server.register_stream_unary(
-        "TestService",
-        "EmptySum",
-        |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
-            println!("Processing empty stream...");
+    env.server
+        .register_stream_unary(
+            "TestService",
+            "EmptySum",
+            |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
+                println!("Processing empty stream...");
 
-            let mut count = 0;
-            while let Some(_) = request_stream.next().await {
-                count += 1;
-            }
+                let mut count = 0;
+                while let Some(_) = request_stream.next().await {
+                    count += 1;
+                }
 
-            Ok(TestResponse {
-                result: "empty".to_string(),
-                count,
-            })
-        },
-    );
+                Ok(TestResponse {
+                    result: "empty".to_string(),
+                    count,
+                })
+            },
+        )
+        .await
+        .expect("Failed to register method");
 
     // Empty stream
     let request_stream = stream::iter(Vec::<TestRequest>::new());
@@ -704,24 +731,27 @@ async fn test_concurrent_unary_calls() {
     let call_counter = Arc::new(Mutex::new(0));
     let counter_clone = call_counter.clone();
 
-    env.server.register_unary_unary(
-        "TestService",
-        "Count",
-        move |request: TestRequest, _ctx: Context| {
-            let counter = counter_clone.clone();
-            async move {
-                let mut count = counter.lock().await;
-                *count += 1;
-                let current = *count;
-                drop(count);
+    env.server
+        .register_unary_unary(
+            "TestService",
+            "Count",
+            move |request: TestRequest, _ctx: Context| {
+                let counter = counter_clone.clone();
+                async move {
+                    let mut count = counter.lock().await;
+                    *count += 1;
+                    let current = *count;
+                    drop(count);
 
-                Ok(TestResponse {
-                    result: request.message,
-                    count: current,
-                })
-            }
-        },
-    );
+                    Ok(TestResponse {
+                        result: request.message,
+                        count: current,
+                    })
+                }
+            },
+        )
+        .await
+        .expect("Failed to register method");
 
     let channel = Arc::new(env.channel.clone());
     let mut handles = vec![];
@@ -772,35 +802,42 @@ async fn test_session_cleanup_on_explicit_close() {
     let session_ids = Arc::new(Mutex::new(Vec::new()));
     let session_ids_clone = session_ids.clone();
 
-    env.server.register_unary_unary(
-        "TestService",
-        "Echo",
-        move |request: TestRequest, ctx: Context| {
-            let count = call_count_clone.clone();
-            let ids = session_ids_clone.clone();
-            async move {
-                let mut c = count.lock().await;
-                *c += 1;
-                let current = *c;
-                drop(c);
+    env.server
+        .register_unary_unary(
+            "TestService",
+            "Echo",
+            move |request: TestRequest, ctx: Context| {
+                let count = call_count_clone.clone();
+                let ids = session_ids_clone.clone();
+                async move {
+                    let mut c = count.lock().await;
+                    *c += 1;
+                    let current = *c;
+                    drop(c);
 
-                // Get session ID from context
-                let session_id = ctx.session().session_id().to_string();
+                    // Get session ID from context
+                    let session_id = ctx.session().session_id().to_string();
 
-                tracing::info!("RPC '{}' handled by session ID: {}", request.message, session_id);
+                    tracing::info!(
+                        "RPC '{}' handled by session ID: {}",
+                        request.message,
+                        session_id
+                    );
 
-                // Store the session ID
-                let mut id_list = ids.lock().await;
-                id_list.push(session_id.clone());
-                drop(id_list);
+                    // Store the session ID
+                    let mut id_list = ids.lock().await;
+                    id_list.push(session_id.clone());
+                    drop(id_list);
 
-                Ok(TestResponse {
-                    result: format!("Echo: {}", request.message),
-                    count: current,
-                })
-            }
-        },
-    );
+                    Ok(TestResponse {
+                        result: format!("Echo: {}", request.message),
+                        count: current,
+                    })
+                }
+            },
+        )
+        .await
+        .expect("Failed to register method");
 
     // First call - creates session
     let request1 = TestRequest {
@@ -828,13 +865,20 @@ async fn test_session_cleanup_on_explicit_close() {
 
     // Get the session IDs from first two calls
     let id_list = session_ids.lock().await;
-    assert_eq!(id_list.len(), 2, "Should have 2 session IDs recorded so far");
+    assert_eq!(
+        id_list.len(),
+        2,
+        "Should have 2 session IDs recorded so far"
+    );
     let first_session_id = id_list[0].clone();
     let second_session_id = id_list[1].clone();
     drop(id_list);
 
     // Both calls should use same session
-    assert_eq!(first_session_id, second_session_id, "First two calls should use same session");
+    assert_eq!(
+        first_session_id, second_session_id,
+        "First two calls should use same session"
+    );
     tracing::info!("✓ First two calls used same session: {}", first_session_id);
 
     // Explicitly close the session
@@ -867,7 +911,11 @@ async fn test_session_cleanup_on_explicit_close() {
         "Third call should use NEW session after close, got same: {}",
         third_session_id
     );
-    tracing::info!("✓ Third call used NEW session: {} (old was {})", third_session_id, first_session_id);
+    tracing::info!(
+        "✓ Third call used NEW session: {} (old was {})",
+        third_session_id,
+        first_session_id
+    );
 
     // All 3 calls should have been processed
     let final_count = *call_count.lock().await;
@@ -888,40 +936,48 @@ async fn test_session_cleanup_on_error() {
     let session_ids = Arc::new(Mutex::new(Vec::new()));
     let session_ids_clone = session_ids.clone();
 
-    env.server.register_unary_unary(
-        "TestService",
-        "FlakyMethod",
-        move |request: TestRequest, ctx: Context| {
-            let count = call_count_clone.clone();
-            let ids = session_ids_clone.clone();
-            async move {
-                let mut c = count.lock().await;
-                *c += 1;
-                let current = *c;
-                drop(c);
+    env.server
+        .register_unary_unary(
+            "TestService",
+            "FlakyMethod",
+            move |request: TestRequest, ctx: Context| {
+                let count = call_count_clone.clone();
+                let ids = session_ids_clone.clone();
+                async move {
+                    let mut c = count.lock().await;
+                    *c += 1;
+                    let current = *c;
+                    drop(c);
 
-                // Get session ID from context
-                let session_id = ctx.session().session_id().to_string();
+                    // Get session ID from context
+                    let session_id = ctx.session().session_id().to_string();
 
-                tracing::info!("RPC '{}' (call #{}) handled by session ID: {}", request.message, current, session_id);
+                    tracing::info!(
+                        "RPC '{}' (call #{}) handled by session ID: {}",
+                        request.message,
+                        current,
+                        session_id
+                    );
 
-                // Store the session ID
-                let mut id_list = ids.lock().await;
-                id_list.push(session_id.clone());
-                drop(id_list);
+                    // Store the session ID
+                    let mut id_list = ids.lock().await;
+                    id_list.push(session_id.clone());
+                    drop(id_list);
 
-                // Fail on first call
-                if current == 1 {
-                    return Err(Status::internal("Simulated error"));
+                    // Fail on first call
+                    if current == 1 {
+                        return Err(Status::internal("Simulated error"));
+                    }
+
+                    Ok(TestResponse {
+                        result: request.message,
+                        count: current,
+                    })
                 }
-
-                Ok(TestResponse {
-                    result: request.message,
-                    count: current,
-                })
-            }
-        },
-    );
+            },
+        )
+        .await
+        .expect("Failed to register method");
 
     // First call fails
     let request1 = TestRequest {
@@ -963,7 +1019,10 @@ async fn test_session_cleanup_on_error() {
         first_session_id, second_session_id,
         "Session should be kept open after error - both calls should use same session ID"
     );
-    tracing::info!("✓ Session kept open after error: both calls used session {}", first_session_id);
+    tracing::info!(
+        "✓ Session kept open after error: both calls used session {}",
+        first_session_id
+    );
 
     env.shutdown().await;
 }
@@ -979,41 +1038,47 @@ async fn test_different_methods_different_sessions() {
     let m1_clone = method1_count.clone();
     let m2_clone = method2_count.clone();
 
-    env.server.register_unary_unary(
-        "TestService",
-        "Method1",
-        move |request: TestRequest, _ctx: Context| {
-            let count = m1_clone.clone();
-            async move {
-                let mut c = count.lock().await;
-                *c += 1;
-                drop(c);
+    env.server
+        .register_unary_unary(
+            "TestService",
+            "Method1",
+            move |request: TestRequest, _ctx: Context| {
+                let count = m1_clone.clone();
+                async move {
+                    let mut c = count.lock().await;
+                    *c += 1;
+                    drop(c);
 
-                Ok(TestResponse {
-                    result: format!("M1: {}", request.message),
-                    count: request.value + 100,
-                })
-            }
-        },
-    );
+                    Ok(TestResponse {
+                        result: format!("M1: {}", request.message),
+                        count: request.value + 100,
+                    })
+                }
+            },
+        )
+        .await
+        .expect("Failed to register method");
 
-    env.server.register_unary_unary(
-        "TestService",
-        "Method2",
-        move |request: TestRequest, _ctx: Context| {
-            let count = m2_clone.clone();
-            async move {
-                let mut c = count.lock().await;
-                *c += 1;
-                drop(c);
+    env.server
+        .register_unary_unary(
+            "TestService",
+            "Method2",
+            move |request: TestRequest, _ctx: Context| {
+                let count = m2_clone.clone();
+                async move {
+                    let mut c = count.lock().await;
+                    *c += 1;
+                    drop(c);
 
-                Ok(TestResponse {
-                    result: format!("M2: {}", request.message),
-                    count: request.value + 200,
-                })
-            }
-        },
-    );
+                    Ok(TestResponse {
+                        result: format!("M2: {}", request.message),
+                        count: request.value + 200,
+                    })
+                }
+            },
+        )
+        .await
+        .expect("Failed to register method");
 
     // Call both methods multiple times
     for i in 0..3 {
@@ -1064,38 +1129,46 @@ async fn test_session_reuse_with_streaming() {
     let session_ids = Arc::new(Mutex::new(Vec::new()));
     let session_ids_clone = session_ids.clone();
 
-    env.server.register_unary_stream(
-        "TestService",
-        "GenerateNumbers",
-        move |request: TestRequest, ctx: Context| {
-            let count = call_count_clone.clone();
-            let ids = session_ids_clone.clone();
-            async move {
-                let mut c = count.lock().await;
-                *c += 1;
-                let current = *c;
-                drop(c);
+    env.server
+        .register_unary_stream(
+            "TestService",
+            "GenerateNumbers",
+            move |request: TestRequest, ctx: Context| {
+                let count = call_count_clone.clone();
+                let ids = session_ids_clone.clone();
+                async move {
+                    let mut c = count.lock().await;
+                    *c += 1;
+                    let current = *c;
+                    drop(c);
 
-                // Get session ID from context
-                let session_id = ctx.session().session_id().to_string();
-                tracing::info!("Streaming RPC '{}' (call #{}) handled by session ID: {}", request.message, current, session_id);
+                    // Get session ID from context
+                    let session_id = ctx.session().session_id().to_string();
+                    tracing::info!(
+                        "Streaming RPC '{}' (call #{}) handled by session ID: {}",
+                        request.message,
+                        current,
+                        session_id
+                    );
 
-                // Store the session ID
-                let mut id_list = ids.lock().await;
-                id_list.push(session_id.clone());
-                drop(id_list);
+                    // Store the session ID
+                    let mut id_list = ids.lock().await;
+                    id_list.push(session_id.clone());
+                    drop(id_list);
 
-                let n = request.value;
-                let stream = stream::iter((0..n).map(|i| {
-                    Ok(TestResponse {
-                        result: format!("item-{}", i),
-                        count: i,
-                    })
-                }));
-                Ok(stream)
-            }
-        },
-    );
+                    let n = request.value;
+                    let stream = stream::iter((0..n).map(|i| {
+                        Ok(TestResponse {
+                            result: format!("item-{}", i),
+                            count: i,
+                        })
+                    }));
+                    Ok(stream)
+                }
+            },
+        )
+        .await
+        .expect("Failed to register method");
 
     // First streaming call in a scope
     {
@@ -1157,7 +1230,10 @@ async fn test_session_reuse_with_streaming() {
         first_session_id, second_session_id,
         "Both streaming calls should reuse the same session"
     );
-    tracing::info!("✓ Both streaming calls reused session: {}", first_session_id);
+    tracing::info!(
+        "✓ Both streaming calls reused session: {}",
+        first_session_id
+    );
 
     env.shutdown().await;
 }
@@ -1174,41 +1250,44 @@ async fn test_concurrent_calls_serialized() {
     let active_clone = active_count.clone();
     let max_clone = max_concurrent.clone();
 
-    env.server.register_unary_unary(
-        "TestService",
-        "SlowEcho",
-        move |request: TestRequest, _ctx: Context| {
-            let active = active_clone.clone();
-            let max = max_clone.clone();
-            async move {
-                // Increment active count
-                let mut a = active.lock().await;
-                *a += 1;
-                let current = *a;
-                drop(a);
+    env.server
+        .register_unary_unary(
+            "TestService",
+            "SlowEcho",
+            move |request: TestRequest, _ctx: Context| {
+                let active = active_clone.clone();
+                let max = max_clone.clone();
+                async move {
+                    // Increment active count
+                    let mut a = active.lock().await;
+                    *a += 1;
+                    let current = *a;
+                    drop(a);
 
-                // Update max
-                let mut m = max.lock().await;
-                if current > *m {
-                    *m = current;
+                    // Update max
+                    let mut m = max.lock().await;
+                    if current > *m {
+                        *m = current;
+                    }
+                    drop(m);
+
+                    // Simulate slow processing
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+
+                    // Decrement active count
+                    let mut a = active.lock().await;
+                    *a -= 1;
+                    drop(a);
+
+                    Ok(TestResponse {
+                        result: request.message,
+                        count: request.value,
+                    })
                 }
-                drop(m);
-
-                // Simulate slow processing
-                tokio::time::sleep(Duration::from_millis(100)).await;
-
-                // Decrement active count
-                let mut a = active.lock().await;
-                *a -= 1;
-                drop(a);
-
-                Ok(TestResponse {
-                    result: request.message,
-                    count: request.value,
-                })
-            }
-        },
-    );
+            },
+        )
+        .await
+        .expect("Failed to register method");
 
     // First make one call to ensure session is created and cached
     let req = TestRequest {
@@ -1239,7 +1318,8 @@ async fn test_concurrent_calls_serialized() {
                 message: format!("call-{}", i),
                 value: i + 1,
             };
-            ch.unary::<TestRequest, TestResponse>("TestService", "SlowEcho", req, None, None).await
+            ch.unary::<TestRequest, TestResponse>("TestService", "SlowEcho", req, None, None)
+                .await
         });
         handles.push(handle);
     }
@@ -1251,7 +1331,10 @@ async fn test_concurrent_calls_serialized() {
 
     // Max concurrent should be 1 (serialized by session lock)
     let max = *max_concurrent.lock().await;
-    assert_eq!(max, 1, "Calls should be serialized by session lock, not concurrent");
+    assert_eq!(
+        max, 1,
+        "Calls should be serialized by session lock, not concurrent"
+    );
 
     env.shutdown().await;
 }

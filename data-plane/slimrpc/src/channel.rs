@@ -27,12 +27,6 @@ use crate::{
     codec::{Decoder, Encoder},
 };
 
-/// Metadata key for RPC service name
-const RPC_SERVICE_KEY: &str = "slimrpc-service";
-
-/// Metadata key for RPC method name
-const RPC_METHOD_KEY: &str = "slimrpc-method";
-
 /// Cached session entry with lock for serialization
 struct CachedSession {
     /// The session instance
@@ -57,7 +51,7 @@ impl Clone for CachedSession {
 ///
 /// A Channel manages the connection to a remote service and provides methods
 /// for making RPC calls with different streaming patterns.
-/// 
+///
 /// Sessions are cached and reused for multiple RPC calls to improve performance.
 /// Only one RPC can be active on a session at a time (no multiplexing).
 #[derive(Clone)]
@@ -207,7 +201,8 @@ impl Channel {
             Ok(response) => Ok(response),
             Err(ReceiveError::Transport(status)) => {
                 // Transport error - close session and create new one next time
-                self.remove_session_from_cache(service_name, method_name).await;
+                self.remove_session_from_cache(service_name, method_name)
+                    .await;
                 Err(status)
             }
             Err(ReceiveError::Rpc(status)) => {
@@ -317,7 +312,7 @@ impl Channel {
                 let response = Res::decode(received.payload)?;
                 yield response;
             }
-            
+
             // Stream completed successfully, keep session in cache
         }
     }
@@ -398,7 +393,8 @@ impl Channel {
             Ok(response) => Ok(response),
             Err(ReceiveError::Transport(status)) => {
                 // Transport error - close session and create new one next time
-                self.remove_session_from_cache(service_name, method_name).await;
+                self.remove_session_from_cache(service_name, method_name)
+                    .await;
                 Err(status)
             }
             Err(ReceiveError::Rpc(status)) => {
@@ -523,7 +519,7 @@ impl Channel {
                 let response = Res::decode(received.payload)?;
                 yield response;
             }
-            
+
             // Stream completed successfully, keep session in cache
         }
     }
@@ -537,41 +533,58 @@ impl Channel {
         metadata: Option<Metadata>,
     ) -> Result<(Session, Context, Arc<Mutex<()>>), Status> {
         let cache_key = format!("{}/{}", service_name, method_name);
-        
+
         // Try to get from cache first
         {
             let cache = self.session_cache.lock().await;
             if let Some(cached) = cache.get(&cache_key) {
-                tracing::debug!("Reusing cached session for {}/{}", service_name, method_name);
-                return Ok((cached.session.clone(), cached.context.clone(), cached.lock.clone()));
+                tracing::debug!(
+                    "Reusing cached session for {}/{}",
+                    service_name,
+                    method_name
+                );
+                return Ok((
+                    cached.session.clone(),
+                    cached.context.clone(),
+                    cached.lock.clone(),
+                ));
             }
         }
-        
+
         // Create new session if not in cache
         tracing::debug!("Creating new session for {}/{}", service_name, method_name);
-        let (session, ctx) = self.create_session(service_name, method_name, timeout, metadata).await?;
+        let (session, ctx) = self
+            .create_session(service_name, method_name, timeout, metadata)
+            .await?;
         let lock = Arc::new(Mutex::new(()));
-        
+
         // Store in cache
         {
             let mut cache = self.session_cache.lock().await;
-            cache.insert(cache_key, CachedSession {
-                session: session.clone(),
-                context: ctx.clone(),
-                lock: lock.clone(),
-            });
+            cache.insert(
+                cache_key,
+                CachedSession {
+                    session: session.clone(),
+                    context: ctx.clone(),
+                    lock: lock.clone(),
+                },
+            );
         }
-        
+
         Ok((session, ctx, lock))
     }
-    
+
     /// Remove a session from the cache and delete it from the app
     async fn remove_session_from_cache(&self, service_name: &str, method_name: &str) {
         let cache_key = format!("{}/{}", service_name, method_name);
         let mut cache = self.session_cache.lock().await;
         if let Some(cached) = cache.remove(&cache_key) {
-            tracing::debug!("Removed session from cache for {}/{}", service_name, method_name);
-            
+            tracing::debug!(
+                "Removed session from cache for {}/{}",
+                service_name,
+                method_name
+            );
+
             // Close the session properly
             let _ = cached.session.close(&self.app).await;
         }
@@ -587,21 +600,21 @@ impl Channel {
     ) -> Result<(Session, Context), Status> {
         // Create session configuration
         let timeout_duration = timeout.unwrap_or(Duration::from_secs(MAX_TIMEOUT));
-        let mut session_metadata = metadata
+        let session_metadata = metadata
             .as_ref()
             .map(|m| m.as_map().clone())
             .unwrap_or_default();
 
-        // Add service and method to metadata for routing
-        session_metadata.insert(RPC_SERVICE_KEY.to_string(), service_name.to_string());
-        session_metadata.insert(RPC_METHOD_KEY.to_string(), method_name.to_string());
+        // Build method-specific subscription name (e.g., org/namespace/app-Service-Method)
+        let method_subscription_name =
+            crate::build_method_subscription_name(&self.remote, service_name, method_name);
 
         // Create the session with optional connection ID for propagation
         tracing::debug!(
-            "Creating session for {}/{} to remote: {} with connection_id: {:?}",
+            "Creating session for {}/{} to subscription: {} with connection_id: {:?}",
             service_name,
             method_name,
-            self.remote,
+            method_subscription_name,
             self.connection_id
         );
 
@@ -615,10 +628,10 @@ impl Channel {
             metadata: session_metadata,
         };
 
-        // Create session to the server's app name (not method name)
+        // Create session to the method-specific subscription name
         let (session_ctx, completion) = self
             .app
-            .create_session(slim_config, self.remote.clone(), None)
+            .create_session(slim_config, method_subscription_name.clone(), None)
             .await
             .map_err(|e| Status::unavailable(format!("Failed to create session: {}", e)))?;
 
@@ -723,7 +736,8 @@ impl Channel {
     /// # }
     /// ```
     pub async fn close_session(&self, service_name: &str, method_name: &str) {
-        self.remove_session_from_cache(service_name, method_name).await;
+        self.remove_session_from_cache(service_name, method_name)
+            .await;
     }
 
     // Helper methods for common RPC patterns
@@ -815,7 +829,7 @@ impl Channel {
     }
 
     /// Receive and decode a single response
-    /// 
+    ///
     /// Distinguishes between:
     /// - RPC errors: Status codes in metadata from the handler (keep session open)
     /// - Transport errors: Communication/decoding failures (close session)
@@ -824,23 +838,24 @@ impl Channel {
         Res: Decoder,
     {
         // Try to receive message - any error here is a transport error
-        let received = session.get_message(None)
+        let received = session
+            .get_message(None)
             .await
             .map_err(ReceiveError::Transport)?;
 
         // Check status code in metadata - error here means RPC error from handler
-        let code = self.parse_status_code(received.metadata.get(STATUS_CODE_KEY))
+        let code = self
+            .parse_status_code(received.metadata.get(STATUS_CODE_KEY))
             .map_err(ReceiveError::Transport)?;
-        
+
         if code != Code::Ok {
             let message = String::from_utf8_lossy(&received.payload).to_string();
             return Err(ReceiveError::Rpc(Status::new(code, message)));
         }
 
         // Try to decode response - any error here is a transport error
-        let response = Res::decode(received.payload)
-            .map_err(ReceiveError::Transport)?;
-        
+        let response = Res::decode(received.payload).map_err(ReceiveError::Transport)?;
+
         Ok(response)
     }
 }

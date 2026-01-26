@@ -596,26 +596,26 @@ impl App {
         // We need to extract the receiver from the RwLock
         // For test purposes, we'll create a new app that shares the same service
         // but has its own notification receiver
-        
+
         // This is a limitation: we can't easily share the notification receiver
         // between the app wrapper and the RPC server through UniFFI.
         // For now, we'll use the internal constructor directly in tests.
-        
+
         // Get the receiver by locking and taking it
         let mut rx_lock = self.notification_rx.write().await;
-        
+
         // Create a channel to transfer notifications
         let (tx, rx) = tokio::sync::mpsc::channel(100);
-        
+
         // Spawn a task to forward notifications
         let original_rx = std::mem::replace(&mut *rx_lock, {
             let (dummy_tx, dummy_rx) = tokio::sync::mpsc::channel(1);
             drop(dummy_tx); // Close immediately
             dummy_rx
         });
-        
+
         drop(rx_lock);
-        
+
         tokio::spawn(async move {
             let mut original_rx = original_rx;
             while let Some(notif) = original_rx.recv().await {
@@ -624,7 +624,7 @@ impl App {
                 }
             }
         });
-        
+
         crate::slimrpc::RpcServer::new(self.clone(), base_name, rx)
     }
 }

@@ -129,7 +129,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl UnaryUnaryHandler for TestUnaryUnaryHandler {
-        async fn handle(&self, request: Vec<u8>, _context: Arc<Context>) -> Result<Vec<u8>, RpcError> {
+        async fn handle(
+            &self,
+            request: Vec<u8>,
+            _context: Arc<Context>,
+        ) -> Result<Vec<u8>, RpcError> {
             // Echo the request
             Ok(request)
         }

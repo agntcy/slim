@@ -89,6 +89,43 @@
 //! # }
 //! ```
 
+use slim_datapath::messages::Name;
+
+/// Build a method-specific subscription name (base-service-method)
+///
+/// This creates a subscription name in the format: `org/namespace/app-service-method`
+/// matching the Python implementation's `handler_name_to_pyname`.
+///
+/// # Arguments
+/// * `base_name` - The base name (e.g., "org/namespace/app")
+/// * `service_name` - The service name (e.g., "MyService")
+/// * `method_name` - The method name (e.g., "MyMethod")
+///
+/// # Panics
+/// Panics if base_name doesn't have at least 3 components
+pub fn build_method_subscription_name(
+    base_name: &Name,
+    service_name: &str,
+    method_name: &str,
+) -> Name {
+    let components_strings = base_name.components_strings();
+    if components_strings.len() < 3 {
+        panic!("Base name must have at least 3 components");
+    }
+
+    // Create subscription name: org/namespace/app-service-method
+    let app_with_method = format!(
+        "{}-{}-{}",
+        &components_strings[2], service_name, method_name
+    );
+
+    Name::from_strings([
+        components_strings[0].clone(),
+        components_strings[1].clone(),
+        app_with_method,
+    ])
+}
+
 mod channel;
 mod codec;
 mod context;

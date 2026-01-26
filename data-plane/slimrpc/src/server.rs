@@ -106,6 +106,8 @@ struct ServiceRegistry {
     handlers: Arc<RwLock<HashMap<String, (RpcHandler, HandlerType)>>>,
     /// Map of method paths to stream handlers (for stream-input methods)
     stream_handlers: Arc<RwLock<HashMap<String, (StreamRpcHandler, HandlerType)>>>,
+    /// Map of subscription names to method paths for routing
+    subscription_to_method: Arc<RwLock<HashMap<Name, String>>>,
 }
 
 impl ServiceRegistry {
@@ -114,7 +116,23 @@ impl ServiceRegistry {
         Self {
             handlers: Arc::new(RwLock::new(HashMap::new())),
             stream_handlers: Arc::new(RwLock::new(HashMap::new())),
+            subscription_to_method: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    /// Register a subscription name mapping
+    fn register_subscription(&self, subscription_name: Name, method_path: String) {
+        self.subscription_to_method
+            .write()
+            .insert(subscription_name, method_path);
+    }
+
+    /// Get method path from subscription name
+    fn get_method_from_subscription(&self, subscription_name: &Name) -> Option<String> {
+        self.subscription_to_method
+            .read()
+            .get(subscription_name)
+            .cloned()
     }
 
     /// Register a unary-unary handler
@@ -471,6 +489,36 @@ impl Server {
         }
     }
 
+    /// Helper method to register subscription for a method
+    async fn register_method_subscription(
+        &self,
+        service_name: &str,
+        method_name: &str,
+    ) -> Result<(), Status> {
+        // Build subscription name and register mapping
+        let subscription_name =
+            crate::build_method_subscription_name(&self.inner.base_name, service_name, method_name);
+        let method_path = format!("{}/{}", service_name, method_name);
+        self.inner
+            .registry
+            .register_subscription(subscription_name.clone(), method_path);
+
+        // Subscribe immediately
+        tracing::info!("Subscribing to {}", subscription_name);
+        self.inner
+            .app
+            .subscribe(&subscription_name, self.inner.connection_id)
+            .await
+            .map_err(|e| {
+                Status::internal(format!(
+                    "Failed to subscribe to {}: {}",
+                    subscription_name, e
+                ))
+            })?;
+
+        Ok(())
+    }
+
     /// Register a unary-unary RPC handler
     ///
     /// Handles a single request and returns a single response.
@@ -506,12 +554,13 @@ impl Server {
     /// );
     /// # }
     /// ```
-    pub fn register_unary_unary<F, Req, Res, Fut>(
+    pub async fn register_unary_unary<F, Req, Res, Fut>(
         &self,
         service_name: &str,
         method_name: &str,
         handler: F,
-    ) where
+    ) -> Result<(), Status>
+    where
         F: Fn(Req, Context) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<Res, Status>> + Send + 'static,
         Req: Decoder + Send + 'static,
@@ -519,7 +568,10 @@ impl Server {
     {
         self.inner
             .registry
-            .register_unary_unary(service_name, method_name, handler)
+            .register_unary_unary(service_name, method_name, handler);
+
+        self.register_method_subscription(service_name, method_name)
+            .await
     }
 
     /// Register a unary-stream RPC handler
@@ -559,12 +611,13 @@ impl Server {
     /// );
     /// # }
     /// ```
-    pub fn register_unary_stream<F, Req, Res, S, Fut>(
+    pub async fn register_unary_stream<F, Req, Res, S, Fut>(
         &self,
         service_name: &str,
         method_name: &str,
         handler: F,
-    ) where
+    ) -> Result<(), Status>
+    where
         F: Fn(Req, Context) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<S, Status>> + Send + 'static,
         S: Stream<Item = Result<Res, Status>> + Send + 'static,
@@ -573,7 +626,10 @@ impl Server {
     {
         self.inner
             .registry
-            .register_unary_stream(service_name, method_name, handler)
+            .register_unary_stream(service_name, method_name, handler);
+
+        self.register_method_subscription(service_name, method_name)
+            .await
     }
 
     /// Register a stream-unary RPC handler
@@ -615,12 +671,13 @@ impl Server {
     /// );
     /// # }
     /// ```
-    pub fn register_stream_unary<F, Req, Res, Fut>(
+    pub async fn register_stream_unary<F, Req, Res, Fut>(
         &self,
         service_name: &str,
         method_name: &str,
         handler: F,
-    ) where
+    ) -> Result<(), Status>
+    where
         F: Fn(Box<dyn Stream<Item = Result<Req, Status>> + Send + Unpin>, Context) -> Fut
             + Send
             + Sync
@@ -631,7 +688,10 @@ impl Server {
     {
         self.inner
             .registry
-            .register_stream_unary(service_name, method_name, handler)
+            .register_stream_unary(service_name, method_name, handler);
+
+        self.register_method_subscription(service_name, method_name)
+            .await
     }
 
     /// Register a stream-stream RPC handler
@@ -683,12 +743,13 @@ impl Server {
     /// );
     /// # }
     /// ```
-    pub fn register_stream_stream<F, Req, Res, S, Fut>(
+    pub async fn register_stream_stream<F, Req, Res, S, Fut>(
         &self,
         service_name: &str,
         method_name: &str,
         handler: F,
-    ) where
+    ) -> Result<(), Status>
+    where
         F: Fn(Box<dyn Stream<Item = Result<Req, Status>> + Send + Unpin>, Context) -> Fut
             + Send
             + Sync
@@ -700,7 +761,10 @@ impl Server {
     {
         self.inner
             .registry
-            .register_stream_stream(service_name, method_name, handler)
+            .register_stream_stream(service_name, method_name, handler);
+
+        self.register_method_subscription(service_name, method_name)
+            .await
     }
 
     /// Get all registered method paths
@@ -756,17 +820,28 @@ impl Server {
                     return Ok(());
                 }
                 // Handle incoming sessions
-                session_result = self.listen_for_session(None) => {
+                session_result = self.listen_for_session() => {
                     let session_ctx = session_result?;
 
-                    // Spawn a task to handle this session (processes multiple RPCs in a loop)
+                    // Get the source (subscription name) from the session controller to determine which method to call
+                    let subscription_name = session_ctx.session_arc()
+                        .ok_or_else(|| Status::internal("Session controller not available"))?
+                        .source()
+                        .clone();
+
+                    let method_path = self.inner.registry.get_method_from_subscription(&subscription_name)
+                        .ok_or_else(|| Status::internal(format!("Unknown subscription: {}", subscription_name)))?;
+
+                    tracing::debug!("Received session for method: {} (subscription: {})", method_path, subscription_name);
+
+                    // Spawn a task to handle this session
                     let server = self.clone();
                     let handle = tokio::spawn(async move {
                         let session_weak = session_ctx.session.clone();
                         let session = Session::new(session_ctx);
 
-                        if let Err(e) = server.handle_session_with_wrapper(session).await {
-                            tracing::error!("Error handling session: {}", e);
+                        if let Err(e) = server.handle_session_direct(session, &method_path).await {
+                            tracing::error!("Error handling session for {}: {}", method_path, e);
                         }
 
                         // Delete the session when done
@@ -825,29 +900,14 @@ impl Server {
         tracing::debug!("Server shutdown complete, ready to restart");
     }
 
-    /// Listen for an incoming session
-    async fn listen_for_session(
-        &self,
-        timeout: Option<std::time::Duration>,
-    ) -> Result<SessionContext, Status> {
+    /// Listen for an incoming session from the notification receiver
+    async fn listen_for_session(&self) -> Result<slim_session::context::SessionContext, Status> {
         let mut rx_guard = self.inner.notification_rx.lock().await;
         let rx_opt = rx_guard.take();
 
         let notification_opt = match rx_opt {
             Some(NotificationReceiver::Owned(mut rx)) => {
-                let result = if let Some(dur) = timeout {
-                    // Runtime-agnostic timeout using tokio::time
-                    tokio::select! {
-                        result = rx.recv() => result,
-                        _ = tokio::time::sleep(dur) => {
-                            *rx_guard = Some(NotificationReceiver::Owned(rx));
-                            return Err(Status::deadline_exceeded("listen_for_session timed out"));
-                        }
-                    }
-                } else {
-                    rx.recv().await
-                };
-
+                let result = rx.recv().await;
                 // Put the receiver back
                 *rx_guard = Some(NotificationReceiver::Owned(rx));
                 result
@@ -858,21 +918,8 @@ impl Server {
                 drop(rx_guard);
 
                 // Now lock and receive from the shared receiver
-                let result = if let Some(dur) = timeout {
-                    // Runtime-agnostic timeout using tokio::time
-                    let mut rx = rx_arc.write().await;
-                    tokio::select! {
-                        result = rx.recv() => result,
-                        _ = tokio::time::sleep(dur) => {
-                            return Err(Status::deadline_exceeded("listen_for_session timed out"));
-                        }
-                    }
-                } else {
-                    let mut rx = rx_arc.write().await;
-                    rx.recv().await
-                };
-
-                result
+                let mut rx = rx_arc.write().await;
+                rx.recv().await
             }
             None => {
                 return Err(Status::internal("notification receiver not available"));
@@ -893,8 +940,12 @@ impl Server {
         }
     }
 
-    /// Handle an incoming session wrapper (processes multiple RPCs in a loop)
-    async fn handle_session_with_wrapper(&self, session: Session) -> Result<(), Status> {
+    /// Handle a session directly for a specific method (no metadata-based dispatch)
+    async fn handle_session_direct(
+        &self,
+        session: Session,
+        method_path: &str,
+    ) -> Result<(), Status> {
         // Get a drain watch handle for this session
         let drain_watch = self
             .inner
@@ -925,42 +976,32 @@ impl Server {
                 }
             };
 
-            // Extract service and method from message metadata
-            let service_name = match first_message.metadata.get("slimrpc-service") {
-                Some(name) => name.clone(),
-                None => {
-                    tracing::debug!("Missing service name in message metadata");
-                    continue;
-                }
-            };
-            let method_name = match first_message.metadata.get("slimrpc-method") {
-                Some(name) => name.clone(),
-                None => {
-                    tracing::debug!("Missing method name in message metadata");
-                    continue;
-                }
-            };
-
-            tracing::debug!("Processing RPC: {}/{}", service_name, method_name);
+            tracing::debug!("Processing RPC: {}", method_path);
 
             // Create context for this RPC by cloning initial context and adding message metadata
-            let ctx = initial_ctx.clone().with_message_metadata(first_message.metadata.clone());
-
-            // Get the handler based on type
-            let method_path = format!("{}/{}", service_name, method_name);
+            let ctx = initial_ctx
+                .clone()
+                .with_message_metadata(first_message.metadata.clone());
 
             // Try to get as a stream handler first (for stream-unary and stream-stream)
             let result = if let Some((stream_handler, handler_type)) =
-                self.inner.registry.get_stream_handler(&method_path)
+                self.inner.registry.get_stream_handler(method_path)
             {
-                self
-                    .handle_stream_based_method(stream_handler, handler_type, &session, ctx, first_message, &drain_watch)
-                    .await
-            } else if let Some((handler, handler_type)) = self.inner.registry.get_handler(&method_path) {
+                self.handle_stream_based_method(
+                    stream_handler,
+                    handler_type,
+                    &session,
+                    ctx,
+                    first_message,
+                    &drain_watch,
+                )
+                .await
+            } else if let Some((handler, handler_type)) =
+                self.inner.registry.get_handler(method_path)
+            {
                 // Check deadline
                 if ctx.is_deadline_exceeded() {
-                    self
-                        .send_error(&session, Status::deadline_exceeded("Deadline exceeded"))
+                    self.send_error(&session, Status::deadline_exceeded("Deadline exceeded"))
                         .await
                 } else {
                     // Handle based on type (only unary-input handlers reach here)
@@ -985,7 +1026,11 @@ impl Server {
                     }
                 }
             } else {
-                self.send_error(&session, Status::unimplemented(format!("Method not found: {}", method_path))).await
+                self.send_error(
+                    &session,
+                    Status::unimplemented(format!("Method not found: {}", method_path)),
+                )
+                .await
             };
 
             if let Err(e) = result {
@@ -995,7 +1040,10 @@ impl Server {
             }
 
             // Successfully handled one RPC, continue to handle next RPC on same session
-            tracing::debug!("Completed RPC {}, ready for next RPC on same session", method_path);
+            tracing::debug!(
+                "Completed RPC {}, ready for next RPC on same session",
+                method_path
+            );
         }
 
         Ok(())
@@ -1130,13 +1178,13 @@ impl Server {
                 .and_then(|s| s.parse::<i32>().ok())
                 .and_then(Code::from_i32)
                 .unwrap_or(Code::Ok);
-            
+
             // If first message is end-of-stream, don't yield it and exit immediately
             if first_code == Code::Ok && first_message.payload.is_empty() {
                 // Empty stream - exit immediately
                 return;
             }
-            
+
             // Yield the first message
             yield Ok(first_message.payload);
 

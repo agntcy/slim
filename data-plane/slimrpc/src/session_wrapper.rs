@@ -183,18 +183,27 @@ impl Session {
     ///
     /// # Arguments
     /// * `app` - The SLIM app instance to delete the session from
-    pub async fn close(&self, app: &Arc<SlimApp<AuthProvider, AuthVerifier>>) -> Result<(), Status> {
+    pub async fn close(
+        &self,
+        app: &Arc<SlimApp<AuthProvider, AuthVerifier>>,
+    ) -> Result<(), Status> {
         tracing::debug!("Closing session {}", self.inner.controller.id());
-        
+
         if let Ok(handle) = app.delete_session(self.inner.controller.as_ref()) {
             handle.await.map_err(|e| {
-                Status::internal(format!("Failed to delete session: {}", e.chain().to_string()))
+                Status::internal(format!(
+                    "Failed to delete session: {}",
+                    e.chain().to_string()
+                ))
             })?;
-            tracing::debug!("Successfully deleted session {}", self.inner.controller.id());
+            tracing::debug!(
+                "Successfully deleted session {}",
+                self.inner.controller.id()
+            );
         } else {
             tracing::warn!("Failed to delete session {}", self.inner.controller.id());
         }
-        
+
         Ok(())
     }
 }

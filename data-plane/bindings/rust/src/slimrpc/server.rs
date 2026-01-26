@@ -11,8 +11,8 @@ use std::sync::Arc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use slim_rpc::{HandlerResponse as CoreHandlerResponse, Server as CoreServer};
-use slim_session::notification::Notification;
 use slim_session::errors::SessionError;
+use slim_session::notification::Notification;
 
 use crate::slimrpc::context::Context;
 use crate::slimrpc::error::RpcError;
@@ -54,14 +54,13 @@ impl Server {
     ) -> Arc<Self> {
         let slim_name = base_name.as_ref().clone().into();
         let inner = CoreServer::new(app.inner().clone(), slim_name, notification_rx);
-        
+
         Arc::new(Self { inner })
     }
 }
 
 #[uniffi::export]
 impl Server {
-
     /// Register a unary-to-unary RPC handler
     ///
     /// # Arguments
@@ -75,14 +74,14 @@ impl Server {
         handler: Arc<dyn UnaryUnaryHandler>,
     ) {
         let handler_clone = handler.clone();
-        
+
         self.inner.register_unary_unary(
             &service_name,
             &method_name,
             move |request: Vec<u8>, context: slim_rpc::Context| {
                 let handler = handler_clone.clone();
                 let ctx = Context::from_inner(context);
-                
+
                 Box::pin(async move {
                     let result = handler.handle(request, Arc::new(ctx)).await;
                     result.map_err(|e| e.into())
@@ -104,28 +103,30 @@ impl Server {
         handler: Arc<dyn UnaryStreamHandler>,
     ) {
         let handler_clone = handler.clone();
-        
+
         self.inner.register_unary_stream(
             &service_name,
             &method_name,
             move |request: Vec<u8>, context: slim_rpc::Context| {
                 let handler = handler_clone.clone();
                 let ctx = Context::from_inner(context);
-                
+
                 Box::pin(async move {
                     let (sink, rx) = ResponseSink::receiver();
                     let sink_arc = Arc::new(sink);
-                    
+
                     // Spawn a task to run the handler
                     let _handler_task = {
                         let sink = sink_arc.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = handler.handle(request, Arc::new(ctx), sink.clone()).await {
+                            if let Err(e) =
+                                handler.handle(request, Arc::new(ctx), sink.clone()).await
+                            {
                                 let _ = sink.send_error_async(e).await;
                             }
                         })
                     };
-                    
+
                     // Convert the receiver to a stream
                     let stream = UnboundedReceiverStream::new(rx);
                     Ok(stream)
@@ -147,16 +148,18 @@ impl Server {
         handler: Arc<dyn StreamUnaryHandler>,
     ) {
         let handler_clone = handler.clone();
-        
+
         self.inner.register_stream_unary(
             &service_name,
             &method_name,
-            move |stream: Box<dyn futures::Stream<Item = Result<Vec<u8>, slim_rpc::Status>> + Send + Unpin>,
+            move |stream: Box<
+                dyn futures::Stream<Item = Result<Vec<u8>, slim_rpc::Status>> + Send + Unpin,
+            >,
                   context: slim_rpc::Context| {
                 let handler = handler_clone.clone();
                 let ctx = Context::from_inner(context);
                 let request_stream = Arc::new(RequestStream::new(stream));
-                
+
                 Box::pin(async move {
                     let result = handler.handle(request_stream, Arc::new(ctx)).await;
                     result.map_err(|e| e.into())
@@ -178,30 +181,35 @@ impl Server {
         handler: Arc<dyn StreamStreamHandler>,
     ) {
         let handler_clone = handler.clone();
-        
+
         self.inner.register_stream_stream(
             &service_name,
             &method_name,
-            move |stream: Box<dyn futures::Stream<Item = Result<Vec<u8>, slim_rpc::Status>> + Send + Unpin>,
+            move |stream: Box<
+                dyn futures::Stream<Item = Result<Vec<u8>, slim_rpc::Status>> + Send + Unpin,
+            >,
                   context: slim_rpc::Context| {
                 let handler = handler_clone.clone();
                 let ctx = Context::from_inner(context);
                 let request_stream = Arc::new(RequestStream::new(stream));
-                
+
                 Box::pin(async move {
                     let (sink, rx) = ResponseSink::receiver();
                     let sink_arc = Arc::new(sink);
-                    
+
                     // Spawn a task to run the handler
                     let _handler_task = {
                         let sink = sink_arc.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = handler.handle(request_stream, Arc::new(ctx), sink.clone()).await {
+                            if let Err(e) = handler
+                                .handle(request_stream, Arc::new(ctx), sink.clone())
+                                .await
+                            {
                                 let _ = sink.send_error_async(e).await;
                             }
                         })
                     };
-                    
+
                     // Convert the receiver to a stream
                     let stream = UnboundedReceiverStream::new(rx);
                     Ok(stream)
@@ -249,9 +257,7 @@ impl Server {
     /// This signals the server to stop accepting new requests and wait for
     /// in-flight requests to complete.
     pub async fn shutdown_async(&self) {
-        self.inner
-            .shutdown()
-            .await
+        self.inner.shutdown().await
     }
 }
 

@@ -157,7 +157,7 @@ mod tests {
 
         let result = sender.send(vec![1, 2, 3]).await;
         assert!(result.is_err());
-        
+
         if let Err(e) = result {
             assert_eq!(e.code(), crate::slimrpc::error::RpcCode::FailedPrecondition);
         }

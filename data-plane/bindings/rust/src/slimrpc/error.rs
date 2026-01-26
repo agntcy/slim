@@ -16,7 +16,7 @@ pub use slim_rpc::{Code, Status, StatusError};
 #[uniffi(flat_error)]
 pub enum RpcError {
     #[error("{message}")]
-    Rpc { 
+    Rpc {
         code: RpcCode,
         message: String,
         details: Option<Vec<u8>>,
@@ -77,7 +77,11 @@ impl From<Status> for RpcError {
 impl From<RpcError> for Status {
     fn from(error: RpcError) -> Self {
         match error {
-            RpcError::Rpc { code, message, details } => {
+            RpcError::Rpc {
+                code,
+                message,
+                details,
+            } => {
                 let mut status = Status::new(code.into(), message);
                 if let Some(d) = details {
                     status = status.with_details(d);
@@ -186,7 +190,7 @@ mod tests {
     fn test_error_conversion() {
         let status = Status::new(Code::NotFound, "Resource not found");
         let error: RpcError = status.into();
-        
+
         assert_eq!(error.code(), RpcCode::NotFound);
         assert_eq!(error.message(), "Resource not found");
     }
@@ -196,7 +200,7 @@ mod tests {
         let rpc_code = RpcCode::InvalidArgument;
         let code: Code = rpc_code.into();
         let back: RpcCode = code.into();
-        
+
         assert_eq!(rpc_code, back);
     }
 
@@ -206,9 +210,9 @@ mod tests {
         let error = RpcError::with_details(
             RpcCode::Internal,
             "Internal error".to_string(),
-            details.clone()
+            details.clone(),
         );
-        
+
         assert_eq!(error.code(), RpcCode::Internal);
         assert_eq!(error.message(), "Internal error");
         assert_eq!(error.details(), Some(details.as_slice()));
