@@ -563,9 +563,6 @@ impl ClientConfig {
         let uri = self.parse_endpoint_uri()?;
 
         let channel = if uri.scheme_str() == Some("unix") {
-            if cfg!(not(target_family = "unix")) {
-                return Err(ConfigError::UnixSocketUnsupported);
-            }
             self.connect_unix_channel(uri, lazy).await?
         } else if uri.scheme_str() == Some("http") || uri.scheme_str() == Some("https") {
             self.connect_tcp_channel(uri, lazy).await?
@@ -591,24 +588,15 @@ impl ClientConfig {
         // authority in the URI and the Uri parser doesn't like this today,
         // so we build our own URI with a fake localhost authority.
         if self.endpoint.starts_with("unix://") {
-            let Some(path) = self.endpoint.strip_prefix("unix://") else {
-                return Err(ConfigError::UnixSocketMissingPath);
-            };
-
-            if path.trim_matches('/').is_empty() {
+            let path = &self.endpoint[7..];
+            if path.is_empty() {
                 return Err(ConfigError::UnixSocketMissingPath);
             }
-
-            let normalized = if path.starts_with('/') {
-                path.to_string()
-            } else {
-                format!("/{path}")
-            };
 
             let uri = Uri::builder()
                 .scheme("unix")
                 .authority("localhost")
-                .path_and_query(normalized.as_str())
+                .path_and_query(path)
                 .build()
                 .map_err(ConfigError::UnixSocketInvalidPath)?;
             return Ok(uri);
@@ -696,33 +684,6 @@ impl ClientConfig {
         Ok(header_map)
     }
 
-    #[cfg(target_family = "unix")]
-    fn parse_unix_socket_path(endpoint: &str) -> Result<PathBuf, ConfigError> {
-        let Some(path) = endpoint.strip_prefix("unix://") else {
-            return Err(ConfigError::UnixSocketMissingPath);
-        };
-
-        let without_query = path.split_once('?').map(|(p, _)| p).unwrap_or(path);
-        let path_part = without_query
-            .split_once('#')
-            .map(|(p, _)| p)
-            .unwrap_or(without_query);
-
-        let normalized = if path_part.is_empty() {
-            String::new()
-        } else if path_part.starts_with('/') {
-            path_part.to_string()
-        } else {
-            format!("/{}", path_part)
-        };
-
-        if normalized.is_empty() || normalized == "/" {
-            return Err(ConfigError::UnixSocketMissingPath);
-        }
-
-        Ok(PathBuf::from(normalized))
-    }
-
     fn map_transport_error(err: tonic::transport::Error) -> ConfigError {
         #[cfg(target_family = "unix")]
         {
@@ -787,7 +748,8 @@ impl ClientConfig {
             return Err(ConfigError::UnixSocketTlsUnsupported);
         }
 
-        let socket_path = Arc::new(Self::parse_unix_socket_path(&self.endpoint)?);
+        let path = uri.path();
+        let socket_path = Arc::new(PathBuf::from(path));
         let builder = self.create_channel_builder(uri)?;
 
         let make_connector = || {
@@ -1141,31 +1103,13 @@ mod test {
         let uri = client.parse_endpoint_uri().expect("valid unix uri");
         assert_eq!(uri.scheme_str(), Some("unix"));
         assert_eq!(uri.authority().map(|auth| auth.as_str()), Some("localhost"));
-        assert_eq!(uri.path(), "/tmp/slim.sock");
+        assert_eq!(uri.path(), "tmp/slim.sock");
     }
 
     #[test]
     fn test_parse_endpoint_uri_unix_missing_path() {
         let client = ClientConfig::with_endpoint("unix://");
         let err = client.parse_endpoint_uri().expect_err("missing unix path");
-        assert!(matches!(err, ConfigError::UnixSocketMissingPath));
-    }
-
-    #[cfg(target_family = "unix")]
-    #[test]
-    fn test_parse_unix_socket_path_normalizes() {
-        let path =
-            ClientConfig::parse_unix_socket_path("unix://tmp/slim.sock?foo=bar#frag").unwrap();
-        assert_eq!(path, std::path::PathBuf::from("/tmp/slim.sock"));
-    }
-
-    #[cfg(target_family = "unix")]
-    #[test]
-    fn test_parse_unix_socket_path_missing() {
-        let err = ClientConfig::parse_unix_socket_path("unix://").unwrap_err();
-        assert!(matches!(err, ConfigError::UnixSocketMissingPath));
-
-        let err = ClientConfig::parse_unix_socket_path("unix:///").unwrap_err();
         assert!(matches!(err, ConfigError::UnixSocketMissingPath));
     }
 
