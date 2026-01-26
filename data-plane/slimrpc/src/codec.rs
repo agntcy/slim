@@ -11,13 +11,13 @@ use crate::Status;
 /// Trait for encoding messages to bytes
 pub trait Encoder {
     /// Encode a message to bytes
-    fn encode(&self) -> Result<Vec<u8>, Status>;
+    fn encode(self) -> Result<Vec<u8>, Status>;
 }
 
 /// Trait for decoding messages from bytes
 pub trait Decoder: Default {
     /// Decode a message from bytes
-    fn decode(buf: &[u8]) -> Result<Self, Status>;
+    fn decode(buf: Vec<u8>) -> Result<Self, Status>;
 }
 
 /// Combined codec trait for types that can be both encoded and decoded
@@ -28,14 +28,14 @@ impl<T: Encoder + Decoder> Codec for T {}
 
 // Standard implementations for Vec<u8> (pass-through)
 impl Encoder for Vec<u8> {
-    fn encode(&self) -> Result<Vec<u8>, Status> {
-        Ok(self.clone())
+    fn encode(self) -> Result<Vec<u8>, Status> {
+        Ok(self)
     }
 }
 
 impl Decoder for Vec<u8> {
-    fn decode(buf: &[u8]) -> Result<Self, Status> {
-        Ok(buf.to_vec())
+    fn decode(buf: Vec<u8>) -> Result<Self, Status> {
+        Ok(buf)
     }
 }
 
@@ -50,16 +50,14 @@ mod tests {
     }
 
     impl Encoder for TestMessage {
-        fn encode(&self) -> Result<Vec<u8>, Status> {
-            Ok(self.data.clone())
+        fn encode(self) -> Result<Vec<u8>, Status> {
+            Ok(self.data)
         }
     }
 
     impl Decoder for TestMessage {
-        fn decode(buf: &[u8]) -> Result<Self, Status> {
-            Ok(TestMessage {
-                data: buf.to_vec(),
-            })
+        fn decode(buf: Vec<u8>) -> Result<Self, Status> {
+            Ok(TestMessage { data: buf })
         }
     }
 
@@ -75,7 +73,7 @@ mod tests {
     #[test]
     fn test_decode() {
         let buf = vec![1, 2, 3, 4];
-        let msg: TestMessage = TestMessage::decode(&buf).unwrap();
+        let msg: TestMessage = TestMessage::decode(buf).unwrap();
         assert_eq!(msg.data, vec![1, 2, 3, 4]);
     }
 }

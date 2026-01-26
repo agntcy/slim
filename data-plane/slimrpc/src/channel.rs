@@ -46,21 +46,53 @@ pub struct Channel {
 }
 
 impl Channel {
-    /// Create a new channel
+    /// Create a new channel to a remote service
     ///
     /// # Arguments
     /// * `app` - The SLIM app to use for communication
     /// * `remote` - The base name of the remote service
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use slim_rpc::Channel;
+    /// # use slim_datapath::messages::Name;
+    /// # use slim_service::app::App;
+    /// # use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
+    /// # use std::sync::Arc;
+    /// # async fn example(app: Arc<App<AuthProvider, AuthVerifier>>) {
+    /// let remote = Name::from_strings(["org".to_string(), "namespace".to_string(), "service".to_string()]);
+    /// let channel = Channel::new(app, remote);
+    /// # }
+    /// ```
     pub fn new(app: Arc<SlimApp<AuthProvider, AuthVerifier>>, remote: Name) -> Self {
         Self::new_with_connection(app, remote, None)
     }
 
-    /// Create a new channel with optional connection ID
+    /// Create a new channel with optional connection ID for session propagation
+    ///
+    /// The connection ID is used to propagate session creation to the next SLIM node,
+    /// enabling multi-hop RPC calls.
     ///
     /// # Arguments
     /// * `app` - The SLIM app to use for communication
     /// * `remote` - The base name of the remote service
     /// * `connection_id` - Optional connection ID for session creation propagation to next SLIM node
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use slim_rpc::Channel;
+    /// # use slim_datapath::messages::Name;
+    /// # use slim_service::app::App;
+    /// # use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
+    /// # use std::sync::Arc;
+    /// # async fn example(app: Arc<App<AuthProvider, AuthVerifier>>) {
+    /// let remote = Name::from_strings(["org".to_string(), "namespace".to_string(), "service".to_string()]);
+    /// let connection_id = Some(42);
+    /// let channel = Channel::new_with_connection(app, remote, connection_id);
+    /// # }
+    /// ```
     pub fn new_with_connection(
         app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
         remote: Name,
@@ -75,7 +107,46 @@ impl Channel {
 
     /// Make a unary-unary RPC call
     ///
-    /// Sends a single request and receives a single response.
+    /// Sends a single request and receives a single response. This is the simplest
+    /// RPC pattern, similar to a regular function call over the network.
+    ///
+    /// # Arguments
+    /// * `service_name` - The name of the service (e.g., "MyService")
+    /// * `method_name` - The name of the method (e.g., "GetUser")
+    /// * `request` - The request message (must implement `Encoder`)
+    /// * `timeout` - Optional timeout duration (defaults to MAX_TIMEOUT)
+    /// * `metadata` - Optional metadata to include with the request
+    ///
+    /// # Returns
+    /// The decoded response or a `Status` error
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use slim_rpc::{Channel, Status};
+    /// # use std::time::Duration;
+    /// # #[derive(Default)]
+    /// # struct Request {}
+    /// # impl slim_rpc::Encoder for Request {
+    /// #     fn encode(self) -> std::result::Result<Vec<u8>, Status> { Ok(vec![]) }
+    /// # }
+    /// # #[derive(Default)]
+    /// # struct Response {}
+    /// # impl slim_rpc::Decoder for Response {
+    /// #     fn decode(_buf: Vec<u8>) -> std::result::Result<Self, Status> { Ok(Response::default()) }
+    /// # }
+    /// # async fn example(channel: Channel) -> std::result::Result<(), Status> {
+    /// let request = Request::default();
+    /// let response: Response = channel.unary(
+    ///     "MyService",
+    ///     "MyMethod",
+    ///     request,
+    ///     Some(Duration::from_secs(30)),
+    ///     None
+    /// ).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn unary<Req, Res>(
         &self,
         service_name: &str,
@@ -106,7 +177,52 @@ impl Channel {
 
     /// Make a unary-stream RPC call
     ///
-    /// Sends a single request and receives a stream of responses.
+    /// Sends a single request and receives a stream of responses. Useful for
+    /// server-side streaming scenarios like paginated results or real-time updates.
+    ///
+    /// # Arguments
+    /// * `service_name` - The name of the service
+    /// * `method_name` - The name of the method
+    /// * `request` - The request message
+    /// * `timeout` - Optional timeout duration
+    /// * `metadata` - Optional metadata to include with the request
+    ///
+    /// # Returns
+    /// A stream of decoded responses or `Status` errors
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use slim_rpc::{Channel, Status};
+    /// # use futures::{StreamExt, pin_mut};
+    /// # #[derive(Default)]
+    /// # struct Request { count: i32 }
+    /// # impl slim_rpc::Encoder for Request {
+    /// #     fn encode(self) -> std::result::Result<Vec<u8>, Status> { Ok(vec![]) }
+    /// # }
+    /// # #[derive(Default)]
+    /// # struct Response { value: i32 }
+    /// # impl slim_rpc::Decoder for Response {
+    /// #     fn decode(_buf: Vec<u8>) -> std::result::Result<Self, Status> { Ok(Response::default()) }
+    /// # }
+    /// # async fn example(channel: Channel) -> std::result::Result<(), Status> {
+    /// let request = Request { count: 10 };
+    /// let stream = channel.unary_stream::<Request, Response>(
+    ///     "MyService",
+    ///     "StreamResults",
+    ///     request,
+    ///     None,
+    ///     None
+    /// );
+    /// pin_mut!(stream);
+    ///
+    /// while let Some(result) = stream.next().await {
+    ///     let response = result?;
+    ///     println!("Received: {}", response.value);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn unary_stream<Req, Res>(
         &self,
         service_name: &str,
@@ -153,7 +269,7 @@ impl Channel {
                 }
 
                 // Decode and yield response
-                let response = Res::decode(&received.payload)?;
+                let response = Res::decode(received.payload)?;
                 yield response;
             }
         }
@@ -161,7 +277,51 @@ impl Channel {
 
     /// Make a stream-unary RPC call
     ///
-    /// Sends a stream of requests and receives a single response.
+    /// Sends a stream of requests and receives a single response. Useful for
+    /// client-side streaming scenarios like uploading files or aggregating data.
+    ///
+    /// # Arguments
+    /// * `service_name` - The name of the service
+    /// * `method_name` - The name of the method
+    /// * `request_stream` - A stream of request messages
+    /// * `timeout` - Optional timeout duration
+    /// * `metadata` - Optional metadata to include with the request
+    ///
+    /// # Returns
+    /// The decoded response or a `Status` error
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use slim_rpc::{Channel, Status};
+    /// # use futures::stream;
+    /// # #[derive(Default)]
+    /// # struct Request { data: Vec<u8> }
+    /// # impl slim_rpc::Encoder for Request {
+    /// #     fn encode(self) -> std::result::Result<Vec<u8>, Status> { Ok(vec![]) }
+    /// # }
+    /// # #[derive(Default)]
+    /// # struct Response { total: usize }
+    /// # impl slim_rpc::Decoder for Response {
+    /// #     fn decode(_buf: Vec<u8>) -> std::result::Result<Self, Status> { Ok(Response::default()) }
+    /// # }
+    /// # async fn example(channel: Channel) -> std::result::Result<(), Status> {
+    /// let requests = vec![
+    ///     Request { data: vec![1, 2, 3] },
+    ///     Request { data: vec![4, 5, 6] },
+    /// ];
+    /// let request_stream = stream::iter(requests);
+    ///
+    /// let response: Response = channel.stream_unary(
+    ///     "MyService",
+    ///     "Aggregate",
+    ///     request_stream,
+    ///     None,
+    ///     None
+    /// ).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn stream_unary<Req, Res, S>(
         &self,
         service_name: &str,
@@ -189,7 +349,58 @@ impl Channel {
 
     /// Make a stream-stream RPC call
     ///
-    /// Sends a stream of requests and receives a stream of responses.
+    /// Sends a stream of requests and receives a stream of responses. This is the most
+    /// flexible RPC pattern, enabling bidirectional streaming for scenarios like chat
+    /// applications or real-time data processing.
+    ///
+    /// # Arguments
+    /// * `service_name` - The name of the service
+    /// * `method_name` - The name of the method
+    /// * `request_stream` - A stream of request messages
+    /// * `timeout` - Optional timeout duration
+    /// * `metadata` - Optional metadata to include with the request
+    ///
+    /// # Returns
+    /// A stream of decoded responses or `Status` errors
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use slim_rpc::{Channel, Status};
+    /// # use futures::{stream, StreamExt, pin_mut};
+    /// # #[derive(Default)]
+    /// # struct Request { message: String }
+    /// # impl slim_rpc::Encoder for Request {
+    /// #     fn encode(self) -> std::result::Result<Vec<u8>, Status> { Ok(vec![]) }
+    /// # }
+    /// # #[derive(Default)]
+    /// # struct Response { reply: String }
+    /// # impl slim_rpc::Decoder for Response {
+    /// #     fn decode(_buf: Vec<u8>) -> std::result::Result<Self, Status> { Ok(Response::default()) }
+    /// # }
+    /// # async fn example(channel: Channel) -> std::result::Result<(), Status> {
+    /// let requests = vec![
+    ///     Request { message: "hello".to_string() },
+    ///     Request { message: "world".to_string() },
+    /// ];
+    /// let request_stream = stream::iter(requests);
+    ///
+    /// let response_stream = channel.stream_stream::<Request, Response, _>(
+    ///     "MyService",
+    ///     "Chat",
+    ///     request_stream,
+    ///     None,
+    ///     None
+    /// );
+    /// pin_mut!(response_stream);
+    ///
+    /// while let Some(result) = response_stream.next().await {
+    ///     let response = result?;
+    ///     println!("Received: {}", response.reply);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn stream_stream<Req, Res, S>(
         &self,
         service_name: &str,
@@ -207,7 +418,7 @@ impl Channel {
         let method_name = method_name.to_string();
         let channel = self.clone();
 
-       println!("Creating session for {}-{}", service_name, method_name);
+        println!("Creating session for {}-{}", service_name, method_name);
 
         try_stream! {
             let (session, ctx) = channel
@@ -221,9 +432,7 @@ impl Channel {
             let method_name_clone = method_name.clone();
             let channel_bg = channel.clone();
             tokio::spawn(async move {
-                println!("Starting background task to send request stream for {}-{}", service_name_clone, method_name_clone);
-                let res = channel_bg.send_request_stream(&session_bg, &ctx_clone, request_stream, &service_name_clone, &method_name_clone).await;
-                println!("Finished sending request stream for {}-{} with result: {:?}", service_name_clone, method_name_clone, res);
+                let _res = channel_bg.send_request_stream(&session_bg, &ctx_clone, request_stream, &service_name_clone, &method_name_clone).await;
             });
 
             // Receive streaming responses
@@ -247,7 +456,7 @@ impl Channel {
                 }
 
                 // Decode and yield response
-                let response = Res::decode(&received.payload)?;
+                let response = Res::decode(received.payload)?;
                 yield response;
             }
         }
@@ -335,17 +544,47 @@ impl Channel {
         }
     }
 
-    /// Get the underlying app reference
+    /// Get a reference to the underlying SLIM app
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use slim_rpc::Channel;
+    /// # fn example(channel: Channel) {
+    /// let app = channel.app();
+    /// # }
+    /// ```
     pub fn app(&self) -> &Arc<SlimApp<AuthProvider, AuthVerifier>> {
         &self.app
     }
 
-    /// Get the remote name
+    /// Get the remote service name
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use slim_rpc::Channel;
+    /// # fn example(channel: Channel) {
+    /// let remote = channel.remote();
+    /// println!("Remote: {}", remote);
+    /// # }
+    /// ```
     pub fn remote(&self) -> &Name {
         &self.remote
     }
 
-    /// Get the connection ID
+    /// Get the optional connection ID used for session propagation
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use slim_rpc::Channel;
+    /// # fn example(channel: Channel) {
+    /// if let Some(conn_id) = channel.connection_id() {
+    ///     println!("Connection ID: {}", conn_id);
+    /// }
+    /// # }
+    /// ```
     pub fn connection_id(&self) -> Option<u64> {
         self.connection_id
     }
@@ -453,11 +692,9 @@ impl Channel {
         }
 
         // Decode response
-        let response = Res::decode(&received.payload)?;
+        let response = Res::decode(received.payload)?;
         Ok(response)
     }
-
-
 }
 
 #[cfg(test)]

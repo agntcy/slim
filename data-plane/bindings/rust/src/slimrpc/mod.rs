@@ -51,13 +51,10 @@ pub use rpc::{
     RequestStream, ResponseStream, StreamResult, StreamStreamHandler, StreamUnaryHandler,
     UnaryStreamHandler, UnaryUnaryHandler,
 };
-pub use server::{
-    HandlerResponse, HandlerType, RpcHandler, RpcResponseStream, RpcServer,
-};
+pub use server::{HandlerResponse, HandlerType, RpcHandler, RpcResponseStream, RpcServer};
 
 // Re-export core types with RPC prefix for clarity
 pub use agntcy_slimrpc::{
-    Channel, Context, MessageContext as CoreMessageContext,
-    Server, SessionContext as CoreSessionContext,
-    MAX_TIMEOUT, DEADLINE_KEY, STATUS_CODE_KEY,
+    Channel, Context, DEADLINE_KEY, MAX_TIMEOUT, MessageContext as CoreMessageContext,
+    STATUS_CODE_KEY, Server, SessionContext as CoreSessionContext,
 };

@@ -6,18 +6,15 @@ mod common;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use clap::Parser;
-use common::{RpcAppConnection, RpcAppConfig, create_local_app};
+use common::{create_local_app, RpcAppConfig, RpcAppConnection};
 use futures::stream;
 use futures::StreamExt;
-use slim_bindings::{
-    RpcMessageContext as MessageContext,
-    RpcSessionContext as SessionContext,
-    RpcServer,
-};
 use slim_bindings::slimrpc::{
-    RpcHandler, RequestStream, ResponseStream,
-    StreamStreamHandler, StreamUnaryHandler,
+    RequestStream, ResponseStream, RpcHandler, StreamStreamHandler, StreamUnaryHandler,
     UnaryStreamHandler, UnaryUnaryHandler,
+};
+use slim_bindings::{
+    RpcMessageContext as MessageContext, RpcServer, RpcSessionContext as SessionContext,
 };
 use std::collections::HashMap;
 use tracing::info;
@@ -204,12 +201,18 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     // Create SLIM app configuration and connect (this initializes tracing internally)
-    let config = RpcAppConfig::with_shared_secret(args.local.clone(), args.endpoint.clone(), args.secret)
-        .with_opentelemetry(args.opentelemetry);
-    
+    let config =
+        RpcAppConfig::with_shared_secret(args.local.clone(), args.endpoint.clone(), args.secret)
+            .with_opentelemetry(args.opentelemetry);
+
     // Create SLIM app and connect
-    let RpcAppConnection { app, connection_id: conn_id } = create_local_app(config).await.context("Failed to create local app")?;
-    
+    let RpcAppConnection {
+        app,
+        connection_id: conn_id,
+    } = create_local_app(config)
+        .await
+        .context("Failed to create local app")?;
+
     // Now logging is available
     info!("Starting SLIMRpc server");
     info!("Local: {}", args.local);
@@ -257,7 +260,7 @@ async fn main() -> Result<()> {
 
     // Run server
     info!("Server is running...");
-    
+
     // For Rust async examples, wrap in Arc and use run_async
     use std::sync::Arc;
     let server = Arc::new(server_owned);

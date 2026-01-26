@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use crate::errors::SlimError;
-use crate::{get_runtime, App, Name};
+use crate::{App, Name, get_runtime};
 
 use agntcy_slimrpc::Server as CoreServer;
 
@@ -94,13 +94,10 @@ impl RpcServer {
     pub fn new(app: Arc<App>, base_name: Arc<Name>) -> Arc<Self> {
         let slim_name = base_name.as_slim_name();
         let notification_rx = app.notification_receiver();
-        
+
         // Create the core server
-        let server = CoreServer::new_with_shared_rx(
-            app.inner_app().clone(),
-            slim_name,
-            notification_rx,
-        );
+        let server =
+            CoreServer::new_with_shared_rx(app.inner_app().clone(), slim_name, notification_rx);
 
         Arc::new(Self {
             server: Arc::new(parking_lot::Mutex::new(server)),
@@ -121,7 +118,7 @@ impl RpcServer {
     ) -> Arc<Self> {
         let slim_name = base_name.as_slim_name();
         let notification_rx = app.notification_receiver();
-        
+
         // Create the core server
         let server = CoreServer::new_with_shared_rx_and_connection(
             app.inner_app().clone(),
@@ -186,16 +183,18 @@ impl RpcServer {
                     let response_stream = Arc::new(ResponseStreamSender {
                         tx: Arc::new(tokio::sync::Mutex::new(tx)),
                     });
-                    
+
                     let handler_clone = Arc::clone(&handler);
                     let rpc_ctx_clone = Arc::clone(&rpc_ctx);
                     let response_stream_clone = Arc::clone(&response_stream);
-                    
+
                     // Spawn handler task
                     tokio::spawn(async move {
-                        let _ = handler_clone.handle(request, rpc_ctx_clone, response_stream_clone).await;
+                        let _ = handler_clone
+                            .handle(request, rpc_ctx_clone, response_stream_clone)
+                            .await;
                     });
-                    
+
                     // Convert receiver to stream
                     let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
                     Ok(stream)
@@ -266,23 +265,25 @@ impl RpcServer {
                     let request_stream = Arc::new(RequestStreamWrapper {
                         stream: Arc::new(tokio::sync::Mutex::new(stream)),
                     });
-                    
+
                     // Create response stream
                     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
                     let response_stream = Arc::new(ResponseStreamSender {
                         tx: Arc::new(tokio::sync::Mutex::new(tx)),
                     });
-                    
+
                     let handler_clone = Arc::clone(&handler);
                     let rpc_ctx_clone = Arc::clone(&rpc_ctx);
                     let request_stream_clone = Arc::clone(&request_stream);
                     let response_stream_clone = Arc::clone(&response_stream);
-                    
+
                     // Spawn handler task
                     tokio::spawn(async move {
-                        let _ = handler_clone.handle(request_stream_clone, rpc_ctx_clone, response_stream_clone).await;
+                        let _ = handler_clone
+                            .handle(request_stream_clone, rpc_ctx_clone, response_stream_clone)
+                            .await;
                     });
-                    
+
                     // Convert receiver to stream
                     let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
                     Ok(stream)
@@ -339,8 +340,6 @@ impl Clone for RpcServer {
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -357,8 +356,6 @@ mod tests {
         let back: HandlerType = core.into();
         assert_eq!(back, HandlerType::StreamStream);
     }
-
-
 
     #[test]
     fn test_handler_response_enum() {

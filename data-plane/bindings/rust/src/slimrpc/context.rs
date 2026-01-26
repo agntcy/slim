@@ -282,7 +282,7 @@ mod tests {
 
         assert!(ctx.deadline_secs().is_some());
         assert!(!ctx.is_deadline_exceeded());
-        
+
         let remaining = ctx.remaining_time_secs();
         assert!(remaining.is_some());
         if let Some(r) = remaining {

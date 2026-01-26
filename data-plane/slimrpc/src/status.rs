@@ -377,7 +377,10 @@ mod tests {
         assert_eq!(status.to_string(), "Status { code: OK }");
 
         let status = Status::internal("test");
-        assert_eq!(status.to_string(), "Status { code: INTERNAL, message: \"test\" }");
+        assert_eq!(
+            status.to_string(),
+            "Status { code: INTERNAL, message: \"test\" }"
+        );
     }
 
     #[test]
@@ -391,13 +394,28 @@ mod tests {
     fn test_all_status_constructors() {
         assert_eq!(Status::cancelled("msg").code(), Code::Cancelled);
         assert_eq!(Status::unknown("msg").code(), Code::Unknown);
-        assert_eq!(Status::invalid_argument("msg").code(), Code::InvalidArgument);
-        assert_eq!(Status::deadline_exceeded("msg").code(), Code::DeadlineExceeded);
+        assert_eq!(
+            Status::invalid_argument("msg").code(),
+            Code::InvalidArgument
+        );
+        assert_eq!(
+            Status::deadline_exceeded("msg").code(),
+            Code::DeadlineExceeded
+        );
         assert_eq!(Status::not_found("msg").code(), Code::NotFound);
         assert_eq!(Status::already_exists("msg").code(), Code::AlreadyExists);
-        assert_eq!(Status::permission_denied("msg").code(), Code::PermissionDenied);
-        assert_eq!(Status::resource_exhausted("msg").code(), Code::ResourceExhausted);
-        assert_eq!(Status::failed_precondition("msg").code(), Code::FailedPrecondition);
+        assert_eq!(
+            Status::permission_denied("msg").code(),
+            Code::PermissionDenied
+        );
+        assert_eq!(
+            Status::resource_exhausted("msg").code(),
+            Code::ResourceExhausted
+        );
+        assert_eq!(
+            Status::failed_precondition("msg").code(),
+            Code::FailedPrecondition
+        );
         assert_eq!(Status::aborted("msg").code(), Code::Aborted);
         assert_eq!(Status::out_of_range("msg").code(), Code::OutOfRange);
         assert_eq!(Status::unimplemented("msg").code(), Code::Unimplemented);

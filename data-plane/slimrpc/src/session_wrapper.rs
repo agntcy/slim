@@ -110,7 +110,8 @@ impl Session {
             }
         }
 
-        let handle = self.inner
+        let handle = self
+            .inner
             .controller
             .publish_message(msg)
             .await

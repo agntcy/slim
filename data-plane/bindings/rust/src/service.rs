@@ -247,9 +247,7 @@ impl Service {
 
         // Spawn in tokio runtime since connect internally uses tokio::spawn
         let handle = runtime.spawn(async move {
-            let res = inner
-                .connect(&core_config)
-                .await?;
+            let res = inner.connect(&core_config).await?;
 
             Ok(res)
         });

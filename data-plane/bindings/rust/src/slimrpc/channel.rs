@@ -9,12 +9,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::errors::SlimError;
-use crate::{get_runtime, App, Name};
+use crate::{App, Name, get_runtime};
 
-use agntcy_slimrpc::Channel as CoreChannel;
+use futures::StreamExt;
+use slim_rpc::Channel as CoreChannel;
 
 use super::metadata::Metadata;
-use super::rpc::{ResponseStream, StreamResult};
+use super::rpc::{RequestStream, ResponseStream, StreamResult};
 
 /// Client-side RPC channel for making RPC calls
 ///
@@ -56,7 +57,8 @@ impl RpcChannel {
         connection_id: Option<u64>,
     ) -> Arc<Self> {
         let slim_name = remote.as_slim_name();
-        let core_channel = CoreChannel::new_with_connection(app.inner_app().clone(), slim_name, connection_id);
+        let core_channel =
+            CoreChannel::new_with_connection(app.inner_app().clone(), slim_name, connection_id);
 
         Arc::new(Self {
             channel: core_channel,
@@ -85,7 +87,13 @@ impl RpcChannel {
         metadata: Option<Arc<Metadata>>,
     ) -> Result<Vec<u8>, SlimError> {
         let runtime = get_runtime();
-        runtime.block_on(self.unary_async(service_name, method_name, request, timeout_secs, metadata))
+        runtime.block_on(self.unary_async(
+            service_name,
+            method_name,
+            request,
+            timeout_secs,
+            metadata,
+        ))
     }
 
     /// Make a unary-unary RPC call (async)
@@ -114,13 +122,7 @@ impl RpcChannel {
 
         let response = self
             .channel
-            .unary(
-                &service_name,
-                &method_name,
-                request,
-                timeout,
-                core_metadata,
-            )
+            .unary(&service_name, &method_name, request, timeout, core_metadata)
             .await
             .map_err(|e| SlimError::RpcError {
                 message: format!("RPC call failed: {}", e),
@@ -151,7 +153,7 @@ impl RpcChannel {
     /// * `metadata` - Optional metadata
     ///
     /// # Returns
-    /// A ResponseReceiver for reading the stream of responses
+    /// A RequestStream for reading the stream of responses
     pub fn unary_stream(
         &self,
         service_name: String,
@@ -159,9 +161,15 @@ impl RpcChannel {
         request: Vec<u8>,
         timeout_secs: Option<u64>,
         metadata: Option<Arc<Metadata>>,
-    ) -> Result<Arc<dyn ResponseStream>, SlimError> {
+    ) -> Result<Arc<dyn RequestStream>, SlimError> {
         let runtime = get_runtime();
-        runtime.block_on(self.unary_stream_async(service_name, method_name, request, timeout_secs, metadata))
+        runtime.block_on(self.unary_stream_async(
+            service_name,
+            method_name,
+            request,
+            timeout_secs,
+            metadata,
+        ))
     }
 
     /// Make a unary-stream RPC call (async)
@@ -176,7 +184,7 @@ impl RpcChannel {
     /// * `metadata` - Optional metadata
     ///
     /// # Returns
-    /// A ResponseReceiver for reading the stream of responses
+    /// A RequestStream for reading the stream of responses
     pub async fn unary_stream_async(
         &self,
         service_name: String,
@@ -184,42 +192,18 @@ impl RpcChannel {
         request: Vec<u8>,
         timeout_secs: Option<u64>,
         metadata: Option<Arc<Metadata>>,
-    ) -> Result<Arc<dyn ResponseStream>, SlimError> {
-        use futures::StreamExt;
-        
+    ) -> Result<Arc<dyn RequestStream>, SlimError> {
         let timeout = timeout_secs.map(Duration::from_secs);
         let core_metadata = metadata.map(|m| m.to_core());
-        
-        // Clone channel for use in spawned task
-        let channel = self.channel.clone();
 
-        // Spawn a task to collect the stream into a channel
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        tokio::spawn(async move {
-            let stream = channel.unary_stream(
-                &service_name,
-                &method_name,
-                request,
-                timeout,
-                core_metadata,
-            );
-            
-            futures::pin_mut!(stream);
-            while let Some(result) = stream.next().await {
-                let send_result = match result {
-                    Ok(data) => tx.send(Ok(data)),
-                    Err(e) => tx.send(Err(e)),
-                };
-                if send_result.is_err() {
-                    break; // Receiver dropped
-                }
-            }
-        });
+        let stream =
+            self.channel
+                .unary_stream(&service_name, &method_name, request, timeout, core_metadata);
+
+        let stream = stream.boxed();
 
         // Create a receiver that reads from the channel
-        Ok(Arc::new(ResponseReceiver {
-            rx: Arc::new(tokio::sync::Mutex::new(rx)),
-        }))
+        Ok(Arc::new(ResponseReceiver { rx: stream }))
     }
 
     /// Make a stream-unary RPC call (blocking)
@@ -244,7 +228,13 @@ impl RpcChannel {
         metadata: Option<Arc<Metadata>>,
     ) -> Result<Vec<u8>, SlimError> {
         let runtime = get_runtime();
-        runtime.block_on(self.stream_unary_async(service_name, method_name, request_sender, timeout_secs, metadata))
+        runtime.block_on(self.stream_unary_async(
+            service_name,
+            method_name,
+            request_sender,
+            timeout_secs,
+            metadata,
+        ))
     }
 
     /// Make a stream-unary RPC call (async)
@@ -272,7 +262,9 @@ impl RpcChannel {
         let core_metadata = metadata.map(|m| m.to_core());
 
         // Create a stream from the sender
-        let request_stream = RequestSenderStream { sender: request_sender };
+        let request_stream = RequestSenderStream {
+            sender: request_sender,
+        };
 
         let response = self
             .channel
@@ -303,7 +295,7 @@ impl RpcChannel {
     /// * `metadata` - Optional metadata
     ///
     /// # Returns
-    /// A ResponseReceiver for reading the stream of responses
+    /// A RequestStream for reading the stream of responses
     pub fn stream_stream(
         &self,
         service_name: String,
@@ -311,9 +303,15 @@ impl RpcChannel {
         request_sender: Arc<dyn RequestSender>,
         timeout_secs: Option<u64>,
         metadata: Option<Arc<Metadata>>,
-    ) -> Result<Arc<dyn ResponseStream>, SlimError> {
+    ) -> Result<Arc<dyn RequestStream>, SlimError> {
         let runtime = get_runtime();
-        runtime.block_on(self.stream_stream_async(service_name, method_name, request_sender, timeout_secs, metadata))
+        runtime.block_on(self.stream_stream_async(
+            service_name,
+            method_name,
+            request_sender,
+            timeout_secs,
+            metadata,
+        ))
     }
 
     /// Make a stream-stream RPC call (async)
@@ -328,7 +326,7 @@ impl RpcChannel {
     /// * `metadata` - Optional metadata
     ///
     /// # Returns
-    /// A ResponseReceiver for reading the stream of responses
+    /// A RequestStream for reading the stream of responses
     pub async fn stream_stream_async(
         &self,
         service_name: String,
@@ -336,45 +334,23 @@ impl RpcChannel {
         request_sender: Arc<dyn RequestSender>,
         timeout_secs: Option<u64>,
         metadata: Option<Arc<Metadata>>,
-    ) -> Result<Arc<dyn ResponseStream>, SlimError> {
-        use futures::StreamExt;
-        
+    ) -> Result<Arc<dyn RequestStream>, SlimError> {
         let timeout = timeout_secs.map(Duration::from_secs);
         let core_metadata = metadata.map(|m| m.to_core());
-        
-        // Clone channel for use in spawned task
-        let channel = self.channel.clone();
 
-        // Create a stream from the sender
-        let request_stream = RequestSenderStream { sender: request_sender };
-
-        // Spawn a task to collect the stream into a channel
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        tokio::spawn(async move {
-            let stream = channel.stream_stream(
+        let stream = self
+            .channel
+            .stream_stream(
                 &service_name,
                 &method_name,
-                request_stream,
+                request_sender,
                 timeout,
                 core_metadata,
-            );
-            
-            futures::pin_mut!(stream);
-            while let Some(result) = stream.next().await {
-                let send_result = match result {
-                    Ok(data) => tx.send(Ok(data)),
-                    Err(e) => tx.send(Err(e)),
-                };
-                if send_result.is_err() {
-                    break; // Receiver dropped
-                }
-            }
-        });
+            )
+            .boxed();
 
         // Create a receiver that reads from the channel
-        Ok(Arc::new(ResponseReceiver {
-            rx: Arc::new(tokio::sync::Mutex::new(rx)),
-        }))
+        Ok(Arc::new(ResponseReceiver { rx: stream }))
     }
 }
 
@@ -398,7 +374,7 @@ pub trait RequestSender: Send + Sync {
 }
 
 /// Helper implementation of RequestSender that sends from a vector
-/// 
+///
 /// This is useful for testing and simple use cases where you have
 /// all requests ready upfront.
 pub struct VectorRequestSender {
@@ -439,7 +415,7 @@ impl futures::Stream for RequestSenderStream {
     ) -> std::task::Poll<Option<Self::Item>> {
         let sender = Arc::clone(&self.sender);
         let fut = async move { sender.next().await };
-        
+
         futures::pin_mut!(fut);
         match fut.poll(cx) {
             std::task::Poll::Ready(result) => match result {
@@ -453,8 +429,8 @@ impl futures::Stream for RequestSenderStream {
 }
 
 /// Internal response receiver that reads from a channel
-struct ResponseReceiver {
-    rx: Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, agntcy_slimrpc::Status>>>>,
+struct ResponseReceiver<T = Vec<u8>> {
+    rx: slim_rpc::RequestStream<T>,
 }
 
 #[async_trait::async_trait]
@@ -475,8 +451,7 @@ impl ResponseStream for ResponseReceiver {
 #[async_trait::async_trait]
 impl super::rpc::RequestStream for ResponseReceiver {
     async fn next(&self) -> StreamResult {
-        let mut rx = self.rx.lock().await;
-        match rx.recv().await {
+        match self.rx.next().await {
             Some(Ok(data)) => StreamResult::Data { value: data },
             Some(Err(e)) => StreamResult::Error {
                 status: super::error::Status::from_core(e),
@@ -485,5 +460,3 @@ impl super::rpc::RequestStream for ResponseReceiver {
         }
     }
 }
-
-

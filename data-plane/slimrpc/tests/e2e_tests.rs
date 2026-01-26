@@ -22,7 +22,7 @@ use slim_service::service::Service;
 use slim_testing::utils::TEST_VALID_SECRET;
 use tokio::sync::Mutex;
 
-use agntcy_slimrpc::{Channel, Code, Context, RequestStream, Server, Status};
+use slim_rpc::{Channel, Code, Context, RequestStream, Server, Status};
 use slim_testing::slimrpc::{TestRequest, TestResponse};
 
 // ============================================================================
@@ -113,7 +113,7 @@ impl TestEnv {
 async fn test_unary_unary_rpc() {
     let mut env = TestEnv::new("test-service-unary").await;
 
-    env.server.registry().register_unary_unary(
+    env.server.register_unary_unary(
         "TestService",
         "Echo",
         |request: TestRequest, _ctx: Context| async move {
@@ -147,7 +147,7 @@ async fn test_unary_unary_rpc() {
 async fn test_unary_unary_error_handling() {
     let mut env = TestEnv::new("test-service-error").await;
 
-    env.server.registry().register_unary_unary(
+    env.server.register_unary_unary(
         "TestService",
         "ErrorMethod",
         |_request: TestRequest, _ctx: Context| async move {
@@ -183,7 +183,7 @@ async fn test_unary_unary_error_handling() {
 async fn test_stream_unary_rpc() {
     let mut env = TestEnv::new("test-service-stream-unary").await;
 
-    env.server.registry().register_stream_unary(
+    env.server.register_stream_unary(
         "TestService",
         "Sum",
         |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
@@ -250,7 +250,7 @@ async fn test_stream_unary_rpc() {
 async fn test_stream_unary_error_handling() {
     let mut env = TestEnv::new("test-service-stream-unary-error").await;
 
-    env.server.registry().register_stream_unary(
+    env.server.register_stream_unary(
         "TestService",
         "SumWithValidation",
         |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
@@ -340,7 +340,7 @@ async fn test_stream_unary_error_handling() {
 async fn test_unary_stream_rpc() {
     let mut env = TestEnv::new("test-service-unary-stream").await;
 
-    env.server.registry().register_unary_stream(
+    env.server.register_unary_stream(
         "TestService",
         "Generate",
         |request: TestRequest, _ctx: Context| async move {
@@ -412,7 +412,7 @@ async fn test_unary_stream_rpc() {
 async fn test_unary_stream_error_handling() {
     let mut env = TestEnv::new("test-service-unary-stream-error").await;
 
-    env.server.registry().register_unary_stream(
+    env.server.register_unary_stream(
         "TestService",
         "GenerateWithError",
         |request: TestRequest, _ctx: Context| async move {
@@ -499,7 +499,7 @@ async fn test_unary_stream_error_handling() {
 async fn test_stream_stream_rpc() {
     let mut env = TestEnv::new("test-service-stream-stream").await;
 
-    env.server.registry().register_stream_stream(
+    env.server.register_stream_stream(
         "TestService",
         "Transform",
         |request_stream, _ctx: Context| async move {
@@ -577,10 +577,10 @@ async fn test_stream_stream_rpc() {
 async fn test_stream_stream_with_async_processing() {
     let mut env = TestEnv::new("test-service-stream-stream-async").await;
 
-    env.server.registry().register_stream_stream(
+    env.server.register_stream_stream(
         "TestService",
         "ProcessAsync",
-        |mut request_stream: agntcy_slimrpc::RequestStream<TestRequest>, _ctx: Context| async move {
+        |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
             // Create channel for responses
             let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
@@ -663,7 +663,7 @@ async fn test_stream_stream_with_async_processing() {
 async fn test_empty_stream_unary() {
     let mut env = TestEnv::new("test-service-empty-stream").await;
 
-    env.server.registry().register_stream_unary(
+    env.server.register_stream_unary(
         "TestService",
         "EmptySum",
         |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
@@ -702,7 +702,7 @@ async fn test_concurrent_unary_calls() {
     let call_counter = Arc::new(Mutex::new(0));
     let counter_clone = call_counter.clone();
 
-    env.server.registry().register_unary_unary(
+    env.server.register_unary_unary(
         "TestService",
         "Count",
         move |request: TestRequest, _ctx: Context| {

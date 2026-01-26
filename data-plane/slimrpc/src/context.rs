@@ -11,7 +11,7 @@ use std::time::{Duration, SystemTime};
 use slim_datapath::messages::Name;
 use slim_session::context::SessionContext as SlimSessionContext;
 
-use crate::{Metadata, DEADLINE_KEY};
+use crate::{DEADLINE_KEY, Metadata};
 
 /// Context passed to RPC handlers
 ///
@@ -53,7 +53,10 @@ impl Context {
     }
 
     /// Create a new context with message metadata
-    pub fn with_message_metadata(mut self, msg_metadata: std::collections::HashMap<String, String>) -> Self {
+    pub fn with_message_metadata(
+        mut self,
+        msg_metadata: std::collections::HashMap<String, String>,
+    ) -> Self {
         let msg_meta = Metadata::from_map(msg_metadata);
         // Merge message metadata into context metadata
         self.metadata.merge(msg_meta);

@@ -5,7 +5,7 @@ mod common;
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use common::{RpcAppConnection, RpcAppConfig, create_local_app};
+use common::{create_local_app, RpcAppConfig, RpcAppConnection};
 use futures::StreamExt;
 use slim_bindings::RpcChannel;
 use std::time::Duration;
@@ -61,12 +61,18 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     // Create SLIM app configuration and connect (this initializes tracing internally)
-    let config = RpcAppConfig::with_shared_secret(args.local.clone(), args.endpoint.clone(), args.secret)
-        .with_opentelemetry(args.opentelemetry);
-    
+    let config =
+        RpcAppConfig::with_shared_secret(args.local.clone(), args.endpoint.clone(), args.secret)
+            .with_opentelemetry(args.opentelemetry);
+
     // Create SLIM app and connect
-    let RpcAppConnection { app, connection_id: conn_id } = create_local_app(config).await.context("Failed to create local app")?;
-    
+    let RpcAppConnection {
+        app,
+        connection_id: conn_id,
+    } = create_local_app(config)
+        .await
+        .context("Failed to create local app")?;
+
     // Now logging is available
     info!("Starting SLIMRpc client");
     info!("Local: {}", args.local);
@@ -182,17 +188,17 @@ async fn stream_unary_example(
 
     // Create channel for real async streaming
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    
+
     // Spawn task to generate requests asynchronously
     let message_owned = message.to_string();
     tokio::spawn(async move {
         for i in 0..iterations {
             let msg = format!("{} - iteration {}", message_owned, i + 1);
             info!("Background task: Generating request {}", i + 1);
-            
+
             // Simulate async work (e.g., reading from a file, sensor, etc.)
             tokio::time::sleep(Duration::from_millis(50)).await;
-            
+
             if tx.send(msg.as_bytes().to_vec()).is_err() {
                 break;
             }
@@ -230,17 +236,17 @@ async fn stream_stream_example(
 
     // Create channel for real async streaming
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    
+
     // Spawn task to generate requests asynchronously
     let message_owned = message.to_string();
     tokio::spawn(async move {
         for i in 0..iterations {
             let msg = format!("{} - iteration {}", message_owned, i + 1);
             info!("Request generator: Creating request {}", i + 1);
-            
+
             // Simulate async work (e.g., reading from a stream, user input, sensor data)
             tokio::time::sleep(Duration::from_millis(100)).await;
-            
+
             if tx.send(msg.as_bytes().to_vec()).is_err() {
                 info!("Request generator: Channel closed, stopping");
                 break;
@@ -253,7 +259,7 @@ async fn stream_stream_example(
     let request_stream = Box::pin(tokio_stream::wrappers::UnboundedReceiverStream::new(rx));
 
     info!("Starting bidirectional stream...");
-    
+
     // Requests will be sent in RPC's background task, responses received concurrently
     let mut response_stream = channel
         .stream_stream(method, request_stream, timeout, None)

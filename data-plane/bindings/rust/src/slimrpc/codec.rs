@@ -15,7 +15,7 @@ use super::error::Status;
 /// serialized for RPC transmission.
 pub trait Encoder {
     /// Encode a message to bytes
-    fn encode(&self) -> Result<Vec<u8>, Status>;
+    fn encode(self) -> Result<Vec<u8>, Status>;
 }
 
 /// Trait for decoding messages from bytes
@@ -24,7 +24,7 @@ pub trait Encoder {
 /// deserialized from RPC transmission.
 pub trait Decoder: Default {
     /// Decode a message from bytes
-    fn decode(buf: &[u8]) -> Result<Self, Status>;
+    fn decode(buf: Vec<u8>) -> Result<Self, Status>;
 }
 
 /// Combined codec trait for types that can be both encoded and decoded
@@ -35,26 +35,26 @@ impl<T: Encoder + Decoder> Codec for T {}
 
 // Standard implementations for common types
 impl Encoder for Vec<u8> {
-    fn encode(&self) -> Result<Vec<u8>, Status> {
-        Ok(self.clone())
+    fn encode(self) -> Result<Vec<u8>, Status> {
+        Ok(self)
     }
 }
 
 impl Decoder for Vec<u8> {
-    fn decode(buf: &[u8]) -> Result<Self, Status> {
-        Ok(buf.to_vec())
+    fn decode(buf: Vec<u8>) -> Result<Self, Status> {
+        Ok(buf)
     }
 }
 
 impl Encoder for String {
-    fn encode(&self) -> Result<Vec<u8>, Status> {
+    fn encode(self) -> Result<Vec<u8>, Status> {
         Ok(self.as_bytes().to_vec())
     }
 }
 
 impl Decoder for String {
-    fn decode(buf: &[u8]) -> Result<Self, Status> {
-        String::from_utf8(buf.to_vec()).map_err(|e| {
+    fn decode(buf: Vec<u8>) -> Result<Self, Status> {
+        String::from_utf8(buf).map_err(|e| {
             Status::new(
                 super::error::Code::InvalidArgument,
                 format!("Failed to decode string: {}", e),
@@ -73,7 +73,7 @@ mod tests {
         let encoded = data.encode().unwrap();
         assert_eq!(encoded, data);
 
-        let decoded = Vec::<u8>::decode(&encoded).unwrap();
+        let decoded = Vec::<u8>::decode(encoded).unwrap();
         assert_eq!(decoded, data);
     }
 
@@ -83,14 +83,14 @@ mod tests {
         let encoded = data.encode().unwrap();
         assert_eq!(encoded, data.as_bytes());
 
-        let decoded = String::decode(&encoded).unwrap();
+        let decoded = String::decode(encoded).unwrap();
         assert_eq!(decoded, data);
     }
 
     #[test]
     fn test_string_decode_invalid_utf8() {
         let invalid_utf8 = vec![0xFF, 0xFE, 0xFD];
-        let result = String::decode(&invalid_utf8);
+        let result = String::decode(invalid_utf8);
         assert!(result.is_err());
     }
 }

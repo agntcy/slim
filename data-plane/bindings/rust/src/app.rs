@@ -557,9 +557,11 @@ impl App {
     pub fn inner_app(&self) -> &Arc<SlimApp<AuthProvider, AuthVerifier>> {
         &self.app
     }
-    
+
     /// Get notification receiver for server use (slimrpc)
-    pub fn notification_receiver(&self) -> Arc<RwLock<mpsc::Receiver<Result<Notification, SlimSessionError>>>> {
+    pub fn notification_receiver(
+        &self,
+    ) -> Arc<RwLock<mpsc::Receiver<Result<Notification, SlimSessionError>>>> {
         self.notification_rx.clone()
     }
 }

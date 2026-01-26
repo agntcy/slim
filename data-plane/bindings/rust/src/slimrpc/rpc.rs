@@ -57,7 +57,7 @@ pub trait ResponseStream: Send + Sync {
     /// # Returns
     /// Error status if sending fails
     async fn send(&self, response: Vec<u8>) -> Result<(), Status>;
-    
+
     /// Close the stream
     ///
     /// Should be called when done sending responses to properly
@@ -246,7 +246,11 @@ pub trait StreamStreamHandler: Send + Sync {
 
 /// Internal wrapper to convert a Rust stream into a RequestStream trait object
 pub(crate) struct RequestStreamWrapper {
-    pub(crate) stream: Arc<tokio::sync::Mutex<Pin<Box<dyn Stream<Item = Result<Vec<u8>, agntcy_slimrpc::Status>> + Send>>>>,
+    pub(crate) stream: Arc<
+        tokio::sync::Mutex<
+            Pin<Box<dyn Stream<Item = Result<Vec<u8>, agntcy_slimrpc::Status>> + Send>>,
+        >,
+    >,
 }
 
 #[async_trait::async_trait]
@@ -255,7 +259,9 @@ impl RequestStream for RequestStreamWrapper {
         let mut stream = self.stream.lock().await;
         match stream.next().await {
             Some(Ok(data)) => StreamResult::Data { value: data },
-            Some(Err(e)) => StreamResult::Error { status: Status::from_core(e) },
+            Some(Err(e)) => StreamResult::Error {
+                status: Status::from_core(e),
+            },
             None => StreamResult::End,
         }
     }
@@ -263,7 +269,11 @@ impl RequestStream for RequestStreamWrapper {
 
 /// Internal wrapper to convert a ResponseStream trait object into a Rust stream
 pub(crate) struct ResponseStreamSender {
-    pub(crate) tx: Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedSender<Result<Vec<u8>, agntcy_slimrpc::Status>>>>,
+    pub(crate) tx: Arc<
+        tokio::sync::Mutex<
+            tokio::sync::mpsc::UnboundedSender<Result<Vec<u8>, agntcy_slimrpc::Status>>,
+        >,
+    >,
 }
 
 #[async_trait::async_trait]
@@ -273,7 +283,7 @@ impl ResponseStream for ResponseStreamSender {
         tx.send(Ok(response))
             .map_err(|_| Status::new(super::error::Code::Internal, "Failed to send response"))
     }
-    
+
     async fn close(&self) {
         // Dropping the sender will close the stream
     }
@@ -285,7 +295,9 @@ mod tests {
 
     #[test]
     fn test_stream_result_enum() {
-        let data = StreamResult::Data { value: vec![1, 2, 3] };
+        let data = StreamResult::Data {
+            value: vec![1, 2, 3],
+        };
         match data {
             StreamResult::Data { value } => assert_eq!(value, vec![1, 2, 3]),
             _ => panic!("Expected Data variant"),
@@ -293,7 +305,7 @@ mod tests {
 
         let end = StreamResult::End;
         match end {
-            StreamResult::End => {},
+            StreamResult::End => {}
             _ => panic!("Expected End variant"),
         }
 
@@ -303,7 +315,7 @@ mod tests {
         match error {
             StreamResult::Error { status } => {
                 assert_eq!(status.code, super::super::error::Code::Internal);
-            },
+            }
             _ => panic!("Expected Error variant"),
         }
     }

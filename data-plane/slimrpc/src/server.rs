@@ -7,13 +7,15 @@
 //! them to registered service implementations.
 
 use std::collections::HashMap;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context as TaskContext, Poll};
 
 use async_stream::stream;
 use drain;
 use futures::StreamExt;
 use futures::stream::Stream;
-use futures_timer::Delay;
+
 use parking_lot::RwLock;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -31,6 +33,30 @@ use crate::{
     codec::{Decoder, Encoder},
 };
 
+/// A wrapper that makes a pinned stream Unpin
+struct UnpinStream<S> {
+    inner: Pin<Box<S>>,
+}
+
+impl<S> UnpinStream<S> {
+    fn new(stream: S) -> Self {
+        Self {
+            inner: Box::pin(stream),
+        }
+    }
+}
+
+impl<S: Stream> Stream for UnpinStream<S> {
+    type Item = S::Item;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
+        self.inner.as_mut().poll_next(cx)
+    }
+}
+
+// UnpinStream is always Unpin regardless of whether S is
+impl<S> Unpin for UnpinStream<S> {}
+
 /// Handler function type for RPC methods (unary input)
 pub type RpcHandler = Arc<
     dyn Fn(
@@ -45,7 +71,7 @@ pub type RpcHandler = Arc<
 /// Handler function type for stream-input RPC methods
 pub type StreamRpcHandler = Arc<
     dyn Fn(
-            std::pin::Pin<Box<dyn Stream<Item = Result<Vec<u8>, Status>> + Send>>,
+            Box<dyn Stream<Item = Result<Vec<u8>, Status>> + Send + Unpin>,
             Context,
         ) -> std::pin::Pin<
             Box<dyn futures::Future<Output = Result<HandlerResponse, Status>> + Send>,
@@ -58,7 +84,7 @@ pub enum HandlerResponse {
     /// Single response message
     Unary(Vec<u8>),
     /// Stream of response messages
-    Stream(std::pin::Pin<Box<dyn Stream<Item = Result<Vec<u8>, Status>> + Send>>),
+    Stream(Box<dyn Stream<Item = Result<Vec<u8>, Status>> + Send + Unpin>),
 }
 
 /// Type of RPC handler
@@ -74,8 +100,8 @@ pub enum HandlerType {
     StreamStream,
 }
 
-/// Registry for RPC service methods
-pub struct ServiceRegistry {
+/// Registry for RPC service methods (internal implementation detail)
+struct ServiceRegistry {
     /// Map of method paths to handlers (for unary-input methods)
     handlers: Arc<RwLock<HashMap<String, (RpcHandler, HandlerType)>>>,
     /// Map of method paths to stream handlers (for stream-input methods)
@@ -84,7 +110,7 @@ pub struct ServiceRegistry {
 
 impl ServiceRegistry {
     /// Create a new service registry
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {
             handlers: Arc::new(RwLock::new(HashMap::new())),
             stream_handlers: Arc::new(RwLock::new(HashMap::new())),
@@ -92,7 +118,7 @@ impl ServiceRegistry {
     }
 
     /// Register a unary-unary handler
-    pub fn register_unary_unary<F, Req, Res, Fut>(
+    fn register_unary_unary<F, Req, Res, Fut>(
         &self,
         service_name: &str,
         method_name: &str,
@@ -108,7 +134,7 @@ impl ServiceRegistry {
         let wrapper = Arc::new(move |bytes: Vec<u8>, ctx: Context| {
             let handler = Arc::clone(&handler);
             Box::pin(async move {
-                let request = Req::decode(&bytes)?;
+                let request = Req::decode(bytes)?;
                 let response = handler(request, ctx).await?;
                 let response_bytes = response.encode()?;
                 Ok(HandlerResponse::Unary(response_bytes))
@@ -124,7 +150,7 @@ impl ServiceRegistry {
     }
 
     /// Register a unary-stream handler
-    pub fn register_unary_stream<F, Req, Res, S, Fut>(
+    fn register_unary_stream<F, Req, Res, S, Fut>(
         &self,
         service_name: &str,
         method_name: &str,
@@ -141,10 +167,12 @@ impl ServiceRegistry {
         let wrapper = Arc::new(move |bytes: Vec<u8>, ctx: Context| {
             let handler = Arc::clone(&handler);
             Box::pin(async move {
-                let request = Req::decode(&bytes)?;
+                let request = Req::decode(bytes)?;
                 let response_stream = handler(request, ctx).await?;
                 let byte_stream = response_stream.map(|res| res.and_then(|r| r.encode()));
-                Ok(HandlerResponse::Stream(Box::pin(byte_stream)))
+                Ok(HandlerResponse::Stream(Box::new(UnpinStream::new(
+                    byte_stream,
+                ))))
             })
                 as std::pin::Pin<
                     Box<dyn futures::Future<Output = Result<HandlerResponse, Status>> + Send>,
@@ -163,7 +191,7 @@ impl ServiceRegistry {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(std::pin::Pin<Box<dyn Stream<Item = Result<Req, Status>> + Send>>, Context) -> Fut
+        F: Fn(Box<dyn Stream<Item = Result<Req, Status>> + Send + Unpin>, Context) -> Fut
             + Send
             + Sync
             + 'static,
@@ -174,13 +202,12 @@ impl ServiceRegistry {
         let method_path = format!("{}/{}", service_name, method_name);
         let handler = Arc::new(handler);
         let wrapper = Arc::new(
-            move |stream: std::pin::Pin<Box<dyn Stream<Item = Result<Vec<u8>, Status>> + Send>>,
+            move |stream: Box<dyn Stream<Item = Result<Vec<u8>, Status>> + Send + Unpin>,
                   ctx: Context| {
                 let handler = Arc::clone(&handler);
                 Box::pin(async move {
-                    let request_stream =
-                        stream.map(|res| res.and_then(|bytes| Req::decode(&bytes)));
-                    let response = handler(Box::pin(request_stream), ctx).await?;
+                    let request_stream = stream.map(|res| res.and_then(|bytes| Req::decode(bytes)));
+                    let response = handler(Box::new(request_stream), ctx).await?;
                     let response_bytes = response.encode()?;
                     Ok(HandlerResponse::Unary(response_bytes))
                 })
@@ -202,7 +229,7 @@ impl ServiceRegistry {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(std::pin::Pin<Box<dyn Stream<Item = Result<Req, Status>> + Send>>, Context) -> Fut
+        F: Fn(Box<dyn Stream<Item = Result<Req, Status>> + Send + Unpin>, Context) -> Fut
             + Send
             + Sync
             + 'static,
@@ -214,15 +241,16 @@ impl ServiceRegistry {
         let method_path = format!("{}/{}", service_name, method_name);
         let handler = Arc::new(handler);
         let wrapper = Arc::new(
-            move |stream: std::pin::Pin<Box<dyn Stream<Item = Result<Vec<u8>, Status>> + Send>>,
+            move |stream: Box<dyn Stream<Item = Result<Vec<u8>, Status>> + Send + Unpin>,
                   ctx: Context| {
                 let handler = Arc::clone(&handler);
                 Box::pin(async move {
-                    let request_stream =
-                        stream.map(|res| res.and_then(|bytes| Req::decode(&bytes)));
-                    let response_stream = handler(Box::pin(request_stream), ctx).await?;
+                    let request_stream = stream.map(|res| res.and_then(|bytes| Req::decode(bytes)));
+                    let response_stream = handler(Box::new(request_stream), ctx).await?;
                     let byte_stream = response_stream.map(|res| res.and_then(|r| r.encode()));
-                    Ok(HandlerResponse::Stream(Box::pin(byte_stream)))
+                    Ok(HandlerResponse::Stream(Box::new(UnpinStream::new(
+                        byte_stream,
+                    ))))
                 })
                     as std::pin::Pin<
                         Box<dyn futures::Future<Output = Result<HandlerResponse, Status>> + Send>,
@@ -245,7 +273,7 @@ impl ServiceRegistry {
     }
 
     /// Get all registered method paths
-    pub fn methods(&self) -> Vec<String> {
+    fn methods(&self) -> Vec<String> {
         let mut methods: Vec<String> = self.handlers.read().keys().cloned().collect();
         methods.extend(self.stream_handlers.read().keys().cloned());
         methods
@@ -291,6 +319,43 @@ enum NotificationReceiver {
 ///
 /// Handles incoming RPC requests by creating sessions and dispatching
 /// to registered service handlers.
+///
+/// # Example
+///
+/// ```no_run
+/// # use slim_rpc::{Server, Context, Status};
+/// # use slim_datapath::messages::Name;
+/// # use slim_service::app::App;
+/// # use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
+/// # use std::sync::Arc;
+/// # async fn example(app: Arc<App<AuthProvider, AuthVerifier>>, notification_rx: tokio::sync::mpsc::Receiver<std::result::Result<slim_session::notification::Notification, slim_session::errors::SessionError>>) -> std::result::Result<(), Status> {
+/// # #[derive(Default)]
+/// # struct Request {}
+/// # impl slim_rpc::Decoder for Request {
+/// #     fn decode(_buf: Vec<u8>) -> std::result::Result<Self, Status> { Ok(Request::default()) }
+/// # }
+/// # #[derive(Default)]
+/// # struct Response {}
+/// # impl slim_rpc::Encoder for Response {
+/// #     fn encode(self) -> std::result::Result<Vec<u8>, Status> { Ok(vec![]) }
+/// # }
+/// let base_name = Name::from_strings(["org".to_string(), "namespace".to_string(), "service".to_string()]);
+/// let server = Server::new(app, base_name, notification_rx);
+///
+/// // Register handlers
+/// server.register_unary_unary(
+///     "MyService",
+///     "MyMethod",
+///     |request: Request, _ctx: Context| async move {
+///         Ok(Response::default())
+///     }
+/// );
+///
+/// // Start serving
+/// server.serve().await?;
+/// # Ok(())
+/// # }
+/// ```
 pub struct Server {
     inner: Arc<ServerInner>,
 }
@@ -302,6 +367,20 @@ impl Server {
     /// * `app` - The SLIM app to use for communication
     /// * `base_name` - The base name for this server (e.g., "org/namespace/app")
     /// * `notification_rx` - Receiver for session notifications
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use slim_rpc::Server;
+    /// # use slim_datapath::messages::Name;
+    /// # use slim_service::app::App;
+    /// # use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
+    /// # use std::sync::Arc;
+    /// # async fn example(app: Arc<App<AuthProvider, AuthVerifier>>, notification_rx: tokio::sync::mpsc::Receiver<std::result::Result<slim_session::notification::Notification, slim_session::errors::SessionError>>) {
+    /// let base_name = Name::from_strings(["org".to_string(), "namespace".to_string(), "service".to_string()]);
+    /// let server = Server::new(app, base_name, notification_rx);
+    /// # }
+    /// ```
     pub fn new(
         app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
         base_name: Name,
@@ -332,7 +411,9 @@ impl Server {
                 base_name,
                 tasks: RwLock::new(Vec::new()),
                 connection_id,
-                notification_rx: tokio::sync::Mutex::new(Some(NotificationReceiver::Owned(notification_rx))),
+                notification_rx: tokio::sync::Mutex::new(Some(NotificationReceiver::Owned(
+                    notification_rx,
+                ))),
                 cancellation_token: CancellationToken::new(),
                 drain_signal: RwLock::new(Some(drain_signal)),
                 drain_watch: RwLock::new(Some(drain_watch)),
@@ -349,7 +430,9 @@ impl Server {
     pub fn new_with_shared_rx(
         app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
         base_name: Name,
-        notification_rx: Arc<tokio::sync::RwLock<mpsc::Receiver<Result<Notification, SessionError>>>>,
+        notification_rx: Arc<
+            tokio::sync::RwLock<mpsc::Receiver<Result<Notification, SessionError>>>,
+        >,
     ) -> Self {
         Self::new_with_shared_rx_and_connection(app, base_name, None, notification_rx)
     }
@@ -365,7 +448,9 @@ impl Server {
         app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
         base_name: Name,
         connection_id: Option<u64>,
-        notification_rx: Arc<tokio::sync::RwLock<mpsc::Receiver<Result<Notification, SessionError>>>>,
+        notification_rx: Arc<
+            tokio::sync::RwLock<mpsc::Receiver<Result<Notification, SessionError>>>,
+        >,
     ) -> Self {
         let (drain_signal, drain_watch) = drain::channel();
 
@@ -376,7 +461,9 @@ impl Server {
                 base_name,
                 tasks: RwLock::new(Vec::new()),
                 connection_id,
-                notification_rx: tokio::sync::Mutex::new(Some(NotificationReceiver::Shared(notification_rx))),
+                notification_rx: tokio::sync::Mutex::new(Some(NotificationReceiver::Shared(
+                    notification_rx,
+                ))),
                 cancellation_token: CancellationToken::new(),
                 drain_signal: RwLock::new(Some(drain_signal)),
                 drain_watch: RwLock::new(Some(drain_watch)),
@@ -384,17 +471,276 @@ impl Server {
         }
     }
 
-    /// Get the service registry for manual registration
-    pub fn registry(&self) -> &ServiceRegistry {
-        &self.inner.registry
+    /// Register a unary-unary RPC handler
+    ///
+    /// Handles a single request and returns a single response.
+    ///
+    /// # Arguments
+    /// * `service_name` - The name of the service
+    /// * `method_name` - The name of the method
+    /// * `handler` - An async function that takes a request and context, returns a response
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use slim_rpc::{Server, Context, Status};
+    /// # #[derive(Default)]
+    /// # struct Request { name: String }
+    /// # impl slim_rpc::Decoder for Request {
+    /// #     fn decode(_buf: Vec<u8>) -> std::result::Result<Self, Status> { Ok(Request::default()) }
+    /// # }
+    /// # #[derive(Default)]
+    /// # struct Response { greeting: String }
+    /// # impl slim_rpc::Encoder for Response {
+    /// #     fn encode(self) -> std::result::Result<Vec<u8>, Status> { Ok(vec![]) }
+    /// # }
+    /// # fn example(server: Server) {
+    /// server.register_unary_unary(
+    ///     "GreeterService",
+    ///     "SayHello",
+    ///     |request: Request, _ctx: Context| async move {
+    ///         Ok(Response {
+    ///             greeting: format!("Hello, {}", request.name)
+    ///         })
+    ///     }
+    /// );
+    /// # }
+    /// ```
+    pub fn register_unary_unary<F, Req, Res, Fut>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        handler: F,
+    ) where
+        F: Fn(Req, Context) -> Fut + Send + Sync + 'static,
+        Fut: futures::Future<Output = Result<Res, Status>> + Send + 'static,
+        Req: Decoder + Send + 'static,
+        Res: Encoder + Send + 'static,
+    {
+        self.inner
+            .registry
+            .register_unary_unary(service_name, method_name, handler)
     }
 
-    /// Subscribe to a service method
+    /// Register a unary-stream RPC handler
+    ///
+    /// Handles a single request and returns a stream of responses.
+    ///
+    /// # Arguments
+    /// * `service_name` - The name of the service
+    /// * `method_name` - The name of the method
+    /// * `handler` - An async function that takes a request and returns a stream of responses
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use slim_rpc::{Server, Context, Status};
+    /// # use futures::stream;
+    /// # #[derive(Default)]
+    /// # struct Request { count: i32 }
+    /// # impl slim_rpc::Decoder for Request {
+    /// #     fn decode(_buf: Vec<u8>) -> std::result::Result<Self, Status> { Ok(Request::default()) }
+    /// # }
+    /// # #[derive(Default)]
+    /// # struct Response { value: i32 }
+    /// # impl slim_rpc::Encoder for Response {
+    /// #     fn encode(self) -> std::result::Result<Vec<u8>, Status> { Ok(vec![]) }
+    /// # }
+    /// # fn example(server: Server) {
+    /// server.register_unary_stream(
+    ///     "NumberService",
+    ///     "GenerateNumbers",
+    ///     |request: Request, _ctx: Context| async move {
+    ///         let numbers: Vec<std::result::Result<Response, Status>> = (0..request.count)
+    ///             .map(|i| Ok(Response { value: i }))
+    ///             .collect();
+    ///         Ok(stream::iter(numbers))
+    ///     }
+    /// );
+    /// # }
+    /// ```
+    pub fn register_unary_stream<F, Req, Res, S, Fut>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        handler: F,
+    ) where
+        F: Fn(Req, Context) -> Fut + Send + Sync + 'static,
+        Fut: futures::Future<Output = Result<S, Status>> + Send + 'static,
+        S: Stream<Item = Result<Res, Status>> + Send + 'static,
+        Req: Decoder + Send + 'static,
+        Res: Encoder + Send + 'static,
+    {
+        self.inner
+            .registry
+            .register_unary_stream(service_name, method_name, handler)
+    }
+
+    /// Register a stream-unary RPC handler
+    ///
+    /// Handles a stream of requests and returns a single response.
+    ///
+    /// # Arguments
+    /// * `service_name` - The name of the service
+    /// * `method_name` - The name of the method
+    /// * `handler` - An async function that takes a request stream and returns a response
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use slim_rpc::{Server, Context, Status, RequestStream};
+    /// # use futures::StreamExt;
+    /// # #[derive(Default)]
+    /// # struct Request { value: i32 }
+    /// # impl slim_rpc::Decoder for Request {
+    /// #     fn decode(_buf: Vec<u8>) -> std::result::Result<Self, Status> { Ok(Request::default()) }
+    /// # }
+    /// # #[derive(Default)]
+    /// # struct Response { sum: i32 }
+    /// # impl slim_rpc::Encoder for Response {
+    /// #     fn encode(self) -> std::result::Result<Vec<u8>, Status> { Ok(vec![]) }
+    /// # }
+    /// # fn example(server: Server) {
+    /// server.register_stream_unary(
+    ///     "AggregateService",
+    ///     "SumNumbers",
+    ///     |mut request_stream: RequestStream<Request>, _ctx: Context| async move {
+    ///         let mut sum = 0;
+    ///         while let Some(result) = request_stream.next().await {
+    ///             let request = result?;
+    ///             sum += request.value;
+    ///         }
+    ///         Ok(Response { sum })
+    ///     }
+    /// );
+    /// # }
+    /// ```
+    pub fn register_stream_unary<F, Req, Res, Fut>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        handler: F,
+    ) where
+        F: Fn(Box<dyn Stream<Item = Result<Req, Status>> + Send + Unpin>, Context) -> Fut
+            + Send
+            + Sync
+            + 'static,
+        Fut: futures::Future<Output = Result<Res, Status>> + Send + 'static,
+        Req: Decoder + Send + 'static,
+        Res: Encoder + Send + 'static,
+    {
+        self.inner
+            .registry
+            .register_stream_unary(service_name, method_name, handler)
+    }
+
+    /// Register a stream-stream RPC handler
+    ///
+    /// Handles a stream of requests and returns a stream of responses.
+    ///
+    /// # Arguments
+    /// * `service_name` - The name of the service
+    /// * `method_name` - The name of the method
+    /// * `handler` - An async function that takes a request stream and returns a response stream
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use slim_rpc::{Server, Context, Status, RequestStream};
+    /// # use futures::{stream, StreamExt};
+    /// # #[derive(Default)]
+    /// # struct Request { message: String }
+    /// # impl slim_rpc::Decoder for Request {
+    /// #     fn decode(_buf: Vec<u8>) -> std::result::Result<Self, Status> { Ok(Request::default()) }
+    /// # }
+    /// # #[derive(Default)]
+    /// # struct Response { reply: String }
+    /// # impl slim_rpc::Encoder for Response {
+    /// #     fn encode(self) -> std::result::Result<Vec<u8>, Status> { Ok(vec![]) }
+    /// # }
+    /// # fn example(server: Server) {
+    /// server.register_stream_stream(
+    ///     "EchoService",
+    ///     "Echo",
+    ///     |mut request_stream: RequestStream<Request>, _ctx: Context| async move {
+    ///         let responses = async_stream::stream! {
+    ///             while let Some(result) = request_stream.next().await {
+    ///                 match result {
+    ///                     Ok(request) => {
+    ///                         yield Ok(Response {
+    ///                             reply: format!("Echo: {}", request.message)
+    ///                         });
+    ///                     }
+    ///                     Err(e) => {
+    ///                         yield Err(e);
+    ///                         break;
+    ///                     }
+    ///                 }
+    ///             }
+    ///         };
+    ///         Ok(responses)
+    ///     }
+    /// );
+    /// # }
+    /// ```
+    pub fn register_stream_stream<F, Req, Res, S, Fut>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        handler: F,
+    ) where
+        F: Fn(Box<dyn Stream<Item = Result<Req, Status>> + Send + Unpin>, Context) -> Fut
+            + Send
+            + Sync
+            + 'static,
+        Fut: futures::Future<Output = Result<S, Status>> + Send + 'static,
+        S: Stream<Item = Result<Res, Status>> + Send + 'static,
+        Req: Decoder + Send + 'static,
+        Res: Encoder + Send + 'static,
+    {
+        self.inner
+            .registry
+            .register_stream_stream(service_name, method_name, handler)
+    }
+
+    /// Get all registered method paths
+    ///
+    /// Returns a list of all registered service/method paths in the format "Service/Method".
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use slim_rpc::Server;
+    /// # fn example(server: Server) {
+    /// let methods = server.methods();
+    /// for method in methods {
+    ///     println!("Registered: {}", method);
+    /// }
+    /// # }
+    /// ```
+    pub fn methods(&self) -> Vec<String> {
+        self.inner.registry.methods()
+    }
 
     /// Start the server and listen for incoming RPC requests
     ///
-    /// This method listens for incoming sessions. The service/method routing
-    /// is determined by metadata in the session, not by subscriptions.
+    /// This method listens for incoming sessions and dispatches them to registered handlers.
+    /// The service/method routing is determined by metadata in the session.
+    ///
+    /// This method runs indefinitely until [`shutdown`](Self::shutdown) is called or an error occurs.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use slim_rpc::{Server, Status};
+    /// # async fn example(server: Server) -> std::result::Result<(), Status> {
+    /// // Register handlers first...
+    ///
+    /// // Start serving - this runs until shutdown
+    /// server.serve().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn serve(&self) -> Result<(), Status> {
         tracing::info!(
             "SlimRPC server starting on base_name: {}",
@@ -439,7 +785,17 @@ impl Server {
     /// Shutdown the server gracefully
     ///
     /// This signals all active session handlers to terminate and waits for them to drain.
-    /// After shutdown completes, the server can be restarted by calling `serve()` again.
+    /// After shutdown completes, the server can be restarted by calling [`serve`](Self::serve) again.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use slim_rpc::Server;
+    /// # async fn example(server: Server) {
+    /// // In another task or signal handler:
+    /// server.shutdown().await;
+    /// # }
+    /// ```
     pub async fn shutdown(&self) {
         tracing::info!("Shutting down SlimRPC server");
 
@@ -475,7 +831,7 @@ impl Server {
     ) -> Result<SessionContext, Status> {
         let mut rx_guard = self.inner.notification_rx.lock().await;
         let rx_opt = rx_guard.take();
-        
+
         let notification_opt = match rx_opt {
             Some(NotificationReceiver::Owned(mut rx)) => {
                 let result = if let Some(dur) = timeout {
@@ -490,7 +846,7 @@ impl Server {
                 } else {
                     rx.recv().await
                 };
-                
+
                 // Put the receiver back
                 *rx_guard = Some(NotificationReceiver::Owned(rx));
                 result
@@ -499,7 +855,7 @@ impl Server {
                 // For shared receiver, put it back immediately and work with the Arc
                 *rx_guard = Some(NotificationReceiver::Shared(rx_arc.clone()));
                 drop(rx_guard);
-                
+
                 // Now lock and receive from the shared receiver
                 let result = if let Some(dur) = timeout {
                     // Runtime-agnostic timeout using tokio::time
@@ -514,7 +870,7 @@ impl Server {
                     let mut rx = rx_arc.write().await;
                     rx.recv().await
                 };
-                
+
                 result
             }
             None => {
@@ -642,8 +998,9 @@ impl Server {
                     .publish(response_bytes, Some("msg".to_string()), Some(metadata))
                     .await
                     .map_err(|e| Status::internal(format!("Failed to send response: {}", e)))?;
-                handle.await
-                    .map_err(|e| Status::internal(format!("Failed to receive response ack: {}", e)))?;
+                handle.await.map_err(|e| {
+                    Status::internal(format!("Failed to receive response ack: {}", e))
+                })?;
             }
             _ => {
                 return Err(Status::internal(
@@ -682,7 +1039,8 @@ impl Server {
 
         // Send streaming responses
         match response {
-            HandlerResponse::Stream(mut stream) => {
+            HandlerResponse::Stream(stream) => {
+                let mut stream = stream;
                 while let Some(result) = stream.next().await {
                     match result {
                         Ok(response_bytes) => {
@@ -782,9 +1140,9 @@ impl Server {
             }
         };
 
-        // Pin the stream
-        let boxed_stream: std::pin::Pin<Box<dyn Stream<Item = Result<Vec<u8>, Status>> + Send>> =
-            Box::pin(request_stream);
+        // Wrap the stream to make it Unpin
+        let boxed_stream: Box<dyn Stream<Item = Result<Vec<u8>, Status>> + Send + Unpin> =
+            Box::new(UnpinStream::new(request_stream));
 
         // Call the handler with drain signal awareness
         let handler_result = tokio::select! {
@@ -822,7 +1180,7 @@ impl Server {
             }
             HandlerType::StreamStream => {
                 // Send streaming responses
-                let mut response_stream = match handler_result {
+                let response_stream = match handler_result {
                     HandlerResponse::Stream(stream) => stream,
                     _ => {
                         return Err(Status::internal(
@@ -833,6 +1191,7 @@ impl Server {
 
                 let end_metadata = HashMap::new();
 
+                let mut response_stream = response_stream;
                 while let Some(result) = response_stream.next().await {
                     match result {
                         Ok(payload) => {

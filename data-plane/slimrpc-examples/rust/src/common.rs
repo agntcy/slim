@@ -4,8 +4,7 @@
 //! Common utilities for slimrpc examples
 
 pub use slim_bindings::{
-    RpcAppConfig, RpcAppConnection,
-    slimrpc::create_and_connect_app_async as create_local_app,
+    slimrpc::create_and_connect_app_async as create_local_app, RpcAppConfig, RpcAppConnection,
 };
 
 use slim_bindings::slimrpc::error::{Result, SRPCError};
