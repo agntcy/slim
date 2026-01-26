@@ -1,142 +1,72 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-//! RPC Server bindings for UniFFI
+//! Server wrapper for SlimRPC UniFFI bindings
 //!
-//! Provides a UniFFI-compatible wrapper around the core SlimRPC Server type.
+//! Provides a UniFFI-compatible server interface that wraps the core SlimRPC server
+//! and bridges foreign language handler implementations.
 
 use std::sync::Arc;
 
-use crate::errors::SlimError;
-use crate::{App, Name, get_runtime};
+use tokio_stream::wrappers::UnboundedReceiverStream;
 
-use agntcy_slimrpc::Server as CoreServer;
+use slim_rpc::{HandlerResponse as CoreHandlerResponse, Server as CoreServer};
+use slim_session::notification::Notification;
+use slim_session::errors::SessionError;
 
-use super::context::RpcContext;
-use super::error::Status;
-use super::rpc::{
-    RequestStreamWrapper, ResponseStreamSender, StreamStreamHandler, StreamUnaryHandler,
-    UnaryStreamHandler, UnaryUnaryHandler,
+use crate::slimrpc::context::Context;
+use crate::slimrpc::error::RpcError;
+use crate::slimrpc::handler::{
+    StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
 };
+use crate::slimrpc::types::{RequestStream, ResponseSink};
+use crate::{App, Name};
 
-/// Handler type for RPC methods (UniFFI-compatible enum)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
-pub enum HandlerType {
-    /// Unary request, unary response
-    UnaryUnary,
-    /// Unary request, streaming response
-    UnaryStream,
-    /// Streaming request, unary response
-    StreamUnary,
-    /// Streaming request, streaming response
-    StreamStream,
-}
-
-impl From<HandlerType> for agntcy_slimrpc::HandlerType {
-    fn from(handler_type: HandlerType) -> Self {
-        match handler_type {
-            HandlerType::UnaryUnary => agntcy_slimrpc::HandlerType::UnaryUnary,
-            HandlerType::UnaryStream => agntcy_slimrpc::HandlerType::UnaryStream,
-            HandlerType::StreamUnary => agntcy_slimrpc::HandlerType::StreamUnary,
-            HandlerType::StreamStream => agntcy_slimrpc::HandlerType::StreamStream,
-        }
-    }
-}
-
-impl From<agntcy_slimrpc::HandlerType> for HandlerType {
-    fn from(handler_type: agntcy_slimrpc::HandlerType) -> Self {
-        match handler_type {
-            agntcy_slimrpc::HandlerType::UnaryUnary => HandlerType::UnaryUnary,
-            agntcy_slimrpc::HandlerType::UnaryStream => HandlerType::UnaryStream,
-            agntcy_slimrpc::HandlerType::StreamUnary => HandlerType::StreamUnary,
-            agntcy_slimrpc::HandlerType::StreamStream => HandlerType::StreamStream,
-        }
-    }
-}
-
-/// Response type from RPC handlers (UniFFI-compatible enum)
-#[derive(Debug, Clone, uniffi::Enum)]
-pub enum HandlerResponse {
-    /// Single response
-    Unary { data: Vec<u8> },
-    /// Streaming response (list of responses)
-    Stream { data: Vec<Vec<u8>> },
-}
-
-/// Type alias for RPC handler function (Rust-side only, not exposed via UniFFI)
+/// RPC Server for handling incoming RPC calls
 ///
-/// UniFFI doesn't support function pointers/callbacks well, so handlers
-/// must be registered on the Rust side before exposing the server.
-pub type RpcHandler =
-    Box<dyn Fn(Vec<u8>, RpcContext) -> Result<Vec<u8>, Status> + Send + Sync + 'static>;
-
-/// Type alias for streaming RPC handler (Rust-side only)
-pub type RpcResponseStream = Vec<Result<Vec<u8>, super::error::Status>>;
-
-/// RPC Server (UniFFI-compatible)
-///
-/// Manages the lifecycle of an RPC server that can handle incoming requests.
-/// Handlers can be registered directly on the server before calling serve().
-#[derive(uniffi::Object)]
-pub struct RpcServer {
-    /// The underlying core server
-    server: Arc<parking_lot::Mutex<CoreServer>>,
+/// Wraps the core SlimRPC server and provides UniFFI-compatible registration
+/// and serving methods.
+#[derive(Clone, uniffi::Object)]
+pub struct Server {
+    /// Wrapped core server
+    inner: CoreServer,
 }
 
-#[uniffi::export]
-impl RpcServer {
+impl Server {
     /// Create a new RPC server
     ///
     /// # Arguments
-    /// * `app` - The SLIM app to use for communication
-    /// * `base_name` - The base name for the server (service name)
-    #[uniffi::constructor]
-    pub fn new(app: Arc<App>, base_name: Arc<Name>) -> Arc<Self> {
-        let slim_name = base_name.as_slim_name();
-        let notification_rx = app.notification_receiver();
-
-        // Create the core server
-        let server =
-            CoreServer::new_with_shared_rx(app.inner_app().clone(), slim_name, notification_rx);
-
-        Arc::new(Self {
-            server: Arc::new(parking_lot::Mutex::new(server)),
-        })
-    }
-
-    /// Create a new RPC server with connection ID
+    /// * `app` - The SLIM application instance
+    /// * `base_name` - Base name for the service (e.g., org.namespace.service)
+    /// * `notification_rx` - Channel receiver for session notifications
     ///
-    /// # Arguments
-    /// * `app` - The SLIM app to use for communication
-    /// * `base_name` - The base name for the server (service name)
-    /// * `connection_id` - Optional connection ID for session propagation
-    #[uniffi::constructor]
-    pub fn new_with_connection(
+    /// # Returns
+    /// A new server instance
+    ///
+    /// # Note
+    /// This constructor is not exposed through UniFFI since tokio::sync::mpsc::Receiver
+    /// cannot be passed through FFI. For language bindings, servers should be created
+    /// through language-specific factory methods.
+    pub fn new(
         app: Arc<App>,
         base_name: Arc<Name>,
-        connection_id: Option<u64>,
+        notification_rx: tokio::sync::mpsc::Receiver<Result<Notification, SessionError>>,
     ) -> Arc<Self> {
-        let slim_name = base_name.as_slim_name();
-        let notification_rx = app.notification_receiver();
-
-        // Create the core server
-        let server = CoreServer::new_with_shared_rx_and_connection(
-            app.inner_app().clone(),
-            slim_name,
-            connection_id,
-            notification_rx,
-        );
-
-        Arc::new(Self {
-            server: Arc::new(parking_lot::Mutex::new(server)),
-        })
+        let slim_name = base_name.as_ref().clone().into();
+        let inner = CoreServer::new(app.inner().clone(), slim_name, notification_rx);
+        
+        Arc::new(Self { inner })
     }
+}
 
-    /// Register a unary-unary handler
+#[uniffi::export]
+impl Server {
+
+    /// Register a unary-to-unary RPC handler
     ///
     /// # Arguments
-    /// * `service_name` - Name of the service (e.g., "MyService")
-    /// * `method_name` - Name of the method (e.g., "MyMethod")
+    /// * `service_name` - The service name (e.g., "MyService")
+    /// * `method_name` - The method name (e.g., "GetUser")
     /// * `handler` - Implementation of the UnaryUnaryHandler trait
     pub fn register_unary_unary(
         &self,
@@ -144,26 +74,28 @@ impl RpcServer {
         method_name: String,
         handler: Arc<dyn UnaryUnaryHandler>,
     ) {
-        let server = self.server.lock();
-        server.registry().register_unary_unary(
+        let handler_clone = handler.clone();
+        
+        self.inner.register_unary_unary(
             &service_name,
             &method_name,
-            move |request: Vec<u8>, ctx: agntcy_slimrpc::Context| {
-                let handler = Arc::clone(&handler);
-                let rpc_ctx = Arc::new(RpcContext::from_core_context(ctx));
-                async move {
-                    let result = handler.handle(request, rpc_ctx).await;
-                    result.map_err(|e| e.into_core_status())
-                }
+            move |request: Vec<u8>, context: slim_rpc::Context| {
+                let handler = handler_clone.clone();
+                let ctx = Context::from_inner(context);
+                
+                Box::pin(async move {
+                    let result = handler.handle(request, Arc::new(ctx)).await;
+                    result.map_err(|e| e.into())
+                })
             },
         );
     }
 
-    /// Register a unary-stream handler
+    /// Register a unary-to-stream RPC handler
     ///
     /// # Arguments
-    /// * `service_name` - Name of the service (e.g., "MyService")
-    /// * `method_name` - Name of the method (e.g., "MyMethod")
+    /// * `service_name` - The service name
+    /// * `method_name` - The method name
     /// * `handler` - Implementation of the UnaryStreamHandler trait
     pub fn register_unary_stream(
         &self,
@@ -171,43 +103,42 @@ impl RpcServer {
         method_name: String,
         handler: Arc<dyn UnaryStreamHandler>,
     ) {
-        let server = self.server.lock();
-        server.registry().register_unary_stream(
+        let handler_clone = handler.clone();
+        
+        self.inner.register_unary_stream(
             &service_name,
             &method_name,
-            move |request: Vec<u8>, ctx: agntcy_slimrpc::Context| {
-                let handler = Arc::clone(&handler);
-                let rpc_ctx = Arc::new(RpcContext::from_core_context(ctx));
-                async move {
-                    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-                    let response_stream = Arc::new(ResponseStreamSender {
-                        tx: Arc::new(tokio::sync::Mutex::new(tx)),
-                    });
-
-                    let handler_clone = Arc::clone(&handler);
-                    let rpc_ctx_clone = Arc::clone(&rpc_ctx);
-                    let response_stream_clone = Arc::clone(&response_stream);
-
-                    // Spawn handler task
-                    tokio::spawn(async move {
-                        let _ = handler_clone
-                            .handle(request, rpc_ctx_clone, response_stream_clone)
-                            .await;
-                    });
-
-                    // Convert receiver to stream
-                    let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
+            move |request: Vec<u8>, context: slim_rpc::Context| {
+                let handler = handler_clone.clone();
+                let ctx = Context::from_inner(context);
+                
+                Box::pin(async move {
+                    let (sink, rx) = ResponseSink::receiver();
+                    let sink_arc = Arc::new(sink);
+                    
+                    // Spawn a task to run the handler
+                    let _handler_task = {
+                        let sink = sink_arc.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = handler.handle(request, Arc::new(ctx), sink.clone()).await {
+                                let _ = sink.send_error_async(e).await;
+                            }
+                        })
+                    };
+                    
+                    // Convert the receiver to a stream
+                    let stream = UnboundedReceiverStream::new(rx);
                     Ok(stream)
-                }
+                })
             },
         );
     }
 
-    /// Register a stream-unary handler
+    /// Register a stream-to-unary RPC handler
     ///
     /// # Arguments
-    /// * `service_name` - Name of the service (e.g., "MyService")
-    /// * `method_name` - Name of the method (e.g., "MyMethod")
+    /// * `service_name` - The service name
+    /// * `method_name` - The method name
     /// * `handler` - Implementation of the StreamUnaryHandler trait
     pub fn register_stream_unary(
         &self,
@@ -215,34 +146,30 @@ impl RpcServer {
         method_name: String,
         handler: Arc<dyn StreamUnaryHandler>,
     ) {
-        let server = self.server.lock();
-        server.registry().register_stream_unary(
+        let handler_clone = handler.clone();
+        
+        self.inner.register_stream_unary(
             &service_name,
             &method_name,
-            move |stream: std::pin::Pin<
-                Box<dyn futures::Stream<Item = Result<Vec<u8>, agntcy_slimrpc::Status>> + Send>,
-            >,
-                  ctx: agntcy_slimrpc::Context| {
-                let handler = Arc::clone(&handler);
-                let rpc_ctx = Arc::new(RpcContext::from_core_context(ctx));
-                async move {
-                    // Wrap the stream in a RequestStream trait object
-                    let request_stream = Arc::new(RequestStreamWrapper {
-                        stream: Arc::new(tokio::sync::Mutex::new(stream)),
-                    });
-
-                    let result = handler.handle(request_stream, rpc_ctx).await;
-                    result.map_err(|e| e.into_core_status())
-                }
+            move |stream: Box<dyn futures::Stream<Item = Result<Vec<u8>, slim_rpc::Status>> + Send + Unpin>,
+                  context: slim_rpc::Context| {
+                let handler = handler_clone.clone();
+                let ctx = Context::from_inner(context);
+                let request_stream = Arc::new(RequestStream::new(stream));
+                
+                Box::pin(async move {
+                    let result = handler.handle(request_stream, Arc::new(ctx)).await;
+                    result.map_err(|e| e.into())
+                })
             },
         );
     }
 
-    /// Register a stream-stream handler
+    /// Register a stream-to-stream RPC handler
     ///
     /// # Arguments
-    /// * `service_name` - Name of the service (e.g., "MyService")
-    /// * `method_name` - Name of the method (e.g., "MyMethod")
+    /// * `service_name` - The service name
+    /// * `method_name` - The method name
     /// * `handler` - Implementation of the StreamStreamHandler trait
     pub fn register_stream_stream(
         &self,
@@ -250,93 +177,88 @@ impl RpcServer {
         method_name: String,
         handler: Arc<dyn StreamStreamHandler>,
     ) {
-        let server = self.server.lock();
-        server.registry().register_stream_stream(
+        let handler_clone = handler.clone();
+        
+        self.inner.register_stream_stream(
             &service_name,
             &method_name,
-            move |stream: std::pin::Pin<
-                Box<dyn futures::Stream<Item = Result<Vec<u8>, agntcy_slimrpc::Status>> + Send>,
-            >,
-                  ctx: agntcy_slimrpc::Context| {
-                let handler = Arc::clone(&handler);
-                let rpc_ctx = Arc::new(RpcContext::from_core_context(ctx));
-                async move {
-                    // Wrap the request stream
-                    let request_stream = Arc::new(RequestStreamWrapper {
-                        stream: Arc::new(tokio::sync::Mutex::new(stream)),
-                    });
-
-                    // Create response stream
-                    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-                    let response_stream = Arc::new(ResponseStreamSender {
-                        tx: Arc::new(tokio::sync::Mutex::new(tx)),
-                    });
-
-                    let handler_clone = Arc::clone(&handler);
-                    let rpc_ctx_clone = Arc::clone(&rpc_ctx);
-                    let request_stream_clone = Arc::clone(&request_stream);
-                    let response_stream_clone = Arc::clone(&response_stream);
-
-                    // Spawn handler task
-                    tokio::spawn(async move {
-                        let _ = handler_clone
-                            .handle(request_stream_clone, rpc_ctx_clone, response_stream_clone)
-                            .await;
-                    });
-
-                    // Convert receiver to stream
-                    let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
+            move |stream: Box<dyn futures::Stream<Item = Result<Vec<u8>, slim_rpc::Status>> + Send + Unpin>,
+                  context: slim_rpc::Context| {
+                let handler = handler_clone.clone();
+                let ctx = Context::from_inner(context);
+                let request_stream = Arc::new(RequestStream::new(stream));
+                
+                Box::pin(async move {
+                    let (sink, rx) = ResponseSink::receiver();
+                    let sink_arc = Arc::new(sink);
+                    
+                    // Spawn a task to run the handler
+                    let _handler_task = {
+                        let sink = sink_arc.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = handler.handle(request_stream, Arc::new(ctx), sink.clone()).await {
+                                let _ = sink.send_error_async(e).await;
+                            }
+                        })
+                    };
+                    
+                    // Convert the receiver to a stream
+                    let stream = UnboundedReceiverStream::new(rx);
                     Ok(stream)
-                }
+                })
             },
         );
     }
 
-    /// Start serving RPC requests (blocking)
+    /// Get list of registered methods
     ///
-    /// This method blocks until the server is shut down.
-    /// All handlers must be registered before calling this method.
-    pub fn serve(&self) -> Result<(), SlimError> {
-        let runtime = get_runtime();
-        runtime.block_on(self.serve_async())
-    }
-
-    /// Start serving RPC requests (async)
-    ///
-    /// This method returns when the server is shut down.
-    /// All handlers must be registered before calling this method.
-    pub async fn serve_async(&self) -> Result<(), SlimError> {
-        let server = self.server.lock().clone();
-        server.serve().await.map_err(|e| SlimError::RpcError {
-            message: format!("Server error: {}", e),
-        })
-    }
-
-    /// Shutdown the server gracefully (blocking)
-    pub fn shutdown(&self) {
-        let runtime = get_runtime();
-        runtime.block_on(self.shutdown_async())
-    }
-
-    /// Shutdown the server gracefully (async)
-    pub async fn shutdown_async(&self) {
-        let server = self.server.lock().clone();
-        server.shutdown().await
-    }
-
-    /// Get a list of all registered method names
-    ///
-    /// Returns method names in the format "ServiceName/MethodName"
+    /// Returns a list of registered method names.
     pub fn methods(&self) -> Vec<String> {
-        self.server.lock().registry().methods()
+        self.inner.methods()
+    }
+
+    /// Start serving RPC requests (blocking version)
+    ///
+    /// This is a blocking method that runs until the server is shut down.
+    /// It listens for incoming RPC calls and dispatches them to registered handlers.
+    pub fn serve(&self) -> Result<(), RpcError> {
+        crate::get_runtime().block_on(self.serve_async())
+    }
+
+    /// Start serving RPC requests (async version)
+    ///
+    /// This is an async method that runs until the server is shut down.
+    /// It listens for incoming RPC calls and dispatches them to registered handlers.
+    pub async fn serve_async(&self) -> Result<(), RpcError> {
+        self.inner
+            .serve()
+            .await
+            .map_err(|e| RpcError::new(crate::slimrpc::error::RpcCode::Internal, e.to_string()))
+    }
+
+    /// Shutdown the server gracefully (blocking version)
+    ///
+    /// This signals the server to stop accepting new requests and wait for
+    /// in-flight requests to complete.
+    pub fn shutdown(&self) {
+        crate::get_runtime().block_on(self.shutdown_async())
+    }
+
+    /// Shutdown the server gracefully (async version)
+    ///
+    /// This signals the server to stop accepting new requests and wait for
+    /// in-flight requests to complete.
+    pub async fn shutdown_async(&self) {
+        self.inner
+            .shutdown()
+            .await
     }
 }
 
-impl Clone for RpcServer {
-    fn clone(&self) -> Self {
-        Self {
-            server: self.server.clone(),
-        }
+impl Server {
+    /// Get reference to inner server (for internal use)
+    pub(crate) fn inner(&self) -> &CoreServer {
+        &self.inner
     }
 }
 
@@ -344,35 +266,10 @@ impl Clone for RpcServer {
 mod tests {
     use super::*;
 
+    // Basic compilation tests
     #[test]
-    fn test_handler_type_conversion() {
-        let unary_unary = HandlerType::UnaryUnary;
-        let core: agntcy_slimrpc::HandlerType = unary_unary.into();
-        let back: HandlerType = core.into();
-        assert_eq!(back, HandlerType::UnaryUnary);
-
-        let stream_stream = HandlerType::StreamStream;
-        let core: agntcy_slimrpc::HandlerType = stream_stream.into();
-        let back: HandlerType = core.into();
-        assert_eq!(back, HandlerType::StreamStream);
-    }
-
-    #[test]
-    fn test_handler_response_enum() {
-        let unary = HandlerResponse::Unary {
-            data: vec![1, 2, 3],
-        };
-        match unary {
-            HandlerResponse::Unary { data } => assert_eq!(data, vec![1, 2, 3]),
-            _ => panic!("Expected Unary variant"),
-        }
-
-        let stream = HandlerResponse::Stream {
-            data: vec![vec![1, 2], vec![3, 4]],
-        };
-        match stream {
-            HandlerResponse::Stream { data } => assert_eq!(data.len(), 2),
-            _ => panic!("Expected Stream variant"),
-        }
+    fn test_server_type_compiles() {
+        // This test ensures the Server type compiles correctly with UniFFI attributes
+        // Actual functionality tests require a full SLIM app setup
     }
 }

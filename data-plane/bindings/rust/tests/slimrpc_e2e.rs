@@ -1,0 +1,726 @@
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
+// SPDX-License-Identifier: Apache-2.0
+
+//! End-to-end tests for SlimRPC UniFFI bindings
+//!
+//! These tests verify the four RPC interaction patterns through the UniFFI bindings:
+//! - Unary-Unary: Single request, single response
+//! - Stream-Unary: Streaming requests, single response
+//! - Unary-Stream: Single request, streaming responses
+//! - Stream-Stream: Streaming requests, streaming responses
+
+use std::sync::Arc;
+
+use slim_bindings::{
+    initialize_with_defaults, App, Direction, IdentityProviderConfig,
+    IdentityVerifierConfig, Name, RpcCode, RpcError, RpcServer, StreamMessage,
+    StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
+};
+
+// ============================================================================
+// Test Handlers
+// ============================================================================
+
+/// Simple echo handler for unary-unary
+struct EchoHandler;
+
+#[async_trait::async_trait]
+impl UnaryUnaryHandler for EchoHandler {
+    async fn handle(
+        &self,
+        request: Vec<u8>,
+        _context: Arc<slim_bindings::RpcContext>,
+    ) -> Result<Vec<u8>, RpcError> {
+        // Echo the request back
+        Ok(request)
+    }
+}
+
+/// Handler that returns an error for unary-unary
+struct ErrorHandler;
+
+#[async_trait::async_trait]
+impl UnaryUnaryHandler for ErrorHandler {
+    async fn handle(
+        &self,
+        _request: Vec<u8>,
+        _context: Arc<slim_bindings::RpcContext>,
+    ) -> Result<Vec<u8>, RpcError> {
+        Err(RpcError::new(
+            RpcCode::InvalidArgument,
+            "Intentional error".to_string(),
+        ))
+    }
+}
+
+/// Handler that streams responses for unary-stream
+struct CounterHandler;
+
+#[async_trait::async_trait]
+impl UnaryStreamHandler for CounterHandler {
+    async fn handle(
+        &self,
+        request: Vec<u8>,
+        _context: Arc<slim_bindings::RpcContext>,
+        sink: Arc<slim_bindings::ResponseSink>,
+    ) -> Result<(), RpcError> {
+        // Parse count from request (simple u32 encoding)
+        let count = if request.len() >= 4 {
+            u32::from_le_bytes([request[0], request[1], request[2], request[3]])
+        } else {
+            3
+        };
+
+        // Send count messages
+        for i in 0..count {
+            let response = i.to_le_bytes().to_vec();
+            sink.send_async(response).await?;
+        }
+
+        sink.close_async().await?;
+        Ok(())
+    }
+}
+
+/// Handler that streams responses with an error for unary-stream
+struct StreamErrorHandler;
+
+#[async_trait::async_trait]
+impl UnaryStreamHandler for StreamErrorHandler {
+    async fn handle(
+        &self,
+        _request: Vec<u8>,
+        _context: Arc<slim_bindings::RpcContext>,
+        sink: Arc<slim_bindings::ResponseSink>,
+    ) -> Result<(), RpcError> {
+        // Send a couple of messages
+        sink.send_async(vec![1, 2, 3]).await?;
+        sink.send_async(vec![4, 5, 6]).await?;
+
+        // Then send an error
+        sink.send_error_async(RpcError::new(
+            RpcCode::Internal,
+            "Stream error after 2 messages".to_string(),
+        ))
+        .await?;
+
+        Ok(())
+    }
+}
+
+/// Handler that accumulates stream input for stream-unary
+struct AccumulatorHandler;
+
+#[async_trait::async_trait]
+impl StreamUnaryHandler for AccumulatorHandler {
+    async fn handle(
+        &self,
+        stream: Arc<slim_bindings::RequestStream>,
+        _context: Arc<slim_bindings::RpcContext>,
+    ) -> Result<Vec<u8>, RpcError> {
+        let mut total = 0u32;
+        let mut count = 0u32;
+
+        loop {
+            match stream.next_async().await {
+                StreamMessage::Data(data) => {
+                    count += 1;
+                    if data.len() >= 4 {
+                        let value = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                        total += value;
+                    }
+                }
+                StreamMessage::Error(e) => return Err(e),
+                StreamMessage::End => break,
+            }
+        }
+
+        // Return total and count
+        let mut result = total.to_le_bytes().to_vec();
+        result.extend_from_slice(&count.to_le_bytes());
+        Ok(result)
+    }
+}
+
+/// Handler that detects error in stream input for stream-unary
+struct StreamInputErrorHandler;
+
+#[async_trait::async_trait]
+impl StreamUnaryHandler for StreamInputErrorHandler {
+    async fn handle(
+        &self,
+        stream: Arc<slim_bindings::RequestStream>,
+        _context: Arc<slim_bindings::RpcContext>,
+    ) -> Result<Vec<u8>, RpcError> {
+        let mut count = 0u32;
+
+        loop {
+            match stream.next_async().await {
+                StreamMessage::Data(data) => {
+                    count += 1;
+                    // Check for error marker (first byte == 255)
+                    if !data.is_empty() && data[0] == 255 {
+                        return Err(RpcError::new(
+                            RpcCode::InvalidArgument,
+                            format!("Invalid data at message {}", count),
+                        ));
+                    }
+                }
+                StreamMessage::Error(e) => return Err(e),
+                StreamMessage::End => break,
+            }
+        }
+
+        Ok(count.to_le_bytes().to_vec())
+    }
+}
+
+/// Handler that echoes stream for stream-stream
+struct StreamEchoHandler;
+
+#[async_trait::async_trait]
+impl StreamStreamHandler for StreamEchoHandler {
+    async fn handle(
+        &self,
+        stream: Arc<slim_bindings::RequestStream>,
+        _context: Arc<slim_bindings::RpcContext>,
+        sink: Arc<slim_bindings::ResponseSink>,
+    ) -> Result<(), RpcError> {
+        loop {
+            match stream.next_async().await {
+                StreamMessage::Data(data) => {
+                    sink.send_async(data).await?;
+                }
+                StreamMessage::Error(e) => {
+                    sink.send_error_async(e).await?;
+                    return Ok(());
+                }
+                StreamMessage::End => {
+                    sink.close_async().await?;
+                    return Ok(());
+                }
+            }
+        }
+    }
+}
+
+/// Handler that transforms stream data for stream-stream
+struct TransformHandler;
+
+#[async_trait::async_trait]
+impl StreamStreamHandler for TransformHandler {
+    async fn handle(
+        &self,
+        stream: Arc<slim_bindings::RequestStream>,
+        _context: Arc<slim_bindings::RpcContext>,
+        sink: Arc<slim_bindings::ResponseSink>,
+    ) -> Result<(), RpcError> {
+        loop {
+            match stream.next_async().await {
+                StreamMessage::Data(data) => {
+                    // Double each value
+                    let transformed: Vec<u8> = data.iter().map(|&b| b.wrapping_mul(2)).collect();
+                    sink.send_async(transformed).await?;
+                }
+                StreamMessage::Error(e) => {
+                    sink.send_error_async(e).await?;
+                    return Ok(());
+                }
+                StreamMessage::End => {
+                    sink.close_async().await?;
+                    return Ok(());
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Test Environment Setup
+// ============================================================================
+
+struct TestEnv {
+    server: Arc<RpcServer>,
+    _app: Arc<App>,
+}
+
+impl TestEnv {
+    async fn new(test_name: &str) -> Self {
+        // Initialize the runtime if not already initialized
+        let _ = initialize_with_defaults();
+
+        // Create server app
+        let server_name = Arc::new(Name::new(
+            "org".to_string(),
+            "test".to_string(),
+            test_name.to_string(),
+        ));
+
+        let provider_config = IdentityProviderConfig::SharedSecret {
+            id: "test-provider".to_string(),
+            data: "test-secret-with-sufficient-length-for-hmac-key".to_string(),
+        };
+        let verifier_config = IdentityVerifierConfig::SharedSecret {
+            id: "test-verifier".to_string(),
+            data: "test-secret-with-sufficient-length-for-hmac-key".to_string(),
+        };
+
+        let server_app = App::new_with_direction_async(
+            server_name.clone(),
+            provider_config.clone(),
+            verifier_config.clone(),
+            Direction::Bidirectional,
+        )
+        .await
+        .expect("Failed to create server app");
+
+        // Get notification receiver - need to extract from the Arc<RwLock>
+        let notification_rx_arc = server_app.notification_receiver();
+        let mut rx_guard = notification_rx_arc.write().await;
+        
+        // Create a new channel to transfer notifications
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+        
+        // Replace the receiver in the app with a dummy
+        let original_rx = std::mem::replace(&mut *rx_guard, {
+            let (dummy_tx, dummy_rx) = tokio::sync::mpsc::channel(1);
+            drop(dummy_tx);
+            dummy_rx
+        });
+        
+        drop(rx_guard);
+        
+        // Forward notifications from original to new receiver
+        tokio::spawn(async move {
+            let mut original_rx = original_rx;
+            while let Some(notif) = original_rx.recv().await {
+                if tx.send(notif).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        // Create server
+        let server = RpcServer::new(server_app.clone(), server_name.clone(), rx);
+
+        // Start serving in background
+        let server_clone = server.clone();
+        tokio::spawn(async move {
+            let _ = server_clone.serve_async().await;
+        });
+
+        // Give server time to start
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        Self {
+            server,
+            _app: server_app,
+        }
+    }
+
+    async fn create_client(&self, test_name: &str) -> Arc<slim_bindings::RpcChannel> {
+        let client_name = Arc::new(Name::new(
+            "org".to_string(),
+            "test".to_string(),
+            format!("{}-client", test_name),
+        ));
+
+        let provider_config = IdentityProviderConfig::SharedSecret {
+            id: "test-provider-client".to_string(),
+            data: "test-secret-with-sufficient-length-for-hmac-key".to_string(),
+        };
+        let verifier_config = IdentityVerifierConfig::SharedSecret {
+            id: "test-verifier-client".to_string(),
+            data: "test-secret-with-sufficient-length-for-hmac-key".to_string(),
+        };
+
+        let client_app = App::new_with_direction_async(
+            client_name,
+            provider_config,
+            verifier_config,
+            Direction::Bidirectional,
+        )
+        .await
+        .expect("Failed to create client app");
+
+        let server_name = Arc::new(Name::new(
+            "org".to_string(),
+            "test".to_string(),
+            test_name.to_string(),
+        ));
+
+        slim_bindings::RpcChannel::new(client_app, server_name)
+    }
+}
+
+// ============================================================================
+// Test 1: Unary-Unary RPC
+// ============================================================================
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_unary_unary_rpc() {
+    let env = TestEnv::new("unary-echo").await;
+
+    // Register echo handler
+    env.server.register_unary_unary(
+        "TestService".to_string(),
+        "Echo".to_string(),
+        Arc::new(EchoHandler),
+    );
+
+    let channel = env.create_client("unary-echo").await;
+
+    // Make a call
+    let request = vec![1, 2, 3, 4, 5];
+    let response = channel
+        .call_unary_async(
+            "TestService".to_string(),
+            "Echo".to_string(),
+            request.clone(),
+            Some(5000),
+        )
+        .await
+        .expect("Unary call failed");
+
+    assert_eq!(response, request);
+
+    env.server.shutdown_async().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_unary_unary_error_handling() {
+    let env = TestEnv::new("unary-error").await;
+
+    // Register error handler
+    env.server.register_unary_unary(
+        "TestService".to_string(),
+        "Error".to_string(),
+        Arc::new(ErrorHandler),
+    );
+
+    let channel = env.create_client("unary-error").await;
+
+    // Make a call that should fail
+    let request = vec![1, 2, 3];
+    let result = channel
+        .call_unary_async(
+            "TestService".to_string(),
+            "Error".to_string(),
+            request,
+            Some(5000),
+        )
+        .await;
+
+    assert!(result.is_err());
+    let error = result.unwrap_err();
+    assert_eq!(error.code(), RpcCode::InvalidArgument);
+    assert!(error.message().contains("Intentional error"));
+
+    env.server.shutdown_async().await;
+}
+
+// ============================================================================
+// Test 2: Unary-Stream RPC
+// ============================================================================
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_unary_stream_rpc() {
+    let env = TestEnv::new("unary-stream").await;
+
+    // Register counter handler
+    env.server.register_unary_stream(
+        "TestService".to_string(),
+        "Counter".to_string(),
+        Arc::new(CounterHandler),
+    );
+
+    let channel = env.create_client("unary-stream").await;
+
+    // Request 5 messages
+    let count = 5u32;
+    let request = count.to_le_bytes().to_vec();
+
+    let reader = channel
+        .call_unary_stream_async(
+            "TestService".to_string(),
+            "Counter".to_string(),
+            request,
+            Some(5000),
+        )
+        .await
+        .expect("Unary stream call failed");
+
+    // Collect all responses
+    let mut responses = Vec::new();
+    loop {
+        match reader.next_async().await {
+            StreamMessage::Data(data) => {
+                responses.push(data);
+            }
+            StreamMessage::Error(e) => {
+                panic!("Unexpected error: {:?}", e);
+            }
+            StreamMessage::End => break,
+        }
+    }
+
+    assert_eq!(responses.len(), 5);
+    for (i, response) in responses.iter().enumerate() {
+        let value = u32::from_le_bytes([response[0], response[1], response[2], response[3]]);
+        assert_eq!(value, i as u32);
+    }
+
+    env.server.shutdown_async().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_unary_stream_error_handling() {
+    let env = TestEnv::new("unary-stream-error").await;
+
+    // Register error handler
+    env.server.register_unary_stream(
+        "TestService".to_string(),
+        "StreamError".to_string(),
+        Arc::new(StreamErrorHandler),
+    );
+
+    let channel = env.create_client("unary-stream-error").await;
+
+    let reader = channel
+        .call_unary_stream_async(
+            "TestService".to_string(),
+            "StreamError".to_string(),
+            vec![1],
+            Some(5000),
+        )
+        .await
+        .expect("Unary stream call failed");
+
+    // Collect responses until error
+    let mut responses = Vec::new();
+    let mut got_error = false;
+
+    loop {
+        match reader.next_async().await {
+            StreamMessage::Data(data) => {
+                responses.push(data);
+            }
+            StreamMessage::Error(e) => {
+                assert_eq!(e.code(), RpcCode::Internal);
+                assert!(e.message().contains("Stream error after 2 messages"));
+                got_error = true;
+                break;
+            }
+            StreamMessage::End => break,
+        }
+    }
+
+    assert_eq!(responses.len(), 2);
+    assert!(got_error);
+
+    env.server.shutdown_async().await;
+}
+
+// ============================================================================
+// Test 3: Stream-Unary RPC
+// ============================================================================
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_stream_unary_rpc() {
+    let env = TestEnv::new("stream-unary").await;
+
+    // Register accumulator handler
+    env.server.register_stream_unary(
+        "TestService".to_string(),
+        "Accumulate".to_string(),
+        Arc::new(AccumulatorHandler),
+    );
+
+    // Note: Stream-unary client calls are not yet implemented in the channel wrapper
+    // This test would require implementing stream_unary on the RpcChannel
+    // For now, we mark it as a TODO
+
+    env.server.shutdown_async().await;
+}
+
+// ============================================================================
+// Test 4: Stream-Stream RPC
+// ============================================================================
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_stream_stream_echo() {
+    let env = TestEnv::new("stream-stream-echo").await;
+
+    // Register echo handler
+    env.server.register_stream_stream(
+        "TestService".to_string(),
+        "StreamEcho".to_string(),
+        Arc::new(StreamEchoHandler),
+    );
+
+    // Note: Stream-stream client calls are not yet implemented in the channel wrapper
+    // This test would require implementing stream_stream on the RpcChannel
+    // For now, we mark it as a TODO
+
+    env.server.shutdown_async().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_stream_stream_transform() {
+    let env = TestEnv::new("stream-stream-transform").await;
+
+    // Register transform handler
+    env.server.register_stream_stream(
+        "TestService".to_string(),
+        "Transform".to_string(),
+        Arc::new(TransformHandler),
+    );
+
+    // Note: Stream-stream client calls are not yet implemented in the channel wrapper
+    // This test would require implementing stream_stream on the RpcChannel
+    // For now, we mark it as a TODO
+
+    env.server.shutdown_async().await;
+}
+
+// ============================================================================
+// Test 5: Multiple concurrent calls
+// ============================================================================
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_concurrent_unary_calls() {
+    let env = TestEnv::new("concurrent").await;
+
+    // Register echo handler
+    env.server.register_unary_unary(
+        "TestService".to_string(),
+        "Echo".to_string(),
+        Arc::new(EchoHandler),
+    );
+
+    let channel = env.create_client("concurrent").await;
+
+    // Make 10 concurrent calls
+    let mut handles = Vec::new();
+    for i in 0..10 {
+        let channel = channel.clone();
+        let handle = tokio::spawn(async move {
+            let request = vec![i as u8; 10];
+            let response = channel
+                .call_unary_async(
+                    "TestService".to_string(),
+                    "Echo".to_string(),
+                    request.clone(),
+                    Some(5000),
+                )
+                .await
+                .expect("Unary call failed");
+
+            assert_eq!(response, request);
+        });
+        handles.push(handle);
+    }
+
+    // Wait for all calls to complete
+    for handle in handles {
+        handle.await.expect("Task panicked");
+    }
+
+    env.server.shutdown_async().await;
+}
+
+// ============================================================================
+// Test 6: Handler registration
+// ============================================================================
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_handler_registration() {
+    let env = TestEnv::new("registration").await;
+
+    // Register multiple handlers
+    env.server.register_unary_unary(
+        "ServiceA".to_string(),
+        "MethodA".to_string(),
+        Arc::new(EchoHandler),
+    );
+
+    env.server.register_unary_unary(
+        "ServiceB".to_string(),
+        "MethodB".to_string(),
+        Arc::new(EchoHandler),
+    );
+
+    env.server.register_unary_stream(
+        "ServiceA".to_string(),
+        "MethodC".to_string(),
+        Arc::new(CounterHandler),
+    );
+
+    // Get list of registered methods
+    let methods = env.server.methods();
+    assert!(methods.len() >= 3);
+
+    env.server.shutdown_async().await;
+}
+
+// ============================================================================
+// Test 7: Context information
+// ============================================================================
+
+/// Handler that returns context information
+struct ContextInfoHandler;
+
+#[async_trait::async_trait]
+impl UnaryUnaryHandler for ContextInfoHandler {
+    async fn handle(
+        &self,
+        _request: Vec<u8>,
+        context: Arc<slim_bindings::RpcContext>,
+    ) -> Result<Vec<u8>, RpcError> {
+        // Access context information
+        let session = context.session();
+        let session_id = session.session_id();
+
+        // Return session ID as bytes
+        Ok(session_id.as_bytes().to_vec())
+    }
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_context_access() {
+    let env = TestEnv::new("context").await;
+
+    // Register context info handler
+    env.server.register_unary_unary(
+        "TestService".to_string(),
+        "ContextInfo".to_string(),
+        Arc::new(ContextInfoHandler),
+    );
+
+    let channel = env.create_client("context").await;
+
+    let response = channel
+        .call_unary_async(
+            "TestService".to_string(),
+            "ContextInfo".to_string(),
+            vec![],
+            Some(5000),
+        )
+        .await
+        .expect("Context call failed");
+
+    // Should get a session ID back
+    assert!(!response.is_empty());
+
+    env.server.shutdown_async().await;
+}

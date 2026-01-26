@@ -1,60 +1,92 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-//! # SlimRPC Bindings - UniFFI Language Bindings
+//! # SlimRPC UniFFI Bindings
 //!
-//! This module provides language-agnostic FFI bindings for SlimRPC using UniFFI.
-//! It enables integration with Go, Python, Kotlin, Swift, and other languages.
+//! This module provides UniFFI-compatible wrappers for the SlimRPC library.
+//! Since UniFFI doesn't support Rust async streams directly, we provide:
+//!
+//! - Callback trait interfaces for handler implementations
+//! - Stream wrapper objects for request/response streaming
+//! - Synchronous and async-compatible APIs
 //!
 //! ## Architecture
 //!
-//! The module wraps the core slimrpc types to be UniFFI-compatible:
+//! Applications implement the `RpcHandler` trait to handle RPC calls.
+//! For streaming cases, the handler receives wrapper objects:
+//! - `RequestStream`: Pull messages from client stream
+//! - `ResponseSink`: Push messages to client stream
 //!
-//! - **`RpcChannel`**: Client-side channel for making RPC calls
-//! - **`RpcServer`**: Server-side RPC server for handling requests
-//! - **`RpcContext`**: Context information for RPC handlers
-//! - **`Status`**: RPC status codes and error information
-//! - **`Metadata`**: Key-value metadata for RPC calls
-//!
-//! ## Usage
-//!
-//! ### Client Example
+//! ## Example
 //!
 //! ```rust,ignore
-//! use slim_bindings::{App, RpcChannel};
+//! // Implement the handler trait
+//! struct MyHandler;
 //!
-//! // Create app
-//! let app = App::new(app_name, provider_config, verifier_config, false)?;
+//! impl RpcHandler for MyHandler {
+//!     fn handle_unary_unary(&self, request: Vec<u8>, context: RpcContext) -> Result<Vec<u8>, RpcError> {
+//!         // Process unary request, return unary response
+//!         Ok(response_bytes)
+//!     }
 //!
-//! // Create RPC channel
-//! let remote = Name { components: vec!["org".into(), "ns".into(), "service".into()], id: None };
-//! let channel = RpcChannel::new(Arc::new(app), remote);
+//!     fn handle_unary_stream(&self, request: Vec<u8>, context: RpcContext, sink: Arc<ResponseSink>) -> Result<(), RpcError> {
+//!         // Process request, push multiple responses to sink
+//!         sink.send(response1)?;
+//!         sink.send(response2)?;
+//!         sink.close()?;
+//!         Ok(())
+//!     }
 //!
-//! // Make RPC call (typically through generated code)
-//! let response = channel.unary("MyService", "MyMethod", request, None, None).await?;
+//!     fn handle_stream_unary(&self, stream: Arc<RequestStream>, context: RpcContext) -> Result<Vec<u8>, RpcError> {
+//!         // Pull messages from stream, return single response
+//!         while let Some(msg) = stream.next()? {
+//!             // Process message
+//!         }
+//!         Ok(final_response)
+//!     }
+//!
+//!     fn handle_stream_stream(&self, stream: Arc<RequestStream>, context: RpcContext, sink: Arc<ResponseSink>) -> Result<(), RpcError> {
+//!         // Pull from stream, push to sink
+//!         while let Some(msg) = stream.next()? {
+//!             sink.send(process(msg))?;
+//!         }
+//!         sink.close()?;
+//!         Ok(())
+//!     }
+//! }
 //! ```
 
 mod channel;
-mod codec;
 mod context;
 mod error;
-mod metadata;
-mod rpc;
+mod handler;
 mod server;
+mod stream;
+mod types;
 
-pub use channel::{RequestSender, RpcChannel, VectorRequestSender};
-pub use codec::{Codec, Decoder, Encoder};
-pub use context::{RpcContext, RpcMessageContext, RpcSessionContext};
-pub use error::{Code, RpcError, Status, StatusError};
-pub use metadata::Metadata;
-pub use rpc::{
-    RequestStream, ResponseStream, StreamResult, StreamStreamHandler, StreamUnaryHandler,
-    UnaryStreamHandler, UnaryUnaryHandler,
+// Re-export core slimrpc types that don't need wrapping
+pub use slim_rpc::{
+    Code, Codec, Decoder, Encoder, Metadata, DEADLINE_KEY, MAX_TIMEOUT, STATUS_CODE_KEY,
 };
-pub use server::{HandlerResponse, HandlerType, RpcHandler, RpcResponseStream, RpcServer};
 
-// Re-export core types with RPC prefix for clarity
-pub use agntcy_slimrpc::{
-    Channel, Context, DEADLINE_KEY, MAX_TIMEOUT, MessageContext as CoreMessageContext,
-    STATUS_CODE_KEY, Server, SessionContext as CoreSessionContext,
+// Re-export our wrapper types
+pub use channel::{Channel as RpcChannel, ResponseStreamReader};
+pub use context::{
+    Context as RpcContext, MessageContext as RpcMessageContext, SessionContext as RpcSessionContext,
 };
+pub use error::{RpcCode, RpcError, Status, StatusError};
+pub use handler::{
+    HandlerResponse, HandlerType, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler,
+    UnaryUnaryHandler,
+};
+pub use server::Server as RpcServer;
+pub use stream::{
+    RequestSender, RequestStream, ResponseStream as RpcResponseStream, StreamResult,
+    VectorRequestSender,
+};
+pub use types::{ResponseSink, ResponseStream, StreamMessage};
+
+// Legacy compatibility re-exports
+pub use slim_rpc::Server;
+pub use channel::Channel;
+pub use context::Context;
