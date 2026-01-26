@@ -69,7 +69,7 @@ impl SubscriptionRefs {
     fn remove(&mut self, conn: u64) -> Result<bool, DataPathError> {
         match self.refs.get_mut(&conn) {
             None => {
-                warn!(%conn, "connection not found in refs");
+                debug!(%conn, "connection not found in refs");
                 Err(DataPathError::ConnectionIdNotFound(conn))
             }
             Some(count) => {
@@ -86,7 +86,9 @@ impl SubscriptionRefs {
 
     fn force_remove(&mut self, conn: u64) -> Result<usize, DataPathError> {
         // Returns the count that was removed
-        self.refs.remove(&conn).ok_or(DataPathError::ConnectionIdNotFound(conn))
+        self.refs
+            .remove(&conn)
+            .ok_or(DataPathError::ConnectionIdNotFound(conn))
     }
 
     fn is_empty(&self) -> bool {
@@ -237,10 +239,14 @@ impl NameState {
         let refs = SubscriptionRefs::new(conn);
         if is_local {
             type_state.connections[0].insert(conn);
-            type_state.ids.insert(id, [refs, SubscriptionRefs::default()]);
+            type_state
+                .ids
+                .insert(id, [refs, SubscriptionRefs::default()]);
         } else {
             type_state.connections[1].insert(conn);
-            type_state.ids.insert(id, [SubscriptionRefs::default(), refs]);
+            type_state
+                .ids
+                .insert(id, [SubscriptionRefs::default(), refs]);
         }
         type_state
     }
@@ -271,10 +277,10 @@ impl NameState {
             }
             Some(connection_refs) => {
                 let index = if is_local { 0 } else { 1 };
-                
+
                 let fully_removed = connection_refs[index].remove(conn)?;
                 self.connections[index].remove(conn)?;
-                
+
                 if fully_removed {
                     // if both refs are empty remove the id from the tables
                     if connection_refs[0].is_empty() && connection_refs[1].is_empty() {
@@ -295,7 +301,7 @@ impl NameState {
             }
             Some(connection_refs) => {
                 let index = if is_local { 0 } else { 1 };
-                
+
                 let count = connection_refs[index].force_remove(conn)?;
                 // Remove from connections pool, decrementing by the full count
                 for _ in 0..count {
@@ -558,6 +564,7 @@ fn remove_subscription_from_sub_table(
 
     if let Some(state) = table.get_mut(query_name) {
         let fully_removed = state.remove(&name.id(), conn_index, is_local)?;
+
         if state.ids.is_empty() {
             table.remove(query_name);
         }
@@ -1033,12 +1040,18 @@ mod tests {
         // Remove once - subscription should still exist (counter: 3 -> 2)
         assert!(t.remove_subscription(&name1, 1, false).is_ok());
         let result = t.match_one(&name1, 100).unwrap();
-        assert_eq!(result, 1, "Should still match to connection 1 after first remove");
+        assert_eq!(
+            result, 1,
+            "Should still match to connection 1 after first remove"
+        );
 
         // Remove again - subscription should still exist (counter: 2 -> 1)
         assert!(t.remove_subscription(&name1, 1, false).is_ok());
         let result = t.match_one(&name1, 100).unwrap();
-        assert_eq!(result, 1, "Should still match to connection 1 after second remove");
+        assert_eq!(
+            result, 1,
+            "Should still match to connection 1 after second remove"
+        );
 
         // Remove final time - subscription should now be fully removed (counter: 1 -> 0)
         assert!(t.remove_subscription(&name1, 1, false).is_ok());
@@ -1050,15 +1063,15 @@ mod tests {
 
         // Test with multiple connections having different ref counts
         let name2 = Name::from_strings(["agntcy", "default", "multi"]);
-        
+
         // Connection 1: ref count 3
         assert!(t.add_subscription(name2.clone(), 1, false).is_ok());
         assert!(t.add_subscription(name2.clone(), 1, false).is_ok());
         assert!(t.add_subscription(name2.clone(), 1, false).is_ok());
-        
+
         // Connection 2: ref count 1
         assert!(t.add_subscription(name2.clone(), 2, false).is_ok());
-        
+
         // Connection 3: ref count 2
         assert!(t.add_subscription(name2.clone(), 3, false).is_ok());
         assert!(t.add_subscription(name2.clone(), 3, false).is_ok());
@@ -1073,7 +1086,11 @@ mod tests {
         // Remove connection 2 once - should be gone (ref count 1 -> 0)
         assert!(t.remove_subscription(&name2, 2, false).is_ok());
         let result = t.match_all(&name2, 100).unwrap();
-        assert_eq!(result.len(), 2, "Should have 2 connections after removing conn 2");
+        assert_eq!(
+            result.len(),
+            2,
+            "Should have 2 connections after removing conn 2"
+        );
         assert!(!result.contains(&2), "Connection 2 should be removed");
 
         // Remove connection 1 once - should still exist (ref count 3 -> 2)
@@ -1115,7 +1132,10 @@ mod tests {
 
         // Now only connection 2 should be available
         let result = t.match_one(&name1, 100).unwrap();
-        assert_eq!(result, 2, "Should only match to connection 2 after conn 1 dies");
+        assert_eq!(
+            result, 2,
+            "Should only match to connection 2 after conn 1 dies"
+        );
 
         let result = t.match_all(&name1, 100).unwrap();
         assert_eq!(result.len(), 1, "Should only have 1 connection remaining");
