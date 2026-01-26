@@ -1,0 +1,15 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+# Example configuration for running SLIM with TLS enabled
+# This configuration requires valid certificate and key files.
+
+endpoint: "0.0.0.0:8443"
+
+tls:
+  insecure: false
+  cert_file: "/path/to/server-cert.pem"
+  key_file: "/path/to/server-key.pem"
+
+# Note: Update the cert_file and key_file paths to point to your actual
+# certificate and key files before using this configuration.

@@ -7,6 +7,7 @@ import (
 
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cfg"
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd"
+	"github.com/agntcy/slim/control-plane/slimctl/internal/config"
 	"github.com/agntcy/slim/control-plane/slimctl/internal/manager"
 )
 
@@ -28,25 +29,46 @@ func NewSlimCmd(_ context.Context, appConfig *cfg.AppConfig) *cobra.Command {
 
 // NewStartCmd creates the 'start' command.
 func NewStartCmd(appConfig *cfg.AppConfig) *cobra.Command {
+	var configFile string
 	var endpoint string
-	var port string
+	var insecure bool
+	var tlsCertFile string
+	var tlsKeyFile string
 
 	startCmd := &cobra.Command{
 		Use:   "start",
 		Short: "Start the SLIM instance",
 		Long:  `Start the SLIM instance`,
 		RunE: func(c *cobra.Command, _ []string) error {
-			// If no endpoint specified, bind to loopback on the given port
-			if endpoint == "" {
-				endpoint = "127.0.0.1:" + port
+			// Load configuration
+			var slimConfig *config.SlimConfig
+			var err error
+
+			if configFile != "" {
+				// Load from YAML file
+				slimConfig, err = config.LoadFromFile(configFile)
+				if err != nil {
+					return err
+				}
+			} else {
+				// Use default configuration
+				slimConfig = config.DefaultSlimConfig()
 			}
-			mgr := manager.NewManager(appConfig.CommonOpts.Logger, endpoint, port)
+
+			// Merge CLI flag overrides
+			slimConfig.MergeFlags(&endpoint, &insecure, &tlsCertFile, &tlsKeyFile)
+
+			// Create manager with configuration
+			mgr := manager.NewManagerWithConfig(appConfig.CommonOpts.Logger, slimConfig)
 			return mgr.Start(c.Context())
 		},
 	}
 
-	startCmd.Flags().StringVar(&endpoint, "endpoint", "", "Endpoint to bind (default: 127.0.0.1:<port>)")
-	startCmd.Flags().StringVar(&port, "port", "8080", "Port to listen on")
+	startCmd.Flags().StringVarP(&configFile, "config", "c", "", "Path to YAML configuration file")
+	startCmd.Flags().StringVar(&endpoint, "endpoint", "", "Endpoint to bind (e.g., 127.0.0.1:8080)")
+	startCmd.Flags().BoolVar(&insecure, "insecure", false, "Disable TLS (insecure mode)")
+	startCmd.Flags().StringVar(&tlsCertFile, "tls-cert", "", "Path to TLS certificate file")
+	startCmd.Flags().StringVar(&tlsKeyFile, "tls-key", "", "Path to TLS key file")
 
 	return startCmd
 }
