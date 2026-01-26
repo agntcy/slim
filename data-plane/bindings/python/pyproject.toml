@@ -11,7 +11,7 @@ build-backend = "maturin"
 
 [project]
 name = "slim-bindings"
-dynamic = ["version"]
+version = "1.0.0rc0"
 description = "Python bindings for SLIM (Secure Low-Latency Interactive Messaging) using UniFFI"
 requires-python = ">=3.10"
 readme = "README.md"
