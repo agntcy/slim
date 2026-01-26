@@ -12,8 +12,10 @@ use std::time::Duration;
 use display_error_chain::ErrorChainExt;
 
 use futures_timer::Delay;
+use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_datapath::api::{ProtoMessage, ProtoSessionMessageType};
 use slim_datapath::messages::{Name, utils::SlimHeaderFlags};
+use slim_service::app::App as SlimApp;
 use slim_session::context::SessionContext;
 use slim_session::errors::SessionError;
 use slim_session::{AppChannelReceiver, CompletionHandle};
@@ -172,6 +174,28 @@ impl Session {
     /// Get a clone of the underlying session controller
     pub async fn controller(&self) -> Arc<slim_session::session_controller::SessionController> {
         self.inner.controller.clone()
+    }
+
+    /// Close the session and delete it from the app
+    ///
+    /// This properly cleans up the session resources by calling app.delete_session().
+    /// After calling this, the session should not be used anymore.
+    ///
+    /// # Arguments
+    /// * `app` - The SLIM app instance to delete the session from
+    pub async fn close(&self, app: &Arc<SlimApp<AuthProvider, AuthVerifier>>) -> Result<(), Status> {
+        tracing::debug!("Closing session {}", self.inner.controller.id());
+        
+        if let Ok(handle) = app.delete_session(self.inner.controller.as_ref()) {
+            handle.await.map_err(|e| {
+                Status::internal(format!("Failed to delete session: {}", e.chain().to_string()))
+            })?;
+            tracing::debug!("Successfully deleted session {}", self.inner.controller.id());
+        } else {
+            tracing::warn!("Failed to delete session {}", self.inner.controller.id());
+        }
+        
+        Ok(())
     }
 }
 

@@ -1125,6 +1125,18 @@ impl Server {
         let drain_for_stream = drain_watch.clone();
 
         let request_stream = stream! {
+            // Check if the first message is an end-of-stream marker
+            let first_code = first_message.metadata.get(STATUS_CODE_KEY)
+                .and_then(|s| s.parse::<i32>().ok())
+                .and_then(Code::from_i32)
+                .unwrap_or(Code::Ok);
+            
+            // If first message is end-of-stream, don't yield it and exit immediately
+            if first_code == Code::Ok && first_message.payload.is_empty() {
+                // Empty stream - exit immediately
+                return;
+            }
+            
             // Yield the first message
             yield Ok(first_message.payload);
 

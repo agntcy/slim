@@ -755,3 +755,503 @@ async fn test_concurrent_unary_calls() {
 
     env.shutdown().await;
 }
+
+// ============================================================================
+// Session Caching Tests
+// ============================================================================
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_session_cleanup_on_explicit_close() {
+    let mut env = TestEnv::new("test-session-cleanup").await;
+
+    let call_count = Arc::new(Mutex::new(0));
+    let call_count_clone = call_count.clone();
+
+    // Track session IDs seen on the server side
+    let session_ids = Arc::new(Mutex::new(Vec::new()));
+    let session_ids_clone = session_ids.clone();
+
+    env.server.register_unary_unary(
+        "TestService",
+        "Echo",
+        move |request: TestRequest, ctx: Context| {
+            let count = call_count_clone.clone();
+            let ids = session_ids_clone.clone();
+            async move {
+                let mut c = count.lock().await;
+                *c += 1;
+                let current = *c;
+                drop(c);
+
+                // Get session ID from context
+                let session_id = ctx.session().session_id().to_string();
+
+                tracing::info!("RPC '{}' handled by session ID: {}", request.message, session_id);
+
+                // Store the session ID
+                let mut id_list = ids.lock().await;
+                id_list.push(session_id.clone());
+                drop(id_list);
+
+                Ok(TestResponse {
+                    result: format!("Echo: {}", request.message),
+                    count: current,
+                })
+            }
+        },
+    );
+
+    // First call - creates session
+    let request1 = TestRequest {
+        message: "first".to_string(),
+        value: 1,
+    };
+    let response1: TestResponse = env
+        .channel
+        .unary("TestService", "Echo", request1, None, None)
+        .await
+        .expect("First RPC call failed");
+    assert_eq!(response1.count, 1);
+
+    // Second call - reuses session
+    let request2 = TestRequest {
+        message: "second".to_string(),
+        value: 2,
+    };
+    let response2: TestResponse = env
+        .channel
+        .unary("TestService", "Echo", request2, None, None)
+        .await
+        .expect("Second RPC call failed");
+    assert_eq!(response2.count, 2);
+
+    // Get the session IDs from first two calls
+    let id_list = session_ids.lock().await;
+    assert_eq!(id_list.len(), 2, "Should have 2 session IDs recorded so far");
+    let first_session_id = id_list[0].clone();
+    let second_session_id = id_list[1].clone();
+    drop(id_list);
+
+    // Both calls should use same session
+    assert_eq!(first_session_id, second_session_id, "First two calls should use same session");
+    tracing::info!("✓ First two calls used same session: {}", first_session_id);
+
+    // Explicitly close the session
+    env.channel.close_session("TestService", "Echo").await;
+
+    // Give some time for cleanup
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Third call - should create new session after explicit close
+    let request3 = TestRequest {
+        message: "third".to_string(),
+        value: 3,
+    };
+    let response3: TestResponse = env
+        .channel
+        .unary("TestService", "Echo", request3, None, None)
+        .await
+        .expect("Third RPC call failed");
+    assert_eq!(response3.count, 3);
+
+    // Get all session IDs
+    let id_list = session_ids.lock().await;
+    assert_eq!(id_list.len(), 3, "Should have 3 session IDs recorded");
+    let third_session_id = id_list[2].clone();
+    drop(id_list);
+
+    // Third call should use DIFFERENT session
+    assert_ne!(
+        third_session_id, first_session_id,
+        "Third call should use NEW session after close, got same: {}",
+        third_session_id
+    );
+    tracing::info!("✓ Third call used NEW session: {} (old was {})", third_session_id, first_session_id);
+
+    // All 3 calls should have been processed
+    let final_count = *call_count.lock().await;
+    assert_eq!(final_count, 3);
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_session_cleanup_on_error() {
+    let mut env = TestEnv::new("test-session-error-cleanup").await;
+
+    let call_count = Arc::new(Mutex::new(0));
+    let call_count_clone = call_count.clone();
+
+    // Track session IDs seen on the server side
+    let session_ids = Arc::new(Mutex::new(Vec::new()));
+    let session_ids_clone = session_ids.clone();
+
+    env.server.register_unary_unary(
+        "TestService",
+        "FlakyMethod",
+        move |request: TestRequest, ctx: Context| {
+            let count = call_count_clone.clone();
+            let ids = session_ids_clone.clone();
+            async move {
+                let mut c = count.lock().await;
+                *c += 1;
+                let current = *c;
+                drop(c);
+
+                // Get session ID from context
+                let session_id = ctx.session().session_id().to_string();
+
+                tracing::info!("RPC '{}' (call #{}) handled by session ID: {}", request.message, current, session_id);
+
+                // Store the session ID
+                let mut id_list = ids.lock().await;
+                id_list.push(session_id.clone());
+                drop(id_list);
+
+                // Fail on first call
+                if current == 1 {
+                    return Err(Status::internal("Simulated error"));
+                }
+
+                Ok(TestResponse {
+                    result: request.message,
+                    count: current,
+                })
+            }
+        },
+    );
+
+    // First call fails
+    let request1 = TestRequest {
+        message: "first".to_string(),
+        value: 1,
+    };
+    let result1 = env
+        .channel
+        .unary::<TestRequest, TestResponse>("TestService", "FlakyMethod", request1, None, None)
+        .await;
+    assert!(result1.is_err());
+    assert_eq!(result1.unwrap_err().code(), Code::Internal);
+
+    // Second call should succeed using the SAME session (no cleanup needed)
+    let request2 = TestRequest {
+        message: "second".to_string(),
+        value: 2,
+    };
+    let response2: TestResponse = env
+        .channel
+        .unary("TestService", "FlakyMethod", request2, None, None)
+        .await
+        .expect("Second RPC call should succeed");
+    assert_eq!(response2.count, 2);
+
+    // Both calls should have been attempted
+    let final_count = *call_count.lock().await;
+    assert_eq!(final_count, 2);
+
+    // Get all session IDs
+    let id_list = session_ids.lock().await;
+    assert_eq!(id_list.len(), 2, "Should have 2 session IDs recorded");
+    let first_session_id = id_list[0].clone();
+    let second_session_id = id_list[1].clone();
+    drop(id_list);
+
+    // Both calls should use SAME session (session kept open after error)
+    assert_eq!(
+        first_session_id, second_session_id,
+        "Session should be kept open after error - both calls should use same session ID"
+    );
+    tracing::info!("✓ Session kept open after error: both calls used session {}", first_session_id);
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_different_methods_different_sessions() {
+    let mut env = TestEnv::new("test-different-sessions").await;
+
+    let method1_count = Arc::new(Mutex::new(0));
+    let method2_count = Arc::new(Mutex::new(0));
+
+    let m1_clone = method1_count.clone();
+    let m2_clone = method2_count.clone();
+
+    env.server.register_unary_unary(
+        "TestService",
+        "Method1",
+        move |request: TestRequest, _ctx: Context| {
+            let count = m1_clone.clone();
+            async move {
+                let mut c = count.lock().await;
+                *c += 1;
+                drop(c);
+
+                Ok(TestResponse {
+                    result: format!("M1: {}", request.message),
+                    count: request.value + 100,
+                })
+            }
+        },
+    );
+
+    env.server.register_unary_unary(
+        "TestService",
+        "Method2",
+        move |request: TestRequest, _ctx: Context| {
+            let count = m2_clone.clone();
+            async move {
+                let mut c = count.lock().await;
+                *c += 1;
+                drop(c);
+
+                Ok(TestResponse {
+                    result: format!("M2: {}", request.message),
+                    count: request.value + 200,
+                })
+            }
+        },
+    );
+
+    // Call both methods multiple times
+    for i in 0..3 {
+        let req1 = TestRequest {
+            message: format!("call-{}", i),
+            value: i,
+        };
+        let req2 = TestRequest {
+            message: format!("call-{}", i),
+            value: i,
+        };
+
+        let resp1: TestResponse = env
+            .channel
+            .unary("TestService", "Method1", req1, None, None)
+            .await
+            .expect("Method1 call failed");
+
+        let resp2: TestResponse = env
+            .channel
+            .unary("TestService", "Method2", req2, None, None)
+            .await
+            .expect("Method2 call failed");
+
+        assert_eq!(resp1.result, format!("M1: call-{}", i));
+        assert_eq!(resp1.count, i + 100);
+
+        assert_eq!(resp2.result, format!("M2: call-{}", i));
+        assert_eq!(resp2.count, i + 200);
+    }
+
+    // Each method should have been called 3 times
+    assert_eq!(*method1_count.lock().await, 3);
+    assert_eq!(*method2_count.lock().await, 3);
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_session_reuse_with_streaming() {
+    let mut env = TestEnv::new("test-session-reuse-streaming").await;
+
+    let call_count = Arc::new(Mutex::new(0));
+    let call_count_clone = call_count.clone();
+
+    // Track session IDs seen on the server side
+    let session_ids = Arc::new(Mutex::new(Vec::new()));
+    let session_ids_clone = session_ids.clone();
+
+    env.server.register_unary_stream(
+        "TestService",
+        "GenerateNumbers",
+        move |request: TestRequest, ctx: Context| {
+            let count = call_count_clone.clone();
+            let ids = session_ids_clone.clone();
+            async move {
+                let mut c = count.lock().await;
+                *c += 1;
+                let current = *c;
+                drop(c);
+
+                // Get session ID from context
+                let session_id = ctx.session().session_id().to_string();
+                tracing::info!("Streaming RPC '{}' (call #{}) handled by session ID: {}", request.message, current, session_id);
+
+                // Store the session ID
+                let mut id_list = ids.lock().await;
+                id_list.push(session_id.clone());
+                drop(id_list);
+
+                let n = request.value;
+                let stream = stream::iter((0..n).map(|i| {
+                    Ok(TestResponse {
+                        result: format!("item-{}", i),
+                        count: i,
+                    })
+                }));
+                Ok(stream)
+            }
+        },
+    );
+
+    // First streaming call in a scope
+    {
+        let request1 = TestRequest {
+            message: "first".to_string(),
+            value: 3,
+        };
+        let stream1 = env.channel.unary_stream::<TestRequest, TestResponse>(
+            "TestService",
+            "GenerateNumbers",
+            request1,
+            None,
+            None,
+        );
+        pin_mut!(stream1);
+
+        let mut results1 = vec![];
+        while let Some(result) = stream1.next().await {
+            results1.push(result.expect("Stream error"));
+        }
+        assert_eq!(results1.len(), 3);
+    } // stream1 dropped here
+
+    // Second streaming call in a scope - should reuse session
+    {
+        let request2 = TestRequest {
+            message: "second".to_string(),
+            value: 2,
+        };
+        let stream2 = env.channel.unary_stream::<TestRequest, TestResponse>(
+            "TestService",
+            "GenerateNumbers",
+            request2,
+            None,
+            None,
+        );
+        pin_mut!(stream2);
+
+        let mut results2 = vec![];
+        while let Some(result) = stream2.next().await {
+            results2.push(result.expect("Stream error"));
+        }
+        assert_eq!(results2.len(), 2);
+    } // stream2 dropped here
+
+    // Both calls should have been processed
+    let final_count = *call_count.lock().await;
+    assert_eq!(final_count, 2);
+
+    // Get all session IDs
+    let id_list = session_ids.lock().await;
+    assert_eq!(id_list.len(), 2, "Should have 2 session IDs recorded");
+    let first_session_id = id_list[0].clone();
+    let second_session_id = id_list[1].clone();
+    drop(id_list);
+
+    // Both calls should use SAME session (session reuse)
+    assert_eq!(
+        first_session_id, second_session_id,
+        "Both streaming calls should reuse the same session"
+    );
+    tracing::info!("✓ Both streaming calls reused session: {}", first_session_id);
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_concurrent_calls_serialized() {
+    let mut env = TestEnv::new("test-serialized-calls").await;
+
+    // Track concurrent execution
+    let active_count = Arc::new(Mutex::new(0));
+    let max_concurrent = Arc::new(Mutex::new(0));
+
+    let active_clone = active_count.clone();
+    let max_clone = max_concurrent.clone();
+
+    env.server.register_unary_unary(
+        "TestService",
+        "SlowEcho",
+        move |request: TestRequest, _ctx: Context| {
+            let active = active_clone.clone();
+            let max = max_clone.clone();
+            async move {
+                // Increment active count
+                let mut a = active.lock().await;
+                *a += 1;
+                let current = *a;
+                drop(a);
+
+                // Update max
+                let mut m = max.lock().await;
+                if current > *m {
+                    *m = current;
+                }
+                drop(m);
+
+                // Simulate slow processing
+                tokio::time::sleep(Duration::from_millis(100)).await;
+
+                // Decrement active count
+                let mut a = active.lock().await;
+                *a -= 1;
+                drop(a);
+
+                Ok(TestResponse {
+                    result: request.message,
+                    count: request.value,
+                })
+            }
+        },
+    );
+
+    // First make one call to ensure session is created and cached
+    let req = TestRequest {
+        message: "warmup".to_string(),
+        value: 0,
+    };
+    env.channel
+        .unary::<TestRequest, TestResponse>("TestService", "SlowEcho", req, None, None)
+        .await
+        .expect("Warmup call failed");
+
+    // Reset counters after warmup
+    *active_count.lock().await = 0;
+    *max_concurrent.lock().await = 0;
+
+    // Now launch concurrent calls - they should reuse the cached session and be serialized
+    let channel = Arc::new(env.channel.clone());
+    let barrier = Arc::new(tokio::sync::Barrier::new(3));
+    let mut handles = vec![];
+    for i in 0..3 {
+        let ch = channel.clone();
+        let b = barrier.clone();
+        let handle = tokio::spawn(async move {
+            // Wait for all tasks to be ready
+            b.wait().await;
+
+            let req = TestRequest {
+                message: format!("call-{}", i),
+                value: i + 1,
+            };
+            ch.unary::<TestRequest, TestResponse>("TestService", "SlowEcho", req, None, None).await
+        });
+        handles.push(handle);
+    }
+
+    // Wait for all to complete
+    for handle in handles {
+        handle.await.unwrap().expect("RPC should succeed");
+    }
+
+    // Max concurrent should be 1 (serialized by session lock)
+    let max = *max_concurrent.lock().await;
+    assert_eq!(max, 1, "Calls should be serialized by session lock, not concurrent");
+
+    env.shutdown().await;
+}

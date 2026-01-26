@@ -203,14 +203,18 @@ impl Channel {
             .await?;
 
         // Receive and decode response
-        let result = self.receive_response(&session).await;
-        
-        // If there was an error, remove the session from cache
-        if result.is_err() {
-            self.remove_session_from_cache(service_name, method_name).await;
+        match self.receive_response(&session).await {
+            Ok(response) => Ok(response),
+            Err(ReceiveError::Transport(status)) => {
+                // Transport error - close session and create new one next time
+                self.remove_session_from_cache(service_name, method_name).await;
+                Err(status)
+            }
+            Err(ReceiveError::Rpc(status)) => {
+                // RPC error from handler - keep session open
+                Err(status)
+            }
         }
-        
-        result
     }
 
     /// Make a unary-stream RPC call
@@ -389,15 +393,19 @@ impl Channel {
         self.send_request_stream(&session, &ctx, request_stream, service_name, method_name)
             .await?;
 
-        // Receive and decode single response
-        let result = self.receive_response(&session).await;
-        
-        // If there was an error, remove the session from cache
-        if result.is_err() {
-            self.remove_session_from_cache(service_name, method_name).await;
+        // Receive and decode response
+        match self.receive_response(&session).await {
+            Ok(response) => Ok(response),
+            Err(ReceiveError::Transport(status)) => {
+                // Transport error - close session and create new one next time
+                self.remove_session_from_cache(service_name, method_name).await;
+                Err(status)
+            }
+            Err(ReceiveError::Rpc(status)) => {
+                // RPC error from handler - keep session open
+                Err(status)
+            }
         }
-        
-        result
     }
 
     /// Make a stream-stream RPC call
@@ -557,12 +565,15 @@ impl Channel {
         Ok((session, ctx, lock))
     }
     
-    /// Remove a session from the cache
+    /// Remove a session from the cache and delete it from the app
     async fn remove_session_from_cache(&self, service_name: &str, method_name: &str) {
         let cache_key = format!("{}/{}", service_name, method_name);
         let mut cache = self.session_cache.lock().await;
-        if cache.remove(&cache_key).is_some() {
-            tracing::debug!("Removed failed session from cache for {}/{}", service_name, method_name);
+        if let Some(cached) = cache.remove(&cache_key) {
+            tracing::debug!("Removed session from cache for {}/{}", service_name, method_name);
+            
+            // Close the session properly
+            let _ = cached.session.close(&self.app).await;
         }
     }
 
@@ -804,23 +815,42 @@ impl Channel {
     }
 
     /// Receive and decode a single response
-    async fn receive_response<Res>(&self, session: &Session) -> Result<Res, Status>
+    /// 
+    /// Distinguishes between:
+    /// - RPC errors: Status codes in metadata from the handler (keep session open)
+    /// - Transport errors: Communication/decoding failures (close session)
+    async fn receive_response<Res>(&self, session: &Session) -> Result<Res, ReceiveError>
     where
         Res: Decoder,
     {
-        let received = session.get_message(None).await?;
+        // Try to receive message - any error here is a transport error
+        let received = session.get_message(None)
+            .await
+            .map_err(ReceiveError::Transport)?;
 
-        // Check status code
-        let code = self.parse_status_code(received.metadata.get(STATUS_CODE_KEY))?;
+        // Check status code in metadata - error here means RPC error from handler
+        let code = self.parse_status_code(received.metadata.get(STATUS_CODE_KEY))
+            .map_err(ReceiveError::Transport)?;
+        
         if code != Code::Ok {
             let message = String::from_utf8_lossy(&received.payload).to_string();
-            return Err(Status::new(code, message));
+            return Err(ReceiveError::Rpc(Status::new(code, message)));
         }
 
-        // Decode response
-        let response = Res::decode(received.payload)?;
+        // Try to decode response - any error here is a transport error
+        let response = Res::decode(received.payload)
+            .map_err(ReceiveError::Transport)?;
+        
         Ok(response)
     }
+}
+
+/// Result type for receive operations that distinguishes error sources
+enum ReceiveError {
+    /// Transport-level error (session closed, decode failure, etc.) - should close session
+    Transport(Status),
+    /// RPC-level error from handler (in metadata) - should keep session open
+    Rpc(Status),
 }
 
 #[cfg(test)]
