@@ -45,62 +45,11 @@ tasks:
       - echo "For full command list - task --list"
     silent: true
 
-  # Testing tasks
+  # Testing tasks (manual testing only - no unit tests currently)
   test:
-    desc: Run all unit tests
+    desc: Run manual tests (use test:manual for guided workflow)
     cmds:
-      - echo "📦 Running unit tests..."
-      - go test ./internal/config ./internal/manager -v
-      - echo "✅ All tests passed!"
-    silent: false
-
-  test:coverage:
-    desc: Run tests with coverage report
-    cmds:
-      - echo "📊 Running tests with coverage..."
-      - go test ./internal/config ./internal/manager -v -coverprofile={{.COVERAGE_FILE}}
-      - task: coverage:summary
-      - task: coverage:html
-      - echo "✅ Coverage report generated:{{.COVERAGE_HTML}}"
-    silent: false
-
-  coverage:summary:
-    desc: Show coverage summary
-    cmds:
-      - echo "📊 Coverage Summary:"
-      - go tool cover -func={{.COVERAGE_FILE}} | grep total
-    silent: false
-    preconditions:
-      - test -f {{.COVERAGE_FILE}}
-
-  coverage:html:
-    desc: Generate HTML coverage report
-    cmds:
-      - go tool cover -html={{.COVERAGE_FILE}} -o {{.COVERAGE_HTML}}
-      - echo "📄 HTML coverage report:{{.COVERAGE_HTML}}"
-    silent: false
-    preconditions:
-      - test -f {{.COVERAGE_FILE}}
-
-  coverage:open:
-    desc: Open coverage report in browser
-    cmds:
-      - open {{.COVERAGE_HTML}}
-    silent: false
-    preconditions:
-      - test -f {{.COVERAGE_HTML}}
-
-  test:config:
-    desc: Run configuration package tests only
-    cmds:
-      - echo "🧪 Testing config package..."
-      - go test ./internal/config -v
-
-  test:manager:
-    desc: Run manager package tests only
-    cmds:
-      - echo "🧪 Testing manager package..."
-      - go test ./internal/manager -v
+      - task: test:manual
 
   # Certificate generation tasks
   certs:setup:
@@ -411,20 +360,12 @@ tasks:
 
   # Clean tasks
   clean:
-    desc: Clean all generated files
+    desc: Clean all generated test files
     cmds:
       - echo "🧹 Cleaning generated files..."
       - task: certs:clean
       - task: configs:clean
-      - task: clean:coverage
       - echo "✅ Clean complete"
-    silent: false
-
-  clean:coverage:
-    desc: Remove coverage files
-    cmds:
-      - rm -f {{.COVERAGE_FILE}} {{.COVERAGE_HTML}}
-      - echo "🧹 Coverage files removed"
     silent: false
 
   clean:all:
@@ -437,10 +378,12 @@ tasks:
 
   # Validation tasks
   validate:
-    desc: Run all validation checks
+    desc: Validate test environment setup
     cmds:
-      - task: test
-      - echo "✅ All validations passed"
+      - echo "🔍 Validating test environment..."
+      - task: verify:binary
+      - task: certs:verify
+      - echo "✅ Validation complete"
     silent: false
 
   verify:binary:
