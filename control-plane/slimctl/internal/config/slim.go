@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	slim "github.com/agntcy/slim-bindings-go"
 	"gopkg.in/yaml.v3"
+
+	slim "github.com/agntcy/slim-bindings-go"
 )
 
 // SlimConfig represents the configuration for a SLIM instance.
