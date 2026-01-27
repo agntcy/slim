@@ -38,7 +38,7 @@ dependencies {
 sourceSets {
     main {
         kotlin {
-            srcDirs("src/main/kotlin", "generated", "examples")
+            srcDirs("src/main/kotlin", "generated", "examples", "examples/common")
         }
         resources {
             srcDirs("generated/jniLibs")
