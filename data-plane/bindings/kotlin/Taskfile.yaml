@@ -10,9 +10,6 @@ shopt: [globstar]
 
 verbose: false
 
-env:
-  SHARED_SECRET: "demo-secret-key-for-examples012345"
-
 includes:
   adapter:
     taskfile: ../rust/Taskfile.yaml
@@ -20,6 +17,9 @@ includes:
   rust:
     taskfile: ../../../tasks/rust.yaml
     internal: true
+  example:kotlin:
+    taskfile: ./examples/kotlin/Taskfile.yaml
+    internal: false
 
 vars:
   BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
@@ -75,7 +75,14 @@ tasks:
           --language kotlin \
           --out-dir generated
       - task: copy-library
+      - task: patch-bindings
       - echo "✅ Bindings generated in generated/"
+
+  patch-bindings:
+    desc: Patch generated bindings to fix Kotlin compatibility issues
+    internal: true
+    cmds:
+      - ./patch-bindings.sh
 
   copy-library:
     desc: Copy native library to generated directory for JNA loading
@@ -139,78 +146,3 @@ tasks:
       - rm -rf .gradle/
       - ./gradlew clean 2>/dev/null || true
       - echo "✅ Clean complete"
-
-  # Example tasks
-  example:server:
-    desc: Run the SLIM server example
-    deps:
-      - build
-    cmds:
-      - echo "🚀 Starting SLIM server..."
-      - ./gradlew :runServer {{.CLI_ARGS}}
-    vars:
-      CLI_ARGS: '{{.CLI_ARGS | default ""}}'
-
-  example:p2p:alice:
-    desc: "Point to Point example - Alice will listen for messages and echo them"
-    deps:
-      - build
-    cmds:
-      - |
-        ./gradlew :runPointToPoint --args="--local agntcy/ns/alice --shared-secret $SHARED_SECRET {{.EXTRA_ARGS}}"
-    vars:
-      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
-
-  example:p2p:bob:
-    desc: "Point to Point example - Bob will send unencrypted messages to Alice"
-    deps:
-      - build
-    env:
-      SLIM_INSTANCE_ID: bob
-    cmds:
-      - |
-        ./gradlew :runPointToPoint --args="--local agntcy/ns/bob --shared-secret $SHARED_SECRET --remote agntcy/ns/alice --message 'hey there' {{.EXTRA_ARGS}}"
-    vars:
-      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
-
-  example:p2p:mls:bob:
-    desc: "Point to Point example - Bob will send encrypted messages to Alice"
-    deps:
-      - build
-    env:
-      SLIM_INSTANCE_ID: bob
-    cmds:
-      - |
-        ./gradlew :runPointToPoint --args="--local agntcy/ns/bob --shared-secret $SHARED_SECRET --remote agntcy/ns/alice --message 'hey there' --enable-mls {{.EXTRA_ARGS}}"
-    vars:
-      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
-
-  example:group:moderator:
-    desc: "Group moderator example - Creates a channel, invites participants, and sends encrypted messages"
-    deps:
-      - build
-    cmds:
-      - |
-        ./gradlew :runGroup --args="--local agntcy/ns/moderator --shared-secret $SHARED_SECRET --remote agntcy/ns/chat --invites agntcy/ns/client-1 --invites agntcy/ns/client-2 --enable-mls {{.EXTRA_ARGS}}"
-    vars:
-      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
-
-  example:group:client-1:
-    desc: "Group client example - Waits to be invited to a channel and receives encrypted messages"
-    deps:
-      - build
-    cmds:
-      - |
-        ./gradlew :runGroup --args="--local agntcy/ns/client-1 --shared-secret $SHARED_SECRET {{.EXTRA_ARGS}}"
-    vars:
-      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
-
-  example:group:client-2:
-    desc: "Group client example - Waits to be invited to a channel and receives encrypted messages"
-    deps:
-      - build
-    cmds:
-      - |
-        ./gradlew :runGroup --args="--local agntcy/ns/client-2 --shared-secret $SHARED_SECRET {{.EXTRA_ARGS}}"
-    vars:
-      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
