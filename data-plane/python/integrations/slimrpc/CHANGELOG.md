@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/agntcy/slim/compare/slimrpc-v0.2.1...slimrpc-v0.2.2) (2026-01-27)
+
+
+### Features
+
+* Remove slim-a2a from main slim repo ([#1088](https://github.com/agntcy/slim/issues/1088)) ([dbd9699](https://github.com/agntcy/slim/commit/dbd9699f2b61634bf31aed1990fdf0a008483d11))
+
 ## [0.2.1](https://github.com/agntcy/slim/compare/slimrpc-v0.2.0...slimrpc-v0.2.1) (2025-12-02)
 
 
