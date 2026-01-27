@@ -267,22 +267,11 @@ task build
 
 ### Testing
 
-**Run Unit Tests:**
-
-```bash
-cd control-plane/slimctl
-task test
-```
-
-**Run Tests with Coverage:**
-
-```bash
-task test:coverage
-```
-
 **Manual Testing - Complete Workflow:**
 
 ```bash
+cd control-plane/slimctl
+
 # Setup environment and see testing options
 task test:manual
 
@@ -299,13 +288,11 @@ task --list
 ```
 
 Key tasks:
-- `task test` - Run all unit tests
-- `task test:coverage` - Run tests with coverage
 - `task test:manual` - Complete guided manual testing workflow
 - `task setup:test-env` - Setup test certificates and configs
 - `task run:insecure` - Quick run in insecure mode
 - `task run:tls` - Quick run with TLS
-- `task ci` - Run CI pipeline
+- `task validate` - Validate test environment
 - `task clean` - Clean generated files
 
 ### Project Structure
@@ -316,21 +303,19 @@ slimctl/
 │   └── main.go              # Entry point
 ├── internal/
 │   ├── cmd/
-│   │   ├── root.go          # Root command
 │   │   ├── slim/
 │   │   │   └── slim.go      # Local SLIM instance commands
 │   │   ├── route/           # Route management commands
-│   │   └── connection/      # Connection management commands
+│   │   ├── connection/      # Connection management commands
+│   │   └── ...              # Other commands
 │   ├── config/
-│   │   ├── slim.go          # SLIM instance configuration
-│   │   └── slim_test.go     # Configuration tests
+│   │   └── slim.go          # SLIM instance configuration
 │   └── manager/
-│       ├── slim.go          # SLIM instance manager
-│       └── slim_test.go     # Manager tests
+│       └── slim.go          # SLIM instance manager
 ├── examples/
 │   ├── insecure-server.yaml # Example insecure config
 │   ├── tls-server.yaml      # Example TLS config
-│   └── test-certs/          # Generated test certificates
+│   └── test-certs/          # Generated test certificates (via task)
 ├── Taskfile.yaml            # Task automation
 └── README.md                # This file
 ```
@@ -459,24 +444,24 @@ netstat -an | grep 8080
 
 ## Contributing
 
-### Running CI Pipeline Locally
+### Running Validation Locally
 
 ```bash
 cd control-plane/slimctl
-task ci
+task validate
 ```
 
 This runs:
-- Linting
-- Unit tests with coverage
-- Build validation
+- Binary verification
+- Certificate validation
+- Environment checks
 
 ### Adding New Commands
 
 1. Create command file in `internal/cmd/<command>/`
 2. Implement using Cobra command structure
-3. Add tests in `<command>_test.go`
-4. Register command in `cmd/root.go`
+3. Register command in `cmd/main.go`
+4. Test manually using `task test:manual`
 5. Update documentation
 
 ---
