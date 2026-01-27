@@ -927,7 +927,11 @@ mod tests {
                 k, id, local, remote
             );
 
-            h.insert(k.clone(), (id, local.to_vec(), remote.to_vec()));
+            let mut local_sorted = local.to_vec();
+            local_sorted.sort();
+            let mut remote_sorted = remote.to_vec();
+            remote_sorted.sort();
+            h.insert(k.clone(), (id, local_sorted, remote_sorted));
         });
 
         assert_eq!(h.len(), 2);
