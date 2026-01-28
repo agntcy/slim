@@ -109,7 +109,38 @@ impl Channel {
         }
     }
 
-    /// Make a unary-unary RPC call
+    /// Calculate deadline from timeout
+    fn calculate_deadline(timeout: Option<Duration>) -> tokio::time::Instant {
+        let timeout_duration = timeout.unwrap_or(Duration::from_secs(MAX_TIMEOUT));
+        tokio::time::Instant::now() + timeout_duration
+    }
+
+    /// Close session and ignore errors
+    async fn close_session_safe(session: &Session, app: &Arc<SlimApp<AuthProvider, AuthVerifier>>) {
+        let _ = session.close(app).await;
+    }
+
+    /// Check if received message is end-of-stream or error
+    fn check_stream_message(
+        &self,
+        received: &crate::ReceivedMessage,
+    ) -> Result<Option<()>, Status> {
+        let code = self.parse_status_code(received.metadata.get(STATUS_CODE_KEY))?;
+
+        // Empty message with OK code signals end of stream
+        if code == Code::Ok && received.payload.is_empty() {
+            return Ok(None); // End of stream
+        }
+
+        if code != Code::Ok {
+            let message = String::from_utf8_lossy(&received.payload).to_string();
+            return Err(Status::new(code, message));
+        }
+
+        Ok(Some(())) // Continue
+    }
+
+    /// Make a unary RPC call
     ///
     /// Sends a single request and receives a single response. This is the simplest
     /// RPC pattern, similar to a regular function call over the network.
@@ -166,8 +197,7 @@ impl Channel {
         tracing::debug!(%service_name, %method_name, "Creating session for unary RPC");
 
         // Calculate deadline
-        let timeout_duration = timeout.unwrap_or(Duration::from_secs(MAX_TIMEOUT));
-        let deadline = tokio::time::Instant::now() + timeout_duration;
+        let deadline = Self::calculate_deadline(timeout);
 
         // Wrap the entire operation in a timeout
         let result = tokio::select! {
@@ -180,7 +210,7 @@ impl Channel {
                 // Send request
                 if let Err(e) = self.send_request(&session, &ctx, request, service_name, method_name).await {
                     // Close session on send error
-                    let _ = session.close(&self.inner.app).await;
+                    Self::close_session_safe(&session, &self.inner.app).await;
                     return Err(e);
                 }
 
@@ -188,7 +218,7 @@ impl Channel {
                 let receive_result = self.receive_response(&session).await;
 
                 // Close the session after RPC completes
-                let _ = session.close(&self.inner.app).await;
+                Self::close_session_safe(&session, &self.inner.app).await;
 
                 match receive_result {
                     Ok(response) => Ok(response),
@@ -270,8 +300,7 @@ impl Channel {
 
         try_stream! {
             // Calculate deadline and create sleep future
-            let timeout_duration = timeout.unwrap_or(Duration::from_secs(MAX_TIMEOUT));
-            let deadline = tokio::time::Instant::now() + timeout_duration;
+            let deadline = Self::calculate_deadline(timeout);
             let sleep_fut = tokio::time::sleep_until(deadline);
             tokio::pin!(sleep_fut);
 
@@ -291,12 +320,12 @@ impl Channel {
             let send_result = tokio::select! {
                 result = channel.send_request(&session, &ctx, request, &service_name, &method_name) => result,
                 _ = &mut sleep_fut => {
-                    let _ = session.close(&channel.inner.app).await;
+                    Self::close_session_safe(&session, &channel.inner.app).await;
                     Err(Status::deadline_exceeded("Client deadline exceeded while sending request"))
                 },
             };
             if let Err(e) = send_result {
-                let _ = session.close(&channel.inner.app).await;
+                Self::close_session_safe(&session, &channel.inner.app).await;
                 Err(e)?;
             }
 
@@ -305,31 +334,22 @@ impl Channel {
                 let receive_result = tokio::select! {
                     result = session.get_message(None) => result.map_err(|e| Status::internal(format!("Failed to receive response: {}", e))),
                     _ = &mut sleep_fut => {
-                        let _ = session.close(&channel.inner.app).await;
+                        Self::close_session_safe(&session, &channel.inner.app).await;
                         Err(Status::deadline_exceeded("Client deadline exceeded while receiving stream"))
                     },
                 };
                 let received = match receive_result {
                     Ok(r) => r,
                     Err(e) => {
-                        let _ = session.close(&channel.inner.app).await;
+                        Self::close_session_safe(&session, &channel.inner.app).await;
                         Err(e)?
                     }
                 };
 
-                // Check status code
-                let code = channel.parse_status_code(received.metadata.get(STATUS_CODE_KEY))?;
-
-                // Empty message with OK code signals end of stream
-                if code == Code::Ok && received.payload.is_empty() {
-                    let _ = session.close(&channel.inner.app).await;
+                // Check if this is end of stream or an error
+                if channel.check_stream_message(&received)?.is_none() {
+                    Self::close_session_safe(&session, &channel.inner.app).await;
                     break;
-                }
-
-                if code != Code::Ok {
-                    let message = String::from_utf8_lossy(&received.payload).to_string();
-                    let _ = session.close(&channel.inner.app).await;
-                    Err(Status::new(code, message))?;
                 }
 
                 // Decode and yield response
@@ -399,8 +419,7 @@ impl Channel {
         Res: Decoder,
     {
         // Calculate deadline
-        let timeout_duration = timeout.unwrap_or(Duration::from_secs(MAX_TIMEOUT));
-        let deadline = tokio::time::Instant::now() + timeout_duration;
+        let deadline = Self::calculate_deadline(timeout);
 
         // Wrap the entire operation in a timeout
         let result = tokio::select! {
@@ -413,7 +432,7 @@ impl Channel {
                 // Send all requests and end-of-stream marker
                 if let Err(e) = self.send_request_stream(&session, &ctx, request_stream, service_name, method_name).await {
                     // Close session on send error
-                    let _ = session.close(&self.inner.app).await;
+                    Self::close_session_safe(&session, &self.inner.app).await;
                     return Err(e);
                 }
 
@@ -421,7 +440,7 @@ impl Channel {
                 let receive_result = self.receive_response(&session).await;
 
                 // Close the session after RPC completes
-                let _ = session.close(&self.inner.app).await;
+                Self::close_session_safe(&session, &self.inner.app).await;
 
                 match receive_result {
                     Ok(response) => Ok(response),
@@ -509,8 +528,7 @@ impl Channel {
 
         try_stream! {
             // Calculate deadline and create sleep future
-            let timeout_duration = timeout.unwrap_or(Duration::from_secs(MAX_TIMEOUT));
-            let deadline = tokio::time::Instant::now() + timeout_duration;
+            let deadline = Self::calculate_deadline(timeout);
             let sleep_fut = tokio::time::sleep_until(deadline);
             let mut sleep_fut = std::pin::pin!(sleep_fut);
 
@@ -547,41 +565,32 @@ impl Channel {
                         match send_result {
                             Ok(Ok(_)) => continue, // Send completed successfully, continue receiving
                             Ok(Err(e)) => {
-                                let _ = session.close(&channel.inner.app).await;
+                                Self::close_session_safe(&session, &channel.inner.app).await;
                                 Err(e) // Send failed with error
                             },
                             Err(e) => {
-                                let _ = session.close(&channel.inner.app).await;
+                                Self::close_session_safe(&session, &channel.inner.app).await;
                                 Err(Status::internal(format!("Send task panicked: {}", e)))
                             },
                         }
                     }
                     _ = &mut sleep_fut => {
-                        let _ = session.close(&channel.inner.app).await;
+                        Self::close_session_safe(&session, &channel.inner.app).await;
                         Err(Status::deadline_exceeded("Client deadline exceeded while receiving stream"))
                     },
                 };
                 let received = match receive_result {
                     Ok(r) => r,
                     Err(e) => {
-                        let _ = session.close(&channel.inner.app).await;
+                        Self::close_session_safe(&session, &channel.inner.app).await;
                         Err(e)?
                     }
                 };
 
-                // Check status code
-                let code = channel.parse_status_code(received.metadata.get(STATUS_CODE_KEY))?;
-
-                // Empty message with OK code signals end of stream
-                if code == Code::Ok && received.payload.is_empty() {
-                    let _ = session.close(&channel.inner.app).await;
+                // Check if this is end of stream or an error
+                if channel.check_stream_message(&received)?.is_none() {
+                    Self::close_session_safe(&session, &channel.inner.app).await;
                     break;
-                }
-
-                if code != Code::Ok {
-                    let message = String::from_utf8_lossy(&received.payload).to_string();
-                    let _ = session.close(&channel.inner.app).await;
-                    Err(Status::new(code, message))?;
                 }
 
                 // Decode and yield response

@@ -864,6 +864,57 @@ impl Server {
         tracing::debug!("Server shutdown complete, ready to restart");
     }
 
+    /// Create status code metadata
+    fn create_status_metadata(code: Code) -> HashMap<String, String> {
+        let mut metadata = HashMap::new();
+        metadata.insert(STATUS_CODE_KEY.to_string(), code.as_i32().to_string());
+        metadata
+    }
+
+    /// Send a message with status code
+    async fn send_message(session: &Session, payload: Vec<u8>, code: Code) -> Result<(), Status> {
+        let metadata = Self::create_status_metadata(code);
+        let handle = session
+            .publish(payload, Some("msg".to_string()), Some(metadata))
+            .await
+            .map_err(|e| Status::internal(format!("Failed to send message: {}", e)))?;
+        handle
+            .await
+            .map_err(|e| Status::internal(format!("Failed to complete message send: {}", e)))
+    }
+
+    /// Send end-of-stream marker
+    async fn send_end_of_stream(session: &Session) -> Result<(), Status> {
+        Self::send_message(session, Vec::new(), Code::Ok).await
+    }
+
+    /// Send all responses from a stream
+    async fn send_response_stream(session: &Session, mut stream: ItemStream) -> Result<(), Status> {
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(response_bytes) => {
+                    Self::send_message(session, response_bytes, Code::Ok).await?;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Self::send_end_of_stream(session).await
+    }
+
+    /// Get timeout duration from context
+    fn get_timeout_duration(ctx: &Context) -> std::time::Duration {
+        ctx.remaining_time()
+            .unwrap_or(std::time::Duration::from_secs(MAX_TIMEOUT))
+    }
+
+    /// Receive first message from session
+    async fn receive_first_message(session: &Session) -> Result<crate::ReceivedMessage, Status> {
+        session.get_message(None).await.map_err(|e| {
+            tracing::debug!(error = %e, "Session closed or error receiving message");
+            Status::internal(format!("Failed to receive message: {}", e))
+        })
+    }
+
     /// Listen for an incoming session from the notification receiver
     async fn listen_for_session(&self) -> Result<slim_session::context::SessionContext, Status> {
         tracing::debug!("Waiting for incoming session notification");
@@ -994,18 +1045,13 @@ impl Server {
         ctx: Context,
     ) -> Result<(), Status> {
         // Get the first message from the session
-        let received = session.get_message(None).await.map_err(|e| {
-            tracing::debug!(error = %e, "Session closed or error receiving message");
-            Status::internal(format!("Failed to receive message: {}", e))
-        })?;
+        let received = Self::receive_first_message(session).await?;
 
         // Update context with message metadata to parse deadline
         let ctx = ctx.with_message_metadata(received.metadata);
 
         // Calculate deadline
-        let timeout_duration = ctx
-            .remaining_time()
-            .unwrap_or(std::time::Duration::from_secs(MAX_TIMEOUT));
+        let timeout_duration = Self::get_timeout_duration(&ctx);
         let deadline = tokio::time::Instant::now() + timeout_duration;
 
         // Call handler and send response with deadline
@@ -1017,15 +1063,7 @@ impl Server {
                 // Send response
                 match response {
                     HandlerResponse::Unary(response_bytes) => {
-                        let mut metadata = HashMap::new();
-                        metadata.insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
-                        let handle = session
-                            .publish(response_bytes, Some("msg".to_string()), Some(metadata))
-                            .await
-                            .map_err(|e| Status::internal(format!("Failed to send response: {}", e)))?;
-                        handle.await.map_err(|e| {
-                            Status::internal(format!("Failed to complete response send: {}", e))
-                        })?;
+                        Self::send_message(session, response_bytes, Code::Ok).await?;
                     }
                     _ => {
                         return Err(Status::internal(
@@ -1051,18 +1089,10 @@ impl Server {
         ctx: Context,
     ) -> Result<(), Status> {
         // Get the first message from the session
-        let received = session.get_message(None).await.map_err(|e| {
-            tracing::debug!(error = %e, "Session closed or error receiving message");
-            Status::internal(format!("Failed to receive message: {}", e))
-        })?;
-
-        // Clone metadata before moving ctx into handler
-        let end_metadata = ctx.metadata().as_map().clone();
+        let received = Self::receive_first_message(session).await?;
 
         // Calculate deadline and create sleep future
-        let timeout_duration = ctx
-            .remaining_time()
-            .unwrap_or(std::time::Duration::from_secs(MAX_TIMEOUT));
+        let timeout_duration = Self::get_timeout_duration(&ctx);
         let deadline = tokio::time::Instant::now() + timeout_duration;
         let sleep_fut = tokio::time::sleep_until(deadline);
         tokio::pin!(sleep_fut);
@@ -1075,35 +1105,8 @@ impl Server {
 
                 // Send streaming responses
                 match response {
-                    HandlerResponse::Stream(mut stream) => {
-                        while let Some(result) = stream.next().await {
-                            match result {
-                                Ok(response_bytes) => {
-                                    let mut metadata = HashMap::new();
-                                    metadata
-                                        .insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
-                                    session
-                                        .publish(response_bytes, Some("msg".to_string()), Some(metadata))
-                                        .await
-                                        .map_err(|e| {
-                                            Status::internal(format!("Failed to send response: {}", e))
-                                        })?;
-                                }
-                                Err(e) => {
-                                    return Err(e);
-                                }
-                            }
-                        }
-
-                        // Send end-of-stream marker
-                        let mut end_metadata = end_metadata.clone();
-                        end_metadata.insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
-                        session
-                            .publish(Vec::new(), Some("msg".to_string()), Some(end_metadata))
-                            .await
-                            .map_err(|e| {
-                                Status::internal(format!("Failed to send end-of-stream: {}", e))
-                            })?;
+                    HandlerResponse::Stream(stream) => {
+                        Self::send_response_stream(session, stream).await?;
                     }
                     _ => {
                         return Err(Status::internal(
@@ -1131,9 +1134,7 @@ impl Server {
         drain_watch: &drain::Watch,
     ) -> Result<(), Status> {
         // Calculate deadline and create sleep future
-        let timeout_duration = ctx
-            .remaining_time()
-            .unwrap_or(std::time::Duration::from_secs(MAX_TIMEOUT));
+        let timeout_duration = Self::get_timeout_duration(&ctx);
         let deadline = tokio::time::Instant::now() + timeout_duration;
         let sleep_fut = tokio::time::sleep_until(deadline);
         tokio::pin!(sleep_fut);
@@ -1216,12 +1217,7 @@ impl Server {
                             }
                         };
 
-                        let mut metadata = HashMap::new();
-                        metadata.insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
-                        session
-                            .publish(response, Some("msg".to_string()), Some(metadata))
-                            .await
-                            .map_err(|e| Status::internal(format!("Failed to send response: {}", e)))?;
+                        Self::send_message(session, response, Code::Ok).await?;
                     }
                     HandlerType::StreamStream => {
                         // Send streaming responses
@@ -1234,37 +1230,7 @@ impl Server {
                             }
                         };
 
-                        let end_metadata = HashMap::new();
-
-                        let mut response_stream = response_stream;
-                        while let Some(result) = response_stream.next().await {
-                            match result {
-                                Ok(payload) => {
-                                    let mut metadata = end_metadata.clone();
-                                    metadata
-                                        .insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
-                                    session
-                                        .publish(payload, Some("msg".to_string()), Some(metadata))
-                                        .await
-                                        .map_err(|e| {
-                                            Status::internal(format!("Failed to send response: {}", e))
-                                        })?;
-                                }
-                                Err(status) => {
-                                    return Err(status);
-                                }
-                            }
-                        }
-
-                        // Send end-of-stream marker
-                        let mut end_metadata = end_metadata.clone();
-                        end_metadata.insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
-                        session
-                            .publish(Vec::new(), Some("msg".to_string()), Some(end_metadata))
-                            .await
-                            .map_err(|e| {
-                                Status::internal(format!("Failed to send end-of-stream: {}", e))
-                            })?;
+                        Self::send_response_stream(session, response_stream).await?;
                     }
                     _ => {
                         return Err(Status::internal(
@@ -1295,30 +1261,12 @@ impl Server {
     /// Send an error response
     async fn send_error(&self, session: &Session, status: Status) -> Result<(), Status> {
         let message = status.message().unwrap_or("").to_string();
-        let mut metadata = HashMap::new();
-        metadata.insert(
-            STATUS_CODE_KEY.to_string(),
-            status.code().as_i32().to_string(),
-        );
-
-        let handle = session
-            .publish(
-                message.into_bytes(),
-                Some("msg".to_string()),
-                Some(metadata),
-            )
+        Self::send_message(session, message.into_bytes(), status.code())
             .await
             .map_err(|e| {
                 tracing::warn!(error = %e, "Failed to send error response");
                 e
-            })?;
-
-        handle.await.map_err(|e| {
-            tracing::warn!(error = %e, "Failed to send error response");
-            Status::internal(format!("Failed to receive error ack: {}", e))
-        })?;
-
-        Ok(())
+            })
     }
 }
 
