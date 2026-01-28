@@ -33,9 +33,9 @@ impl Context {
     }
 
     /// Get the message context (if available)
-    pub fn message(&self) -> Option<Arc<MessageContext>> {
+    pub fn message(&self) -> Option<Arc<RpcMessageContext>> {
         self.inner.message().map(|m| {
-            Arc::new(MessageContext {
+            Arc::new(RpcMessageContext {
                 source: m.source().clone().into(),
                 destination: m.destination().map(|n| n.clone().into()),
                 payload_type: m.payload_type().to_string(),
@@ -124,7 +124,7 @@ impl SessionContext {
 /// Contains information about individual messages in a stream including
 /// source, destination, payload type, and message metadata.
 #[derive(Clone, uniffi::Object)]
-pub struct MessageContext {
+pub struct RpcMessageContext {
     /// Source name from message
     source: Name,
     /// Destination name from message
@@ -136,7 +136,7 @@ pub struct MessageContext {
 }
 
 #[uniffi::export]
-impl MessageContext {
+impl RpcMessageContext {
     /// Get the source name
     pub fn source(&self) -> Arc<Name> {
         Arc::new(self.source.clone())

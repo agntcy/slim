@@ -61,7 +61,6 @@ mod context;
 mod error;
 mod handler;
 mod server;
-mod stream;
 mod types;
 
 // Re-export core slimrpc types that don't need wrapping
@@ -72,7 +71,7 @@ pub use slim_rpc::{
 // Re-export our wrapper types
 pub use channel::{Channel as RpcChannel, ResponseStreamReader};
 pub use context::{
-    Context as RpcContext, MessageContext as RpcMessageContext, SessionContext as RpcSessionContext,
+    Context as RpcContext, RpcMessageContext, SessionContext as RpcSessionContext,
 };
 pub use error::{RpcCode, RpcError, Status, StatusError};
 pub use handler::{
@@ -80,7 +79,6 @@ pub use handler::{
     UnaryUnaryHandler,
 };
 pub use server::Server as RpcServer;
-pub use stream::{RequestSender, VectorRequestSender};
 pub use types::{RequestStream, ResponseSink, ResponseStream, StreamMessage};
 
 // Legacy compatibility re-exports
