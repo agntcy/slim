@@ -104,8 +104,8 @@ pub use slimrpc::{
     Channel, Code, Codec, Context, DEADLINE_KEY, Decoder, Encoder, HandlerResponse, HandlerType,
     MAX_TIMEOUT, Metadata, RequestSender, RequestStream, ResponseSink, ResponseStream,
     ResponseStreamReader, RpcChannel, RpcCode, RpcContext, RpcError, RpcMessageContext,
-    RpcResponseStream, RpcServer, RpcSessionContext, STATUS_CODE_KEY, Server, Status, StatusError,
-    StreamMessage, StreamResult, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler,
+    RpcServer, RpcSessionContext, STATUS_CODE_KEY, Server, Status, StatusError,
+    StreamMessage, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler,
     UnaryUnaryHandler, VectorRequestSender,
 };
 

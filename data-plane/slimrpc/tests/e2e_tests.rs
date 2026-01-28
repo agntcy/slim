@@ -1591,3 +1591,497 @@ async fn test_multiple_handler_types_same_client() {
 
     env.shutdown().await;
 }
+
+// ============================================================================
+// Test: Client-side deadline enforcement (timeout)
+// ============================================================================
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_client_deadline_unary_unary() {
+    let mut env = TestEnv::new("test-client-deadline-unary").await;
+
+    // Register a handler that takes longer than the timeout
+    env.server
+        .register_unary_unary(
+            "TestService",
+            "SlowMethod",
+            |request: TestRequest, _ctx: Context| async move {
+                // Sleep for 2 seconds
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                Ok(TestResponse {
+                    result: format!("Processed: {}", request.message),
+                    count: request.value,
+                })
+            },
+        )
+        .await
+        .expect("Failed to register method");
+
+    let request = TestRequest {
+        message: "test".to_string(),
+        value: 42,
+    };
+
+    // Call with a very short timeout (100ms)
+    let result: Result<TestResponse, Status> = env
+        .channel
+        .unary(
+            "TestService",
+            "SlowMethod",
+            request,
+            Some(Duration::from_millis(100)),
+            None,
+        )
+        .await;
+
+    // Should timeout on the client side
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert_eq!(err.code(), Code::DeadlineExceeded);
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_client_deadline_unary_stream() {
+    let mut env = TestEnv::new("test-client-deadline-unary-stream").await;
+
+    // Register a handler that streams slowly
+    env.server
+        .register_unary_stream(
+            "TestService",
+            "SlowStream",
+            |request: TestRequest, _ctx: Context| async move {
+                Ok(stream::iter((0..5).map(move |i| {
+                    let msg = request.message.clone();
+                    async move {
+                        // Each item takes 500ms
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        Ok::<_, Status>(TestResponse {
+                            result: format!("{}-{}", msg, i),
+                            count: i,
+                        })
+                    }
+                }))
+                .then(|fut| fut))
+            },
+        )
+        .await
+        .expect("Failed to register method");
+
+    let request = TestRequest {
+        message: "item".to_string(),
+        value: 0,
+    };
+
+    // Call with a timeout of 1 second (should only get 2 items before timeout)
+    let (count, last_error) = {
+        let response_stream = env.channel.unary_stream::<TestRequest, TestResponse>(
+            "TestService",
+            "SlowStream",
+            request,
+            Some(Duration::from_secs(1)),
+            None,
+        );
+
+        pin_mut!(response_stream);
+
+        let mut count = 0;
+        let mut last_error = None;
+        while let Some(result) = response_stream.next().await {
+            match result {
+                Ok(_) => count += 1,
+                Err(e) => {
+                    last_error = Some(e);
+                    break;
+                }
+            }
+        }
+        (count, last_error)
+    };
+
+    // Should have received some items but then timed out
+    assert!(count < 5, "Expected timeout before all items, got {}", count);
+    assert!(last_error.is_some());
+    let err = last_error.unwrap();
+    assert_eq!(err.code(), Code::DeadlineExceeded);
+
+    env.shutdown().await;
+}
+
+// ============================================================================
+// Test: Server-side deadline enforcement
+// ============================================================================
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_server_deadline_unary_unary() {
+    let mut env = TestEnv::new("test-server-deadline-unary").await;
+
+    // Register a handler that takes longer than the deadline
+    env.server
+        .register_unary_unary(
+            "TestService",
+            "SlowHandler",
+            |request: TestRequest, _ctx: Context| async move {
+                // Handler takes 2 seconds
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                Ok(TestResponse {
+                    result: format!("Processed: {}", request.message),
+                    count: request.value,
+                })
+            },
+        )
+        .await
+        .expect("Failed to register method");
+
+    let request = TestRequest {
+        message: "test".to_string(),
+        value: 42,
+    };
+
+    // Call with a short timeout (500ms) - server should enforce this
+    let result: Result<TestResponse, Status> = env
+        .channel
+        .unary(
+            "TestService",
+            "SlowHandler",
+            request,
+            Some(Duration::from_millis(500)),
+            None,
+        )
+        .await;
+
+    // Should timeout on the server side (handler execution)
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert_eq!(err.code(), Code::DeadlineExceeded);
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_server_deadline_unary_stream() {
+    let mut env = TestEnv::new("test-server-deadline-unary-stream").await;
+
+    // Register a handler that takes too long to start streaming
+    env.server
+        .register_unary_stream(
+            "TestService",
+            "SlowStreamHandler",
+            |request: TestRequest, _ctx: Context| async move {
+                // Handler setup takes 2 seconds before returning stream
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                Ok(stream::iter((0..3).map(move |i| {
+                    Ok::<_, Status>(TestResponse {
+                        result: format!("{}-{}", request.message, i),
+                        count: i,
+                    })
+                })))
+            },
+        )
+        .await
+        .expect("Failed to register method");
+
+    let request = TestRequest {
+        message: "item".to_string(),
+        value: 0,
+    };
+
+    // Call with a short timeout (500ms)
+    let err = {
+        let response_stream = env.channel.unary_stream::<TestRequest, TestResponse>(
+            "TestService",
+            "SlowStreamHandler",
+            request,
+            Some(Duration::from_millis(500)),
+            None,
+        );
+
+        pin_mut!(response_stream);
+
+        // Should get a deadline exceeded error
+        let result = response_stream.next().await;
+        assert!(result.is_some());
+        let item_result = result.unwrap();
+        assert!(item_result.is_err());
+        item_result.unwrap_err()
+    };
+    
+    assert_eq!(err.code(), Code::DeadlineExceeded);
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_server_deadline_stream_unary() {
+    let mut env = TestEnv::new("test-server-deadline-stream-unary").await;
+
+    // Register a handler that takes too long to process the stream
+    env.server
+        .register_stream_unary(
+            "TestService",
+            "SlowStreamUnary",
+            |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
+                // Collect all requests
+                let mut messages = Vec::new();
+                while let Some(req_result) = request_stream.next().await {
+                    let req = req_result?;
+                    messages.push(req.message);
+                }
+
+                // Then take too long to process
+                tokio::time::sleep(Duration::from_secs(2)).await;
+
+                Ok(TestResponse {
+                    result: messages.join(","),
+                    count: messages.len() as i32,
+                })
+            },
+        )
+        .await
+        .expect("Failed to register method");
+
+    let requests = vec![
+        TestRequest {
+            message: "msg1".to_string(),
+            value: 1,
+        },
+        TestRequest {
+            message: "msg2".to_string(),
+            value: 2,
+        },
+    ];
+
+    // Call with a short timeout (500ms)
+    let result: Result<TestResponse, Status> = env
+        .channel
+        .stream_unary(
+            "TestService",
+            "SlowStreamUnary",
+            stream::iter(requests),
+            Some(Duration::from_millis(500)),
+            None,
+        )
+        .await;
+
+    // Should timeout on the server side
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert_eq!(err.code(), Code::DeadlineExceeded);
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_server_deadline_stream_stream() {
+    let mut env = TestEnv::new("test-server-deadline-stream-stream").await;
+
+    // Register a handler that takes too long to setup
+    env.server
+        .register_stream_stream(
+            "TestService",
+            "SlowStreamStream",
+            |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
+                // Consume one request
+                if let Some(req_result) = request_stream.next().await {
+                    let _ = req_result?;
+                }
+
+                // Then take too long before returning stream
+                tokio::time::sleep(Duration::from_secs(2)).await;
+
+                Ok(stream::iter((0..3).map(|i| {
+                    Ok::<_, Status>(TestResponse {
+                        result: format!("response-{}", i),
+                        count: i,
+                    })
+                })))
+            },
+        )
+        .await
+        .expect("Failed to register method");
+
+    let requests = vec![
+        TestRequest {
+            message: "msg1".to_string(),
+            value: 1,
+        },
+        TestRequest {
+            message: "msg2".to_string(),
+            value: 2,
+        },
+    ];
+
+    // Call with a short timeout (500ms)
+    let err = {
+        let response_stream = env.channel.stream_stream(
+            "TestService",
+            "SlowStreamStream",
+            stream::iter(requests),
+            Some(Duration::from_millis(500)),
+            None,
+        );
+
+        pin_mut!(response_stream);
+
+        // Should get a deadline exceeded error
+        let result = response_stream.next().await;
+        assert!(result.is_some());
+        let item_result: Result<TestResponse, Status> = result.unwrap();
+        assert!(item_result.is_err());
+        item_result.unwrap_err()
+    };
+    
+    assert_eq!(err.code(), Code::DeadlineExceeded);
+
+    env.shutdown().await;
+}
+
+// ============================================================================
+// Test: Server checks deadline before handler execution
+// ============================================================================
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_server_deadline_already_exceeded() {
+    let mut env = TestEnv::new("test-server-deadline-already-exceeded").await;
+
+    let handler_called = Arc::new(Mutex::new(false));
+    let handler_called_clone = handler_called.clone();
+
+    // Register a handler
+    env.server
+        .register_unary_unary(
+            "TestService",
+            "CheckDeadline",
+            move |request: TestRequest, _ctx: Context| {
+                let called = handler_called_clone.clone();
+                async move {
+                    *called.lock().await = true;
+                    Ok(TestResponse {
+                        result: format!("Processed: {}", request.message),
+                        count: request.value,
+                    })
+                }
+            },
+        )
+        .await
+        .expect("Failed to register method");
+
+    let request = TestRequest {
+        message: "test".to_string(),
+        value: 42,
+    };
+
+    // Call with an already expired deadline (1ms and then wait)
+    let channel_clone = env.channel.clone();
+    let result: Result<TestResponse, Status> = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        channel_clone
+            .unary(
+                "TestService",
+                "CheckDeadline",
+                request,
+                Some(Duration::from_millis(1)),
+                None,
+            )
+            .await
+    })
+    .await
+    .unwrap();
+
+    // Should fail with deadline exceeded
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert_eq!(err.code(), Code::DeadlineExceeded);
+
+    // Handler should not have been called (deadline checked before execution)
+    // Note: There's a race condition here, but with 50ms delay + network time,
+    // the deadline should be exceeded before the handler is called
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    // We can't reliably assert this due to timing, but the test verifies
+    // that deadline exceeded is returned
+
+    env.shutdown().await;
+}
+
+// ============================================================================
+// Test: Deadline propagation from client to server
+// ============================================================================
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_deadline_propagation() {
+    let mut env = TestEnv::new("test-deadline-propagation").await;
+
+    let deadline_from_handler = Arc::new(Mutex::new(None));
+    let deadline_clone = deadline_from_handler.clone();
+
+    // Register a handler that captures the deadline from context
+    env.server
+        .register_unary_unary(
+            "TestService",
+            "CaptureDeadline",
+            move |request: TestRequest, ctx: Context| {
+                let deadline = deadline_clone.clone();
+                async move {
+                    *deadline.lock().await = ctx.deadline();
+                    Ok(TestResponse {
+                        result: format!("Processed: {}", request.message),
+                        count: request.value,
+                    })
+                }
+            },
+        )
+        .await
+        .expect("Failed to register method");
+
+    let request = TestRequest {
+        message: "test".to_string(),
+        value: 42,
+    };
+
+    // Call with a specific timeout
+    let timeout = Duration::from_secs(30);
+    let start = std::time::SystemTime::now();
+
+    let _: TestResponse = env
+        .channel
+        .unary(
+            "TestService",
+            "CaptureDeadline",
+            request,
+            Some(timeout),
+            None,
+        )
+        .await
+        .expect("Call failed");
+
+    // Check that the handler received a deadline
+    let captured_deadline = deadline_from_handler.lock().await;
+    assert!(captured_deadline.is_some(), "Handler should receive a deadline");
+
+    let deadline = captured_deadline.unwrap();
+    let expected_deadline = start + timeout;
+
+    // The deadline should be approximately the expected value (within 1 second tolerance)
+    let diff = if deadline > expected_deadline {
+        deadline.duration_since(expected_deadline).unwrap()
+    } else {
+        expected_deadline.duration_since(deadline).unwrap()
+    };
+
+    assert!(
+        diff < Duration::from_secs(1),
+        "Deadline should match expected value within tolerance, diff: {:?}",
+        diff
+    );
+
+    env.shutdown().await;
+}

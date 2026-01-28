@@ -572,61 +572,6 @@ impl App {
     ) -> Arc<RwLock<mpsc::Receiver<Result<Notification, SlimSessionError>>>> {
         self.notification_rx.clone()
     }
-
-    /// Create an RPC server for this app
-    ///
-    /// This is a helper method for tests and internal use. Since UniFFI cannot
-    /// pass tokio channels, we need to extract the receiver internally.
-    ///
-    /// # Arguments
-    /// * `base_name` - Base name for the RPC service
-    ///
-    /// # Returns
-    /// A new RpcServer instance
-    ///
-    /// # Note
-    /// This method takes ownership of the notification receiver. The app should
-    /// not be used to create sessions after calling this method, as notifications
-    /// will be consumed by the RPC server.
-    #[cfg(test)]
-    pub async fn create_rpc_server_for_test(
-        self: Arc<Self>,
-        base_name: Arc<Name>,
-    ) -> Arc<crate::slimrpc::RpcServer> {
-        // We need to extract the receiver from the RwLock
-        // For test purposes, we'll create a new app that shares the same service
-        // but has its own notification receiver
-
-        // This is a limitation: we can't easily share the notification receiver
-        // between the app wrapper and the RPC server through UniFFI.
-        // For now, we'll use the internal constructor directly in tests.
-
-        // Get the receiver by locking and taking it
-        let mut rx_lock = self.notification_rx.write().await;
-
-        // Create a channel to transfer notifications
-        let (tx, rx) = tokio::sync::mpsc::channel(100);
-
-        // Spawn a task to forward notifications
-        let original_rx = std::mem::replace(&mut *rx_lock, {
-            let (dummy_tx, dummy_rx) = tokio::sync::mpsc::channel(1);
-            drop(dummy_tx); // Close immediately
-            dummy_rx
-        });
-
-        drop(rx_lock);
-
-        tokio::spawn(async move {
-            let mut original_rx = original_rx;
-            while let Some(notif) = original_rx.recv().await {
-                if tx.send(notif).await.is_err() {
-                    break;
-                }
-            }
-        });
-
-        crate::slimrpc::RpcServer::new(self.clone(), base_name, rx)
-    }
 }
 
 // ============================================================================

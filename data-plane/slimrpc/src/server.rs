@@ -9,7 +9,6 @@
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context as TaskContext, Poll};
 
 use async_stream::stream;
 use drain;
@@ -29,62 +28,27 @@ use slim_session::errors::SessionError;
 use slim_session::notification::Notification;
 
 use crate::{
-    Code, Context, STATUS_CODE_KEY, Session, Status,
+    Code, Context, MAX_TIMEOUT, STATUS_CODE_KEY, Session, Status,
     codec::{Decoder, Encoder},
 };
 
-/// A wrapper that makes a pinned stream Unpin
-struct UnpinStream<S> {
-    inner: Pin<Box<S>>,
-}
-
-impl<S> UnpinStream<S> {
-    fn new(stream: S) -> Self {
-        Self {
-            inner: Box::pin(stream),
-        }
-    }
-}
-
-impl<S: Stream> Stream for UnpinStream<S> {
-    type Item = S::Item;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
-        self.inner.as_mut().poll_next(cx)
-    }
-}
-
-// UnpinStream is always Unpin regardless of whether S is
-impl<S> Unpin for UnpinStream<S> {}
+pub type Item = Vec<u8>;
+pub type ItemStream = Pin<Box<dyn Stream<Item = Result<Vec<u8>, Status>> + Send>>;
+pub type ResponseStream =
+    Pin<Box<dyn futures::Future<Output = Result<HandlerResponse, Status>> + Send>>;
 
 /// Handler function type for RPC methods (unary input)
-pub type RpcHandler = Arc<
-    dyn Fn(
-            Vec<u8>,
-            Context,
-        ) -> std::pin::Pin<
-            Box<dyn futures::Future<Output = Result<HandlerResponse, Status>> + Send>,
-        > + Send
-        + Sync,
->;
+pub type RpcHandler = Arc<dyn Fn(Item, Context) -> ResponseStream + Send + Sync>;
 
 /// Handler function type for stream-input RPC methods
-pub type StreamRpcHandler = Arc<
-    dyn Fn(
-            Box<dyn Stream<Item = Result<Vec<u8>, Status>> + Send + Unpin>,
-            Context,
-        ) -> std::pin::Pin<
-            Box<dyn futures::Future<Output = Result<HandlerResponse, Status>> + Send>,
-        > + Send
-        + Sync,
->;
+pub type StreamRpcHandler = Arc<dyn Fn(ItemStream, Context) -> ResponseStream + Send + Sync>;
 
 /// Response from an RPC handler
 pub enum HandlerResponse {
     /// Single response message
-    Unary(Vec<u8>),
+    Unary(Item),
     /// Stream of response messages
-    Stream(Box<dyn Stream<Item = Result<Vec<u8>, Status>> + Send + Unpin>),
+    Stream(ItemStream),
 }
 
 /// Type of RPC handler
@@ -103,41 +67,37 @@ pub enum HandlerType {
 /// Registry for RPC service methods (internal implementation detail)
 struct ServiceRegistry {
     /// Map of method paths to handlers (for unary-input methods)
-    handlers: Arc<RwLock<HashMap<String, (RpcHandler, HandlerType)>>>,
+    handlers: HashMap<String, (RpcHandler, HandlerType)>,
     /// Map of method paths to stream handlers (for stream-input methods)
-    stream_handlers: Arc<RwLock<HashMap<String, (StreamRpcHandler, HandlerType)>>>,
+    stream_handlers: HashMap<String, (StreamRpcHandler, HandlerType)>,
     /// Map of subscription names to method paths for routing
-    subscription_to_method: Arc<RwLock<HashMap<Name, String>>>,
+    subscription_to_method: HashMap<Name, String>,
 }
 
 impl ServiceRegistry {
     /// Create a new service registry
     fn new() -> Self {
         Self {
-            handlers: Arc::new(RwLock::new(HashMap::new())),
-            stream_handlers: Arc::new(RwLock::new(HashMap::new())),
-            subscription_to_method: Arc::new(RwLock::new(HashMap::new())),
+            handlers: HashMap::new(),
+            stream_handlers: HashMap::new(),
+            subscription_to_method: HashMap::new(),
         }
     }
 
     /// Register a subscription name mapping
-    fn register_subscription(&self, subscription_name: Name, method_path: String) {
+    fn register_subscription(&mut self, subscription_name: Name, method_path: String) {
         self.subscription_to_method
-            .write()
             .insert(subscription_name, method_path);
     }
 
     /// Get method path from subscription name
     fn get_method_from_subscription(&self, subscription_name: &Name) -> Option<String> {
-        self.subscription_to_method
-            .read()
-            .get(subscription_name)
-            .cloned()
+        self.subscription_to_method.get(subscription_name).cloned()
     }
 
     /// Register a unary-unary handler
     fn register_unary_unary<F, Req, Res, Fut>(
-        &self,
+        &mut self,
         service_name: &str,
         method_name: &str,
         handler: F,
@@ -156,20 +116,16 @@ impl ServiceRegistry {
                 let response = handler(request, ctx).await?;
                 let response_bytes = response.encode()?;
                 Ok(HandlerResponse::Unary(response_bytes))
-            })
-                as std::pin::Pin<
-                    Box<dyn futures::Future<Output = Result<HandlerResponse, Status>> + Send>,
-                >
+            }) as ResponseStream
         });
 
         self.handlers
-            .write()
             .insert(method_path, (wrapper, HandlerType::UnaryUnary));
     }
 
     /// Register a unary-stream handler
-    fn register_unary_stream<F, Req, Res, S, Fut>(
-        &self,
+    pub fn register_unary_stream<F, Req, Res, S, Fut>(
+        &mut self,
         service_name: &str,
         method_name: &str,
         handler: F,
@@ -187,29 +143,23 @@ impl ServiceRegistry {
             Box::pin(async move {
                 let request = Req::decode(bytes)?;
                 let response_stream = handler(request, ctx).await?;
-                let byte_stream = response_stream.map(|res| res.and_then(|r| r.encode()));
-                Ok(HandlerResponse::Stream(Box::new(UnpinStream::new(
-                    byte_stream,
-                ))))
-            })
-                as std::pin::Pin<
-                    Box<dyn futures::Future<Output = Result<HandlerResponse, Status>> + Send>,
-                >
+                let byte_mapped = response_stream.map(|res| res.and_then(|r| r.encode()));
+                Ok(HandlerResponse::Stream(Box::pin(byte_mapped)))
+            }) as ResponseStream
         });
 
         self.handlers
-            .write()
             .insert(method_path, (wrapper, HandlerType::UnaryStream));
     }
 
     /// Register a stream-unary handler
     pub fn register_stream_unary<F, Req, Res, Fut>(
-        &self,
+        &mut self,
         service_name: &str,
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(Box<dyn Stream<Item = Result<Req, Status>> + Send + Unpin>, Context) -> Fut
+        F: Fn(Box<dyn Stream<Item = Result<Req, Status>> + Send + Unpin + 'static>, Context) -> Fut
             + Send
             + Sync
             + 'static,
@@ -219,35 +169,31 @@ impl ServiceRegistry {
     {
         let method_path = format!("{}/{}", service_name, method_name);
         let handler = Arc::new(handler);
-        let wrapper = Arc::new(
-            move |stream: Box<dyn Stream<Item = Result<Vec<u8>, Status>> + Send + Unpin>,
-                  ctx: Context| {
-                let handler = Arc::clone(&handler);
-                Box::pin(async move {
-                    let request_stream = stream.map(|res| res.and_then(|bytes| Req::decode(bytes)));
-                    let response = handler(Box::new(request_stream), ctx).await?;
-                    let response_bytes = response.encode()?;
-                    Ok(HandlerResponse::Unary(response_bytes))
-                })
-                    as std::pin::Pin<
-                        Box<dyn futures::Future<Output = Result<HandlerResponse, Status>> + Send>,
-                    >
-            },
-        );
+        let wrapper = Arc::new(move |stream: ItemStream, ctx: Context| {
+            let handler = Arc::clone(&handler);
+            Box::pin(async move {
+                let mapped = stream.map(|res| res.and_then(|bytes| Req::decode(bytes)));
+                let boxed_stream: Box<
+                    dyn Stream<Item = Result<Req, Status>> + Send + Unpin + 'static,
+                > = Box::new(Box::pin(mapped));
+                let response = handler(boxed_stream, ctx).await?;
+                let response_bytes = response.encode()?;
+                Ok(HandlerResponse::Unary(response_bytes))
+            }) as ResponseStream
+        });
 
         self.stream_handlers
-            .write()
             .insert(method_path, (wrapper, HandlerType::StreamUnary));
     }
 
     /// Register a stream-stream handler
     pub fn register_stream_stream<F, Req, Res, S, Fut>(
-        &self,
+        &mut self,
         service_name: &str,
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(Box<dyn Stream<Item = Result<Req, Status>> + Send + Unpin>, Context) -> Fut
+        F: Fn(Box<dyn Stream<Item = Result<Req, Status>> + Send + Unpin + 'static>, Context) -> Fut
             + Send
             + Sync
             + 'static,
@@ -258,42 +204,36 @@ impl ServiceRegistry {
     {
         let method_path = format!("{}/{}", service_name, method_name);
         let handler = Arc::new(handler);
-        let wrapper = Arc::new(
-            move |stream: Box<dyn Stream<Item = Result<Vec<u8>, Status>> + Send + Unpin>,
-                  ctx: Context| {
-                let handler = Arc::clone(&handler);
-                Box::pin(async move {
-                    let request_stream = stream.map(|res| res.and_then(|bytes| Req::decode(bytes)));
-                    let response_stream = handler(Box::new(request_stream), ctx).await?;
-                    let byte_stream = response_stream.map(|res| res.and_then(|r| r.encode()));
-                    Ok(HandlerResponse::Stream(Box::new(UnpinStream::new(
-                        byte_stream,
-                    ))))
-                })
-                    as std::pin::Pin<
-                        Box<dyn futures::Future<Output = Result<HandlerResponse, Status>> + Send>,
-                    >
-            },
-        );
+        let wrapper = Arc::new(move |stream: ItemStream, ctx: Context| {
+            let handler = Arc::clone(&handler);
+            Box::pin(async move {
+                let mapped = stream.map(|res| res.and_then(|bytes| Req::decode(bytes)));
+                let boxed_stream: Box<
+                    dyn Stream<Item = Result<Req, Status>> + Send + Unpin + 'static,
+                > = Box::new(Box::pin(mapped));
+                let response_stream = handler(boxed_stream, ctx).await?;
+                let byte_mapped = response_stream.map(|res| res.and_then(|r| r.encode()));
+                Ok(HandlerResponse::Stream(Box::pin(byte_mapped)))
+            }) as ResponseStream
+        });
 
         self.stream_handlers
-            .write()
             .insert(method_path, (wrapper, HandlerType::StreamStream));
     }
 
     /// Get a handler by method path
     fn get_handler(&self, method_path: &str) -> Option<(RpcHandler, HandlerType)> {
-        self.handlers.read().get(method_path).cloned()
+        self.handlers.get(method_path).cloned()
     }
 
     fn get_stream_handler(&self, method_path: &str) -> Option<(StreamRpcHandler, HandlerType)> {
-        self.stream_handlers.read().get(method_path).cloned()
+        self.stream_handlers.get(method_path).cloned()
     }
 
     /// Get all registered method paths
     fn methods(&self) -> Vec<String> {
-        let mut methods: Vec<String> = self.handlers.read().keys().cloned().collect();
-        methods.extend(self.stream_handlers.read().keys().cloned());
+        let mut methods: Vec<String> = self.handlers.keys().cloned().collect();
+        methods.extend(self.stream_handlers.keys().cloned());
         methods
     }
 }
@@ -309,7 +249,7 @@ struct ServerInner {
     /// The SLIM app instance
     app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
     /// Service registry containing all registered handlers
-    registry: ServiceRegistry,
+    registry: RwLock<ServiceRegistry>,
     /// Base service name
     base_name: Name,
     /// Running task handles
@@ -425,7 +365,7 @@ impl Server {
         Self {
             inner: Arc::new(ServerInner {
                 app,
-                registry: ServiceRegistry::new(),
+                registry: RwLock::new(ServiceRegistry::new()),
                 base_name,
                 tasks: RwLock::new(Vec::new()),
                 connection_id,
@@ -475,7 +415,7 @@ impl Server {
         Self {
             inner: Arc::new(ServerInner {
                 app,
-                registry: ServiceRegistry::new(),
+                registry: RwLock::new(ServiceRegistry::new()),
                 base_name,
                 tasks: RwLock::new(Vec::new()),
                 connection_id,
@@ -501,6 +441,7 @@ impl Server {
         let method_path = format!("{}/{}", service_name, method_name);
         self.inner
             .registry
+            .write()
             .register_subscription(subscription_name.clone(), method_path);
 
         // Subscribe immediately
@@ -568,6 +509,7 @@ impl Server {
     {
         self.inner
             .registry
+            .write()
             .register_unary_unary(service_name, method_name, handler);
 
         self.register_method_subscription(service_name, method_name)
@@ -626,6 +568,7 @@ impl Server {
     {
         self.inner
             .registry
+            .write()
             .register_unary_stream(service_name, method_name, handler);
 
         self.register_method_subscription(service_name, method_name)
@@ -678,7 +621,7 @@ impl Server {
         handler: F,
     ) -> Result<(), Status>
     where
-        F: Fn(Box<dyn Stream<Item = Result<Req, Status>> + Send + Unpin>, Context) -> Fut
+        F: Fn(Box<dyn Stream<Item = Result<Req, Status>> + Send + Unpin + 'static>, Context) -> Fut
             + Send
             + Sync
             + 'static,
@@ -686,9 +629,12 @@ impl Server {
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
     {
-        self.inner
-            .registry
-            .register_stream_unary(service_name, method_name, handler);
+        {
+            self.inner
+                .registry
+                .write()
+                .register_stream_unary(service_name, method_name, handler);
+        }
 
         self.register_method_subscription(service_name, method_name)
             .await
@@ -750,7 +696,7 @@ impl Server {
         handler: F,
     ) -> Result<(), Status>
     where
-        F: Fn(Box<dyn Stream<Item = Result<Req, Status>> + Send + Unpin>, Context) -> Fut
+        F: Fn(Box<dyn Stream<Item = Result<Req, Status>> + Send + Unpin + 'static>, Context) -> Fut
             + Send
             + Sync
             + 'static,
@@ -759,9 +705,12 @@ impl Server {
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
     {
-        self.inner
-            .registry
-            .register_stream_stream(service_name, method_name, handler);
+        {
+            self.inner
+                .registry
+                .write()
+                .register_stream_stream(service_name, method_name, handler);
+        }
 
         self.register_method_subscription(service_name, method_name)
             .await
@@ -783,7 +732,7 @@ impl Server {
     /// # }
     /// ```
     pub fn methods(&self) -> Vec<String> {
-        self.inner.registry.methods()
+        self.inner.registry.read().methods()
     }
 
     /// Start the server and listen for incoming RPC requests
@@ -829,7 +778,7 @@ impl Server {
                         .source()
                         .clone();
 
-                    let method_path = self.inner.registry.get_method_from_subscription(&subscription_name)
+                    let method_path = self.inner.registry.read().get_method_from_subscription(&subscription_name)
                         .ok_or_else(|| Status::internal(format!("Unknown subscription: {}", subscription_name)))?;
 
                     tracing::debug!(%method_path, %subscription_name, "Received session for method");
@@ -984,21 +933,31 @@ impl Server {
                 .with_message_metadata(first_message.metadata.clone());
 
             // Try to get as a stream handler first (for stream-unary and stream-stream)
-            let result = if let Some((stream_handler, handler_type)) =
-                self.inner.registry.get_stream_handler(method_path)
-            {
-                self.handle_stream_based_method(
-                    stream_handler,
-                    handler_type,
-                    &session,
-                    ctx,
-                    first_message,
-                    &drain_watch,
-                )
-                .await
-            } else if let Some((handler, handler_type)) =
-                self.inner.registry.get_handler(method_path)
-            {
+            // Get handlers with lock, then release before await
+            let stream_handler_opt = self.inner.registry.read().get_stream_handler(method_path);
+            let unary_handler_opt = if stream_handler_opt.is_none() {
+                self.inner.registry.read().get_handler(method_path)
+            } else {
+                None
+            };
+
+            let result = if let Some((stream_handler, handler_type)) = stream_handler_opt {
+                // Check deadline for stream-based methods
+                if ctx.is_deadline_exceeded() {
+                    self.send_error(&session, Status::deadline_exceeded("Deadline exceeded"))
+                        .await
+                } else {
+                    self.handle_stream_based_method(
+                        stream_handler,
+                        handler_type,
+                        &session,
+                        ctx,
+                        first_message,
+                        &drain_watch,
+                    )
+                    .await
+                }
+            } else if let Some((handler, handler_type)) = unary_handler_opt {
                 // Check deadline
                 if ctx.is_deadline_exceeded() {
                     self.send_error(&session, Status::deadline_exceeded("Deadline exceeded"))
@@ -1060,36 +1019,49 @@ impl Server {
         // Use the first message that was already received
         let received = first_message;
 
-        // Call handler
-        let response = match handler(received.payload, ctx).await {
-            Ok(resp) => resp,
-            Err(status) => {
-                tracing::debug!(?status, "Handler returned error");
-                return self.send_error(session, status).await;
-            }
-        };
+        // Calculate deadline
+        let timeout_duration = ctx.remaining_time().unwrap_or(std::time::Duration::from_secs(MAX_TIMEOUT));
+        let deadline = tokio::time::Instant::now() + timeout_duration;
 
-        // Send response
-        match response {
-            HandlerResponse::Unary(response_bytes) => {
-                let mut metadata = HashMap::new();
-                metadata.insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
-                let handle = session
-                    .publish(response_bytes, Some("msg".to_string()), Some(metadata))
-                    .await
-                    .map_err(|e| Status::internal(format!("Failed to send response: {}", e)))?;
-                handle.await.map_err(|e| {
-                    Status::internal(format!("Failed to receive response ack: {}", e))
-                })?;
-            }
-            _ => {
-                return Err(Status::internal(
-                    "Handler returned unexpected response type",
-                ));
+        // Call handler and send response with deadline
+        tokio::select! {
+            result = async {
+                // Call handler
+                let response = match handler(received.payload, ctx).await {
+                    Ok(resp) => resp,
+                    Err(status) => {
+                        tracing::debug!(?status, "Handler returned error");
+                        return self.send_error(session, status).await;
+                    }
+                };
+
+                // Send response
+                match response {
+                    HandlerResponse::Unary(response_bytes) => {
+                        let mut metadata = HashMap::new();
+                        metadata.insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
+                        let handle = session
+                            .publish(response_bytes, Some("msg".to_string()), Some(metadata))
+                            .await
+                            .map_err(|e| Status::internal(format!("Failed to send response: {}", e)))?;
+                        handle.await.map_err(|e| {
+                            Status::internal(format!("Failed to receive response ack: {}", e))
+                        })?;
+                    }
+                    _ => {
+                        return Err(Status::internal(
+                            "Handler returned unexpected response type",
+                        ));
+                    }
+                }
+
+                Ok(())
+            } => result,
+            _ = tokio::time::sleep_until(deadline) => {
+                tracing::debug!("Handler execution exceeded deadline");
+                self.send_error(session, Status::deadline_exceeded("Handler execution exceeded deadline")).await
             }
         }
-
-        Ok(())
     }
 
     /// Handle unary-stream RPC
@@ -1106,56 +1078,71 @@ impl Server {
         // Clone metadata before moving ctx into handler
         let end_metadata = ctx.metadata().as_map().clone();
 
-        // Call handler
-        let response = match handler(received.payload, ctx).await {
-            Ok(resp) => resp,
-            Err(status) => {
-                tracing::debug!(?status, "Handler returned error");
-                return self.send_error(session, status).await;
-            }
-        };
+        // Calculate deadline and create sleep future
+        let timeout_duration = ctx.remaining_time().unwrap_or(std::time::Duration::from_secs(MAX_TIMEOUT));
+        let deadline = tokio::time::Instant::now() + timeout_duration;
+        let sleep_fut = tokio::time::sleep_until(deadline);
+        tokio::pin!(sleep_fut);
 
-        // Send streaming responses
-        match response {
-            HandlerResponse::Stream(stream) => {
-                let mut stream = stream;
-                while let Some(result) = stream.next().await {
-                    match result {
-                        Ok(response_bytes) => {
-                            let mut metadata = HashMap::new();
-                            metadata
-                                .insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
-                            session
-                                .publish(response_bytes, Some("msg".to_string()), Some(metadata))
-                                .await
-                                .map_err(|e| {
-                                    Status::internal(format!("Failed to send response: {}", e))
-                                })?;
+        // Call handler and send streaming responses with deadline
+        tokio::select! {
+            result = async {
+                // Call handler
+                let response = match handler(received.payload, ctx).await {
+                    Ok(resp) => resp,
+                    Err(status) => {
+                        tracing::debug!(?status, "Handler returned error");
+                        return self.send_error(session, status).await;
+                    }
+                };
+
+                // Send streaming responses
+                match response {
+                    HandlerResponse::Stream(stream) => {
+                        let mut stream = stream;
+                        while let Some(result) = stream.next().await {
+                            match result {
+                                Ok(response_bytes) => {
+                                    let mut metadata = HashMap::new();
+                                    metadata
+                                        .insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
+                                    session
+                                        .publish(response_bytes, Some("msg".to_string()), Some(metadata))
+                                        .await
+                                        .map_err(|e| {
+                                            Status::internal(format!("Failed to send response: {}", e))
+                                        })?;
+                                }
+                                Err(e) => {
+                                    return self.send_error(session, e).await;
+                                }
+                            }
                         }
-                        Err(e) => {
-                            return self.send_error(session, e).await;
-                        }
+
+                        // Send end-of-stream marker
+                        let mut end_metadata = end_metadata.clone();
+                        end_metadata.insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
+                        session
+                            .publish(Vec::new(), Some("msg".to_string()), Some(end_metadata))
+                            .await
+                            .map_err(|e| {
+                                Status::internal(format!("Failed to send end-of-stream: {}", e))
+                            })?;
+                    }
+                    _ => {
+                        return Err(Status::internal(
+                            "Handler returned unexpected response type",
+                        ));
                     }
                 }
 
-                // Send end-of-stream marker
-                let mut end_metadata = end_metadata.clone();
-                end_metadata.insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
-                session
-                    .publish(Vec::new(), Some("msg".to_string()), Some(end_metadata))
-                    .await
-                    .map_err(|e| {
-                        Status::internal(format!("Failed to send end-of-stream: {}", e))
-                    })?;
-            }
-            _ => {
-                return Err(Status::internal(
-                    "Handler returned unexpected response type",
-                ));
+                Ok(())
+            } => result,
+            _ = &mut sleep_fut => {
+                tracing::debug!("Handler execution exceeded deadline");
+                self.send_error(session, Status::deadline_exceeded("Handler execution exceeded deadline")).await
             }
         }
-
-        Ok(())
     }
 
     /// Handle stream-based methods (stream-unary and stream-stream)
@@ -1168,6 +1155,12 @@ impl Server {
         first_message: crate::ReceivedMessage,
         drain_watch: &drain::Watch,
     ) -> Result<(), Status> {
+        // Calculate deadline and create sleep future
+        let timeout_duration = ctx.remaining_time().unwrap_or(std::time::Duration::from_secs(MAX_TIMEOUT));
+        let deadline = tokio::time::Instant::now() + timeout_duration;
+        let sleep_fut = tokio::time::sleep_until(deadline);
+        tokio::pin!(sleep_fut);
+
         // Create a stream of incoming requests
         let session_clone = session.clone();
         let drain_for_stream = drain_watch.clone();
@@ -1227,96 +1220,103 @@ impl Server {
             }
         };
 
-        // Wrap the stream to make it Unpin
-        let boxed_stream: Box<dyn Stream<Item = Result<Vec<u8>, Status>> + Send + Unpin> =
-            Box::new(UnpinStream::new(request_stream));
+        // Box and pin the stream
+        let boxed_stream: ItemStream = Box::pin(request_stream);
 
-        // Call the handler with drain signal awareness
-        let handler_result = tokio::select! {
-            result = handler(boxed_stream, ctx) => match result {
-                Ok(resp) => resp,
-                Err(status) => {
-                    tracing::debug!(?status, "Handler returned error");
-                    return self.send_error(session, status).await;
+        // Call handler and send responses with deadline and drain signal awareness
+        tokio::select! {
+            result = async {
+                // Call handler
+                let handler_result = match handler(boxed_stream, ctx).await {
+                    Ok(resp) => resp,
+                    Err(status) => {
+                        tracing::debug!(?status, "Handler returned error");
+                        return self.send_error(session, status).await;
+                    }
+                };
+
+                // Send responses based on handler type
+                match handler_type {
+                    HandlerType::StreamUnary => {
+                        // Send single response
+                        let response = match handler_result {
+                            HandlerResponse::Unary(bytes) => bytes,
+                            _ => {
+                                return Err(Status::internal(
+                                    "Handler returned unexpected response type",
+                                ));
+                            }
+                        };
+
+                        let mut metadata = HashMap::new();
+                        metadata.insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
+                        session
+                            .publish(response, Some("msg".to_string()), Some(metadata))
+                            .await
+                            .map_err(|e| Status::internal(format!("Failed to send response: {}", e)))?;
+                    }
+                    HandlerType::StreamStream => {
+                        // Send streaming responses
+                        let response_stream = match handler_result {
+                            HandlerResponse::Stream(stream) => stream,
+                            _ => {
+                                return Err(Status::internal(
+                                    "Handler returned unexpected response type",
+                                ));
+                            }
+                        };
+
+                        let end_metadata = HashMap::new();
+
+                        let mut response_stream = response_stream;
+                        while let Some(result) = response_stream.next().await {
+                            match result {
+                                Ok(payload) => {
+                                    let mut metadata = end_metadata.clone();
+                                    metadata
+                                        .insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
+                                    session
+                                        .publish(payload, Some("msg".to_string()), Some(metadata))
+                                        .await
+                                        .map_err(|e| {
+                                            Status::internal(format!("Failed to send response: {}", e))
+                                        })?;
+                                }
+                                Err(status) => {
+                                    self.send_error(session, status).await?;
+                                    return Ok(());
+                                }
+                            }
+                        }
+
+                        // Send end-of-stream marker
+                        let mut end_metadata = end_metadata.clone();
+                        end_metadata.insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
+                        session
+                            .publish(Vec::new(), Some("msg".to_string()), Some(end_metadata))
+                            .await
+                            .map_err(|e| {
+                                Status::internal(format!("Failed to send end-of-stream: {}", e))
+                            })?;
+                    }
+                    _ => {
+                        return Err(Status::internal(
+                            "Invalid handler type for stream-based method",
+                        ));
+                    }
                 }
-            },
+
+                Ok(())
+            } => result,
+            _ = &mut sleep_fut => {
+                tracing::debug!("Handler execution exceeded deadline");
+                self.send_error(session, Status::deadline_exceeded("Handler execution exceeded deadline")).await
+            }
             _ = drain_watch.clone().signaled() => {
                 tracing::debug!("Stream handler terminated due to server shutdown");
-                return Err(Status::unavailable("Server is shutting down"));
-            }
-        };
-
-        match handler_type {
-            HandlerType::StreamUnary => {
-                // Send single response
-                let response = match handler_result {
-                    HandlerResponse::Unary(bytes) => bytes,
-                    _ => {
-                        return Err(Status::internal(
-                            "Handler returned unexpected response type",
-                        ));
-                    }
-                };
-
-                let mut metadata = HashMap::new();
-                metadata.insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
-                session
-                    .publish(response, Some("msg".to_string()), Some(metadata))
-                    .await
-                    .map_err(|e| Status::internal(format!("Failed to send response: {}", e)))?;
-            }
-            HandlerType::StreamStream => {
-                // Send streaming responses
-                let response_stream = match handler_result {
-                    HandlerResponse::Stream(stream) => stream,
-                    _ => {
-                        return Err(Status::internal(
-                            "Handler returned unexpected response type",
-                        ));
-                    }
-                };
-
-                let end_metadata = HashMap::new();
-
-                let mut response_stream = response_stream;
-                while let Some(result) = response_stream.next().await {
-                    match result {
-                        Ok(payload) => {
-                            let mut metadata = end_metadata.clone();
-                            metadata
-                                .insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
-                            session
-                                .publish(payload, Some("msg".to_string()), Some(metadata))
-                                .await
-                                .map_err(|e| {
-                                    Status::internal(format!("Failed to send response: {}", e))
-                                })?;
-                        }
-                        Err(status) => {
-                            self.send_error(session, status).await?;
-                            return Ok(());
-                        }
-                    }
-                }
-
-                // Send end-of-stream marker
-                let mut end_metadata = end_metadata.clone();
-                end_metadata.insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
-                session
-                    .publish(Vec::new(), Some("msg".to_string()), Some(end_metadata))
-                    .await
-                    .map_err(|e| {
-                        Status::internal(format!("Failed to send end-of-stream: {}", e))
-                    })?;
-            }
-            _ => {
-                return Err(Status::internal(
-                    "Invalid handler type for stream-based method",
-                ));
+                Err(Status::unavailable("Server is shutting down"))
             }
         }
-
-        Ok(())
     }
 
     /// Send an error response

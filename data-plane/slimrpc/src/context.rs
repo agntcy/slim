@@ -33,6 +33,21 @@ pub struct Context {
 }
 
 impl Context {
+    /// Create a new empty context
+    pub fn new() -> Self {
+        Self {
+            session: SessionContext {
+                session_id: String::new(),
+                source: Name::from_strings(["", "", ""]),
+                destination: Name::from_strings(["", "", ""]),
+                metadata: Metadata::new(),
+            },
+            message: None,
+            metadata: Metadata::new(),
+            deadline: None,
+        }
+    }
+
     /// Create a new context from a session
     pub fn from_session(session: &SlimSessionContext) -> Self {
         // Get metadata from session controller
@@ -82,6 +97,8 @@ impl Context {
         let msg_meta = Metadata::from_map(msg_metadata);
         // Merge message metadata into context metadata
         self.metadata.merge(msg_meta);
+        // Re-parse deadline from merged metadata (message metadata takes precedence)
+        self.deadline = Self::parse_deadline(&self.metadata);
         self
     }
 

@@ -81,10 +81,9 @@ pub use handler::{
 };
 pub use server::Server as RpcServer;
 pub use stream::{
-    RequestSender, RequestStream, ResponseStream as RpcResponseStream, StreamResult,
-    VectorRequestSender,
+    RequestSender, VectorRequestSender,
 };
-pub use types::{ResponseSink, ResponseStream, StreamMessage};
+pub use types::{RequestStream, ResponseSink, ResponseStream, StreamMessage};
 
 // Legacy compatibility re-exports
 pub use channel::Channel;

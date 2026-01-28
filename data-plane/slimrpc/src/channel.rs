@@ -15,6 +15,7 @@ use display_error_chain::ErrorChainExt;
 use futures::StreamExt;
 use futures::future::join_all;
 use futures::stream::Stream;
+
 use tokio::sync::Mutex;
 
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
@@ -31,8 +32,6 @@ use crate::{
 struct CachedSession {
     /// The session instance
     session: Session,
-    /// Context for the session
-    context: Context,
     /// Mutex to ensure only one RPC at a time
     lock: Arc<Mutex<()>>,
 }
@@ -41,7 +40,6 @@ impl Clone for CachedSession {
     fn clone(&self) -> Self {
         Self {
             session: self.session.clone(),
-            context: self.context.clone(),
             lock: Arc::clone(&self.lock),
         }
     }
@@ -190,31 +188,47 @@ impl Channel {
     {
         tracing::debug!(%service_name, %method_name, "Getting session");
 
-        let (session, ctx, lock) = self
-            .get_or_create_session(service_name, method_name, timeout, metadata)
-            .await?;
+        // Calculate deadline
+        let timeout_duration = timeout.unwrap_or(Duration::from_secs(MAX_TIMEOUT));
+        let deadline = tokio::time::Instant::now() + timeout_duration;
 
-        // Acquire lock to ensure only one RPC at a time
-        let _guard = lock.lock().await;
+        // Wrap the entire operation in a timeout
+        tokio::select! {
+            result = async {
+                let (session, ctx, lock) = self
+                    .get_or_create_session(service_name, method_name, timeout, metadata)
+                    .await?;
 
-        tracing::debug!(%service_name, %method_name, "Acquired session lock");
+                // Acquire lock to ensure only one RPC at a time
+                let _guard = lock.lock().await;
 
-        // Send request
-        self.send_request(&session, &ctx, request, service_name, method_name)
-            .await?;
+                tracing::debug!(%service_name, %method_name, "Acquired session lock");
 
-        // Receive and decode response
-        match self.receive_response(&session).await {
-            Ok(response) => Ok(response),
-            Err(ReceiveError::Transport(status)) => {
-                // Transport error - close session and create new one next time
-                self.remove_session_from_cache(service_name, method_name)
+                // Send request
+                self.send_request(&session, &ctx, request, service_name, method_name)
+                    .await?;
+
+                // Receive and decode response
+                match self.receive_response(&session).await {
+                    Ok(response) => Ok(response),
+                    Err(ReceiveError::Transport(status)) => {
+                        // Transport error - close session and create new one next time
+                        self.remove_session_from_cache(service_name, method_name)
+                            .await;
+                        Err(status)
+                    }
+                    Err(ReceiveError::Rpc(status)) => {
+                        // RPC error from handler - keep session open
+                        Err(status)
+                    }
+                }
+            } => result,
+            _ = tokio::time::sleep_until(deadline) => {
+                // Cleanup on timeout
+                self
+                    .remove_session_from_cache(service_name, method_name)
                     .await;
-                Err(status)
-            }
-            Err(ReceiveError::Rpc(status)) => {
-                // RPC error from handler - keep session open
-                Err(status)
+                Err(Status::deadline_exceeded("Client deadline exceeded during unary call"))
             }
         }
     }
@@ -282,25 +296,44 @@ impl Channel {
         let service_name = service_name.to_string();
         let method_name = method_name.to_string();
         let channel = self.clone();
+        let service_name_clone = service_name.clone();
+        let method_name_clone = method_name.clone();
+        let channel_for_cleanup = channel.clone();
 
         try_stream! {
-            let (session, ctx, lock) = channel
-                .get_or_create_session(&service_name, &method_name, timeout, metadata)
-                .await?;
+            // Calculate deadline and create sleep future
+            let timeout_duration = timeout.unwrap_or(Duration::from_secs(MAX_TIMEOUT));
+            let deadline = tokio::time::Instant::now() + timeout_duration;
+            let sleep_fut = tokio::time::sleep_until(deadline);
+            tokio::pin!(sleep_fut);
+
+            // Get or create session with timeout
+            let session_result = tokio::select! {
+                result = channel.get_or_create_session(&service_name, &method_name, timeout, metadata.clone()) => result,
+                _ = &mut sleep_fut => {
+                    channel_for_cleanup.remove_session_from_cache(&service_name_clone, &method_name_clone).await;
+                    Err(Status::deadline_exceeded("Client deadline exceeded during unary-stream call"))
+                }
+            };
+            let (session, ctx, lock) = session_result?;
 
             // Acquire lock to ensure only one RPC at a time
             let _guard = lock.lock().await;
 
-            // Send request
-            channel.send_request(&session, &ctx, request, &service_name, &method_name)
-                .await?;
+            // Send request with timeout
+            let send_result = tokio::select! {
+                result = channel.send_request(&session, &ctx, request, &service_name, &method_name) => result,
+                _ = &mut sleep_fut => Err(Status::deadline_exceeded("Client deadline exceeded while sending request")),
+            };
+            send_result?;
 
-            // Receive streaming responses
+            // Receive streaming responses with same deadline, yielding as we go
             loop {
-                let received = session
-                    .get_message(None)
-                    .await
-                    .map_err(|e| Status::internal(format!("Failed to receive response: {}", e)))?;
+                let receive_result = tokio::select! {
+                    result = session.get_message(None) => result.map_err(|e| Status::internal(format!("Failed to receive response: {}", e))),
+                    _ = &mut sleep_fut => Err(Status::deadline_exceeded("Client deadline exceeded while receiving stream")),
+                };
+                let received = receive_result?;
 
                 // Check status code
                 let code = channel.parse_status_code(received.metadata.get(STATUS_CODE_KEY))?;
@@ -382,29 +415,45 @@ impl Channel {
         Res: Decoder,
         S: Stream<Item = Req> + Unpin,
     {
-        let (session, ctx, lock) = self
-            .get_or_create_session(service_name, method_name, timeout, metadata.clone())
-            .await?;
+        // Calculate deadline
+        let timeout_duration = timeout.unwrap_or(Duration::from_secs(MAX_TIMEOUT));
+        let deadline = tokio::time::Instant::now() + timeout_duration;
 
-        // Acquire lock to ensure only one RPC at a time
-        let _guard = lock.lock().await;
+        // Wrap the entire operation in a timeout
+        tokio::select! {
+            result = async {
+                let (session, ctx, lock) = self
+                    .get_or_create_session(service_name, method_name, timeout, metadata.clone())
+                    .await?;
 
-        // Send all requests and end-of-stream marker
-        self.send_request_stream(&session, &ctx, request_stream, service_name, method_name)
-            .await?;
+                // Acquire lock to ensure only one RPC at a time
+                let _guard = lock.lock().await;
 
-        // Receive and decode response
-        match self.receive_response(&session).await {
-            Ok(response) => Ok(response),
-            Err(ReceiveError::Transport(status)) => {
-                // Transport error - close session and create new one next time
-                self.remove_session_from_cache(service_name, method_name)
+                // Send all requests and end-of-stream marker
+                self.send_request_stream(&session, &ctx, request_stream, service_name, method_name)
+                    .await?;
+
+                // Receive and decode response
+                match self.receive_response(&session).await {
+                    Ok(response) => Ok(response),
+                    Err(ReceiveError::Transport(status)) => {
+                        // Transport error - close session and create new one next time
+                        self.remove_session_from_cache(service_name, method_name)
+                            .await;
+                        Err(status)
+                    }
+                    Err(ReceiveError::Rpc(status)) => {
+                        // RPC error from handler - keep session open
+                        Err(status)
+                    }
+                }
+            } => result,
+            _ = tokio::time::sleep_until(deadline) => {
+                // Cleanup on timeout
+                self
+                    .remove_session_from_cache(service_name, method_name)
                     .await;
-                Err(status)
-            }
-            Err(ReceiveError::Rpc(status)) => {
-                // RPC error from handler - keep session open
-                Err(status)
+                Err(Status::deadline_exceeded("Client deadline exceeded during stream-unary call"))
             }
         }
     }
@@ -479,31 +528,57 @@ impl Channel {
         let service_name = service_name.to_string();
         let method_name = method_name.to_string();
         let channel = self.clone();
+        let service_name_clone = service_name.clone();
+        let method_name_clone = method_name.clone();
+        let channel_for_cleanup = channel.clone();
 
         try_stream! {
-            let (session, ctx, lock) = channel
-                .get_or_create_session(&service_name, &method_name, timeout, metadata)
-                .await?;
+            // Calculate deadline and create sleep future
+            let timeout_duration = timeout.unwrap_or(Duration::from_secs(MAX_TIMEOUT));
+            let deadline = tokio::time::Instant::now() + timeout_duration;
+            let sleep_fut = tokio::time::sleep_until(deadline);
+            tokio::pin!(sleep_fut);
+
+            // Get or create session with timeout
+            let session_result = tokio::select! {
+                result = channel.get_or_create_session(&service_name, &method_name, timeout, metadata.clone()) => result,
+                _ = &mut sleep_fut => {
+                    channel_for_cleanup.remove_session_from_cache(&service_name_clone, &method_name_clone).await;
+                    Err(Status::deadline_exceeded("Client deadline exceeded during stream operation"))
+                }
+            };
+            let (session, ctx, lock) = session_result?;
 
             // Acquire lock to ensure only one RPC at a time
             let _guard = lock.lock().await;
 
-            // Send requests in background task
-            let session_bg = session.clone();
-            let ctx_clone = ctx.clone();
-            let service_name_clone = service_name.clone();
-            let method_name_clone = method_name.clone();
-            let channel_bg = channel.clone();
-            tokio::spawn(async move {
-                let _res = channel_bg.send_request_stream(&session_bg, &ctx_clone, request_stream, &service_name_clone, &method_name_clone).await;
+            // Spawn background task to send requests concurrently with receiving
+            let session_for_send = session.clone();
+            let ctx_for_send = ctx.clone();
+            let service_name_for_send = service_name.clone();
+            let method_name_for_send = method_name.clone();
+            let channel_for_send = channel.clone();
+            let mut send_handle = tokio::spawn(async move {
+                channel_for_send.send_request_stream(&session_for_send, &ctx_for_send, request_stream, &service_name_for_send, &method_name_for_send).await
             });
 
-            // Receive streaming responses
+            // Receive streaming responses with same deadline, also racing against send completion, yielding as we go
+            let mut send_completed = false;
             loop {
-                let received = session
-                    .get_message(None)
-                    .await
-                    .map_err(|e| Status::internal(format!("Failed to receive response: {}", e)))?;
+                let receive_result = tokio::select! {
+                    result = session.get_message(None) => result.map_err(|e| Status::internal(format!("Failed to receive response: {}", e))),
+                    send_result = &mut send_handle, if !send_completed => {
+                        send_completed = true;
+                        // Check if send task completed successfully
+                        match send_result {
+                            Ok(Ok(_)) => continue, // Send completed successfully, continue receiving
+                            Ok(Err(e)) => Err(e), // Send failed with error
+                            Err(e) => Err(Status::internal(format!("Send task panicked: {}", e))),
+                        }
+                    }
+                    _ = &mut sleep_fut => Err(Status::deadline_exceeded("Client deadline exceeded while receiving stream")),
+                };
+                let received = receive_result?;
 
                 // Check status code
                 let code = channel.parse_status_code(received.metadata.get(STATUS_CODE_KEY))?;
@@ -526,6 +601,7 @@ impl Channel {
     }
 
     /// Get or create a session for an RPC call from the cache
+    /// Returns the session and creates a fresh context with the deadline for this RPC call
     async fn get_or_create_session(
         &self,
         service_name: &str,
@@ -536,37 +612,37 @@ impl Channel {
         let cache_key = format!("{}/{}", service_name, method_name);
 
         // Try to get from cache first
-        {
+        let (session, lock) = {
             let cache = self.inner.session_cache.lock().await;
             if let Some(cached) = cache.get(&cache_key) {
                 tracing::debug!(%service_name, %method_name, "Reusing cached session");
-                return Ok((
-                    cached.session.clone(),
-                    cached.context.clone(),
-                    cached.lock.clone(),
-                ));
+                (cached.session.clone(), cached.lock.clone())
+            } else {
+                // Release lock before creating session
+                drop(cache);
+
+                // Create new session if not in cache
+                tracing::debug!(%service_name, %method_name, "Creating new session");
+                let session = self
+                    .create_session(service_name, method_name)
+                    .await?;
+                let lock = Arc::new(Mutex::new(()));
+
+                // Store in cache
+                let mut cache_write = self.inner.session_cache.lock().await;
+                cache_write.insert(
+                    cache_key,
+                    CachedSession {
+                        session: session.clone(),
+                        lock: lock.clone(),
+                    },
+                );
+                (session, lock)
             }
-        }
+        };
 
-        // Create new session if not in cache
-        tracing::debug!(%service_name, %method_name, "Creating new session");
-        let (session, ctx) = self
-            .create_session(service_name, method_name, timeout, metadata)
-            .await?;
-        let lock = Arc::new(Mutex::new(()));
-
-        // Store in cache
-        {
-            let mut cache = self.inner.session_cache.lock().await;
-            cache.insert(
-                cache_key,
-                CachedSession {
-                    session: session.clone(),
-                    context: ctx.clone(),
-                    lock: lock.clone(),
-                },
-            );
-        }
+        // Always create a fresh context with the current deadline for this RPC call
+        let ctx = self.create_context_for_rpc(timeout, metadata).await;
 
         Ok((session, ctx, lock))
     }
@@ -583,21 +659,12 @@ impl Channel {
         }
     }
 
-    /// Create a session for an RPC call
+    /// Create a session for an RPC call (without deadline - sessions are reused)
     async fn create_session(
         &self,
         service_name: &str,
         method_name: &str,
-        timeout: Option<Duration>,
-        metadata: Option<Metadata>,
-    ) -> Result<(Session, Context), Status> {
-        // Create session configuration
-        let timeout_duration = timeout.unwrap_or(Duration::from_secs(MAX_TIMEOUT));
-        let session_metadata = metadata
-            .as_ref()
-            .map(|m| m.as_map().clone())
-            .unwrap_or_default();
-
+    ) -> Result<Session, Status> {
         // Build method-specific subscription name (e.g., org/namespace/app-Service-Method)
         let method_subscription_name =
             crate::build_method_subscription_name(&self.inner.remote, service_name, method_name);
@@ -611,14 +678,14 @@ impl Channel {
             "Creating session"
         );
 
-        // Create session configuration
+        // Create session configuration (no metadata - deadline is per-RPC, not per-session)
         let slim_config = slim_session::session_config::SessionConfig {
             session_type: ProtoSessionType::PointToPoint,
             mls_enabled: false,
             max_retries: Some(3),
             interval: Some(Duration::from_secs(1)),
             initiator: true,
-            metadata: session_metadata,
+            metadata: Default::default(),
         };
 
         // Create session to the method-specific subscription name
@@ -634,16 +701,26 @@ impl Channel {
             .await
             .map_err(|e| Status::unavailable(format!("Session handshake failed: {}", e)))?;
 
-        // Create context from the session context
-        let mut ctx = Context::from_session(&session_ctx);
-
         // Wrap the session context for RPC operations
         let session = Session::new(session_ctx);
 
-        // Set deadline
+        Ok(session)
+    }
+
+    /// Create a context for a specific RPC call with deadline
+    async fn create_context_for_rpc(
+        &self,
+        timeout: Option<Duration>,
+        metadata: Option<Metadata>,
+    ) -> Context {
+        // Calculate deadline for this RPC call
+        let timeout_duration = timeout.unwrap_or(Duration::from_secs(MAX_TIMEOUT));
         let deadline = SystemTime::now()
             .checked_add(timeout_duration)
             .unwrap_or_else(|| SystemTime::now() + Duration::from_secs(MAX_TIMEOUT));
+
+        // Create a new context with the deadline
+        let mut ctx = Context::new();
         ctx.set_deadline(deadline);
 
         // Merge in user metadata
@@ -651,7 +728,7 @@ impl Channel {
             ctx.metadata_mut().merge(meta);
         }
 
-        Ok((session, ctx))
+        ctx
     }
 
     /// Parse status code from metadata value

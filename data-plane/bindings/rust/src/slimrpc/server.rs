@@ -8,14 +8,18 @@
 
 use std::sync::Arc;
 
+use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
+use slim_datapath::messages::Name as SlimName;
+use tokio::sync::{RwLock, mpsc};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
-use slim_rpc::{HandlerResponse as CoreHandlerResponse, Server as CoreServer};
-use slim_session::errors::SessionError;
+use slim_rpc::Server as CoreServer;
+use slim_session::errors::SessionError as SlimSessionError;
 use slim_session::notification::Notification;
 
 use crate::slimrpc::context::Context;
 use crate::slimrpc::error::RpcError;
+use slim_service::app::App as SlimApp;
 use crate::slimrpc::handler::{
     StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
 };
@@ -47,47 +51,84 @@ impl Server {
     /// This constructor is not exposed through UniFFI since tokio::sync::mpsc::Receiver
     /// cannot be passed through FFI. For language bindings, servers should be created
     /// through language-specific factory methods.
-    pub fn new(
-        app: Arc<App>,
-        base_name: Arc<Name>,
-        notification_rx: tokio::sync::mpsc::Receiver<Result<Notification, SessionError>>,
+    pub fn new_internal(
+        app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
+        base_name: SlimName,
+        notification_rx: Arc<RwLock<mpsc::Receiver<Result<Notification, SlimSessionError>>>>,
     ) -> Arc<Self> {
-        let slim_name = base_name.as_ref().clone().into();
-        let inner = CoreServer::new(app.inner().clone(), slim_name, notification_rx);
-
+        let inner = CoreServer::new_with_shared_rx(app, base_name, notification_rx);
         Arc::new(Self { inner })
     }
 }
 
 #[uniffi::export]
 impl Server {
+    /// Create a new RPC server
+    ///
+    /// This is the primary constructor for creating an RPC server instance
+    /// that can handle incoming RPC requests over SLIM.
+    ///
+    /// # Arguments
+    /// * `app` - The SLIM application instance that provides the underlying
+    ///   network transport and session management
+    /// * `base_name` - The base name for this service (e.g., org.namespace.service).
+    ///   This name is used to construct subscription names for RPC methods.
+    ///
+    /// # Returns
+    /// A new RPC server instance wrapped in an Arc for shared ownership
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use std::sync::Arc;
+    /// # use slim_bindings::{App, Name, RpcServer};
+    /// # async fn example() {
+    /// let app = App::new_with_secret_async(
+    ///     Arc::new(Name::new("org".into(), "example".into(), "service".into())),
+    ///     "secret".into(),
+    /// ).await.unwrap();
+    ///
+    /// let service_name = Arc::new(Name::new("org".into(), "example".into(), "rpc".into()));
+    /// let server = RpcServer::new(app, service_name);
+    /// # }
+    /// ```
+    #[uniffi::constructor]
+    pub fn new(app: &Arc<App>, base_name: Arc<Name>) -> Arc<Self> {
+        let app_inner = app.inner();
+        let rx = app.notification_receiver();
+
+        Server::new_internal(app_inner, base_name.as_ref().into(), rx)
+    }
+
     /// Register a unary-to-unary RPC handler
     ///
     /// # Arguments
     /// * `service_name` - The service name (e.g., "MyService")
     /// * `method_name` - The method name (e.g., "GetUser")
     /// * `handler` - Implementation of the UnaryUnaryHandler trait
-    pub fn register_unary_unary(
+    pub async fn register_unary_unary(
         &self,
         service_name: String,
         method_name: String,
         handler: Arc<dyn UnaryUnaryHandler>,
-    ) {
+    ) -> Result<(), RpcError> {
         let handler_clone = handler.clone();
 
-        self.inner.register_unary_unary(
-            &service_name,
-            &method_name,
-            move |request: Vec<u8>, context: slim_rpc::Context| {
-                let handler = handler_clone.clone();
-                let ctx = Context::from_inner(context);
+        self.inner
+            .register_unary_unary(
+                &service_name,
+                &method_name,
+                move |request: Vec<u8>, context: slim_rpc::Context| {
+                    let handler = handler_clone.clone();
+                    let ctx = Context::from_inner(context);
 
-                Box::pin(async move {
-                    let result = handler.handle(request, Arc::new(ctx)).await;
-                    result.map_err(|e| e.into())
-                })
-            },
-        );
+                    Box::pin(async move {
+                        let result = handler.handle(request, Arc::new(ctx)).await;
+                        result.map_err(|e| e.into())
+                    })
+                },
+            )
+            .await
+            .map_err(|e| RpcError::new(crate::slimrpc::error::RpcCode::Internal, e.to_string()))
     }
 
     /// Register a unary-to-stream RPC handler
@@ -96,43 +137,49 @@ impl Server {
     /// * `service_name` - The service name
     /// * `method_name` - The method name
     /// * `handler` - Implementation of the UnaryStreamHandler trait
-    pub fn register_unary_stream(
+    pub async fn register_unary_stream(
         &self,
         service_name: String,
         method_name: String,
         handler: Arc<dyn UnaryStreamHandler>,
-    ) {
+    ) -> Result<(), RpcError> {
         let handler_clone = handler.clone();
 
-        self.inner.register_unary_stream(
-            &service_name,
-            &method_name,
-            move |request: Vec<u8>, context: slim_rpc::Context| {
-                let handler = handler_clone.clone();
-                let ctx = Context::from_inner(context);
+        self.inner
+            .register_unary_stream(
+                &service_name,
+                &method_name,
+                move |request: Vec<u8>, context: slim_rpc::Context| {
+                    let handler = handler_clone.clone();
+                    let ctx = Context::from_inner(context);
 
-                Box::pin(async move {
-                    let (sink, rx) = ResponseSink::receiver();
-                    let sink_arc = Arc::new(sink);
+                    Box::pin(async move {
+                        let (sink, rx) = ResponseSink::receiver();
+                        let sink_arc = Arc::new(sink);
 
-                    // Spawn a task to run the handler
-                    let _handler_task = {
-                        let sink = sink_arc.clone();
-                        tokio::spawn(async move {
-                            if let Err(e) =
-                                handler.handle(request, Arc::new(ctx), sink.clone()).await
-                            {
-                                let _ = sink.send_error_async(e).await;
-                            }
-                        })
-                    };
+                        // Spawn a task to run the handler
+                        let handler_task = {
+                            let sink = sink_arc.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) =
+                                    handler.handle(request, Arc::new(ctx), sink.clone()).await
+                                {
+                                    let _ = sink.send_error_async(e).await;
+                                }
+                            })
+                        };
 
-                    // Convert the receiver to a stream
-                    let stream = UnboundedReceiverStream::new(rx);
-                    Ok(stream)
-                })
-            },
-        );
+                        // Detach the task - it will run independently
+                        drop(handler_task);
+
+                        // Convert the receiver to a stream
+                        let stream = UnboundedReceiverStream::new(rx);
+                        Ok(stream)
+                    })
+                },
+            )
+            .await
+            .map_err(|e| RpcError::new(crate::slimrpc::error::RpcCode::Internal, e.to_string()))
     }
 
     /// Register a stream-to-unary RPC handler
@@ -141,31 +188,34 @@ impl Server {
     /// * `service_name` - The service name
     /// * `method_name` - The method name
     /// * `handler` - Implementation of the StreamUnaryHandler trait
-    pub fn register_stream_unary(
+    pub async fn register_stream_unary(
         &self,
         service_name: String,
         method_name: String,
         handler: Arc<dyn StreamUnaryHandler>,
-    ) {
+    ) -> Result<(), RpcError> {
         let handler_clone = handler.clone();
 
-        self.inner.register_stream_unary(
-            &service_name,
-            &method_name,
-            move |stream: Box<
-                dyn futures::Stream<Item = Result<Vec<u8>, slim_rpc::Status>> + Send + Unpin,
-            >,
-                  context: slim_rpc::Context| {
-                let handler = handler_clone.clone();
-                let ctx = Context::from_inner(context);
-                let request_stream = Arc::new(RequestStream::new(stream));
+        self.inner
+            .register_stream_unary(
+                &service_name,
+                &method_name,
+                move |stream: Box<
+                    dyn futures::Stream<Item = Result<Vec<u8>, slim_rpc::Status>> + Send + Unpin,
+                >,
+                      context: slim_rpc::Context| {
+                    let handler = handler_clone.clone();
+                    let ctx = Context::from_inner(context);
+                    let request_stream = Arc::new(RequestStream::new(stream));
 
-                Box::pin(async move {
-                    let result = handler.handle(request_stream, Arc::new(ctx)).await;
-                    result.map_err(|e| e.into())
-                })
-            },
-        );
+                    Box::pin(async move {
+                        let result = handler.handle(request_stream, Arc::new(ctx)).await;
+                        result.map_err(|e| e.into())
+                    })
+                },
+            )
+            .await
+            .map_err(|e| RpcError::new(crate::slimrpc::error::RpcCode::Internal, e.to_string()))
     }
 
     /// Register a stream-to-stream RPC handler
@@ -174,48 +224,54 @@ impl Server {
     /// * `service_name` - The service name
     /// * `method_name` - The method name
     /// * `handler` - Implementation of the StreamStreamHandler trait
-    pub fn register_stream_stream(
+    pub async fn register_stream_stream(
         &self,
         service_name: String,
         method_name: String,
         handler: Arc<dyn StreamStreamHandler>,
-    ) {
+    ) -> Result<(), RpcError> {
         let handler_clone = handler.clone();
 
-        self.inner.register_stream_stream(
-            &service_name,
-            &method_name,
-            move |stream: Box<
-                dyn futures::Stream<Item = Result<Vec<u8>, slim_rpc::Status>> + Send + Unpin,
-            >,
-                  context: slim_rpc::Context| {
-                let handler = handler_clone.clone();
-                let ctx = Context::from_inner(context);
-                let request_stream = Arc::new(RequestStream::new(stream));
+        self.inner
+            .register_stream_stream(
+                &service_name,
+                &method_name,
+                move |stream: Box<
+                    dyn futures::Stream<Item = Result<Vec<u8>, slim_rpc::Status>> + Send + Unpin,
+                >,
+                      context: slim_rpc::Context| {
+                    let handler = handler_clone.clone();
+                    let ctx = Context::from_inner(context);
+                    let request_stream = Arc::new(RequestStream::new(stream));
 
-                Box::pin(async move {
-                    let (sink, rx) = ResponseSink::receiver();
-                    let sink_arc = Arc::new(sink);
+                    Box::pin(async move {
+                        let (sink, rx) = ResponseSink::receiver();
+                        let sink_arc = Arc::new(sink);
 
-                    // Spawn a task to run the handler
-                    let _handler_task = {
-                        let sink = sink_arc.clone();
-                        tokio::spawn(async move {
-                            if let Err(e) = handler
-                                .handle(request_stream, Arc::new(ctx), sink.clone())
-                                .await
-                            {
-                                let _ = sink.send_error_async(e).await;
-                            }
-                        })
-                    };
+                        // Spawn a task to run the handler
+                        let handler_task = {
+                            let sink = sink_arc.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = handler
+                                    .handle(request_stream, Arc::new(ctx), sink.clone())
+                                    .await
+                                {
+                                    let _ = sink.send_error_async(e).await;
+                                }
+                            })
+                        };
 
-                    // Convert the receiver to a stream
-                    let stream = UnboundedReceiverStream::new(rx);
-                    Ok(stream)
-                })
-            },
-        );
+                        // Detach the task - it will run independently
+                        drop(handler_task);
+
+                        // Convert the receiver to a stream
+                        let stream = UnboundedReceiverStream::new(rx);
+                        Ok(stream)
+                    })
+                },
+            )
+            .await
+            .map_err(|e| RpcError::new(crate::slimrpc::error::RpcCode::Internal, e.to_string()))
     }
 
     /// Get list of registered methods
@@ -263,6 +319,7 @@ impl Server {
 
 impl Server {
     /// Get reference to inner server (for internal use)
+    #[allow(dead_code)]
     pub(crate) fn inner(&self) -> &CoreServer {
         &self.inner
     }
@@ -270,8 +327,6 @@ impl Server {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     // Basic compilation tests
     #[test]
     fn test_server_type_compiles() {

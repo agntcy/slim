@@ -151,9 +151,9 @@ mod tests {
         ) -> Result<(), RpcError> {
             // Send the request back 3 times
             for _ in 0..3 {
-                sink.send(request.clone()).await?;
+                sink.send_async(request.clone()).await?;
             }
-            sink.close().await?;
+            sink.close_async().await?;
             Ok(())
         }
     }
@@ -168,9 +168,18 @@ mod tests {
             _context: Arc<Context>,
         ) -> Result<Vec<u8>, RpcError> {
             let mut combined = Vec::new();
-            while let Some(result) = stream.next().await {
-                let data = result?;
-                combined.extend_from_slice(&data);
+            loop {
+                match stream.next_async().await {
+                    crate::slimrpc::types::StreamMessage::Data(data) => {
+                        combined.extend_from_slice(&data);
+                    }
+                    crate::slimrpc::types::StreamMessage::Error(e) => {
+                        return Err(e);
+                    }
+                    crate::slimrpc::types::StreamMessage::End => {
+                        break;
+                    }
+                }
             }
             Ok(combined)
         }
@@ -186,12 +195,21 @@ mod tests {
             _context: Arc<Context>,
             sink: Arc<ResponseSink>,
         ) -> Result<(), RpcError> {
-            while let Some(result) = stream.next().await {
-                let data = result?;
-                // Echo each message
-                sink.send(data).await?;
+            loop {
+                match stream.next_async().await {
+                    crate::slimrpc::types::StreamMessage::Data(data) => {
+                        // Echo each message
+                        sink.send_async(data).await?;
+                    }
+                    crate::slimrpc::types::StreamMessage::Error(e) => {
+                        return Err(e);
+                    }
+                    crate::slimrpc::types::StreamMessage::End => {
+                        break;
+                    }
+                }
             }
-            sink.close().await?;
+            sink.close_async().await?;
             Ok(())
         }
     }

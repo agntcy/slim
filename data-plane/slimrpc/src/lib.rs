@@ -143,7 +143,7 @@ pub use session_wrapper::{ReceivedMessage, Session};
 pub use status::{Code, Status, StatusError};
 
 /// Key used in metadata for RPC deadline/timeout
-pub const DEADLINE_KEY: &str = "slimrpc-deadline";
+pub const DEADLINE_KEY: &str = "slimrpc-timeout";
 
 /// Key used in metadata for RPC status code
 pub const STATUS_CODE_KEY: &str = "slimrpc-code";
