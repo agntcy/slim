@@ -431,11 +431,7 @@ impl Server {
     }
 
     /// Helper method to register subscription for a method
-    async fn register_method_subscription(
-        &self,
-        service_name: &str,
-        method_name: &str,
-    ) -> Result<(), Status> {
+    fn register_method_mapping(&self, service_name: &str, method_name: &str) {
         // Build subscription name and register mapping
         let subscription_name =
             crate::build_method_subscription_name(&self.inner.base_name, service_name, method_name);
@@ -443,22 +439,7 @@ impl Server {
         self.inner
             .registry
             .write()
-            .register_subscription(subscription_name.clone(), method_path);
-
-        // Subscribe immediately
-        tracing::info!(%subscription_name, "Subscribing");
-        self.inner
-            .app
-            .subscribe(&subscription_name, self.inner.connection_id)
-            .await
-            .map_err(|e| {
-                Status::internal(format!(
-                    "Failed to subscribe to {}: {}",
-                    subscription_name, e
-                ))
-            })?;
-
-        Ok(())
+            .register_subscription(subscription_name, method_path);
     }
 
     /// Register a unary-unary RPC handler
@@ -496,13 +477,12 @@ impl Server {
     /// );
     /// # }
     /// ```
-    pub async fn register_unary_unary<F, Req, Res, Fut>(
+    pub fn register_unary_unary<F, Req, Res, Fut>(
         &self,
         service_name: &str,
         method_name: &str,
         handler: F,
-    ) -> Result<(), Status>
-    where
+    ) where
         F: Fn(Req, Context) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<Res, Status>> + Send + 'static,
         Req: Decoder + Send + 'static,
@@ -513,8 +493,7 @@ impl Server {
             .write()
             .register_unary_unary(service_name, method_name, handler);
 
-        self.register_method_subscription(service_name, method_name)
-            .await
+        self.register_method_mapping(service_name, method_name);
     }
 
     /// Register a unary-stream RPC handler
@@ -554,13 +533,12 @@ impl Server {
     /// );
     /// # }
     /// ```
-    pub async fn register_unary_stream<F, Req, Res, S, Fut>(
+    pub fn register_unary_stream<F, Req, Res, S, Fut>(
         &self,
         service_name: &str,
         method_name: &str,
         handler: F,
-    ) -> Result<(), Status>
-    where
+    ) where
         F: Fn(Req, Context) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<S, Status>> + Send + 'static,
         S: Stream<Item = Result<Res, Status>> + Send + 'static,
@@ -572,8 +550,7 @@ impl Server {
             .write()
             .register_unary_stream(service_name, method_name, handler);
 
-        self.register_method_subscription(service_name, method_name)
-            .await
+        self.register_method_mapping(service_name, method_name);
     }
 
     /// Register a stream-unary RPC handler
@@ -615,13 +592,12 @@ impl Server {
     /// );
     /// # }
     /// ```
-    pub async fn register_stream_unary<F, Req, Res, Fut>(
+    pub fn register_stream_unary<F, Req, Res, Fut>(
         &self,
         service_name: &str,
         method_name: &str,
         handler: F,
-    ) -> Result<(), Status>
-    where
+    ) where
         F: Fn(Box<dyn Stream<Item = Result<Req, Status>> + Send + Unpin + 'static>, Context) -> Fut
             + Send
             + Sync
@@ -630,15 +606,12 @@ impl Server {
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
     {
-        {
-            self.inner
-                .registry
-                .write()
-                .register_stream_unary(service_name, method_name, handler);
-        }
+        self.inner
+            .registry
+            .write()
+            .register_stream_unary(service_name, method_name, handler);
 
-        self.register_method_subscription(service_name, method_name)
-            .await
+        self.register_method_mapping(service_name, method_name);
     }
 
     /// Register a stream-stream RPC handler
@@ -690,13 +663,12 @@ impl Server {
     /// );
     /// # }
     /// ```
-    pub async fn register_stream_stream<F, Req, Res, S, Fut>(
+    pub fn register_stream_stream<F, Req, Res, S, Fut>(
         &self,
         service_name: &str,
         method_name: &str,
         handler: F,
-    ) -> Result<(), Status>
-    where
+    ) where
         F: Fn(Box<dyn Stream<Item = Result<Req, Status>> + Send + Unpin + 'static>, Context) -> Fut
             + Send
             + Sync
@@ -706,15 +678,12 @@ impl Server {
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
     {
-        {
-            self.inner
-                .registry
-                .write()
-                .register_stream_stream(service_name, method_name, handler);
-        }
+        self.inner
+            .registry
+            .write()
+            .register_stream_stream(service_name, method_name, handler);
 
-        self.register_method_subscription(service_name, method_name)
-            .await
+        self.register_method_mapping(service_name, method_name);
     }
 
     /// Get all registered method paths
@@ -760,6 +729,26 @@ impl Server {
             base_name = %self.inner.base_name,
             "SlimRPC server starting"
         );
+
+        // Subscribe to all registered methods
+        let subscription_names: Vec<Name> = {
+            let registry = self.inner.registry.read();
+            registry.subscription_to_method.keys().cloned().collect()
+        };
+
+        for subscription_name in subscription_names {
+            tracing::info!(%subscription_name, "Subscribing");
+            self.inner
+                .app
+                .subscribe(&subscription_name, self.inner.connection_id)
+                .await
+                .map_err(|e| {
+                    Status::internal(format!(
+                        "Failed to subscribe to {}: {}",
+                        subscription_name, e
+                    ))
+                })?;
+        }
 
         // Main server loop - listen for sessions
         loop {

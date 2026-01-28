@@ -244,7 +244,7 @@ impl StreamStreamHandler for TransformHandler {
 struct TestEnv {
     server: Arc<RpcServer>,
     _app: Arc<App>,
-    _server_handle: tokio::task::JoinHandle<()>,
+    _server_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl TestEnv {
@@ -288,23 +288,27 @@ impl TestEnv {
         let server = RpcServer::new(&server_app, server_name.clone());
         println!("RPC server created");
 
+        println!("TestEnv::new completed for {}", test_name);
+        Self {
+            server,
+            _app: server_app,
+            _server_handle: None,
+        }
+    }
+
+    async fn start_server(&mut self) {
         // Start server in background
         println!("Starting server in background...");
-        let server_clone = server.clone();
+        let server_clone = self.server.clone();
         let server_handle = tokio::spawn(async move {
             println!("Server serve_async starting...");
             let _ = server_clone.serve_async().await;
         });
 
-        // Give server time to start
+        // Give server time to start and subscribe
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
-        println!("TestEnv::new completed for {}", test_name);
-        Self {
-            server,
-            _app: server_app,
-            _server_handle: server_handle,
-        }
+        self._server_handle = Some(server_handle);
     }
 
     async fn create_client(&self, test_name: &str) -> Arc<slim_bindings::RpcChannel> {
@@ -349,18 +353,17 @@ impl TestEnv {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_unary_unary_rpc() {
-    let env = TestEnv::new("unary-echo").await;
+    let mut env = TestEnv::new("unary-echo").await;
 
     // Register echo handler
     println!("Registering EchoHandler...");
-    env.server
-        .register_unary_unary(
-            "TestService".to_string(),
-            "Echo".to_string(),
-            Arc::new(EchoHandler),
-        )
-        .await
-        .expect("Failed to register handler");
+    env.server.register_unary_unary(
+        "TestService".to_string(),
+        "Echo".to_string(),
+        Arc::new(EchoHandler),
+    );
+
+    env.start_server().await;
 
     println!("Creating channel...");
     let channel = env.create_client("unary-echo").await;
@@ -387,17 +390,16 @@ async fn test_unary_unary_rpc() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_unary_unary_error_handling() {
-    let env = TestEnv::new("unary-error").await;
+    let mut env = TestEnv::new("unary-error").await;
 
     // Register error handler
-    env.server
-        .register_unary_unary(
-            "TestService".to_string(),
-            "Error".to_string(),
-            Arc::new(ErrorHandler),
-        )
-        .await
-        .expect("Failed to register handler");
+    env.server.register_unary_unary(
+        "TestService".to_string(),
+        "Error".to_string(),
+        Arc::new(ErrorHandler),
+    );
+
+    env.start_server().await;
 
     let channel = env.create_client("unary-error").await;
 
@@ -427,17 +429,16 @@ async fn test_unary_unary_error_handling() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_unary_stream_rpc() {
-    let env = TestEnv::new("unary-stream").await;
+    let mut env = TestEnv::new("unary-stream").await;
 
     // Register counter handler
-    env.server
-        .register_unary_stream(
-            "TestService".to_string(),
-            "Counter".to_string(),
-            Arc::new(CounterHandler),
-        )
-        .await
-        .expect("Failed to register handler");
+    env.server.register_unary_stream(
+        "TestService".to_string(),
+        "Counter".to_string(),
+        Arc::new(CounterHandler),
+    );
+
+    env.start_server().await;
 
     let channel = env.create_client("unary-stream").await;
 
@@ -481,18 +482,16 @@ async fn test_unary_stream_rpc() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_unary_stream_error_handling() {
-    let env = TestEnv::new("unary-stream-error").await;
+    let mut env = TestEnv::new("unary-stream-error").await;
 
     // Register error handler
-    // Register stream error handler
-    env.server
-        .register_unary_stream(
-            "TestService".to_string(),
-            "StreamError".to_string(),
-            Arc::new(StreamErrorHandler),
-        )
-        .await
-        .expect("Failed to register handler");
+    env.server.register_unary_stream(
+        "TestService".to_string(),
+        "StreamError".to_string(),
+        Arc::new(StreamErrorHandler),
+    );
+
+    env.start_server().await;
 
     let channel = env.create_client("unary-stream-error").await;
 
@@ -538,24 +537,23 @@ async fn test_unary_stream_error_handling() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_stream_unary_rpc() {
-    let env = TestEnv::new("stream-unary").await;
+    let mut env = TestEnv::new("stream-unary").await;
 
     // Register accumulator handler
-    env.server
-        .register_stream_unary(
-            "TestService".to_string(),
-            "Accumulate".to_string(),
-            Arc::new(AccumulatorHandler),
-        )
-        .await
-        .expect("Failed to register handler");
+    env.server.register_stream_unary(
+        "TestService".to_string(),
+        "Accumulator".to_string(),
+        Arc::new(AccumulatorHandler),
+    );
+
+    env.start_server().await;
 
     let channel = env.create_client("stream-unary").await;
 
     // Create stream writer
     let writer = channel.call_stream_unary(
         "TestService".to_string(),
-        "Accumulate".to_string(),
+        "Accumulator".to_string(),
         Some(Duration::from_secs(30)),
     );
 
@@ -585,17 +583,16 @@ async fn test_stream_unary_rpc() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_stream_unary_error_handling() {
-    let env = TestEnv::new("stream-unary-error").await;
+    let mut env = TestEnv::new("stream-unary-error").await;
 
     // Register error handler
-    env.server
-        .register_stream_unary(
-            "TestService".to_string(),
-            "StreamInputError".to_string(),
-            Arc::new(StreamInputErrorHandler),
-        )
-        .await
-        .expect("Failed to register handler");
+    env.server.register_stream_unary(
+        "TestService".to_string(),
+        "StreamInputError".to_string(),
+        Arc::new(StreamInputErrorHandler),
+    );
+
+    env.start_server().await;
 
     let channel = env.create_client("stream-unary-error").await;
 
@@ -635,17 +632,16 @@ async fn test_stream_unary_error_handling() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_stream_stream_echo() {
-    let env = TestEnv::new("stream-stream-echo").await;
+    let mut env = TestEnv::new("stream-stream-echo").await;
 
     // Register stream echo handler
-    env.server
-        .register_stream_stream(
-            "TestService".to_string(),
-            "StreamEcho".to_string(),
-            Arc::new(StreamEchoHandler),
-        )
-        .await
-        .expect("Failed to register handler");
+    env.server.register_stream_stream(
+        "TestService".to_string(),
+        "StreamEcho".to_string(),
+        Arc::new(StreamEchoHandler),
+    );
+
+    env.start_server().await;
 
     let channel = env.create_client("stream-stream-echo").await;
 
@@ -691,17 +687,16 @@ async fn test_stream_stream_echo() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_stream_stream_transform() {
-    let env = TestEnv::new("stream-stream-transform").await;
+    let mut env = TestEnv::new("stream-stream-transform").await;
 
     // Register transform handler
-    env.server
-        .register_stream_stream(
-            "TestService".to_string(),
-            "Transform".to_string(),
-            Arc::new(TransformHandler),
-        )
-        .await
-        .expect("Failed to register handler");
+    env.server.register_stream_stream(
+        "TestService".to_string(),
+        "Transform".to_string(),
+        Arc::new(TransformHandler),
+    );
+
+    env.start_server().await;
 
     let channel = env.create_client("stream-stream-transform").await;
 
@@ -758,19 +753,18 @@ async fn test_stream_stream_transform() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_concurrent_unary_calls() {
-    let env = TestEnv::new("concurrent").await;
+    let mut env = TestEnv::new("concurrent-unary").await;
 
-    // Register handler
-    env.server
-        .register_unary_unary(
-            "TestService".to_string(),
-            "Echo".to_string(),
-            Arc::new(EchoHandler),
-        )
-        .await
-        .expect("Failed to register handler");
+    // Register echo handler
+    env.server.register_unary_unary(
+        "TestService".to_string(),
+        "Echo".to_string(),
+        Arc::new(EchoHandler),
+    );
 
-    let channel = env.create_client("concurrent").await;
+    env.start_server().await;
+
+    let channel = env.create_client("concurrent-unary").await;
 
     // Make 10 concurrent calls
     let mut handles = Vec::new();
@@ -808,44 +802,28 @@ async fn test_concurrent_unary_calls() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_handler_registration() {
-    let env = TestEnv::new("registration").await;
+    let mut env = TestEnv::new("handler-registration").await;
 
     // Register multiple handlers
-    env.server
-        .register_unary_unary(
-            "ServiceA".to_string(),
-            "MethodA".to_string(),
-            Arc::new(EchoHandler),
-        )
-        .await
-        .expect("Failed to register handler");
+    env.server.register_unary_unary(
+        "TestService".to_string(),
+        "Echo1".to_string(),
+        Arc::new(EchoHandler),
+    );
 
-    env.server
-        .register_unary_unary(
-            "ServiceB".to_string(),
-            "MethodB".to_string(),
-            Arc::new(EchoHandler),
-        )
-        .await
-        .expect("Failed to register handler");
+    env.server.register_unary_unary(
+        "TestService".to_string(),
+        "Echo2".to_string(),
+        Arc::new(EchoHandler),
+    );
 
-    env.server
-        .register_unary_stream(
-            "ServiceA".to_string(),
-            "MethodC".to_string(),
-            Arc::new(CounterHandler),
-        )
-        .await
-        .expect("Failed to register handler");
+    env.server.register_unary_stream(
+        "TestService".to_string(),
+        "Counter".to_string(),
+        Arc::new(CounterHandler),
+    );
 
-    // Start serving in background after registration
-    let server_clone = env.server.clone();
-    tokio::spawn(async move {
-        let _ = server_clone.serve_async().await;
-    });
-
-    // Give server time to start
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    env.start_server().await;
 
     // Get list of registered methods
     let methods = env.server.methods();
@@ -880,19 +858,18 @@ impl UnaryUnaryHandler for ContextInfoHandler {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_context_access() {
-    let env = TestEnv::new("context").await;
+    let mut env = TestEnv::new("context-access").await;
 
-    // Register handler that accesses context
-    env.server
-        .register_unary_unary(
-            "TestService".to_string(),
-            "ContextInfo".to_string(),
-            Arc::new(ContextInfoHandler),
-        )
-        .await
-        .expect("Failed to register handler");
+    // Register context info handler
+    env.server.register_unary_unary(
+        "TestService".to_string(),
+        "ContextInfo".to_string(),
+        Arc::new(ContextInfoHandler),
+    );
 
-    let channel = env.create_client("context").await;
+    env.start_server().await;
+
+    let channel = env.create_client("context-access").await;
 
     let response = channel
         .call_unary_async(
