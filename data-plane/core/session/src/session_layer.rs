@@ -24,7 +24,6 @@ use crate::notification::Notification;
 use crate::session_config::SessionConfig;
 use crate::session_controller::SessionController;
 
-use crate::session_routes::SessionRoutes;
 use crate::transmitter::{AppTransmitter, SessionTransmitter};
 
 // Local crate
@@ -88,9 +87,6 @@ where
     // Transmitter to bypass sessions
     transmitter: T,
 
-    // cache of routes/subscriptions set by all the sessions
-    routes_cache: SessionRoutes,
-
     /// Storage path for app data
     storage_path: std::path::PathBuf,
 
@@ -137,7 +133,6 @@ where
             tx_slim,
             tx_app,
             transmitter,
-            routes_cache: SessionRoutes::default(),
             storage_path,
             tx_session,
             to_notify: SyncRwLock::new(HashMap::new()),
@@ -308,7 +303,6 @@ where
                 .with_storage_path(self.storage_path.clone())
                 .with_tx(tx)
                 .with_tx_to_session_layer(self.tx_session.clone())
-                .with_routes_cache(self.routes_cache.clone())
                 .with_direction(self.direction)
                 .ready()?;
 

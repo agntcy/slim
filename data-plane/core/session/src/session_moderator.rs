@@ -1376,7 +1376,6 @@ mod tests {
             identity_provider,
             identity_verifier,
             storage_path,
-            routes_cache: crate::session_routes::SessionRoutes::default(),
             graceful_shutdown_timeout: None,
         };
 
@@ -1763,7 +1762,6 @@ mod tests {
             identity_provider,
             identity_verifier,
             storage_path,
-            routes_cache: crate::session_routes::SessionRoutes::default(),
             graceful_shutdown_timeout: None,
         };
 
@@ -1840,7 +1838,6 @@ mod tests {
             identity_provider,
             identity_verifier,
             storage_path,
-            routes_cache: crate::session_routes::SessionRoutes::default(),
             graceful_shutdown_timeout: None,
         };
 
@@ -1967,7 +1964,6 @@ mod tests {
             identity_provider,
             identity_verifier,
             storage_path,
-            routes_cache: crate::session_routes::SessionRoutes::default(),
             graceful_shutdown_timeout: None,
         };
 

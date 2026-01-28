@@ -28,7 +28,6 @@ use crate::{
     controller_sender::{ControllerSender, PING_INTERVAL},
     session_builder::{ForController, SessionBuilder},
     session_config::SessionConfig,
-    session_routes::Route,
     session_settings::SessionSettings,
     traits::{MessageHandler, ProcessingState},
 };
@@ -584,43 +583,25 @@ where
     }
 
     pub(crate) async fn add_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
-        let session_route = Route {
-            name: name.clone(),
-            conn_id: conn,
-            route: true,
-        };
-        if !self.settings.routes_cache.has_route(&session_route) {
-            let route = Message::builder()
-                .source(self.settings.source.clone())
-                .destination(name.clone())
-                .flags(SlimHeaderFlags::default().with_recv_from(conn))
-                .build_subscribe()
-                .unwrap();
+        let route = Message::builder()
+            .source(self.settings.source.clone())
+            .destination(name.clone())
+            .flags(SlimHeaderFlags::default().with_recv_from(conn))
+            .build_subscribe()
+            .unwrap();
 
-            self.send_to_slim(route).await?;
-        }
-        self.settings.routes_cache.add_route(session_route);
-        Ok(())
+        self.send_to_slim(route).await
     }
 
     pub(crate) async fn delete_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
-        let session_route = Route {
-            name: name.clone(),
-            conn_id: conn,
-            route: true,
-        };
-        self.settings.routes_cache.remove_route(&session_route);
-        if !self.settings.routes_cache.has_route(&session_route) {
-            let route = Message::builder()
-                .source(self.settings.source.clone())
-                .destination(name.clone())
-                .flags(SlimHeaderFlags::default().with_recv_from(conn))
-                .build_unsubscribe()
-                .unwrap();
+        let route = Message::builder()
+            .source(self.settings.source.clone())
+            .destination(name.clone())
+            .flags(SlimHeaderFlags::default().with_recv_from(conn))
+            .build_unsubscribe()
+            .unwrap();
 
-            self.send_to_slim(route).await?;
-        }
-        Ok(())
+        self.send_to_slim(route).await
     }
 
     pub(crate) async fn add_subscription(
@@ -628,23 +609,14 @@ where
         name: &Name,
         conn: u64,
     ) -> Result<(), SessionError> {
-        let session_route = Route {
-            name: name.clone(),
-            conn_id: conn,
-            route: false,
-        };
-        if !self.settings.routes_cache.has_route(&session_route) {
-            let subscription = Message::builder()
-                .source(self.settings.source.clone())
-                .destination(name.clone())
-                .flags(SlimHeaderFlags::default().with_forward_to(conn))
-                .build_subscribe()
-                .unwrap();
+        let subscription = Message::builder()
+            .source(self.settings.source.clone())
+            .destination(name.clone())
+            .flags(SlimHeaderFlags::default().with_forward_to(conn))
+            .build_subscribe()
+            .unwrap();
 
-            self.send_to_slim(subscription).await?;
-        }
-        self.settings.routes_cache.add_route(session_route);
-        Ok(())
+        self.send_to_slim(subscription).await
     }
 
     pub(crate) async fn delete_subscription(
@@ -652,23 +624,14 @@ where
         name: &Name,
         conn: u64,
     ) -> Result<(), SessionError> {
-        let session_route = Route {
-            name: name.clone(),
-            conn_id: conn,
-            route: false,
-        };
-        self.settings.routes_cache.remove_route(&session_route);
-        if !self.settings.routes_cache.has_route(&session_route) {
-            let subscription = Message::builder()
-                .source(self.settings.source.clone())
-                .destination(name.clone())
-                .flags(SlimHeaderFlags::default().with_forward_to(conn))
-                .build_unsubscribe()
-                .unwrap();
+        let subscription = Message::builder()
+            .source(self.settings.source.clone())
+            .destination(name.clone())
+            .flags(SlimHeaderFlags::default().with_forward_to(conn))
+            .build_unsubscribe()
+            .unwrap();
 
-            self.send_to_slim(subscription).await?;
-        }
-        Ok(())
+        self.send_to_slim(subscription).await
     }
 
     pub(crate) fn create_control_message(
@@ -727,7 +690,6 @@ mod tests {
     // session is transitioning, indicating that graceful draining has begun.
     // Removed broken test_internal_draining_via_leave_request (incompatible mock trait implementation)
 
-    use crate::session_routes::SessionRoutes;
     use crate::transmitter::SessionTransmitter;
     use slim_auth::shared_secret::SharedSecret;
 
@@ -847,7 +809,6 @@ mod tests {
                 .with_storage_path(storage_path)
                 .with_tx(tx)
                 .with_tx_to_session_layer(tx_session_layer)
-                .with_routes_cache(SessionRoutes::default())
                 .ready()
                 .expect("failed to validate builder")
                 .build()
@@ -1244,7 +1205,6 @@ mod tests {
             .with_identity_verifier(SharedSecret::new("moderator", SHARED_SECRET).unwrap())
             .with_storage_path(storage_path_moderator.clone())
             .with_tx(tx_moderator.clone())
-            .with_routes_cache(SessionRoutes::default())
             .with_tx_to_session_layer(tx_session_layer_moderator)
             .ready()
             .expect("failed to validate builder")
@@ -1278,7 +1238,6 @@ mod tests {
             .with_identity_verifier(SharedSecret::new("participant", SHARED_SECRET).unwrap())
             .with_storage_path(storage_path_participant.clone())
             .with_tx(tx_participant.clone())
-            .with_routes_cache(SessionRoutes::default())
             .with_tx_to_session_layer(tx_session_layer_participant)
             .ready()
             .expect("failed to validate builder")
@@ -1767,7 +1726,6 @@ mod tests {
             identity_provider: SharedSecret::new("src", SHARED_SECRET).unwrap(),
             identity_verifier: SharedSecret::new("src", SHARED_SECRET).unwrap(),
             storage_path: std::path::PathBuf::from("/tmp/internal_draining_test"),
-            routes_cache: SessionRoutes::default(),
             graceful_shutdown_timeout: Some(Duration::from_secs(10)),
         };
 
@@ -1936,7 +1894,6 @@ mod tests {
             identity_provider: SharedSecret::new("test", SHARED_SECRET).unwrap(),
             identity_verifier: SharedSecret::new("test", SHARED_SECRET).unwrap(),
             storage_path: std::path::PathBuf::from("/tmp/test_draining"),
-            routes_cache: SessionRoutes::default(),
             graceful_shutdown_timeout,
         }
     }
