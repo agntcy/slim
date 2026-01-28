@@ -59,6 +59,8 @@ mod server_config;
 mod service;
 mod session;
 
+pub mod slimrpc;
+
 // Public re-exports
 pub use app::{App, SessionWithCompletion};
 pub use build_info::{BuildInfo, get_build_info, get_version};
@@ -96,6 +98,14 @@ pub use service::{
     new_dataplane_config, new_service_configuration,
 };
 pub use session::{Session, SessionConfig, SessionType};
+
+// SLIMRpc re-exports
+pub use slimrpc::{
+    RpcAppConnection, RpcChannel, RpcMessageContext, RpcHandlerType,
+    SRPCError, RpcServer, SessionContext as RpcSessionContext, RpcAppConfig,
+    create_and_connect_app, create_and_connect_app_async, new_rpc_app_config,
+    DEADLINE_KEY, MAX_TIMEOUT,
+};
 
 // UniFFI scaffolding setup (must be at crate root)
 uniffi::setup_scaffolding!();

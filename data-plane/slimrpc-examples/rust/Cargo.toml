@@ -1,0 +1,25 @@
+[package]
+name = "agntcy-slimrpc-examples"
+version = "0.1.0"
+edition = "2021"
+license = { workspace = true }
+
+[dependencies]
+agntcy-slim-bindings = { workspace = true }
+agntcy-slim-datapath = { workspace = true }
+anyhow = "1.0"
+async-trait = { workspace = true }
+clap = { workspace = true }
+futures = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[[bin]]
+name = "client"
+path = "src/client.rs"
+
+[[bin]]
+name = "server"
+path = "src/server.rs"
