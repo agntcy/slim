@@ -87,25 +87,12 @@ func (c *SlimConfig) ToServerConfig() (slim.ServerConfig, error) {
 	}
 
 	// Create a secure server config with TLS
+	// Use TlsSourceFile to let the bindings handle file loading and auto-reload
 	config := slim.NewServerConfig(c.Endpoint)
-
-	// Read certificate and key files to verify they exist and are readable
-	certData, err := os.ReadFile(c.TLS.CertFile)
-	if err != nil {
-		return slim.ServerConfig{}, fmt.Errorf("failed to read certificate file: %w", err)
-	}
-
-	keyData, err := os.ReadFile(c.TLS.KeyFile)
-	if err != nil {
-		return slim.ServerConfig{}, fmt.Errorf("failed to read key file: %w", err)
-	}
-
-	// Configure TLS with PEM data from files
-	// The TlsSource enum in the bindings has a Pem variant that takes cert and key as strings
 	config.Tls.Insecure = false
-	config.Tls.Source = slim.TlsSourcePem{
-		Cert: string(certData),
-		Key:  string(keyData),
+	config.Tls.Source = slim.TlsSourceFile{
+		Cert: c.TLS.CertFile,
+		Key:  c.TLS.KeyFile,
 	}
 
 	return config, nil
