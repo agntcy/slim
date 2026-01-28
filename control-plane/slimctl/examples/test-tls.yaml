@@ -1,6 +1,0 @@
-# Test configuration - TLS enabled
-endpoint: "127.0.0.1:8443"
-tls:
-  insecure: false
-  cert_file: "examples/test-certs/server-cert.pem"
-  key_file: "examples/test-certs/server-key.pem"
