@@ -1,0 +1,19 @@
+{
+  "name": "@agntcy/slim-bindings-node-examples",
+  "version": "0.7.0",
+  "private": true,
+  "type": "module",
+  "description": "Example applications for SLIM Node.js bindings",
+  "scripts": {
+    "server": "tsx server.ts",
+    "alice": "tsx point-to-point-alice.ts"
+  },
+  "dependencies": {
+    "@agntcy/slim-bindings-node": "file:.."
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0",
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  }
+}
