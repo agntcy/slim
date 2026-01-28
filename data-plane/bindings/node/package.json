@@ -1,0 +1,29 @@
+{
+  "name": "@agntcy/slim-bindings-node",
+  "version": "0.7.0",
+  "description": "SLIM Node.js bindings using UniFFI",
+  "main": "generated/slim-bindings-node.js",
+  "types": "generated/slim-bindings-node.d.ts",
+  "scripts": {
+    "build": "task generate",
+    "clean": "task clean",
+    "example:server": "cd examples && npm run server",
+    "example:alice": "cd examples && npm run alice"
+  },
+  "keywords": [
+    "slim",
+    "messaging",
+    "uniffi",
+    "nodejs",
+    "ffi"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agntcy/slim.git",
+    "directory": "data-plane/bindings/node"
+  },
+  "license": "Apache-2.0"
+}

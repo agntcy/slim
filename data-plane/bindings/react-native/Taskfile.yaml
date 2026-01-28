@@ -12,13 +12,26 @@ includes:
     internal: true
 
 vars:
-  # The Rust UniFFI bindings crate - in bindings/rust (sibling to bindings/javascript)
+  # The Rust UniFFI bindings crate - in bindings/rust (sibling to bindings/react-native)
   BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
   PROFILE: '{{.PROFILE | default "release"}}'
   CURRENT_TARGET:
     sh: 'rustc -vV | sed -n "s|host: ||p"'
   TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
-  SERVICE_TARGET: "{{.TASKFILE_DIR}}/../../target/{{.TARGET}}/{{.PROFILE}}"
+  # For native builds (TARGET == CURRENT_TARGET), Rust outputs to target/PROFILE/
+  # For cross-compilation, Rust outputs to target/TARGET/PROFILE/
+  SERVICE_TARGET:
+    sh: |
+      CURRENT_TARGET=$(rustc -vV | sed -n "s|host: ||p")
+      TARGET="{{.TARGET}}"
+      PROFILE="{{.PROFILE | default "release"}}"
+      if [ -z "$TARGET" ] || [ "$TARGET" = "$CURRENT_TARGET" ]; then
+        # Native build - output is in target/PROFILE/
+        echo "{{.TASKFILE_DIR}}/../../target/${PROFILE}"
+      else
+        # Cross-compilation - output is in target/TARGET/PROFILE/
+        echo "{{.TASKFILE_DIR}}/../../target/${TARGET}/${PROFILE}"
+      fi
   LIB_NAME: slim_bindings
   _DEFAULT_LIB_PATH:
     sh: |
