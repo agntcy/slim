@@ -222,13 +222,16 @@ impl ServiceRegistry {
             .insert(method_path, (wrapper, HandlerType::StreamStream));
     }
 
-    /// Get a handler by method path
-    fn get_handler(&self, method_path: &str) -> Option<(RpcHandler, HandlerType)> {
-        self.handlers.get(method_path).cloned()
-    }
-
-    fn get_stream_handler(&self, method_path: &str) -> Option<(StreamRpcHandler, HandlerType)> {
-        self.stream_handlers.get(method_path).cloned()
+    /// Get handler info (either stream or unary) in one lookup
+    fn get_handler_info(&self, method_path: &str) -> Option<HandlerInfo> {
+        if let Some((stream_handler, handler_type)) = self.stream_handlers.get(method_path).cloned()
+        {
+            Some(HandlerInfo::Stream(stream_handler, handler_type))
+        } else if let Some((handler, handler_type)) = self.handlers.get(method_path).cloned() {
+            Some(HandlerInfo::Unary(handler, handler_type))
+        } else {
+            None
+        }
     }
 
     /// Get all registered method paths
@@ -237,6 +240,12 @@ impl ServiceRegistry {
         methods.extend(self.stream_handlers.keys().cloned());
         methods
     }
+}
+
+/// Handler information retrieved from registry
+enum HandlerInfo {
+    Stream(StreamRpcHandler, HandlerType),
+    Unary(RpcHandler, HandlerType),
 }
 
 impl Default for ServiceRegistry {
@@ -770,11 +779,6 @@ impl Server {
                         .source()
                         .clone();
 
-                    // Clone the session weak reference before moving session_ctx
-                    let session_weak = session_ctx.session.clone();
-
-                    let session = Session::new(session_ctx);
-
                     tracing::debug!(%subscription_name, "Processing session for subscription");
 
                     // Log the registry for debugging
@@ -787,41 +791,41 @@ impl Server {
                         );
                     }
 
-                    // Look up the method path for this subscription
-                    let method_path_opt = self.inner.registry.read().get_method_from_subscription(&mut subscription_name);
+                    // Look up the method path and handler info for this subscription
+                    let lookup_result = {
+                        let registry = self.inner.registry.read();
+                        let method_path_opt = registry.get_method_from_subscription(&mut subscription_name);
+                        method_path_opt.and_then(|method_path| {
+                            registry.get_handler_info(&method_path).map(|handler_info| (method_path, handler_info))
+                        })
+                    };
 
                     // Spawn a task to handle this session
                     let server = self.clone();
+                    let session = Session::new(session_ctx);
                     let handle = tokio::spawn(async move {
                         // Check if method is registered and handle error in task
-                        let Some(method_path) = method_path_opt else {
+                        let Some((method_path, handler_info)) = lookup_result else {
                             tracing::error!(%subscription_name, "No method registered for subscription");
                             // Send error and wait for acknowledgment
-                            if let Err(e) = server.send_error(&session, Status::internal("No method registered for subscription")).await {
-                                tracing::warn!(%subscription_name, error = %e, "Failed to send error response");
-                            }
+                            let _ = server.send_error(&session, Status::internal("No method registered for subscription")).await;
 
                             // Delete the session when done
-                            if let Some(session_ctrl) = session_weak.upgrade()
-                                && let Ok(handle) = server.inner.app.delete_session(session_ctrl.as_ref())
-                            {
-                                let _ = handle.await;
-                            }
+                            let _ = session.close(server.inner.app.as_ref()).await;
                             return;
                         };
 
                         tracing::debug!(%method_path, %subscription_name, "Received session for method");
 
-                        if let Err(e) = server.handle_session(session, &method_path).await {
+                        if let Err(e) = server.handle_session(&session, &method_path, handler_info).await {
                             tracing::error!(%method_path, error = %e, "Error handling session");
+
+                            // Send error to client before closing
+                            let _ = server.send_error(&session, e).await;
                         }
 
-                        // Delete the session when done
-                        if let Some(session) = session_weak.upgrade()
-                            && let Ok(handle) = server.inner.app.delete_session(session.as_ref())
-                        {
-                            let _ = handle.await;
-                        }
+                        // Close the session after handling (success or after sending error)
+                        let _ = session.close(server.inner.app.as_ref()).await;
                     });
 
                     self.inner.tasks.write().push(handle);
@@ -920,7 +924,12 @@ impl Server {
     }
 
     /// Handle a session for a specific method, processing multiple RPCs until session closes
-    async fn handle_session(&self, session: Session, method_path: &str) -> Result<(), Status> {
+    async fn handle_session(
+        &self,
+        session: &Session,
+        method_path: &str,
+        handler_info: HandlerInfo,
+    ) -> Result<(), Status> {
         // Get a drain watch handle for this session
         let drain_watch = self
             .inner
@@ -930,85 +939,54 @@ impl Server {
             .ok_or_else(|| Status::internal("drain watch not available"))?;
 
         // Create context from session wrapper
-        let ctx = Context::from_session_wrapper(&session).await;
-
-        // Wait for the first message of the RPC
-        let first_message = tokio::select! {
-            result = session.get_message(None) => {
-                result.map_err(|e| {
-                    tracing::debug!(error = %e, "Session closed or error receiving message");
-                    Status::internal(format!("Failed to receive message: {}", e))
-                })?
-            }
-            _ = drain_watch.clone().signaled() => {
-                tracing::debug!("Session handler terminated due to server shutdown");
-                return Err(Status::unavailable("Server is shutting down"));
-            }
-        };
+        let ctx = Context::from_session_wrapper(session).await;
 
         tracing::debug!(%method_path, "Processing RPC");
 
-        // Create context for this RPC by adding message metadata
-        let ctx = ctx.with_message_metadata(first_message.metadata.clone());
-
-        // Try to get as a stream handler first (for stream-unary and stream-stream)
-        // Get handlers with lock, then release before await
-        let stream_handler_opt = self.inner.registry.read().get_stream_handler(method_path);
-        let unary_handler_opt = if stream_handler_opt.is_none() {
-            self.inner.registry.read().get_handler(method_path)
-        } else {
-            None
-        };
-
-        let result = if let Some((stream_handler, handler_type)) = stream_handler_opt {
-            // Check deadline for stream-based methods
-            if ctx.is_deadline_exceeded() {
-                self.send_error(&session, Status::deadline_exceeded("Deadline exceeded"))
+        // Handle based on handler type (already looked up before calling this function)
+        let result = match handler_info {
+            HandlerInfo::Stream(stream_handler, handler_type) => {
+                // Check deadline for stream-based methods
+                if ctx.is_deadline_exceeded() {
+                    Err(Status::deadline_exceeded("Deadline exceeded"))
+                } else {
+                    self.handle_stream_based_method(
+                        stream_handler,
+                        handler_type,
+                        session,
+                        ctx,
+                        &drain_watch,
+                    )
                     .await
-            } else {
-                self.handle_stream_based_method(
-                    stream_handler,
-                    handler_type,
-                    &session,
-                    ctx,
-                    first_message,
-                    &drain_watch,
-                )
-                .await
+                }
             }
-        } else if let Some((handler, handler_type)) = unary_handler_opt {
-            // Check deadline
-            if ctx.is_deadline_exceeded() {
-                self.send_error(&session, Status::deadline_exceeded("Deadline exceeded"))
-                    .await
-            } else {
-                // Handle based on type (only unary-input handlers reach here)
-                tokio::select! {
-                    result = async {
-                        match handler_type {
-                            HandlerType::UnaryUnary => {
-                                self.handle_unary_unary(handler, &session, ctx, first_message).await
+            HandlerInfo::Unary(handler, handler_type) => {
+                // Check deadline
+                if ctx.is_deadline_exceeded() {
+                    Err(Status::deadline_exceeded("Deadline exceeded"))
+                } else {
+                    // Handle based on type (only unary-input handlers reach here)
+                    tokio::select! {
+                        result = async {
+                            match handler_type {
+                                HandlerType::UnaryUnary => {
+                                    self.handle_unary_unary(handler, session, ctx).await
+                                }
+                                HandlerType::UnaryStream => {
+                                    self.handle_unary_stream(handler, session, ctx).await
+                                }
+                                _ => {
+                                    Err(Status::internal("Invalid handler type for unary-input method"))
+                                }
                             }
-                            HandlerType::UnaryStream => {
-                                self.handle_unary_stream(handler, &session, ctx, first_message).await
-                            }
-                            _ => {
-                                Err(Status::internal("Invalid handler type for unary-input method"))
-                            }
+                        } => result,
+                        _ = drain_watch.clone().signaled() => {
+                            tracing::debug!("Session handler terminated due to server shutdown");
+                            return Err(Status::unavailable("Server is shutting down"));
                         }
-                    } => result,
-                    _ = drain_watch.clone().signaled() => {
-                        tracing::debug!("Session handler terminated due to server shutdown");
-                        return Err(Status::unavailable("Server is shutting down"));
                     }
                 }
             }
-        } else {
-            self.send_error(
-                &session,
-                Status::unimplemented(format!("Method not found: {}", method_path)),
-            )
-            .await
         };
 
         if let Err(e) = &result {
@@ -1016,9 +994,6 @@ impl Server {
         } else {
             tracing::debug!(%method_path, "RPC completed successfully");
         }
-
-        // Close the session after handling one RPC
-        let _ = session.close(&self.inner.app).await;
 
         result
     }
@@ -1029,10 +1004,15 @@ impl Server {
         handler: RpcHandler,
         session: &Session,
         ctx: Context,
-        first_message: crate::ReceivedMessage,
     ) -> Result<(), Status> {
-        // Use the first message that was already received
-        let received = first_message;
+        // Get the first message from the session
+        let received = session.get_message(None).await.map_err(|e| {
+            tracing::debug!(error = %e, "Session closed or error receiving message");
+            Status::internal(format!("Failed to receive message: {}", e))
+        })?;
+
+        // Update context with message metadata to parse deadline
+        let ctx = ctx.with_message_metadata(received.metadata);
 
         // Calculate deadline
         let timeout_duration = ctx
@@ -1044,13 +1024,7 @@ impl Server {
         tokio::select! {
             result = async {
                 // Call handler
-                let response = match handler(received.payload, ctx).await {
-                    Ok(resp) => resp,
-                    Err(status) => {
-                        tracing::debug!(?status, "Handler returned error");
-                        return self.send_error(session, status).await;
-                    }
-                };
+                let response = handler(received.payload, ctx).await?;
 
                 // Send response
                 match response {
@@ -1062,7 +1036,7 @@ impl Server {
                             .await
                             .map_err(|e| Status::internal(format!("Failed to send response: {}", e)))?;
                         handle.await.map_err(|e| {
-                            Status::internal(format!("Failed to receive response ack: {}", e))
+                            Status::internal(format!("Failed to complete response send: {}", e))
                         })?;
                     }
                     _ => {
@@ -1076,7 +1050,7 @@ impl Server {
             } => result,
             _ = tokio::time::sleep_until(deadline) => {
                 tracing::debug!("Handler execution exceeded deadline");
-                self.send_error(session, Status::deadline_exceeded("Handler execution exceeded deadline")).await
+                Err(Status::deadline_exceeded("Handler execution exceeded deadline"))
             }
         }
     }
@@ -1087,10 +1061,12 @@ impl Server {
         handler: RpcHandler,
         session: &Session,
         ctx: Context,
-        first_message: crate::ReceivedMessage,
     ) -> Result<(), Status> {
-        // Use the first message that was already received
-        let received = first_message;
+        // Get the first message from the session
+        let received = session.get_message(None).await.map_err(|e| {
+            tracing::debug!(error = %e, "Session closed or error receiving message");
+            Status::internal(format!("Failed to receive message: {}", e))
+        })?;
 
         // Clone metadata before moving ctx into handler
         let end_metadata = ctx.metadata().as_map().clone();
@@ -1107,18 +1083,11 @@ impl Server {
         tokio::select! {
             result = async {
                 // Call handler
-                let response = match handler(received.payload, ctx).await {
-                    Ok(resp) => resp,
-                    Err(status) => {
-                        tracing::debug!(?status, "Handler returned error");
-                        return self.send_error(session, status).await;
-                    }
-                };
+                let response = handler(received.payload, ctx).await?;
 
                 // Send streaming responses
                 match response {
-                    HandlerResponse::Stream(stream) => {
-                        let mut stream = stream;
+                    HandlerResponse::Stream(mut stream) => {
                         while let Some(result) = stream.next().await {
                             match result {
                                 Ok(response_bytes) => {
@@ -1133,7 +1102,7 @@ impl Server {
                                         })?;
                                 }
                                 Err(e) => {
-                                    return self.send_error(session, e).await;
+                                    return Err(e);
                                 }
                             }
                         }
@@ -1159,7 +1128,7 @@ impl Server {
             } => result,
             _ = &mut sleep_fut => {
                 tracing::debug!("Handler execution exceeded deadline");
-                self.send_error(session, Status::deadline_exceeded("Handler execution exceeded deadline")).await
+                Err(Status::deadline_exceeded("Handler execution exceeded deadline"))
             }
         }
     }
@@ -1171,7 +1140,6 @@ impl Server {
         handler_type: HandlerType,
         session: &Session,
         ctx: Context,
-        first_message: crate::ReceivedMessage,
         drain_watch: &drain::Watch,
     ) -> Result<(), Status> {
         // Calculate deadline and create sleep future
@@ -1182,27 +1150,19 @@ impl Server {
         let sleep_fut = tokio::time::sleep_until(deadline);
         tokio::pin!(sleep_fut);
 
+        // Create a oneshot channel to signal stream completion
+        let (stream_done_tx, stream_done_rx) = tokio::sync::oneshot::channel::<()>();
+
         // Create a stream of incoming requests
         let session_clone = session.clone();
         let drain_for_stream = drain_watch.clone();
 
+        // Wrap sender in Option so we can move it into the stream
+        let mut stream_done_tx = Some(stream_done_tx);
+
         let request_stream = stream! {
-            // Check if the first message is an end-of-stream marker
-            let first_code = first_message.metadata.get(STATUS_CODE_KEY)
-                .and_then(|s| s.parse::<i32>().ok())
-                .and_then(Code::from_i32)
-                .unwrap_or(Code::Ok);
-
-            // If first message is end-of-stream, don't yield it and exit immediately
-            if first_code == Code::Ok && first_message.payload.is_empty() {
-                // Empty stream - exit immediately
-                return;
-            }
-
-            // Yield the first message
-            yield Ok(first_message.payload);
-
             loop {
+                // Get the next message from the session
                 let received_result = tokio::select! {
                     result = session_clone.get_message(None) => result,
                     _ = drain_for_stream.clone().signaled() => {
@@ -1239,6 +1199,11 @@ impl Server {
 
                 yield Ok(received.payload);
             }
+
+            // Signal that the stream has completed
+            if let Some(tx) = stream_done_tx.take() {
+                let _ = tx.send(());
+            }
         };
 
         // Box and pin the stream
@@ -1248,13 +1213,7 @@ impl Server {
         tokio::select! {
             result = async {
                 // Call handler
-                let handler_result = match handler(boxed_stream, ctx).await {
-                    Ok(resp) => resp,
-                    Err(status) => {
-                        tracing::debug!(?status, "Handler returned error");
-                        return self.send_error(session, status).await;
-                    }
-                };
+                let handler_result = handler(boxed_stream, ctx).await?;
 
                 // Send responses based on handler type
                 match handler_type {
@@ -1304,8 +1263,7 @@ impl Server {
                                         })?;
                                 }
                                 Err(status) => {
-                                    self.send_error(session, status).await?;
-                                    return Ok(());
+                                    return Err(status);
                                 }
                             }
                         }
@@ -1331,13 +1289,19 @@ impl Server {
             } => result,
             _ = &mut sleep_fut => {
                 tracing::debug!("Handler execution exceeded deadline");
-                self.send_error(session, Status::deadline_exceeded("Handler execution exceeded deadline")).await
+                Err(Status::deadline_exceeded("Handler execution exceeded deadline"))
             }
             _ = drain_watch.clone().signaled() => {
                 tracing::debug!("Stream handler terminated due to server shutdown");
                 Err(Status::unavailable("Server is shutting down"))
             }
-        }
+        }?;
+
+        // Wait for the request stream to complete before returning
+        // This ensures all background tasks are finished before resource cleanup
+        let _ = stream_done_rx.await;
+
+        Ok(())
     }
 
     /// Send an error response
@@ -1355,11 +1319,16 @@ impl Server {
                 Some("msg".to_string()),
                 Some(metadata),
             )
-            .await?;
-
-        handle
             .await
-            .map_err(|e| Status::internal(format!("Failed to receive error ack: {}", e)))?;
+            .map_err(|e| {
+                tracing::warn!(error = %e, "Failed to send error response");
+                e
+            })?;
+
+        handle.await.map_err(|e| {
+            tracing::warn!(error = %e, "Failed to send error response");
+            Status::internal(format!("Failed to receive error ack: {}", e))
+        })?;
 
         Ok(())
     }

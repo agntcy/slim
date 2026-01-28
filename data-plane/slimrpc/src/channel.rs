@@ -6,6 +6,7 @@
 //! Provides a Channel type for making RPC calls to remote services.
 //! Supports all gRPC streaming patterns over SLIM sessions.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -171,9 +172,10 @@ impl Channel {
         // Wrap the entire operation in a timeout
         let result = tokio::select! {
             result = async {
-                // Create a new session for this RPC
-                let session = self.create_session(service_name, method_name).await?;
+                // Create context first so we can pass deadline in session metadata
                 let ctx = self.create_context_for_rpc(timeout, metadata).await;
+                // Create a new session for this RPC with deadline in metadata
+                let session = self.create_session(service_name, method_name, &ctx).await?;
 
                 // Send request
                 if let Err(e) = self.send_request(&session, &ctx, request, service_name, method_name).await {
@@ -273,15 +275,17 @@ impl Channel {
             let sleep_fut = tokio::time::sleep_until(deadline);
             tokio::pin!(sleep_fut);
 
+            // Create context first so we can pass deadline in session metadata
+            let ctx = channel.create_context_for_rpc(timeout, metadata.clone()).await;
+
             // Create a new session for this RPC with timeout
             let session_result = tokio::select! {
-                result = channel.create_session(&service_name, &method_name) => result,
+                result = channel.create_session(&service_name, &method_name, &ctx) => result,
                 _ = &mut sleep_fut => {
                     Err(Status::deadline_exceeded("Client deadline exceeded during unary-stream call"))
                 }
             };
             let session = session_result?;
-            let ctx = channel.create_context_for_rpc(timeout, metadata.clone()).await;
 
             // Send request with timeout
             let send_result = tokio::select! {
@@ -401,9 +405,10 @@ impl Channel {
         // Wrap the entire operation in a timeout
         let result = tokio::select! {
             result = async {
-                // Create a new session for this RPC
-                let session = self.create_session(service_name, method_name).await?;
+                // Create context first so we can pass deadline in session metadata
                 let ctx = self.create_context_for_rpc(timeout, metadata.clone()).await;
+                // Create a new session for this RPC with deadline in metadata
+                let session = self.create_session(service_name, method_name, &ctx).await?;
 
                 // Send all requests and end-of-stream marker
                 if let Err(e) = self.send_request_stream(&session, &ctx, request_stream, service_name, method_name).await {
@@ -509,15 +514,17 @@ impl Channel {
             let sleep_fut = tokio::time::sleep_until(deadline);
             let mut sleep_fut = std::pin::pin!(sleep_fut);
 
+            // Create context first so we can pass deadline in session metadata
+            let ctx = channel.create_context_for_rpc(timeout, metadata.clone()).await;
+
             // Create a new session for this RPC with timeout
             let session_result = tokio::select! {
-                result = channel.create_session(&service_name, &method_name) => result,
+                result = channel.create_session(&service_name, &method_name, &ctx) => result,
                 _ = &mut sleep_fut => {
-                    Err(Status::deadline_exceeded("Client deadline exceeded during stream operation"))
+                    Err(Status::deadline_exceeded("Client deadline exceeded during stream-stream call"))
                 }
             };
             let session = session_result?;
-            let ctx = channel.create_context_for_rpc(timeout, metadata.clone()).await;
 
             // Spawn background task to send requests concurrently with receiving
             let session_for_send = session.clone();
@@ -589,6 +596,7 @@ impl Channel {
         &self,
         service_name: &str,
         method_name: &str,
+        ctx: &Context,
     ) -> Result<Session, Status> {
         // Build method-specific subscription name (e.g., org/namespace/app-Service-Method)
         let method_subscription_name =
@@ -603,14 +611,14 @@ impl Channel {
             "Creating session"
         );
 
-        // Create session configuration (no metadata - deadline is per-RPC, not per-session)
+        // Create session configuration with deadline metadata
         let slim_config = slim_session::session_config::SessionConfig {
             session_type: ProtoSessionType::PointToPoint,
             mls_enabled: false,
             max_retries: Some(3),
             interval: Some(Duration::from_secs(1)),
             initiator: true,
-            metadata: Default::default(),
+            metadata: ctx.metadata().as_map().clone(),
         };
 
         // Create session to the method-specific subscription name
@@ -717,7 +725,7 @@ impl Channel {
     async fn send_request<Req>(
         &self,
         session: &Session,
-        ctx: &Context,
+        _ctx: &Context,
         request: Req,
         service_name: &str,
         method_name: &str,
@@ -727,11 +735,7 @@ impl Channel {
     {
         let request_bytes = request.encode()?;
         let handle = session
-            .publish(
-                request_bytes,
-                Some("msg".to_string()),
-                Some(ctx.metadata().as_map().clone()),
-            )
+            .publish(request_bytes, Some("msg".to_string()), None)
             .await?;
 
         tracing::debug!(%service_name, %method_name, "Sent request");
@@ -751,7 +755,7 @@ impl Channel {
     async fn send_request_stream<Req>(
         &self,
         session: &Session,
-        ctx: &Context,
+        _ctx: &Context,
         request_stream: impl Stream<Item = Req> + Send + 'static,
         service_name: &str,
         method_name: &str,
@@ -766,17 +770,13 @@ impl Channel {
         while let Some(request) = request_stream.next().await {
             let request_bytes = request.encode()?;
             let handle = session
-                .publish(
-                    request_bytes,
-                    Some("msg".to_string()),
-                    Some(ctx.metadata().as_map().clone()),
-                )
+                .publish(request_bytes, Some("msg".to_string()), None)
                 .await?;
             handles.push(handle);
         }
 
         // Send end-of-stream marker
-        let mut end_metadata = ctx.metadata().as_map().clone();
+        let mut end_metadata = HashMap::new();
         end_metadata.insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
         let handle = session
             .publish(Vec::new(), Some("msg".to_string()), Some(end_metadata))
