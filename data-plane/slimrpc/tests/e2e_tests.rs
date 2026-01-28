@@ -785,8 +785,8 @@ async fn test_concurrent_unary_calls() {
 
 #[tokio::test]
 #[tracing_test::traced_test]
-async fn test_session_cleanup_on_explicit_close() {
-    let mut env = TestEnv::new("test-session-cleanup").await;
+async fn test_one_session_per_rpc() {
+    let mut env = TestEnv::new("test-one-session-per-rpc").await;
 
     let call_count = Arc::new(Mutex::new(0));
     let call_count_clone = call_count.clone();
@@ -843,7 +843,7 @@ async fn test_session_cleanup_on_explicit_close() {
         .expect("First RPC call failed");
     assert_eq!(response1.count, 1);
 
-    // Second call - reuses session
+    // Second call - creates new session (no session reuse)
     let request2 = TestRequest {
         message: "second".to_string(),
         value: 2,
@@ -866,20 +866,18 @@ async fn test_session_cleanup_on_explicit_close() {
     let second_session_id = id_list[1].clone();
     drop(id_list);
 
-    // Both calls should use same session
-    assert_eq!(
+    // Each call should use different session (one session per RPC)
+    assert_ne!(
         first_session_id, second_session_id,
-        "First two calls should use same session"
+        "Each RPC call should use different session"
     );
-    tracing::info!("✓ First two calls used same session: {}", first_session_id);
+    tracing::info!("✓ First call used session: {}", first_session_id);
+    tracing::info!(
+        "✓ Second call used different session: {}",
+        second_session_id
+    );
 
-    // Explicitly close the session
-    env.channel.close_session("TestService", "Echo").await;
-
-    // Give some time for cleanup
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    // Third call - should create new session after explicit close
+    // Third call - creates another new session
     let request3 = TestRequest {
         message: "third".to_string(),
         value: 3,
@@ -897,16 +895,18 @@ async fn test_session_cleanup_on_explicit_close() {
     let third_session_id = id_list[2].clone();
     drop(id_list);
 
-    // Third call should use DIFFERENT session
+    // Third call should use DIFFERENT session from both previous calls
     assert_ne!(
         third_session_id, first_session_id,
-        "Third call should use NEW session after close, got same: {}",
-        third_session_id
+        "Third call should use different session"
+    );
+    assert_ne!(
+        third_session_id, second_session_id,
+        "Third call should use different session"
     );
     tracing::info!(
-        "✓ Third call used NEW session: {} (old was {})",
-        third_session_id,
-        first_session_id
+        "✓ Third call used yet another different session: {}",
+        third_session_id
     );
 
     // All 3 calls should have been processed
@@ -918,8 +918,8 @@ async fn test_session_cleanup_on_explicit_close() {
 
 #[tokio::test]
 #[tracing_test::traced_test]
-async fn test_session_cleanup_on_error() {
-    let mut env = TestEnv::new("test-session-error-cleanup").await;
+async fn test_session_per_rpc_even_after_error() {
+    let mut env = TestEnv::new("test-session-per-rpc-after-error").await;
 
     let call_count = Arc::new(Mutex::new(0));
     let call_count_clone = call_count.clone();
@@ -982,7 +982,7 @@ async fn test_session_cleanup_on_error() {
     assert!(result1.is_err());
     assert_eq!(result1.unwrap_err().code(), Code::Internal);
 
-    // Second call should succeed using the SAME session (no cleanup needed)
+    // Second call should succeed using a NEW session (each RPC gets its own session)
     let request2 = TestRequest {
         message: "second".to_string(),
         value: 2,
@@ -1005,14 +1005,15 @@ async fn test_session_cleanup_on_error() {
     let second_session_id = id_list[1].clone();
     drop(id_list);
 
-    // Both calls should use SAME session (session kept open after error)
-    assert_eq!(
+    // Both calls should use DIFFERENT sessions (one session per RPC)
+    assert_ne!(
         first_session_id, second_session_id,
-        "Session should be kept open after error - both calls should use same session ID"
+        "Each RPC should get its own session, even after error"
     );
     tracing::info!(
-        "✓ Session kept open after error: both calls used session {}",
-        first_session_id
+        "✓ Each RPC got its own session: first={}, second={}",
+        first_session_id,
+        second_session_id
     );
 
     env.shutdown().await;
@@ -1106,8 +1107,8 @@ async fn test_different_methods_different_sessions() {
 
 #[tokio::test]
 #[tracing_test::traced_test]
-async fn test_session_reuse_with_streaming() {
-    let mut env = TestEnv::new("test-session-reuse-streaming").await;
+async fn test_separate_sessions_for_streaming() {
+    let mut env = TestEnv::new("test-separate-sessions-streaming").await;
 
     let call_count = Arc::new(Mutex::new(0));
     let call_count_clone = call_count.clone();
@@ -1211,14 +1212,15 @@ async fn test_session_reuse_with_streaming() {
     let second_session_id = id_list[1].clone();
     drop(id_list);
 
-    // Both calls should use SAME session (session reuse)
-    assert_eq!(
+    // Both calls should use DIFFERENT sessions (one session per RPC)
+    assert_ne!(
         first_session_id, second_session_id,
-        "Both streaming calls should reuse the same session"
+        "Each streaming RPC should get its own session"
     );
     tracing::info!(
-        "✓ Both streaming calls reused session: {}",
-        first_session_id
+        "✓ Each streaming RPC got its own session: first={}, second={}",
+        first_session_id,
+        second_session_id
     );
 
     env.shutdown().await;
@@ -1226,10 +1228,10 @@ async fn test_session_reuse_with_streaming() {
 
 #[tokio::test]
 #[tracing_test::traced_test]
-async fn test_concurrent_calls_serialized() {
-    let mut env = TestEnv::new("test-serialized-calls").await;
+async fn test_concurrent_calls_independent() {
+    let mut env = TestEnv::new("test-concurrent-calls").await;
 
-    // Track concurrent execution
+    // Track concurrent execution (now multiple calls can run concurrently since no session lock)
     let active_count = Arc::new(Mutex::new(0));
     let max_concurrent = Arc::new(Mutex::new(0));
 
@@ -1274,21 +1276,7 @@ async fn test_concurrent_calls_serialized() {
 
     env.start_server().await;
 
-    // First make one call to ensure session is created and cached
-    let req = TestRequest {
-        message: "warmup".to_string(),
-        value: 0,
-    };
-    env.channel
-        .unary::<TestRequest, TestResponse>("TestService", "SlowEcho", req, None, None)
-        .await
-        .expect("Warmup call failed");
-
-    // Reset counters after warmup
-    *active_count.lock().await = 0;
-    *max_concurrent.lock().await = 0;
-
-    // Now launch concurrent calls - they should reuse the cached session and be serialized
+    // Launch concurrent calls - they should run concurrently since each RPC gets its own session
     let channel = Arc::new(env.channel.clone());
     let barrier = Arc::new(tokio::sync::Barrier::new(3));
     let mut handles = vec![];
@@ -1314,11 +1302,11 @@ async fn test_concurrent_calls_serialized() {
         handle.await.unwrap().expect("RPC should succeed");
     }
 
-    // Max concurrent should be 1 (serialized by session lock)
+    // Max concurrent should be 3 (all calls run concurrently, no session lock)
     let max = *max_concurrent.lock().await;
     assert_eq!(
-        max, 1,
-        "Calls should be serialized by session lock, not concurrent"
+        max, 3,
+        "Calls should run concurrently since each RPC gets its own session"
     );
 
     env.shutdown().await;

@@ -929,109 +929,98 @@ impl Server {
             .clone()
             .ok_or_else(|| Status::internal("drain watch not available"))?;
 
-        // Create initial context from session wrapper
-        let initial_ctx = Context::from_session_wrapper(&session).await;
+        // Create context from session wrapper
+        let ctx = Context::from_session_wrapper(&session).await;
 
-        // Loop to handle multiple RPCs on the same session
-        loop {
-            // Wait for the first message of the next RPC
-            let first_message = tokio::select! {
-                result = session.get_message(None) => {
-                    match result {
-                        Ok(msg) => msg,
-                        Err(e) => {
-                            tracing::debug!(error = %e, "Session closed or error receiving message");
-                            break;
-                        }
-                    }
-                }
-                _ = drain_watch.clone().signaled() => {
-                    tracing::debug!("Session handler terminated due to server shutdown");
-                    return Err(Status::unavailable("Server is shutting down"));
-                }
-            };
+        // Wait for the first message of the RPC
+        let first_message = tokio::select! {
+            result = session.get_message(None) => {
+                result.map_err(|e| {
+                    tracing::debug!(error = %e, "Session closed or error receiving message");
+                    Status::internal(format!("Failed to receive message: {}", e))
+                })?
+            }
+            _ = drain_watch.clone().signaled() => {
+                tracing::debug!("Session handler terminated due to server shutdown");
+                return Err(Status::unavailable("Server is shutting down"));
+            }
+        };
 
-            tracing::debug!(%method_path, "Processing RPC");
+        tracing::debug!(%method_path, "Processing RPC");
 
-            // Create context for this RPC by cloning initial context and adding message metadata
-            let ctx = initial_ctx
-                .clone()
-                .with_message_metadata(first_message.metadata.clone());
+        // Create context for this RPC by adding message metadata
+        let ctx = ctx.with_message_metadata(first_message.metadata.clone());
 
-            // Try to get as a stream handler first (for stream-unary and stream-stream)
-            // Get handlers with lock, then release before await
-            let stream_handler_opt = self.inner.registry.read().get_stream_handler(method_path);
-            let unary_handler_opt = if stream_handler_opt.is_none() {
-                self.inner.registry.read().get_handler(method_path)
-            } else {
-                None
-            };
+        // Try to get as a stream handler first (for stream-unary and stream-stream)
+        // Get handlers with lock, then release before await
+        let stream_handler_opt = self.inner.registry.read().get_stream_handler(method_path);
+        let unary_handler_opt = if stream_handler_opt.is_none() {
+            self.inner.registry.read().get_handler(method_path)
+        } else {
+            None
+        };
 
-            let result = if let Some((stream_handler, handler_type)) = stream_handler_opt {
-                // Check deadline for stream-based methods
-                if ctx.is_deadline_exceeded() {
-                    self.send_error(&session, Status::deadline_exceeded("Deadline exceeded"))
-                        .await
-                } else {
-                    self.handle_stream_based_method(
-                        stream_handler,
-                        handler_type,
-                        &session,
-                        ctx,
-                        first_message,
-                        &drain_watch,
-                    )
+        let result = if let Some((stream_handler, handler_type)) = stream_handler_opt {
+            // Check deadline for stream-based methods
+            if ctx.is_deadline_exceeded() {
+                self.send_error(&session, Status::deadline_exceeded("Deadline exceeded"))
                     .await
-                }
-            } else if let Some((handler, handler_type)) = unary_handler_opt {
-                // Check deadline
-                if ctx.is_deadline_exceeded() {
-                    self.send_error(&session, Status::deadline_exceeded("Deadline exceeded"))
-                        .await
-                } else {
-                    // Handle based on type (only unary-input handlers reach here)
-                    tokio::select! {
-                        result = async {
-                            match handler_type {
-                                HandlerType::UnaryUnary => {
-                                    self.handle_unary_unary(handler, &session, ctx, first_message).await
-                                }
-                                HandlerType::UnaryStream => {
-                                    self.handle_unary_stream(handler, &session, ctx, first_message).await
-                                }
-                                _ => {
-                                    Err(Status::internal("Invalid handler type for unary-input method"))
-                                }
-                            }
-                        } => result,
-                        _ = drain_watch.clone().signaled() => {
-                            tracing::debug!("Session handler terminated due to server shutdown");
-                            return Err(Status::unavailable("Server is shutting down"));
-                        }
-                    }
-                }
             } else {
-                self.send_error(
+                self.handle_stream_based_method(
+                    stream_handler,
+                    handler_type,
                     &session,
-                    Status::unimplemented(format!("Method not found: {}", method_path)),
+                    ctx,
+                    first_message,
+                    &drain_watch,
                 )
                 .await
-            };
-
-            if let Err(e) = result {
-                tracing::error!(%method_path, error = %e, "Error handling RPC");
-                // On error, break the loop and close the session
-                break;
             }
+        } else if let Some((handler, handler_type)) = unary_handler_opt {
+            // Check deadline
+            if ctx.is_deadline_exceeded() {
+                self.send_error(&session, Status::deadline_exceeded("Deadline exceeded"))
+                    .await
+            } else {
+                // Handle based on type (only unary-input handlers reach here)
+                tokio::select! {
+                    result = async {
+                        match handler_type {
+                            HandlerType::UnaryUnary => {
+                                self.handle_unary_unary(handler, &session, ctx, first_message).await
+                            }
+                            HandlerType::UnaryStream => {
+                                self.handle_unary_stream(handler, &session, ctx, first_message).await
+                            }
+                            _ => {
+                                Err(Status::internal("Invalid handler type for unary-input method"))
+                            }
+                        }
+                    } => result,
+                    _ = drain_watch.clone().signaled() => {
+                        tracing::debug!("Session handler terminated due to server shutdown");
+                        return Err(Status::unavailable("Server is shutting down"));
+                    }
+                }
+            }
+        } else {
+            self.send_error(
+                &session,
+                Status::unimplemented(format!("Method not found: {}", method_path)),
+            )
+            .await
+        };
 
-            // Successfully handled one RPC, continue to handle next RPC on same session
-            tracing::debug!(
-                %method_path,
-                "Completed RPC, ready for next RPC on same session"
-            );
+        if let Err(e) = &result {
+            tracing::error!(%method_path, error = %e, "Error handling RPC");
+        } else {
+            tracing::debug!(%method_path, "RPC completed successfully");
         }
 
-        Ok(())
+        // Close the session after handling one RPC
+        let _ = session.close(&self.inner.app).await;
+
+        result
     }
 
     /// Handle unary-unary RPC
