@@ -1,0 +1,408 @@
+version: '3'
+
+# Taskfile for slimctl
+# Run from control-plane/slimctl directory or use: task -d control-plane/slimctl <task-name>
+
+vars:
+  # Binary location relative to this Taskfile (control-plane/slimctl/)
+  SLIMCTL_BIN: ../../.dist/bin/slimctl
+  TESTDATA_DIR: testdata
+  TEST_CERTS_DIR: testdata/certs
+  COVERAGE_FILE: coverage.out
+  COVERAGE_HTML: coverage.html
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  help:manual:
+    desc: Show manual testing help
+    cmds:
+      - echo "╔════════════════════════════════════════════════════╗"
+      - echo "║     SLIM Manual Testing Guide                     ║"
+      - echo "╚════════════════════════════════════════════════════╝"
+      - echo ""
+      - echo "🎯 Quick Start:"
+      - echo "  task test:manual           - Complete guided workflow"
+      - echo "  task test:manual:insecure  - Test insecure mode"
+      - echo "  task test:manual:tls       - Test TLS mode"
+      - echo "  task test:manual:quick     - Quick insecure test"
+      - echo ""
+      - echo "📋 Step-by-step:"
+      - echo "  1. task setup:test-env     - Setup certs & configs"
+      - echo "  2. Build binary            - cd ../.. && task -d control-plane slimctl:build"
+      - echo "  3. task test:manual:tls    - Run TLS test"
+      - echo ""
+      - echo "🔧 Custom testing:"
+      - echo "  task test:manual:custom CONFIG=my-config.yaml"
+      - echo ""
+      - echo "🧹 Cleanup:"
+      - echo "  task clean                 - Remove test files"
+      - echo "  task clean:all             - Remove everything + binary"
+      - echo ""
+      - echo "For full command list - task --list"
+    silent: true
+
+  # Testing tasks (manual testing only - no unit tests currently)
+  test:
+    desc: Run manual tests (use test:manual for guided workflow)
+    cmds:
+      - task: test:manual
+
+  # Certificate generation tasks
+  certs:setup:
+    desc: Generate test TLS certificates (X.509 v3)
+    cmds:
+      - task: certs:clean
+      - task: certs:generate
+      - task: certs:verify
+    silent: false
+
+  certs:generate:
+    desc: Generate X.509 v3 certificates
+    cmds:
+      - echo "🔐 Generating test certificates..."
+      - mkdir -p {{.TEST_CERTS_DIR}}
+      - |
+        # Generate private key
+        openssl genrsa -out {{.TEST_CERTS_DIR}}/server-key.pem 2048 2>/dev/null
+      - |
+        # Create OpenSSL config for v3 extensions
+        cat > {{.TEST_CERTS_DIR}}/openssl.cnf <<'EOF'
+        [req]
+        default_bits = 2048
+        prompt = no
+        default_md = sha256
+        distinguished_name = dn
+        x509_extensions = v3_req
+
+        [dn]
+        C = US
+        ST = Test
+        L = Test
+        O = Test Organization
+        CN = localhost
+
+        [v3_req]
+        subjectAltName = @alt_names
+        basicConstraints = CA:FALSE
+        keyUsage = digitalSignature, keyEncipherment
+        extendedKeyUsage = serverAuth
+
+        [alt_names]
+        DNS.1 = localhost
+        DNS.2 = *.localhost
+        IP.1 = 127.0.0.1
+        IP.2 = ::1
+        EOF
+        
+        # Generate X.509 v3 certificate
+        openssl req -new -x509 -key {{.TEST_CERTS_DIR}}/server-key.pem \
+          -out {{.TEST_CERTS_DIR}}/server-cert.pem -days 365 \
+          -config {{.TEST_CERTS_DIR}}/openssl.cnf \
+          -extensions v3_req 2>/dev/null
+        
+        # Clean up config file
+        rm {{.TEST_CERTS_DIR}}/openssl.cnf
+        
+        echo "✅ Certificates generated in {{.TEST_CERTS_DIR}}/"
+    silent: false
+    status:
+      - test -f {{.TEST_CERTS_DIR}}/server-cert.pem
+      - test -f {{.TEST_CERTS_DIR}}/server-key.pem
+
+  certs:verify:
+    desc: Verify certificate version and details
+    cmds:
+      - |
+        echo "🔍 Verifying certificate..."
+        CERT_VERSION=$(openssl x509 -in {{.TEST_CERTS_DIR}}/server-cert.pem -noout -text | grep "Version:" | sed 's/.*Version: \([0-9]\).*/\1/')
+        if [ "$CERT_VERSION" = "3" ]; then
+          echo "   ✅ Certificate version: v3 (compatible with rustls)"
+        else
+          echo "   ❌ Warning: Certificate version v$CERT_VERSION may not be compatible"
+          exit 1
+        fi
+      - echo "   Certificate details:"
+      - openssl x509 -in {{.TEST_CERTS_DIR}}/server-cert.pem -noout -subject -dates
+    silent: false
+    preconditions:
+      - test -f {{.TEST_CERTS_DIR}}/server-cert.pem
+
+  certs:clean:
+    desc: Remove test certificates
+    cmds:
+      - echo "🧹 Cleaning test certificates..."
+      - rm -rf {{.TEST_CERTS_DIR}}
+      - echo "✅ Certificates removed"
+    silent: false
+
+  certs:info:
+    desc: Show certificate information
+    cmds:
+      - echo "📜 Certificate Information:"
+      - openssl x509 -in {{.TEST_CERTS_DIR}}/server-cert.pem -noout -text
+    silent: false
+    preconditions:
+      - test -f {{.TEST_CERTS_DIR}}/server-cert.pem
+
+  # Test configuration tasks
+  configs:setup:
+    desc: Generate test configuration files
+    cmds:
+      - echo "📝 Creating test configuration files..."
+      - task: configs:insecure
+      - task: configs:tls
+      - echo "✅ Test configuration files created"
+    silent: false
+
+  configs:insecure:
+    desc: Create insecure test config
+    cmds:
+      - mkdir -p {{.TESTDATA_DIR}}
+      - |
+        cat > {{.TESTDATA_DIR}}/test-insecure.yaml <<'EOF'
+        # Test configuration - Insecure mode
+        endpoint: "127.0.0.1:9090"
+        tls:
+          insecure: true
+        EOF
+        echo "   Created: {{.TESTDATA_DIR}}/test-insecure.yaml"
+    silent: false
+
+  configs:tls:
+    desc: Create TLS test config
+    cmds:
+      - mkdir -p {{.TESTDATA_DIR}}
+      - |
+        cat > {{.TESTDATA_DIR}}/test-tls.yaml <<'EOF'
+        # Test configuration - TLS enabled
+        endpoint: "127.0.0.1:8443"
+        tls:
+          insecure: false
+          cert_file: "testdata/certs/server-cert.pem"
+          key_file: "testdata/certs/server-key.pem"
+        EOF
+        echo "   Created: {{.TESTDATA_DIR}}/test-tls.yaml"
+    silent: false
+
+  configs:clean:
+    desc: Remove test configuration files
+    cmds:
+      - echo "🧹 Cleaning test configuration files..."
+      - rm -f {{.TESTDATA_DIR}}/test-insecure.yaml {{.TESTDATA_DIR}}/test-tls.yaml
+      - echo "✅ Test configs removed"
+    silent: false
+
+  # Setup tasks
+  setup:test-env:
+    desc: Complete test environment setup (certificates + configs)
+    cmds:
+      - echo "🔧 Setting up test environment..."
+      - task: certs:setup
+      - task: configs:setup
+      - echo ""
+      - echo "✅ Test environment ready!"
+      - echo ""
+      - echo "You can now test with:"
+      - echo "  • task run:insecure"
+      - echo "  • task run:tls"
+      - echo "  • {{.SLIMCTL_BIN}} slim start --config {{.TESTDATA_DIR}}/test-insecure.yaml"
+      - echo ""
+    silent: false
+
+  # Manual testing tasks
+  test:manual:
+    desc: Complete manual testing workflow (setup + run)
+    cmds:
+      - echo "╔════════════════════════════════════════════════════╗"
+      - echo "║     SLIM Manual Testing Workflow                  ║"
+      - echo "╚════════════════════════════════════════════════════╝"
+      - echo ""
+      - echo "📋 Step 1/4 - Setting up test environment..."
+      - task: setup:test-env
+      - echo ""
+      - echo "📋 Step 2/4 - Verifying binary..."
+      - task: verify:binary
+      - echo ""
+      - echo "📋 Step 3/4 - Environment ready!"
+      - echo ""
+      - echo "Available test scenarios:"
+      - echo "  1️⃣  Insecure mode - task test:manual:insecure"
+      - echo "  2️⃣  TLS mode - task test:manual:tls"
+      - echo "  3️⃣  Custom config - task test:manual:custom CONFIG=path/to/config.yaml"
+      - echo ""
+      - echo "Or run directly:"
+      - echo "  {{.SLIMCTL_BIN}} slim start --endpoint 127.0.0.1:9090 --insecure"
+      - echo "  {{.SLIMCTL_BIN}} slim start --config {{.TESTDATA_DIR}}/test-tls.yaml"
+      - echo ""
+      - echo "📋 Step 4/4 - Choose a test scenario above and run it! 🚀"
+    silent: false
+
+  test:manual:insecure:
+    desc: Manual test - Run insecure mode workflow
+    deps:
+      - setup:test-env
+      - verify:binary
+    cmds:
+      - echo "╔════════════════════════════════════════════════════╗"
+      - echo "║     Manual Test - Insecure Mode                   ║"
+      - echo "╚════════════════════════════════════════════════════╝"
+      - echo ""
+      - echo "📊 Test Configuration:"
+      - echo "  • Mode - Insecure (no TLS)"
+      - echo "  • Endpoint - 127.0.0.1:9090"
+      - echo "  • Config - CLI flags only"
+      - echo ""
+      - echo "🚀 Starting server..."
+      - echo "   (Press Ctrl+C to stop)"
+      - echo ""
+      - "{{.SLIMCTL_BIN}} slim start --endpoint 127.0.0.1:9090 --insecure"
+    silent: false
+
+  test:manual:tls:
+    desc: Manual test - Run TLS mode workflow
+    deps:
+      - setup:test-env
+      - verify:binary
+    cmds:
+      - echo "╔════════════════════════════════════════════════════╗"
+      - echo "║     Manual Test - TLS Mode                        ║"
+      - echo "╚════════════════════════════════════════════════════╝"
+      - echo ""
+      - echo "📊 Test Configuration:"
+      - echo "  • Mode - TLS enabled"
+      - echo "  • Endpoint - 127.0.0.1:8443"
+      - echo "  • Config file - {{.TESTDATA_DIR}}/test-tls.yaml"
+      - echo "  • Certificate - {{.TEST_CERTS_DIR}}/server-cert.pem"
+      - echo "  • Key - {{.TEST_CERTS_DIR}}/server-key.pem"
+      - echo ""
+      - echo "🔍 Certificate verification:"
+      - task: certs:verify
+      - echo ""
+      - echo "🚀 Starting server..."
+      - echo "   (Press Ctrl+C to stop)"
+      - echo ""
+      - "{{.SLIMCTL_BIN}} slim start --config {{.TESTDATA_DIR}}/test-tls.yaml"
+    silent: false
+
+  test:manual:custom:
+    desc: Manual test - Run with custom config file
+    deps:
+      - verify:binary
+    cmds:
+      - echo "╔════════════════════════════════════════════════════╗"
+      - echo "║     Manual Test - Custom Configuration            ║"
+      - echo "╚════════════════════════════════════════════════════╝"
+      - echo ""
+      - echo "📊 Test Configuration:"
+      - echo "  • Config file - {{.CONFIG}}"
+      - echo ""
+      - echo "📄 Config contents:"
+      - cat {{.CONFIG}}
+      - echo ""
+      - echo "🚀 Starting server..."
+      - echo "   (Press Ctrl+C to stop)"
+      - echo ""
+      - "{{.SLIMCTL_BIN}} slim start --config {{.CONFIG}}"
+    silent: false
+    requires:
+      vars: [CONFIG]
+    preconditions:
+      - sh: test -f {{.CONFIG}}
+        msg: "Config file not found: {{.CONFIG}}"
+
+  test:manual:quick:
+    desc: Quick manual test - insecure mode (minimal output)
+    deps:
+      - setup:test-env
+      - verify:binary
+    cmds:
+      - "{{.SLIMCTL_BIN}} slim start --endpoint 127.0.0.1:9090 --insecure"
+    silent: false
+
+  # Run tasks (for quick testing)
+  run:insecure:
+    desc: Run slimctl in insecure mode (for testing)
+    cmds:
+      - echo "🚀 Starting slimctl in insecure mode..."
+      - "{{.SLIMCTL_BIN}} slim start --endpoint 127.0.0.1:9090 --insecure"
+    silent: false
+    preconditions:
+      - sh: test -f {{.SLIMCTL_BIN}}
+        msg: "slimctl binary not found at {{.SLIMCTL_BIN}}. Build it first with: cd ../.. && task -d control-plane slimctl:build"
+
+  run:tls:
+    desc: Run slimctl with TLS (for testing)
+    deps:
+      - certs:setup
+      - configs:tls
+    cmds:
+      - echo "🚀 Starting slimctl with TLS..."
+      - "{{.SLIMCTL_BIN}} slim start --config {{.TESTDATA_DIR}}/test-tls.yaml"
+    silent: false
+    preconditions:
+      - sh: test -f {{.SLIMCTL_BIN}}
+        msg: "slimctl binary not found at {{.SLIMCTL_BIN}}. Build it first with: cd ../.. && task -d control-plane slimctl:build"
+
+  run:config:
+    desc: Run slimctl with custom config file
+    cmds:
+      - echo "🚀 Starting slimctl with config:{{.CONFIG}}"
+      - "{{.SLIMCTL_BIN}} slim start --config {{.CONFIG}}"
+    silent: false
+    preconditions:
+      - sh: test -f {{.SLIMCTL_BIN}}
+        msg: "slimctl binary not found at {{.SLIMCTL_BIN}}. Build it first with: cd ../.. && task -d control-plane slimctl:build"
+      - sh: test -f {{.CONFIG}}
+        msg: "Config file not found: {{.CONFIG}}"
+    requires:
+      vars: [CONFIG]
+
+  # Clean tasks
+  clean:
+    desc: Clean all generated test files
+    cmds:
+      - echo "🧹 Cleaning generated files..."
+      - task: certs:clean
+      - task: configs:clean
+      - echo "✅ Clean complete"
+    silent: false
+
+  clean:all:
+    desc: Clean everything including binary
+    cmds:
+      - task: clean
+      - rm -f {{.SLIMCTL_BIN}}
+      - echo "✅ All clean (including binary at {{.SLIMCTL_BIN}})"
+    silent: false
+
+  # Validation tasks
+  validate:
+    desc: Validate test environment setup
+    cmds:
+      - echo "🔍 Validating test environment..."
+      - task: verify:binary
+      - task: certs:verify
+      - echo "✅ Validation complete"
+    silent: false
+
+  verify:binary:
+    desc: Verify slimctl binary exists and show version
+    cmds:
+      - |
+        if [ ! -f "{{.SLIMCTL_BIN}}" ]; then
+          echo "❌ Binary not found at: {{.SLIMCTL_BIN}}"
+          echo ""
+          echo "Build it with:"
+          echo "  cd ../.. && task -d control-plane slimctl:build"
+          exit 1
+        fi
+        echo "✅ Binary found: {{.SLIMCTL_BIN}}"
+        echo ""
+        echo "Version info:"
+        {{.SLIMCTL_BIN}} version 2>/dev/null || echo "  (version command not available)"
+    silent: false
