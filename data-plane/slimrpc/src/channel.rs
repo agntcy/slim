@@ -623,9 +623,7 @@ impl Channel {
 
                 // Create new session if not in cache
                 tracing::debug!(%service_name, %method_name, "Creating new session");
-                let session = self
-                    .create_session(service_name, method_name)
-                    .await?;
+                let session = self.create_session(service_name, method_name).await?;
                 let lock = Arc::new(Mutex::new(()));
 
                 // Store in cache
@@ -840,7 +838,7 @@ impl Channel {
                 "Failed to complete sending request for {}-{}: {}",
                 service_name,
                 method_name,
-                e.chain().to_string()
+                e.chain()
             ))
         })?;
 
@@ -889,7 +887,7 @@ impl Channel {
                     "Failed to complete sending request for {}-{}: {}",
                     service_name,
                     method_name,
-                    e.chain().to_string()
+                    e.chain()
                 ))
             })?;
         }

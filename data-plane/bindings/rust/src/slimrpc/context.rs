@@ -79,16 +79,6 @@ impl Context {
     pub(crate) fn from_inner(inner: SlimContext) -> Self {
         Self { inner }
     }
-
-    /// Get reference to inner context
-    pub(crate) fn inner(&self) -> &SlimContext {
-        &self.inner
-    }
-
-    /// Convert to inner context
-    pub(crate) fn into_inner(self) -> SlimContext {
-        self.inner
-    }
 }
 
 /// Session-level context information

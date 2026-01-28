@@ -8,10 +8,11 @@
 use std::fmt;
 
 /// gRPC status codes
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[repr(i32)]
 pub enum Code {
     /// Success
+    #[default]
     Ok = 0,
     /// The operation was cancelled
     Cancelled = 1,
@@ -108,12 +109,6 @@ impl Code {
             Code::DataLoss => "DATA_LOSS",
             Code::Unauthenticated => "UNAUTHENTICATED",
         }
-    }
-}
-
-impl Default for Code {
-    fn default() -> Self {
-        Code::Ok
     }
 }
 

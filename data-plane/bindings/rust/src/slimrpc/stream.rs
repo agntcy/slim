@@ -9,9 +9,6 @@ use std::sync::Arc;
 
 use crate::slimrpc::error::RpcError;
 
-/// Result type for stream operations
-pub type StreamResult<T> = Result<T, RpcError>;
-
 /// Request sender trait for stream-to-unary and stream-to-stream client calls
 ///
 /// This trait allows applications to send multiple request messages in a streaming fashion.
@@ -103,16 +100,6 @@ impl RequestSender for VectorRequestSender {
         Ok(())
     }
 }
-
-/// Request stream type alias
-///
-/// Represents a stream of request messages for stream-based RPC handlers.
-pub type RequestStream = crate::slimrpc::types::RequestStream;
-
-/// Response stream type alias
-///
-/// Represents a stream of response messages.
-pub type ResponseStream = crate::slimrpc::types::ResponseStream;
 
 #[cfg(test)]
 mod tests {

@@ -10,6 +10,7 @@
 //! - Stream-Stream: Streaming requests, streaming responses
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use slim_bindings::{
     App, Direction, IdentityProviderConfig, IdentityVerifierConfig, Name, RpcCode, RpcError,
@@ -32,6 +33,7 @@ impl UnaryUnaryHandler for EchoHandler {
         _context: Arc<slim_bindings::RpcContext>,
     ) -> Result<Vec<u8>, RpcError> {
         // Echo the request back
+        println!("EchoHandler received request: {:?}", request);
         Ok(request)
     }
 }
@@ -242,6 +244,7 @@ impl StreamStreamHandler for TransformHandler {
 struct TestEnv {
     server: Arc<RpcServer>,
     _app: Arc<App>,
+    _server_handle: tokio::task::JoinHandle<()>,
 }
 
 impl TestEnv {
@@ -285,10 +288,22 @@ impl TestEnv {
         let server = RpcServer::new(&server_app, server_name.clone());
         println!("RPC server created");
 
+        // Start server in background
+        println!("Starting server in background...");
+        let server_clone = server.clone();
+        let server_handle = tokio::spawn(async move {
+            println!("Server serve_async starting...");
+            let _ = server_clone.serve_async().await;
+        });
+
+        // Give server time to start
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
         println!("TestEnv::new completed for {}", test_name);
         Self {
             server,
             _app: server_app,
+            _server_handle: server_handle,
         }
     }
 
@@ -338,13 +353,14 @@ async fn test_unary_unary_rpc() {
 
     // Register echo handler
     println!("Registering EchoHandler...");
-    env.server.register_unary_unary(
-        "TestService".to_string(),
-        "Echo".to_string(),
-        Arc::new(EchoHandler),
-    )
-    .await
-    .expect("Failed to register handler");
+    env.server
+        .register_unary_unary(
+            "TestService".to_string(),
+            "Echo".to_string(),
+            Arc::new(EchoHandler),
+        )
+        .await
+        .expect("Failed to register handler");
 
     println!("Creating channel...");
     let channel = env.create_client("unary-echo").await;
@@ -357,7 +373,7 @@ async fn test_unary_unary_rpc() {
             "TestService".to_string(),
             "Echo".to_string(),
             request.clone(),
-            Some(5000),
+            Some(Duration::from_secs(5)),
         )
         .await
         .expect("Unary call failed");
@@ -374,22 +390,14 @@ async fn test_unary_unary_error_handling() {
     let env = TestEnv::new("unary-error").await;
 
     // Register error handler
-    env.server.register_unary_unary(
-        "TestService".to_string(),
-        "Error".to_string(),
-        Arc::new(ErrorHandler),
-    )
-    .await
-    .expect("Failed to register handler");
-
-    // Start serving in background after registration
-    let server_clone = env.server.clone();
-    tokio::spawn(async move {
-        let _ = server_clone.serve_async().await;
-    });
-
-    // Give server time to start
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    env.server
+        .register_unary_unary(
+            "TestService".to_string(),
+            "Error".to_string(),
+            Arc::new(ErrorHandler),
+        )
+        .await
+        .expect("Failed to register handler");
 
     let channel = env.create_client("unary-error").await;
 
@@ -400,7 +408,7 @@ async fn test_unary_unary_error_handling() {
             "TestService".to_string(),
             "Error".to_string(),
             request,
-            Some(5000),
+            Some(Duration::from_secs(30)),
         )
         .await;
 
@@ -422,22 +430,14 @@ async fn test_unary_stream_rpc() {
     let env = TestEnv::new("unary-stream").await;
 
     // Register counter handler
-    env.server.register_unary_stream(
-        "TestService".to_string(),
-        "Counter".to_string(),
-        Arc::new(CounterHandler),
-    )
-    .await
-    .expect("Failed to register handler");
-
-    // Start serving in background after registration
-    let server_clone = env.server.clone();
-    tokio::spawn(async move {
-        let _ = server_clone.serve_async().await;
-    });
-
-    // Give server time to start
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    env.server
+        .register_unary_stream(
+            "TestService".to_string(),
+            "Counter".to_string(),
+            Arc::new(CounterHandler),
+        )
+        .await
+        .expect("Failed to register handler");
 
     let channel = env.create_client("unary-stream").await;
 
@@ -450,7 +450,7 @@ async fn test_unary_stream_rpc() {
             "TestService".to_string(),
             "Counter".to_string(),
             request,
-            Some(5000),
+            Some(Duration::from_secs(30)),
         )
         .await
         .expect("Unary stream call failed");
@@ -485,22 +485,14 @@ async fn test_unary_stream_error_handling() {
 
     // Register error handler
     // Register stream error handler
-    env.server.register_unary_stream(
-        "TestService".to_string(),
-        "StreamError".to_string(),
-        Arc::new(StreamErrorHandler),
-    )
-    .await
-    .expect("Failed to register handler");
-
-    // Start serving in background after registration
-    let server_clone = env.server.clone();
-    tokio::spawn(async move {
-        let _ = server_clone.serve_async().await;
-    });
-
-    // Give server time to start
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    env.server
+        .register_unary_stream(
+            "TestService".to_string(),
+            "StreamError".to_string(),
+            Arc::new(StreamErrorHandler),
+        )
+        .await
+        .expect("Failed to register handler");
 
     let channel = env.create_client("unary-stream-error").await;
 
@@ -509,7 +501,7 @@ async fn test_unary_stream_error_handling() {
             "TestService".to_string(),
             "StreamError".to_string(),
             vec![1],
-            Some(5000),
+            Some(Duration::from_secs(30)),
         )
         .await
         .expect("Unary stream call failed");
@@ -549,26 +541,89 @@ async fn test_stream_unary_rpc() {
     let env = TestEnv::new("stream-unary").await;
 
     // Register accumulator handler
-    env.server.register_stream_unary(
+    env.server
+        .register_stream_unary(
+            "TestService".to_string(),
+            "Accumulate".to_string(),
+            Arc::new(AccumulatorHandler),
+        )
+        .await
+        .expect("Failed to register handler");
+
+    let channel = env.create_client("stream-unary").await;
+
+    // Create stream writer
+    let writer = channel.call_stream_unary(
         "TestService".to_string(),
         "Accumulate".to_string(),
-        Arc::new(AccumulatorHandler),
-    )
-    .await
-    .expect("Failed to register handler");
+        Some(Duration::from_secs(30)),
+    );
 
-    // Start serving in background after registration
-    let server_clone = env.server.clone();
-    tokio::spawn(async move {
-        let _ = server_clone.serve_async().await;
-    });
+    // Send multiple values
+    let values = vec![10u32, 20u32, 30u32, 40u32];
+    for value in &values {
+        writer
+            .send_async(value.to_le_bytes().to_vec())
+            .await
+            .expect("Failed to send");
+    }
 
-    // Give server time to start
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    // Finalize and get response
+    let response = writer.finalize_async().await.expect("Failed to finalize");
 
-    // Note: Stream-unary client calls are not yet implemented in the channel wrapper
-    // This test would require implementing stream_unary on the RpcChannel
-    // For now, we mark it as a TODO
+    // Parse response: total (4 bytes) + count (4 bytes)
+    assert_eq!(response.len(), 8);
+    let total = u32::from_le_bytes([response[0], response[1], response[2], response[3]]);
+    let count = u32::from_le_bytes([response[4], response[5], response[6], response[7]]);
+
+    assert_eq!(total, 100); // 10 + 20 + 30 + 40
+    assert_eq!(count, 4);
+
+    env.server.shutdown_async().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_stream_unary_error_handling() {
+    let env = TestEnv::new("stream-unary-error").await;
+
+    // Register error handler
+    env.server
+        .register_stream_unary(
+            "TestService".to_string(),
+            "StreamInputError".to_string(),
+            Arc::new(StreamInputErrorHandler),
+        )
+        .await
+        .expect("Failed to register handler");
+
+    let channel = env.create_client("stream-unary-error").await;
+
+    // Create stream writer
+    let writer = channel.call_stream_unary(
+        "TestService".to_string(),
+        "StreamInputError".to_string(),
+        Some(Duration::from_secs(30)),
+    );
+
+    // Send a valid message
+    writer
+        .send_async(vec![1, 2, 3])
+        .await
+        .expect("Failed to send");
+
+    // Send an invalid message (starts with 255)
+    writer
+        .send_async(vec![255, 0, 0])
+        .await
+        .expect("Failed to send");
+
+    // Finalize - should get an error
+    let result = writer.finalize_async().await;
+    assert!(result.is_err());
+    let error = result.unwrap_err();
+    assert_eq!(error.code(), RpcCode::InvalidArgument);
+    assert!(error.message().contains("Invalid data"));
 
     env.server.shutdown_async().await;
 }
@@ -582,28 +637,53 @@ async fn test_stream_unary_rpc() {
 async fn test_stream_stream_echo() {
     let env = TestEnv::new("stream-stream-echo").await;
 
-    // Register echo handler
     // Register stream echo handler
-    env.server.register_stream_stream(
+    env.server
+        .register_stream_stream(
+            "TestService".to_string(),
+            "StreamEcho".to_string(),
+            Arc::new(StreamEchoHandler),
+        )
+        .await
+        .expect("Failed to register handler");
+
+    let channel = env.create_client("stream-stream-echo").await;
+
+    // Create bidirectional stream
+    let handler = channel.call_stream_stream(
         "TestService".to_string(),
         "StreamEcho".to_string(),
-        Arc::new(StreamEchoHandler),
-    )
-    .await
-    .expect("Failed to register handler");
+        Some(Duration::from_secs(30)),
+    );
 
-    // Start serving in background after registration
-    let server_clone = env.server.clone();
-    tokio::spawn(async move {
-        let _ = server_clone.serve_async().await;
-    });
+    // Send messages
+    let messages = vec![vec![1, 2, 3], vec![4, 5, 6], vec![7, 8, 9]];
+    for msg in &messages {
+        handler
+            .send_async(msg.clone())
+            .await
+            .expect("Failed to send");
+    }
 
-    // Give server time to start
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    // Close send side
+    handler.close_send_async().await.expect("Failed to close");
 
-    // Note: Stream-stream client calls are not yet implemented in the channel wrapper
-    // This test would require implementing stream_stream on the RpcChannel
-    // For now, we mark it as a TODO
+    // Receive echoed messages
+    let mut received = Vec::new();
+    loop {
+        match handler.recv_async().await {
+            StreamMessage::Data(data) => {
+                received.push(data);
+            }
+            StreamMessage::Error(e) => {
+                panic!("Unexpected error: {:?}", e);
+            }
+            StreamMessage::End => break,
+        }
+    }
+
+    assert_eq!(received.len(), 3);
+    assert_eq!(received, messages);
 
     env.server.shutdown_async().await;
 }
@@ -614,26 +694,59 @@ async fn test_stream_stream_transform() {
     let env = TestEnv::new("stream-stream-transform").await;
 
     // Register transform handler
-    env.server.register_stream_stream(
+    env.server
+        .register_stream_stream(
+            "TestService".to_string(),
+            "Transform".to_string(),
+            Arc::new(TransformHandler),
+        )
+        .await
+        .expect("Failed to register handler");
+
+    let channel = env.create_client("stream-stream-transform").await;
+
+    // Create bidirectional stream
+    let handler = channel.call_stream_stream(
         "TestService".to_string(),
         "Transform".to_string(),
-        Arc::new(TransformHandler),
-    )
-    .await
-    .expect("Failed to register handler");
+        Some(Duration::from_secs(30)),
+    );
 
-    // Start serving in background after registration
-    let server_clone = env.server.clone();
-    tokio::spawn(async move {
-        let _ = server_clone.serve_async().await;
+    // Send messages in a separate task
+    let handler_clone = handler.clone();
+    let send_handle = tokio::spawn(async move {
+        let messages = vec![vec![1, 2, 3], vec![10, 20, 30], vec![100]];
+        for msg in messages {
+            handler_clone.send_async(msg).await.expect("Failed to send");
+        }
+        handler_clone
+            .close_send_async()
+            .await
+            .expect("Failed to close");
     });
 
-    // Give server time to start
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    // Receive transformed messages
+    let mut received = Vec::new();
+    loop {
+        match handler.recv_async().await {
+            StreamMessage::Data(data) => {
+                received.push(data);
+            }
+            StreamMessage::Error(e) => {
+                panic!("Unexpected error: {:?}", e);
+            }
+            StreamMessage::End => break,
+        }
+    }
 
-    // Note: Stream-stream client calls are not yet implemented in the channel wrapper
-    // This test would require implementing stream_stream on the RpcChannel
-    // For now, we mark it as a TODO
+    // Wait for send to complete
+    send_handle.await.expect("Send task failed");
+
+    // Verify transformation (each byte doubled)
+    assert_eq!(received.len(), 3);
+    assert_eq!(received[0], vec![2, 4, 6]); // [1,2,3] * 2
+    assert_eq!(received[1], vec![20, 40, 60]); // [10,20,30] * 2
+    assert_eq!(received[2], vec![200]); // [100] * 2
 
     env.server.shutdown_async().await;
 }
@@ -657,15 +770,6 @@ async fn test_concurrent_unary_calls() {
         .await
         .expect("Failed to register handler");
 
-    // Start serving in background after registration
-    let server_clone = env.server.clone();
-    tokio::spawn(async move {
-        let _ = server_clone.serve_async().await;
-    });
-
-    // Give server time to start
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
     let channel = env.create_client("concurrent").await;
 
     // Make 10 concurrent calls
@@ -679,7 +783,7 @@ async fn test_concurrent_unary_calls() {
                     "TestService".to_string(),
                     "Echo".to_string(),
                     request.clone(),
-                    Some(5000),
+                    Some(Duration::from_secs(30)),
                 )
                 .await
                 .expect("Unary call failed");
@@ -788,15 +892,6 @@ async fn test_context_access() {
         .await
         .expect("Failed to register handler");
 
-    // Start serving in background after registration
-    let server_clone = env.server.clone();
-    tokio::spawn(async move {
-        let _ = server_clone.serve_async().await;
-    });
-
-    // Give server time to start
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
     let channel = env.create_client("context").await;
 
     let response = channel
@@ -804,7 +899,7 @@ async fn test_context_access() {
             "TestService".to_string(),
             "ContextInfo".to_string(),
             vec![],
-            Some(5000),
+            Some(Duration::from_secs(30)),
         )
         .await
         .expect("Context call failed");

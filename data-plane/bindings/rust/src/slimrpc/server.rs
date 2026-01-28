@@ -19,12 +19,12 @@ use slim_session::notification::Notification;
 
 use crate::slimrpc::context::Context;
 use crate::slimrpc::error::RpcError;
-use slim_service::app::App as SlimApp;
 use crate::slimrpc::handler::{
     StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
 };
 use crate::slimrpc::types::{RequestStream, ResponseSink};
 use crate::{App, Name};
+use slim_service::app::App as SlimApp;
 
 /// RPC Server for handling incoming RPC calls
 ///
@@ -113,6 +113,10 @@ impl Server {
     ) -> Result<(), RpcError> {
         let handler_clone = handler.clone();
 
+        let service_clone = service_name.clone();
+        let method_clone = method_name.clone();
+
+        tracing::debug!(service = %service_clone, method = %method_clone, "Registering unary-unary handler");
         self.inner
             .register_unary_unary(
                 &service_name,
@@ -120,6 +124,8 @@ impl Server {
                 move |request: Vec<u8>, context: slim_rpc::Context| {
                     let handler = handler_clone.clone();
                     let ctx = Context::from_inner(context);
+
+                    tracing::debug!(service = %service_clone, method = %method_clone, "Handling unary-unary request");
 
                     Box::pin(async move {
                         let result = handler.handle(request, Arc::new(ctx)).await;

@@ -32,6 +32,12 @@ pub struct Context {
     deadline: Option<SystemTime>,
 }
 
+impl Default for Context {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Context {
     /// Create a new empty context
     pub fn new() -> Self {

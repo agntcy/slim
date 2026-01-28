@@ -8,9 +8,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use async_stream::stream;
 use futures::StreamExt;
 use slim_rpc::Channel as CoreChannel;
-use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use crate::slimrpc::error::RpcError;
 use crate::slimrpc::types::StreamMessage;
@@ -30,6 +30,7 @@ pub struct Channel {
 #[uniffi::export]
 impl Channel {
     /// Create a new RPC channel
+    /// Make a unary-to-unary RPC call (blocking version)
     ///
     /// # Arguments
     /// * `app` - The SLIM application instance
@@ -40,7 +41,7 @@ impl Channel {
     #[uniffi::constructor]
     pub fn new(app: Arc<App>, remote: Arc<Name>) -> Arc<Self> {
         let slim_name = remote.as_ref().clone().into();
-        let inner = CoreChannel::new(app.inner().clone(), slim_name);
+        let inner = CoreChannel::new(app.inner(), slim_name);
 
         Arc::new(Self { inner })
     }
@@ -51,7 +52,7 @@ impl Channel {
     /// * `service_name` - The service name (e.g., "MyService")
     /// * `method_name` - The method name (e.g., "GetUser")
     /// * `request` - The request message bytes
-    /// * `timeout_ms` - Optional timeout in milliseconds
+    /// * `timeout` - Optional timeout duration
     ///
     /// # Returns
     /// The response message bytes or an error
@@ -60,13 +61,13 @@ impl Channel {
         service_name: String,
         method_name: String,
         request: Vec<u8>,
-        timeout_ms: Option<u64>,
+        timeout: Option<Duration>,
     ) -> Result<Vec<u8>, RpcError> {
         crate::get_runtime().block_on(self.call_unary_async(
             service_name,
             method_name,
             request,
-            timeout_ms,
+            timeout,
         ))
     }
 
@@ -76,7 +77,7 @@ impl Channel {
     /// * `service_name` - The service name (e.g., "MyService")
     /// * `method_name` - The method name (e.g., "GetUser")
     /// * `request` - The request message bytes
-    /// * `timeout_ms` - Optional timeout in milliseconds
+    /// * `timeout` - Optional timeout duration
     ///
     /// # Returns
     /// The response message bytes or an error
@@ -85,14 +86,12 @@ impl Channel {
         service_name: String,
         method_name: String,
         request: Vec<u8>,
-        timeout_ms: Option<u64>,
+        timeout: Option<Duration>,
     ) -> Result<Vec<u8>, RpcError> {
-        let timeout = timeout_ms.map(Duration::from_millis);
-
-        self.inner
+        Ok(self
+            .inner
             .unary(&service_name, &method_name, request, timeout, None)
-            .await
-            .map_err(|e| RpcError::new(e.code().into(), e.message().unwrap_or("").to_string()))
+            .await?)
     }
 
     /// Make a unary-to-stream RPC call (blocking version)
@@ -101,7 +100,7 @@ impl Channel {
     /// * `service_name` - The service name
     /// * `method_name` - The method name
     /// * `request` - The request message bytes
-    /// * `timeout_ms` - Optional timeout in milliseconds
+    /// * `timeout` - Optional timeout duration
     ///
     /// # Returns
     /// A stream receiver for pulling response messages
@@ -114,13 +113,13 @@ impl Channel {
         service_name: String,
         method_name: String,
         request: Vec<u8>,
-        timeout_ms: Option<u64>,
+        timeout: Option<Duration>,
     ) -> Result<Arc<ResponseStreamReader>, RpcError> {
         crate::get_runtime().block_on(self.call_unary_stream_async(
             service_name,
             method_name,
             request,
-            timeout_ms,
+            timeout,
         ))
     }
 
@@ -130,7 +129,7 @@ impl Channel {
     /// * `service_name` - The service name
     /// * `method_name` - The method name
     /// * `request` - The request message bytes
-    /// * `timeout_ms` - Optional timeout in milliseconds
+    /// * `timeout` - Optional timeout duration
     ///
     /// # Returns
     /// A stream receiver for pulling response messages
@@ -143,9 +142,8 @@ impl Channel {
         service_name: String,
         method_name: String,
         request: Vec<u8>,
-        timeout_ms: Option<u64>,
+        timeout: Option<Duration>,
     ) -> Result<Arc<ResponseStreamReader>, RpcError> {
-        let timeout = timeout_ms.map(Duration::from_millis);
         let channel = self.inner.clone();
 
         // Create a channel to transfer stream items
@@ -170,18 +168,61 @@ impl Channel {
             }
         });
 
-        // Convert receiver to a BoxStream
-        let receiver_stream = UnboundedReceiverStream::new(rx);
-        let boxed_stream = Box::pin(receiver_stream);
-
-        Ok(Arc::new(ResponseStreamReader::new(boxed_stream)))
+        Ok(Arc::new(ResponseStreamReader::new(rx)))
     }
-}
 
-impl Channel {
-    /// Get reference to inner channel (for internal use)
-    pub(crate) fn inner(&self) -> &CoreChannel {
-        &self.inner
+    /// Make a stream-to-unary RPC call (blocking version)
+    ///
+    /// # Arguments
+    /// * `service_name` - The service name
+    /// * `method_name` - The method name
+    /// * `timeout` - Optional timeout duration
+    ///
+    /// # Returns
+    /// A RequestStreamWriter for sending request messages and getting the final response
+    ///
+    /// # Note
+    /// This returns a RequestStreamWriter that can be used to send multiple request
+    /// messages and then finalize to get the single response.
+    pub fn call_stream_unary(
+        &self,
+        service_name: String,
+        method_name: String,
+        timeout: Option<Duration>,
+    ) -> Arc<RequestStreamWriter> {
+        Arc::new(RequestStreamWriter::new(
+            self.inner.clone(),
+            service_name,
+            method_name,
+            timeout,
+        ))
+    }
+
+    /// Make a stream-to-stream RPC call (blocking version)
+    ///
+    /// # Arguments
+    /// * `service_name` - The service name
+    /// * `method_name` - The method name
+    /// * `timeout` - Optional timeout duration
+    ///
+    /// # Returns
+    /// A BidiStreamHandler for sending and receiving messages
+    ///
+    /// # Note
+    /// This returns a BidiStreamHandler that can be used to send request messages
+    /// and read response messages concurrently.
+    pub fn call_stream_stream(
+        &self,
+        service_name: String,
+        method_name: String,
+        timeout: Option<Duration>,
+    ) -> Arc<BidiStreamHandler> {
+        Arc::new(BidiStreamHandler::new(
+            self.inner.clone(),
+            service_name,
+            method_name,
+            timeout,
+        ))
     }
 }
 
@@ -190,19 +231,18 @@ impl Channel {
 /// Allows pulling messages from a server response stream one at a time.
 #[derive(uniffi::Object)]
 pub struct ResponseStreamReader {
-    /// Inner stream wrapped for async access
-    inner: Arc<
-        tokio::sync::Mutex<futures::stream::BoxStream<'static, Result<Vec<u8>, slim_rpc::Status>>>,
-    >,
+    /// Inner receiver channel for stream messages
+    inner:
+        tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, slim_rpc::Status>>>,
 }
 
 impl ResponseStreamReader {
     /// Create a new response stream reader
     pub(crate) fn new(
-        stream: futures::stream::BoxStream<'static, Result<Vec<u8>, slim_rpc::Status>>,
+        rx: tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, slim_rpc::Status>>,
     ) -> Self {
         Self {
-            inner: Arc::new(tokio::sync::Mutex::new(stream)),
+            inner: tokio::sync::Mutex::new(rx),
         }
     }
 }
@@ -220,8 +260,220 @@ impl ResponseStreamReader {
     ///
     /// Returns a StreamMessage indicating the result
     pub async fn next_async(&self) -> StreamMessage {
-        let mut stream = self.inner.lock().await;
-        match stream.next().await {
+        let mut rx = self.inner.lock().await;
+        match rx.recv().await {
+            Some(Ok(data)) => StreamMessage::Data(data),
+            Some(Err(e)) => StreamMessage::Error(e.into()),
+            None => StreamMessage::End,
+        }
+    }
+}
+
+/// Request stream writer for stream-to-unary RPC calls
+///
+/// Allows sending multiple request messages and then finalizing to get a single response.
+#[derive(uniffi::Object)]
+pub struct RequestStreamWriter {
+    sender: tokio::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>,
+    response:
+        tokio::sync::Mutex<Option<tokio::task::JoinHandle<Result<Vec<u8>, slim_rpc::Status>>>>,
+}
+
+impl RequestStreamWriter {
+    fn new(
+        channel: CoreChannel,
+        service_name: String,
+        method_name: String,
+        timeout: Option<Duration>,
+    ) -> Self {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+
+        let channel_clone = channel.clone();
+        let service_name_clone = service_name.clone();
+        let method_name_clone = method_name.clone();
+
+        // Spawn task to handle the stream_unary call
+        let response_handle = tokio::spawn(async move {
+            let stream = Box::pin(stream! {
+                let mut receiver = rx;
+                while let Some(data) = receiver.recv().await {
+                    yield data;
+                }
+            });
+
+            channel_clone
+                .stream_unary::<Vec<u8>, Vec<u8>, _>(
+                    &service_name_clone,
+                    &method_name_clone,
+                    stream,
+                    timeout,
+                    None,
+                )
+                .await
+        });
+
+        Self {
+            sender: tokio::sync::Mutex::new(Some(tx)),
+            response: tokio::sync::Mutex::new(Some(response_handle)),
+        }
+    }
+}
+
+#[uniffi::export]
+impl RequestStreamWriter {
+    /// Send a request message to the stream (blocking version)
+    pub fn send(&self, data: Vec<u8>) -> Result<(), RpcError> {
+        crate::get_runtime().block_on(self.send_async(data))
+    }
+
+    /// Send a request message to the stream (async version)
+    pub async fn send_async(&self, data: Vec<u8>) -> Result<(), RpcError> {
+        let sender = self.sender.lock().await;
+        if let Some(tx) = sender.as_ref() {
+            tx.send(data).map_err(|_| {
+                RpcError::new(
+                    crate::slimrpc::error::RpcCode::Internal,
+                    "Stream closed".to_string(),
+                )
+            })
+        } else {
+            Err(RpcError::new(
+                crate::slimrpc::error::RpcCode::Internal,
+                "Stream already finalized".to_string(),
+            ))
+        }
+    }
+
+    /// Finalize the stream and get the response (blocking version)
+    pub fn finalize(&self) -> Result<Vec<u8>, RpcError> {
+        crate::get_runtime().block_on(self.finalize_async())
+    }
+
+    /// Finalize the stream and get the response (async version)
+    pub async fn finalize_async(&self) -> Result<Vec<u8>, RpcError> {
+        // Drop the sender to signal end of stream
+        {
+            let mut sender = self.sender.lock().await;
+            *sender = None;
+        }
+
+        // Wait for response
+        let mut response_guard = self.response.lock().await;
+        if let Some(handle) = response_guard.take() {
+            let result = handle.await.map_err(|e| {
+                RpcError::new(
+                    crate::slimrpc::error::RpcCode::Internal,
+                    format!("Task failed: {}", e),
+                )
+            })?;
+            Ok(result?)
+        } else {
+            Err(RpcError::new(
+                crate::slimrpc::error::RpcCode::Internal,
+                "Stream already finalized".to_string(),
+            ))
+        }
+    }
+}
+
+/// Bidirectional stream handler for stream-to-stream RPC calls
+///
+/// Allows sending and receiving messages concurrently.
+#[derive(uniffi::Object)]
+pub struct BidiStreamHandler {
+    sender: tokio::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>,
+    receiver:
+        tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, slim_rpc::Status>>>,
+}
+
+impl BidiStreamHandler {
+    fn new(
+        channel: CoreChannel,
+        service_name: String,
+        method_name: String,
+        timeout: Option<Duration>,
+    ) -> Self {
+        let (req_tx, req_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (resp_tx, resp_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        // Spawn task to handle the stream_stream call
+        tokio::spawn(async move {
+            let request_stream = Box::pin(stream! {
+                let mut receiver = req_rx;
+                while let Some(data) = receiver.recv().await {
+                    yield data;
+                }
+            });
+
+            let response_stream = channel.stream_stream::<Vec<u8>, Vec<u8>, _>(
+                &service_name,
+                &method_name,
+                request_stream,
+                timeout,
+                None,
+            );
+
+            let mut stream = Box::pin(response_stream);
+            while let Some(item) = stream.next().await {
+                if resp_tx.send(item).is_err() {
+                    break;
+                }
+            }
+        });
+
+        Self {
+            sender: tokio::sync::Mutex::new(Some(req_tx)),
+            receiver: tokio::sync::Mutex::new(resp_rx),
+        }
+    }
+}
+
+#[uniffi::export]
+impl BidiStreamHandler {
+    /// Send a request message to the stream (blocking version)
+    pub fn send(&self, data: Vec<u8>) -> Result<(), RpcError> {
+        crate::get_runtime().block_on(self.send_async(data))
+    }
+
+    /// Send a request message to the stream (async version)
+    pub async fn send_async(&self, data: Vec<u8>) -> Result<(), RpcError> {
+        let sender = self.sender.lock().await;
+        if let Some(tx) = sender.as_ref() {
+            tx.send(data).map_err(|_| {
+                RpcError::new(
+                    crate::slimrpc::error::RpcCode::Internal,
+                    "Stream closed".to_string(),
+                )
+            })
+        } else {
+            Err(RpcError::new(
+                crate::slimrpc::error::RpcCode::Internal,
+                "Stream already closed".to_string(),
+            ))
+        }
+    }
+
+    /// Close the request stream (no more messages will be sent)
+    pub fn close_send(&self) -> Result<(), RpcError> {
+        crate::get_runtime().block_on(self.close_send_async())
+    }
+
+    /// Close the request stream (async version)
+    pub async fn close_send_async(&self) -> Result<(), RpcError> {
+        let mut sender = self.sender.lock().await;
+        *sender = None;
+        Ok(())
+    }
+
+    /// Receive the next response message (blocking version)
+    pub fn recv(&self) -> StreamMessage {
+        crate::get_runtime().block_on(self.recv_async())
+    }
+
+    /// Receive the next response message (async version)
+    pub async fn recv_async(&self) -> StreamMessage {
+        let mut rx = self.receiver.lock().await;
+        match rx.recv().await {
             Some(Ok(data)) => StreamMessage::Data(data),
             Some(Err(e)) => StreamMessage::Error(e.into()),
             None => StreamMessage::End,
@@ -231,8 +483,6 @@ impl ResponseStreamReader {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     // Basic compilation tests
     #[test]
     fn test_channel_type_compiles() {

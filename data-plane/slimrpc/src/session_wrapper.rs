@@ -106,10 +106,10 @@ impl Session {
             .build_publish()
             .map_err(|e| Status::internal(e.chain().to_string()))?;
 
-        if let Some(map) = metadata {
-            if !map.is_empty() {
-                msg.set_metadata_map(map);
-            }
+        if let Some(map) = metadata
+            && !map.is_empty()
+        {
+            msg.set_metadata_map(map);
         }
 
         let handle = self
@@ -131,7 +131,7 @@ impl Session {
                     .await
                     .ok_or_else(|| Status::internal("Session closed"))?
                     .map_err(|e: SessionError| {
-                        Status::internal(format!("Receive error: {}", e.chain().to_string()))
+                        Status::internal(format!("Receive error: {}", e.chain()))
                     })?
             };
 
@@ -191,10 +191,7 @@ impl Session {
 
         if let Ok(handle) = app.delete_session(self.inner.controller.as_ref()) {
             handle.await.map_err(|e| {
-                Status::internal(format!(
-                    "Failed to delete session: {}",
-                    e.chain().to_string()
-                ))
+                Status::internal(format!("Failed to delete session: {}", e.chain()))
             })?;
             tracing::debug!(session_id = %self.inner.controller.id(), "Successfully deleted session");
         } else {

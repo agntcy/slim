@@ -11,7 +11,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use async_stream::stream;
-use drain;
 use futures::StreamExt;
 use futures::stream::Stream;
 
@@ -85,13 +84,15 @@ impl ServiceRegistry {
     }
 
     /// Register a subscription name mapping
-    fn register_subscription(&mut self, subscription_name: Name, method_path: String) {
+    fn register_subscription(&mut self, mut subscription_name: Name, method_path: String) {
+        subscription_name.set_id(Name::NULL_COMPONENT);
         self.subscription_to_method
             .insert(subscription_name, method_path);
     }
 
     /// Get method path from subscription name
-    fn get_method_from_subscription(&self, subscription_name: &Name) -> Option<String> {
+    fn get_method_from_subscription(&self, subscription_name: &mut Name) -> Option<String> {
+        subscription_name.set_id(Name::NULL_COMPONENT);
         self.subscription_to_method.get(subscription_name).cloned()
     }
 
@@ -770,34 +771,67 @@ impl Server {
                 }
                 // Handle incoming sessions
                 session_result = self.listen_for_session() => {
+                    tracing::debug!("Received session notification");
+
                     let session_ctx = session_result?;
 
                     // Get the source (subscription name) from the session controller to determine which method to call
-                    let subscription_name = session_ctx.session_arc()
+                    let mut subscription_name = session_ctx.session_arc()
                         .ok_or_else(|| Status::internal("Session controller not available"))?
                         .source()
                         .clone();
 
-                    let method_path = self.inner.registry.read().get_method_from_subscription(&subscription_name)
-                        .ok_or_else(|| Status::internal(format!("Unknown subscription: {}", subscription_name)))?;
+                    // Clone the session weak reference before moving session_ctx
+                    let session_weak = session_ctx.session.clone();
 
-                    tracing::debug!(%method_path, %subscription_name, "Received session for method");
+                    let session = Session::new(session_ctx);
+
+                    tracing::debug!(%subscription_name, "Processing session for subscription");
+
+                    // Log the registry for debugging
+                    {
+                        let registry = self.inner.registry.read();
+                        let methods = registry.methods();
+                        tracing::debug!(
+                            methods = ?methods,
+                            "Registered methods in service registry"
+                        );
+                    }
+
+                    // Look up the method path for this subscription
+                    let method_path_opt = self.inner.registry.read().get_method_from_subscription(&mut subscription_name);
 
                     // Spawn a task to handle this session
                     let server = self.clone();
                     let handle = tokio::spawn(async move {
-                        let session_weak = session_ctx.session.clone();
-                        let session = Session::new(session_ctx);
+                        // Check if method is registered and handle error in task
+                        let Some(method_path) = method_path_opt else {
+                            tracing::error!(%subscription_name, "No method registered for subscription");
+                            // Send error and wait for acknowledgment
+                            if let Err(e) = server.send_error(&session, Status::internal("No method registered for subscription")).await {
+                                tracing::warn!(%subscription_name, error = %e, "Failed to send error response");
+                            }
 
-                        if let Err(e) = server.handle_session_direct(session, &method_path).await {
+                            // Delete the session when done
+                            if let Some(session_ctrl) = session_weak.upgrade()
+                                && let Ok(handle) = server.inner.app.delete_session(session_ctrl.as_ref())
+                            {
+                                let _ = handle.await;
+                            }
+                            return;
+                        };
+
+                        tracing::debug!(%method_path, %subscription_name, "Received session for method");
+
+                        if let Err(e) = server.handle_session(session, &method_path).await {
                             tracing::error!(%method_path, error = %e, "Error handling session");
                         }
 
                         // Delete the session when done
-                        if let Some(session) = session_weak.upgrade() {
-                            if let Ok(handle) = server.inner.app.delete_session(session.as_ref()) {
-                                let _ = handle.await;
-                            }
+                        if let Some(session) = session_weak.upgrade()
+                            && let Ok(handle) = server.inner.app.delete_session(session.as_ref())
+                        {
+                            let _ = handle.await;
                         }
                     });
 
@@ -851,7 +885,9 @@ impl Server {
 
     /// Listen for an incoming session from the notification receiver
     async fn listen_for_session(&self) -> Result<slim_session::context::SessionContext, Status> {
+        tracing::debug!("Waiting for incoming session notification");
         let mut rx_guard = self.inner.notification_rx.lock().await;
+        tracing::debug!("Notification receiver lock acquired");
         let rx_opt = rx_guard.take();
 
         let notification_opt = match rx_opt {
@@ -866,8 +902,13 @@ impl Server {
                 *rx_guard = Some(NotificationReceiver::Shared(rx_arc.clone()));
                 drop(rx_guard);
 
+                tracing::debug!("Acquiring shared notification receiver");
+
                 // Now lock and receive from the shared receiver
                 let mut rx = rx_arc.write().await;
+
+                tracing::debug!("Receiving from shared notification receiver");
+
                 rx.recv().await
             }
             None => {
@@ -889,12 +930,8 @@ impl Server {
         }
     }
 
-    /// Handle a session directly for a specific method (no metadata-based dispatch)
-    async fn handle_session_direct(
-        &self,
-        session: Session,
-        method_path: &str,
-    ) -> Result<(), Status> {
+    /// Handle a session for a specific method, processing multiple RPCs until session closes
+    async fn handle_session(&self, session: Session, method_path: &str) -> Result<(), Status> {
         // Get a drain watch handle for this session
         let drain_watch = self
             .inner
@@ -1020,7 +1057,9 @@ impl Server {
         let received = first_message;
 
         // Calculate deadline
-        let timeout_duration = ctx.remaining_time().unwrap_or(std::time::Duration::from_secs(MAX_TIMEOUT));
+        let timeout_duration = ctx
+            .remaining_time()
+            .unwrap_or(std::time::Duration::from_secs(MAX_TIMEOUT));
         let deadline = tokio::time::Instant::now() + timeout_duration;
 
         // Call handler and send response with deadline
@@ -1079,7 +1118,9 @@ impl Server {
         let end_metadata = ctx.metadata().as_map().clone();
 
         // Calculate deadline and create sleep future
-        let timeout_duration = ctx.remaining_time().unwrap_or(std::time::Duration::from_secs(MAX_TIMEOUT));
+        let timeout_duration = ctx
+            .remaining_time()
+            .unwrap_or(std::time::Duration::from_secs(MAX_TIMEOUT));
         let deadline = tokio::time::Instant::now() + timeout_duration;
         let sleep_fut = tokio::time::sleep_until(deadline);
         tokio::pin!(sleep_fut);
@@ -1156,7 +1197,9 @@ impl Server {
         drain_watch: &drain::Watch,
     ) -> Result<(), Status> {
         // Calculate deadline and create sleep future
-        let timeout_duration = ctx.remaining_time().unwrap_or(std::time::Duration::from_secs(MAX_TIMEOUT));
+        let timeout_duration = ctx
+            .remaining_time()
+            .unwrap_or(std::time::Duration::from_secs(MAX_TIMEOUT));
         let deadline = tokio::time::Instant::now() + timeout_duration;
         let sleep_fut = tokio::time::sleep_until(deadline);
         tokio::pin!(sleep_fut);
@@ -1328,14 +1371,17 @@ impl Server {
             status.code().as_i32().to_string(),
         );
 
-        session
+        let handle = session
             .publish(
                 message.into_bytes(),
                 Some("msg".to_string()),
                 Some(metadata),
             )
+            .await?;
+
+        handle
             .await
-            .map_err(|e| Status::internal(format!("Failed to send error: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to receive error ack: {}", e)))?;
 
         Ok(())
     }

@@ -80,9 +80,7 @@ pub use handler::{
     UnaryUnaryHandler,
 };
 pub use server::Server as RpcServer;
-pub use stream::{
-    RequestSender, VectorRequestSender,
-};
+pub use stream::{RequestSender, VectorRequestSender};
 pub use types::{RequestStream, ResponseSink, ResponseStream, StreamMessage};
 
 // Legacy compatibility re-exports

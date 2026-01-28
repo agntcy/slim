@@ -526,11 +526,9 @@ async fn test_stream_stream_rpc() {
                 // For more complex async processing, use async_stream or spawn a task
                 // with a channel (see the SlimRPC examples for the channel pattern)
                 Ok(request_stream.map(|req_result| {
-                    req_result.and_then(|req: TestRequest| {
-                        Ok(TestResponse {
-                            result: req.message.to_uppercase(),
-                            count: req.value * 10,
-                        })
+                    req_result.map(|req: TestRequest| TestResponse {
+                        result: req.message.to_uppercase(),
+                        count: req.value * 10,
                     })
                 }))
             },
@@ -695,7 +693,7 @@ async fn test_empty_stream_unary() {
                 println!("Processing empty stream...");
 
                 let mut count = 0;
-                while let Some(_) = request_stream.next().await {
+                while (request_stream.next().await).is_some() {
                     count += 1;
                 }
 
@@ -1703,7 +1701,11 @@ async fn test_client_deadline_unary_stream() {
     };
 
     // Should have received some items but then timed out
-    assert!(count < 5, "Expected timeout before all items, got {}", count);
+    assert!(
+        count < 5,
+        "Expected timeout before all items, got {}",
+        count
+    );
     assert!(last_error.is_some());
     let err = last_error.unwrap();
     assert_eq!(err.code(), Code::DeadlineExceeded);
@@ -1810,7 +1812,7 @@ async fn test_server_deadline_unary_stream() {
         assert!(item_result.is_err());
         item_result.unwrap_err()
     };
-    
+
     assert_eq!(err.code(), Code::DeadlineExceeded);
 
     env.shutdown().await;
@@ -1937,7 +1939,7 @@ async fn test_server_deadline_stream_stream() {
         assert!(item_result.is_err());
         item_result.unwrap_err()
     };
-    
+
     assert_eq!(err.code(), Code::DeadlineExceeded);
 
     env.shutdown().await;
@@ -2065,7 +2067,10 @@ async fn test_deadline_propagation() {
 
     // Check that the handler received a deadline
     let captured_deadline = deadline_from_handler.lock().await;
-    assert!(captured_deadline.is_some(), "Handler should receive a deadline");
+    assert!(
+        captured_deadline.is_some(),
+        "Handler should receive a deadline"
+    );
 
     let deadline = captured_deadline.unwrap();
     let expected_deadline = start + timeout;
