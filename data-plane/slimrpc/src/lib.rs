@@ -182,7 +182,7 @@ pub type Result<T> = std::result::Result<T, Status>;
 ///     Ok(MyResponse::default())
 /// }
 /// ```
-pub type RequestStream<T> = Box<dyn futures::Stream<Item = Result<T>> + Send + Unpin + 'static>;
+pub type RequestStream<T> = futures::stream::BoxStream<'static, Result<T>>;
 
 /// Type alias for response streams in stream-based RPC handlers
 ///
@@ -213,4 +213,4 @@ pub type RequestStream<T> = Box<dyn futures::Stream<Item = Result<T>> + Send + U
 ///     Ok(stream::iter(responses.into_iter().map(Ok)))
 /// }
 /// ```
-pub type ResponseStream<T> = Box<dyn futures::Stream<Item = Result<T>> + Send + Unpin + 'static>;
+pub type ResponseStream<T> = futures::stream::BoxStream<'static, Result<T>>;

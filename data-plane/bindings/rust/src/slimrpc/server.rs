@@ -200,10 +200,7 @@ impl Server {
         self.inner.register_stream_unary(
             &service_name,
             &method_name,
-            move |stream: Box<
-                dyn futures::Stream<Item = Result<Vec<u8>, slim_rpc::Status>> + Send + Unpin,
-            >,
-                  context: slim_rpc::Context| {
+            move |stream: slim_rpc::RequestStream<Vec<u8>>, context: slim_rpc::Context| {
                 let handler = handler_clone.clone();
                 let ctx = Context::from_inner(context);
                 let request_stream = Arc::new(RequestStream::new(stream));
@@ -233,10 +230,7 @@ impl Server {
         self.inner.register_stream_stream(
             &service_name,
             &method_name,
-            move |stream: Box<
-                dyn futures::Stream<Item = Result<Vec<u8>, slim_rpc::Status>> + Send + Unpin,
-            >,
-                  context: slim_rpc::Context| {
+            move |stream: slim_rpc::RequestStream<Vec<u8>>, context: slim_rpc::Context| {
                 let handler = handler_clone.clone();
                 let ctx = Context::from_inner(context);
                 let request_stream = Arc::new(RequestStream::new(stream));

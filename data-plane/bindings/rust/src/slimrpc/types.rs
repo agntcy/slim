@@ -21,16 +21,12 @@ use crate::slimrpc::error::RpcError;
 #[derive(uniffi::Object)]
 pub struct RequestStream {
     /// Inner stream wrapped in a mutex for interior mutability
-    inner: Arc<
-        Mutex<Box<dyn futures::Stream<Item = Result<Vec<u8>, slim_rpc::Status>> + Send + Unpin>>,
-    >,
+    inner: Arc<Mutex<slim_rpc::RequestStream<Vec<u8>>>>,
 }
 
 impl RequestStream {
     /// Create a new request stream wrapper
-    pub(crate) fn new(
-        stream: Box<dyn futures::Stream<Item = Result<Vec<u8>, slim_rpc::Status>> + Send + Unpin>,
-    ) -> Self {
+    pub(crate) fn new(stream: slim_rpc::RequestStream<Vec<u8>>) -> Self {
         Self {
             inner: Arc::new(Mutex::new(stream)),
         }
@@ -221,7 +217,7 @@ mod tests {
     async fn test_request_stream() {
         let data = vec![vec![1, 2, 3], vec![4, 5, 6]];
         let stream = stream::iter(data.clone().into_iter().map(Ok));
-        let request_stream = RequestStream::new(Box::new(stream));
+        let request_stream = RequestStream::new(stream.boxed());
 
         let msg1 = request_stream.next_async().await;
         match msg1 {

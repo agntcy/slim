@@ -7,12 +7,11 @@
 //! them to registered service implementations.
 
 use std::collections::HashMap;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use async_stream::stream;
-use futures::StreamExt;
 use futures::stream::Stream;
+use futures::{FutureExt, StreamExt, future::BoxFuture, stream::BoxStream};
 
 use parking_lot::RwLock;
 use tokio::sync::mpsc;
@@ -32,9 +31,8 @@ use crate::{
 };
 
 pub type Item = Vec<u8>;
-pub type ItemStream = Pin<Box<dyn Stream<Item = Result<Vec<u8>, Status>> + Send>>;
-pub type ResponseStream =
-    Pin<Box<dyn futures::Future<Output = Result<HandlerResponse, Status>> + Send>>;
+pub type ItemStream = BoxStream<'static, Result<Vec<u8>, Status>>;
+pub type ResponseStream = BoxFuture<'static, Result<HandlerResponse, Status>>;
 
 /// Handler function type for RPC methods (unary input)
 pub type RpcHandler = Arc<dyn Fn(Item, Context) -> ResponseStream + Send + Sync>;
@@ -112,12 +110,13 @@ impl ServiceRegistry {
         let handler = Arc::new(handler);
         let wrapper = Arc::new(move |bytes: Vec<u8>, ctx: Context| {
             let handler = Arc::clone(&handler);
-            Box::pin(async move {
+            async move {
                 let request = Req::decode(bytes)?;
                 let response = handler(request, ctx).await?;
                 let response_bytes = response.encode()?;
                 Ok(HandlerResponse::Unary(response_bytes))
-            }) as ResponseStream
+            }
+            .boxed()
         });
 
         self.handlers
@@ -141,12 +140,15 @@ impl ServiceRegistry {
         let handler = Arc::new(handler);
         let wrapper = Arc::new(move |bytes: Vec<u8>, ctx: Context| {
             let handler = Arc::clone(&handler);
-            Box::pin(async move {
+            async move {
                 let request = Req::decode(bytes)?;
                 let response_stream = handler(request, ctx).await?;
-                let byte_mapped = response_stream.map(|res| res.and_then(|r| r.encode()));
-                Ok(HandlerResponse::Stream(Box::pin(byte_mapped)))
-            }) as ResponseStream
+                let byte_mapped = response_stream
+                    .map(|res| res.and_then(|r| r.encode()))
+                    .boxed();
+                Ok(HandlerResponse::Stream(byte_mapped))
+            }
+            .boxed()
         });
 
         self.handlers
@@ -160,10 +162,7 @@ impl ServiceRegistry {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(Box<dyn Stream<Item = Result<Req, Status>> + Send + Unpin + 'static>, Context) -> Fut
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(crate::RequestStream<Req>, Context) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<Res, Status>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
@@ -172,15 +171,14 @@ impl ServiceRegistry {
         let handler = Arc::new(handler);
         let wrapper = Arc::new(move |stream: ItemStream, ctx: Context| {
             let handler = Arc::clone(&handler);
-            Box::pin(async move {
+            async move {
                 let mapped = stream.map(|res| res.and_then(|bytes| Req::decode(bytes)));
-                let boxed_stream: Box<
-                    dyn Stream<Item = Result<Req, Status>> + Send + Unpin + 'static,
-                > = Box::new(Box::pin(mapped));
+                let boxed_stream = mapped.boxed();
                 let response = handler(boxed_stream, ctx).await?;
                 let response_bytes = response.encode()?;
                 Ok(HandlerResponse::Unary(response_bytes))
-            }) as ResponseStream
+            }
+            .boxed()
         });
 
         self.stream_handlers
@@ -194,10 +192,7 @@ impl ServiceRegistry {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(Box<dyn Stream<Item = Result<Req, Status>> + Send + Unpin + 'static>, Context) -> Fut
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(crate::RequestStream<Req>, Context) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<S, Status>> + Send + 'static,
         S: Stream<Item = Result<Res, Status>> + Send + 'static,
         Req: Decoder + Send + 'static,
@@ -207,15 +202,14 @@ impl ServiceRegistry {
         let handler = Arc::new(handler);
         let wrapper = Arc::new(move |stream: ItemStream, ctx: Context| {
             let handler = Arc::clone(&handler);
-            Box::pin(async move {
+            async move {
                 let mapped = stream.map(|res| res.and_then(|bytes| Req::decode(bytes)));
-                let boxed_stream: Box<
-                    dyn Stream<Item = Result<Req, Status>> + Send + Unpin + 'static,
-                > = Box::new(Box::pin(mapped));
+                let boxed_stream = mapped.boxed();
                 let response_stream = handler(boxed_stream, ctx).await?;
                 let byte_mapped = response_stream.map(|res| res.and_then(|r| r.encode()));
-                Ok(HandlerResponse::Stream(Box::pin(byte_mapped)))
-            }) as ResponseStream
+                Ok(HandlerResponse::Stream(byte_mapped.boxed()))
+            }
+            .boxed()
         });
 
         self.stream_handlers
@@ -607,10 +601,7 @@ impl Server {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(Box<dyn Stream<Item = Result<Req, Status>> + Send + Unpin + 'static>, Context) -> Fut
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(crate::RequestStream<Req>, Context) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<Res, Status>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
@@ -678,10 +669,7 @@ impl Server {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(Box<dyn Stream<Item = Result<Req, Status>> + Send + Unpin + 'static>, Context) -> Fut
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(crate::RequestStream<Req>, Context) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<S, Status>> + Send + 'static,
         S: Stream<Item = Result<Res, Status>> + Send + 'static,
         Req: Decoder + Send + 'static,
@@ -1207,7 +1195,7 @@ impl Server {
         };
 
         // Box and pin the stream
-        let boxed_stream: ItemStream = Box::pin(request_stream);
+        let boxed_stream = request_stream.boxed();
 
         // Call handler and send responses with deadline and drain signal awareness
         tokio::select! {
