@@ -158,7 +158,7 @@ impl Channel {
                 timeout,
                 None,
             );
-            let mut stream = Box::pin(stream);
+            let mut stream = std::pin::pin!(stream);
 
             while let Some(item) = stream.next().await {
                 if tx.send(item).is_err() {
@@ -294,15 +294,15 @@ impl RequestStreamWriter {
 
         // Spawn task to handle the stream_unary call
         let response_handle = tokio::spawn(async move {
-            let stream = Box::pin(stream! {
+            let stream = stream! {
                 let mut receiver = rx;
                 while let Some(data) = receiver.recv().await {
                     yield data;
                 }
-            });
+            };
 
             channel_clone
-                .stream_unary::<Vec<u8>, Vec<u8>, _>(
+                .stream_unary::<Vec<u8>, Vec<u8>>(
                     &service_name_clone,
                     &method_name_clone,
                     stream,
@@ -398,14 +398,14 @@ impl BidiStreamHandler {
 
         // Spawn task to handle the stream_stream call
         tokio::spawn(async move {
-            let request_stream = Box::pin(stream! {
+            let request_stream = stream! {
                 let mut receiver = req_rx;
                 while let Some(data) = receiver.recv().await {
                     yield data;
                 }
-            });
+            };
 
-            let response_stream = channel.stream_stream::<Vec<u8>, Vec<u8>, _>(
+            let response_stream = channel.stream_stream::<Vec<u8>, Vec<u8>>(
                 &service_name,
                 &method_name,
                 request_stream,
@@ -413,8 +413,8 @@ impl BidiStreamHandler {
                 None,
             );
 
-            let mut stream = Box::pin(response_stream);
-            while let Some(item) = stream.next().await {
+            let mut response_stream = std::pin::pin!(response_stream);
+            while let Some(item) = response_stream.next().await {
                 if resp_tx.send(item).is_err() {
                     break;
                 }

@@ -252,7 +252,7 @@ impl TestEnv {
         println!("TestEnv::new starting for {}", test_name);
 
         // Initialize the runtime if not already initialized
-        let _ = initialize_with_defaults();
+        initialize_with_defaults();
         println!("Runtime initialized");
 
         // Create server app

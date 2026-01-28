@@ -17,7 +17,6 @@ agntcy-slim-session = { workspace = true }
 
 # External dependencies
 async-stream = { workspace = true }
-async-trait = { workspace = true }
 display-error-chain = { workspace = true }
 drain = { workspace = true }
 futures = { workspace = true }

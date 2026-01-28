@@ -70,9 +70,7 @@ pub use slim_rpc::{
 
 // Re-export our wrapper types
 pub use channel::{Channel as RpcChannel, ResponseStreamReader};
-pub use context::{
-    Context as RpcContext, RpcMessageContext, SessionContext as RpcSessionContext,
-};
+pub use context::{Context as RpcContext, RpcMessageContext, SessionContext as RpcSessionContext};
 pub use error::{RpcCode, RpcError, Status, StatusError};
 pub use handler::{
     HandlerResponse, HandlerType, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler,

@@ -402,18 +402,17 @@ impl Channel {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn stream_unary<Req, Res, S>(
+    pub async fn stream_unary<Req, Res>(
         &self,
         service_name: &str,
         method_name: &str,
-        request_stream: S,
+        request_stream: impl Stream<Item = Req> + Send + 'static,
         timeout: Option<Duration>,
         metadata: Option<Metadata>,
     ) -> Result<Res, Status>
     where
         Req: Encoder,
         Res: Decoder,
-        S: Stream<Item = Req> + Unpin,
     {
         // Calculate deadline
         let timeout_duration = timeout.unwrap_or(Duration::from_secs(MAX_TIMEOUT));
@@ -512,18 +511,17 @@ impl Channel {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn stream_stream<Req, Res, S>(
+    pub fn stream_stream<Req, Res>(
         &self,
         service_name: &str,
         method_name: &str,
-        request_stream: S,
+        request_stream: impl Stream<Item = Req> + Send + 'static,
         timeout: Option<Duration>,
         metadata: Option<Metadata>,
     ) -> impl Stream<Item = Result<Res, Status>>
     where
         Req: Encoder + Send + 'static,
         Res: Decoder + Send + 'static,
-        S: Stream<Item = Req> + Unpin + Send + 'static,
     {
         let service_name = service_name.to_string();
         let method_name = method_name.to_string();
@@ -537,7 +535,7 @@ impl Channel {
             let timeout_duration = timeout.unwrap_or(Duration::from_secs(MAX_TIMEOUT));
             let deadline = tokio::time::Instant::now() + timeout_duration;
             let sleep_fut = tokio::time::sleep_until(deadline);
-            tokio::pin!(sleep_fut);
+            let mut sleep_fut = std::pin::pin!(sleep_fut);
 
             // Get or create session with timeout
             let session_result = tokio::select! {
@@ -846,18 +844,20 @@ impl Channel {
     }
 
     /// Send a stream of requests followed by end-of-stream marker
-    async fn send_request_stream<Req, S>(
+    async fn send_request_stream<Req>(
         &self,
         session: &Session,
         ctx: &Context,
-        mut request_stream: S,
+        request_stream: impl Stream<Item = Req> + Send + 'static,
         service_name: &str,
         method_name: &str,
     ) -> Result<(), Status>
     where
         Req: Encoder,
-        S: Stream<Item = Req> + Unpin,
     {
+        // pin the stream in the stack for iteration
+        let mut request_stream = std::pin::pin!(request_stream);
+
         let mut handles = vec![];
         while let Some(request) = request_stream.next().await {
             let request_bytes = request.encode()?;
@@ -887,7 +887,7 @@ impl Channel {
                     "Failed to complete sending request for {}-{}: {}",
                     service_name,
                     method_name,
-                    e.chain()
+                    ErrorChainExt::chain(&e)
                 ))
             })?;
         }

@@ -16,7 +16,6 @@ members = [
     "python/bindings",
     "slimrpc",
     "slimrpc-compiler",
-    "slimrpc-examples/rust",
     "testing",
 ]
 

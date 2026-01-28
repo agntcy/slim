@@ -369,7 +369,6 @@ dependencies = [
  "agntcy-slim-session",
  "agntcy-slim-testing",
  "async-stream",
- "async-trait",
  "bincode 2.0.1",
  "display-error-chain",
  "drain",
@@ -385,22 +384,6 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-test",
-]
-
-[[package]]
-name = "agntcy-slimrpc-examples"
-version = "0.1.0"
-dependencies = [
- "agntcy-slim-bindings",
- "agntcy-slim-datapath",
- "anyhow",
- "async-trait",
- "clap",
- "futures",
- "tokio",
- "tokio-stream",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
