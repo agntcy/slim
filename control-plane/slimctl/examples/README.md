@@ -127,16 +127,6 @@ When starting a SLIM server, the configuration is validated:
 
 If validation fails, slimctl will display an error message explaining the issue.
 
-## Future Configuration Options
-
-The configuration system is designed to be extensible. Future versions may support:
-
-- **Authentication**: Basic Auth, JWT authentication
-- **HTTP/2 Settings**: Frame size, concurrent streams, header list size
-- **Keepalive Parameters**: Connection idle times, ping frequency
-- **Client CA**: For mutual TLS (mTLS) authentication
-- **SPIRE Integration**: For SPIFFE-based identity and authentication
-
 ## Troubleshooting
 
 ### "certificate file not found" Error

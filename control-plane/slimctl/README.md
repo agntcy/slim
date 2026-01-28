@@ -230,7 +230,10 @@ slimctl/
 ├── examples/
 │   ├── insecure-server.yaml # Example insecure config
 │   ├── tls-server.yaml      # Example TLS config
-│   └── test-certs/          # Generated test certificates (via task)
+│   └── README.md            # Example configurations guide
+├── testdata/                # Generated test data (git-ignored)
+│   ├── certs/               # Generated test certificates
+│   └── *.yaml               # Generated test configurations
 ├── Taskfile.yaml            # Task automation
 ├── README.md                # This file
 └── SLIM_INSTANCE.md         # SLIM instance management guide

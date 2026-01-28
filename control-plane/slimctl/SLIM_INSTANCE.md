@@ -163,8 +163,8 @@ task certs:setup
 ```
 
 This generates:
-- Private key: `examples/test-certs/server-key.pem`
-- Certificate: `examples/test-certs/server-cert.pem`
+- Private key: `testdata/certs/server-key.pem`
+- Certificate: `testdata/certs/server-cert.pem`
 - X.509 v3 compliant with proper extensions
 
 **Manual Generation:**

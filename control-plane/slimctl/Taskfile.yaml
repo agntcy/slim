@@ -6,7 +6,8 @@ version: '3'
 vars:
   # Binary location relative to this Taskfile (control-plane/slimctl/)
   SLIMCTL_BIN: ../../.dist/bin/slimctl
-  TEST_CERTS_DIR: examples/test-certs
+  TESTDATA_DIR: testdata
+  TEST_CERTS_DIR: testdata/certs
   COVERAGE_FILE: coverage.out
   COVERAGE_HTML: coverage.html
 
@@ -161,36 +162,38 @@ tasks:
   configs:insecure:
     desc: Create insecure test config
     cmds:
+      - mkdir -p {{.TESTDATA_DIR}}
       - |
-        cat > examples/test-insecure.yaml <<'EOF'
+        cat > {{.TESTDATA_DIR}}/test-insecure.yaml <<'EOF'
         # Test configuration - Insecure mode
         endpoint: "127.0.0.1:9090"
         tls:
           insecure: true
         EOF
-        echo "   Created: examples/test-insecure.yaml"
+        echo "   Created: {{.TESTDATA_DIR}}/test-insecure.yaml"
     silent: false
 
   configs:tls:
     desc: Create TLS test config
     cmds:
+      - mkdir -p {{.TESTDATA_DIR}}
       - |
-        cat > examples/test-tls.yaml <<'EOF'
+        cat > {{.TESTDATA_DIR}}/test-tls.yaml <<'EOF'
         # Test configuration - TLS enabled
         endpoint: "127.0.0.1:8443"
         tls:
           insecure: false
-          cert_file: "examples/test-certs/server-cert.pem"
-          key_file: "examples/test-certs/server-key.pem"
+          cert_file: "testdata/certs/server-cert.pem"
+          key_file: "testdata/certs/server-key.pem"
         EOF
-        echo "   Created: examples/test-tls.yaml"
+        echo "   Created: {{.TESTDATA_DIR}}/test-tls.yaml"
     silent: false
 
   configs:clean:
     desc: Remove test configuration files
     cmds:
       - echo "🧹 Cleaning test configuration files..."
-      - rm -f examples/test-insecure.yaml examples/test-tls.yaml
+      - rm -f {{.TESTDATA_DIR}}/test-insecure.yaml {{.TESTDATA_DIR}}/test-tls.yaml
       - echo "✅ Test configs removed"
     silent: false
 
@@ -207,7 +210,7 @@ tasks:
       - echo "You can now test with:"
       - echo "  • task run:insecure"
       - echo "  • task run:tls"
-      - echo "  • {{.SLIMCTL_BIN}} slim start --config examples/test-insecure.yaml"
+      - echo "  • {{.SLIMCTL_BIN}} slim start --config {{.TESTDATA_DIR}}/test-insecure.yaml"
       - echo ""
     silent: false
 
@@ -234,7 +237,7 @@ tasks:
       - echo ""
       - echo "Or run directly:"
       - echo "  {{.SLIMCTL_BIN}} slim start --endpoint 127.0.0.1:9090 --insecure"
-      - echo "  {{.SLIMCTL_BIN}} slim start --config examples/test-tls.yaml"
+      - echo "  {{.SLIMCTL_BIN}} slim start --config {{.TESTDATA_DIR}}/test-tls.yaml"
       - echo ""
       - echo "📋 Step 4/4 - Choose a test scenario above and run it! 🚀"
     silent: false
@@ -273,7 +276,7 @@ tasks:
       - echo "📊 Test Configuration:"
       - echo "  • Mode - TLS enabled"
       - echo "  • Endpoint - 127.0.0.1:8443"
-      - echo "  • Config file - examples/test-tls.yaml"
+      - echo "  • Config file - {{.TESTDATA_DIR}}/test-tls.yaml"
       - echo "  • Certificate - {{.TEST_CERTS_DIR}}/server-cert.pem"
       - echo "  • Key - {{.TEST_CERTS_DIR}}/server-key.pem"
       - echo ""
@@ -283,7 +286,7 @@ tasks:
       - echo "🚀 Starting server..."
       - echo "   (Press Ctrl+C to stop)"
       - echo ""
-      - "{{.SLIMCTL_BIN}} slim start --config examples/test-tls.yaml"
+      - "{{.SLIMCTL_BIN}} slim start --config {{.TESTDATA_DIR}}/test-tls.yaml"
     silent: false
 
   test:manual:custom:
@@ -336,9 +339,10 @@ tasks:
     desc: Run slimctl with TLS (for testing)
     deps:
       - certs:setup
+      - configs:tls
     cmds:
       - echo "🚀 Starting slimctl with TLS..."
-      - "{{.SLIMCTL_BIN}} slim start --config examples/test-tls.yaml"
+      - "{{.SLIMCTL_BIN}} slim start --config {{.TESTDATA_DIR}}/test-tls.yaml"
     silent: false
     preconditions:
       - sh: test -f {{.SLIMCTL_BIN}}
