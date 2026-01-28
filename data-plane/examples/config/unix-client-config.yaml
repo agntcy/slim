@@ -1,0 +1,20 @@
+# Example client config for using Unix domain sockets in examples
+# This points at the same socket as config/unix/server-config.yaml.
+
+tracing:
+  log_level: debug
+  display_thread_names: true
+  display_thread_ids: true
+
+runtime:
+  n_cores: 0
+  thread_name: "slim-data-plane"
+  drain_timeout: 10s
+
+services:
+  slim/0:
+    dataplane:
+      clients:
+        - endpoint: "unix:///tmp/slim-dataplane-grpc.sock"
+          tls:
+            insecure: true

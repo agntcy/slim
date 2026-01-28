@@ -1,19 +1,27 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::convert::Infallible;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::{net::SocketAddr, str::FromStr, time::Duration};
-
 use display_error_chain::ErrorChainExt;
 use duration_string::DurationString;
 use futures::FutureExt;
+use futures::Stream;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::convert::Infallible;
+use std::future::Future;
+#[cfg(target_family = "unix")]
+use std::path::PathBuf;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::{net::SocketAddr, str::FromStr, time::Duration};
+use tokio::io::{AsyncRead, AsyncWrite};
+#[cfg(target_family = "unix")]
+use tokio::net::UnixListener;
+#[cfg(target_family = "unix")]
+use tokio_stream::wrappers::UnixListenerStream;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::server::TcpIncoming;
+use tower_http::BoxError;
 use tracing::debug;
 
 use super::errors::ConfigError;
@@ -296,32 +304,24 @@ impl ServerConfig {
         Self { auth, ..self }
     }
 
-    pub async fn to_server_future<S>(&self, svc: &[S]) -> Result<ServerFuture, ConfigError>
-    where
-        S: tower_service::Service<
-                http::Request<tonic::body::Body>,
-                Response = http::Response<tonic::body::Body>,
-                Error = Infallible,
-            >
-            + tonic::server::NamedService
-            + Clone
-            + Send
-            + 'static
-            + Sync,
-        S::Future: Send + 'static,
-    {
-        if svc.is_empty() {
-            return Err(ConfigError::MissingServices);
+    #[cfg(target_family = "unix")]
+    fn parse_unix_socket_path(endpoint: &str) -> Result<PathBuf, ConfigError> {
+        let path = endpoint.strip_prefix("unix://").unwrap_or(endpoint);
+
+        let without_query = path.split_once('?').map(|(p, _)| p).unwrap_or(path);
+        let path_part = without_query
+            .split_once('#')
+            .map(|(p, _)| p)
+            .unwrap_or(without_query);
+
+        if path_part.is_empty() {
+            return Err(ConfigError::UnixSocketMissingPath);
         }
 
-        if self.endpoint.is_empty() {
-            return Err(ConfigError::MissingEndpoint);
-        }
+        Ok(PathBuf::from(path_part))
+    }
 
-        let addr = SocketAddr::from_str(self.endpoint.as_str())?;
-
-        let incoming = TcpIncoming::bind(addr)?;
-
+    fn create_server_builder(&self) -> tonic::transport::Server {
         let builder: tonic::transport::Server =
             tonic::transport::Server::builder().accept_http1(false);
 
@@ -345,10 +345,31 @@ impl ServerConfig {
         let builder = builder.http2_keepalive_interval(Some(self.keepalive.time.into()));
         let builder = builder.http2_keepalive_timeout(Some(self.keepalive.timeout.into()));
 
-        let mut builder = builder.max_connection_age(self.keepalive.max_connection_age.into());
+        builder.max_connection_age(self.keepalive.max_connection_age.into())
+    }
 
-        // Async TLS configuration load (may involve SPIFFE operations)
-        let tls_config = self.tls_setting.load_rustls_config().await?;
+    async fn serve_with_incoming<S, I, IO, IE>(
+        &self,
+        svc: &[S],
+        incoming: I,
+    ) -> Result<ServerFuture, ConfigError>
+    where
+        S: tower_service::Service<
+                http::Request<tonic::body::Body>,
+                Response = http::Response<tonic::body::Body>,
+                Error = Infallible,
+            >
+            + tonic::server::NamedService
+            + Clone
+            + Send
+            + 'static
+            + Sync,
+        S::Future: Send + 'static,
+        I: Stream<Item = Result<IO, IE>> + Send + 'static,
+        IO: AsyncRead + AsyncWrite + tonic::transport::server::Connected + Unpin + Send + 'static,
+        IE: Into<BoxError> + Send + 'static,
+    {
+        let mut builder = self.create_server_builder();
 
         match &self.auth {
             AuthenticationConfig::Basic(basic) => {
@@ -361,19 +382,10 @@ impl ServerConfig {
                     router = builder.add_service(s.clone());
                 }
 
-                if let Some(tls_config) = tls_config {
-                    let incoming =
-                        tonic_tls::rustls::TlsIncoming::new(incoming, Arc::new(tls_config));
-
-                    return Ok(router.serve_with_incoming(incoming).boxed());
-                };
-
                 Ok(router.serve_with_incoming(incoming).boxed())
             }
             AuthenticationConfig::Jwt(jwt) => {
                 // Build the authentication layer and perform its async initialization
-                // before adding it to the server stack. This ensures any dynamic key
-                // resolution or background tasks are ready prior to handling requests.
                 let mut auth_layer = <JwtAuthenticationConfig as ServerAuthenticator<
                     http::Response<tonic::body::Body>,
                 >>::get_server_layer(jwt)?;
@@ -387,13 +399,6 @@ impl ServerConfig {
                     router = builder.add_service(s.clone());
                 }
 
-                if let Some(tls_config) = tls_config {
-                    let incoming =
-                        tonic_tls::rustls::TlsIncoming::new(incoming, Arc::new(tls_config));
-
-                    return Ok(router.serve_with_incoming(incoming).boxed());
-                };
-
                 Ok(router.serve_with_incoming(incoming).boxed())
             }
             AuthenticationConfig::None => {
@@ -402,15 +407,68 @@ impl ServerConfig {
                     router = builder.add_service(s.clone());
                 }
 
-                if let Some(tls_config) = tls_config {
-                    let incoming =
-                        tonic_tls::rustls::TlsIncoming::new(incoming, Arc::new(tls_config));
-
-                    return Ok(router.serve_with_incoming(incoming).boxed());
-                };
-
                 Ok(router.serve_with_incoming(incoming).boxed())
             }
+        }
+    }
+
+    pub async fn to_server_future<S>(&self, svc: &[S]) -> Result<ServerFuture, ConfigError>
+    where
+        S: tower_service::Service<
+                http::Request<tonic::body::Body>,
+                Response = http::Response<tonic::body::Body>,
+                Error = Infallible,
+            >
+            + tonic::server::NamedService
+            + Clone
+            + Send
+            + 'static
+            + Sync,
+        S::Future: Send + 'static,
+    {
+        if svc.is_empty() {
+            return Err(ConfigError::MissingServices);
+        }
+
+        if self.endpoint.is_empty() {
+            return Err(ConfigError::MissingEndpoint);
+        }
+
+        #[cfg(target_family = "unix")]
+        if self.endpoint.starts_with("unix://") {
+            if !self.tls_setting.insecure {
+                // For local Unix domain sockets we currently require insecure=true
+                return Err(ConfigError::UnixSocketTlsUnsupported);
+            }
+
+            let socket_path = Self::parse_unix_socket_path(self.endpoint.as_str())?;
+
+            // Best-effort cleanup of any stale socket file
+            let _ = std::fs::remove_file(&socket_path);
+
+            let listener = UnixListener::bind(&socket_path)?;
+            let incoming = UnixListenerStream::new(listener);
+
+            return self.serve_with_incoming(svc, incoming).await;
+        }
+
+        #[cfg(not(target_family = "unix"))]
+        if self.endpoint.starts_with("unix://") {
+            return Err(ConfigError::UnixSocketUnsupported);
+        }
+
+        let addr = SocketAddr::from_str(self.endpoint.as_str())?;
+
+        // Async TLS configuration load (may involve SPIFFE operations)
+        let tls_config = self.tls_setting.load_rustls_config().await?;
+        let incoming = TcpIncoming::bind(addr)?;
+
+        match tls_config {
+            Some(tls_config) => {
+                let incoming = tonic_tls::rustls::TlsIncoming::new(incoming, Arc::new(tls_config));
+                self.serve_with_incoming(svc, incoming).await
+            }
+            None => self.serve_with_incoming(svc, incoming).await,
         }
     }
 
