@@ -175,7 +175,7 @@ async def receive_loop(
 
 
 async def keyboard_loop(
-    created_session: slim_bindings.Session,
+    created_session: slim_bindings.Session | None,
     session_ready: asyncio.Event,
     shared_session_container: list[slim_bindings.Session],
     local_app: slim_bindings.App,
@@ -278,7 +278,9 @@ async def run_client(config: GroupConfig):
 
     # Session sharing between tasks
     session_ready = asyncio.Event()
-    shared_session_container = [None]  # Use list to make it mutable across functions
+    shared_session_container: list[
+        slim_bindings.Session
+    ] = []  # Use list to make it mutable across functions
 
     # Session object only exists immediately if we are moderator.
     created_session = None
