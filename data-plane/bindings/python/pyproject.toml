@@ -40,13 +40,17 @@ examples = [
     "pydantic-settings>=2.0.0",
     "prompt-toolkit>=3.0.52",
     "pyyaml>=6.0.3",
-    "tomli>=2.4.0"
+    "tomli>=2.4.0",
+    "protobuf>=6.33.4",
+    "googleapis-common-protos>=1.72.0",
 ]
 
 [project.scripts]
 slim-bindings-group = "examples.group:main"
 slim-bindings-p2p = "examples.point_to_point:main"
 slim-bindings-server = "examples.slim:main"
+slim-bindings-simple-rpc-server = "examples.slimrpc.simple.server:main"
+slim-bindings-simple-rpc-client = "examples.slimrpc.simple.client:main"
 
 [dependency-groups]
 building = [
@@ -70,7 +74,7 @@ linting = [
 [tool.maturin]
 bindings = "uniffi"
 manifest-path = "../rust/Cargo.toml"
-module-name = "slim_bindings"
+module-name = "slim_bindings._slim_bindings"
 python-packages = ["examples"]
 
 [tool.pytest.ini_options]
@@ -83,7 +87,7 @@ markers = [
 ]
 
 [tool.ruff]
-extend-exclude = ["slim_bindings/_slim_bindings.pyi"]
+extend-exclude = ["slim_bindings/_slim_bindings.pyi", "*_pb2.py", "*_pb2.pyi", "*_pb2_slimrpc.py"]
 
 [tool.ruff.lint]
 extend-select = ["Q", "RUF100", "C90", "I", "UP"]
@@ -97,3 +101,7 @@ isort = { known-first-party = ["slim_bindings", "tests"] }
 
 [tool.uv]
 default-groups = ["building"]
+
+[[tool.mypy.overrides]]
+module = ["google.rpc.*"]
+follow_untyped_imports = true
