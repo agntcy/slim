@@ -215,8 +215,9 @@ impl Service {
             Ok(())
         });
 
-        handle.await?;
-        Ok(())
+        handle.await.map_err(|e| SlimError::ServiceError {
+            message: format!("Failed to join server task: {}", e),
+        })?
     }
 
     /// Start a server with the given configuration - blocking version
@@ -239,7 +240,10 @@ impl Service {
         // Spawn in tokio runtime since connect internally uses tokio::spawn
         let handle = runtime.spawn(async move { inner.connect(&core_config).await });
 
-        let result = handle.await?;
+        let result = handle.await.map_err(|e| SlimError::ServiceError {
+            message: format!("Failed to join connect task: {}", e),
+        })?;
+
         Ok(result?)
     }
 
