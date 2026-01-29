@@ -616,63 +616,80 @@ impl Channel {
         method_name: &str,
         ctx: &Context,
     ) -> Result<Session, Status> {
-        // Build method-specific subscription name (e.g., org/namespace/app-Service-Method)
-        let method_subscription_name =
-            crate::build_method_subscription_name(&self.inner.remote, service_name, method_name);
+        let service_name = service_name.to_string();
+        let method_name = method_name.to_string();
+        let ctx = ctx.clone();
+        let app = self.inner.app.clone();
+        let remote = self.inner.remote.clone();
+        let connection_id = self.inner.connection_id;
+        let runtime = self.inner.runtime.clone();
 
-        // Set route if connection_id is provided
-        if let Some(conn_id) = self.inner.connection_id {
+        // Spawn the entire session creation in a background task
+        let handle = runtime.spawn(async move {
+            // Build method-specific subscription name (e.g., org/namespace/app-Service-Method)
+            let method_subscription_name =
+                crate::build_method_subscription_name(&remote, &service_name, &method_name);
+
+            // Set route if connection_id is provided
+            if let Some(conn_id) = connection_id {
+                tracing::debug!(
+                    %service_name,
+                    %method_name,
+                    %method_subscription_name,
+                    connection_id = conn_id,
+                    "Setting route before creating session"
+                );
+
+                if let Err(e) = app.set_route(&method_subscription_name, conn_id).await {
+                    tracing::warn!(
+                        %method_subscription_name,
+                        connection_id = conn_id,
+                        error = %e,
+                        "Failed to set route"
+                    );
+                }
+            }
+
+            // Create the session with optional connection ID for propagation
             tracing::debug!(
                 %service_name,
                 %method_name,
                 %method_subscription_name,
-                connection_id = conn_id,
-                "Setting route before creating session"
+                connection_id = ?connection_id,
+                "Creating session"
             );
 
-            self.inner
-                .app
-                .set_route(&method_subscription_name, conn_id)
+            // Create session configuration with deadline metadata
+            let slim_config = slim_session::session_config::SessionConfig {
+                session_type: ProtoSessionType::PointToPoint,
+                mls_enabled: false,
+                max_retries: Some(3),
+                interval: Some(Duration::from_secs(1)),
+                initiator: true,
+                metadata: ctx.metadata().as_map().clone(),
+            };
+
+            // Create session to the method-specific subscription name
+            let (session_ctx, completion) = app
+                .create_session(slim_config, method_subscription_name.clone(), None)
                 .await
-                .map_err(|e| Status::internal(format!("Failed to set route: {}", e)))?;
-        }
+                .map_err(|e| Status::unavailable(format!("Failed to create session: {}", e)))?;
 
-        // Create the session with optional connection ID for propagation
-        tracing::debug!(
-            %service_name,
-            %method_name,
-            %method_subscription_name,
-            connection_id = ?self.inner.connection_id,
-            "Creating session"
-        );
+            // Wait for session handshake completion
+            completion
+                .await
+                .map_err(|e| Status::unavailable(format!("Session handshake failed: {}", e)))?;
 
-        // Create session configuration with deadline metadata
-        let slim_config = slim_session::session_config::SessionConfig {
-            session_type: ProtoSessionType::PointToPoint,
-            mls_enabled: false,
-            max_retries: Some(3),
-            interval: Some(Duration::from_secs(1)),
-            initiator: true,
-            metadata: ctx.metadata().as_map().clone(),
-        };
+            // Wrap the session context for RPC operations
+            let session = Session::new(session_ctx);
 
-        // Create session to the method-specific subscription name
-        let (session_ctx, completion) = self
-            .inner
-            .app
-            .create_session(slim_config, method_subscription_name.clone(), None)
+            Ok(session)
+        });
+
+        // Await the spawned task
+        handle
             .await
-            .map_err(|e| Status::unavailable(format!("Failed to create session: {}", e)))?;
-
-        // Wait for session handshake completion
-        completion
-            .await
-            .map_err(|e| Status::unavailable(format!("Session handshake failed: {}", e)))?;
-
-        // Wrap the session context for RPC operations
-        let session = Session::new(session_ctx);
-
-        Ok(session)
+            .map_err(|e| Status::internal(format!("Session creation task failed: {}", e)))?
     }
 
     /// Create a context for a specific RPC call with deadline
