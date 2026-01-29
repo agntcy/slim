@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3](https://github.com/agntcy/slim/compare/slim-session-v0.1.2...slim-session-v0.1.3) - 2026-01-29
+
+### Added
+
+- add reference count to subscription table ([#1143](https://github.com/agntcy/slim/pull/1143))
+- *(session)* Add direction to slim app to control message flow ([#1121](https://github.com/agntcy/slim/pull/1121))
+- generate python bindings with uniffi ([#1046](https://github.com/agntcy/slim/pull/1046))
+- *(bindings)* expose participant list to the application ([#1089](https://github.com/agntcy/slim/pull/1089))
+- send group acknowledge from the session ([#1050](https://github.com/agntcy/slim/pull/1050))
+- *(bindings)* expose complete configuration for auth and creating clients, servers ([#1084](https://github.com/agntcy/slim/pull/1084))
+- *(session)* handle moderator unexpected stop ([#1024](https://github.com/agntcy/slim/pull/1024))
+- Update group state on unexpected application stop ([#1014](https://github.com/agntcy/slim/pull/1014))
+- detect and handle unexpected participant disconnections ([#1004](https://github.com/agntcy/slim/pull/1004))
+
+### Fixed
+
+- add missing routes to participants ([#1131](https://github.com/agntcy/slim/pull/1131))
+- check if a participant is already in the group before invite ([#1085](https://github.com/agntcy/slim/pull/1085))
+- *(session)* send ping messages to the right destination ([#1066](https://github.com/agntcy/slim/pull/1066))
+- *(session)* route dataplane errors to correct session ([#1056](https://github.com/agntcy/slim/pull/1056))
+- *(session)* remove participants from the group list ([#1059](https://github.com/agntcy/slim/pull/1059))
+- *(bindings)* improve identity error handling ([#1042](https://github.com/agntcy/slim/pull/1042))
+- *(session)* correctly remove routes on session close ([#1039](https://github.com/agntcy/slim/pull/1039))
+- *(moderator_task.rs)* typo ([#1008](https://github.com/agntcy/slim/pull/1008))
+
+### Other
+
+- unified typed error handling across core crates ([#976](https://github.com/agntcy/slim/pull/976))
+
 ## [0.1.2](https://github.com/agntcy/slim/compare/slim-session-v0.1.1...slim-session-v0.1.2) - 2025-11-21
 
 ### Added

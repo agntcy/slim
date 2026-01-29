@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/agntcy/slim/compare/slim-config-v0.4.3...slim-config-v0.5.0) - 2026-01-29
+
+### Added
+
+- Support different trust domains in auto route setup ([#1001](https://github.com/agntcy/slim/pull/1001))
+- *(bindings)* expose identity configuration ([#1092](https://github.com/agntcy/slim/pull/1092))
+- *(bindings)* expose complete configuration for auth and creating clients, servers ([#1084](https://github.com/agntcy/slim/pull/1084))
+- make backoff retry configurable ([#991](https://github.com/agntcy/slim/pull/991))
+
+### Other
+
+- unified typed error handling across core crates ([#976](https://github.com/agntcy/slim/pull/976))
+
 ## [0.4.3](https://github.com/agntcy/slim/compare/slim-config-v0.4.2...slim-config-v0.4.3) - 2025-11-21
 
 ### Fixed
