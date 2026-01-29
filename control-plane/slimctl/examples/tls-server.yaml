@@ -1,15 +1,30 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
-# Example configuration for running SLIM with TLS enabled
-# This configuration requires valid certificate and key files.
+# Example: TLS-Enabled Server Configuration
+# This configuration requires valid X.509 v3 certificate and key files.
 
-endpoint: "0.0.0.0:8443"
+runtime:
+  n_cores: 0
+  thread_name: "slim-worker"
+  drain_timeout: 10s
 
-tls:
-  insecure: false
-  cert_file: "/path/to/server-cert.pem"
-  key_file: "/path/to/server-key.pem"
+tracing:
+  log_level: info
+  display_thread_names: true
+  display_thread_ids: true
 
-# Note: Update the cert_file and key_file paths to point to your actual
-# certificate and key files before using this configuration.
+services:
+  slim/0:
+    dataplane:
+      servers:
+        - endpoint: "0.0.0.0:8443"
+          tls:
+            source:
+              type: file
+              cert: "/path/to/server-cert.pem"
+              key: "/path/to/server-key.pem"
+      clients: []
+
+# Note: Update the cert and key paths before using this configuration.
+# To generate test certificates: cd control-plane/slimctl && task certs:setup

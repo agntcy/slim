@@ -1,0 +1,25 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+# Example: Debug Configuration
+# This configuration is useful for troubleshooting and development.
+# It enables detailed logging and runs on a non-standard port.
+
+runtime:
+  n_cores: 0  # Use all available cores
+  thread_name: "slim-debug"
+  drain_timeout: 5s
+
+tracing:
+  log_level: debug  # Enable verbose debug logging
+  display_thread_names: true
+  display_thread_ids: true
+
+services:
+  slim/0:
+    dataplane:
+      servers:
+        - endpoint: "127.0.0.1:9090"
+          tls:
+            insecure: true
+      clients: []

@@ -1,145 +1,372 @@
 # slimctl Configuration Examples
 
-This directory contains example configuration files for running SLIM instances via `slimctl`.
+This directory contains example configuration files for running local SLIM instances via `slimctl slim start`.
+
+## Overview
+
+The `slimctl slim start` command starts a local SLIM data plane server for development and testing. It uses the full SLIM production configuration format and delegates all configuration processing to the SLIM bindings library.
+
+## Quick Start
+
+```bash
+# Start in insecure mode (development only)
+slimctl slim start --endpoint 127.0.0.1:8080 --insecure
+
+# Start with a configuration file
+slimctl slim start --config examples/insecure-server.yaml
+
+# Start with TLS (after generating certificates)
+cd control-plane/slimctl
+task certs:setup
+slimctl slim start --config examples/tls-server.yaml
+```
 
 ## Configuration Files
 
-### insecure-server.yaml
-Basic configuration for running SLIM in insecure mode (no TLS). This is suitable for local development and testing only.
+### 📄 insecure-server.yaml
+**Minimal insecure configuration for local development**
 
-**Usage:**
+Runs SLIM without TLS on `127.0.0.1:8080`. Suitable for local testing only.
+
 ```bash
 slimctl slim start --config examples/insecure-server.yaml
 ```
 
-### tls-server.yaml
-Configuration for running SLIM with TLS enabled. Requires valid certificate and key files.
+### 📄 tls-server.yaml
+**TLS-enabled server configuration**
 
-**Usage:**
+Runs SLIM with TLS on `0.0.0.0:8443`. Requires X.509 v3 certificates compatible with rustls.
+
 ```bash
-# Update the cert_file and key_file paths in the YAML first, then:
+# Generate test certificates first
+task certs:setup
+
+# Update certificate paths in the YAML, then:
 slimctl slim start --config examples/tls-server.yaml
 ```
 
-## Configuration Options
+### 📄 production.yaml
+**Production-ready configuration example**
 
-### Endpoint
-The network address and port to bind the SLIM server to.
+Shows a typical production setup with:
+- TLS enabled
+- Optimized runtime settings (4 cores)
+- Enhanced keepalive configuration
+- Production-grade endpoints
 
-```yaml
-endpoint: "127.0.0.1:8080"
+### 📄 debug.yaml
+**Debug configuration with verbose logging**
+
+Enables detailed debug logging for troubleshooting. Runs on port 9090.
+
+```bash
+slimctl slim start --config examples/debug.yaml
 ```
 
-### TLS Configuration
+### 📄 env-vars.yaml
+**Configuration using environment variables**
 
-#### Insecure Mode (No TLS)
-```yaml
-tls:
-  insecure: true
+Demonstrates using `${env:VARIABLE}` syntax for flexible deployments:
+
+```bash
+# Development
+export LOG_LEVEL=debug
+slimctl slim start --config examples/env-vars.yaml
+
+# Production
+export SLIM_ENDPOINT=0.0.0.0:443
+export SLIM_TLS_INSECURE=false
+export SLIM_TLS_CERT=/etc/slim/certs/server-cert.pem
+export SLIM_TLS_KEY=/etc/slim/certs/server-key.pem
+slimctl slim start --config examples/env-vars.yaml
 ```
 
-#### TLS Enabled
+## Configuration Structure
+
+All configuration files follow the full SLIM production format:
+
 ```yaml
-tls:
-  insecure: false
-  cert_file: "/path/to/server-cert.pem"
-  key_file: "/path/to/server-key.pem"
+runtime:
+  n_cores: 0              # CPU cores (0 = all available)
+  thread_name: "slim-worker"
+  drain_timeout: 10s      # Graceful shutdown timeout
+
+tracing:
+  log_level: info         # debug, info, warn, error
+  display_thread_names: true
+  display_thread_ids: true
+
+services:
+  slim/0:
+    dataplane:
+      servers:
+        - endpoint: "127.0.0.1:8080"
+          tls:
+            insecure: true  # or configure TLS below
+            source:
+              type: file
+              cert: "path/to/cert.pem"
+              key: "path/to/key.pem"
+      clients: []
 ```
 
 ## Command-Line Flags
 
-You can override configuration file values using command-line flags:
+Override configuration values using CLI flags:
 
-### Basic Flags
-- `--config`, `-c`: Path to YAML configuration file
-- `--endpoint`: Override the endpoint address
-- `--insecure`: Disable TLS (insecure mode)
-- `--tls-cert`: Override TLS certificate file path
-- `--tls-key`: Override TLS key file path
+| Flag | Description | Environment Variable |
+|------|-------------|---------------------|
+| `--config`, `-c` | Path to YAML config file | - |
+| `--endpoint` | Override server endpoint | `SLIM_OVERRIDE_ENDPOINT` |
+| `--insecure` | Disable TLS | `SLIM_OVERRIDE_INSECURE` |
+| `--tls-cert` | Override TLS certificate | `SLIM_OVERRIDE_TLS_CERT` |
+| `--tls-key` | Override TLS key | `SLIM_OVERRIDE_TLS_KEY` |
+
+The log level can be controlled via the `RUST_LOG` environment variable:
+
+```bash
+RUST_LOG=debug slimctl slim start --config examples/insecure-server.yaml
+```
 
 ## Usage Examples
 
-**Note:** All examples assume `slimctl` is built and in your PATH, or you're running from `control-plane/slimctl` directory using `./slimctl`.
+### 1. Quick Start (No Config File)
 
-To build slimctl:
+Start a server using CLI flags only:
+
 ```bash
-# From repository root
-cd control-plane
-task slimctl:build
-cd slimctl
+slimctl slim start --endpoint 127.0.0.1:8080 --insecure
 ```
 
-### 1. Insecure Mode (Default)
-Start a SLIM server without TLS on localhost:
+This creates a temporary configuration with your specified settings.
+
+### 2. Development with Config File
 
 ```bash
-./slimctl slim start --endpoint 127.0.0.1:8080 --insecure
+slimctl slim start --config examples/insecure-server.yaml
 ```
 
-### 2. TLS from Configuration File
-Start a SLIM server using a YAML configuration file:
+### 3. Override Endpoint
 
 ```bash
-./slimctl slim start --config examples/tls-server.yaml
+slimctl slim start --config examples/insecure-server.yaml --endpoint 127.0.0.1:9090
 ```
 
-### 3. TLS with Command-Line Overrides
-Start with a base configuration but override certificate paths:
+### 4. TLS from Configuration
 
 ```bash
-./slimctl slim start --config examples/base-config.yaml \
-  --tls-cert ./certs/server.crt \
-  --tls-key ./certs/server.key
+# Generate test certificates
+cd control-plane/slimctl
+task certs:setup
+
+# Start with TLS
+slimctl slim start --config examples/tls-server.yaml
 ```
 
-### 4. TLS without Configuration File
-Start a TLS-enabled server using only command-line flags:
+### 5. TLS with CLI Overrides
 
 ```bash
-./slimctl slim start \
-  --endpoint 0.0.0.0:8443 \
-  --tls-cert ./certs/server.crt \
-  --tls-key ./certs/server.key
+slimctl slim start --config examples/insecure-server.yaml \
+  --tls-cert testdata/certs/server-cert.pem \
+  --tls-key testdata/certs/server-key.pem
 ```
 
-## Generating Test Certificates
-
-For testing purposes, you can generate self-signed certificates using OpenSSL:
+### 6. Debug Mode
 
 ```bash
-# Generate a private key
+RUST_LOG=debug slimctl slim start --config examples/debug.yaml
+```
+
+### 7. Using Environment Variables
+
+```bash
+export SLIM_ENDPOINT=127.0.0.1:9000
+export LOG_LEVEL=debug
+slimctl slim start --config examples/env-vars.yaml
+```
+
+## Generating TLS Certificates
+
+For testing and development, use the built-in certificate generation:
+
+```bash
+cd control-plane/slimctl
+task certs:setup
+```
+
+This generates X.509 v3 certificates compatible with rustls:
+- Certificate: `testdata/certs/server-cert.pem`
+- Private Key: `testdata/certs/server-key.pem`
+
+### Manual Certificate Generation
+
+If you prefer to generate certificates manually:
+
+```bash
+# Create OpenSSL config for v3 extensions
+cat > openssl.cnf <<'EOF'
+[req]
+default_bits = 2048
+prompt = no
+default_md = sha256
+distinguished_name = dn
+x509_extensions = v3_req
+
+[dn]
+C = US
+ST = Test
+L = Test
+O = Test Organization
+CN = localhost
+
+[v3_req]
+subjectAltName = @alt_names
+basicConstraints = CA:FALSE
+keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+
+[alt_names]
+DNS.1 = localhost
+IP.1 = 127.0.0.1
+EOF
+
+# Generate private key
 openssl genrsa -out server-key.pem 2048
 
-# Generate a self-signed certificate
-openssl req -new -x509 -key server-key.pem -out server-cert.pem -days 365 \
-  -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"
+# Generate X.509 v3 certificate
+openssl req -new -x509 -key server-key.pem \
+  -out server-cert.pem -days 365 \
+  -config openssl.cnf -extensions v3_req
 ```
 
-**Note:** Self-signed certificates should only be used for testing and development. For production use, obtain certificates from a trusted Certificate Authority (CA).
+**Important:** The certificate must be X.509 v3 (not v1) for rustls compatibility.
 
-## Configuration Validation
+## Configuration Behavior
 
-When starting a SLIM server, the configuration is validated:
+### Delegation to Bindings
 
-1. **Endpoint**: Must not be empty
-2. **TLS Enabled**: When `insecure: false`, both `cert_file` and `key_file` must be provided
-3. **File Existence**: Certificate and key files must exist and be readable
+All configuration validation and processing is delegated to the SLIM bindings library:
 
-If validation fails, slimctl will display an error message explaining the issue.
+✅ **slimctl does NOT:**
+- Validate YAML syntax
+- Check file existence
+- Validate configuration structure
+- Parse configuration values
+
+✅ **SLIM bindings handle:**
+- YAML parsing and validation
+- Configuration structure validation
+- Environment variable substitution (`${env:VAR}`)
+- File loading and watching
+- Error reporting
+
+This ensures **production parity** - the development command behaves exactly like production SLIM.
+
+### Environment Variable Substitution
+
+The bindings support `${env:VARIABLE}` syntax in any configuration value:
+
+```yaml
+services:
+  slim/0:
+    dataplane:
+      servers:
+        - endpoint: "${env:SLIM_ENDPOINT:-127.0.0.1:8080}"
+          tls:
+            insecure: "${env:SLIM_TLS_INSECURE:-true}"
+```
+
+CLI flags are converted to environment variables automatically:
+- `--endpoint 127.0.0.1:8080` → `SLIM_OVERRIDE_ENDPOINT=127.0.0.1:8080`
+- `--insecure` → `SLIM_OVERRIDE_INSECURE=true`
+- `--tls-cert path/to/cert.pem` → `SLIM_OVERRIDE_TLS_CERT=path/to/cert.pem`
+- `--tls-key path/to/key.pem` → `SLIM_OVERRIDE_TLS_KEY=path/to/key.pem`
+
+## Taskfile Automation
+
+The `slimctl` directory includes a Taskfile with helpful commands:
+
+```bash
+# Generate certificates
+task certs:setup
+
+# Generate test configurations
+task configs:setup
+
+# Run in insecure mode
+task run:insecure
+
+# Run with TLS
+task run:tls
+
+# Clean up test artifacts
+task clean
+```
+
+View all available tasks:
+
+```bash
+task --list
+```
 
 ## Troubleshooting
 
-### "certificate file not found" Error
-Ensure the paths in `cert_file` and `key_file` are absolute or relative to the current working directory, and that the files exist.
+### "Failed to create config loader: IoError (NotFound)"
 
-### "tls.cert_file is required when TLS is enabled" Error
-When `insecure: false`, you must provide both certificate and key file paths.
+The configuration file doesn't exist. Check the path:
 
-### Connection Refused
-Ensure the endpoint address is correct and not already in use by another process.
+```bash
+ls -l examples/insecure-server.yaml
+```
+
+### "Failed to create config loader: YamlError"
+
+The YAML syntax is invalid. Errors show line and column numbers:
+
+```
+YamlError(Error { kind: SCANNER, problem: "...", problem_mark: Mark { line: 10, column: 5 } })
+```
+
+### "UnsupportedCertVersion"
+
+Your certificate is X.509 v1, but rustls requires v3. Regenerate with:
+
+```bash
+task certs:setup
+```
+
+### Port Already in Use
+
+Another process is using the port. Either stop that process or use a different port:
+
+```bash
+slimctl slim start --config examples/insecure-server.yaml --endpoint 127.0.0.1:9090
+```
+
+### TLS Handshake Failures
+
+Ensure:
+1. Certificate is X.509 v3
+2. Certificate and key match
+3. Certificate includes proper SAN (Subject Alternative Name) entries
+4. Certificate is not expired
+
+Verify certificate details:
+
+```bash
+openssl x509 -in server-cert.pem -noout -text
+```
 
 ## Additional Resources
 
 - [SLIM Documentation](https://github.com/agntcy/slim)
-- [Go Bindings Examples](../../data-plane/bindings/go/examples/)
-- [TLS Configuration Guide](../../data-plane/config/tls/)
+- [SLIM Instance Documentation](../SLIM_INSTANCE.md) - Detailed command reference
+- [slimctl README](../README.md) - Main documentation
+- [Go Bindings](https://github.com/agntcy/slim-bindings-go)
+
+## Notes
+
+- **Development Only**: The `slim start` command is intended for developers and testing
+- **Production Parity**: Uses the same configuration format and processing as production SLIM
+- **Security**: Never use insecure mode or self-signed certificates in production
+- **Performance**: The local server has the same performance characteristics as production SLIM

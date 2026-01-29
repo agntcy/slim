@@ -1,0 +1,34 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+# Example: Production-Ready Configuration
+# This example shows a typical production setup with TLS, enhanced logging,
+# and optimized runtime settings.
+
+runtime:
+  n_cores: 4  # Use 4 CPU cores (adjust based on your environment)
+  thread_name: "slim-prod"
+  drain_timeout: 30s  # Allow 30 seconds for graceful shutdown
+
+tracing:
+  log_level: info
+  display_thread_names: true
+  display_thread_ids: true
+
+services:
+  slim/0:
+    dataplane:
+      servers:
+        - endpoint: "0.0.0.0:443"
+          tls:
+            source:
+              type: file
+              cert: "/etc/slim/certs/server-cert.pem"
+              key: "/etc/slim/certs/server-key.pem"
+          keepalive:
+            max_connection_idle: 3600s
+            max_connection_age: 7200s
+            max_connection_age_grace: 300s
+            time: 120s
+            timeout: 20s
+      clients: []

@@ -1,11 +1,25 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
-# Example configuration for running SLIM in insecure mode (no TLS)
+# Example: Minimal Insecure Server Configuration
 # This is suitable for local development and testing only.
 # DO NOT use in production environments.
 
-endpoint: "127.0.0.1:8080"
+runtime:
+  n_cores: 0  # 0 means use all available cores
+  thread_name: "slim-worker"
+  drain_timeout: 10s
 
-tls:
-  insecure: true
+tracing:
+  log_level: info
+  display_thread_names: true
+  display_thread_ids: true
+
+services:
+  slim/0:
+    dataplane:
+      servers:
+        - endpoint: "127.0.0.1:8080"
+          tls:
+            insecure: true
+      clients: []
