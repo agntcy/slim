@@ -99,15 +99,11 @@ mod tests {
     use slim_config::testutils::helloworld::greeter_server::GreeterServer;
     use slim_testing::utils::setup_test_jwt_resolver;
     #[cfg(unix)]
-    use tokio::net::UnixListener;
-    #[cfg(unix)]
-    use tokio::task::yield_now;
-    #[cfg(unix)]
-    use tokio::time::timeout;
-    #[cfg(unix)]
-    use tokio_stream::wrappers::UnixListenerStream;
-    #[cfg(unix)]
-    use tonic::transport::Server;
+    use {
+        tokio::{net::UnixListener, task::yield_now, time::timeout},
+        tokio_stream::wrappers::UnixListenerStream,
+        tonic::transport::Server,
+    };
 
     static TEST_DATA_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata");
 

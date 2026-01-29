@@ -6,20 +6,15 @@ use rustls_pki_types::ServerName;
 use tokio_retry::RetryIf;
 
 use display_error_chain::ErrorChainExt;
-#[cfg(target_family = "unix")]
-use hyper_util::rt::TokioIo;
-use std::error::Error as StdErrorTrait;
-#[cfg(target_family = "unix")]
-use std::path::PathBuf;
-#[cfg(target_family = "unix")]
-use std::sync::Arc;
-use std::time::Duration;
-use std::{collections::HashMap, str::FromStr};
-#[cfg(target_family = "unix")]
-use tokio::net::UnixStream;
+use std::{collections::HashMap, error::Error as StdErrorTrait, str::FromStr, time::Duration};
 use tower::ServiceExt;
 #[cfg(target_family = "unix")]
-use tower::service_fn;
+use {
+    hyper_util::rt::TokioIo,
+    std::{path::PathBuf, sync::Arc},
+    tokio::net::UnixStream,
+    tower::service_fn,
+};
 
 use base64::prelude::*;
 use http::header::{HeaderMap, HeaderName, HeaderValue};
@@ -786,7 +781,6 @@ impl ClientConfig {
                         tracing::warn!(error = %err.chain(), "Transport error encountered. Retrying...");
                         true
                     }
-                    #[cfg(target_family = "unix")]
                     ConfigError::UnixSocketConnect(err) => {
                         tracing::warn!(error = %err, "Unix socket connect error encountered. Retrying...");
                         true
