@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4](https://github.com/agntcy/slim/compare/slim-controller-v0.4.3...slim-controller-v0.4.4) - 2026-01-29
+
+### Added
+
+- Support different trust domains in auto route setup ([#1001](https://github.com/agntcy/slim/pull/1001))
+- *(bindings)* expose identity configuration ([#1092](https://github.com/agntcy/slim/pull/1092))
+- send group acknowledge from the session ([#1050](https://github.com/agntcy/slim/pull/1050))
+- make backoff retry configurable ([#991](https://github.com/agntcy/slim/pull/991))
+
+### Fixed
+
+- *(controller)* start the controller service only if the related config is provided ([#1054](https://github.com/agntcy/slim/pull/1054))
+- *(bindings)* improve identity error handling ([#1042](https://github.com/agntcy/slim/pull/1042))
+
+### Other
+
+- *(bindings)* do not expose tokio-specific APIs to foreign async calls ([#1110](https://github.com/agntcy/slim/pull/1110))
+- *(lint)* use latest version of tools ([#1067](https://github.com/agntcy/slim/pull/1067))
+- unified typed error handling across core crates ([#976](https://github.com/agntcy/slim/pull/976))
+
 ## [0.4.3](https://github.com/agntcy/slim/compare/slim-controller-v0.4.2...slim-controller-v0.4.3) - 2025-11-21
 
 ### Fixed

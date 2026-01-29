@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.2](https://github.com/agntcy/slim/compare/slim-v0.7.1...slim-v0.7.2) - 2026-01-29
+
+### Added
+
+- *(bindings)* configuration file support ([#1099](https://github.com/agntcy/slim/pull/1099))
+
+### Fixed
+
+- revert release SLIM 1.0.0-rc.0 ([#1153](https://github.com/agntcy/slim/pull/1153))
+
+### Other
+
+- release SLIM 1.0.0-rc.0 ([#1151](https://github.com/agntcy/slim/pull/1151))
+- *(bindings)* do not expose tokio-specific APIs to foreign async calls ([#1110](https://github.com/agntcy/slim/pull/1110))
+- *(bindings)* allow multiple global services ([#1106](https://github.com/agntcy/slim/pull/1106))
+- unified typed error handling across core crates ([#976](https://github.com/agntcy/slim/pull/976))
+
 ## [0.7.1](https://github.com/agntcy/slim/compare/slim-v0.7.0...slim-v0.7.1) - 2025-11-21
 
 ### Fixed

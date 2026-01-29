@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.3](https://github.com/agntcy/slim/compare/slim-service-v0.8.2...slim-service-v0.8.3) - 2026-01-29
+
+### Added
+
+- *(session)* Add direction to slim app to control message flow ([#1121](https://github.com/agntcy/slim/pull/1121))
+- generate python bindings with uniffi ([#1046](https://github.com/agntcy/slim/pull/1046))
+- *(bindings)* configuration file support ([#1099](https://github.com/agntcy/slim/pull/1099))
+- *(bindings)* expose participant list to the application ([#1089](https://github.com/agntcy/slim/pull/1089))
+- Go bindings generation using uniffi ([#979](https://github.com/agntcy/slim/pull/979))
+- make backoff retry configurable ([#991](https://github.com/agntcy/slim/pull/991))
+
+### Fixed
+
+- *(session)* route dataplane errors to correct session ([#1056](https://github.com/agntcy/slim/pull/1056))
+- *(controller)* start the controller service only if the related config is provided ([#1054](https://github.com/agntcy/slim/pull/1054))
+- *(bindings)* improve identity error handling ([#1042](https://github.com/agntcy/slim/pull/1042))
+
+### Other
+
+- *(bindings)* do not expose tokio-specific APIs to foreign async calls ([#1110](https://github.com/agntcy/slim/pull/1110))
+- *(bindings)* allow multiple global services ([#1106](https://github.com/agntcy/slim/pull/1106))
+- feature flag for session layer ([#1102](https://github.com/agntcy/slim/pull/1102))
+- unified typed error handling across core crates ([#976](https://github.com/agntcy/slim/pull/976))
+
 ## [0.8.2](https://github.com/agntcy/slim/compare/slim-service-v0.8.1...slim-service-v0.8.2) - 2025-11-21
 
 ### Added
