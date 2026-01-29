@@ -57,8 +57,9 @@ struct SubscriptionRefs {
 
 impl SubscriptionRefs {
     fn new(conn: u64) -> Self {
-        let mut refs = HashMap::new();
-        refs.insert(conn, 1);
+        let refs = HashMap::from([
+            (conn, 1),
+        ]);
         SubscriptionRefs { refs }
     }
 
