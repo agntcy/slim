@@ -71,7 +71,7 @@ mv target/${RUSTARCH}/release/slim /slim
 mv target/${RUSTARCH}/release/slim.dbg /slim.dbg
 EOF
 
-# runtime images  - debug executable, debug symbols and, most importantly, a shell :)
+# Runtime images  - debug executable, debug symbols and, most importantly, a shell :)
 FROM debian:bookworm-slim AS slim-debug
 
 ARG TARGETARCH
@@ -82,10 +82,16 @@ RUN ls -l /app/data-plane/target/
 COPY --from=rust /slim /slim
 COPY --from=rust /slim.dbg /slim.dbg
 
-# runtime images  - release executable
-FROM gcr.io/distroless/cc-debian12:nonroot AS slim-release
+# Grab libgcc from the CC image
+FROM gcr.io/distroless/cc-debian12 AS libgcc-provider
+
+# Runtime images - release executable
+FROM gcr.io/distroless/base-nossl-debian12:nonroot AS slim-release
 
 ARG TARGETARCH
+
+# Copy libgcc from the libgcc-provider image
+COPY --from=libgcc-provider /lib/*-linux-gnu/libgcc_s.so.1 /lib/
 
 # copy the artifacts from the build stage
 COPY --from=rust /slim /slim
