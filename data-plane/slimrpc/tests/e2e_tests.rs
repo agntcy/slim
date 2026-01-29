@@ -33,7 +33,7 @@ use slim_testing::slimrpc::{TestRequest, TestResponse};
 struct TestEnv {
     service: Arc<Service>,
     server: Server,
-    server_handle: Option<tokio::task::JoinHandle<()>>,
+    server_handle: Option<tokio::task::JoinHandle<Result<(), Status>>>,
     channel: Channel,
 }
 
@@ -83,10 +83,7 @@ impl TestEnv {
 
     /// Start the server in the background
     async fn start_server(&mut self) {
-        let server_clone = self.server.clone();
-        let server_handle = tokio::spawn(async move {
-            let _ = server_clone.serve().await;
-        });
+        let server_handle = self.server.serve();
 
         // Give server time to start and subscribe
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -101,7 +98,7 @@ impl TestEnv {
 
         if let Some(handle) = self.server_handle.take() {
             tracing::info!("Waiting for server task to finish...");
-            handle.await.unwrap();
+            let _ = handle.await.unwrap();
         }
 
         tracing::info!("Shutting down service...");

@@ -313,8 +313,11 @@ enum NotificationReceiver {
 ///     }
 /// );
 ///
-/// // Start serving
-/// server.serve().await?;
+/// // Start serving in background task
+/// let server_handle = server.serve();
+///
+/// // Wait for server to complete
+/// server_handle.await.unwrap()?;
 /// # Ok(())
 /// # }
 /// ```
@@ -702,12 +705,18 @@ impl Server {
         self.inner.registry.read().methods()
     }
 
-    /// Start the server and listen for incoming RPC requests
+    /// Start the server and listen for incoming RPC requests in a separate task
     ///
-    /// This method listens for incoming sessions and dispatches them to registered handlers.
-    /// The service/method routing is determined by metadata in the session.
+    /// This method spawns a background task that listens for incoming sessions and
+    /// dispatches them to registered handlers. The service/method routing is determined
+    /// by metadata in the session.
     ///
-    /// This method runs indefinitely until [`shutdown`](Self::shutdown) is called or an error occurs.
+    /// The spawned task runs indefinitely until [`shutdown`](Self::shutdown) is called
+    /// or an error occurs.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `JoinHandle` for the spawned server task. The task result is `Result<(), Status>`.
     ///
     /// # Example
     ///
@@ -716,12 +725,26 @@ impl Server {
     /// # async fn example(server: Server) -> std::result::Result<(), Status> {
     /// // Register handlers first...
     ///
-    /// // Start serving - this runs until shutdown
-    /// server.serve().await?;
+    /// // Start serving in background task
+    /// let server_handle = server.serve();
+    ///
+    /// // Do other work...
+    ///
+    /// // Wait for server to complete (or handle shutdown)
+    /// server_handle.await.unwrap()?;
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn serve(&self) -> Result<(), Status> {
+    pub fn serve(&self) -> JoinHandle<Result<(), Status>> {
+        let server = self.clone();
+        tokio::spawn(async move { server.serve_internal().await })
+    }
+
+    /// Internal server loop implementation
+    ///
+    /// This method contains the actual server loop logic and is called by [`serve`](Self::serve)
+    /// in a spawned task.
+    async fn serve_internal(&self) -> Result<(), Status> {
         tracing::info!(
             base_name = %self.inner.base_name,
             "SlimRPC server starting"

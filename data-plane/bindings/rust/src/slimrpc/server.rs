@@ -88,7 +88,7 @@ impl Server {
     /// ).await.unwrap();
     ///
     /// let service_name = Arc::new(Name::new("org".into(), "example".into(), "rpc".into()));
-    /// let server = RpcServer::new(app, service_name);
+    /// let server = RpcServer::new(&app, service_name);
     /// # }
     /// ```
     #[uniffi::constructor]
@@ -286,6 +286,7 @@ impl Server {
         self.inner
             .serve()
             .await
+            .map_err(|e| RpcError::new(crate::slimrpc::error::RpcCode::Internal, e.to_string()))?
             .map_err(|e| RpcError::new(crate::slimrpc::error::RpcCode::Internal, e.to_string()))
     }
 

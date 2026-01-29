@@ -84,7 +84,11 @@
 //!     }
 //! );
 //!
-//! server.serve().await?;
+//! // Start serving in background task
+//! let server_handle = server.serve();
+//!
+//! // Wait for server to complete
+//! server_handle.await.unwrap()?;
 //! # Ok(())
 //! # }
 //! ```
