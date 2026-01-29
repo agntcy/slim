@@ -55,12 +55,13 @@ impl Server {
         app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
         base_name: SlimName,
         notification_rx: Arc<RwLock<mpsc::Receiver<Result<Notification, SlimSessionError>>>>,
+        connection_id: Option<u64>,
     ) -> Arc<Self> {
         let runtime = crate::get_runtime().handle().clone();
         let inner = CoreServer::new_with_shared_rx_and_connection(
             app,
             base_name,
-            None,
+            connection_id,
             notification_rx,
             Some(runtime),
         );
@@ -100,10 +101,48 @@ impl Server {
     /// ```
     #[uniffi::constructor]
     pub fn new(app: &Arc<App>, base_name: Arc<Name>) -> Arc<Self> {
+        Self::new_with_connection(app, base_name, None)
+    }
+
+    /// Create a new RPC server with optional connection ID
+    ///
+    /// The connection ID is used to set up routing before serving RPC requests,
+    /// enabling multi-hop RPC calls through specific connections.
+    ///
+    /// # Arguments
+    /// * `app` - The SLIM application instance that provides the underlying
+    ///   network transport and session management
+    /// * `base_name` - The base name for this service (e.g., org.namespace.service).
+    ///   This name is used to construct subscription names for RPC methods.
+    /// * `connection_id` - Optional connection ID for routing setup
+    ///
+    /// # Returns
+    /// A new RPC server instance wrapped in an Arc for shared ownership
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use std::sync::Arc;
+    /// # use slim_bindings::{App, Name, RpcServer};
+    /// # async fn example() {
+    /// let app = App::new_with_secret_async(
+    ///     Arc::new(Name::new("org".into(), "example".into(), "service".into())),
+    ///     "secret".into(),
+    /// ).await.unwrap();
+    ///
+    /// let service_name = Arc::new(Name::new("org".into(), "example".into(), "rpc".into()));
+    /// let server = RpcServer::new_with_connection(&app, service_name, Some(42));
+    /// # }
+    /// ```
+    #[uniffi::constructor]
+    pub fn new_with_connection(
+        app: &Arc<App>,
+        base_name: Arc<Name>,
+        connection_id: Option<u64>,
+    ) -> Arc<Self> {
         let app_inner = app.inner();
         let rx = app.notification_receiver();
 
-        Server::new_internal(app_inner, base_name.as_ref().into(), rx)
+        Server::new_internal(app_inner, base_name.as_ref().into(), rx, connection_id)
     }
 
     /// Register a unary-to-unary RPC handler
