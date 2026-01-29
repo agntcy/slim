@@ -57,9 +57,7 @@ struct SubscriptionRefs {
 
 impl SubscriptionRefs {
     fn new(conn: u64) -> Self {
-        let refs = HashMap::from([
-            (conn, 1),
-        ]);
+        let refs = HashMap::from([(conn, 1)]);
         SubscriptionRefs { refs }
     }
 
