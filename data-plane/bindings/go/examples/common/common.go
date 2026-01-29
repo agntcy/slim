@@ -77,14 +77,14 @@ func CreateAndConnectApp(localID, serverAddr, secret string) (*slim.App, uint64,
 
 	// Connect to SLIM server (returns connection ID)
 	config := slim.NewInsecureClientConfig(serverAddr)
-	connID, err := slim.GetGlobalService().Connect(config)
+	connID, err := slim.GetGlobalService().ConnectAsync(config)
 	if err != nil {
 		app.Destroy()
 		return nil, 0, fmt.Errorf("connect failed: %w", err)
 	}
 
 	// Forward subscription to next node
-	err = app.Subscribe(app.Name(), &connID)
+	err = app.SubscribeAsync(app.Name(), &connID)
 	if err != nil {
 		app.Destroy()
 		return nil, 0, fmt.Errorf("subscribe failed: %w", err)
