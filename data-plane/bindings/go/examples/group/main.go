@@ -90,11 +90,11 @@ func runModerator(app *slim.App, connID uint64, remote string, invites []string,
 		Metadata:    make(map[string]string),
 	}
 
-	session, err := app.CreateSessionAndWait(config, channelName)
+	session, err := app.CreateSessionAndWaitAsync(config, channelName)
 	if err != nil {
 		log.Fatalf("Failed to create session: %v", err)
 	}
-	defer app.DeleteSessionAndWait(session)
+	defer app.DeleteSessionAndWaitAsync(session)
 
 	// Give session a moment to establish
 	time.Sleep(100 * time.Millisecond)
@@ -109,13 +109,13 @@ func runModerator(app *slim.App, connID uint64, remote string, invites []string,
 		}
 
 		// Set route for invitee
-		if err := app.SetRoute(inviteName, connID); err != nil {
+		if err := app.SetRouteAsync(inviteName, connID); err != nil {
 			log.Printf("Failed to set route for %s: %v", inviteID, err)
 			continue
 		}
 
 		// Send invite
-		if err := session.InviteAndWait(inviteName); err != nil {
+		if err := session.InviteAndWaitAsync(inviteName); err != nil {
 			log.Printf("Failed to invite %s: %v", inviteID, err)
 			continue
 		}
@@ -132,11 +132,11 @@ func runParticipant(app *slim.App, instance uint64) {
 
 	// Wait for incoming session
 	timeout := time.Second * 60 // 60 seconds timeout
-	session, err := app.ListenForSession(&timeout)
+	session, err := app.ListenForSessionAsync(&timeout)
 	if err != nil {
 		log.Fatalf("Failed to receive session: %v", err)
 	}
-	defer app.DeleteSessionAndWait(session)
+	defer app.DeleteSessionAndWaitAsync(session)
 
 	channelName, err := session.Destination()
 	if err != nil {
@@ -183,7 +183,7 @@ func receiveLoop(session *slim.Session, sourceName *slim.Name, instance uint64, 
 			return
 		default:
 			timeout := time.Second * 1
-			msg, err := session.GetMessage(&timeout)
+			msg, err := session.GetMessageAsync(&timeout)
 			if err != nil {
 				// Check if it's just a timeout
 				if strings.Contains(err.Error(), "timed out") || strings.Contains(err.Error(), "timeout") {
@@ -200,7 +200,7 @@ func receiveLoop(session *slim.Session, sourceName *slim.Name, instance uint64, 
 			// Auto-reply if this is not already a reply (prevent loops)
 			if _, hasPublishTo := msg.Context.Metadata["PUBLISH_TO"]; !hasPublishTo {
 				reply := fmt.Sprintf("message received by %v", sourceName.Components())
-				if err := session.PublishToAndWait(msg.Context, []byte(reply), nil, nil); err != nil {
+				if err := session.PublishToAndWaitAsync(msg.Context, []byte(reply), nil, nil); err != nil {
 					fmt.Printf("%s[%d]%s ❌ Error sending reply: %v\n", colorCyan, instance, colorReset, err)
 				}
 			}
@@ -256,7 +256,7 @@ func keyboardLoop(session *slim.Session, sourceName, channelName *slim.Name, ins
 			}
 
 			// Publish message to group
-			if err := session.PublishAndWait([]byte(input), nil, nil); err != nil {
+			if err := session.PublishAndWaitAsync([]byte(input), nil, nil); err != nil {
 				fmt.Printf("%s[%d]%s ❌ Error sending message: %v\n", colorCyan, instance, colorReset, err)
 			} else {
 				fmt.Printf("%s[%d]%s 📤 Sent to group\n", colorCyan, instance, colorReset)

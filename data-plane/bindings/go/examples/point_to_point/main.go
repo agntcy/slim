@@ -57,7 +57,7 @@ func runSender(app *slim.App, connID uint64, remote, message string, iterations 
 	}
 
 	// Set route to remote via the server connection
-	if err := app.SetRoute(remoteName, connID); err != nil {
+	if err := app.SetRouteAsync(remoteName, connID); err != nil {
 		log.Fatalf("Failed to set route: %v", err)
 	}
 	fmt.Printf("[%d] 📍 Route set to %s via connection %d\n", instance, remote, connID)
@@ -68,11 +68,11 @@ func runSender(app *slim.App, connID uint64, remote, message string, iterations 
 	}
 
 	fmt.Printf("[%d] 🔍 Creating session to %s...\n", instance, remote)
-	session, err := app.CreateSessionAndWait(config, remoteName)
+	session, err := app.CreateSessionAndWaitAsync(config, remoteName)
 	if err != nil {
 		log.Fatalf("Failed to create session: %v", err)
 	}
-	defer app.DeleteSessionAndWait(session)
+	defer app.DeleteSessionAndWaitAsync(session)
 
 	// Give session a moment to establish
 	time.Sleep(100 * time.Millisecond)
@@ -80,7 +80,7 @@ func runSender(app *slim.App, connID uint64, remote, message string, iterations 
 	fmt.Printf("[%d] 📡 Session created\n", instance)
 
 	for i := 0; i < iterations; i++ {
-		if err := session.PublishAndWait([]byte(message), nil, nil); err != nil {
+		if err := session.PublishAndWaitAsync([]byte(message), nil, nil); err != nil {
 			fmt.Printf("[%d] ❌ Error sending message %d/%d: %v\n", instance, i+1, iterations, err)
 			continue
 		}
@@ -89,7 +89,7 @@ func runSender(app *slim.App, connID uint64, remote, message string, iterations 
 
 		// Wait for reply
 		timeout := time.Second * 5
-		msg, err := session.GetMessage(&timeout)
+		msg, err := session.GetMessageAsync(&timeout)
 		if err != nil {
 			fmt.Printf("[%d] ⏱️  No reply for message %d/%d: %v\n", instance, i+1, iterations, err)
 			continue
@@ -104,7 +104,7 @@ func runReceiver(app *slim.App, instance uint64) {
 	fmt.Printf("[%d] 👂 Waiting for incoming sessions...\n", instance)
 
 	for {
-		session, err := app.ListenForSession(nil)
+		session, err := app.ListenForSessionAsync(nil)
 		if err != nil {
 			fmt.Printf("[%d] ⏱️  Timeout waiting for session, retrying...\n", instance)
 			continue
@@ -117,7 +117,7 @@ func runReceiver(app *slim.App, instance uint64) {
 
 func handleSession(app *slim.App, session *slim.Session, instance uint64) {
 	defer func() {
-		if err := app.DeleteSessionAndWait(session); err != nil {
+		if err := app.DeleteSessionAndWaitAsync(session); err != nil {
 			log.Printf("[%d] ⚠️  Warning: failed to delete session: %v", instance, err)
 		}
 		fmt.Printf("[%d] 👋 Session closed\n", instance)
@@ -125,7 +125,7 @@ func handleSession(app *slim.App, session *slim.Session, instance uint64) {
 
 	for {
 		timeout := time.Second * 60
-		msg, err := session.GetMessage(&timeout)
+		msg, err := session.GetMessageAsync(&timeout)
 		if err != nil {
 			fmt.Printf("[%d] 🔚 Session ended: %v\n", instance, err)
 			break
@@ -135,7 +135,7 @@ func handleSession(app *slim.App, session *slim.Session, instance uint64) {
 		fmt.Printf("[%d] 📨 Received: %s\n", instance, text)
 
 		reply := fmt.Sprintf("%s from %d", text, instance)
-		if err := session.PublishToAndWait(msg.Context, []byte(reply), nil, nil); err != nil {
+		if err := session.PublishToAndWaitAsync(msg.Context, []byte(reply), nil, nil); err != nil {
 			log.Printf("[%d] ❌ Error sending reply: %v", instance, err)
 			break
 		}
