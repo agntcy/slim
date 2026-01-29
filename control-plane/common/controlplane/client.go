@@ -47,6 +47,7 @@ func GetClient(
 	if err != nil {
 		return nil, ctx, fmt.Errorf("error connecting to server(%s): %w", opts.Server, err)
 	}
+	defer conn.Close()
 
 	client := cpApi.NewControlPlaneServiceClient(conn)
 	return client, ctx, nil

@@ -39,6 +39,7 @@ func OpenControlChannel(
 	if err != nil {
 		return nil, fmt.Errorf("error connecting to server(%s): %w", opts.Server, err)
 	}
+	defer conn.Close()
 
 	if opts.BasicAuthCredentials != "" {
 		encodedAuth := base64.StdEncoding.EncodeToString([]byte(opts.BasicAuthCredentials))
