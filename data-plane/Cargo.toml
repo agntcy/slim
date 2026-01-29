@@ -13,7 +13,6 @@ members = [
     "core/slim",
     "core/tracing",
     "examples",
-    "python/bindings",
     "slimrpc",
     "slimrpc-compiler",
     "testing",

@@ -33,9 +33,105 @@ on:
         default: v0.4.0+v0.28.3
 env:
   LIBRARY_NAME: slim_bindings
+  PYTHON_VERSION: '3.11'
 
 jobs:
+  generate-matrix:
+    name: Generate Platform Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      matrix-no-windows-gnu: ${{ steps.set-matrix.outputs.matrix-no-windows-gnu }}
+    steps:
+      - name: Generate matrix
+        id: set-matrix
+        run: |
+          # Define the complete platform matrix
+          MATRIX='{
+            "platform": [
+              {
+                "runner": "ubuntu-24.04",
+                "os": "linux",
+                "target": "x86_64-unknown-linux-musl",
+                "python-platform": "musllinux_1_2_x86_64",
+                "exclude": ${{ github.event_name == 'pull_request' }}
+              },
+              {
+                "runner": "ubuntu-24.04",
+                "os": "linux",
+                "target": "x86_64-unknown-linux-gnu",
+                "python-platform": "manylinux_2_28_x86_64",
+                "exclude": false
+              },
+              {
+                "runner": "windows-11-arm",
+                "os": "windows",
+                "target": "aarch64-pc-windows-msvc",
+                "python-platform": "win_arm64",
+                "exclude": ${{ github.event_name == 'pull_request' }}
+              },
+              {
+                "runner": "ubuntu-24.04",
+                "os": "linux",
+                "target": "aarch64-unknown-linux-musl",
+                "python-platform": "musllinux_1_2_aarch64",
+                "use_qemu": true,
+                "exclude": ${{ github.event_name == 'pull_request' }}
+              },
+              {
+                "runner": "ubuntu-24.04",
+                "os": "linux",
+                "target": "aarch64-unknown-linux-gnu",
+                "python-platform": "manylinux_2_28_aarch64",
+                "use_qemu": true,
+                "exclude": ${{ github.event_name == 'pull_request' }}
+              },
+              {
+                "runner": "windows-latest",
+                "os": "windows",
+                "target": "x86_64-pc-windows-msvc",
+                "python-platform": "win_amd64",
+                "exclude": ${{ github.event_name == 'pull_request' }}
+              },
+              {
+                "runner": "ubuntu-24.04",
+                "os": "linux",
+                "target": "x86_64-pc-windows-gnu",
+                "exclude": ${{ github.event_name == 'pull_request' }}
+              },
+              {
+                "runner": "macos-15-intel",
+                "os": "macos",
+                "target": "x86_64-apple-darwin",
+                "python-platform": "macosx_10_12_x86_64",
+                "exclude": ${{ github.event_name == 'pull_request' }}
+              },
+              {
+                "runner": "macos-15",
+                "os": "macos",
+                "target": "aarch64-apple-darwin",
+                "python-platform": "macosx_11_0_arm64",
+                "exclude": ${{ github.event_name == 'pull_request' }}
+              }
+            ],
+            "exclude": [
+              {
+                "platform": {
+                  "exclude": true
+                }
+              }
+            ]
+          }'
+
+          # Output full matrix for build job
+          echo "matrix=$(echo $MATRIX | jq -c .)" >> $GITHUB_OUTPUT
+
+          # Create filtered matrix (exclude windows-gnu for Python tests)
+          MATRIX_NO_WIN_GNU=$(echo $MATRIX | jq -c '{platform: [.platform[] | select(.target != "x86_64-pc-windows-gnu")], exclude: .exclude}')
+          echo "matrix-no-windows-gnu=$(echo $MATRIX_NO_WIN_GNU | jq -c .)" >> $GITHUB_OUTPUT
+
   build-libraries:
+    needs: generate-matrix
     name: "${{ matrix.platform.target }}"
     runs-on: ${{ matrix.platform.runner }}
     defaults:
@@ -44,47 +140,7 @@ jobs:
         working-directory: ./data-plane/bindings/rust
     strategy:
       fail-fast: false
-      matrix:
-        platform:
-          - runner: ubuntu-24.04
-            os: linux
-            target: x86_64-unknown-linux-musl
-            exclude: false
-          - runner: ubuntu-24.04
-            os: linux
-            target: x86_64-unknown-linux-gnu
-            exclude: ${{ github.event_name == 'pull_request' }}
-          - runner: ubuntu-24.04
-            os: linux
-            target: aarch64-unknown-linux-musl
-            exclude: ${{ github.event_name == 'pull_request' }}
-          - runner: ubuntu-24.04
-            os: linux
-            target: aarch64-unknown-linux-gnu
-            exclude: ${{ github.event_name == 'pull_request' }}
-          - runner: windows-latest
-            os: windows
-            target: x86_64-pc-windows-msvc
-            exclude: ${{ github.event_name == 'pull_request' }}
-          - runner: ubuntu-24.04
-            os: linux
-            target: x86_64-pc-windows-gnu
-            exclude: ${{ github.event_name == 'pull_request' }}
-          # https://github.com/astral-sh/uv/issues/12906
-          # - runner: windows-11-arm
-          #   os: windows
-          #   target: aarch64
-          - runner: macos-15-intel
-            os: macos
-            target: x86_64-apple-darwin
-            exclude: ${{ github.event_name == 'pull_request' }}
-          - runner: macos-15
-            os: macos
-            target: aarch64-apple-darwin
-            exclude: ${{ github.event_name == 'pull_request' }}
-        exclude:
-          - platform:
-              exclude: true
+      matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -137,10 +193,27 @@ jobs:
         with:
           name: bindings-${{ matrix.platform.target }}
           path: ./data-plane/target/${{ matrix.platform.target }}/release/*slim_bindings*
+      - name: Install uv
+        if: "!contains(matrix.platform.target, 'windows-gnu')"
+        uses: ./.github/actions/setup-python
+        with:
+          uv-install: 'true'
+      - name: Generate python wheels
+        if: "!contains(matrix.platform.target, 'windows-gnu')"
+        working-directory: ./data-plane/bindings/python
+        run: task python:bindings:packaging TARGET=${{ matrix.platform.target }} PROFILE=release
+      - name: Upload wheels
+        if: "!contains(matrix.platform.target, 'windows-gnu')"
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.platform.target }}
+          path: ./data-plane/bindings/python/dist
 
   go-bindings-build-and-test:
     runs-on: ${{ inputs.runner }}
-    needs: build-libraries
+    needs:
+      - generate-matrix
+      - build-libraries
 
     defaults:
       run:
@@ -174,7 +247,7 @@ jobs:
 
       - name: Generate Go bindings
         run: |
-          task generate LIB_PATH=./artifacts/lib${{ env.LIBRARY_NAME }}_x86_64_linux_musl.a
+          task generate LIB_PATH=./artifacts/lib${{ env.LIBRARY_NAME }}_x86_64_linux_gnu.a
 
           echo "📁 Generated files:"
           find ./generated -type f
@@ -203,3 +276,135 @@ jobs:
             ./data-plane/bindings/go/generated/**/*.go
             ./data-plane/bindings/go/generated/**/*.h
           if-no-files-found: error
+
+  python-bindings-test:
+    name: Test Python Wheels (${{ matrix.platform.target }})
+    runs-on: ${{ matrix.platform.runner }}
+    needs:
+      - generate-matrix
+      - build-libraries
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix-no-windows-gnu) }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup QEMU for ARM64 emulation
+        if: matrix.platform.use_qemu == true
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Setup Python (Windows/macOS only)
+        if: matrix.platform.os != 'linux'
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Download Python wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-${{ matrix.platform.target }}
+          path: ./wheels/
+          merge-multiple: true
+
+      - name: List downloaded wheels
+        run: |
+          echo "📦 Downloaded wheels:"
+          find ./wheels -type f -name "*.whl" -ls || echo "No wheels found"
+
+      - name: Test wheel installation and usage (Linux with container)
+        if: matrix.platform.os == 'linux'
+        run: |
+          echo "📦 Testing Python wheel"
+          echo "🖥️  Platform: ${{ matrix.platform.target }}"
+
+          # Determine platform for container selection
+          if [[ "${{ matrix.platform.target }}" == *"aarch64"* ]]; then
+            PLATFORM="linux/arm64"
+            echo "🔧 Using ARM64 platform"
+          else
+            PLATFORM="linux/amd64"
+            echo "🔧 Using AMD64 platform"
+          fi
+
+          # Determine libc variant for container selection
+          if [[ "${{ matrix.platform.target }}" == *"musl"* ]]; then
+            CONTAINER_IMAGE="python:${{ env.PYTHON_VERSION }}-alpine"
+          else
+            CONTAINER_IMAGE="python:${{ env.PYTHON_VERSION }}-slim"
+          fi
+
+          # Define Docker flags
+          DOCKER_FLAGS=(
+            --rm
+            --platform "$PLATFORM"
+            -v "$(pwd)/wheels:/wheels"
+            -v "$(pwd):/repo:ro"
+            -w /workspace
+          )
+
+          # Define test script
+          TEST_SCRIPT='
+            # Create test directory
+            TEST_DIR=$(mktemp -d)
+            cd $TEST_DIR
+            echo "📂 Testing in: $TEST_DIR"
+
+            # Find and install the wheel
+            WHEEL=$(find /wheels -name "*${{ matrix.platform.python-platform }}*.whl" | head -1)
+            if [ -z "$WHEEL" ]; then
+              echo "❌ No wheel found for platform ${{ matrix.platform.python-platform }}"
+              exit 1
+            fi
+
+            echo "📦 Installing wheel: $WHEEL"
+            pip install "$WHEEL"
+            echo "✅ Wheel installed successfully"
+
+            # Run installation test
+            python /repo/.github/tests/python/test_installation.py
+
+            echo ""
+            echo "🎉 All tests passed on ${{ matrix.platform.target }}!"
+          '
+
+          # Run test in container
+          docker run "${DOCKER_FLAGS[@]}" "$CONTAINER_IMAGE" sh -c "$TEST_SCRIPT"
+
+      - name: Test wheel installation and usage (Windows/macOS)
+        if: matrix.platform.os != 'linux'
+        run: |
+          echo "📦 Testing Python wheel"
+          echo "🖥️  Platform: ${{ matrix.platform.target }}"
+          echo "🏃 Runner: ${{ matrix.platform.runner }}"
+          echo "📂 Testing in current directory"
+
+          # Find and install the wheel for this platform
+          WHEEL=$(find ./wheels -name "*${{ matrix.platform.python-platform }}*.whl" | head -1)
+          if [ -z "$WHEEL" ]; then
+            echo "❌ No wheel found for platform ${{ matrix.platform.python-platform }}"
+            echo "Available wheels:"
+            find ./wheels -name "*.whl"
+            exit 1
+          fi
+
+          echo "📦 Installing wheel: $WHEEL"
+          pip install "$WHEEL"
+          echo "✅ Wheel installed successfully"
+
+          # Run installation test
+          python ./.github/tests/python/test_installation.py
+
+          echo ""
+          echo "🎉 All tests passed on ${{ matrix.platform.target }}!"
+
+      - name: Test result summary
+        if: success()
+        run: |
+          echo "✅ Python wheel verification completed successfully on ${{ matrix.platform.target }}"
+          echo "The wheel can be safely published."

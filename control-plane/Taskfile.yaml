@@ -149,7 +149,6 @@ tasks:
     requires:
       vars: [TARGETOS, TARGETARCH]
     vars:
-      BINDINGS_VERSION: '{{.BINDINGS_VERSION | default "latest"}}'
       TARGETABI: '{{.TARGETABI | default "gnu"}}'
     dir: slimctl
     cmds:
@@ -161,7 +160,7 @@ tasks:
         unset GOARCH
         # But download bindings for the target platform
         go run \
-          github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup@{{.BINDINGS_VERSION}} \
+          github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup \
           -os={{.TARGETOS}} \
           -arch={{.TARGETARCH}} \
           -abi={{.TARGETABI}}

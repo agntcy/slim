@@ -128,8 +128,8 @@ async def test_sticky_session(server, mls_enabled):
     sender_name = slim_bindings.Name("org", f"test_{test_id}", "p2psender")
     receiver_name = slim_bindings.Name("org", f"test_{test_id}", "p2preceiver")
 
-    print(f"Sender name: {sender_name.as_string()}")
-    print(f"Receiver name: {receiver_name.as_string()}")
+    print(f"Sender name: {sender_name}")
+    print(f"Receiver name: {receiver_name}")
 
     # Create sender service and app
     sender, conn_id_sender = await _setup_sender(
