@@ -21,92 +21,75 @@ type Manager interface {
 	Status(ctx context.Context) (string, error)
 }
 
-// Service is the default implementation of Manager.
+// manager is the default implementation of Manager.
 type manager struct {
-	Logger     *zap.Logger
-	FullConfig *config.FullConfig
+	Logger        *zap.Logger
+	ConfigManager *config.ConfigManager
 }
 
-// NewManager creates a new Manager. If logger is nil, a no-op logger is used.
-// Deprecated: Use NewManagerWithFullConfig instead.
-func NewManager(logger *zap.Logger, endpoint, _ string) Manager {
-	if logger == nil {
-		logger = zap.NewNop()
-	}
-	// Convert legacy parameters to FullConfig for backward compatibility
-	fullConfig := config.DefaultFullConfig()
-	// Update the endpoint in the first service's first server
-	for k := range fullConfig.Services {
-		svc := fullConfig.Services[k]
-		if len(svc.Dataplane.Servers) > 0 {
-			svc.Dataplane.Servers[0].Endpoint = endpoint
-			svc.Dataplane.Servers[0].TLS.Insecure = true
-			fullConfig.Services[k] = svc
-		}
-		break
-	}
-	return &manager{
-		Logger:     logger,
-		FullConfig: fullConfig,
-	}
-}
-
-// NewManagerWithFullConfig creates a new Manager with a FullConfig. If logger is nil, a no-op logger is used.
-func NewManagerWithFullConfig(logger *zap.Logger, fullConfig *config.FullConfig) Manager {
+// NewManager creates a new Manager with a ConfigManager. If logger is nil, a no-op logger is used.
+func NewManager(logger *zap.Logger, configMgr *config.ConfigManager) Manager {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
 	return &manager{
-		Logger:     logger,
-		FullConfig: fullConfig,
+		Logger:        logger,
+		ConfigManager: configMgr,
 	}
 }
 
-// Start starts the local slim instance.
+// Start starts the local slim instance using bindings' InitializeFromConfig.
+// All configuration validation and processing is delegated to the bindings library.
 func (m *manager) Start(_ context.Context) error {
 	m.Logger.Info("Starting slim instance")
 
-	// Convert config to bindings format
-	runtimeConfig, tracingConfig, serviceConfigs := m.FullConfig.ToBindingsConfigs()
+	// Get configuration path (original or temporary with env var refs)
+	// No validation - just get the path
+	configPath, _ := m.ConfigManager.GetConfigPath()
 
-	// Initialize with production-like configuration
-	if err := slim.InitializeWithConfigs(runtimeConfig, tracingConfig, serviceConfigs); err != nil {
-		m.Logger.Error("failed to initialize SLIM", zap.Error(err))
-		return fmt.Errorf("failed to initialize SLIM: %w", err)
-	}
-
-	// Extract server config from services
-	serverConfig, err := m.FullConfig.GetServerConfig()
-	if err != nil {
-		m.Logger.Error("failed to get server config", zap.Error(err))
-		return fmt.Errorf("failed to get server config: %w", err)
-	}
-
-	endpoint := m.FullConfig.GetEndpoint()
-
-	// Display startup information
-	fmt.Printf("🌐 Starting server on %s...\n", endpoint)
-	fmt.Printf("   Runtime: %d cores, thread name: %s\n", runtimeConfig.NCores, runtimeConfig.ThreadName)
-	fmt.Printf("   Tracing: level=%s\n", tracingConfig.LogLevel)
-	if m.FullConfig.IsTLSEnabled() {
-		fmt.Println("   TLS enabled")
-		fmt.Printf("   Certificate: %s\n", m.FullConfig.GetTLSCertFile())
-		fmt.Printf("   Key: %s\n", m.FullConfig.GetTLSKeyFile())
-	} else {
-		fmt.Println("   Running in insecure mode (no TLS)")
-	}
-	fmt.Println("   Waiting for clients to connect...")
-	fmt.Println()
-
-	// Run server in goroutine (it blocks)
-	serverErr := make(chan error, 1)
-	go func() {
-		if err := slim.GetGlobalService().RunServer(serverConfig); err != nil {
-			serverErr <- err
+	// Ensure cleanup of temporary files
+	defer func() {
+		if err := m.ConfigManager.Cleanup(); err != nil {
+			m.Logger.Warn("failed to cleanup temporary config", zap.Error(err))
 		}
 	}()
 
-	// Give server a moment to start
+	m.Logger.Info("Initializing SLIM from configuration",
+		zap.String("config_path", configPath))
+
+	// Initialize SLIM using the bindings' native config loader
+	// This reads the YAML file, validates it, and processes ${env:} substitutions
+	// All validation and error handling is done by the bindings
+	// The bindings will panic with a descriptive error if the config is invalid
+	slim.InitializeFromConfig(configPath)
+
+	// Display startup information using environment variables
+	endpoint := config.GetDisplayEndpoint()
+	logLevel := config.GetDisplayLogLevel()
+
+	fmt.Printf("🌐 Starting server on %s...\n", endpoint)
+	fmt.Printf("   Configuration: %s\n", configPath)
+	fmt.Printf("   Log level: %s\n", logLevel)
+
+	if config.IsTLSEnabled() {
+		fmt.Println("   TLS enabled")
+		tlsCert := os.Getenv(config.EnvSlimTLSCert)
+		if tlsCert != "" {
+			fmt.Printf("   Certificate: %s\n", tlsCert)
+		}
+		tlsKey := os.Getenv(config.EnvSlimTLSKey)
+		if tlsKey != "" {
+			fmt.Printf("   Key: %s\n", tlsKey)
+		}
+	} else {
+		fmt.Println("   Running in insecure mode (no TLS)")
+	}
+
+	fmt.Println("   Waiting for clients to connect...")
+	fmt.Println()
+
+	// The server is already running from InitializeFromConfig
+	// Just need to display status and wait for signal
 	time.Sleep(100 * time.Millisecond)
 
 	fmt.Println("✅ Server running and listening")
@@ -115,18 +98,13 @@ func (m *manager) Start(_ context.Context) error {
 	fmt.Println()
 	fmt.Println("Press Ctrl+C to stop")
 
-	// Wait for interrupt or error
+	// Wait for interrupt signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	select {
-	case err := <-serverErr:
-		m.Logger.Error("server error", zap.Error(err))
-		return fmt.Errorf("server error: %w", err)
-	case sig := <-sigChan:
-		fmt.Printf("\n\n📋 Received signal: %v\n", sig)
-		fmt.Println("Shutting down...")
-	}
+	sig := <-sigChan
+	fmt.Printf("\n\n📋 Received signal: %v\n", sig)
+	fmt.Println("Shutting down...")
 
 	return nil
 }

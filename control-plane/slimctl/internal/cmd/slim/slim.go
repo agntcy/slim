@@ -38,46 +38,59 @@ func NewStartCmd(appConfig *cfg.AppConfig) *cobra.Command {
 	startCmd := &cobra.Command{
 		Use:   "start",
 		Short: "Start the SLIM instance",
-		Long:  `Start the SLIM instance with full production-like configuration`,
+		Long: `Start the SLIM instance with full production configuration.
+
+Configuration is loaded using the SLIM bindings' native InitializeFromConfig,
+which handles all validation and processing. The bindings support environment 
+variable substitution using ${env:VARNAME} syntax.
+
+CLI flags set environment variables that can be referenced in config files:
+  --endpoint    → SLIM_OVERRIDE_ENDPOINT
+  --insecure    → SLIM_OVERRIDE_INSECURE  
+  --tls-cert    → SLIM_OVERRIDE_TLS_CERT
+  --tls-key     → SLIM_OVERRIDE_TLS_KEY
+  
+Log level can be controlled via RUST_LOG environment variable.
+
+All configuration validation is performed by the bindings library.`,
 		RunE: func(c *cobra.Command, _ []string) error {
-			// Load full config or use defaults
-			var fullConfig *config.FullConfig
-			var err error
+			// Create config manager - just manages paths, no validation
+			configMgr := config.NewConfigManager(configFile)
 
-			if configFile != "" {
-				// Load from YAML file
-				fullConfig, err = config.LoadFullConfig(configFile)
-				if err != nil {
-					return err
-				}
-			} else {
-				// Use default configuration
-				fullConfig = config.DefaultFullConfig()
-			}
-
-			// Apply CLI flag overrides (only if explicitly set)
+			// Set environment variables for any CLI flag overrides
+			// These will be substituted by the bindings when it reads the config
+			var endpointPtr, certPtr, keyPtr *string
 			var insecurePtr *bool
+
+			if c.Flags().Changed("endpoint") || configFile == "" {
+				endpointPtr = &endpoint
+			}
 			if c.Flags().Changed("insecure") {
 				insecurePtr = &insecure
 			}
-			fullConfig.MergeFlags(&endpoint, insecurePtr, &tlsCertFile, &tlsKeyFile)
+			if c.Flags().Changed("tls-cert") {
+				certPtr = &tlsCertFile
+			}
+			if c.Flags().Changed("tls-key") {
+				keyPtr = &tlsKeyFile
+			}
 
-			// Validate
-			if err := fullConfig.Validate(); err != nil {
+			// Set environment variables - bindings will handle substitution
+			if err := config.SetEnvironmentOverrides(endpointPtr, certPtr, keyPtr, insecurePtr); err != nil {
 				return err
 			}
 
-			// Create manager with configuration
-			mgr := manager.NewManagerWithFullConfig(appConfig.CommonOpts.Logger, fullConfig)
+			// Create manager and start - all validation happens in bindings
+			mgr := manager.NewManager(appConfig.CommonOpts.Logger, configMgr)
 			return mgr.Start(c.Context())
 		},
 	}
 
 	startCmd.Flags().StringVarP(&configFile, "config", "c", "", "Path to YAML configuration file (full SLIM format)")
-	startCmd.Flags().StringVar(&endpoint, "endpoint", "", "Override server endpoint (e.g., 127.0.0.1:8080)")
-	startCmd.Flags().BoolVar(&insecure, "insecure", false, "Override to disable TLS (insecure mode)")
-	startCmd.Flags().StringVar(&tlsCertFile, "tls-cert", "", "Override TLS certificate file path")
-	startCmd.Flags().StringVar(&tlsKeyFile, "tls-key", "", "Override TLS key file path")
+	startCmd.Flags().StringVar(&endpoint, "endpoint", "", "Override server endpoint (sets SLIM_OVERRIDE_ENDPOINT)")
+	startCmd.Flags().BoolVar(&insecure, "insecure", false, "Override to disable TLS (sets SLIM_OVERRIDE_INSECURE)")
+	startCmd.Flags().StringVar(&tlsCertFile, "tls-cert", "", "Override TLS certificate path (sets SLIM_OVERRIDE_TLS_CERT)")
+	startCmd.Flags().StringVar(&tlsKeyFile, "tls-key", "", "Override TLS key path (sets SLIM_OVERRIDE_TLS_KEY)")
 
 	return startCmd
 }
