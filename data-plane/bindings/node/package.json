@@ -7,8 +7,8 @@
   "scripts": {
     "build": "task generate",
     "clean": "task clean",
-    "example:server": "cd examples && npm run server",
-    "example:alice": "cd examples && npm run alice"
+    "example:server": "task example:server",
+    "example:alice": "task example:alice"
   },
   "keywords": [
     "slim",
@@ -25,5 +25,8 @@
     "url": "https://github.com/agntcy/slim.git",
     "directory": "data-plane/bindings/node"
   },
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/node": "^20.0.0"
+  }
 }
