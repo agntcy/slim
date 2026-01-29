@@ -66,19 +66,42 @@ slimctl slim start --config examples/debug.yaml
 ### 📄 env-vars.yaml
 **Configuration using environment variables**
 
-Demonstrates using `${env:VARIABLE}` syntax for flexible deployments:
+Demonstrates using `${env:VARIABLE}` syntax for flexible deployments with sensible defaults.
 
 ```bash
-# Development
-export LOG_LEVEL=debug
+# Works out of the box with defaults
 slimctl slim start --config examples/env-vars.yaml
 
-# Production
-export SLIM_ENDPOINT=0.0.0.0:443
-export SLIM_TLS_INSECURE=false
-export SLIM_TLS_CERT=/etc/slim/certs/server-cert.pem
-export SLIM_TLS_KEY=/etc/slim/certs/server-key.pem
+# Override via CLI flags (recommended)
+slimctl slim start --config examples/env-vars.yaml --endpoint 127.0.0.1:9090
+
+# Override via environment variables
+export SLIM_ENDPOINT=127.0.0.1:9000
 slimctl slim start --config examples/env-vars.yaml
+```
+
+### 📄 env-override.yaml
+**Comprehensive environment variable override example**
+
+Shows the full power of CLI flag overrides with environment variables. All values have sensible defaults:
+
+```bash
+# Default behavior (no overrides)
+slimctl slim start --config examples/env-override.yaml
+
+# Override endpoint
+slimctl slim start --config examples/env-override.yaml --endpoint 0.0.0.0:8443
+
+# Override with TLS
+slimctl slim start --config examples/env-override.yaml \
+  --endpoint 0.0.0.0:8443 \
+  --tls-cert /path/to/cert.pem \
+  --tls-key /path/to/key.pem
+
+# Override via environment variables
+export SLIM_ENDPOINT=127.0.0.1:9090
+export SLIM_TLS_INSECURE=false
+slimctl slim start --config examples/env-override.yaml
 ```
 
 ## Configuration Structure
@@ -117,10 +140,10 @@ Override configuration values using CLI flags:
 | Flag | Description | Environment Variable |
 |------|-------------|---------------------|
 | `--config`, `-c` | Path to YAML config file | - |
-| `--endpoint` | Override server endpoint | `SLIM_OVERRIDE_ENDPOINT` |
-| `--insecure` | Disable TLS | `SLIM_OVERRIDE_INSECURE` |
-| `--tls-cert` | Override TLS certificate | `SLIM_OVERRIDE_TLS_CERT` |
-| `--tls-key` | Override TLS key | `SLIM_OVERRIDE_TLS_KEY` |
+| `--endpoint` | Override server endpoint | `SLIM_ENDPOINT` |
+| `--insecure` | Disable TLS | `SLIM_TLS_INSECURE` |
+| `--tls-cert` | Override TLS certificate | `SLIM_TLS_CERT` |
+| `--tls-key` | Override TLS key | `SLIM_TLS_KEY` |
 
 The log level can be controlled via the `RUST_LOG` environment variable:
 
@@ -262,25 +285,67 @@ All configuration validation and processing is delegated to the SLIM bindings li
 
 This ensures **production parity** - the development command behaves exactly like production SLIM.
 
-### Environment Variable Substitution
+### Environment Variable Override System
 
-The bindings support `${env:VARIABLE}` syntax in any configuration value:
+slimctl uses environment variables to enable CLI flag overrides. When you use flags like `--endpoint` or `--tls-cert`, they are automatically exported as environment variables that the SLIM bindings can see.
 
-```yaml
-services:
-  slim/0:
-    dataplane:
-      servers:
-        - endpoint: "${env:SLIM_ENDPOINT:-127.0.0.1:8080}"
-          tls:
-            insecure: "${env:SLIM_TLS_INSECURE:-true}"
+#### How It Works
+
+1. **CLI flags set environment variables**:
+   - `--endpoint 127.0.0.1:9090` → `SLIM_ENDPOINT=127.0.0.1:9090`
+   - `--insecure` → `SLIM_TLS_INSECURE=true`
+   - `--tls-cert path` → `SLIM_TLS_CERT=path`
+   - `--tls-key path` → `SLIM_TLS_KEY=path`
+
+2. **Config files use placeholders**:
+   ```yaml
+   endpoint: "${env:SLIM_ENDPOINT:-127.0.0.1:8080}"
+   ```
+
+3. **SLIM bindings resolve placeholders**:
+   - If `SLIM_ENDPOINT` is set: uses that value
+   - If `SLIM_ENDPOINT` is not set: uses default `127.0.0.1:8080`
+
+#### Supported Environment Variables
+
+| Variable | Purpose | Default | CLI Flag |
+|----------|---------|---------|----------|
+| `SLIM_ENDPOINT` | Server listen address | 127.0.0.1:8080 | --endpoint |
+| `SLIM_TLS_INSECURE` | Disable TLS | true | --insecure |
+| `SLIM_TLS_CERT` | Certificate file path | - | --tls-cert |
+| `SLIM_TLS_KEY` | Private key file path | - | --tls-key |
+| `RUST_LOG` | Log level (highest priority) | info | - |
+
+#### Usage Patterns
+
+**Pattern 1: CLI Flags (Recommended)**
+```bash
+slimctl slim start --config examples/env-override.yaml \
+  --endpoint 0.0.0.0:8443 \
+  --tls-cert /path/to/cert.pem \
+  --tls-key /path/to/key.pem
 ```
 
-CLI flags are converted to environment variables automatically:
-- `--endpoint 127.0.0.1:8080` → `SLIM_OVERRIDE_ENDPOINT=127.0.0.1:8080`
-- `--insecure` → `SLIM_OVERRIDE_INSECURE=true`
-- `--tls-cert path/to/cert.pem` → `SLIM_OVERRIDE_TLS_CERT=path/to/cert.pem`
-- `--tls-key path/to/key.pem` → `SLIM_OVERRIDE_TLS_KEY=path/to/key.pem`
+**Pattern 2: Direct Environment Variables**
+```bash
+export SLIM_ENDPOINT=0.0.0.0:8443
+export SLIM_TLS_CERT=/path/to/cert.pem
+export SLIM_TLS_KEY=/path/to/key.pem
+slimctl slim start --config examples/env-override.yaml
+```
+
+**Pattern 3: Mixed (CLI overrides env vars)**
+```bash
+export SLIM_ENDPOINT=127.0.0.1:8080
+# CLI flag takes precedence
+slimctl slim start --config examples/env-override.yaml --endpoint 0.0.0.0:8443
+```
+
+#### Override Precedence
+
+1. **CLI flags** (highest priority) - converted to env vars
+2. **Existing environment variables** - set by user
+3. **Config file defaults** - `${env:VAR:-default}` syntax
 
 ## Taskfile Automation
 
@@ -298,6 +363,11 @@ task run:insecure
 
 # Run with TLS
 task run:tls
+
+# Test override functionality
+task run:override-endpoint
+task run:override-tls
+task run:with-exports
 
 # Clean up test artifacts
 task clean

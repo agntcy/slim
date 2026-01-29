@@ -19,12 +19,13 @@ services:
   slim/0:
     dataplane:
       servers:
-        - endpoint: "0.0.0.0:443"
+        - endpoint: "${env:SLIM_ENDPOINT:-0.0.0.0:443}"
           tls:
+            insecure: "${env:SLIM_TLS_INSECURE:-false}"
             source:
               type: file
-              cert: "/etc/slim/certs/server-cert.pem"
-              key: "/etc/slim/certs/server-key.pem"
+              cert: "${env:SLIM_TLS_CERT:-/etc/slim/certs/server-cert.pem}"
+              key: "${env:SLIM_TLS_KEY:-/etc/slim/certs/server-key.pem}"
           keepalive:
             max_connection_idle: 3600s
             max_connection_age: 7200s

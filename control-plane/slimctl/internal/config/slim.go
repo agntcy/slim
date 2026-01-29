@@ -8,10 +8,10 @@ import (
 
 // Environment variable names for CLI flag overrides
 const (
-	EnvSlimEndpoint = "SLIM_OVERRIDE_ENDPOINT"
-	EnvSlimInsecure = "SLIM_OVERRIDE_INSECURE"
-	EnvSlimTLSCert  = "SLIM_OVERRIDE_TLS_CERT"
-	EnvSlimTLSKey   = "SLIM_OVERRIDE_TLS_KEY"
+	EnvSlimEndpoint = "SLIM_ENDPOINT"
+	EnvSlimInsecure = "SLIM_TLS_INSECURE"
+	EnvSlimTLSCert  = "SLIM_TLS_CERT"
+	EnvSlimTLSKey   = "SLIM_TLS_KEY"
 	EnvRustLog      = "RUST_LOG" // Standard Rust logging env var
 )
 
@@ -68,7 +68,7 @@ services:
   slim/0:
     dataplane:
       servers:
-        - endpoint: "${env:SLIM_OVERRIDE_ENDPOINT}"
+        - endpoint: "${env:SLIM_ENDPOINT}"
           tls:
             insecure: true
       clients: []

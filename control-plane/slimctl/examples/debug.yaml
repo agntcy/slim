@@ -19,7 +19,7 @@ services:
   slim/0:
     dataplane:
       servers:
-        - endpoint: "127.0.0.1:9090"
+        - endpoint: "${env:SLIM_ENDPOINT:-127.0.0.1:9090}"
           tls:
-            insecure: true
+            insecure: "${env:SLIM_TLS_INSECURE:-true}"
       clients: []

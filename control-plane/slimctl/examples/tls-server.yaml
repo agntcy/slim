@@ -18,13 +18,14 @@ services:
   slim/0:
     dataplane:
       servers:
-        - endpoint: "0.0.0.0:8443"
+        - endpoint: "${env:SLIM_ENDPOINT:-0.0.0.0:8443}"
           tls:
+            insecure: "${env:SLIM_TLS_INSECURE:-false}"
             source:
               type: file
-              cert: "/path/to/server-cert.pem"
-              key: "/path/to/server-key.pem"
+              cert: "${env:SLIM_TLS_CERT:-testdata/certs/server-cert.pem}"
+              key: "${env:SLIM_TLS_KEY:-testdata/certs/server-key.pem}"
       clients: []
 
-# Note: Update the cert and key paths before using this configuration.
+# Note: Update paths via environment variables or CLI flags.
 # To generate test certificates: cd control-plane/slimctl && task certs:setup

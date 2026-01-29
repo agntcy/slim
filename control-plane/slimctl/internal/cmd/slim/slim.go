@@ -45,10 +45,10 @@ which handles all validation and processing. The bindings support environment
 variable substitution using ${env:VARNAME} syntax.
 
 CLI flags set environment variables that can be referenced in config files:
-  --endpoint    → SLIM_OVERRIDE_ENDPOINT
-  --insecure    → SLIM_OVERRIDE_INSECURE  
-  --tls-cert    → SLIM_OVERRIDE_TLS_CERT
-  --tls-key     → SLIM_OVERRIDE_TLS_KEY
+  --endpoint    → SLIM_ENDPOINT
+  --insecure    → SLIM_TLS_INSECURE  
+  --tls-cert    → SLIM_TLS_CERT
+  --tls-key     → SLIM_TLS_KEY
   
 Log level can be controlled via RUST_LOG environment variable.
 
@@ -87,10 +87,10 @@ All configuration validation is performed by the bindings library.`,
 	}
 
 	startCmd.Flags().StringVarP(&configFile, "config", "c", "", "Path to YAML configuration file (full SLIM format)")
-	startCmd.Flags().StringVar(&endpoint, "endpoint", "", "Override server endpoint (sets SLIM_OVERRIDE_ENDPOINT)")
-	startCmd.Flags().BoolVar(&insecure, "insecure", false, "Override to disable TLS (sets SLIM_OVERRIDE_INSECURE)")
-	startCmd.Flags().StringVar(&tlsCertFile, "tls-cert", "", "Override TLS certificate path (sets SLIM_OVERRIDE_TLS_CERT)")
-	startCmd.Flags().StringVar(&tlsKeyFile, "tls-key", "", "Override TLS key path (sets SLIM_OVERRIDE_TLS_KEY)")
+	startCmd.Flags().StringVar(&endpoint, "endpoint", "", "Override server endpoint (sets SLIM_ENDPOINT)")
+	startCmd.Flags().BoolVar(&insecure, "insecure", false, "Override to disable TLS (sets SLIM_TLS_INSECURE)")
+	startCmd.Flags().StringVar(&tlsCertFile, "tls-cert", "", "Override TLS certificate path (sets SLIM_TLS_CERT)")
+	startCmd.Flags().StringVar(&tlsKeyFile, "tls-key", "", "Override TLS key path (sets SLIM_TLS_KEY)")
 
 	return startCmd
 }

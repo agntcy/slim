@@ -122,12 +122,71 @@ CLI flags override YAML configuration values:
 2. **YAML configuration file** - Full production configuration
 3. **Default values** (lowest priority) - Sensible production defaults
 
+### Environment Variable Override System
+
+`slimctl` uses environment variables to enable CLI flag overrides. CLI flags are automatically exported as environment variables that the SLIM bindings resolve when loading configuration files.
+
+#### How It Works
+
+1. **CLI flags set environment variables:**
+   - `--endpoint 127.0.0.1:9090` → `SLIM_ENDPOINT=127.0.0.1:9090`
+   - `--insecure` → `SLIM_TLS_INSECURE=true`
+   - `--tls-cert path` → `SLIM_TLS_CERT=path`
+   - `--tls-key path` → `SLIM_TLS_KEY=path`
+
+2. **Config files use placeholders:**
+   ```yaml
+   endpoint: "${env:SLIM_ENDPOINT:-127.0.0.1:8080}"
+   ```
+
+3. **SLIM bindings resolve placeholders:**
+   - If `SLIM_ENDPOINT` is set: uses that value
+   - If not set: uses default `127.0.0.1:8080`
+
+#### Supported Environment Variables
+
+| Variable | Purpose | Default | CLI Flag |
+|----------|---------|---------|----------|
+| `SLIM_ENDPOINT` | Server listen address | 127.0.0.1:8080 | `--endpoint` |
+| `SLIM_TLS_INSECURE` | Disable TLS | true | `--insecure` |
+| `SLIM_TLS_CERT` | Certificate file path | - | `--tls-cert` |
+| `SLIM_TLS_KEY` | Private key file path | - | `--tls-key` |
+| `RUST_LOG` | Log level (highest priority) | info | - |
+
+#### Override Methods
+
+**Method 1: CLI Flags (Recommended)**
+```bash
+slimctl slim start --config config.yaml \
+  --endpoint 0.0.0.0:8443 \
+  --tls-cert /path/to/cert.pem \
+  --tls-key /path/to/key.pem
+```
+
+**Method 2: Direct Environment Variables**
+```bash
+export SLIM_ENDPOINT=0.0.0.0:8443
+export SLIM_TLS_CERT=/path/to/cert.pem
+export SLIM_TLS_KEY=/path/to/key.pem
+slimctl slim start --config config.yaml
+```
+
+**Method 3: Hybrid (CLI overrides env vars)**
+```bash
+export SLIM_ENDPOINT=127.0.0.1:8080
+# CLI flag takes precedence over exported variable
+slimctl slim start --config config.yaml --endpoint 0.0.0.0:8443
+```
+
 ### Configuration Examples
 
-See the [`testdata/`](testdata/) directory for sample configurations:
+See the [`examples/`](examples/) directory for sample configurations:
 
-- [`test-insecure.yaml`](testdata/test-insecure.yaml) - Development mode without TLS
-- [`test-tls.yaml`](testdata/test-tls.yaml) - Production-like with TLS enabled
+- [`insecure-server.yaml`](examples/insecure-server.yaml) - Minimal insecure config for local development
+- [`tls-server.yaml`](examples/tls-server.yaml) - TLS-enabled server config
+- [`production.yaml`](examples/production.yaml) - Production-ready configuration
+- [`debug.yaml`](examples/debug.yaml) - Debug configuration with verbose logging
+- [`env-override.yaml`](examples/env-override.yaml) - Comprehensive environment variable override example
 
 For complete production examples, see [`data-plane/config/`](../../data-plane/config/):
 - [`base/server-config.yaml`](../../data-plane/config/base/server-config.yaml) - Basic server without TLS

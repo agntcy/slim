@@ -230,11 +230,43 @@ tasks:
         echo "   Created: {{.TESTDATA_DIR}}/test-tls.yaml"
     silent: false
 
+  configs:env-override:
+    desc: Create env-override test config with environment variable placeholders
+    cmds:
+      - mkdir -p {{.TESTDATA_DIR}}
+      - |
+        cat > {{.TESTDATA_DIR}}/test-env-override.yaml <<'EOF'
+        # Copyright AGNTCY Contributors (https://github.com/agntcy)
+        # SPDX-License-Identifier: Apache-2.0
+        
+        # Test configuration with env var placeholders
+        runtime:
+          n_cores: 0
+          thread_name: "slim-worker"
+          drain_timeout: 10s
+        
+        tracing:
+          log_level: info
+          display_thread_names: true
+          display_thread_ids: true
+        
+        services:
+          slim/0:
+            dataplane:
+              servers:
+                - endpoint: "${env:SLIM_ENDPOINT:-127.0.0.1:9090}"
+                  tls:
+                    insecure: "${env:SLIM_TLS_INSECURE:-true}"
+              clients: []
+        EOF
+        echo "   Created: {{.TESTDATA_DIR}}/test-env-override.yaml"
+    silent: false
+
   configs:clean:
     desc: Remove test configuration files
     cmds:
       - echo "🧹 Cleaning test configuration files..."
-      - rm -f {{.TESTDATA_DIR}}/test-insecure.yaml {{.TESTDATA_DIR}}/test-tls.yaml
+      - rm -f {{.TESTDATA_DIR}}/test-insecure.yaml {{.TESTDATA_DIR}}/test-tls.yaml {{.TESTDATA_DIR}}/test-env-override.yaml
       - echo "✅ Test configs removed"
     silent: false
 
@@ -402,6 +434,58 @@ tasks:
         msg: "Config file not found: {{.CONFIG}}"
     requires:
       vars: [CONFIG]
+
+  run:override-endpoint:
+    desc: Test endpoint override with CLI flag (env vars)
+    cmds:
+      - |
+        echo "🧪 Testing endpoint override with CLI flag..."
+        echo "   Config: examples/env-override.yaml"
+        echo "   Override: --endpoint 127.0.0.1:19090"
+        echo ""
+      - "{{.SLIMCTL_BIN}} slim start --config examples/env-override.yaml --endpoint 127.0.0.1:19090"
+    silent: false
+    preconditions:
+      - sh: test -f {{.SLIMCTL_BIN}}
+        msg: "slimctl binary not found at {{.SLIMCTL_BIN}}. Build it first with: cd ../.. && task -d control-plane slimctl:build"
+      - sh: test -f examples/env-override.yaml
+        msg: "env-override.yaml not found in examples/"
+
+  run:override-tls:
+    desc: Test TLS override with CLI flags (env vars)
+    deps: [certs:setup]
+    cmds:
+      - |
+        echo "🧪 Testing TLS override with CLI flags..."
+        echo "   Config: examples/env-override.yaml"
+        echo "   Overrides: --endpoint, --tls-cert, --tls-key"
+        echo ""
+      - "{{.SLIMCTL_BIN}} slim start --config examples/env-override.yaml --endpoint 127.0.0.1:18443 --tls-cert testdata/certs/server-cert.pem --tls-key testdata/certs/server-key.pem"
+    silent: false
+    preconditions:
+      - sh: test -f {{.SLIMCTL_BIN}}
+        msg: "slimctl binary not found at {{.SLIMCTL_BIN}}. Build it first with: cd ../.. && task -d control-plane slimctl:build"
+      - sh: test -f examples/env-override.yaml
+        msg: "env-override.yaml not found in examples/"
+
+  run:with-exports:
+    desc: Test with manually exported environment variables
+    cmds:
+      - |
+        echo "🧪 Testing with manually exported environment variables..."
+        echo "   Setting: SLIM_ENDPOINT=127.0.0.1:29090"
+        echo "   Setting: SLIM_TLS_INSECURE=true"
+        echo "   Config: examples/env-override.yaml"
+        echo ""
+        export SLIM_ENDPOINT=127.0.0.1:29090
+        export SLIM_TLS_INSECURE=true
+        {{.SLIMCTL_BIN}} slim start --config examples/env-override.yaml
+    silent: false
+    preconditions:
+      - sh: test -f {{.SLIMCTL_BIN}}
+        msg: "slimctl binary not found at {{.SLIMCTL_BIN}}. Build it first with: cd ../.. && task -d control-plane slimctl:build"
+      - sh: test -f examples/env-override.yaml
+        msg: "env-override.yaml not found in examples/"
 
   # Clean tasks
   clean:
