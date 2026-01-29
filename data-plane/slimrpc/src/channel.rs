@@ -15,6 +15,7 @@ use display_error_chain::ErrorChainExt;
 use futures::StreamExt;
 use futures::future::join_all;
 use futures::stream::Stream;
+use futures_timer::Delay;
 
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_datapath::api::ProtoSessionType;
@@ -109,10 +110,9 @@ impl Channel {
         }
     }
 
-    /// Calculate deadline from timeout
-    fn calculate_deadline(timeout: Option<Duration>) -> tokio::time::Instant {
-        let timeout_duration = timeout.unwrap_or(Duration::from_secs(MAX_TIMEOUT));
-        tokio::time::Instant::now() + timeout_duration
+    /// Calculate timeout duration from optional timeout
+    fn calculate_timeout_duration(timeout: Option<Duration>) -> Duration {
+        timeout.unwrap_or(Duration::from_secs(MAX_TIMEOUT))
     }
 
     /// Close session and ignore errors
@@ -196,14 +196,16 @@ impl Channel {
     {
         tracing::debug!(%service_name, %method_name, "Creating session for unary RPC");
 
-        // Calculate deadline
-        let deadline = Self::calculate_deadline(timeout);
+        // Calculate timeout duration
+        let timeout_duration = Self::calculate_timeout_duration(timeout);
+        let mut delay = Delay::new(timeout_duration);
 
-        // Wrap the entire operation in a timeout
-        let result = tokio::select! {
+        // Create context first so we can pass deadline in session metadata
+        let ctx = self.create_context_for_rpc(timeout, metadata).await;
+
+        // Wrap the entire operation in a runtime-agnostic timeout using futures-timer
+        tokio::select! {
             result = async {
-                // Create context first so we can pass deadline in session metadata
-                let ctx = self.create_context_for_rpc(timeout, metadata).await;
                 // Create a new session for this RPC with deadline in metadata
                 let session = self.create_session(service_name, method_name, &ctx).await?;
 
@@ -226,12 +228,10 @@ impl Channel {
                     Err(ReceiveError::Rpc(status)) => Err(status),
                 }
             } => result,
-            _ = tokio::time::sleep_until(deadline) => {
+            _ = &mut delay => {
                 Err(Status::deadline_exceeded("Client deadline exceeded during unary call"))
             }
-        };
-
-        result
+        }
     }
 
     /// Make a unary-stream RPC call
@@ -299,30 +299,29 @@ impl Channel {
         let channel = self.clone();
 
         try_stream! {
-            // Calculate deadline and create sleep future
-            let deadline = Self::calculate_deadline(timeout);
-            let sleep_fut = tokio::time::sleep_until(deadline);
-            tokio::pin!(sleep_fut);
+            // Calculate timeout duration
+            let timeout_duration = Self::calculate_timeout_duration(timeout);
+            let mut delay = Delay::new(timeout_duration);
 
             // Create context first so we can pass deadline in session metadata
             let ctx = channel.create_context_for_rpc(timeout, metadata.clone()).await;
 
-            // Create a new session for this RPC with timeout
+            // Create a new session for this RPC with timeout using futures-timer
             let session_result = tokio::select! {
                 result = channel.create_session(&service_name, &method_name, &ctx) => result,
-                _ = &mut sleep_fut => {
+                _ = &mut delay => {
                     Err(Status::deadline_exceeded("Client deadline exceeded during unary-stream call"))
                 }
             };
             let session = session_result?;
 
-            // Send request with timeout
+            // Send request with timeout using futures-timer
             let send_result = tokio::select! {
                 result = channel.send_request(&session, &ctx, request, &service_name, &method_name) => result,
-                _ = &mut sleep_fut => {
+                _ = &mut delay => {
                     Self::close_session_safe(&session, &channel.inner.app).await;
                     Err(Status::deadline_exceeded("Client deadline exceeded while sending request"))
-                },
+                }
             };
             if let Err(e) = send_result {
                 Self::close_session_safe(&session, &channel.inner.app).await;
@@ -333,10 +332,10 @@ impl Channel {
             loop {
                 let receive_result = tokio::select! {
                     result = session.get_message(None) => result.map_err(|e| Status::internal(format!("Failed to receive response: {}", e))),
-                    _ = &mut sleep_fut => {
+                    _ = &mut delay => {
                         Self::close_session_safe(&session, &channel.inner.app).await;
                         Err(Status::deadline_exceeded("Client deadline exceeded while receiving stream"))
-                    },
+                    }
                 };
                 let received = match receive_result {
                     Ok(r) => r,
@@ -418,14 +417,16 @@ impl Channel {
         Req: Encoder,
         Res: Decoder,
     {
-        // Calculate deadline
-        let deadline = Self::calculate_deadline(timeout);
+        // Calculate timeout duration
+        let timeout_duration = Self::calculate_timeout_duration(timeout);
+        let mut delay = Delay::new(timeout_duration);
 
-        // Wrap the entire operation in a timeout
-        let result = tokio::select! {
+        // Create context first so we can pass deadline in session metadata
+        let ctx = self.create_context_for_rpc(timeout, metadata.clone()).await;
+
+        // Wrap the entire operation in a runtime-agnostic timeout using futures-timer
+        tokio::select! {
             result = async {
-                // Create context first so we can pass deadline in session metadata
-                let ctx = self.create_context_for_rpc(timeout, metadata.clone()).await;
                 // Create a new session for this RPC with deadline in metadata
                 let session = self.create_session(service_name, method_name, &ctx).await?;
 
@@ -448,12 +449,10 @@ impl Channel {
                     Err(ReceiveError::Rpc(status)) => Err(status),
                 }
             } => result,
-            _ = tokio::time::sleep_until(deadline) => {
+            _ = &mut delay => {
                 Err(Status::deadline_exceeded("Client deadline exceeded during stream-unary call"))
             }
-        };
-
-        result
+        }
     }
 
     /// Make a stream-stream RPC call
@@ -527,18 +526,17 @@ impl Channel {
         let channel = self.clone();
 
         try_stream! {
-            // Calculate deadline and create sleep future
-            let deadline = Self::calculate_deadline(timeout);
-            let sleep_fut = tokio::time::sleep_until(deadline);
-            let mut sleep_fut = std::pin::pin!(sleep_fut);
+            // Calculate timeout duration
+            let timeout_duration = Self::calculate_timeout_duration(timeout);
+            let mut delay = Delay::new(timeout_duration);
 
             // Create context first so we can pass deadline in session metadata
             let ctx = channel.create_context_for_rpc(timeout, metadata.clone()).await;
 
-            // Create a new session for this RPC with timeout
+            // Create a new session for this RPC with timeout using futures-timer
             let session_result = tokio::select! {
                 result = channel.create_session(&service_name, &method_name, &ctx) => result,
-                _ = &mut sleep_fut => {
+                _ = &mut delay => {
                     Err(Status::deadline_exceeded("Client deadline exceeded during stream-stream call"))
                 }
             };
@@ -574,7 +572,7 @@ impl Channel {
                             },
                         }
                     }
-                    _ = &mut sleep_fut => {
+                    _ = &mut delay => {
                         Self::close_session_safe(&session, &channel.inner.app).await;
                         Err(Status::deadline_exceeded("Client deadline exceeded while receiving stream"))
                     },
