@@ -165,10 +165,30 @@ tasks:
       - mkdir -p {{.TESTDATA_DIR}}
       - |
         cat > {{.TESTDATA_DIR}}/test-insecure.yaml <<'EOF'
+        # Copyright AGNTCY Contributors (https://github.com/agntcy)
+        # SPDX-License-Identifier: Apache-2.0
+        
         # Test configuration - Insecure mode
-        endpoint: "127.0.0.1:9090"
-        tls:
-          insecure: true
+        # This mirrors the production SLIM configuration format
+        
+        runtime:
+          n_cores: 0  # 0 means use all available cores
+          thread_name: "slimctl-worker"
+          drain_timeout: 10s
+        
+        tracing:
+          log_level: info
+          display_thread_names: true
+          display_thread_ids: true
+        
+        services:
+          slim/0:
+            dataplane:
+              servers:
+                - endpoint: "127.0.0.1:9090"
+                  tls:
+                    insecure: true
+              clients: []
         EOF
         echo "   Created: {{.TESTDATA_DIR}}/test-insecure.yaml"
     silent: false
@@ -179,12 +199,33 @@ tasks:
       - mkdir -p {{.TESTDATA_DIR}}
       - |
         cat > {{.TESTDATA_DIR}}/test-tls.yaml <<'EOF'
+        # Copyright AGNTCY Contributors (https://github.com/agntcy)
+        # SPDX-License-Identifier: Apache-2.0
+        
         # Test configuration - TLS enabled
-        endpoint: "127.0.0.1:8443"
-        tls:
-          insecure: false
-          cert_file: "testdata/certs/server-cert.pem"
-          key_file: "testdata/certs/server-key.pem"
+        # This mirrors the production SLIM configuration format
+        
+        runtime:
+          n_cores: 0  # 0 means use all available cores
+          thread_name: "slimctl-worker"
+          drain_timeout: 10s
+        
+        tracing:
+          log_level: debug  # Debug level for TLS troubleshooting
+          display_thread_names: true
+          display_thread_ids: true
+        
+        services:
+          slim/0:
+            dataplane:
+              servers:
+                - endpoint: "127.0.0.1:8443"
+                  tls:
+                    source:
+                      type: file
+                      cert: "testdata/certs/server-cert.pem"
+                      key: "testdata/certs/server-key.pem"
+              clients: []
         EOF
         echo "   Created: {{.TESTDATA_DIR}}/test-tls.yaml"
     silent: false

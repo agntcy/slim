@@ -24,61 +24,74 @@ type Manager interface {
 // Service is the default implementation of Manager.
 type manager struct {
 	Logger     *zap.Logger
-	SlimConfig *config.SlimConfig
+	FullConfig *config.FullConfig
 }
 
 // NewManager creates a new Manager. If logger is nil, a no-op logger is used.
-// Deprecated: Use NewManagerWithConfig instead.
+// Deprecated: Use NewManagerWithFullConfig instead.
 func NewManager(logger *zap.Logger, endpoint, _ string) Manager {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	// Convert legacy parameters to SlimConfig for backward compatibility
-	slimConfig := &config.SlimConfig{
-		Endpoint: endpoint,
-		TLS: config.TLSConfig{
-			Insecure: true, // Legacy behavior was insecure
-		},
+	// Convert legacy parameters to FullConfig for backward compatibility
+	fullConfig := config.DefaultFullConfig()
+	// Update the endpoint in the first service's first server
+	for k := range fullConfig.Services {
+		svc := fullConfig.Services[k]
+		if len(svc.Dataplane.Servers) > 0 {
+			svc.Dataplane.Servers[0].Endpoint = endpoint
+			svc.Dataplane.Servers[0].TLS.Insecure = true
+			fullConfig.Services[k] = svc
+		}
+		break
 	}
 	return &manager{
 		Logger:     logger,
-		SlimConfig: slimConfig,
+		FullConfig: fullConfig,
 	}
 }
 
-// NewManagerWithConfig creates a new Manager with a SlimConfig. If logger is nil, a no-op logger is used.
-func NewManagerWithConfig(logger *zap.Logger, slimConfig *config.SlimConfig) Manager {
+// NewManagerWithFullConfig creates a new Manager with a FullConfig. If logger is nil, a no-op logger is used.
+func NewManagerWithFullConfig(logger *zap.Logger, fullConfig *config.FullConfig) Manager {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
 	return &manager{
 		Logger:     logger,
-		SlimConfig: slimConfig,
+		FullConfig: fullConfig,
 	}
 }
 
 // Start starts the local slim instance.
-func (s *manager) Start(_ context.Context) error {
-	s.Logger.Info("Starting slim instance")
+func (m *manager) Start(_ context.Context) error {
+	m.Logger.Info("Starting slim instance")
 
-	// Initialize crypto
-	slim.InitializeWithDefaults()
+	// Convert config to bindings format
+	runtimeConfig, tracingConfig, serviceConfigs := m.FullConfig.ToBindingsConfigs()
 
-	// Create server configuration from SlimConfig
-	serverConfig, err := s.SlimConfig.ToServerConfig()
-	if err != nil {
-		s.Logger.Error("failed to create server config", zap.Error(err))
-		return fmt.Errorf("failed to create server config: %w", err)
+	// Initialize with production-like configuration
+	if err := slim.InitializeWithConfigs(runtimeConfig, tracingConfig, serviceConfigs); err != nil {
+		m.Logger.Error("failed to initialize SLIM", zap.Error(err))
+		return fmt.Errorf("failed to initialize SLIM: %w", err)
 	}
 
-	endpoint := s.SlimConfig.Endpoint
+	// Extract server config from services
+	serverConfig, err := m.FullConfig.GetServerConfig()
+	if err != nil {
+		m.Logger.Error("failed to get server config", zap.Error(err))
+		return fmt.Errorf("failed to get server config: %w", err)
+	}
+
+	endpoint := m.FullConfig.GetEndpoint()
 
 	// Display startup information
 	fmt.Printf("🌐 Starting server on %s...\n", endpoint)
-	if !s.SlimConfig.TLS.Insecure {
+	fmt.Printf("   Runtime: %d cores, thread name: %s\n", runtimeConfig.NCores, runtimeConfig.ThreadName)
+	fmt.Printf("   Tracing: level=%s\n", tracingConfig.LogLevel)
+	if m.FullConfig.IsTLSEnabled() {
 		fmt.Println("   TLS enabled")
-		fmt.Printf("   Certificate: %s\n", s.SlimConfig.TLS.CertFile)
-		fmt.Printf("   Key: %s\n", s.SlimConfig.TLS.KeyFile)
+		fmt.Printf("   Certificate: %s\n", m.FullConfig.GetTLSCertFile())
+		fmt.Printf("   Key: %s\n", m.FullConfig.GetTLSKeyFile())
 	} else {
 		fmt.Println("   Running in insecure mode (no TLS)")
 	}
@@ -108,7 +121,7 @@ func (s *manager) Start(_ context.Context) error {
 
 	select {
 	case err := <-serverErr:
-		s.Logger.Error("server error", zap.Error(err))
+		m.Logger.Error("server error", zap.Error(err))
 		return fmt.Errorf("server error: %w", err)
 	case sig := <-sigChan:
 		fmt.Printf("\n\n📋 Received signal: %v\n", sig)
@@ -119,13 +132,13 @@ func (s *manager) Start(_ context.Context) error {
 }
 
 // Stop stops the local slim instance.
-func (s *manager) Stop(_ context.Context) error {
-	s.Logger.Info("Stopping slim instance")
+func (m *manager) Stop(_ context.Context) error {
+	m.Logger.Info("Stopping slim instance")
 	return nil
 }
 
 // Status returns the status of the local slim instance.
-func (s *manager) Status(_ context.Context) (string, error) {
-	s.Logger.Info("Getting status of slim instance")
+func (m *manager) Status(_ context.Context) (string, error) {
+	m.Logger.Info("Getting status of slim instance")
 	return "unknown", nil
 }

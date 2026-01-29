@@ -42,15 +42,15 @@ slimctl route add org/ns/app/instance via config.json --node-id=my-node
 
 ### Local SLIM Instance Management
 
-The `slim` command allows you to start and manage local SLIM instances for development and testing.
+The `slim` command allows you to start and manage local SLIM instances for development and testing using the **full production SLIM configuration format**. This ensures development environments exactly match production behavior.
 
 **Quick Example:**
 
 ```bash
-# Start in development mode
+# Start in development mode (uses default production-format config)
 slimctl slim start --endpoint 127.0.0.1:8080 --insecure
 
-# Start with TLS
+# Start with full production configuration
 slimctl slim start --config config.yaml
 ```
 
@@ -58,11 +58,11 @@ slimctl slim start --config config.yaml
 
 Topics covered:
 - Command reference and flags
-- Configuration file format
+- Production configuration file format (runtime, tracing, services)
 - TLS certificate setup and requirements
-- Testing workflows
+- Testing workflows with production-like setup
 - Troubleshooting
-- Advanced deployment options
+- Configuration examples from data-plane
 
 ---
 
@@ -224,20 +224,19 @@ slimctl/
 │   │   ├── connection/      # Connection management commands
 │   │   └── ...              # Other commands
 │   ├── config/
-│   │   └── slim.go          # SLIM instance configuration
+│   │   └── slim.go          # Production SLIM configuration format
 │   └── manager/
 │       └── slim.go          # SLIM instance manager
-├── examples/
-│   ├── insecure-server.yaml # Example insecure config
-│   ├── tls-server.yaml      # Example TLS config
-│   └── README.md            # Example configurations guide
 ├── testdata/                # Generated test data (git-ignored)
 │   ├── certs/               # Generated test certificates
-│   └── *.yaml               # Generated test configurations
+│   ├── test-insecure.yaml   # Generated insecure test config
+│   └── test-tls.yaml        # Generated TLS test config
 ├── Taskfile.yaml            # Task automation
 ├── README.md                # This file
 └── SLIM_INSTANCE.md         # SLIM instance management guide
 ```
+
+**Configuration Format:** The `slim` subcommand uses the full production SLIM configuration format (runtime, tracing, services), ensuring development environments exactly match production behavior. See examples in [`data-plane/config/`](../../data-plane/config/).
 
 ---
 

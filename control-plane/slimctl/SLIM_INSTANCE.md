@@ -4,11 +4,13 @@ This guide covers how to use `slimctl` to start and manage local SLIM instances 
 
 ## Overview
 
-The `slimctl slim` command allows you to run a standalone SLIM instance on your local machine. This is useful for:
+The `slimctl slim` command allows you to run a standalone SLIM instance on your local machine using the **full production configuration format**. This ensures that development and testing environments match production behavior exactly.
 
-- **Development** - Test applications without deploying infrastructure
+This is useful for:
+
+- **Development** - Test applications with production-like SLIM configuration
 - **Integration Testing** - Validate SLIM integration in CI/CD pipelines
-- **Local Debugging** - Debug SLIM behavior with full control
+- **Local Debugging** - Debug SLIM behavior with full runtime and tracing control
 - **Demos** - Quick demonstrations of SLIM functionality
 
 ## Quick Start
@@ -41,12 +43,13 @@ slimctl slim start [flags]
 
 | Flag | Short | Type | Description |
 |------|-------|------|-------------|
-| `--config` | `-c` | string | Path to YAML configuration file |
-| `--endpoint` | | string | Endpoint to bind (e.g., `127.0.0.1:8080`) |
-| `--port` | | string | Port to listen on (default: `8080`, used if --endpoint not specified) |
-| `--insecure` | | bool | Disable TLS and run in insecure mode |
-| `--tls-cert` | | string | Path to TLS certificate file |
-| `--tls-key` | | string | Path to TLS private key file |
+| `--config` | `-c` | string | Path to YAML configuration file (full SLIM format) |
+| `--endpoint` | | string | Override server endpoint (e.g., `127.0.0.1:8080`) |
+| `--insecure` | | bool | Override to disable TLS (insecure mode) |
+| `--tls-cert` | | string | Override TLS certificate file path |
+| `--tls-key` | | string | Override TLS key file path |
+
+**Note:** CLI flags override the server configuration in `services.slim/0.dataplane.servers[0]` from the YAML file.
 
 ---
 
@@ -54,33 +57,82 @@ slimctl slim start [flags]
 
 ### YAML Configuration File
 
-Create a YAML configuration file to define SLIM instance settings:
+`slimctl` uses the **full SLIM production configuration format**, which includes runtime, tracing, and service sections. This ensures complete production parity.
+
+**Basic Configuration (Insecure Mode):**
 
 ```yaml
-# Endpoint to bind
-endpoint: "127.0.0.1:8443"
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
 
-# TLS Configuration
-tls:
-  insecure: false
-  cert_file: "/path/to/server-cert.pem"
-  key_file: "/path/to/server-key.pem"
+runtime:
+  n_cores: 0  # 0 means use all available cores
+  thread_name: "slimctl-worker"
+  drain_timeout: 10s
+
+tracing:
+  log_level: info
+  display_thread_names: true
+  display_thread_ids: true
+
+services:
+  slim/0:
+    dataplane:
+      servers:
+        - endpoint: "127.0.0.1:8080"
+          tls:
+            insecure: true
+      clients: []
+```
+
+**TLS-Enabled Configuration:**
+
+```yaml
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+runtime:
+  n_cores: 0  # 0 means use all available cores
+  thread_name: "slimctl-worker"
+  drain_timeout: 10s
+
+tracing:
+  log_level: debug  # Use debug level for TLS troubleshooting
+  display_thread_names: true
+  display_thread_ids: true
+
+services:
+  slim/0:
+    dataplane:
+      servers:
+        - endpoint: "127.0.0.1:8443"
+          tls:
+            source:
+              type: file
+              cert: "/path/to/server-cert.pem"
+              key: "/path/to/server-key.pem"
+      clients: []
 ```
 
 ### Configuration Precedence
 
 CLI flags override YAML configuration values:
 
-1. **CLI flags** (highest priority)
-2. **YAML configuration file**
-3. **Default values** (lowest priority)
+1. **CLI flags** (highest priority) - Override specific server settings
+2. **YAML configuration file** - Full production configuration
+3. **Default values** (lowest priority) - Sensible production defaults
 
 ### Configuration Examples
 
-See the [`examples/`](examples/) directory for sample configurations:
+See the [`testdata/`](testdata/) directory for sample configurations:
 
-- [`insecure-server.yaml`](examples/insecure-server.yaml) - Development mode without TLS
-- [`tls-server.yaml`](examples/tls-server.yaml) - Production-like with TLS enabled
+- [`test-insecure.yaml`](testdata/test-insecure.yaml) - Development mode without TLS
+- [`test-tls.yaml`](testdata/test-tls.yaml) - Production-like with TLS enabled
+
+For complete production examples, see [`data-plane/config/`](../../data-plane/config/):
+- [`base/server-config.yaml`](../../data-plane/config/base/server-config.yaml) - Basic server without TLS
+- [`tls/server-config.yaml`](../../data-plane/config/tls/server-config.yaml) - TLS-enabled server
+- [`basic-auth/server-config.yaml`](../../data-plane/config/basic-auth/server-config.yaml) - With authentication
 
 ---
 
@@ -95,7 +147,9 @@ slimctl slim start --endpoint 127.0.0.1:8080 --insecure
 **Output:**
 ```
 🌐 Starting server on 127.0.0.1:8080...
-   (Insecure mode - TLS disabled)
+   Runtime: 0 cores, thread name: slim-worker
+   Tracing: level=info
+   Running in insecure mode (no TLS)
    Waiting for clients to connect...
 
 ✅ Server running and listening
