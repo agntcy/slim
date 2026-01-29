@@ -9,8 +9,8 @@ use slim_datapath::messages::Name;
 use crate::{
     Direction, common::SessionMessage, errors::SessionError, session_config::SessionConfig,
     session_controller::SessionController, session_moderator::SessionModerator,
-    session_participant::SessionParticipant, session_routes::SessionRoutes,
-    session_settings::SessionSettings, traits::MessageHandler, transmitter::SessionTransmitter,
+    session_participant::SessionParticipant, session_settings::SessionSettings,
+    traits::MessageHandler, transmitter::SessionTransmitter,
 };
 
 // Marker types for builder states
@@ -117,7 +117,6 @@ where
     storage_path: Option<std::path::PathBuf>,
     tx: Option<SessionTransmitter>,
     tx_to_session_layer: Option<tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>>,
-    routes_cache: Option<SessionRoutes>,
     graceful_shutdown_timeout: Option<std::time::Duration>,
     direction: Direction,
     _target: PhantomData<Target>,
@@ -141,7 +140,6 @@ where
             storage_path: None,
             tx: None,
             tx_to_session_layer: None,
-            routes_cache: None,
             graceful_shutdown_timeout: None,
             direction: Direction::Bidirectional,
             _target: PhantomData,
@@ -197,11 +195,6 @@ where
         self
     }
 
-    pub fn with_routes_cache(mut self, routes_cache: SessionRoutes) -> Self {
-        self.routes_cache = Some(routes_cache);
-        self
-    }
-
     pub fn with_graceful_shutdown_timeout(mut self, timeout: std::time::Duration) -> Self {
         self.graceful_shutdown_timeout = Some(timeout);
         self
@@ -223,7 +216,6 @@ where
             || self.storage_path.is_none()
             || self.tx.is_none()
             || self.tx_to_session_layer.is_none()
-            || self.routes_cache.is_none()
         {
             return Err(SessionError::SessionBuilderIncomplete);
         }
@@ -238,7 +230,6 @@ where
             storage_path: self.storage_path,
             tx: self.tx,
             tx_to_session_layer: self.tx_to_session_layer,
-            routes_cache: self.routes_cache,
             graceful_shutdown_timeout: self.graceful_shutdown_timeout,
             direction: self.direction,
             _target: PhantomData,
@@ -364,7 +355,6 @@ where
             identity_provider: self.identity_provider.unwrap(),
             identity_verifier: self.identity_verifier.unwrap(),
             storage_path: self.storage_path.unwrap(),
-            routes_cache: self.routes_cache.clone().unwrap(),
             graceful_shutdown_timeout: self.graceful_shutdown_timeout,
         };
 
@@ -528,7 +518,6 @@ mod tests {
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(std::path::PathBuf::from("/tmp"))
                 .with_tx(create_test_transmitter())
-                .with_routes_cache(SessionRoutes::default())
                 .with_tx_to_session_layer(tx_to_session);
 
         let ready_result = builder.ready();
@@ -736,7 +725,6 @@ mod tests {
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(std::path::PathBuf::from("/tmp"))
                 .with_tx(create_test_transmitter())
-                .with_routes_cache(SessionRoutes::default())
                 .with_tx_to_session_layer(tx_to_session);
 
         let ready_builder = builder.ready().unwrap();
@@ -901,7 +889,6 @@ mod tests {
             .with_identity_verifier(MockVerifier)
             .with_storage_path(std::path::PathBuf::from("/tmp"))
             .with_tx(create_test_transmitter())
-            .with_routes_cache(SessionRoutes::default())
             .with_tx_to_session_layer(tx_to_session);
 
         assert!(builder.ready().is_ok());
@@ -924,7 +911,6 @@ mod tests {
         builder.identity_verifier = Some(MockVerifier);
         builder.storage_path = Some(std::path::PathBuf::from("/tmp"));
         builder.tx = Some(create_test_transmitter());
-        builder.routes_cache = Some(SessionRoutes::default());
         builder.tx_to_session_layer = Some(tx_to_session);
 
         // This should succeed
@@ -1117,7 +1103,6 @@ mod tests {
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir.clone())
                 .with_tx(create_test_transmitter())
-                .with_routes_cache(SessionRoutes::default())
                 .with_tx_to_session_layer(tx_to_session);
 
         let controller = builder.ready().unwrap().build();
@@ -1157,7 +1142,6 @@ mod tests {
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir.clone())
                 .with_tx(tx)
-                .with_routes_cache(SessionRoutes::default())
                 .with_tx_to_session_layer(tx_to_session);
 
         let controller = builder.ready().unwrap().build();
@@ -1203,7 +1187,6 @@ mod tests {
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir.clone())
                 .with_tx(tx)
-                .with_routes_cache(SessionRoutes::default())
                 .with_tx_to_session_layer(tx_to_session);
 
         let controller = builder.ready().unwrap().build();
@@ -1245,7 +1228,6 @@ mod tests {
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir.clone())
                 .with_tx(create_test_transmitter())
-                .with_routes_cache(SessionRoutes::default())
                 .with_tx_to_session_layer(tx_to_session);
 
         let controller = builder.ready().unwrap().build();
@@ -1276,7 +1258,6 @@ mod tests {
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir.clone())
                 .with_tx(create_test_transmitter())
-                .with_routes_cache(SessionRoutes::default())
                 .with_tx_to_session_layer(tx_to_session);
 
         let controller = builder.ready().unwrap().build();
@@ -1317,7 +1298,6 @@ mod tests {
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir.clone())
                 .with_tx(create_test_transmitter())
-                .with_routes_cache(SessionRoutes::default())
                 .with_tx_to_session_layer(tx_to_session);
 
         let controller = builder.ready().unwrap().build();
@@ -1355,7 +1335,6 @@ mod tests {
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir.clone())
                 .with_tx(create_test_transmitter())
-                .with_routes_cache(SessionRoutes::default())
                 .with_tx_to_session_layer(tx_to_session);
 
         let controller = builder.ready().unwrap().build();
@@ -1392,7 +1371,6 @@ mod tests {
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir1.clone())
                 .with_tx(create_test_transmitter())
-                .with_routes_cache(SessionRoutes::default())
                 .with_tx_to_session_layer(tx_to_session1);
 
         let builder2 =
@@ -1405,7 +1383,6 @@ mod tests {
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir2.clone())
                 .with_tx(create_test_transmitter())
-                .with_routes_cache(SessionRoutes::default())
                 .with_tx_to_session_layer(tx_to_session2);
 
         let controller1 = builder1.ready().unwrap().build();
@@ -1447,7 +1424,6 @@ mod tests {
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir.clone())
                .with_tx(create_test_transmitter())
-                .with_routes_cache(SessionRoutes::default())
                 .with_tx_to_session_layer(tx_to_session);
 
         let controller = builder.ready().unwrap().build();
