@@ -322,9 +322,7 @@ impl App {
             .handle()
             .spawn(async move { app.create_session(slim_config, slim_dest, None).await });
 
-        let (session_ctx, completion) = handle.await.map_err(|e| SlimError::SessionError {
-            message: format!("Join error: {}", e),
-        })??;
+        let (session_ctx, completion) = handle.await??;
 
         // Create Session and CompletionHandle
         let bindings_ctx = Arc::new(crate::Session::new(session_ctx));

@@ -675,13 +675,8 @@ impl Session {
                 message: "Session already closed or dropped".to_string(),
             })?;
 
-        session
-            .participants_list()
-            .await
-            .map(|list| list.into_iter().map(|n| Arc::new(Name::from(n))).collect())
-            .map_err(|e| SlimError::SessionError {
-                message: format!("Failed to get participants list: {}", e),
-            })
+        let list = session.participants_list().await?;
+        Ok(list.into_iter().map(|n| Arc::new(Name::from(n))).collect())
     }
 
     /// Get list of participants in the session (blocking version for FFI)

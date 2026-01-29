@@ -137,7 +137,7 @@ impl CompletionHandle {
                     .to_string(),
             })?;
 
-        let wait_future = async { receiver.await.map_err(SlimError::from) };
+        let wait_future = async { receiver.await };
 
         if let Some(duration) = timeout {
             // Runtime-agnostic timeout using futures-timer

@@ -360,17 +360,13 @@ async fn initialize_and_start_global_services(
     // Create and start all services
     for (idx, service_config) in service_configs.iter().enumerate() {
         debug!("Creating global service {} with configuration", idx);
-        let mut slim_service = ServiceBuilder::new()
-            .build_with_config(
-                service_config
-                    .node_id
-                    .as_ref()
-                    .unwrap_or(&format!("global-bindings-service-{}", idx)),
-                service_config,
-            )
-            .map_err(|e| SlimError::ServiceError {
-                message: format!("Failed to build service {}: {}", idx, e),
-            })?;
+        let mut slim_service = ServiceBuilder::new().build_with_config(
+            service_config
+                .node_id
+                .as_ref()
+                .unwrap_or(&format!("global-bindings-service-{}", idx)),
+            service_config,
+        )?;
 
         // Start the service to initialize servers and clients
         // This calls run() internally if servers/clients are configured
@@ -450,9 +446,7 @@ pub async fn shutdown() -> Result<(), SlimError> {
 
         match futures::future::select(shutdown_fut, delay).await {
             futures::future::Either::Left((result, _)) => {
-                result.map_err(|e| SlimError::ServiceError {
-                    message: format!("Failed to shutdown service: {}", e),
-                })?;
+                result?;
             }
             futures::future::Either::Right(_) => {
                 return Err(SlimError::ServiceError {

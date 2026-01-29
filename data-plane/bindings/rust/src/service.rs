@@ -182,9 +182,8 @@ impl Service {
 
     /// Run the service (starts all configured servers and clients)
     pub async fn run_async(&self) -> Result<(), SlimError> {
-        self.inner.run().await.map_err(|e| SlimError::ServiceError {
-            message: format!("Failed to run service: {}", e),
-        })
+        self.inner.run().await?;
+        Ok(())
     }
 
     /// Run the service (starts all configured servers and clients) - blocking version
@@ -194,12 +193,8 @@ impl Service {
 
     /// Shutdown the service gracefully
     pub async fn shutdown_async(&self) -> Result<(), SlimError> {
-        self.inner
-            .shutdown()
-            .await
-            .map_err(|e| SlimError::ServiceError {
-                message: format!("Failed to shutdown service: {}", e),
-            })
+        self.inner.shutdown().await?;
+        Ok(())
     }
 
     /// Shutdown the service gracefully - blocking version
@@ -220,9 +215,8 @@ impl Service {
             Ok(())
         });
 
-        handle.await.map_err(|e| SlimError::ServiceError {
-            message: format!("Join error: {}", e),
-        })?
+        handle.await?;
+        Ok(())
     }
 
     /// Start a server with the given configuration - blocking version
@@ -232,11 +226,8 @@ impl Service {
 
     /// Stop a server by endpoint - blocking version
     pub fn stop_server(&self, endpoint: String) -> Result<(), SlimError> {
-        self.inner
-            .stop_server(&endpoint)
-            .map_err(|e| SlimError::ServiceError {
-                message: format!("Failed to stop server: {}", e),
-            })
+        self.inner.stop_server(&endpoint)?;
+        Ok(())
     }
 
     /// Connect to a remote endpoint as a client
@@ -246,18 +237,10 @@ impl Service {
         let runtime = get_runtime();
 
         // Spawn in tokio runtime since connect internally uses tokio::spawn
-        let handle = runtime.spawn(async move {
-            inner
-                .connect(&core_config)
-                .await
-                .map_err(|e| SlimError::ServiceError {
-                    message: format!("Failed to connect: {}", e),
-                })
-        });
+        let handle = runtime.spawn(async move { inner.connect(&core_config).await });
 
-        handle.await.map_err(|e| SlimError::InternalError {
-            message: format!("Failed to join connect task: {}", e),
-        })?
+        let result = handle.await?;
+        Ok(result?)
     }
 
     /// Connect to a remote endpoint as a client - blocking version
@@ -267,11 +250,8 @@ impl Service {
 
     /// Disconnect a client connection by connection ID - blocking version
     pub fn disconnect(&self, conn_id: u64) -> Result<(), SlimError> {
-        self.inner
-            .disconnect(conn_id)
-            .map_err(|e| SlimError::ServiceError {
-                message: format!("Failed to disconnect: {}", e),
-            })
+        self.inner.disconnect(conn_id)?;
+        Ok(())
     }
 
     /// Get the connection ID for a given endpoint
