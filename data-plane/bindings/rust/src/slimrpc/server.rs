@@ -56,7 +56,14 @@ impl Server {
         base_name: SlimName,
         notification_rx: Arc<RwLock<mpsc::Receiver<Result<Notification, SlimSessionError>>>>,
     ) -> Arc<Self> {
-        let inner = CoreServer::new_with_shared_rx(app, base_name, notification_rx);
+        let runtime = crate::get_runtime().handle().clone();
+        let inner = CoreServer::new_with_shared_rx_and_connection(
+            app,
+            base_name,
+            None,
+            notification_rx,
+            Some(runtime),
+        );
         Arc::new(Self { inner })
     }
 }
@@ -163,7 +170,7 @@ impl Server {
                     // Spawn a task to run the handler
                     let handler_task = {
                         let sink = sink_arc.clone();
-                        tokio::spawn(async move {
+                        crate::get_runtime().spawn(async move {
                             if let Err(e) =
                                 handler.handle(request, Arc::new(ctx), sink.clone()).await
                             {
@@ -242,7 +249,7 @@ impl Server {
                     // Spawn a task to run the handler
                     let handler_task = {
                         let sink = sink_arc.clone();
-                        tokio::spawn(async move {
+                        crate::get_runtime().spawn(async move {
                             if let Err(e) = handler
                                 .handle(request_stream, Arc::new(ctx), sink.clone())
                                 .await

@@ -41,7 +41,8 @@ impl Channel {
     #[uniffi::constructor]
     pub fn new(app: Arc<App>, remote: Arc<Name>) -> Arc<Self> {
         let slim_name = remote.as_ref().clone().into();
-        let inner = CoreChannel::new(app.inner(), slim_name);
+        let runtime = crate::get_runtime().handle().clone();
+        let inner = CoreChannel::new_with_connection(app.inner(), slim_name, None, Some(runtime));
 
         Arc::new(Self { inner })
     }
@@ -150,7 +151,7 @@ impl Channel {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
         // Spawn a task to consume the stream and forward to the channel
-        tokio::spawn(async move {
+        crate::get_runtime().spawn(async move {
             let stream = channel.unary_stream::<Vec<u8>, Vec<u8>>(
                 &service_name,
                 &method_name,
@@ -293,7 +294,7 @@ impl RequestStreamWriter {
         let method_name_clone = method_name.clone();
 
         // Spawn task to handle the stream_unary call
-        let response_handle = tokio::spawn(async move {
+        let response_handle = crate::get_runtime().spawn(async move {
             let stream = stream! {
                 let mut receiver = rx;
                 while let Some(data) = receiver.recv().await {
@@ -397,7 +398,7 @@ impl BidiStreamHandler {
         let (resp_tx, resp_rx) = tokio::sync::mpsc::unbounded_channel();
 
         // Spawn task to handle the stream_stream call
-        tokio::spawn(async move {
+        crate::get_runtime().spawn(async move {
             let request_stream = stream! {
                 let mut receiver = req_rx;
                 while let Some(data) = receiver.recv().await {

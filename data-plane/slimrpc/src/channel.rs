@@ -35,6 +35,8 @@ struct ChannelInner {
     remote: Name,
     /// Optional connection ID for session creation propagation
     connection_id: Option<u64>,
+    /// Runtime handle for spawning tasks (resolved at construction)
+    runtime: tokio::runtime::Handle,
 }
 
 /// Client-side channel for making RPC calls
@@ -69,7 +71,7 @@ impl Channel {
     /// # }
     /// ```
     pub fn new(app: Arc<SlimApp<AuthProvider, AuthVerifier>>, remote: Name) -> Self {
-        Self::new_with_connection(app, remote, None)
+        Self::new_with_connection(app, remote, None, None)
     }
 
     /// Create a new channel with optional connection ID for session propagation
@@ -81,6 +83,7 @@ impl Channel {
     /// * `app` - The SLIM app to use for communication
     /// * `remote` - The base name of the remote service
     /// * `connection_id` - Optional connection ID for session creation propagation to next SLIM node
+    /// * `runtime` - Optional tokio runtime handle for spawning tasks
     ///
     /// # Example
     ///
@@ -93,19 +96,27 @@ impl Channel {
     /// # async fn example(app: Arc<App<AuthProvider, AuthVerifier>>) {
     /// let remote = Name::from_strings(["org".to_string(), "namespace".to_string(), "service".to_string()]);
     /// let connection_id = Some(42);
-    /// let channel = Channel::new_with_connection(app, remote, connection_id);
+    /// let channel = Channel::new_with_connection(app, remote, connection_id, None);
     /// # }
     /// ```
     pub fn new_with_connection(
         app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
         remote: Name,
         connection_id: Option<u64>,
+        runtime: Option<tokio::runtime::Handle>,
     ) -> Self {
+        // Resolve runtime handle: use provided or try to get current
+        let runtime = runtime.unwrap_or_else(|| {
+            tokio::runtime::Handle::try_current()
+                .expect("No tokio runtime found. Either provide a runtime handle or call from within a tokio runtime context")
+        });
+
         Self {
             inner: Arc::new(ChannelInner {
                 app,
                 remote,
                 connection_id,
+                runtime,
             }),
         }
     }
@@ -548,7 +559,7 @@ impl Channel {
             let service_name_for_send = service_name.clone();
             let method_name_for_send = method_name.clone();
             let channel_for_send = channel.clone();
-            let mut send_handle = tokio::spawn(async move {
+            let mut send_handle = channel.inner.runtime.spawn(async move {
                 channel_for_send.send_request_stream(&session_for_send, &ctx_for_send, request_stream, &service_name_for_send, &method_name_for_send).await
             });
 

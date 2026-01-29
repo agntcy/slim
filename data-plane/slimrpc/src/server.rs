@@ -269,6 +269,8 @@ struct ServerInner {
     drain_signal: RwLock<Option<drain::Signal>>,
     /// Drain watch for session handlers
     drain_watch: RwLock<Option<drain::Watch>>,
+    /// Runtime handle for spawning tasks (resolved at construction)
+    runtime: tokio::runtime::Handle,
 }
 
 /// Enum to hold either an owned or shared notification receiver
@@ -351,7 +353,7 @@ impl Server {
         base_name: Name,
         notification_rx: mpsc::Receiver<Result<Notification, SessionError>>,
     ) -> Self {
-        Self::new_with_connection(app, base_name, None, notification_rx)
+        Self::new_with_connection(app, base_name, None, notification_rx, None)
     }
 
     /// Create a new RPC server with optional connection ID
@@ -361,13 +363,21 @@ impl Server {
     /// * `base_name` - The base name for this server (e.g., "org/namespace/app")
     /// * `connection_id` - Optional connection ID for subscription propagation to next SLIM node
     /// * `notification_rx` - Receiver for session notifications
+    /// * `runtime` - Optional tokio runtime handle for spawning tasks
     pub fn new_with_connection(
         app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
         base_name: Name,
         connection_id: Option<u64>,
         notification_rx: mpsc::Receiver<Result<Notification, SessionError>>,
+        runtime: Option<tokio::runtime::Handle>,
     ) -> Self {
         let (drain_signal, drain_watch) = drain::channel();
+
+        // Resolve runtime handle: use provided or try to get current
+        let runtime = runtime.unwrap_or_else(|| {
+            tokio::runtime::Handle::try_current()
+                .expect("No tokio runtime found. Either provide a runtime handle or call from within a tokio runtime context")
+        });
 
         Self {
             inner: Arc::new(ServerInner {
@@ -382,6 +392,7 @@ impl Server {
                 cancellation_token: CancellationToken::new(),
                 drain_signal: RwLock::new(Some(drain_signal)),
                 drain_watch: RwLock::new(Some(drain_watch)),
+                runtime,
             }),
         }
     }
@@ -399,7 +410,7 @@ impl Server {
             tokio::sync::RwLock<mpsc::Receiver<Result<Notification, SessionError>>>,
         >,
     ) -> Self {
-        Self::new_with_shared_rx_and_connection(app, base_name, None, notification_rx)
+        Self::new_with_shared_rx_and_connection(app, base_name, None, notification_rx, None)
     }
 
     /// Create a new RPC server with shared notification receiver and connection ID
@@ -409,6 +420,7 @@ impl Server {
     /// * `base_name` - The base name for this server (e.g., "org/namespace/app")
     /// * `connection_id` - Optional connection ID for subscription propagation to next SLIM node
     /// * `notification_rx` - Shared Arc to the notification receiver
+    /// * `runtime` - Optional tokio runtime handle for spawning tasks
     pub fn new_with_shared_rx_and_connection(
         app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
         base_name: Name,
@@ -416,8 +428,15 @@ impl Server {
         notification_rx: Arc<
             tokio::sync::RwLock<mpsc::Receiver<Result<Notification, SessionError>>>,
         >,
+        runtime: Option<tokio::runtime::Handle>,
     ) -> Self {
         let (drain_signal, drain_watch) = drain::channel();
+
+        // Resolve runtime handle: use provided or try to get current
+        let runtime = runtime.unwrap_or_else(|| {
+            tokio::runtime::Handle::try_current()
+                .expect("No tokio runtime found. Either provide a runtime handle or call from within a tokio runtime context")
+        });
 
         Self {
             inner: Arc::new(ServerInner {
@@ -432,6 +451,7 @@ impl Server {
                 cancellation_token: CancellationToken::new(),
                 drain_signal: RwLock::new(Some(drain_signal)),
                 drain_watch: RwLock::new(Some(drain_watch)),
+                runtime,
             }),
         }
     }
@@ -737,7 +757,9 @@ impl Server {
     /// ```
     pub fn serve(&self) -> JoinHandle<Result<(), Status>> {
         let server = self.clone();
-        tokio::spawn(async move { server.serve_internal().await })
+        self.inner
+            .runtime
+            .spawn(async move { server.serve_internal().await })
     }
 
     /// Internal server loop implementation
@@ -814,7 +836,7 @@ impl Server {
                     // Spawn a task to handle this session
                     let server = self.clone();
                     let session = Session::new(session_ctx);
-                    let handle = tokio::spawn(async move {
+                    let handle = self.inner.runtime.spawn(async move {
                         // Check if method is registered and handle error in task
                         let Some((method_path, handler_info)) = lookup_result else {
                             tracing::error!(%subscription_name, "No method registered for subscription");
