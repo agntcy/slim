@@ -620,6 +620,23 @@ impl Channel {
         let method_subscription_name =
             crate::build_method_subscription_name(&self.inner.remote, service_name, method_name);
 
+        // Set route if connection_id is provided
+        if let Some(conn_id) = self.inner.connection_id {
+            tracing::debug!(
+                %service_name,
+                %method_name,
+                %method_subscription_name,
+                connection_id = conn_id,
+                "Setting route before creating session"
+            );
+
+            self.inner
+                .app
+                .set_route(&method_subscription_name, conn_id)
+                .await
+                .map_err(|e| Status::internal(format!("Failed to set route: {}", e)))?;
+        }
+
         // Create the session with optional connection ID for propagation
         tracing::debug!(
             %service_name,

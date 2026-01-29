@@ -30,7 +30,6 @@ pub struct Channel {
 #[uniffi::export]
 impl Channel {
     /// Create a new RPC channel
-    /// Make a unary-to-unary RPC call (blocking version)
     ///
     /// # Arguments
     /// * `app` - The SLIM application instance
@@ -40,9 +39,31 @@ impl Channel {
     /// A new channel instance
     #[uniffi::constructor]
     pub fn new(app: Arc<App>, remote: Arc<Name>) -> Arc<Self> {
+        Self::new_with_connection(app, remote, None)
+    }
+
+    /// Create a new RPC channel with optional connection ID
+    ///
+    /// The connection ID is used to set up routing before making RPC calls,
+    /// enabling multi-hop RPC calls through specific connections.
+    ///
+    /// # Arguments
+    /// * `app` - The SLIM application instance
+    /// * `remote` - The remote service name to connect to
+    /// * `connection_id` - Optional connection ID for routing setup
+    ///
+    /// # Returns
+    /// A new channel instance
+    #[uniffi::constructor]
+    pub fn new_with_connection(
+        app: Arc<App>,
+        remote: Arc<Name>,
+        connection_id: Option<u64>,
+    ) -> Arc<Self> {
         let slim_name = remote.as_ref().clone().into();
         let runtime = crate::get_runtime().handle().clone();
-        let inner = CoreChannel::new_with_connection(app.inner(), slim_name, None, Some(runtime));
+        let inner =
+            CoreChannel::new_with_connection(app.inner(), slim_name, connection_id, Some(runtime));
 
         Arc::new(Self { inner })
     }
