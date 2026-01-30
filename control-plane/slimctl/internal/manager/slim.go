@@ -24,11 +24,11 @@ type Manager interface {
 // manager is the default implementation of Manager.
 type manager struct {
 	Logger        *zap.Logger
-	ConfigManager *config.ConfigManager
+	ConfigManager *config.Manager
 }
 
-// NewManager creates a new Manager with a ConfigManager. If logger is nil, a no-op logger is used.
-func NewManager(logger *zap.Logger, configMgr *config.ConfigManager) Manager {
+// NewManager creates a new Manager with a config.Manager. If logger is nil, a no-op logger is used.
+func NewManager(logger *zap.Logger, configMgr *config.Manager) Manager {
 	if logger == nil {
 		logger = zap.NewNop()
 	}

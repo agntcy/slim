@@ -15,15 +15,15 @@ const (
 	EnvRustLog      = "RUST_LOG" // Standard Rust logging env var
 )
 
-// ConfigManager handles SLIM configuration for bindings initialization
-type ConfigManager struct {
+// Manager handles SLIM configuration for bindings initialization
+type Manager struct {
 	configPath string
 	tempConfig bool // Whether using a temporary config file
 }
 
-// NewConfigManager creates a new config manager
-func NewConfigManager(configPath string) *ConfigManager {
-	return &ConfigManager{
+// New creates a new config manager
+func New(configPath string) *Manager {
+	return &Manager{
 		configPath: configPath,
 		tempConfig: false,
 	}
@@ -32,7 +32,7 @@ func NewConfigManager(configPath string) *ConfigManager {
 // GetConfigPath returns the configuration file path to use with bindings.
 // If no config is provided, creates a minimal temporary config that uses environment variables.
 // No validation is performed - the bindings library handles all validation.
-func (cm *ConfigManager) GetConfigPath() (string, error) {
+func (cm *Manager) GetConfigPath() (string, error) {
 	if cm.configPath != "" {
 		// Return user-provided config as-is
 		// No existence check - let bindings handle errors
@@ -44,7 +44,7 @@ func (cm *ConfigManager) GetConfigPath() (string, error) {
 }
 
 // createDefaultTempConfig creates a minimal default configuration with environment variable references
-func (cm *ConfigManager) createDefaultTempConfig() (string, error) {
+func (cm *Manager) createDefaultTempConfig() (string, error) {
 	tempDir := os.TempDir()
 	tempFile := filepath.Join(tempDir, fmt.Sprintf("slimctl-config-%d.yaml", os.Getpid()))
 
@@ -84,7 +84,7 @@ services:
 }
 
 // Cleanup removes temporary configuration file if created
-func (cm *ConfigManager) Cleanup() error {
+func (cm *Manager) Cleanup() error {
 	if cm.tempConfig && cm.configPath != "" {
 		return os.Remove(cm.configPath)
 	}

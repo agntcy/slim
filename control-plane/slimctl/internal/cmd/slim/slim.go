@@ -55,7 +55,7 @@ Log level can be controlled via RUST_LOG environment variable.
 All configuration validation is performed by the bindings library.`,
 		RunE: func(c *cobra.Command, _ []string) error {
 			// Create config manager - just manages paths, no validation
-			configMgr := config.NewConfigManager(configFile)
+			configMgr := config.New(configFile)
 
 			// Set environment variables for any CLI flag overrides
 			// These will be substituted by the bindings when it reads the config
