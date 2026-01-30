@@ -1,6 +1,6 @@
 module github.com/agntcy/slim/control-plane/control-plane
 
-go 1.25.5
+go 1.25.6
 
 require (
 	github.com/agntcy/slim/control-plane/common v0.0.0-00010101000000-000000000000
