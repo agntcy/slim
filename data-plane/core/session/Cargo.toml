@@ -2,7 +2,7 @@
 name = "agntcy-slim-session"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.1.3"
+version = "0.1.4"
 description = "SLIM session internal implementation."
 
 [lib]
