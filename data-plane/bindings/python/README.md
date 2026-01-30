@@ -20,6 +20,7 @@ Python interface that wraps the high-performance Rust implementation.
 - **MLS Encryption**: End-to-end encryption for sessions
 - **Delivery Confirmation**: Optional completion handles for reliable messaging
 - **Flexible Authentication**: Shared secrets, JWT, SPIRE integration
+- **slimrpc Support**: Protocol Buffers RPC over SLIM - see [SLIMRPC.md](SLIMRPC.md) for details
 
 ## Architecture
 
@@ -473,6 +474,7 @@ Apache-2.0 - See [LICENSE.md](../../../LICENSE.md) for details
 
 ## See Also
 
+- [slimrpc Documentation](SLIMRPC.md) - Protocol Buffers RPC over SLIM
 - [Go Bindings](../go/README.md)
 - [UniFFI Adapter](../adapter/src/)
 - [SLIM Documentation](../../../README.md)
