@@ -21,12 +21,28 @@ pub enum ConfigError {
     EndpointParse(#[from] std::net::AddrParseError),
     #[error("URI parse error")]
     UriParse(#[from] http::uri::InvalidUri),
+    #[error("invalid endpoint scheme")]
+    InvalidEndpointScheme,
 
     // Network / transport
     #[error("transport error")]
     TransportError(#[from] tonic::transport::Error),
     #[error("bind error")]
     Bind(#[from] std::io::Error),
+
+    // Unix domain sockets
+    #[error("unix domain sockets are unsupported on this platform")]
+    UnixSocketUnsupported,
+    #[error("unix domain socket endpoint requires a socket path")]
+    UnixSocketMissingPath,
+    #[error("unix domain sockets require tls.insecure=true")]
+    UnixSocketTlsUnsupported,
+    #[error("invalid unix domain socket path")]
+    UnixSocketInvalidPath(#[source] http::Error),
+
+    #[cfg(target_family = "unix")]
+    #[error("failed to connect to unix domain socket")]
+    UnixSocketConnect(#[source] std::io::Error),
 
     // Header parsing
     #[error("header name parse error")]
