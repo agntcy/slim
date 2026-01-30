@@ -20,14 +20,14 @@ import (
 func GetClient(
 	ctx context.Context,
 	opts *options.CommonOptions,
-) (cpApi.ControlPlaneServiceClient, context.Context, error) {
+) (cpApi.ControlPlaneServiceClient, *grpc.ClientConn, context.Context, error) {
 	var creds credentials.TransportCredentials
 	if opts.TLSInsecure {
 		creds = insecure.NewCredentials()
 	} else if opts.TLSCAFile != "" {
 		c, err := credentials.NewClientTLSFromFile(opts.TLSCAFile, "")
 		if err != nil {
-			return nil, ctx, fmt.Errorf("loading CA file %q: %w", opts.TLSCAFile, err)
+			return nil, nil, ctx, fmt.Errorf("loading CA file %q: %w", opts.TLSCAFile, err)
 		}
 		creds = c
 	}
@@ -45,9 +45,9 @@ func GetClient(
 		grpc.WithTransportCredentials(creds),
 	)
 	if err != nil {
-		return nil, ctx, fmt.Errorf("error connecting to server(%s): %w", opts.Server, err)
+		return nil, nil, ctx, fmt.Errorf("error connecting to server(%s): %w", opts.Server, err)
 	}
 
 	client := cpApi.NewControlPlaneServiceClient(conn)
-	return client, ctx, nil
+	return client, conn, ctx, nil
 }

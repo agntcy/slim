@@ -154,12 +154,11 @@ func TestSendConfigMessage(t *testing.T) {
 	}
 	defer conn.Close()
 
-	client := grpcapi.NewControllerServiceClient(conn)
-
-	stream, err := client.OpenControlChannel(ctx)
+	stream, conn, err := grpcapi.OpenControlChannel(ctx)
 	if err != nil {
 		t.Fatalf("client.OpenControlChannel failed: %v", err)
 	}
+	defer conn.Close()
 
 	configMsg := &grpcapi.ControlMessage{
 		MessageId: "test-cfg-123",
@@ -235,13 +234,11 @@ func TestListSubscriptions(t *testing.T) {
 	}
 	defer conn.Close()
 
-	client := grpcapi.NewControllerServiceClient(conn)
-
-	stream, err := client.OpenControlChannel(ctx)
+	stream, conn, err := grpcapi.OpenControlChannel(ctx)
 	if err != nil {
 		t.Fatalf("client.OpenControlChannel failed: %v", err)
 	}
-
+	defer conn.Close()
 	msg := &grpcapi.ControlMessage{
 		MessageId: uuid.NewString(),
 		Payload:   &grpcapi.ControlMessage_SubscriptionListRequest{},
@@ -332,12 +329,11 @@ func TestListConnections(t *testing.T) {
 	}
 	defer conn.Close()
 
-	client := grpcapi.NewControllerServiceClient(conn)
-
-	stream, err := client.OpenControlChannel(ctx)
+	stream, conn, err := grpcapi.OpenControlChannel(ctx)
 	if err != nil {
 		t.Fatalf("client.OpenControlChannel failed: %v", err)
 	}
+	defer conn.Close()
 
 	msg := &grpcapi.ControlMessage{
 		MessageId: uuid.NewString(),

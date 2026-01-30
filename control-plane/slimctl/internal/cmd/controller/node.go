@@ -36,10 +36,12 @@ func newListNodesCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
+			cpClient, conn, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
+			defer conn.Close()
+
 			listResponse, err := cpClient.ListNodes(ctx, &controlplaneApi.NodeListRequest{})
 			if err != nil {
 				return fmt.Errorf("failed to list nodes: %w", err)

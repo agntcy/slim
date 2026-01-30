@@ -48,10 +48,11 @@ func newListRoutesCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			stream, err := controller.OpenControlChannel(ctx, opts)
+			stream, conn, err := controller.OpenControlChannel(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to open control channel: %w", err)
 			}
+			defer conn.Close()
 
 			if err := stream.Send(msg); err != nil {
 				return fmt.Errorf("failed to send control message: %w", err)
@@ -143,10 +144,11 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			stream, err := controller.OpenControlChannel(ctx, opts)
+			stream, returnedConn, err := controller.OpenControlChannel(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to open control channel: %w", err)
 			}
+			defer returnedConn.Close()
 
 			if err = stream.Send(msg); err != nil {
 				return fmt.Errorf("failed to send control message: %w", err)
@@ -237,10 +239,11 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			stream, err := controller.OpenControlChannel(ctx, opts)
+			stream, conn, err := controller.OpenControlChannel(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to open control channel: %w", err)
 			}
+			defer conn.Close()
 
 			if err = stream.Send(msg); err != nil {
 				return fmt.Errorf("failed to send control message: %w", err)

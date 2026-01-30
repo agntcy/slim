@@ -224,13 +224,9 @@ func TestSouthbound_MessageHandling(t *testing.T) {
 	defer cancel()
 
 	// Create gRPC client
-	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	stream, conn, err := controllerapi.OpenControlChannel(ctx)
 	require.NoError(t, err)
 	defer conn.Close()
-
-	client := controllerapi.NewControllerServiceClient(conn)
-	stream, err := client.OpenControlChannel(ctx)
-	require.NoError(t, err)
 
 	// Receive initial ACK
 	_, err = stream.Recv()
@@ -353,13 +349,9 @@ func TestSouthbound_ChannelOperations(t *testing.T) {
 	ctx := context.Background()
 
 	// Create gRPC client
-	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	stream, conn, err := controllerapi.OpenControlChannel(ctx)
 	require.NoError(t, err)
 	defer conn.Close()
-
-	client := controllerapi.NewControllerServiceClient(conn)
-	stream, err := client.OpenControlChannel(ctx)
-	require.NoError(t, err)
 
 	// Receive initial ACK
 	_, err = stream.Recv()
@@ -480,13 +472,9 @@ func TestSouthbound_ParticipantOperations(t *testing.T) {
 	ctx := context.Background()
 
 	// Create gRPC client
-	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	stream, conn, err := controllerapi.OpenControlChannel(ctx)
 	require.NoError(t, err)
 	defer conn.Close()
-
-	client := controllerapi.NewControllerServiceClient(conn)
-	stream, err := client.OpenControlChannel(ctx)
-	require.NoError(t, err)
 
 	// Receive initial ACK
 	_, err = stream.Recv()
@@ -604,13 +592,9 @@ func TestSouthbound_ChannelOperationsWithErrors(t *testing.T) {
 	ctx := context.Background()
 
 	// Create gRPC client
-	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	stream, conn, err := controllerapi.OpenControlChannel(ctx)
 	require.NoError(t, err)
 	defer conn.Close()
-
-	client := controllerapi.NewControllerServiceClient(conn)
-	stream, err := client.OpenControlChannel(ctx)
-	require.NoError(t, err)
 
 	// Receive initial ACK
 	_, err = stream.Recv()
@@ -675,13 +659,9 @@ func TestSouthbound_InvalidPayload(t *testing.T) {
 	ctx := context.Background()
 
 	// Create gRPC client
-	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	stream, conn, err := controllerapi.OpenControlChannel(ctx)
 	require.NoError(t, err)
 	defer conn.Close()
-
-	client := controllerapi.NewControllerServiceClient(conn)
-	stream, err := client.OpenControlChannel(ctx)
-	require.NoError(t, err)
 
 	// Receive initial ACK
 	_, err = stream.Recv()
@@ -782,13 +762,9 @@ func TestSouthbound_NoRegistration(t *testing.T) {
 	ctx := context.Background()
 
 	// Create gRPC client
-	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	stream, conn, err := controllerapi.OpenControlChannel(ctx)
 	require.NoError(t, err)
 	defer conn.Close()
-
-	client := controllerapi.NewControllerServiceClient(conn)
-	stream, err := client.OpenControlChannel(ctx)
-	require.NoError(t, err)
 
 	// Receive initial ACK
 	_, err = stream.Recv()

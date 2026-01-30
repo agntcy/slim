@@ -43,10 +43,11 @@ func newListCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			stream, err := controller.OpenControlChannel(ctx, opts)
+			stream, conn, err := controller.OpenControlChannel(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("open control channel: %w", err)
 			}
+			defer conn.Close()
 
 			if err := stream.Send(msg); err != nil {
 				return fmt.Errorf("send request: %w", err)
