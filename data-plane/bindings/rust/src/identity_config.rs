@@ -422,29 +422,16 @@ impl TryFrom<IdentityProviderConfig> for AuthProvider {
     fn try_from(config: IdentityProviderConfig) -> Result<Self, Self::Error> {
         match config {
             IdentityProviderConfig::SharedSecret { id, data } => {
-                AuthProvider::shared_secret_from_str(&id, &data).map_err(|e| {
-                    SlimError::InvalidArgument {
-                        message: format!("Failed to create SharedSecret provider: {}", e),
-                    }
-                })
+                Ok(AuthProvider::shared_secret_from_str(&id, &data)?)
             }
             IdentityProviderConfig::StaticJwt { config } => {
                 let core_config: StaticJwtConfig = config.into();
-                let provider = core_config.build_static_token_provider().map_err(|e| {
-                    SlimError::InvalidArgument {
-                        message: format!("Failed to build StaticTokenProvider: {}", e),
-                    }
-                })?;
+                let provider = core_config.build_static_token_provider()?;
                 Ok(AuthProvider::static_token(provider))
             }
             IdentityProviderConfig::Jwt { config } => {
                 let core_config: JwtAuthConfig = config.into();
-                let provider =
-                    core_config
-                        .get_provider()
-                        .map_err(|e| SlimError::InvalidArgument {
-                            message: format!("Failed to build JWT provider: {}", e),
-                        })?;
+                let provider = core_config.get_provider()?;
                 Ok(AuthProvider::jwt_signer(provider))
             }
             #[cfg(not(target_family = "windows"))]
@@ -479,20 +466,11 @@ impl TryFrom<IdentityVerifierConfig> for AuthVerifier {
     fn try_from(config: IdentityVerifierConfig) -> Result<Self, Self::Error> {
         match config {
             IdentityVerifierConfig::SharedSecret { id, data } => {
-                AuthVerifier::shared_secret_from_str(&id, &data).map_err(|e| {
-                    SlimError::InvalidArgument {
-                        message: format!("Failed to create SharedSecret verifier: {}", e),
-                    }
-                })
+                Ok(AuthVerifier::shared_secret_from_str(&id, &data)?)
             }
             IdentityVerifierConfig::Jwt { config } => {
                 let core_config: JwtAuthConfig = config.into();
-                let verifier =
-                    core_config
-                        .get_verifier()
-                        .map_err(|e| SlimError::InvalidArgument {
-                            message: format!("Failed to build JWT verifier: {}", e),
-                        })?;
+                let verifier = core_config.get_verifier()?;
                 Ok(AuthVerifier::jwt_verifier(verifier))
             }
             #[cfg(not(target_family = "windows"))]
