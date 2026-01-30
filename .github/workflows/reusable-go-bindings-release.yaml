@@ -325,7 +325,7 @@ jobs:
           echo "✅ Downloaded native libraries"
 
           # Copy test program from repo
-          cp ./.github/tests/go/test_installation.go main.go
+          cp $GITHUB_WORKSPACE/.github/tests/go/test_installation.go main.go
 
           # Run the test program
           go run main.go
