@@ -41,20 +41,20 @@ def create_slim(
     private_key_config = slim_bindings.JwtKeyConfig(
         algorithm=private_key_algorithm,
         format=slim_bindings.JwtKeyFormat.PEM,
-        key=slim_bindings.JwtKeyData.FILE(path=private_key),
+        key=slim_bindings.JwtKeyData.FILE(path=private_key),  # type: ignore
     )
 
     # Build verification key config (public key for decoding)
     public_key_config = slim_bindings.JwtKeyConfig(
         algorithm=public_key_algorithm,
         format=slim_bindings.JwtKeyFormat.PEM,
-        key=slim_bindings.JwtKeyData.FILE(path=public_key),
+        key=slim_bindings.JwtKeyData.FILE(path=public_key),  # type: ignore
     )
 
     # Create provider config (for signing outbound tokens)
     provider_config = slim_bindings.IdentityProviderConfig.JWT(
         config=slim_bindings.ClientJwtAuth(
-            key=slim_bindings.JwtKeyType.ENCODING(key=private_key_config),
+            key=slim_bindings.JwtKeyType.ENCODING(key=private_key_config),  # type: ignore
             audience=test_audience,
             issuer="test-issuer",
             subject=f"{name}",
@@ -65,7 +65,7 @@ def create_slim(
     # Create verifier config (for verifying inbound tokens)
     verifier_config = slim_bindings.IdentityVerifierConfig.JWT(
         config=slim_bindings.JwtAuth(
-            key=slim_bindings.JwtKeyType.DECODING(key=public_key_config),
+            key=slim_bindings.JwtKeyType.DECODING(key=public_key_config),  # type: ignore
             audience=wrong_audience or test_audience,
             issuer="test-issuer",
             subject=None,
@@ -74,7 +74,7 @@ def create_slim(
     )
 
     # Create and return the app
-    return slim_bindings.App(name, provider_config, verifier_config)
+    return slim_bindings.App(name, provider_config, verifier_config)  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio

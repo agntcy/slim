@@ -458,10 +458,7 @@ fn handle_code_generation(request: CodeGeneratorRequest) -> Result<CodeGenerator
             // Populate service stub template
             let current_service_stub = SERVICE_STUB_TEMPLATE
                 .replace("{{SERVICE_NAME}}", &service_name)
-                .replace(
-                    "{{METHOD_STUB_METHODS}}",
-                    &method_stub_methods_content,
-                );
+                .replace("{{METHOD_STUB_METHODS}}", &method_stub_methods_content);
             service_definitions_content.push_str(&current_service_stub);
 
             // Populate service servicer template
@@ -611,11 +608,9 @@ mod tests {
         assert!(content.contains("class UserServiceStub:"));
         assert!(content.contains("class UserServiceServicer:"));
         assert!(content.contains("def GetUser(self, request, msg_context, session_context):"));
-        assert!(
-            content.contains(
-                "def add_UserServiceServicer_to_server(servicer, server: slim_bindings.Server):"
-            )
-        );
+        assert!(content.contains(
+            "def add_UserServiceServicer_to_server(servicer, server: slim_bindings.Server):"
+        ));
         assert!(content.contains("unary_unary"));
     }
 
