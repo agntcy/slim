@@ -7,7 +7,8 @@ vars:
   # Binary location relative to this Taskfile (control-plane/slimctl/)
   SLIMCTL_BIN: ../../.dist/bin/slimctl
   TESTDATA_DIR: testdata
-  TEST_CERTS_DIR: testdata/certs
+  # Use production certificates from data-plane/config/crypto
+  CRYPTO_DIR: ../../data-plane/config/crypto
 
 tasks:
   default:
@@ -71,109 +72,46 @@ tasks:
       - echo "📋 Step 3/3 - Choose a test scenario above and run it! 🚀"
     silent: false
 
-  # Certificate generation tasks (for TLS testing)
-  certs:setup:
-    desc: Generate test TLS certificates (X.509 v3)
-    cmds:
-      - task: certs:clean
-      - task: certs:generate
-      - task: certs:verify
-    silent: false
-
-  certs:generate:
-    desc: Generate X.509 v3 certificates
-    cmds:
-      - echo "🔐 Generating test certificates..."
-      - mkdir -p {{.TEST_CERTS_DIR}}
-      - |
-        # Generate private key
-        openssl genrsa -out {{.TEST_CERTS_DIR}}/server-key.pem 2048 2>/dev/null
-      - |
-        # Create OpenSSL config for v3 extensions
-        cat > {{.TEST_CERTS_DIR}}/openssl.cnf <<'EOF'
-        [req]
-        default_bits = 2048
-        prompt = no
-        default_md = sha256
-        distinguished_name = dn
-        x509_extensions = v3_req
-
-        [dn]
-        C = US
-        ST = Test
-        L = Test
-        O = Test Organization
-        CN = localhost
-
-        [v3_req]
-        subjectAltName = @alt_names
-        basicConstraints = CA:FALSE
-        keyUsage = digitalSignature, keyEncipherment
-        extendedKeyUsage = serverAuth
-
-        [alt_names]
-        DNS.1 = localhost
-        DNS.2 = *.localhost
-        IP.1 = 127.0.0.1
-        IP.2 = ::1
-        EOF
-        
-        # Generate X.509 v3 certificate
-        openssl req -new -x509 -key {{.TEST_CERTS_DIR}}/server-key.pem \
-          -out {{.TEST_CERTS_DIR}}/server-cert.pem -days 365 \
-          -config {{.TEST_CERTS_DIR}}/openssl.cnf \
-          -extensions v3_req 2>/dev/null
-        
-        # Clean up config file
-        rm {{.TEST_CERTS_DIR}}/openssl.cnf
-        
-        echo "✅ Certificates generated in {{.TEST_CERTS_DIR}}/"
-    silent: false
-    status:
-      - test -f {{.TEST_CERTS_DIR}}/server-cert.pem
-      - test -f {{.TEST_CERTS_DIR}}/server-key.pem
+  # Certificate information tasks - uses production certificates from data-plane/config/crypto
 
   certs:verify:
-    desc: Verify certificate version and details
+    desc: Verify production certificate version and details
     cmds:
       - |
-        echo "🔍 Verifying certificate..."
-        CERT_VERSION=$(openssl x509 -in {{.TEST_CERTS_DIR}}/server-cert.pem -noout -text | grep "Version:" | sed 's/.*Version: \([0-9]\).*/\1/')
+        echo "🔍 Verifying production certificates..."
+        CERT_VERSION=$(openssl x509 -in {{.CRYPTO_DIR}}/server-cert.pem -noout -text | grep "Version:" | sed 's/.*Version: \([0-9]\).*/\1/')
         if [ "$CERT_VERSION" = "3" ]; then
           echo "   ✅ Certificate version: v3 (compatible with rustls)"
         else
           echo "   ❌ Warning: Certificate version v$CERT_VERSION may not be compatible"
-          exit 1
         fi
-      - echo "   Certificate details:"
-      - openssl x509 -in {{.TEST_CERTS_DIR}}/server-cert.pem -noout -subject -dates
+      - echo "   Certificate location - {{.CRYPTO_DIR}}"
+      - echo "   To regenerate - cd {{.CRYPTO_DIR}} && ./gen-keys.sh"
     silent: false
     preconditions:
-      - test -f {{.TEST_CERTS_DIR}}/server-cert.pem
-
-  certs:clean:
-    desc: Remove test certificates
-    cmds:
-      - echo "🧹 Cleaning test certificates..."
-      - rm -rf {{.TEST_CERTS_DIR}}
-      - echo "✅ Certificates removed"
-    silent: false
+      - sh: test -f {{.CRYPTO_DIR}}/server-cert.pem
+        msg: "Production certificates not found. Generate with: cd {{.CRYPTO_DIR}} && ./gen-keys.sh"
 
   certs:info:
-    desc: Show certificate information
+    desc: Show production certificate information
     cmds:
-      - echo "📜 Certificate Information:"
-      - openssl x509 -in {{.TEST_CERTS_DIR}}/server-cert.pem -noout -text
+      - echo "Production Certificate Information"
+      - echo ""
+      - echo "Server Certificate"
+      - openssl x509 -in {{.CRYPTO_DIR}}/server-cert.pem -noout -subject -dates
+      - echo ""
+      - echo "Location - {{.CRYPTO_DIR}}"
     silent: false
     preconditions:
-      - test -f {{.TEST_CERTS_DIR}}/server-cert.pem
+      - sh: test -f {{.CRYPTO_DIR}}/server-cert.pem
+        msg: "Production certificates not found. Generate with: cd {{.CRYPTO_DIR}} && ./gen-keys.sh"
 
   # Run tasks (for quick testing)
   run:base:
     desc: Run slimctl with base configuration
     cmds:
       - echo "🚀 Starting slimctl with base config..."
-      - echo "   Config: ../../data-plane/config/base/server-config.yaml"
+      - echo "   Config - ../../data-plane/config/base/server-config.yaml"
       - echo ""
       - "{{.SLIMCTL_BIN}} slim start --config ../../data-plane/config/base/server-config.yaml"
     silent: false
@@ -187,7 +125,8 @@ tasks:
     desc: Run slimctl with TLS configuration
     cmds:
       - echo "🚀 Starting slimctl with TLS config..."
-      - echo "   Config: ../../data-plane/config/tls/server-config.yaml"
+      - echo "   Config - ../../data-plane/config/tls/server-config.yaml"
+      - echo "   Certificates - {{.CRYPTO_DIR}}/"
       - echo ""
       - "{{.SLIMCTL_BIN}} slim start --config ../../data-plane/config/tls/server-config.yaml"
     silent: false
@@ -196,11 +135,13 @@ tasks:
         msg: "slimctl binary not found at {{.SLIMCTL_BIN}}. Build it first with: cd ../.. && task -d control-plane slimctl:build"
       - sh: test -f ../../data-plane/config/tls/server-config.yaml
         msg: "TLS config not found at ../../data-plane/config/tls/server-config.yaml"
+      - sh: test -f {{.CRYPTO_DIR}}/server-cert.pem
+        msg: "Production certificates not found. Generate with: cd {{.CRYPTO_DIR}} && ./gen-keys.sh"
 
   run:config:
     desc: Run slimctl with custom config file
     cmds:
-      - echo "🚀 Starting slimctl with config: {{.CONFIG}}"
+      - echo "🚀 Starting slimctl with config {{.CONFIG}}"
       - "{{.SLIMCTL_BIN}} slim start --config {{.CONFIG}}"
     silent: false
     requires:
@@ -215,8 +156,8 @@ tasks:
     desc: Test endpoint override with CLI flag
     cmds:
       - echo "🧪 Testing endpoint override..."
-      - echo "   Config: ../../data-plane/config/base/server-config.yaml"
-      - echo "   Override: --endpoint 127.0.0.1:9090"
+      - echo "   Config - ../../data-plane/config/base/server-config.yaml"
+      - echo "   Override - --endpoint 127.0.0.1 port 9090"
       - echo ""
       - "{{.SLIMCTL_BIN}} slim start --config ../../data-plane/config/base/server-config.yaml --endpoint 127.0.0.1:9090"
     silent: false
@@ -226,12 +167,12 @@ tasks:
 
   # Clean tasks
   clean:
-    desc: Clean all generated test files
+    desc: Clean all generated test files (preserves production certificates)
     cmds:
-      - echo "🧹 Cleaning generated files..."
-      - task: certs:clean
+      - echo "🧹 Cleaning generated test files..."
       - rm -rf {{.TESTDATA_DIR}}
       - echo "✅ Clean complete"
+      - echo "   Production certificates preserved at {{.CRYPTO_DIR}}"
     silent: false
 
   clean:all:
