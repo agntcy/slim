@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.7.1](https://github.com/agntcy/slim/compare/slimctl-v0.7.0...slimctl-v0.7.1) (2026-01-30)
+## [1.0.0](https://github.com/agntcy/slim/compare/slimctl-v0.7.0...slimctl-v1.0.0) (2026-01-30)
 
 
 ### Features
