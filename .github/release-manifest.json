@@ -1,6 +1,6 @@
 {
   "data-plane/python/bindings": "0.7.1",
-  "charts/slim": "0.7.0",
+  "charts/slim": "0.7.1",
   "control-plane/slimctl": "0.7.0",
   "data-plane/testing": "0.7.1",
   "control-plane/control-plane": "0.7.1",
