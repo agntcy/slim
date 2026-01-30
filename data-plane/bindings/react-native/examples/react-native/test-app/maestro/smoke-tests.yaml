@@ -1,0 +1,26 @@
+appId: org.reactjs.native.example.TestApp
+---
+# SLIM Bindings Smoke Tests
+# These tests verify that the JSI bindings load and basic API calls work
+
+- launchApp
+- assertVisible: "SLIM Bindings Test"
+- assertVisible: "Status: Not Started"
+
+# Run the tests
+- tapOn: "Run Tests"
+
+# Wait for completion
+- waitForAnimationToEnd
+
+# Verify all tests passed
+- assertVisible: "PASS - init-runtime"
+- assertVisible: "PASS - get-version"
+- assertVisible: "PASS - create-name"
+- assertVisible: "PASS - create-app"
+
+# Verify no failures
+- assertNotVisible: "FAIL"
+
+# Check for complete status
+- assertVisible: "Status: Complete"
