@@ -7,7 +7,7 @@ name: Release Bindings
 on:
   push:
     tags:
-      - 'slim-bindings-libs-*'
+      - 'slim-bindings-*'
 
 env:
   LIBRARY_NAME: slim_bindings

@@ -354,7 +354,7 @@ impl App {
             .spawn(async move { app.create_session(slim_config, slim_dest, None).await });
 
         let (session_ctx, completion) = handle.await.map_err(|e| SlimError::SessionError {
-            message: format!("Join error: {}", e),
+            message: format!("Failed to create session: {}", e),
         })??;
 
         // Create Session and CompletionHandle

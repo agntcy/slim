@@ -21,7 +21,6 @@ mod session_layer;
 mod session_moderator;
 mod session_participant;
 pub mod session_receiver;
-pub mod session_routes;
 pub mod session_sender;
 mod session_settings;
 pub mod timer;

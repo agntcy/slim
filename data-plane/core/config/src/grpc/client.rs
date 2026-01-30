@@ -6,9 +6,15 @@ use rustls_pki_types::ServerName;
 use tokio_retry::RetryIf;
 
 use display_error_chain::ErrorChainExt;
-use std::time::Duration;
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, error::Error as StdErrorTrait, str::FromStr, time::Duration};
 use tower::ServiceExt;
+#[cfg(target_family = "unix")]
+use {
+    hyper_util::rt::TokioIo,
+    std::{path::PathBuf, sync::Arc},
+    tokio::net::UnixStream,
+    tower::service_fn,
+};
 
 use base64::prelude::*;
 use http::header::{HeaderMap, HeaderName, HeaderValue};
@@ -546,56 +552,17 @@ impl ClientConfig {
         // Validate endpoint
         self.validate_endpoint()?;
 
-        // Parse endpoint URI
-        let uri = self.parse_endpoint_uri()?;
-
-        // Create and configure HTTP connector
-        let http_connector = self.create_http_connector()?;
-
-        // Create channel builder with all settings
-        let builder = self.create_channel_builder(uri.clone())?;
-
         // Parse headers
         let header_map = self.parse_headers()?;
 
-        // Load TLS configuration
-        let tls_config = self.load_tls_config().await?;
+        let uri = self.parse_endpoint_uri()?;
 
-        // Create the channel with or without retry based on lazy flag
-        let channel = if lazy {
-            let connection = self.create_connection(uri, http_connector).await?;
-            self.create_channel_from_connection(builder, connection, tls_config, true)
-                .await?
+        let channel = if uri.scheme_str() == Some("unix") {
+            self.connect_unix_channel(uri, lazy).await?
+        } else if uri.scheme_str() == Some("http") || uri.scheme_str() == Some("https") {
+            self.connect_tcp_channel(uri, lazy).await?
         } else {
-            let backoff_strategy = self.backoff.get_strategy();
-            RetryIf::spawn(
-                backoff_strategy,
-                || {
-                    let uri = uri.clone();
-                    let builder = builder.clone();
-                    let http_connector = http_connector.clone();
-                    let tls_config = tls_config.clone();
-                    async move {
-                        tracing::debug!(%uri, "Attempting to create gRPC channel");
-                        self.create_channel_with_connector(uri, builder, http_connector, tls_config)
-                            .await
-                    }
-                },
-                |e: &ConfigError| {
-                    // If the error is not related to transport, do not retry
-                    match e {
-                        ConfigError::TransportError(e) => {
-                            tracing::warn!(error = %e.chain(), "Transport error encountered. Retrying...");
-                            true
-                        }
-                        _ => {
-                            tracing::error!(error = %e.chain(), "non-retryable error encountered");
-                            false
-                        }
-                    }
-                },
-            )
-            .await?
+            return Err(ConfigError::InvalidEndpointScheme);
         };
 
         // Apply authentication and headers
@@ -610,8 +577,25 @@ impl ClientConfig {
         Ok(())
     }
 
-    /// Parses the endpoint string into a URI
+    /// Parses the endpoint string into a URI for TCP/HTTP, Unix domain socket endpoints.
     fn parse_endpoint_uri(&self) -> Result<Uri, ConfigError> {
+        // Special case for the unix scheme because it doesn't have an
+        // authority in the URI and the Uri parser doesn't like this today,
+        // so we build our own URI with a fake localhost authority.
+        if self.endpoint.starts_with("unix://") {
+            let path = &self.endpoint[7..];
+            if path.is_empty() {
+                return Err(ConfigError::UnixSocketMissingPath);
+            }
+
+            let uri = Uri::builder()
+                .scheme("unix")
+                .authority("localhost")
+                .path_and_query(path)
+                .build()
+                .map_err(ConfigError::UnixSocketInvalidPath)?;
+            return Ok(uri);
+        }
         Ok(Uri::from_str(&self.endpoint)?)
     }
 
@@ -672,6 +656,10 @@ impl ClientConfig {
             builder = builder.timeout(self.request_timeout.into());
         }
 
+        if self.connect_timeout.as_secs() > 0 {
+            builder = builder.connect_timeout(self.connect_timeout.into());
+        }
+
         Ok(builder)
     }
 
@@ -689,6 +677,22 @@ impl ClientConfig {
             header_map.insert(header_name, header_value);
         }
         Ok(header_map)
+    }
+
+    fn map_transport_error(err: tonic::transport::Error) -> ConfigError {
+        #[cfg(target_family = "unix")]
+        {
+            let mut source: Option<&(dyn StdErrorTrait + 'static)> = Some(&err);
+            while let Some(err_ref) = source {
+                if let Some(io_err) = err_ref.downcast_ref::<std::io::Error>() {
+                    let cloned = std::io::Error::new(io_err.kind(), io_err.to_string());
+                    return ConfigError::UnixSocketConnect(cloned);
+                }
+                source = err_ref.source();
+            }
+        }
+
+        ConfigError::from(err)
     }
 
     /// Helper to create basic auth header for proxy authentication
@@ -730,6 +734,111 @@ impl ClientConfig {
     async fn load_tls_config(&self) -> Result<Option<rustls::ClientConfig>, ConfigError> {
         let tls = self.tls_setting.load_rustls_config().await?;
         Ok(tls)
+    }
+
+    #[cfg(target_family = "unix")]
+    async fn connect_unix_channel(&self, uri: Uri, lazy: bool) -> Result<Channel, ConfigError> {
+        if !self.tls_setting.insecure {
+            // TLS handshakes are unnecessary over local UDS and currently unsupported
+            return Err(ConfigError::UnixSocketTlsUnsupported);
+        }
+
+        let path = uri.path();
+        let socket_path = Arc::new(PathBuf::from(path));
+        let builder = self.create_channel_builder(uri)?;
+
+        let make_connector = || {
+            let path = socket_path.clone();
+            service_fn(move |_uri: Uri| {
+                let path = path.clone();
+                async move { UnixStream::connect(path.as_path()).await.map(TokioIo::new) }
+            })
+        };
+
+        if lazy {
+            Ok(builder.connect_with_connector_lazy(make_connector()))
+        } else {
+            let backoff_strategy = self.backoff.get_strategy();
+            RetryIf::spawn(
+                backoff_strategy,
+                || {
+                    let builder = builder.clone();
+                    let connector = make_connector();
+                    let path = socket_path.clone();
+                    async move {
+                        tracing::debug!(
+                            socket_path = %path.display(),
+                            "Attempting to create gRPC channel over Unix domain socket"
+                        );
+                        builder
+                            .connect_with_connector(connector)
+                            .await
+                            .map_err(Self::map_transport_error)
+                    }
+                },
+                |e: &ConfigError| match e {
+                    ConfigError::TransportError(err) => {
+                        tracing::warn!(error = %err.chain(), "Transport error encountered. Retrying...");
+                        true
+                    }
+                    ConfigError::UnixSocketConnect(err) => {
+                        tracing::warn!(error = %err, "Unix socket connect error encountered. Retrying...");
+                        true
+                    }
+                    _ => {
+                        tracing::error!(error = %e.chain(), "non-retryable error encountered");
+                        false
+                    }
+                },
+            )
+            .await
+        }
+    }
+
+    #[cfg(not(target_family = "unix"))]
+    async fn connect_unix_channel(&self, _uri: Uri, _lazy: bool) -> Result<Channel, ConfigError> {
+        Err(ConfigError::UnixSocketUnsupported)
+    }
+
+    async fn connect_tcp_channel(&self, uri: Uri, lazy: bool) -> Result<Channel, ConfigError> {
+        let http_connector = self.create_http_connector()?;
+        let builder = self.create_channel_builder(uri.clone())?;
+        let tls_config = self.load_tls_config().await?;
+
+        if lazy {
+            let connection = self.create_connection(uri, http_connector).await?;
+            self.create_channel_from_connection(builder, connection, tls_config, true)
+                .await
+        } else {
+            let backoff_strategy = self.backoff.get_strategy();
+            RetryIf::spawn(
+                backoff_strategy,
+                || {
+                    let uri = uri.clone();
+                    let builder = builder.clone();
+                    let http_connector = http_connector.clone();
+                    let tls_config = tls_config.clone();
+                    async move {
+                        tracing::debug!(%uri, "Attempting to create gRPC channel");
+                        self.create_channel_with_connector(uri, builder, http_connector, tls_config)
+                            .await
+                    }
+                },
+                |e: &ConfigError| {
+                    match e {
+                        ConfigError::TransportError(err) => {
+                            tracing::warn!(error = %err.chain(), "Transport error encountered. Retrying...");
+                            true
+                        }
+                        _ => {
+                            tracing::error!(error = %e.chain(), "non-retryable error encountered");
+                            false
+                        }
+                    }
+                },
+            )
+            .await
+        }
     }
 
     /// Creates the channel with the appropriate connector (proxy or direct)
@@ -928,6 +1037,8 @@ mod test {
     #[allow(unused_imports)]
     use super::*;
     use crate::tls::common::CaSource;
+    use hyper_util::rt::TokioIo;
+    use tower::service_fn;
     use tracing_test::traced_test;
 
     #[test]
@@ -967,6 +1078,126 @@ mod test {
 
         let res = parse_rate_limit("100");
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_parse_endpoint_uri_http() {
+        let client = ClientConfig::with_endpoint("http://localhost:1234");
+        let uri = client.parse_endpoint_uri().expect("valid http uri");
+        assert_eq!(uri.scheme_str(), Some("http"));
+        assert_eq!(
+            uri.authority().map(|auth| auth.as_str()),
+            Some("localhost:1234")
+        );
+    }
+
+    #[test]
+    fn test_parse_endpoint_uri_unix() {
+        let client = ClientConfig::with_endpoint("unix://tmp/slim.sock");
+        let uri = client.parse_endpoint_uri().expect("valid unix uri");
+        assert_eq!(uri.scheme_str(), Some("unix"));
+        assert_eq!(uri.authority().map(|auth| auth.as_str()), Some("localhost"));
+        assert_eq!(uri.path(), "tmp/slim.sock");
+    }
+
+    #[test]
+    fn test_parse_endpoint_uri_unix_missing_path() {
+        let client = ClientConfig::with_endpoint("unix://");
+        let err = client.parse_endpoint_uri().expect_err("missing unix path");
+        assert!(matches!(err, ConfigError::UnixSocketMissingPath));
+    }
+
+    #[tokio::test]
+    async fn test_connect_tcp_channel_lazy_ok() {
+        let client = ClientConfig::with_endpoint("http://127.0.0.1:0");
+        let uri = client.parse_endpoint_uri().expect("valid http uri");
+        let channel = client.connect_tcp_channel(uri, true).await;
+        assert!(channel.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_connect_tcp_channel_non_lazy_error() {
+        let mut client = ClientConfig::with_endpoint("http://127.0.0.1:0")
+            .with_connect_timeout(Duration::from_millis(50));
+        client.backoff = BackoffConfig::new_fixed_interval(Duration::from_millis(0), 1);
+
+        let uri = client.parse_endpoint_uri().expect("valid http uri");
+        let err = client
+            .connect_tcp_channel(uri, false)
+            .await
+            .expect_err("expected connect error");
+        assert!(matches!(err, ConfigError::TransportError(_)));
+    }
+
+    #[cfg(target_family = "unix")]
+    #[tokio::test]
+    async fn test_connect_unix_channel_lazy_ok() {
+        let mut client = ClientConfig::with_endpoint("unix:///tmp/slim-test.sock");
+        client.tls_setting.insecure = true;
+
+        let uri = client.parse_endpoint_uri().expect("valid unix uri");
+        let channel = client.connect_unix_channel(uri, true).await;
+        assert!(channel.is_ok());
+    }
+
+    #[cfg(target_family = "unix")]
+    #[tokio::test]
+    async fn test_connect_unix_channel_non_lazy_error() {
+        let mut client = ClientConfig::with_endpoint("unix:///tmp/slim-missing.sock");
+        client.tls_setting.insecure = true;
+        client.backoff = BackoffConfig::new_fixed_interval(Duration::from_millis(0), 1);
+
+        let uri = client.parse_endpoint_uri().expect("valid unix uri");
+        let err = client
+            .connect_unix_channel(uri, false)
+            .await
+            .expect_err("expected unix socket connect error");
+        assert!(matches!(err, ConfigError::UnixSocketConnect(_)));
+    }
+
+    #[cfg(not(target_family = "unix"))]
+    #[tokio::test]
+    async fn test_connect_unix_channel_unsupported() {
+        let client = ClientConfig::with_endpoint("unix:///tmp/slim.sock");
+        let uri = client.parse_endpoint_uri().expect("valid unix uri");
+        let err = client
+            .connect_unix_channel(uri, true)
+            .await
+            .expect_err("expected unix socket unsupported");
+        assert!(matches!(err, ConfigError::UnixSocketUnsupported));
+    }
+
+    #[cfg(target_family = "unix")]
+    #[tokio::test]
+    async fn test_map_transport_error_maps_io() {
+        let endpoint = tonic::transport::Endpoint::from_static("http://localhost");
+        let connector = service_fn(|_uri: Uri| async move {
+            Err::<TokioIo<tokio::io::DuplexStream>, std::io::Error>(std::io::Error::other("boom"))
+        });
+        let err = endpoint
+            .connect_with_connector(connector)
+            .await
+            .expect_err("expected connect error");
+        let mapped = ClientConfig::map_transport_error(err);
+        assert!(matches!(mapped, ConfigError::UnixSocketConnect(_)));
+    }
+
+    #[cfg(not(target_family = "unix"))]
+    #[tokio::test]
+    async fn test_map_transport_error_transport() {
+        let endpoint = tonic::transport::Endpoint::from_static("http://localhost");
+        let connector = service_fn(|_uri: Uri| async move {
+            Err::<TokioIo<tokio::io::DuplexStream>, std::io::Error>(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "boom",
+            ))
+        });
+        let err = endpoint
+            .connect_with_connector(connector)
+            .await
+            .expect_err("expected connect error");
+        let mapped = ClientConfig::map_transport_error(err);
+        assert!(matches!(mapped, ConfigError::TransportError(_)));
     }
 
     #[tokio::test]

@@ -137,15 +137,13 @@ impl CompletionHandle {
                     .to_string(),
             })?;
 
-        let wait_future = async { receiver.await.map_err(SlimError::from) };
-
         if let Some(duration) = timeout {
             // Runtime-agnostic timeout using futures-timer
-            futures::pin_mut!(wait_future);
+            futures::pin_mut!(receiver);
             let delay = Delay::new(duration);
             futures::pin_mut!(delay);
 
-            match futures::future::select(wait_future, delay).await {
+            match futures::future::select(receiver, delay).await {
                 futures::future::Either::Left((result, _)) => {
                     result?;
                     Ok(())
@@ -153,7 +151,7 @@ impl CompletionHandle {
                 futures::future::Either::Right(_) => Err(SlimError::Timeout),
             }
         } else {
-            wait_future.await?;
+            receiver.await?;
             Ok(())
         }
     }

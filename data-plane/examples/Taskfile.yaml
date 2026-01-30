@@ -21,11 +21,23 @@ tasks:
     cmds:
       - cargo run --bin slim -- --config ./config/base/server-config.yaml
 
+  run:slim:unix:
+    desc: "Run SLIM gateway with Unix domain socket gRPC"
+    dir: ".."
+    cmds:
+      - cargo run --bin slim -- --config ./config/unix/server-config.yaml
+
   run:mock-app:server:
     desc: "Run the mock app server"
     dir: src/sdk-mock
     cmds:
       - cargo run --bin sdk-mock -- --config ../../../config/base/client-config.yaml --local-name server --remote-name client
+
+  run:mock-app:server-unix:
+    desc: "Run the mock app server"
+    dir: src/sdk-mock
+    cmds:
+      - cargo run --bin sdk-mock -- --config ../../../config/unix/client-config.yaml --local-name server --remote-name client
 
   run:mock-app:server-mls:
     desc: "Run the mock app server"
@@ -38,6 +50,12 @@ tasks:
     dir: src/sdk-mock
     cmds:
       - cargo run --bin sdk-mock -- --config ../../../config/base/client-config.yaml --local-name client --remote-name server --message "hey there!"
+
+  run:mock-app:client-unix:
+    desc: "Run the mock app client using Unix domain sockets"
+    dir: src/sdk-mock
+    cmds:
+      - cargo run --bin sdk-mock -- --config ../../../config/unix/client-config.yaml --local-name client --remote-name server --message "hey there!"
 
   run:mock-app:client-mls:
     desc: "Run the mock app client"

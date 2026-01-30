@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4](https://github.com/agntcy/slim/compare/slim-signal-v0.1.3...slim-signal-v0.1.4) - 2026-01-29
+
+### Other
+
+- unified typed error handling across core crates ([#976](https://github.com/agntcy/slim/pull/976))
+
 ## [0.1.3](https://github.com/agntcy/slim/compare/slim-signal-v0.1.2...slim-signal-v0.1.3) - 2025-07-31
 
 ### Other

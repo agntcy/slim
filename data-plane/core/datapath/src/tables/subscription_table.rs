@@ -49,6 +49,64 @@ impl ConnId {
     }
 }
 
+#[derive(Debug, Default)]
+struct SubscriptionRefs {
+    // map from connection id to reference counter
+    refs: HashMap<u64, usize>,
+}
+
+impl SubscriptionRefs {
+    fn new(conn: u64) -> Self {
+        let refs = HashMap::from([(conn, 1)]);
+        SubscriptionRefs { refs }
+    }
+
+    fn insert(&mut self, conn: u64) {
+        *self.refs.entry(conn).or_insert(0) += 1;
+    }
+
+    fn remove(&mut self, conn: u64) -> Result<bool, DataPathError> {
+        match self.refs.get_mut(&conn) {
+            None => {
+                debug!(%conn, "connection not found in refs");
+                Err(DataPathError::ConnectionIdNotFound(conn))
+            }
+            Some(count) => {
+                if *count == 1 {
+                    self.refs.remove(&conn);
+                    Ok(true) // fully removed
+                } else {
+                    *count -= 1;
+                    Ok(false) // still has references
+                }
+            }
+        }
+    }
+
+    fn force_remove(&mut self, conn: u64) -> Result<usize, DataPathError> {
+        // Returns the count that was removed
+        self.refs
+            .remove(&conn)
+            .ok_or(DataPathError::ConnectionIdNotFound(conn))
+    }
+
+    fn is_empty(&self) -> bool {
+        self.refs.is_empty()
+    }
+
+    fn len(&self) -> usize {
+        self.refs.len()
+    }
+
+    fn keys(&self) -> impl Iterator<Item = &u64> {
+        self.refs.keys()
+    }
+
+    fn iter(&self) -> impl Iterator<Item = (&u64, &usize)> {
+        self.refs.iter()
+    }
+}
+
 #[derive(Debug)]
 struct Connections {
     // map from connection id to the position in the connections pool
@@ -163,11 +221,11 @@ impl Connections {
 
 #[derive(Debug, Default)]
 struct NameState {
-    // map name -> [local connection ids, remote connection ids]
+    // map name -> [local connection refs, remote connection refs]
     // the array contains the local connections at position 0 and the
     // remote ones at position 1
-    // the number of connections per name is expected to be small
-    ids: HashMap<u64, [Vec<u64>; 2]>,
+    // SubscriptionRefs tracks reference counts for each connection
+    ids: HashMap<u64, [SubscriptionRefs; 2]>,
     // List of all the connections that are available for this name
     // as for the ids map position 0 stores local connections and position
     // 1 store remotes ones
@@ -177,58 +235,80 @@ struct NameState {
 impl NameState {
     fn new(id: u64, conn: u64, is_local: bool) -> Self {
         let mut type_state = NameState::default();
-        let v = vec![conn];
+        let refs = SubscriptionRefs::new(conn);
         if is_local {
             type_state.connections[0].insert(conn);
-            type_state.ids.insert(id, [v, vec![]]);
+            type_state
+                .ids
+                .insert(id, [refs, SubscriptionRefs::default()]);
         } else {
             type_state.connections[1].insert(conn);
-            type_state.ids.insert(id, [vec![], v]);
+            type_state
+                .ids
+                .insert(id, [SubscriptionRefs::default(), refs]);
         }
         type_state
     }
 
     fn insert(&mut self, id: u64, conn: u64, is_local: bool) {
-        let mut index = 0;
-        if !is_local {
-            index = 1;
-        }
+        let index = if is_local { 0 } else { 1 };
         self.connections[index].insert(conn);
 
         match self.ids.get_mut(&id) {
             None => {
-                // the id does not exists
-                let mut connections = [vec![], vec![]];
-                connections[index].push(conn);
+                // the id does not exist
+                let mut connections = [SubscriptionRefs::default(), SubscriptionRefs::default()];
+                connections[index].insert(conn);
                 self.ids.insert(id, connections);
             }
             Some(v) => {
-                v[index].push(conn);
+                v[index].insert(conn);
             }
         }
     }
 
-    fn remove(&mut self, id: &u64, conn: u64, is_local: bool) -> Result<(), DataPathError> {
+    fn remove(&mut self, id: &u64, conn: u64, is_local: bool) -> Result<bool, DataPathError> {
+        // Returns true if the subscription was fully removed (ref count reached 0)
         match self.ids.get_mut(id) {
             None => {
                 warn!(%id, "not found");
                 Err(DataPathError::IdNotFound(*id))
             }
-            Some(connection_ids) => {
-                let mut index = 0;
-                if !is_local {
-                    index = 1;
-                }
+            Some(connection_refs) => {
+                let index = if is_local { 0 } else { 1 };
+
+                let fully_removed = connection_refs[index].remove(conn)?;
                 self.connections[index].remove(conn)?;
-                for (i, c) in connection_ids[index].iter().enumerate() {
-                    if *c == conn {
-                        connection_ids[index].swap_remove(i);
-                        // if both vectors are empty remove the id from the tabales
-                        if connection_ids[0].is_empty() && connection_ids[1].is_empty() {
-                            self.ids.remove(id);
-                        }
-                        break;
+
+                if fully_removed {
+                    // if both refs are empty remove the id from the tables
+                    if connection_refs[0].is_empty() && connection_refs[1].is_empty() {
+                        self.ids.remove(id);
                     }
+                }
+                Ok(fully_removed)
+            }
+        }
+    }
+
+    fn force_remove(&mut self, id: &u64, conn: u64, is_local: bool) -> Result<(), DataPathError> {
+        // Force remove regardless of counter - used when connection dies
+        match self.ids.get_mut(id) {
+            None => {
+                warn!(%id, "not found");
+                Err(DataPathError::IdNotFound(*id))
+            }
+            Some(connection_refs) => {
+                let index = if is_local { 0 } else { 1 };
+
+                let count = connection_refs[index].force_remove(conn)?;
+                // Remove from connections pool, decrementing by the full count
+                for _ in 0..count {
+                    self.connections[index].remove(conn)?;
+                }
+                // if both refs are empty remove the id from the tables
+                if connection_refs[0].is_empty() && connection_refs[1].is_empty() {
+                    self.ids.remove(id);
                 }
                 Ok(())
             }
@@ -263,32 +343,35 @@ impl NameState {
                 debug!(name = %id, "cannot find out connection, name does not exists");
                 None
             }
-            Some(vec) => {
-                if vec[index].is_empty() {
+            Some(refs) => {
+                if refs[index].is_empty() {
                     // no connections available
                     return None;
                 }
 
-                if vec[index].len() == 1 {
-                    if vec[index][0] == incoming_conn {
-                        // cannot return the incoming interface d
+                if refs[index].len() == 1 {
+                    // Get the single connection id
+                    let conn_id = *refs[index].keys().next().unwrap();
+                    if conn_id == incoming_conn {
+                        // cannot return the incoming connection
                         debug!("the only available connection cannot be used");
                         return None;
                     } else {
-                        return Some(vec[index][0]);
+                        return Some(conn_id);
                     }
                 }
 
-                // we need to iterate an find a value starting from a random point in the vec
+                // we need to iterate and find a value starting from a random point
+                let conns: Vec<u64> = refs[index].keys().copied().collect();
                 let mut rng = rand::rng();
-                let pos = rng.random_range(0..vec.len());
+                let pos = rng.random_range(0..conns.len());
                 let mut stop = false;
                 let mut i = pos;
                 while !stop {
-                    if vec[index][i] != incoming_conn {
-                        return Some(vec[index][i]);
+                    if conns[i] != incoming_conn {
+                        return Some(conns[i]);
                     }
-                    i = (i + 1) % vec[index].len();
+                    i = (i + 1) % conns.len();
                     if i == pos {
                         stop = true;
                     }
@@ -320,27 +403,29 @@ impl NameState {
                 debug!(%id, "cannot find out connection, id does not exists");
                 None
             }
-            Some(vec) => {
-                if vec[index].is_empty() {
+            Some(refs) => {
+                if refs[index].is_empty() {
                     // should never happen
                     return None;
                 }
 
-                if vec[index].len() == 1 {
-                    if vec[index][0] == incoming_conn {
-                        // cannot return the incoming interface d
+                if refs[index].len() == 1 {
+                    // Get the single connection id
+                    let conn_id = *refs[index].keys().next().unwrap();
+                    if conn_id == incoming_conn {
+                        // cannot return the incoming connection
                         debug!("the only available connection cannot be used");
                         return None;
                     } else {
-                        return Some(vec[index].clone());
+                        return Some(vec![conn_id]);
                     }
                 }
 
-                // we need to iterate over the vector and remove the incoming connection
+                // we need to iterate over the refs and exclude the incoming connection
                 let mut out = Vec::new();
-                for c in vec[index].iter() {
-                    if *c != incoming_conn {
-                        out.push(*c);
+                for conn_id in refs[index].keys() {
+                    if *conn_id != incoming_conn {
+                        out.push(*conn_id);
                     }
                 }
                 if out.is_empty() { None } else { Some(out) }
@@ -370,24 +455,24 @@ impl Display for SubscriptionTableImpl {
         for (k, v) in table.iter() {
             writeln!(f, "Type: {:?}", k)?;
             writeln!(f, "  Names:")?;
-            for (id, conn) in v.ids.iter() {
+            for (id, conn_refs) in v.ids.iter() {
                 writeln!(f, "    Id: {}", id)?;
-                if conn[0].is_empty() {
+                if conn_refs[0].is_empty() {
                     writeln!(f, "       Local Connections:")?;
                     writeln!(f, "         None")?;
                 } else {
                     writeln!(f, "       Local Connections:")?;
-                    for c in conn[0].iter() {
-                        writeln!(f, "         Connection: {}", c)?;
+                    for (c, count) in conn_refs[0].iter() {
+                        writeln!(f, "         Connection: {} (refs: {})", c, count)?;
                     }
                 }
-                if conn[1].is_empty() {
+                if conn_refs[1].is_empty() {
                     writeln!(f, "       Remote Connections:")?;
                     writeln!(f, "         None")?;
                 } else {
                     writeln!(f, "       Remote Connections:")?;
-                    for c in conn[1].iter() {
-                        writeln!(f, "         Connection: {}", c)?;
+                    for (c, count) in conn_refs[1].iter() {
+                        writeln!(f, "         Connection: {} (refs: {})", c, count)?;
                     }
                 }
             }
@@ -449,10 +534,11 @@ fn add_subscription_to_connection(
             );
 
             if !s.insert(name) {
-                warn!(
+                // Subscription already exists in the set - this is expected with refcounting
+                debug!(
                     name = %name_str,
                     %conn_index,
-                    "subscription already exists for connection, ignore the message",
+                    "subscription already tracked in connections set (refcount incremented)",
                 );
                 return Ok(());
             }
@@ -470,12 +556,35 @@ fn remove_subscription_from_sub_table(
     conn_index: u64,
     is_local: bool,
     table: &mut RwLockWriteGuard<'_, RawRwLock, HashMap<InternalName, NameState>>,
+) -> Result<bool, DataPathError> {
+    // Returns true if the subscription was fully removed (ref count reached 0)
+    // Convert &Name to &InternalName. This is unsafe, but we know the types are compatible.
+    let query_name = unsafe { std::mem::transmute::<&Name, &InternalName>(name) };
+
+    if let Some(state) = table.get_mut(query_name) {
+        let fully_removed = state.remove(&name.id(), conn_index, is_local)?;
+
+        if state.ids.is_empty() {
+            table.remove(query_name);
+        }
+        Ok(fully_removed)
+    } else {
+        debug!("subscription not found {}", name);
+        Err(DataPathError::SubscriptionNotFound(name.clone()))
+    }
+}
+
+fn force_remove_subscription_from_sub_table(
+    name: &Name,
+    conn_index: u64,
+    is_local: bool,
+    table: &mut RwLockWriteGuard<'_, RawRwLock, HashMap<InternalName, NameState>>,
 ) -> Result<(), DataPathError> {
     // Convert &Name to &InternalName. This is unsafe, but we know the types are compatible.
     let query_name = unsafe { std::mem::transmute::<&Name, &InternalName>(name) };
 
     if let Some(state) = table.get_mut(query_name) {
-        state.remove(&name.id(), conn_index, is_local)?;
+        state.force_remove(&name.id(), conn_index, is_local)?;
         if state.ids.is_empty() {
             table.remove(query_name);
         }
@@ -527,35 +636,25 @@ impl SubscriptionTable for SubscriptionTableImpl {
         let table = self.table.read();
 
         for (k, v) in table.iter() {
-            for (id, conn) in v.ids.iter() {
-                f(&k.0, *id, conn[0].as_ref(), conn[1].as_ref());
+            for (id, conn_refs) in v.ids.iter() {
+                // Convert SubscriptionRefs keys to Vec for the callback
+                let local: Vec<u64> = conn_refs[0].keys().copied().collect();
+                let remote: Vec<u64> = conn_refs[1].keys().copied().collect();
+                f(&k.0, *id, local.as_ref(), remote.as_ref());
             }
         }
     }
 
     fn add_subscription(&self, name: Name, conn: u64, is_local: bool) -> Result<(), Self::Error> {
-        {
-            let conn_table = self.connections.read();
-            match conn_table.get(&conn) {
-                None => {}
-                Some(set) => {
-                    if set.contains(&name) {
-                        debug!(
-                            %name, %conn,
-                            "subscription already exists, ignore the message",
-                        );
-                        return Ok(());
-                    }
-                }
-            }
-        }
+        // Add to sub_table and increment counter if the subscription already exists
         {
             let table = self.table.write();
             add_subscription_to_sub_table(name.clone(), conn, is_local, table);
         }
+        // Try to add to connections map (will fail silently if already exists)
         {
             let conn_table = self.connections.write();
-            add_subscription_to_connection(name, conn, conn_table)?;
+            let _ = add_subscription_to_connection(name, conn, conn_table);
         }
         Ok(())
     }
@@ -566,13 +665,14 @@ impl SubscriptionTable for SubscriptionTableImpl {
         conn: u64,
         is_local: bool,
     ) -> Result<(), Self::Error> {
-        {
+        let fully_removed = {
             let mut table = self.table.write();
-            remove_subscription_from_sub_table(name, conn, is_local, &mut table)?;
-        }
-        {
+            remove_subscription_from_sub_table(name, conn, is_local, &mut table)?
+        };
+        // Only remove from connections HashSet if subscription was fully removed (ref count = 0)
+        if fully_removed {
             let conn_table = self.connections.write();
-            remove_subscription_from_connection(name, conn, conn_table)?
+            remove_subscription_from_connection(name, conn, conn_table)?;
         }
         Ok(())
     }
@@ -586,7 +686,8 @@ impl SubscriptionTable for SubscriptionTableImpl {
         let mut table = self.table.write();
         for name in &removed_subscriptions {
             debug!(%name, %conn, "remove subscription");
-            remove_subscription_from_sub_table(name, conn, is_local, &mut table)?;
+            // Use force_remove since the connection is dead
+            force_remove_subscription_from_sub_table(name, conn, is_local, &mut table)?;
         }
         Ok(removed_subscriptions)
     }
@@ -825,7 +926,11 @@ mod tests {
                 k, id, local, remote
             );
 
-            h.insert(k.clone(), (id, local.to_vec(), remote.to_vec()));
+            let mut local_sorted = local.to_vec();
+            local_sorted.sort();
+            let mut remote_sorted = remote.to_vec();
+            remote_sorted.sort();
+            h.insert(k.clone(), (id, local_sorted, remote_sorted));
         });
 
         assert_eq!(h.len(), 2);
@@ -918,5 +1023,173 @@ mod tests {
                 "Should return remote connections"
             );
         }
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_subscription_refcounting() {
+        let name1 = Name::from_strings(["agntcy", "default", "service"]);
+        let t = SubscriptionTableImpl::default();
+
+        // Add the same subscription multiple times
+        assert!(t.add_subscription(name1.clone(), 1, false).is_ok());
+        assert!(t.add_subscription(name1.clone(), 1, false).is_ok());
+        assert!(t.add_subscription(name1.clone(), 1, false).is_ok());
+
+        // Should still be able to match to connection 1
+        let result = t.match_one(&name1, 100).unwrap();
+        assert_eq!(result, 1, "Should match to connection 1");
+
+        // Remove once - subscription should still exist (counter: 3 -> 2)
+        assert!(t.remove_subscription(&name1, 1, false).is_ok());
+        let result = t.match_one(&name1, 100).unwrap();
+        assert_eq!(
+            result, 1,
+            "Should still match to connection 1 after first remove"
+        );
+
+        // Remove again - subscription should still exist (counter: 2 -> 1)
+        assert!(t.remove_subscription(&name1, 1, false).is_ok());
+        let result = t.match_one(&name1, 100).unwrap();
+        assert_eq!(
+            result, 1,
+            "Should still match to connection 1 after second remove"
+        );
+
+        // Remove final time - subscription should now be fully removed (counter: 1 -> 0)
+        assert!(t.remove_subscription(&name1, 1, false).is_ok());
+        let err = t.match_one(&name1, 100);
+        assert!(
+            matches!(err, Err(DataPathError::NoMatch(_))),
+            "Should have no match after final remove"
+        );
+
+        // Test with multiple connections having different ref counts
+        let name2 = Name::from_strings(["agntcy", "default", "multi"]);
+
+        // Connection 1: ref count 3
+        assert!(t.add_subscription(name2.clone(), 1, false).is_ok());
+        assert!(t.add_subscription(name2.clone(), 1, false).is_ok());
+        assert!(t.add_subscription(name2.clone(), 1, false).is_ok());
+
+        // Connection 2: ref count 1
+        assert!(t.add_subscription(name2.clone(), 2, false).is_ok());
+
+        // Connection 3: ref count 2
+        assert!(t.add_subscription(name2.clone(), 3, false).is_ok());
+        assert!(t.add_subscription(name2.clone(), 3, false).is_ok());
+
+        // All three connections should be available
+        let result = t.match_all(&name2, 100).unwrap();
+        assert_eq!(result.len(), 3, "Should have 3 connections");
+        assert!(result.contains(&1));
+        assert!(result.contains(&2));
+        assert!(result.contains(&3));
+
+        // Remove connection 2 once - should be gone (ref count 1 -> 0)
+        assert!(t.remove_subscription(&name2, 2, false).is_ok());
+        let result = t.match_all(&name2, 100).unwrap();
+        assert_eq!(
+            result.len(),
+            2,
+            "Should have 2 connections after removing conn 2"
+        );
+        assert!(!result.contains(&2), "Connection 2 should be removed");
+
+        // Remove connection 1 once - should still exist (ref count 3 -> 2)
+        assert!(t.remove_subscription(&name2, 1, false).is_ok());
+        let result = t.match_all(&name2, 100).unwrap();
+        assert_eq!(result.len(), 2, "Should still have 2 connections");
+        assert!(result.contains(&1), "Connection 1 should still exist");
+
+        // Remove connection 3 twice - should be gone (ref count 2 -> 0)
+        assert!(t.remove_subscription(&name2, 3, false).is_ok());
+        assert!(t.remove_subscription(&name2, 3, false).is_ok());
+        let result = t.match_all(&name2, 100).unwrap();
+        assert_eq!(result.len(), 1, "Should have only 1 connection");
+        assert!(result.contains(&1), "Only connection 1 should remain");
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_connection_death_with_refcounting() {
+        let name1 = Name::from_strings(["agntcy", "default", "cleanup"]);
+        let t = SubscriptionTableImpl::default();
+
+        // Add subscription multiple times
+        assert!(t.add_subscription(name1.clone(), 1, false).is_ok());
+        assert!(t.add_subscription(name1.clone(), 1, false).is_ok());
+        assert!(t.add_subscription(name1.clone(), 1, false).is_ok());
+
+        // Add another connection with single ref
+        assert!(t.add_subscription(name1.clone(), 2, false).is_ok());
+
+        // Both connections should be available
+        let result = t.match_all(&name1, 100).unwrap();
+        assert_eq!(result.len(), 2, "Should have 2 connections");
+
+        // Connection 1 dies - should be force-removed regardless of ref count
+        let removed = t.remove_connection(1, false).unwrap();
+        assert_eq!(removed.len(), 1, "Should have removed 1 subscription");
+        assert!(removed.contains(&name1));
+
+        // Now only connection 2 should be available
+        let result = t.match_one(&name1, 100).unwrap();
+        assert_eq!(
+            result, 2,
+            "Should only match to connection 2 after conn 1 dies"
+        );
+
+        let result = t.match_all(&name1, 100).unwrap();
+        assert_eq!(result.len(), 1, "Should only have 1 connection remaining");
+        assert!(result.contains(&2));
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_mixed_local_remote_refcounting() {
+        let name1 = Name::from_strings(["agntcy", "default", "mixed"]);
+        let t = SubscriptionTableImpl::default();
+
+        // Add local connection multiple times
+        assert!(t.add_subscription(name1.clone(), 1, true).is_ok());
+        assert!(t.add_subscription(name1.clone(), 1, true).is_ok());
+
+        // Add remote connection multiple times
+        assert!(t.add_subscription(name1.clone(), 2, false).is_ok());
+        assert!(t.add_subscription(name1.clone(), 2, false).is_ok());
+        assert!(t.add_subscription(name1.clone(), 2, false).is_ok());
+
+        // Should prefer local connection
+        for _ in 0..10 {
+            let result = t.match_one(&name1, 100).unwrap();
+            assert_eq!(result, 1, "Should prefer local connection");
+        }
+
+        // Remove local once - should still exist
+        assert!(t.remove_subscription(&name1, 1, true).is_ok());
+        let result = t.match_one(&name1, 100).unwrap();
+        assert_eq!(result, 1, "Local connection should still exist");
+
+        // Remove local again - should be gone, fall back to remote
+        assert!(t.remove_subscription(&name1, 1, true).is_ok());
+        for _ in 0..10 {
+            let result = t.match_one(&name1, 100).unwrap();
+            assert_eq!(result, 2, "Should fall back to remote connection");
+        }
+
+        // Remove remote twice - should still exist (ref count 3 -> 1)
+        assert!(t.remove_subscription(&name1, 2, false).is_ok());
+        assert!(t.remove_subscription(&name1, 2, false).is_ok());
+        let result = t.match_one(&name1, 100).unwrap();
+        assert_eq!(result, 2, "Remote should still exist with ref count 1");
+
+        // Remove remote final time - should be gone
+        assert!(t.remove_subscription(&name1, 2, false).is_ok());
+        let err = t.match_one(&name1, 100);
+        assert!(
+            matches!(err, Err(DataPathError::NoMatch(_))),
+            "No connections should remain"
+        );
     }
 }

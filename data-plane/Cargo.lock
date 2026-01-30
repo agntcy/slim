@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "agntcy-protoc-slimrpc-plugin"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "heck 0.5.0",
@@ -14,7 +14,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-service",
@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-auth"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-testing",
@@ -110,7 +110,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-config"
-version = "0.4.3"
+version = "0.5.0"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-testing",
@@ -139,6 +139,7 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "tokio-retry",
+ "tokio-stream",
  "tokio-util",
  "tonic",
  "tonic-prost",
@@ -154,7 +155,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-controller"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -187,7 +188,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-datapath"
-version = "0.10.3"
+version = "0.11.0"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-tracing",
@@ -219,7 +220,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-mls"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
@@ -239,7 +240,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-service"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -264,7 +265,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-session"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
@@ -285,7 +286,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-signal"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "tokio",
  "tracing",
@@ -324,7 +325,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-tracing"
-version = "0.2.7"
+version = "0.3.0"
 dependencies = [
  "agntcy-slim-config",
  "once_cell",

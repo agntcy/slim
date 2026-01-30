@@ -7,11 +7,6 @@
   "signoff": "Agntcy Build Bot <build@agntcy.io>",
   "bump-minor-pre-major": true,
   "packages": {
-    "data-plane/python/bindings": {
-      "component": "slim-bindings-python",
-      "package-name": "slim-bindings",
-      "release-type": "python"
-    },
     "charts/slim": {
       "package-name": "helm-slim",
       "release-type": "helm"
@@ -31,10 +26,6 @@
     "data-plane/testing": {
       "package-name": "slim-testutils",
       "release-type": "simple"
-    },
-    "data-plane/python/bindings/examples": {
-      "package-name": "slim-bindings-examples",
-      "release-type": "python"
     },
     "data-plane/python/integrations/slimrpc": {
       "package-name": "slimrpc",
