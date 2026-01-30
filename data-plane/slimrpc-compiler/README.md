@@ -1,128 +1,59 @@
 # Slim RPC Compiler
 
-The Slim RPC Compiler (`protoc-slimrpc-plugin`) is a protoc plugin that
-generates Python client stubs and server servicers for SRPC (Slim RPC) from
-Protocol Buffer service definitions. This plugin enables you to build
-high-performance RPC services using the SRPC framework.
+The Slim RPC Compiler is a collection of protoc plugins that generate client
+stubs and server handlers for slimrpc from Protocol Buffer service definitions.
+These plugins enable you to build high-performance RPC services using the
+slimrpc framework.
+
+## Supported Languages
+
+- **Python**: `protoc-gen-slimrpc-python`
+- **Go**: `protoc-gen-slimrpc-go`
 
 ## Features
 
-- Generates Python client stubs for calling SlimRPC services
-- Generates Python server servicers for implementing SlimRPC services
+- Generates type-safe client stubs and server handlers for slimrpc services
 - Supports all gRPC streaming patterns: unary-unary, unary-stream, stream-unary,
   and stream-stream
-- Compatible with both `protoc` and `buf` build systems
+- Compatible with both `protoc` and `buf` build systems (buf recommended)
 - Automatic import resolution for Protocol Buffer dependencies
 
 ## Installation
 
-### Option 1: Install via Cargo
-
-```bash
-cargo install agntcy-protoc-slimrpc-plugin
-```
-
-This will install the `protoc-slimrpc-plugin` binary to your Cargo bin directory
-(usually `~/.cargo/bin`).
-
-### Option 2: Compile from Source
+### Compile from Source
 
 1. Clone the repository:
 
 ```bash
 git clone https://github.com/agntcy/slim.git
-cd slim/data-plane/slimrpc-compiler
+cd slim/data-plane
 ```
 
-2. Build the plugin:
+2. Build the plugins:
 
 ```bash
 cargo build --release
 ```
 
-3. The compiled binary will be available at
-   `data-plane/target/release/protoc-slimrpc-plugin`
+3. The compiled binaries will be available at:
+   - `target/release/protoc-gen-slimrpc-python`
+   - `target/release/protoc-gen-slimrpc-go`
 
 ## Usage
 
-### Example Protocol Buffer Definition
+The recommended way to use the slimrpc compiler is through `buf`. Both Python
+and Go examples use this approach.
 
-Create a file called `example.proto`:
-
-```proto
-syntax = "proto3";
-
-package example_service;
-
-service Test {
-  rpc ExampleUnaryUnary(ExampleRequest) returns (ExampleResponse);
-  rpc ExampleUnaryStream(ExampleRequest) returns (stream ExampleResponse);
-  rpc ExampleStreamUnary(stream ExampleRequest) returns (ExampleResponse);
-  rpc ExampleStreamStream(stream ExampleRequest) returns (stream ExampleResponse);
-}
-
-message ExampleRequest {
-  string example_string = 1;
-  int64  example_integer = 2;
-}
-
-message ExampleResponse {
-  string example_string = 1;
-  int64  example_integer = 2;
-}
-```
-
-### Using with protoc
-
-#### Prerequisites
-
-Make sure you have:
-
-- `protoc` (Protocol Buffer compiler) installed
-- The `protoc-slimrpc-plugin` binary in your PATH or specify its full path
-
-#### Generate Python Files
-
-```bash
-# Generate both the protobuf Python files and SRPC files
-protoc \
-  --python_out=. \
-  --pyi_out=. \
-  --plugin=~/.cargo/bin/protoc-slimrpc-plugin \
-  --slimrpc_out=. \
-  example.proto
-```
-
-This will generate:
-
-- `example_pb2.py` - Standard protobuf Python bindings
-- `example_pb2_slimrpc.py` - SRPC client stubs and server servicers
-
-#### With Custom Types Import
-
-You can specify a custom import for the types module. This allows to import the
-types from an external package.
-
-For instance, if you don't want to generate the types and you want to import
-them from a2a.grpc.a2a_pb2`,, you can do:
-
-```bash
-protoc \
-  --plugin=~/.cargo/bin/protoc-slimrpc-plugin \
-  --slimrpc_out=types_import="from a2a.grpc import a2a_pb2 as a2a__pb2":. \
-  example.proto
-```
-
-### Using with buf
+### Using with buf (Recommended)
 
 #### Prerequisites
 
 - `buf` CLI installed
-- `protoc-slimrpc-plugin` binary in your PATH
+- Compiled slimrpc plugins (see Installation above)
 
-#### Create buf.gen.yaml
+#### Python Example
 
-Create a `buf.gen.yaml` file in your project root:
+Create a `buf.gen.yaml` file in your project:
 
 ```yaml
 version: v2
@@ -131,10 +62,36 @@ managed:
 inputs:
   - proto_file: example.proto
 plugins:
-  - local: /path/to/protoc-slimrpc-plugin
-    out: .
-  - remote: buf.build/protocolbuffers/python
-    out: .
+  # Generate slimrpc stubs
+  - local: /path/to/target/release/protoc-gen-slimrpc-python
+    out: types
+  # Generate standard protobuf code
+  - remote: buf.build/protocolbuffers/python:v29.3
+    out: types
+  # Generate type stubs
+  - remote: buf.build/protocolbuffers/pyi:v31.1
+    out: types
+```
+
+#### Go Example
+
+Create a `buf.gen.yaml` file in your project:
+
+```yaml
+version: v2
+managed:
+  enabled: true
+plugins:
+  # Generate standard .pb.go files
+  - remote: buf.build/protocolbuffers/go
+    out: types
+    opt:
+      - paths=source_relative
+  # Generate slimrpc stubs
+  - local: /path/to/target/release/protoc-gen-slimrpc-go
+    out: types
+    opt:
+      - paths=source_relative
 ```
 
 #### Generate Code
@@ -143,230 +100,142 @@ plugins:
 buf generate
 ```
 
-Or generate from a specific file:
+This will generate:
+- **Python**: `*_pb2.py` (protobuf types) and `*_pb2_slimrpc.py` (slimrpc stubs)
+- **Go**: `*.pb.go` (protobuf types) and `*_slimrpc.pb.go` (slimrpc stubs)
+
+### Using with protoc (Alternative)
+
+If you prefer to use `protoc` directly:
+
+#### Python
 
 ```bash
-buf generate --path example.proto
+protoc \
+  --python_out=. \
+  --pyi_out=. \
+  --plugin=protoc-gen-slimrpc-python=/path/to/protoc-gen-slimrpc-python \
+  --slimrpc-python_out=. \
+  example.proto
 ```
 
-#### Advanced buf Configuration
+#### Go
 
-For more complex setups with custom options:
-
-```yaml
-version: v2
-managed:
-  enabled: true
-plugins:
-  - local: protoc-slimrpc-plugin
-    out: generated
-    opt:
-      - types_import=from .pb2_types import example_pb2 as pb2
-    strategy: all
-  - remote: buf.build/protocolbuffers/python
-    out: generated
-    strategy: all
+```bash
+protoc \
+  --go_out=. \
+  --plugin=protoc-gen-slimrpc-go=/path/to/protoc-gen-slimrpc-go \
+  --slimrpc-go_out=. \
+  example.proto
 ```
 
 ## Generated Code Structure
 
-For the example above, the generated `example_pb2_slimrpc.py` will contain:
+### Python
 
-### Client Stub
+For a service definition, the generated `*_pb2_slimrpc.py` contains:
+
+#### Client Stub
 
 ```python
 class TestStub:
     """Client stub for Test."""
-    def __init__(self, channel):
-        """Constructor.
-
-        Args:
-            channel: A slimrpc.Channel.
-        """
-        self.ExampleUnaryUnary = channel.unary_unary(...)
-        self.ExampleUnaryStream = channel.unary_stream(...)
-        # ... other methods
+    
+    def __init__(self, channel: slim_bindings.Channel):
+        self._channel = channel
+    
+    async def ExampleUnaryUnary(
+        self, 
+        request: pb2.ExampleRequest, 
+        timeout: slim_bindings.Duration | None = None
+    ) -> pb2.ExampleResponse:
+        """Call ExampleUnaryUnary method."""
+        # Implementation handles serialization and channel communication
 ```
 
-### Server Servicer
+#### Server Handler Protocol
 
 ```python
-class TestServicer():
-    """Server servicer for Test. Implement this class to provide your service logic."""
-
-    def ExampleUnaryUnary(self, request, context):
-        """Method for ExampleUnaryUnary. Implement your service logic here."""
-        raise slimrpc_rpc.SRPCResponseError(
-            code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
-        )
-    # ... other methods
+class TestServer(Protocol):
+    """Server protocol for Test service."""
+    
+    async def ExampleUnaryUnary(
+        self,
+        request: pb2.ExampleRequest,
+        context: slim_bindings.ServerContext,
+    ) -> pb2.ExampleResponse:
+        """Handle ExampleUnaryUnary."""
+        ...
 ```
 
-### Registration Function
+#### Registration Function
 
 ```python
-def add_TestServicer_to_server(servicer, server: slimrpc.Server):
-    # Registers the servicer with the SRPC server
-    pass
+def register_test_server(
+    server: slim_bindings.Server,
+    handler: TestServer,
+) -> None:
+    """Register Test service handlers with the server."""
+    # Registers all service methods
 ```
+
+### Go
+
+For a service definition, the generated `*_slimrpc.pb.go` contains:
+
+#### Client Interface
+
+```go
+type TestClient interface {
+    ExampleUnaryUnary(ctx context.Context, req *ExampleRequest) (*ExampleResponse, error)
+    ExampleUnaryStream(ctx context.Context, req *ExampleRequest) (ResponseStream[*ExampleResponse], error)
+    ExampleStreamUnary(ctx context.Context) (RequestStream[*ExampleRequest, *ExampleResponse], error)
+    ExampleStreamStream(ctx context.Context) (BidiStream[*ExampleRequest, *ExampleResponse], error)
+}
+```
+
+#### Server Interface
+
+```go
+type TestServer interface {
+    ExampleUnaryUnary(ctx context.Context, req *ExampleRequest) (*ExampleResponse, error)
+    ExampleUnaryStream(req *ExampleRequest, stream ResponseStream[*ExampleResponse]) error
+    ExampleStreamUnary(stream RequestStream[*ExampleRequest, *ExampleResponse]) error
+    ExampleStreamStream(stream BidiStream[*ExampleRequest, *ExampleResponse]) error
+}
+```
+
+#### Registration Function
+
+```go
+func RegisterTestServer(server slim_bindings.ServerInterface, handler TestServer) {
+    // Registers all service methods with type-safe handlers
+}
+```
+
+## Examples
+
+Complete working examples are available in the repository:
+
+- **Python**: [`bindings/python/examples/slimrpc/simple`](../bindings/python/examples/slimrpc/simple)
+- **Go**: [`bindings/go/examples/slimrpc/simple`](../bindings/go/examples/slimrpc/simple)
+
+Both examples demonstrate all four RPC patterns with comprehensive client and
+server implementations.
 
 ## Plugin Parameters
 
-The plugin supports the following parameters:
+### Python Plugin
 
 - `types_import`: Customize how protobuf types are imported
   - Example: `types_import="from my_package import types_pb2 as pb2"`
   - Default: Uses local import based on the proto file name
 
-## Example Usage in Python
+### Go Plugin
 
-### Client Usage
-
-```python
-import asyncio
-import logging
-from collections.abc import AsyncGenerator
-
-import slimrpc
-from slimrpc.examples.simple.types.example_pb2 import ExampleRequest
-from slimrpc.examples.simple.types.example_pb2_slimrpc import TestStub
-
-logger = logging.getLogger(__name__)
-
-
-async def amain() -> None:
-    channel = slimrpc.Channel(
-        local="agntcy/grpc/client",
-        slim={
-            "endpoint": "http://localhost:46357",
-            "tls": {
-                "insecure": True,
-            },
-        },
-        enable_opentelemetry=False,
-        shared_secret="my_shared_secret",
-        remote="agntcy/grpc/server",
-    )
-
-    # Stubs
-    stubs = TestStub(channel)
-
-    # Call method
-    try:
-        request = ExampleRequest(example_integer=1, example_string="hello")
-        response = await stubs.ExampleUnaryUnary(request, timeout=2)
-
-        logger.info(f"Response: {response}")
-
-        responses = stubs.ExampleUnaryStream(request, timeout=2)
-        async for resp in responses:
-            logger.info(f"Stream Response: {resp}")
-
-        async def stream_requests() -> AsyncGenerator[ExampleRequest]:
-            for i in range(10):
-                yield ExampleRequest(example_integer=i, example_string=f"Request {i}")
-
-        response = await stubs.ExampleStreamUnary(stream_requests(), timeout=2)
-        logger.info(f"Stream Unary Response: {response}")
-    except asyncio.TimeoutError:
-        logger.error("timeout while waiting for response")
-```
-
-### Server Usage
-
-```python
-import asyncio
-import logging
-from collections.abc import AsyncIterable
-
-from slimrpc.context import Context
-from slimrpc.examples.simple.types.example_pb2 import ExampleRequest, ExampleResponse
-from slimrpc.examples.simple.types.example_pb2_slimrpc import (
-    TestServicer,
-    add_TestServicer_to_server,
-)
-from slimrpc.server import Server
-
-logger = logging.getLogger(__name__)
-
-
-class TestService(TestServicer):
-    async def ExampleUnaryUnary(
-        self, request: ExampleRequest, context: Context
-    ) -> ExampleResponse:
-        logger.info(f"Received unary-unary request: {request}")
-
-        return ExampleResponse(example_integer=1, example_string="Hello, World!")
-
-    async def ExampleUnaryStream(
-        self, request: ExampleRequest, context: Context
-    ) -> AsyncIterable[ExampleResponse]:
-        logger.info(f"Received unary-stream request: {request}")
-
-        # generate async responses stream
-        for i in range(5):
-            logger.info(f"Sending response {i}")
-            yield ExampleResponse(example_integer=i, example_string=f"Response {i}")
-
-    async def ExampleStreamUnary(
-        self, request_iterator: AsyncIterable[ExampleRequest], context: Context
-    ) -> ExampleResponse:
-        logger.info(f"Received stream-unary request: {request_iterator}")
-
-        async for request in request_iterator:
-            logger.info(f"Received stream-unary request: {request}")
-        response = ExampleResponse(
-            example_integer=1, example_string="Stream Unary Response"
-        )
-        return response
-
-    async def ExampleStreamStream(
-        self, request_iterator: AsyncIterable[ExampleRequest], context: Context
-    ) -> AsyncIterable[ExampleResponse]:
-        """Missing associated documentation comment in .proto file."""
-        raise NotImplementedError("Method not implemented!")
-
-
-def create_server(
-    local: str,
-    slim: dict,
-    enable_opentelemetry: bool = False,
-    shared_secret: str = "",
-) -> Server:
-    """
-    Create a new SRPC server instance.
-    """
-    server = Server(
-        local=local,
-        slim=slim,
-        enable_opentelemetry=enable_opentelemetry,
-        shared_secret=shared_secret,
-    )
-
-    return server
-
-
-async def amain() -> None:
-    server = create_server(
-        local="agntcy/grpc/server",
-        slim={
-            "endpoint": "http://localhost:46357",
-            "tls": {
-                "insecure": True,
-            },
-        },
-        enable_opentelemetry=False,
-        shared_secret="my_shared_secret",
-    )
-
-    # Create RPCs
-    add_TestServicer_to_server(
-        TestService(),
-        server,
-    )
-
-    await server.run()
-```
+- `paths`: Control output path strategy
+  - `source_relative`: Generate files relative to the proto file location
+  - Default: Uses Go package paths
 
 ## Troubleshooting
 
@@ -374,23 +243,22 @@ async def amain() -> None:
 
 If you get an error that the plugin is not found:
 
-- Ensure `protoc-slimrpc-plugin` is in your PATH
-- Or specify the full path:
-  `--plugin=protoc-gen-slimrpc=/full/path/to/protoc-slimrpc-plugin`
+- Ensure the plugin binary is in your PATH or use full path in `buf.gen.yaml`
+- Check that the binary is executable: `chmod +x /path/to/protoc-gen-slimrpc-*`
 
 ### Import Errors
 
-If you encounter Python import errors:
+If you encounter import errors:
 
-- Make sure the generated `*_pb2.py` files are in your Python path
-- Use the `types_import` parameter to customize import paths
-- Ensure all Protocol Buffer dependencies are generated
+- Make sure the generated files are in your module path
+- For Python: Verify the `types_import` parameter matches your project structure
+- For Go: Ensure `go.mod` is properly configured with correct module paths
 
 ### Build Errors
 
 If the plugin fails to build:
 
-- Ensure you have Rust and Cargo installed
+- Ensure you have Rust and Cargo installed (latest stable version)
 - Check that all dependencies are available
 - Try cleaning and rebuilding: `cargo clean && cargo build --release`
 

@@ -359,7 +359,7 @@ tasks:
       - task: rust:toolchain:run-command
         vars:
           COMMAND: |
-            cargo build --package agntcy-protoc-slimrpc-plugin --bin protoc-slimrpc-plugin --release
+            cargo build --package agntcy-protoc-slimrpc-plugin --bin protoc-gen-slimrpc-python --release
       - task: tools:buf
     cmds:
       - |
