@@ -8,8 +8,6 @@ vars:
   SLIMCTL_BIN: ../../.dist/bin/slimctl
   TESTDATA_DIR: testdata
   TEST_CERTS_DIR: testdata/certs
-  COVERAGE_FILE: coverage.out
-  COVERAGE_HTML: coverage.html
 
 tasks:
   default:
@@ -27,32 +25,53 @@ tasks:
       - echo ""
       - echo "🎯 Quick Start:"
       - echo "  task test:manual           - Complete guided workflow"
-      - echo "  task test:manual:insecure  - Test insecure mode"
-      - echo "  task test:manual:tls       - Test TLS mode"
-      - echo "  task test:manual:quick     - Quick insecure test"
+      - echo "  task run:base              - Run with base config"
+      - echo "  task run:tls               - Run with TLS config"
       - echo ""
       - echo "📋 Step-by-step:"
-      - echo "  1. task setup:test-env     - Setup certs & configs"
-      - echo "  2. Build binary            - cd ../.. && task -d control-plane slimctl:build"
-      - echo "  3. task test:manual:tls    - Run TLS test"
+      - echo "  1. Build binary            - cd ../.. && task -d control-plane slimctl:build"
+      - echo "  2. task test:manual        - Run manual test"
       - echo ""
       - echo "🔧 Custom testing:"
-      - echo "  task test:manual:custom CONFIG=my-config.yaml"
+      - echo "  task run:config CONFIG=path/to/config.yaml"
       - echo ""
       - echo "🧹 Cleanup:"
       - echo "  task clean                 - Remove test files"
-      - echo "  task clean:all             - Remove everything + binary"
       - echo ""
       - echo "For full command list - task --list"
     silent: true
 
-  # Testing tasks (manual testing only - no unit tests currently)
+  # Testing tasks (manual testing only)
   test:
     desc: Run manual tests (use test:manual for guided workflow)
     cmds:
       - task: test:manual
 
-  # Certificate generation tasks
+  test:manual:
+    desc: Complete manual testing workflow
+    cmds:
+      - echo "╔════════════════════════════════════════════════════╗"
+      - echo "║     SLIM Manual Testing Workflow                  ║"
+      - echo "╚════════════════════════════════════════════════════╝"
+      - echo ""
+      - echo "📋 Step 1/3 - Verifying binary..."
+      - task: verify:binary
+      - echo ""
+      - echo "📋 Step 2/3 - Environment ready!"
+      - echo ""
+      - echo "Available test scenarios:"
+      - echo "  1️⃣  Base config - task run:base"
+      - echo "  2️⃣  TLS config - task run:tls"
+      - echo "  3️⃣  Custom config - task run:config CONFIG=path/to/config.yaml"
+      - echo ""
+      - echo "Or run directly:"
+      - echo "  {{.SLIMCTL_BIN}} slim start --config ../../data-plane/config/base/server-config.yaml"
+      - echo "  {{.SLIMCTL_BIN}} slim start --config ../../data-plane/config/base/server-config.yaml --endpoint 127.0.0.1:9090"
+      - echo ""
+      - echo "📋 Step 3/3 - Choose a test scenario above and run it! 🚀"
+    silent: false
+
+  # Certificate generation tasks (for TLS testing)
   certs:setup:
     desc: Generate test TLS certificates (X.509 v3)
     cmds:
@@ -149,343 +168,61 @@ tasks:
     preconditions:
       - test -f {{.TEST_CERTS_DIR}}/server-cert.pem
 
-  # Test configuration tasks
-  configs:setup:
-    desc: Generate test configuration files
-    cmds:
-      - echo "📝 Creating test configuration files..."
-      - task: configs:insecure
-      - task: configs:tls
-      - echo "✅ Test configuration files created"
-    silent: false
-
-  configs:insecure:
-    desc: Create insecure test config
-    cmds:
-      - mkdir -p {{.TESTDATA_DIR}}
-      - |
-        cat > {{.TESTDATA_DIR}}/test-insecure.yaml <<'EOF'
-        # Copyright AGNTCY Contributors (https://github.com/agntcy)
-        # SPDX-License-Identifier: Apache-2.0
-        
-        # Test configuration - Insecure mode
-        # This mirrors the production SLIM configuration format
-        
-        runtime:
-          n_cores: 0  # 0 means use all available cores
-          thread_name: "slimctl-worker"
-          drain_timeout: 10s
-        
-        tracing:
-          log_level: info
-          display_thread_names: true
-          display_thread_ids: true
-        
-        services:
-          slim/0:
-            dataplane:
-              servers:
-                - endpoint: "127.0.0.1:9090"
-                  tls:
-                    insecure: true
-              clients: []
-        EOF
-        echo "   Created: {{.TESTDATA_DIR}}/test-insecure.yaml"
-    silent: false
-
-  configs:tls:
-    desc: Create TLS test config
-    cmds:
-      - mkdir -p {{.TESTDATA_DIR}}
-      - |
-        cat > {{.TESTDATA_DIR}}/test-tls.yaml <<'EOF'
-        # Copyright AGNTCY Contributors (https://github.com/agntcy)
-        # SPDX-License-Identifier: Apache-2.0
-        
-        # Test configuration - TLS enabled
-        # This mirrors the production SLIM configuration format
-        
-        runtime:
-          n_cores: 0  # 0 means use all available cores
-          thread_name: "slimctl-worker"
-          drain_timeout: 10s
-        
-        tracing:
-          log_level: debug  # Debug level for TLS troubleshooting
-          display_thread_names: true
-          display_thread_ids: true
-        
-        services:
-          slim/0:
-            dataplane:
-              servers:
-                - endpoint: "127.0.0.1:8443"
-                  tls:
-                    source:
-                      type: file
-                      cert: "testdata/certs/server-cert.pem"
-                      key: "testdata/certs/server-key.pem"
-              clients: []
-        EOF
-        echo "   Created: {{.TESTDATA_DIR}}/test-tls.yaml"
-    silent: false
-
-  configs:env-override:
-    desc: Create env-override test config with environment variable placeholders
-    cmds:
-      - mkdir -p {{.TESTDATA_DIR}}
-      - |
-        cat > {{.TESTDATA_DIR}}/test-env-override.yaml <<'EOF'
-        # Copyright AGNTCY Contributors (https://github.com/agntcy)
-        # SPDX-License-Identifier: Apache-2.0
-        
-        # Test configuration with env var placeholders
-        runtime:
-          n_cores: 0
-          thread_name: "slim-worker"
-          drain_timeout: 10s
-        
-        tracing:
-          log_level: info
-          display_thread_names: true
-          display_thread_ids: true
-        
-        services:
-          slim/0:
-            dataplane:
-              servers:
-                - endpoint: "${env:SLIM_ENDPOINT:-127.0.0.1:9090}"
-                  tls:
-                    insecure: "${env:SLIM_TLS_INSECURE:-true}"
-              clients: []
-        EOF
-        echo "   Created: {{.TESTDATA_DIR}}/test-env-override.yaml"
-    silent: false
-
-  configs:clean:
-    desc: Remove test configuration files
-    cmds:
-      - echo "🧹 Cleaning test configuration files..."
-      - rm -f {{.TESTDATA_DIR}}/test-insecure.yaml {{.TESTDATA_DIR}}/test-tls.yaml {{.TESTDATA_DIR}}/test-env-override.yaml
-      - echo "✅ Test configs removed"
-    silent: false
-
-  # Setup tasks
-  setup:test-env:
-    desc: Complete test environment setup (certificates + configs)
-    cmds:
-      - echo "🔧 Setting up test environment..."
-      - task: certs:setup
-      - task: configs:setup
-      - echo ""
-      - echo "✅ Test environment ready!"
-      - echo ""
-      - echo "You can now test with:"
-      - echo "  • task run:insecure"
-      - echo "  • task run:tls"
-      - echo "  • {{.SLIMCTL_BIN}} slim start --config {{.TESTDATA_DIR}}/test-insecure.yaml"
-      - echo ""
-    silent: false
-
-  # Manual testing tasks
-  test:manual:
-    desc: Complete manual testing workflow (setup + run)
-    cmds:
-      - echo "╔════════════════════════════════════════════════════╗"
-      - echo "║     SLIM Manual Testing Workflow                  ║"
-      - echo "╚════════════════════════════════════════════════════╝"
-      - echo ""
-      - echo "📋 Step 1/4 - Setting up test environment..."
-      - task: setup:test-env
-      - echo ""
-      - echo "📋 Step 2/4 - Verifying binary..."
-      - task: verify:binary
-      - echo ""
-      - echo "📋 Step 3/4 - Environment ready!"
-      - echo ""
-      - echo "Available test scenarios:"
-      - echo "  1️⃣  Insecure mode - task test:manual:insecure"
-      - echo "  2️⃣  TLS mode - task test:manual:tls"
-      - echo "  3️⃣  Custom config - task test:manual:custom CONFIG=path/to/config.yaml"
-      - echo ""
-      - echo "Or run directly:"
-      - echo "  {{.SLIMCTL_BIN}} slim start --endpoint 127.0.0.1:9090 --insecure"
-      - echo "  {{.SLIMCTL_BIN}} slim start --config {{.TESTDATA_DIR}}/test-tls.yaml"
-      - echo ""
-      - echo "📋 Step 4/4 - Choose a test scenario above and run it! 🚀"
-    silent: false
-
-  test:manual:insecure:
-    desc: Manual test - Run insecure mode workflow
-    deps:
-      - setup:test-env
-      - verify:binary
-    cmds:
-      - echo "╔════════════════════════════════════════════════════╗"
-      - echo "║     Manual Test - Insecure Mode                   ║"
-      - echo "╚════════════════════════════════════════════════════╝"
-      - echo ""
-      - echo "📊 Test Configuration:"
-      - echo "  • Mode - Insecure (no TLS)"
-      - echo "  • Endpoint - 127.0.0.1:9090"
-      - echo "  • Config - CLI flags only"
-      - echo ""
-      - echo "🚀 Starting server..."
-      - echo "   (Press Ctrl+C to stop)"
-      - echo ""
-      - "{{.SLIMCTL_BIN}} slim start --endpoint 127.0.0.1:9090 --insecure"
-    silent: false
-
-  test:manual:tls:
-    desc: Manual test - Run TLS mode workflow
-    deps:
-      - setup:test-env
-      - verify:binary
-    cmds:
-      - echo "╔════════════════════════════════════════════════════╗"
-      - echo "║     Manual Test - TLS Mode                        ║"
-      - echo "╚════════════════════════════════════════════════════╝"
-      - echo ""
-      - echo "📊 Test Configuration:"
-      - echo "  • Mode - TLS enabled"
-      - echo "  • Endpoint - 127.0.0.1:8443"
-      - echo "  • Config file - {{.TESTDATA_DIR}}/test-tls.yaml"
-      - echo "  • Certificate - {{.TEST_CERTS_DIR}}/server-cert.pem"
-      - echo "  • Key - {{.TEST_CERTS_DIR}}/server-key.pem"
-      - echo ""
-      - echo "🔍 Certificate verification:"
-      - task: certs:verify
-      - echo ""
-      - echo "🚀 Starting server..."
-      - echo "   (Press Ctrl+C to stop)"
-      - echo ""
-      - "{{.SLIMCTL_BIN}} slim start --config {{.TESTDATA_DIR}}/test-tls.yaml"
-    silent: false
-
-  test:manual:custom:
-    desc: Manual test - Run with custom config file
-    deps:
-      - verify:binary
-    cmds:
-      - echo "╔════════════════════════════════════════════════════╗"
-      - echo "║     Manual Test - Custom Configuration            ║"
-      - echo "╚════════════════════════════════════════════════════╝"
-      - echo ""
-      - echo "📊 Test Configuration:"
-      - echo "  • Config file - {{.CONFIG}}"
-      - echo ""
-      - echo "📄 Config contents:"
-      - cat {{.CONFIG}}
-      - echo ""
-      - echo "🚀 Starting server..."
-      - echo "   (Press Ctrl+C to stop)"
-      - echo ""
-      - "{{.SLIMCTL_BIN}} slim start --config {{.CONFIG}}"
-    silent: false
-    requires:
-      vars: [CONFIG]
-    preconditions:
-      - sh: test -f {{.CONFIG}}
-        msg: "Config file not found: {{.CONFIG}}"
-
-  test:manual:quick:
-    desc: Quick manual test - insecure mode (minimal output)
-    deps:
-      - setup:test-env
-      - verify:binary
-    cmds:
-      - "{{.SLIMCTL_BIN}} slim start --endpoint 127.0.0.1:9090 --insecure"
-    silent: false
-
   # Run tasks (for quick testing)
-  run:insecure:
-    desc: Run slimctl in insecure mode (for testing)
+  run:base:
+    desc: Run slimctl with base configuration
     cmds:
-      - echo "🚀 Starting slimctl in insecure mode..."
-      - "{{.SLIMCTL_BIN}} slim start --endpoint 127.0.0.1:9090 --insecure"
+      - echo "🚀 Starting slimctl with base config..."
+      - echo "   Config: ../../data-plane/config/base/server-config.yaml"
+      - echo ""
+      - "{{.SLIMCTL_BIN}} slim start --config ../../data-plane/config/base/server-config.yaml"
     silent: false
     preconditions:
       - sh: test -f {{.SLIMCTL_BIN}}
         msg: "slimctl binary not found at {{.SLIMCTL_BIN}}. Build it first with: cd ../.. && task -d control-plane slimctl:build"
+      - sh: test -f ../../data-plane/config/base/server-config.yaml
+        msg: "Base config not found at ../../data-plane/config/base/server-config.yaml"
 
   run:tls:
-    desc: Run slimctl with TLS (for testing)
-    deps:
-      - certs:setup
-      - configs:tls
+    desc: Run slimctl with TLS configuration
     cmds:
-      - echo "🚀 Starting slimctl with TLS..."
-      - "{{.SLIMCTL_BIN}} slim start --config {{.TESTDATA_DIR}}/test-tls.yaml"
+      - echo "🚀 Starting slimctl with TLS config..."
+      - echo "   Config: ../../data-plane/config/tls/server-config.yaml"
+      - echo ""
+      - "{{.SLIMCTL_BIN}} slim start --config ../../data-plane/config/tls/server-config.yaml"
     silent: false
     preconditions:
       - sh: test -f {{.SLIMCTL_BIN}}
         msg: "slimctl binary not found at {{.SLIMCTL_BIN}}. Build it first with: cd ../.. && task -d control-plane slimctl:build"
+      - sh: test -f ../../data-plane/config/tls/server-config.yaml
+        msg: "TLS config not found at ../../data-plane/config/tls/server-config.yaml"
 
   run:config:
     desc: Run slimctl with custom config file
     cmds:
-      - echo "🚀 Starting slimctl with config:{{.CONFIG}}"
+      - echo "🚀 Starting slimctl with config: {{.CONFIG}}"
       - "{{.SLIMCTL_BIN}} slim start --config {{.CONFIG}}"
     silent: false
+    requires:
+      vars: [CONFIG]
     preconditions:
       - sh: test -f {{.SLIMCTL_BIN}}
         msg: "slimctl binary not found at {{.SLIMCTL_BIN}}. Build it first with: cd ../.. && task -d control-plane slimctl:build"
       - sh: test -f {{.CONFIG}}
         msg: "Config file not found: {{.CONFIG}}"
-    requires:
-      vars: [CONFIG]
 
-  run:override-endpoint:
-    desc: Test endpoint override with CLI flag (env vars)
+  run:endpoint-override:
+    desc: Test endpoint override with CLI flag
     cmds:
-      - |
-        echo "🧪 Testing endpoint override with CLI flag..."
-        echo "   Config: examples/env-override.yaml"
-        echo "   Override: --endpoint 127.0.0.1:19090"
-        echo ""
-      - "{{.SLIMCTL_BIN}} slim start --config examples/env-override.yaml --endpoint 127.0.0.1:19090"
+      - echo "🧪 Testing endpoint override..."
+      - echo "   Config: ../../data-plane/config/base/server-config.yaml"
+      - echo "   Override: --endpoint 127.0.0.1:9090"
+      - echo ""
+      - "{{.SLIMCTL_BIN}} slim start --config ../../data-plane/config/base/server-config.yaml --endpoint 127.0.0.1:9090"
     silent: false
     preconditions:
       - sh: test -f {{.SLIMCTL_BIN}}
         msg: "slimctl binary not found at {{.SLIMCTL_BIN}}. Build it first with: cd ../.. && task -d control-plane slimctl:build"
-      - sh: test -f examples/env-override.yaml
-        msg: "env-override.yaml not found in examples/"
-
-  run:override-tls:
-    desc: Test TLS override with CLI flags (env vars)
-    deps: [certs:setup]
-    cmds:
-      - |
-        echo "🧪 Testing TLS override with CLI flags..."
-        echo "   Config: examples/env-override.yaml"
-        echo "   Overrides: --endpoint, --tls-cert, --tls-key"
-        echo ""
-      - "{{.SLIMCTL_BIN}} slim start --config examples/env-override.yaml --endpoint 127.0.0.1:18443 --tls-cert testdata/certs/server-cert.pem --tls-key testdata/certs/server-key.pem"
-    silent: false
-    preconditions:
-      - sh: test -f {{.SLIMCTL_BIN}}
-        msg: "slimctl binary not found at {{.SLIMCTL_BIN}}. Build it first with: cd ../.. && task -d control-plane slimctl:build"
-      - sh: test -f examples/env-override.yaml
-        msg: "env-override.yaml not found in examples/"
-
-  run:with-exports:
-    desc: Test with manually exported environment variables
-    cmds:
-      - |
-        echo "🧪 Testing with manually exported environment variables..."
-        echo "   Setting: SLIM_ENDPOINT=127.0.0.1:29090"
-        echo "   Setting: SLIM_TLS_INSECURE=true"
-        echo "   Config: examples/env-override.yaml"
-        echo ""
-        export SLIM_ENDPOINT=127.0.0.1:29090
-        export SLIM_TLS_INSECURE=true
-        {{.SLIMCTL_BIN}} slim start --config examples/env-override.yaml
-    silent: false
-    preconditions:
-      - sh: test -f {{.SLIMCTL_BIN}}
-        msg: "slimctl binary not found at {{.SLIMCTL_BIN}}. Build it first with: cd ../.. && task -d control-plane slimctl:build"
-      - sh: test -f examples/env-override.yaml
-        msg: "env-override.yaml not found in examples/"
 
   # Clean tasks
   clean:
@@ -493,7 +230,7 @@ tasks:
     cmds:
       - echo "🧹 Cleaning generated files..."
       - task: certs:clean
-      - task: configs:clean
+      - rm -rf {{.TESTDATA_DIR}}
       - echo "✅ Clean complete"
     silent: false
 
@@ -511,7 +248,6 @@ tasks:
     cmds:
       - echo "🔍 Validating test environment..."
       - task: verify:binary
-      - task: certs:verify
       - echo "✅ Validation complete"
     silent: false
 

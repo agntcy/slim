@@ -6,12 +6,9 @@ import (
 	"path/filepath"
 )
 
-// Environment variable names for CLI flag overrides
+// Environment variable names
 const (
 	EnvSlimEndpoint = "SLIM_ENDPOINT"
-	EnvSlimInsecure = "SLIM_TLS_INSECURE"
-	EnvSlimTLSCert  = "SLIM_TLS_CERT"
-	EnvSlimTLSKey   = "SLIM_TLS_KEY"
 	EnvRustLog      = "RUST_LOG" // Standard Rust logging env var
 )
 
@@ -91,9 +88,9 @@ func (cm *Manager) Cleanup() error {
 	return nil
 }
 
-// SetEnvironmentOverrides sets environment variables for CLI flag overrides.
-// These will be substituted by the bindings when processing ${env:VAR} references.
-func SetEnvironmentOverrides(endpoint, tlsCert, tlsKey *string, insecure *bool) error {
+// SetEndpointOverride sets the SLIM_ENDPOINT environment variable.
+// This will be substituted by the bindings when processing ${env:SLIM_ENDPOINT} references.
+func SetEndpointOverride(endpoint *string) error {
 	// Set endpoint override
 	if endpoint != nil && *endpoint != "" {
 		if err := os.Setenv(EnvSlimEndpoint, *endpoint); err != nil {
@@ -103,31 +100,6 @@ func SetEnvironmentOverrides(endpoint, tlsCert, tlsKey *string, insecure *bool) 
 		// Set default if not specified
 		if err := os.Setenv(EnvSlimEndpoint, "127.0.0.1:8080"); err != nil {
 			return err
-		}
-	}
-
-	// Set insecure mode override
-	if insecure != nil {
-		insecureStr := "false"
-		if *insecure {
-			insecureStr = "true"
-		}
-		if err := os.Setenv(EnvSlimInsecure, insecureStr); err != nil {
-			return fmt.Errorf("failed to set insecure override: %w", err)
-		}
-	}
-
-	// Set TLS certificate override
-	if tlsCert != nil && *tlsCert != "" {
-		if err := os.Setenv(EnvSlimTLSCert, *tlsCert); err != nil {
-			return fmt.Errorf("failed to set TLS cert override: %w", err)
-		}
-	}
-
-	// Set TLS key override
-	if tlsKey != nil && *tlsKey != "" {
-		if err := os.Setenv(EnvSlimTLSKey, *tlsKey); err != nil {
-			return fmt.Errorf("failed to set TLS key override: %w", err)
 		}
 	}
 
@@ -150,13 +122,4 @@ func GetDisplayLogLevel() string {
 		logLevel = "info"
 	}
 	return logLevel
-}
-
-// IsTLSEnabled returns true if TLS is configured (not insecure and cert provided)
-func IsTLSEnabled() bool {
-	insecure := os.Getenv(EnvSlimInsecure)
-	cert := os.Getenv(EnvSlimTLSCert)
-
-	// TLS is enabled if we're not in insecure mode and have a cert
-	return insecure != "true" && cert != ""
 }

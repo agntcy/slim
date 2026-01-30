@@ -1,12 +1,12 @@
 # Local SLIM Instance Management
 
-This guide covers how to use `slimctl` to start and manage local SLIM instances for development and testing.
+This guide covers how to use `slimctl slim start` to run local SLIM instances for development and testing.
 
 ## Overview
 
-The `slimctl slim` command allows you to run a standalone SLIM instance on your local machine using the **full production configuration format**. This ensures that development and testing environments match production behavior exactly.
+The `slimctl slim` command runs a standalone SLIM instance using the **production configuration format**. This ensures development and testing environments match production behavior exactly.
 
-This is useful for:
+**Use cases:**
 
 - **Development** - Test applications with production-like SLIM configuration
 - **Integration Testing** - Validate SLIM integration in CI/CD pipelines
@@ -15,23 +15,33 @@ This is useful for:
 
 ## Quick Start
 
-### Start in Insecure Mode (Development)
+### Start with a Configuration File
 
 ```bash
-slimctl slim start --endpoint 127.0.0.1:8080 --insecure
+# Using a production config from the repository
+slimctl slim start --config data-plane/config/base/config.yaml
 ```
 
-### Start with TLS (Production-like)
+### Start with Endpoint Override
 
 ```bash
-slimctl slim start --config config.yaml
+# Override the endpoint from the config
+slimctl slim start --config data-plane/config/base/config.yaml --endpoint 127.0.0.1:9090
+```
+
+### Start with Environment Variables
+
+```bash
+# Set endpoint via environment variable
+export SLIM_ENDPOINT=127.0.0.1:8443
+slimctl slim start --config data-plane/config/base/config.yaml
 ```
 
 ---
 
 ## `slim start` Command
 
-Start a local SLIM instance with customizable configuration.
+Start a local SLIM instance with production configuration.
 
 ### Usage
 
@@ -43,31 +53,145 @@ slimctl slim start [flags]
 
 | Flag | Short | Type | Description |
 |------|-------|------|-------------|
-| `--config` | `-c` | string | Path to YAML configuration file (full SLIM format) |
-| `--endpoint` | | string | Override server endpoint (e.g., `127.0.0.1:8080`) |
-| `--insecure` | | bool | Override to disable TLS (insecure mode) |
-| `--tls-cert` | | string | Override TLS certificate file path |
-| `--tls-key` | | string | Override TLS key file path |
+| `--config` | `-c` | string | Path to YAML configuration file (production SLIM format) |
+| `--endpoint` | | string | Server endpoint (sets `SLIM_ENDPOINT` environment variable) |
 
-**Note:** CLI flags override the server configuration in `services.slim/0.dataplane.servers[0]` from the YAML file.
+### Examples
+
+```bash
+# Start with base configuration
+slimctl slim start --config data-plane/config/base/config.yaml
+
+# Override endpoint
+slimctl slim start --config data-plane/config/base/config.yaml --endpoint 0.0.0.0:8443
+
+# Use TLS configuration
+slimctl slim start --config data-plane/config/tls/config.yaml
+
+# Set log level
+RUST_LOG=debug slimctl slim start --config data-plane/config/base/config.yaml
+```
 
 ---
 
 ## Configuration
 
-### YAML Configuration File
+### YAML Configuration Format
 
-`slimctl` uses the **full SLIM production configuration format**, which includes runtime, tracing, and service sections. This ensures complete production parity.
-
-**Basic Configuration (Insecure Mode):**
+`slimctl` uses the **full SLIM production configuration format** with three main sections:
 
 ```yaml
-# Copyright AGNTCY Contributors (https://github.com/agntcy)
-# SPDX-License-Identifier: Apache-2.0
-
 runtime:
-  n_cores: 0  # 0 means use all available cores
-  thread_name: "slimctl-worker"
+  n_cores: 0              # 0 = use all available cores
+  thread_name: "slim"     # Thread name prefix
+  drain_timeout: 10s      # Graceful shutdown timeout
+
+tracing:
+  log_level: info         # trace, debug, info, warn, error
+  display_thread_names: true
+  display_thread_ids: true
+
+services:
+  slim/0:                 # Service instance ID
+    dataplane:
+      servers:
+        - endpoint: "127.0.0.1:8080"
+          tls:
+            insecure: true
+      clients: []
+```
+
+### Production Configuration Examples
+
+Instead of maintaining separate examples, `slimctl` uses the production configurations from `data-plane/config/`:
+
+| Configuration | Location | Description |
+|--------------|----------|-------------|
+| **Base** | `data-plane/config/base/` | Minimal insecure configuration |
+| **TLS** | `data-plane/config/tls/` | TLS-enabled server |
+| **mTLS** | `data-plane/config/mtls/` | Mutual TLS authentication |
+| **Basic Auth** | `data-plane/config/basic-auth/` | HTTP Basic authentication |
+| **JWT Auth** | `data-plane/config/jwt-auth-*/` | JWT authentication (RSA, ECDSA, HMAC) |
+| **SPIRE** | `data-plane/config/spire/` | SPIFFE/SPIRE workload identity |
+| **Proxy** | `data-plane/config/proxy/` | HTTP proxy configuration |
+| **Telemetry** | `data-plane/config/telemetry/` | OpenTelemetry integration |
+
+See [examples/README.md](examples/README.md) for complete documentation.
+
+### Environment Variable Substitution
+
+SLIM configuration files support environment variable substitution using `${env:VARNAME}` or `${env:VARNAME:-default}` syntax.
+
+**Example:**
+
+```yaml
+services:
+  slim/0:
+    dataplane:
+      servers:
+        - endpoint: "${env:SLIM_ENDPOINT:-127.0.0.1:8080}"
+          tls:
+            insecure: true
+```
+
+The `--endpoint` flag sets the `SLIM_ENDPOINT` environment variable, which is then substituted by the SLIM bindings when loading the configuration.
+
+### Supported Environment Variables
+
+| Variable | Purpose | Set By |
+|----------|---------|--------|
+| `SLIM_ENDPOINT` | Server listen address | `--endpoint` flag or manual export |
+| `RUST_LOG` | Log level (trace, debug, info, warn, error) | Manual export |
+
+Any environment variable can be referenced in configuration files using the `${env:VARNAME}` syntax.
+
+---
+
+## Usage Examples
+
+### Example 1: Basic Development Server
+
+```bash
+slimctl slim start --config data-plane/config/base/config.yaml
+```
+
+Starts SLIM with insecure configuration on the default endpoint.
+
+### Example 2: Custom Endpoint
+
+```bash
+slimctl slim start --config data-plane/config/base/config.yaml --endpoint 0.0.0.0:9090
+```
+
+Overrides the endpoint to listen on all interfaces at port 9090.
+
+### Example 3: TLS-Enabled Server
+
+```bash
+slimctl slim start --config data-plane/config/tls/config.yaml
+```
+
+Starts SLIM with TLS enabled using certificates specified in the config.
+
+### Example 4: Debug Logging
+
+```bash
+RUST_LOG=debug slimctl slim start --config data-plane/config/base/config.yaml
+```
+
+Starts SLIM with debug-level logging for troubleshooting.
+
+### Example 5: Environment Variable Configuration
+
+```bash
+# Set endpoint via environment variable
+export SLIM_ENDPOINT=127.0.0.1:8443
+
+# Create config that references it
+cat > my-config.yaml <<EOF
+runtime:
+  n_cores: 0
+  thread_name: "slim"
   drain_timeout: 10s
 
 tracing:
@@ -79,230 +203,15 @@ services:
   slim/0:
     dataplane:
       servers:
-        - endpoint: "127.0.0.1:8080"
+        - endpoint: "\${env:SLIM_ENDPOINT}"
           tls:
             insecure: true
       clients: []
+EOF
+
+# Start with the config
+slimctl slim start --config my-config.yaml
 ```
-
-**TLS-Enabled Configuration:**
-
-```yaml
-# Copyright AGNTCY Contributors (https://github.com/agntcy)
-# SPDX-License-Identifier: Apache-2.0
-
-runtime:
-  n_cores: 0  # 0 means use all available cores
-  thread_name: "slimctl-worker"
-  drain_timeout: 10s
-
-tracing:
-  log_level: debug  # Use debug level for TLS troubleshooting
-  display_thread_names: true
-  display_thread_ids: true
-
-services:
-  slim/0:
-    dataplane:
-      servers:
-        - endpoint: "127.0.0.1:8443"
-          tls:
-            source:
-              type: file
-              cert: "/path/to/server-cert.pem"
-              key: "/path/to/server-key.pem"
-      clients: []
-```
-
-### Configuration Precedence
-
-CLI flags override YAML configuration values:
-
-1. **CLI flags** (highest priority) - Override specific server settings
-2. **YAML configuration file** - Full production configuration
-3. **Default values** (lowest priority) - Sensible production defaults
-
-### Environment Variable Override System
-
-`slimctl` uses environment variables to enable CLI flag overrides. CLI flags are automatically exported as environment variables that the SLIM bindings resolve when loading configuration files.
-
-#### How It Works
-
-1. **CLI flags set environment variables:**
-   - `--endpoint 127.0.0.1:9090` → `SLIM_ENDPOINT=127.0.0.1:9090`
-   - `--insecure` → `SLIM_TLS_INSECURE=true`
-   - `--tls-cert path` → `SLIM_TLS_CERT=path`
-   - `--tls-key path` → `SLIM_TLS_KEY=path`
-
-2. **Config files use placeholders:**
-   ```yaml
-   endpoint: "${env:SLIM_ENDPOINT:-127.0.0.1:8080}"
-   ```
-
-3. **SLIM bindings resolve placeholders:**
-   - If `SLIM_ENDPOINT` is set: uses that value
-   - If not set: uses default `127.0.0.1:8080`
-
-#### Supported Environment Variables
-
-| Variable | Purpose | Default | CLI Flag |
-|----------|---------|---------|----------|
-| `SLIM_ENDPOINT` | Server listen address | 127.0.0.1:8080 | `--endpoint` |
-| `SLIM_TLS_INSECURE` | Disable TLS | true | `--insecure` |
-| `SLIM_TLS_CERT` | Certificate file path | - | `--tls-cert` |
-| `SLIM_TLS_KEY` | Private key file path | - | `--tls-key` |
-| `RUST_LOG` | Log level (highest priority) | info | - |
-
-#### Override Methods
-
-**Method 1: CLI Flags (Recommended)**
-```bash
-slimctl slim start --config config.yaml \
-  --endpoint 0.0.0.0:8443 \
-  --tls-cert /path/to/cert.pem \
-  --tls-key /path/to/key.pem
-```
-
-**Method 2: Direct Environment Variables**
-```bash
-export SLIM_ENDPOINT=0.0.0.0:8443
-export SLIM_TLS_CERT=/path/to/cert.pem
-export SLIM_TLS_KEY=/path/to/key.pem
-slimctl slim start --config config.yaml
-```
-
-**Method 3: Hybrid (CLI overrides env vars)**
-```bash
-export SLIM_ENDPOINT=127.0.0.1:8080
-# CLI flag takes precedence over exported variable
-slimctl slim start --config config.yaml --endpoint 0.0.0.0:8443
-```
-
-### Configuration Examples
-
-See the [`examples/`](examples/) directory for sample configurations:
-
-- [`insecure-server.yaml`](examples/insecure-server.yaml) - Minimal insecure config for local development
-- [`tls-server.yaml`](examples/tls-server.yaml) - TLS-enabled server config
-- [`production.yaml`](examples/production.yaml) - Production-ready configuration
-- [`debug.yaml`](examples/debug.yaml) - Debug configuration with verbose logging
-- [`env-override.yaml`](examples/env-override.yaml) - Comprehensive environment variable override example
-
-For complete production examples, see [`data-plane/config/`](../../data-plane/config/):
-- [`base/server-config.yaml`](../../data-plane/config/base/server-config.yaml) - Basic server without TLS
-- [`tls/server-config.yaml`](../../data-plane/config/tls/server-config.yaml) - TLS-enabled server
-- [`basic-auth/server-config.yaml`](../../data-plane/config/basic-auth/server-config.yaml) - With authentication
-
----
-
-## Usage Examples
-
-### Example 1: Start in Insecure Mode (Development)
-
-```bash
-slimctl slim start --endpoint 127.0.0.1:8080 --insecure
-```
-
-**Output:**
-```
-🌐 Starting server on 127.0.0.1:8080...
-   Runtime: 0 cores, thread name: slim-worker
-   Tracing: level=info
-   Running in insecure mode (no TLS)
-   Waiting for clients to connect...
-
-✅ Server running and listening
-
-📡 Endpoint: 127.0.0.1:8080
-
-Press Ctrl+C to stop
-```
-
-### Example 2: Load Configuration from YAML
-
-```bash
-slimctl slim start --config config.yaml
-```
-
-Uses all settings from the YAML file.
-
-### Example 3: Start with TLS via CLI Flags
-
-```bash
-slimctl slim start \
-  --endpoint 127.0.0.1:8443 \
-  --tls-cert /path/to/cert.pem \
-  --tls-key /path/to/key.pem
-```
-
-### Example 4: Override YAML Config with CLI Flags
-
-```bash
-# config.yaml specifies TLS, but we override to insecure
-slimctl slim start --config config.yaml --insecure
-```
-
-CLI flags always take precedence over configuration file values.
-
-### Example 5: Development Workflow
-
-```bash
-# Terminal 1: Start SLIM instance
-slimctl slim start --endpoint 127.0.0.1:8080 --insecure
-
-# Terminal 2: Run your application
-cd data-plane/bindings/go/examples/point_to_point
-go run . --local=org/alice/app --server=http://127.0.0.1:8080
-```
-
----
-
-## TLS Configuration
-
-### Certificate Requirements
-
-- **Format:** X.509 v3 (required by rustls)
-- **Extensions:** Must include Subject Alternative Names (SAN)
-- **Algorithm:** SHA-256 or stronger signature algorithm recommended
-- **Key Size:** RSA 2048-bit minimum, or ECDSA P-256+
-
-### Generating Test Certificates
-
-**Using Task (Recommended):**
-
-```bash
-cd control-plane/slimctl
-task certs:setup
-```
-
-This generates:
-- Private key: `testdata/certs/server-key.pem`
-- Certificate: `testdata/certs/server-cert.pem`
-- X.509 v3 compliant with proper extensions
-
-**Manual Generation:**
-
-```bash
-openssl req -x509 -newkey rsa:2048 -nodes \
-  -keyout server-key.pem -out server-cert.pem \
-  -days 365 -subj "/CN=localhost" \
-  -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
-```
-
-**Verify Certificate Version:**
-
-```bash
-openssl x509 -in server-cert.pem -noout -text | grep Version
-# Should show: Version: 3 (0x2)
-```
-
-### Production Certificates
-
-For production use:
-- Obtain certificates from a trusted Certificate Authority (CA)
-- Use proper domain names in CN and SAN
-- Implement certificate rotation
-- Store private keys securely
 
 ---
 
@@ -310,131 +219,119 @@ For production use:
 
 ### Manual Testing Workflow
 
-Use the built-in task automation for comprehensive testing:
+The `slimctl` Taskfile provides automated testing tasks:
 
 ```bash
 cd control-plane/slimctl
 
-# Complete guided workflow
+# Run manual testing workflow
 task test:manual
-
-# Or run specific tests
-task test:manual:insecure  # Test insecure mode
-task test:manual:tls       # Test TLS mode
 ```
+
+This task guides you through testing the SLIM instance with different configurations.
 
 ### Available Test Tasks
 
-| Task | Description |
-|------|-------------|
-| `task test:manual` | Complete guided testing workflow |
-| `task test:manual:insecure` | Test insecure mode |
-| `task test:manual:tls` | Test TLS mode with certificates |
-| `task test:manual:quick` | Quick insecure mode test |
-| `task setup:test-env` | Setup test certificates and configs |
-| `task certs:setup` | Generate test TLS certificates |
-| `task validate` | Validate test environment |
+```bash
+# List all available tasks
+task --list
+
+# Validate environment
+task validate
+
+# Generate test certificates (if needed for TLS configs)
+task certs:setup
+
+# Clean up test artifacts
+task clean
+```
 
 ### Testing with Client Applications
 
-**Terminal 1 (Server):**
+To test SLIM with client applications:
 
-```bash
-slimctl slim start --endpoint 127.0.0.1:8080 --insecure
-```
+1. **Start SLIM**:
+   ```bash
+   slimctl slim start --config data-plane/config/base/config.yaml --endpoint 127.0.0.1:8080
+   ```
 
-**Terminal 2 (Client):**
+2. **Connect a client** (in another terminal):
+   ```bash
+   # Use your SLIM client application
+   # Point it to 127.0.0.1:8080
+   ```
 
-```bash
-cd data-plane/bindings/go/examples/point_to_point
-go run . --local=org/alice/app --server=http://127.0.0.1:8080
-```
+3. **Verify connectivity** in the SLIM logs
 
 ---
 
 ## Troubleshooting
 
-### UnsupportedCertVersion Error
+### Configuration Validation Errors
 
-**Error:**
-```
-InvalidCertificate(Other(OtherError(UnsupportedCertVersion)))
-```
+**Symptom**: SLIM fails to start with a configuration error
 
-**Cause:** Certificate is not X.509 v3
+**Solution**:
+1. Check the error message - SLIM provides detailed validation errors
+2. Verify all file paths (certificates, keys) exist and are readable
+3. Ensure environment variables are set if referenced in the config
+4. Compare your config structure with examples in `data-plane/config/`
 
-**Solution:**
+### Environment Variable Not Substituted
 
-```bash
-cd control-plane/slimctl
-task certs:clean
-task certs:setup
-```
+**Symptom**: `${env:VARNAME}` is not being replaced in the config
 
-### Certificate File Not Found
-
-**Cause:** Incorrect path or wrong working directory
-
-**Solution:** Use absolute paths or verify paths relative to working directory:
-
-```bash
-# Use absolute paths
-slimctl slim start \
-  --tls-cert /full/path/to/cert.pem \
-  --tls-key /full/path/to/key.pem
-
-# Or use config file with absolute paths
-slimctl slim start --config /path/to/config.yaml
-```
+**Solution**:
+1. Ensure the environment variable is exported: `export VARNAME=value`
+2. Check the variable name matches exactly (case-sensitive)
+3. Verify the syntax: `${env:VARNAME}` or `${env:VARNAME:-default}`
+4. Use the `--endpoint` flag instead of manually setting `SLIM_ENDPOINT`
 
 ### Address Already in Use
 
-**Cause:** Port is already bound by another process
+**Symptom**: Error message about port already in use
 
-**Solution:**
-
-```bash
-# Use different port
-slimctl slim start --endpoint 127.0.0.1:9090 --insecure
-
-# Or find and stop existing process
-lsof -ti:8080 | xargs kill -9
-```
+**Solution**:
+1. Check if another SLIM instance is running: `lsof -i :8080`
+2. Kill the existing process or use a different port
+3. Use `--endpoint` to specify a different port: `--endpoint 127.0.0.1:9090`
 
 ### Connection Refused from Client
 
-**Cause:** SLIM instance not running or wrong endpoint
+**Symptom**: Client cannot connect to SLIM
 
-**Solution:**
-
-1. Verify server is running:
-   ```bash
-   netstat -an | grep 8080
-   ```
-
-2. Check endpoint matches between server and client
-
-3. Ensure firewall allows connections
+**Solution**:
+1. Verify SLIM is running and listening on the expected endpoint
+2. Check firewall rules allow connections to the port
+3. Ensure the endpoint in your client matches the SLIM server endpoint
+4. For `127.0.0.1`, clients must be on the same machine; use `0.0.0.0` to listen on all interfaces
 
 ### TLS Handshake Failures
 
-**Cause:** Certificate/key mismatch or invalid certificate
+**Symptom**: TLS connection errors between client and server
 
-**Solution:**
+**Solution**:
+1. Verify certificates are X.509 v3 format (required by rustls)
+2. Check certificate paths are correct in the config
+3. Ensure certificates are not expired: `openssl x509 -in cert.pem -noout -dates`
+4. Verify client and server certificates are compatible
+5. Check certificate permissions are readable
+6. Use `RUST_LOG=debug` to see detailed TLS error messages
 
-1. Verify certificate and key match:
-   ```bash
-   openssl x509 -noout -modulus -in cert.pem | openssl md5
-   openssl rsa -noout -modulus -in key.pem | openssl md5
-   # MD5 hashes should match
-   ```
+### Certificate Version Errors
 
-2. Check certificate validity:
-   ```bash
-   openssl x509 -in cert.pem -noout -dates
-   ```
+**Symptom**: `UnsupportedCertVersion` error
 
-3. Verify SAN includes the endpoint hostname/IP
+**Solution**:
+Generate X.509 v3 certificates (required by rustls):
+
+```bash
+# Generate v3 certificate
+openssl req -x509 -newkey rsa:2048 -nodes \
+  -keyout server-key.pem -out server-cert.pem \
+  -days 365 -subj "/CN=localhost" \
+  -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+```
 
 ---
 
@@ -442,18 +339,17 @@ lsof -ti:8080 | xargs kill -9
 
 ### Running as a Service
 
-For production deployments, run SLIM as a system service:
-
-**systemd example:**
+To run SLIM as a system service, create a systemd unit file:
 
 ```ini
 [Unit]
-Description=SLIM Instance
+Description=SLIM Service
 After=network.target
 
 [Service]
 Type=simple
 User=slim
+WorkingDirectory=/opt/slim
 ExecStart=/usr/local/bin/slimctl slim start --config /etc/slim/config.yaml
 Restart=on-failure
 RestartSec=5s
@@ -464,47 +360,43 @@ WantedBy=multi-user.target
 
 ### Docker Deployment
 
+To run SLIM in Docker:
+
 ```dockerfile
-FROM alpine:latest
+FROM debian:bookworm-slim
 COPY slimctl /usr/local/bin/
 COPY config.yaml /etc/slim/
-EXPOSE 8443
 CMD ["slimctl", "slim", "start", "--config", "/etc/slim/config.yaml"]
 ```
 
 ### Monitoring and Observability
 
-The SLIM instance provides logging through the configured logger. Monitor:
+Enable telemetry for monitoring:
 
-- Connection events
-- Route additions/deletions
-- TLS handshake status
-- Error conditions
+```bash
+# Use telemetry configuration
+slimctl slim start --config data-plane/config/telemetry/config.yaml
+```
+
+See `data-plane/config/telemetry/` for OpenTelemetry integration examples.
 
 ---
 
-## Performance Tuning
+## Configuration Best Practices
 
-### Resource Limits
-
-SLIM instance resource usage depends on:
-- Number of concurrent connections
-- Message throughput
-- Routing table size
-
-Monitor system resources and adjust as needed.
-
-### Network Configuration
-
-- Use localhost (`127.0.0.1`) for local-only access
-- Bind to `0.0.0.0` for network-accessible instances (with proper security)
-- Configure firewall rules appropriately
+1. **Start with production configs**: Use configurations from `data-plane/config/` as templates
+2. **Use environment variables**: Reference `${env:VARNAME}` for values that change between environments
+3. **Test locally first**: Validate configurations with `slimctl` before deploying to production
+4. **Enable appropriate logging**: Use `info` for production, `debug` for troubleshooting
+5. **Secure TLS properly**: Use valid certificates and proper key management in production
+6. **Document custom configs**: Add comments explaining non-standard settings
 
 ---
 
 ## See Also
 
-- [Main README](README.md) - Overview of slimctl
-- [Examples Directory](examples/) - Sample configurations
-- [Taskfile](Taskfile.yaml) - Available automation tasks
-- [SLIM Documentation](https://github.com/agntcy/slim) - Complete SLIM docs
+- [Configuration Examples](examples/README.md) - Detailed guide to all configuration options
+- [slimctl Usage Guide](USAGE.md) - Quick usage examples
+- [slimctl Commands](COMMANDS.md) - Complete command reference
+- [Production Configurations](../../data-plane/config/) - Production-ready SLIM configurations
+- [SLIM Documentation](../../README.md) - Complete SLIM project documentation

@@ -1,8 +1,0 @@
-# Ignore all generated test files
-*
-
-# But keep this .gitignore
-!.gitignore
-
-# And keep any committed test fixtures (if needed in future)
-# !fixtures/

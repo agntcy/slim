@@ -67,24 +67,11 @@ func (m *manager) Start(_ context.Context) error {
 	endpoint := config.GetDisplayEndpoint()
 	logLevel := config.GetDisplayLogLevel()
 
-	fmt.Printf("🌐 Starting server on %s...\n", endpoint)
+	fmt.Printf("🌐 Starting SLIM server...\n")
 	fmt.Printf("   Configuration: %s\n", configPath)
+	fmt.Printf("   Endpoint: %s\n", endpoint)
 	fmt.Printf("   Log level: %s\n", logLevel)
-
-	if config.IsTLSEnabled() {
-		fmt.Println("   TLS enabled")
-		tlsCert := os.Getenv(config.EnvSlimTLSCert)
-		if tlsCert != "" {
-			fmt.Printf("   Certificate: %s\n", tlsCert)
-		}
-		tlsKey := os.Getenv(config.EnvSlimTLSKey)
-		if tlsKey != "" {
-			fmt.Printf("   Key: %s\n", tlsKey)
-		}
-	} else {
-		fmt.Println("   Running in insecure mode (no TLS)")
-	}
-
+	fmt.Println()
 	fmt.Println("   Waiting for clients to connect...")
 	fmt.Println()
 
@@ -105,6 +92,8 @@ func (m *manager) Start(_ context.Context) error {
 	sig := <-sigChan
 	fmt.Printf("\n\n📋 Received signal: %v\n", sig)
 	fmt.Println("Shutting down...")
+
+	_ = slim.GetGlobalService().Shutdown()
 
 	return nil
 }

@@ -7,21 +7,21 @@ This guide provides practical usage examples for all slimctl commands.
 ### Quick Start
 
 ```bash
-# Start in insecure mode (development)
-slimctl slim start --endpoint 127.0.0.1:8080 --insecure
+# Start with a production config
+slimctl slim start --config data-plane/config/base/config.yaml
 
-# Start with configuration file
-slimctl slim start --config examples/insecure-server.yaml
+# Override endpoint
+slimctl slim start --config data-plane/config/base/config.yaml --endpoint 127.0.0.1:9090
 
-# Start with TLS
-slimctl slim start --config examples/tls-server.yaml
+# Use TLS configuration
+slimctl slim start --config data-plane/config/tls/config.yaml
 
-# Override configuration with CLI flags
-slimctl slim start --config examples/env-override.yaml --endpoint 127.0.0.1:9090
+# Set log level
+RUST_LOG=debug slimctl slim start --config data-plane/config/base/config.yaml
 ```
 
 📖 **Detailed Guide**: [SLIM Instance Management](SLIM_INSTANCE.md)
-📖 **Configuration Examples**: [examples/](examples/)
+📖 **Configuration Examples**: [examples/](examples/) and [data-plane/config/](../../data-plane/config/)
 
 ---
 
