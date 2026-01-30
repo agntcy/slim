@@ -62,8 +62,21 @@ impl Channel {
     ) -> Arc<Self> {
         let slim_name = remote.as_ref().clone().into();
         let runtime = crate::get_runtime().handle().clone();
-        let inner =
-            CoreChannel::new_with_connection(app.inner(), slim_name, connection_id, Some(runtime));
+
+        // If connection_id is None, get the first connection from the service
+        let resolved_connection_id = connection_id.or_else(|| {
+            app.service()
+                .get_all_connections()
+                .first()
+                .map(|conn| conn.id)
+        });
+
+        let inner = CoreChannel::new_with_connection(
+            app.inner(),
+            slim_name,
+            resolved_connection_id,
+            Some(runtime),
+        );
 
         Arc::new(Self { inner })
     }

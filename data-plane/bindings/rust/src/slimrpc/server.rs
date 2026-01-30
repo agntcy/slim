@@ -142,7 +142,20 @@ impl Server {
         let app_inner = app.inner();
         let rx = app.notification_receiver();
 
-        Server::new_internal(app_inner, base_name.as_ref().into(), rx, connection_id)
+        // If connection_id is None, get the first connection from the service
+        let resolved_connection_id = connection_id.or_else(|| {
+            app.service()
+                .get_all_connections()
+                .first()
+                .map(|conn| conn.id)
+        });
+
+        Server::new_internal(
+            app_inner,
+            base_name.as_ref().into(),
+            rx,
+            resolved_connection_id,
+        )
     }
 
     /// Register a unary-to-unary RPC handler

@@ -98,7 +98,7 @@ pub struct App {
     notification_rx: Arc<RwLock<mpsc::Receiver<Result<Notification, SlimSessionError>>>>,
 
     /// Service instance for lifecycle management (Arc to inner SlimService)
-    _service: Arc<SlimService>,
+    service: Arc<SlimService>,
 }
 
 impl App {
@@ -113,7 +113,7 @@ impl App {
         Self {
             app,
             notification_rx,
-            _service: service,
+            service,
         }
     }
 
@@ -158,6 +158,17 @@ impl App {
             Direction::Bidirectional,
         )
         .await
+    }
+
+    /// Get a reference to the service instance
+    ///
+    /// This provides access to the underlying SLIM service that manages this app.
+    /// Useful for accessing service-level functionality and state.
+    ///
+    /// # Returns
+    /// A reference to the Arc-wrapped SlimService instance
+    pub fn service(&self) -> &Arc<SlimService> {
+        &self.service
     }
 
     /// Create a new App with traffic direction (async version)
