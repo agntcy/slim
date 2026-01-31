@@ -13,10 +13,10 @@ import (
 
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
+	"github.com/agntcy/slim/control-plane/common/options"
 	grpcapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 )
 
@@ -140,23 +140,20 @@ func (s *fakeServer) OpenControlChannel(
 	return nil
 }
 
+func getClientOptions() *options.CommonOptions {
+	opts := options.NewOptions()
+	opts.TLSInsecure = true
+	opts.Server = "passthrough://bufnet"
+	return opts
+}
+
 func TestSendConfigMessage(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	conn, err := grpc.NewClient(
-		"passthrough://bufnet",
-		grpc.WithContextDialer(bufDialer),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	stream, conn, err := OpenControlChannel(ctx, getClientOptions(), grpc.WithContextDialer(bufDialer))
 	if err != nil {
-		t.Fatalf("grpc.NewClient failed: %v", err)
-	}
-	defer conn.Close()
-
-	stream, conn, err := grpcapi.OpenControlChannel(ctx)
-	if err != nil {
-		t.Fatalf("client.OpenControlChannel failed: %v", err)
+		t.Fatalf("OpenControlChannel failed: %v", err)
 	}
 	defer conn.Close()
 
@@ -224,21 +221,12 @@ func TestListSubscriptions(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	conn, err := grpc.NewClient(
-		"passthrough://bufnet",
-		grpc.WithContextDialer(bufDialer),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	stream, conn, err := OpenControlChannel(ctx, getClientOptions(), grpc.WithContextDialer(bufDialer))
 	if err != nil {
-		t.Fatalf("grpc.NewClient failed: %v", err)
+		t.Fatalf("OpenControlChannel failed: %v", err)
 	}
 	defer conn.Close()
 
-	stream, conn, err := grpcapi.OpenControlChannel(ctx)
-	if err != nil {
-		t.Fatalf("client.OpenControlChannel failed: %v", err)
-	}
-	defer conn.Close()
 	msg := &grpcapi.ControlMessage{
 		MessageId: uuid.NewString(),
 		Payload:   &grpcapi.ControlMessage_SubscriptionListRequest{},
@@ -319,19 +307,9 @@ func TestListConnections(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	conn, err := grpc.NewClient(
-		"passthrough://bufnet",
-		grpc.WithContextDialer(bufDialer),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	stream, conn, err := OpenControlChannel(ctx, getClientOptions(), grpc.WithContextDialer(bufDialer))
 	if err != nil {
-		t.Fatalf("grpc.NewClient failed: %v", err)
-	}
-	defer conn.Close()
-
-	stream, conn, err := grpcapi.OpenControlChannel(ctx)
-	if err != nil {
-		t.Fatalf("client.OpenControlChannel failed: %v", err)
+		t.Fatalf("OpenControlChannel failed: %v", err)
 	}
 	defer conn.Close()
 

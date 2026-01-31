@@ -20,6 +20,7 @@ import (
 func OpenControlChannel(
 	ctx context.Context,
 	opts *options.CommonOptions,
+	dialOpts ...grpc.DialOption,
 ) (controllerApi.ControllerService_OpenControlChannelClient, *grpc.ClientConn, error) {
 	var creds credentials.TransportCredentials
 	if opts.TLSInsecure {
@@ -32,9 +33,11 @@ func OpenControlChannel(
 		creds = c
 	}
 
+	allOpts := append([]grpc.DialOption{grpc.WithTransportCredentials(creds)}, dialOpts...)
+
 	conn, err := grpc.NewClient(
 		opts.Server,
-		grpc.WithTransportCredentials(creds),
+		allOpts...,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error connecting to server(%s): %w", opts.Server, err)
