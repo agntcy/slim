@@ -20,24 +20,27 @@ import (
 func OpenControlChannel(
 	ctx context.Context,
 	opts *options.CommonOptions,
-) (controllerApi.ControllerService_OpenControlChannelClient, error) {
+	dialOpts ...grpc.DialOption,
+) (controllerApi.ControllerService_OpenControlChannelClient, *grpc.ClientConn, error) {
 	var creds credentials.TransportCredentials
 	if opts.TLSInsecure {
 		creds = insecure.NewCredentials()
 	} else if opts.TLSCAFile != "" {
 		c, err := credentials.NewClientTLSFromFile(opts.TLSCAFile, "")
 		if err != nil {
-			return nil, fmt.Errorf("loading CA file %q: %w", opts.TLSCAFile, err)
+			return nil, nil, fmt.Errorf("loading CA file %q: %w", opts.TLSCAFile, err)
 		}
 		creds = c
 	}
 
+	allOpts := append([]grpc.DialOption{grpc.WithTransportCredentials(creds)}, dialOpts...)
+
 	conn, err := grpc.NewClient(
 		opts.Server,
-		grpc.WithTransportCredentials(creds),
+		allOpts...,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error connecting to server(%s): %w", opts.Server, err)
+		return nil, nil, fmt.Errorf("error connecting to server(%s): %w", opts.Server, err)
 	}
 
 	if opts.BasicAuthCredentials != "" {
@@ -52,12 +55,12 @@ func OpenControlChannel(
 	stream, err := client.OpenControlChannel(ctx)
 	if err != nil {
 		conn.Close()
-		return nil, fmt.Errorf(
+		return nil, nil, fmt.Errorf(
 			"cannot open control channel to %s: %w",
 			opts.Server,
 			err,
 		)
 	}
 
-	return stream, nil
+	return stream, conn, nil
 }
