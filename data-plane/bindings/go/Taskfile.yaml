@@ -34,6 +34,14 @@ tasks:
       - echo {{.TARGET}} {{.SERVICE_TARGET}}
       - task -l
 
+  patch-bindings:
+    desc: Patch generated Go bindings to fix async error handling
+    internal: true
+    dir: "{{.TASKFILE_DIR}}"
+    cmds:
+      - bash patch-bindings.sh
+    silent: true
+
   patch-cgo-directives:
     desc: Patch generated Go bindings with proper cgo directives
     internal: true
@@ -129,6 +137,7 @@ tasks:
       - task: copy-library
       - task: patch-header
       - task: patch-cgo-directives
+      - task: patch-bindings
       - echo "✅ Bindings generated in generated/"
     silent: true
 
@@ -260,7 +269,7 @@ tasks:
       - go run . --local="org/alice/app" --server="http://localhost:46357" {{.CLI_ARGS}}
     silent: true
 
-  example:p2p:bob:
+  example:p2p:no-mls:bob:
     desc: Run Bob (sender) for point-to-point example
     deps:
       - task: adapter:bindings:build:all
@@ -271,6 +280,18 @@ tasks:
       - echo "👨 Starting Bob (sender)..."
       - go run . --local="org/bob/app" --remote="org/alice/app" --message="Hello SLIM" --iterations=5 --server="http://localhost:46357" {{.CLI_ARGS}}
     silent: true
+
+  example:p2p:mls:bob:
+    desc: Run Bob (sender) for point-to-point example
+    deps:
+      - task: adapter:bindings:build:all
+        vars:
+          PROFILE: release
+    dir: examples/point_to_point
+    cmds:
+      - echo "👨 Starting Bob (sender)..."
+      - go run . --enable-mls --local="org/bob/app" --remote="org/alice/app" --message="Hello SLIM" --iterations=5 --server="http://localhost:46357" {{.CLI_ARGS}}
+    silent: true    
 
   example:group:moderator:
     desc: Run group moderator (creates session and invites participants)

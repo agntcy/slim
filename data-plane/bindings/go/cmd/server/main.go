@@ -37,7 +37,7 @@ func main() {
 	fmt.Println()
 
 	// Run server in internal tokio task
-	slim.GetGlobalService().RunServer(config)
+	slim.GetGlobalService().RunServerAsync(config)
 
 	// Give server a moment to start
 	time.Sleep(100 * time.Millisecond)
