@@ -125,14 +125,14 @@ suspend fun receiveLoop(
             val ctx = receivedMsg.context
             val payload = receivedMsg.payload
             
-            // Display sender name and message
-            val sender = sourceName.toIdString()
+            // Display sender name and message (using the actual sender from the context)
+            val sender = ctx.sourceName.toIdString()
             println("$sender > ${String(payload)}")
             
             // if the message metadata contains PUBLISH_TO this message is a reply
             // to a previous one. In this case we do not reply to avoid loops
             if (!ctx.metadata.containsKey("PUBLISH_TO")) {
-                val reply = "message received by $sender"
+                val reply = "message received by ${sourceName.toIdString()}"
                 session.publishToAsync(ctx, reply.toByteArray(), null, ctx.metadata)
             }
         } catch (e: CancellationException) {
@@ -182,7 +182,6 @@ suspend fun keyboardLoop(
         }
         
         while (true) {
-            print("${sourceName.toIdString()} > ")
             val userInput = readlnOrNull() ?: break
             
             when {
@@ -273,12 +272,12 @@ suspend fun runClient(config: GroupConfig) = coroutineScope {
         }
     }
     
-    // Launch the receiver and keyboard loop
-    val receiveJob = launch {
+    // Launch the receiver and keyboard loop on separate threads (parallel execution)
+    val receiveJob = launch(Dispatchers.IO) {
         receiveLoop(localApp, createdSession, sessionReady)
     }
     
-    val keyboardJob = launch {
+    val keyboardJob = launch(Dispatchers.IO) {
         keyboardLoop(createdSession, sessionReady, localApp)
     }
     

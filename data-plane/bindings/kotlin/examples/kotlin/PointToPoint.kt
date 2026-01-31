@@ -72,7 +72,7 @@ suspend fun runClient(config: PointToPointConfig) = coroutineScope {
         )
         
         // Create session - returns a context with completion and session
-        val sessionContext = localApp.createSessionAsync(sessionConfig, remoteName)
+        val sessionContext = localApp.createSession(sessionConfig, remoteName)
         // Wait for session to be established
         sessionContext.completion.waitAsync()
         val session = sessionContext.session
