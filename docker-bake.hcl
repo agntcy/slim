@@ -74,9 +74,7 @@ target "slim-debug" {
 }
 
 target "control-plane" {
-  contexts = {
-    src = "."
-  }
+  context = "."
   dockerfile = "./control-plane/Dockerfile"
   target     = "control-plane"
   inherits = [
