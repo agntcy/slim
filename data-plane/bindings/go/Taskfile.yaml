@@ -138,7 +138,7 @@ tasks:
       - which uniffi-bindgen-go
     cmds:
       - echo "📦 Installing uniffi-bindgen-go..."
-      - cargo install uniffi-bindgen-go --git https://github.com/NordSecurity/uniffi-bindgen-go.git --tag v0.4.0+v0.28.3 --config net.git-fetch-with-cli=true
+      - cargo install uniffi-bindgen-go --git https://github.com/agntcy/uniffi-bindgen-go.git --tag v0.4.0+v0.28.3-kegsay --config net.git-fetch-with-cli=true
     silent: true
 
   copy-library:
@@ -260,7 +260,7 @@ tasks:
       - go run . --local="org/alice/app" --server="http://localhost:46357" {{.CLI_ARGS}}
     silent: true
 
-  example:p2p:bob:
+  example:p2p:no-mls:bob:
     desc: Run Bob (sender) for point-to-point example
     deps:
       - task: adapter:bindings:build:all
@@ -271,6 +271,18 @@ tasks:
       - echo "👨 Starting Bob (sender)..."
       - go run . --local="org/bob/app" --remote="org/alice/app" --message="Hello SLIM" --iterations=5 --server="http://localhost:46357" {{.CLI_ARGS}}
     silent: true
+
+  example:p2p:mls:bob:
+    desc: Run Bob (sender) for point-to-point example
+    deps:
+      - task: adapter:bindings:build:all
+        vars:
+          PROFILE: release
+    dir: examples/point_to_point
+    cmds:
+      - echo "👨 Starting Bob (sender)..."
+      - go run . --enable-mls --local="org/bob/app" --remote="org/alice/app" --message="Hello SLIM" --iterations=5 --server="http://localhost:46357" {{.CLI_ARGS}}
+    silent: true    
 
   example:group:moderator:
     desc: Run group moderator (creates session and invites participants)
