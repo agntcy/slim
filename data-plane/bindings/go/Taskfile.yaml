@@ -34,14 +34,6 @@ tasks:
       - echo {{.TARGET}} {{.SERVICE_TARGET}}
       - task -l
 
-  patch-bindings:
-    desc: Patch generated Go bindings to fix async error handling
-    internal: true
-    dir: "{{.TASKFILE_DIR}}"
-    cmds:
-      - bash patch-bindings.sh
-    silent: true
-
   patch-cgo-directives:
     desc: Patch generated Go bindings with proper cgo directives
     internal: true
@@ -137,7 +129,6 @@ tasks:
       - task: copy-library
       - task: patch-header
       - task: patch-cgo-directives
-      - task: patch-bindings
       - echo "✅ Bindings generated in generated/"
     silent: true
 
@@ -147,7 +138,7 @@ tasks:
       - which uniffi-bindgen-go
     cmds:
       - echo "📦 Installing uniffi-bindgen-go..."
-      - cargo install uniffi-bindgen-go --git https://github.com/agntcy/uniffi-bindgen-go.git --tag v0.4.0+v0.28.3-kegsay --config net.git-fetch-with-cli=true
+      - cargo install uniffi-bindgen-go --git https://github.com/agntcy/uniffi-bindgen-go.git --tag v0.4.0+v0.28.3-sancyx --config net.git-fetch-with-cli=true
     silent: true
 
   copy-library:
