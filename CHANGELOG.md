@@ -4,6 +4,840 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## v1.0.0 (30 January 2026)
+
+### Key Highlights
+
+#### 🎯 Major Features Added
+
+- **Unified Bindings with UniFFI**: Complete migration to UniFFI-based bindings for both Python and Go, enabling consistent cross-language support and improved developer experience
+- **Go Bindings**: Full Go language bindings generated using UniFFI with examples, integration tests, and comprehensive documentation ([#979](https://github.com/agntcy/slim/pull/979), [#1032](https://github.com/agntcy/slim/pull/1032), [#1040](https://github.com/agntcy/slim/pull/1040))
+- **Python Bindings Migration**: Migrated Python bindings to UniFFI for better consistency and maintainability ([#1046](https://github.com/agntcy/slim/pull/1046), [#1116](https://github.com/agntcy/slim/pull/1116))
+- **Unix Domain Sockets (UDS) Support**: Added gRPC support using Unix Domain Sockets for local communication, improving performance and security ([#1060](https://github.com/agntcy/slim/pull/1060))
+- **Unified Error Handling**: Refactored error handling across core crates using strongly typed error enums with `thiserror`, enabling cleaner error propagation and better diagnostics ([#976](https://github.com/agntcy/slim/pull/976))
+- **Session Direction Control**: Added message flow direction control to SLIM applications ([#1121](https://github.com/agntcy/slim/pull/1121))
+- **Local SLIM Instance Management**: slimctl now supports managing local SLIM node instances for development with `slim start` subcommand ([#1015](https://github.com/agntcy/slim/pull/1015), [#1139](https://github.com/agntcy/slim/pull/1139))
+- **Enhanced Resilience**: Improved handling of unexpected participant disconnections, application stops, and moderator failures ([#1004](https://github.com/agntcy/slim/pull/1004), [#1014](https://github.com/agntcy/slim/pull/1014), [#1024](https://github.com/agntcy/slim/pull/1024))
+
+#### 📦 Bindings & Language Support
+
+- **Go Bindings** (now in separate repository [agntcy/slim-bindings-go](https://github.com/agntcy/slim-bindings-go)):
+  - UniFFI-based code generation with native Go types ([#979](https://github.com/agntcy/slim/pull/979))
+  - Complete examples (point-to-point, group, simple) ([#979](https://github.com/agntcy/slim/pull/979))
+  - Integration and unit tests ([#1071](https://github.com/agntcy/slim/pull/1071))
+  - Taskfile automation for building and testing ([#979](https://github.com/agntcy/slim/pull/979))
+  
+- **Python Bindings**:
+  - Migrated to UniFFI from PyO3 for consistency ([#1046](https://github.com/agntcy/slim/pull/1046), [#1116](https://github.com/agntcy/slim/pull/1116))
+  - Improved package installability verification ([#1062](https://github.com/agntcy/slim/pull/1062))
+  - Lower libc requirements (glibc 2.28, musl 1.2) for broader compatibility ([#1025](https://github.com/agntcy/slim/pull/1025))
+
+- **Bindings Architecture**:
+  - Support for multiple global services ([#1106](https://github.com/agntcy/slim/pull/1106))
+  - Configuration file support ([#1099](https://github.com/agntcy/slim/pull/1099))
+  - Renamed `BindingsAdapter` to `App` and `BindingsSessionContext` to `Session` for clarity ([#1104](https://github.com/agntcy/slim/pull/1104))
+  - Exposed completion handle to foreign languages ([#1090](https://github.com/agntcy/slim/pull/1090))
+  - Exposed participant list to applications ([#1089](https://github.com/agntcy/slim/pull/1089))
+  - Exposed identity configuration ([#1092](https://github.com/agntcy/slim/pull/1092))
+  - Exposed global and local services ([#1095](https://github.com/agntcy/slim/pull/1095))
+  - Complete configuration exposure for auth, clients, and servers ([#1084](https://github.com/agntcy/slim/pull/1084))
+  - Removed tokio-specific APIs from foreign async calls ([#1110](https://github.com/agntcy/slim/pull/1110))
+
+#### 🔧 Infrastructure & Tooling
+
+- **slimctl Enhancements**:
+  - Local SLIM instance management with configuration support ([#1015](https://github.com/agntcy/slim/pull/1015), [#1139](https://github.com/agntcy/slim/pull/1139))
+  - Display all properties of outlined routes ([#1002](https://github.com/agntcy/slim/pull/1002))
+  - Built with CGO and cross-compilation using Zig ([#1114](https://github.com/agntcy/slim/pull/1114), [#1137](https://github.com/agntcy/slim/pull/1137))
+  - Target OS/arch/ABI flags support ([#1112](https://github.com/agntcy/slim/pull/1112))
+
+- **Build & Release**:
+  - Semantic versioning specification ([#1126](https://github.com/agntcy/slim/pull/1126))
+  - Refactored bindings GitHub workflows ([#1103](https://github.com/agntcy/slim/pull/1103))
+  - Bindings release workflow ([#1055](https://github.com/agntcy/slim/pull/1055))
+  - Moved C toolchain config to Cargo config ([#990](https://github.com/agntcy/slim/pull/990))
+  - Zig installation in global tools ([#1120](https://github.com/agntcy/slim/pull/1120))
+
+- **Repository Organization**:
+  - Removed slim-mcp from main repo ([#1086](https://github.com/agntcy/slim/pull/1086))
+  - Removed slim-a2a from main repo ([#1088](https://github.com/agntcy/slim/pull/1088))
+  - Migrated Rust MCP proxy to separate repo ([#1100](https://github.com/agntcy/slim/pull/1100))
+  - Removed generated code and added to gitignore ([#1094](https://github.com/agntcy/slim/pull/1094))
+
+#### ⚠ Breaking Changes
+
+- **Error Handling Refactor**: Unified typed error handling replaces string-based errors across all core crates ([#976](https://github.com/agntcy/slim/pull/976))
+- **Bindings API Changes**: 
+  - Renamed `BindingsAdapter` → `App`, `BindingsSessionContext` → `Session` ([#1104](https://github.com/agntcy/slim/pull/1104))
+  - Use `Duration` type for timeouts instead of integers ([#1073](https://github.com/agntcy/slim/pull/1073))
+  - Moved received message to `message_context` ([#1087](https://github.com/agntcy/slim/pull/1087))
+- **Unix Domain Sockets**: New error variants added to `ConfigError` for UDS support ([#1060](https://github.com/agntcy/slim/pull/1060))
+
+#### 🛡 Security & Hardening
+
+- **SAST Integration**: Added Static Application Security Testing to CI/CD ([#997](https://github.com/agntcy/slim/pull/997))
+- **Docker Security**: Removed libssl from Docker images to reduce attack surface ([#1147](https://github.com/agntcy/slim/pull/1147))
+- **Improved Identity Handling**: Enhanced identity error handling in bindings ([#1042](https://github.com/agntcy/slim/pull/1042))
+
+### Component Versions Summary
+
+| Component                   | Latest Version | Release Date |
+| --------------------------- | -------------- | ------------ |
+| slim                        | v1.0.0         | 2026-01-30   |
+| slim-bindings               | v1.0.0         | 2026-01-30   |
+| control-plane               | v1.0.0         | 2026-01-30   |
+| slimctl                     | v1.0.0         | 2026-01-30   |
+| helm-slim                   | v1.0.0         | 2026-01-30   |
+| helm-slim-control-plane     | v1.0.0         | 2026-01-30   |
+
+### Release Artifacts
+
+- **Container Images**: Available on GitHub Container Registry
+  - `ghcr.io/agntcy/slim:v1.0.0`
+- **Python Packages**: Published to PyPI
+  - `slim-bindings==1.0.0`
+- **Go Bindings**: Available at [github.com/agntcy/slim-bindings-go](https://github.com/agntcy/slim-bindings-go)
+  - Native libraries for multiple platforms (Linux, macOS, Windows)
+  - Cross-platform support with target OS/arch/ABI flags
+- **CLI Tools**:
+  - `slimctl` v1.0.0 with local instance management
+
+### Compatibility Matrix
+
+All components with the same major version (v1.x.x) are compatible with each other.
+
+| Component         | Version | Notes                                                       |
+| ----------------- | ------- | ----------------------------------------------------------- |
+| **slim**          | v1.0.0  | Data plane runtime                                          |
+| **slim-bindings** | v1.0.0  | Python 3.10+ and Go 1.21+ (with CGO)                       |
+| **control-plane** | v1.0.0  | Control plane services                                      |
+| **slimctl**       | v1.0.0  | CLI tool                                                    |
+| **helm charts**   | v1.0.0  | Kubernetes deployment                                       |
+
+#### Compatibility Notes
+
+- **Major version compatibility**: All v1.x.x components are compatible with each other
+- **slim-bindings v1.0.0** introduces UniFFI-based architecture supporting both Python and Go
+- **Go bindings** require Go 1.21+ with CGO enabled (available at [github.com/agntcy/slim-bindings-go](https://github.com/agntcy/slim-bindings-go))
+- **Python bindings** support Python 3.10+ with lower libc requirements (glibc 2.28, musl 1.2)
+- **UDS support** requires Unix-like operating systems for local communication
+- Older versions of slim-bindings (< v1.0.0) are **not compatible** with v1.0.0
+
+### v1.0.0 Release Summary (January 2026)
+
+#### ⚠ Breaking Changes
+
+- **Unified typed error handling** across core crates - replaces string-based errors with strongly typed enums using `thiserror` ([#976](https://github.com/agntcy/slim/pull/976))
+  - Affects: `auth`, `config`, `tracing`, `datapath`, `mls`, `session`, `controller`, `service`
+  - Error types now use `#[from]` conversions for cleaner propagation
+  - Better error chain preservation and diagnostics
+- **Bindings API renamed** for clarity ([#1104](https://github.com/agntcy/slim/pull/1104)):
+  - `BindingsAdapter` → `App`
+  - `BindingsSessionContext` → `Session`
+- **Timeout parameter type change**: Now uses `Duration` type instead of integers ([#1073](https://github.com/agntcy/slim/pull/1073))
+- **Config error variants**: New UDS-related error variants in `ConfigError` ([#1060](https://github.com/agntcy/slim/pull/1060))
+
+#### 🚀 Features
+
+**Bindings & Language Support:**
+- Generate Go bindings using UniFFI with examples and tests ([#979](https://github.com/agntcy/slim/pull/979))
+- Go bindings improvements with better API ergonomics ([#1032](https://github.com/agntcy/slim/pull/1032), [#1040](https://github.com/agntcy/slim/pull/1040))
+- Generate Python bindings with UniFFI ([#1046](https://github.com/agntcy/slim/pull/1046))
+- Move to new Python bindings ([#1116](https://github.com/agntcy/slim/pull/1116))
+- Expose complete configuration for auth, clients, and servers ([#1084](https://github.com/agntcy/slim/pull/1084))
+- Expose completion handle to foreign languages ([#1090](https://github.com/agntcy/slim/pull/1090))
+- Expose identity configuration ([#1092](https://github.com/agntcy/slim/pull/1092))
+- Expose participant list to applications ([#1089](https://github.com/agntcy/slim/pull/1089))
+- Expose global and local service ([#1095](https://github.com/agntcy/slim/pull/1095))
+- Configuration file support for bindings ([#1099](https://github.com/agntcy/slim/pull/1099))
+- Allow multiple global services ([#1106](https://github.com/agntcy/slim/pull/1106))
+- Lower libc requirements for Python wheels (glibc 2.28, musl 1.2) ([#1025](https://github.com/agntcy/slim/pull/1025))
+
+**Core Features:**
+- Add gRPC support using Unix Domain Sockets for local communication ([#1060](https://github.com/agntcy/slim/pull/1060))
+- Add direction to SLIM app to control message flow ([#1121](https://github.com/agntcy/slim/pull/1121))
+- Detect and handle unexpected participant disconnections ([#1004](https://github.com/agntcy/slim/pull/1004))
+- Update group state on unexpected application stop ([#1014](https://github.com/agntcy/slim/pull/1014))
+- Handle moderator unexpected stop ([#1024](https://github.com/agntcy/slim/pull/1024))
+- Send group acknowledge from session layer ([#1050](https://github.com/agntcy/slim/pull/1050))
+- Add reference count to subscription table ([#1143](https://github.com/agntcy/slim/pull/1143))
+- Make backoff retry configurable ([#991](https://github.com/agntcy/slim/pull/991))
+
+**Control Plane:**
+- Use Controller internal DB to find moderator node ([#992](https://github.com/agntcy/slim/pull/992))
+- Support different trust domains in auto route setup ([#1001](https://github.com/agntcy/slim/pull/1001))
+
+**Tooling:**
+- Support for managing SLIM node instance local to the tool ([#1015](https://github.com/agntcy/slim/pull/1015))
+- Support for configuring the locally started SLIM instance ([#1139](https://github.com/agntcy/slim/pull/1139))
+- slimctl: show all properties of outlined routes ([#1002](https://github.com/agntcy/slim/pull/1002))
+- The tool accepts target os/arch/abi flags as input ([#1112](https://github.com/agntcy/slim/pull/1112))
+- Release slimctl built with CGO ([#1137](https://github.com/agntcy/slim/pull/1137))
+- Release bindings workflow ([#1055](https://github.com/agntcy/slim/pull/1055))
+- Adding test job for Golang bindings ([#1071](https://github.com/agntcy/slim/pull/1071))
+
+**CI/CD & Security:**
+- Add SAST (Static Application Security Testing) ([#997](https://github.com/agntcy/slim/pull/997))
+- Add CI step to verify Python package installability before PyPI publish ([#1062](https://github.com/agntcy/slim/pull/1062))
+
+**Updates & Improvements:**
+- Update templates ([#959](https://github.com/agntcy/slim/pull/959))
+- Upgrade to v0.7.1 slim_bindings for slimrpc, slima2a, slim-mcp ([#839](https://github.com/agntcy/slim/pull/839))
+- Bump a2a-sdk to 0.3.20 ([#1044](https://github.com/agntcy/slim/pull/1044))
+
+#### 🐛 Bug Fixes
+
+**Session & Routing:**
+- Correctly remove routes on session close ([#1039](https://github.com/agntcy/slim/pull/1039))
+- Remove participants from the group list ([#1059](https://github.com/agntcy/slim/pull/1059))
+- Route dataplane errors to correct session ([#1056](https://github.com/agntcy/slim/pull/1056))
+- Send ping messages to the right destination ([#1066](https://github.com/agntcy/slim/pull/1066))
+- Add missing routes to participants ([#1131](https://github.com/agntcy/slim/pull/1131))
+- Match all function sends only to local applications ([#1132](https://github.com/agntcy/slim/pull/1132))
+- Check if participant is already in group before invite ([#1085](https://github.com/agntcy/slim/pull/1085))
+
+**Bindings:**
+- Improve identity error handling ([#1042](https://github.com/agntcy/slim/pull/1042))
+- Use Duration type for timeouts ([#1073](https://github.com/agntcy/slim/pull/1073))
+- Automatically convert internal errors to exposed errors ([#1154](https://github.com/agntcy/slim/pull/1154))
+- Set up bindings without version (read from go.mod) ([#1134](https://github.com/agntcy/slim/pull/1134))
+- Use ${GOPATH}/.cgo-cache/slim-bindings as default libs location ([#1107](https://github.com/agntcy/slim/pull/1107))
+- Temporarily disable slim-bindings crate publish ([#1096](https://github.com/agntcy/slim/pull/1096))
+
+**Infrastructure & Tests:**
+- P2P integration test fix ([#1049](https://github.com/agntcy/slim/pull/1049))
+- Fix flaky integration test ([#1109](https://github.com/agntcy/slim/pull/1109))
+- Start controller service only if config is provided ([#1054](https://github.com/agntcy/slim/pull/1054))
+- Return ack from control plane ([#1098](https://github.com/agntcy/slim/pull/1098))
+- Set latest examples image ([#993](https://github.com/agntcy/slim/pull/993))
+- Fix moderator_task.rs typo ([#1008](https://github.com/agntcy/slim/pull/1008))
+- Update release-bindings test program ([#1113](https://github.com/agntcy/slim/pull/1113))
+- Do not include libssl in Docker image ([#1147](https://github.com/agntcy/slim/pull/1147))
+- Remove obsolete release-please components ([#1157](https://github.com/agntcy/slim/pull/1157))
+- Fix CI test-installation path ([#1161](https://github.com/agntcy/slim/pull/1161))
+
+#### 🔄 Refactoring
+
+**Bindings Architecture:**
+- Refactor bindings for UniFFI compatibility ([#979](https://github.com/agntcy/slim/pull/979))
+- Reuse internal name representation ([#1074](https://github.com/agntcy/slim/pull/1074))
+- Move runtime to its own module ([#1075](https://github.com/agntcy/slim/pull/1075))
+- Move error logic to errors module ([#1083](https://github.com/agntcy/slim/pull/1083))
+- Extract BuildInfo to dedicated module ([#1077](https://github.com/agntcy/slim/pull/1077))
+- Move received message to message_context ([#1087](https://github.com/agntcy/slim/pull/1087))
+- Rename BindingsAdapter to App and BindingsSessionContext to Session ([#1104](https://github.com/agntcy/slim/pull/1104))
+- Do not expose tokio-specific APIs to foreign async calls ([#1110](https://github.com/agntcy/slim/pull/1110))
+
+**Core:**
+- Unified typed error handling across core crates ([#976](https://github.com/agntcy/slim/pull/976))
+- Remove nop-component leftovers ([#1052](https://github.com/agntcy/slim/pull/1052))
+
+**Build & Tooling:**
+- Move C toolchain config into Cargo config ([#990](https://github.com/agntcy/slim/pull/990))
+- Move Zig installation to global tools ([#1120](https://github.com/agntcy/slim/pull/1120))
+- Cross-build slimctl with Zig ([#1114](https://github.com/agntcy/slim/pull/1114))
+- Refactor bindings GitHub workflows ([#1103](https://github.com/agntcy/slim/pull/1103))
+
+#### 📚 Documentation
+
+- Update README.md ([#1047](https://github.com/agntcy/slim/pull/1047))
+- Add semantic versioning specification ([#1126](https://github.com/agntcy/slim/pull/1126))
+- Go bindings README and examples ([#979](https://github.com/agntcy/slim/pull/979))
+
+#### 📦 Repository Organization
+
+- Remove slim-mcp from main SLIM repo ([#1086](https://github.com/agntcy/slim/pull/1086))
+- Remove slim-a2a from main SLIM repo ([#1088](https://github.com/agntcy/slim/pull/1088))
+- Migrate Rust MCP proxy to its own repo ([#1100](https://github.com/agntcy/slim/pull/1100))
+- Migrate Go bindings to separate repository [agntcy/slim-bindings-go](https://github.com/agntcy/slim-bindings-go) ([#1094](https://github.com/agntcy/slim/pull/1094))
+- Remove generated code and add to gitignore ([#1094](https://github.com/agntcy/slim/pull/1094))
+- Remove simple example ([#1123](https://github.com/agntcy/slim/pull/1123))
+
+#### 🔧 Infrastructure & Build
+
+- Build(deps): bump golang.org/x/crypto from 0.36.0 to 0.45.0 ([#989](https://github.com/agntcy/slim/pull/989))
+- Build(deps): bump k8s.io/kubernetes from 1.34.1 to 1.34.2 ([#1119](https://github.com/agntcy/slim/pull/1119))
+- CICD initialization fix ([#999](https://github.com/agntcy/slim/pull/999))
+- Use latest version of linting tools ([#1067](https://github.com/agntcy/slim/pull/1067))
+- Drop slim-bindings-libs- tag and move to slim-bindings- ([#1150](https://github.com/agntcy/slim/pull/1150))
+- Feature flag for session layer ([#1102](https://github.com/agntcy/slim/pull/1102))
+
+#### 📋 Releases
+
+- Release slim-bindings 0.7.1 ([#972](https://github.com/agntcy/slim/pull/972))
+- Release slim-bindings-examples 0.7.1 ([#973](https://github.com/agntcy/slim/pull/973))
+- Release slim-testutils 0.7.1 ([#988](https://github.com/agntcy/slim/pull/988))
+- Release slimrpc 0.2.0 ([#834](https://github.com/agntcy/slim/pull/834))
+- Release slima2a 0.2.0 ([#835](https://github.com/agntcy/slim/pull/835))
+- Release slimrpc 0.2.1 ([#1021](https://github.com/agntcy/slim/pull/1021))
+- Release slima2a 0.2.1 ([#1022](https://github.com/agntcy/slim/pull/1022))
+- Release slima2a 0.2.2 ([#1045](https://github.com/agntcy/slim/pull/1045))
+- Set release candidate 1.0.0-rc.0 ([#1135](https://github.com/agntcy/slim/pull/1135))
+- Release SLIM 1.0.0 ([#1160](https://github.com/agntcy/slim/pull/1160))
+
+### Migration Guide: SLIM Python Bindings v0.7.x to v1.x
+
+This guide helps you migrate your SLIM Python bindings code from version 0.7.x to version 1.x.
+
+#### Table of Contents
+
+- [Overview](#overview)
+- [Major Changes](#major-changes)
+- [Core API Changes](#core-api-changes)
+  - [Service Architecture](#service-architecture)
+  - [Application Creation](#application-creation)
+  - [Connection Management](#connection-management)
+  - [Session Creation](#session-creation)
+  - [Message Handling](#message-handling)
+  - [Authentication](#authentication)
+- [Configuration Changes](#configuration-changes)
+- [CLI and Argument Parsing](#cli-and-argument-parsing)
+- [Server Setup](#server-setup)
+- [Step-by-Step Migration Examples](#step-by-step-migration-examples)
+  - [Point-to-Point Example](#point-to-point-example)
+  - [Group Messaging Example](#group-messaging-example)
+  - [Server Example](#server-example)
+- [Breaking Changes Summary](#breaking-changes-summary)
+
+#### Overview
+
+Version 1.x introduces a **service-based architecture** that significantly changes how you initialize and use SLIM. The new design:
+
+- Separates service initialization from application creation
+- Supports both global and local service instances (global is recommended for most use cases)
+- Introduces structured configuration objects using Pydantic
+- Changes the session creation and message retrieval APIs
+- Modernizes the authentication configuration approach
+
+#### Major Changes
+
+**1. Service vs. Application Model**
+- **v0.7.x**: Used `slim_bindings.Slim()` class directly
+- **v1.x**: Uses `slim_bindings.Service` + `slim_bindings.App` pattern
+  - Most applications use the global service via `get_global_service()`
+  - Local services can be created if multiple data planes are needed in one process
+
+**2. Connection Management**
+- **v0.7.x**: Connection via `slim.connect(config_dict)`
+- **v1.x**: Connection via `service.connect_async(client_config)` returning a connection ID
+
+**3. Session API**
+- **v0.7.x**: `create_session()` returns `(Session, CompletionHandle)`
+- **v1.x**: `create_session_async()` returns `SessionContext` with `.session` and `.completion` attributes
+
+**4. Message Retrieval**
+- **v0.7.x**: `session.get_message()` returns `(MessageContext, bytes)`
+- **v1.x**: `session.get_message_async()` returns `ReceivedMessage` with `.context` and `.payload` attributes
+  - Both blocking (`get_message()`) and async (`get_message_async()`) versions available
+
+**5. Authentication Configuration**
+- **v0.7.x**: Used variant enums like `IdentityProvider.SharedSecret()`, `IdentityProvider.StaticJwt()`
+- **v1.x**: Uses nested config objects like `IdentityProviderConfig.JWT()`, `JwtKeyConfig`, etc.
+
+#### Global vs. Local Services
+
+In v1.x, you have two options for creating a service:
+
+**Global Service (Recommended)**
+
+Most applications should use the global service instance, as there's typically no need to have more than one data plane running in the same process:
+
+```python
+# Initialize once at application startup
+slim_bindings.initialize_with_configs(
+    tracing_config=tracing_config,
+    runtime_config=runtime_config,
+    service_config=[service_config],
+)
+
+# Get the global service instance anywhere in your code
+service = slim_bindings.get_global_service()
+```
+
+**Advantages:**
+- Simpler initialization
+- Shared across the entire application
+- Typical use case for most applications
+
+**Local Service (Advanced)**
+
+If you need multiple isolated data planes in the same process, you can create local service instances:
+
+```python
+# Create a local service with just a name (uses default config)
+local_service = slim_bindings.Service("my-service")
+
+# Or create with specific configuration
+service_config = slim_bindings.new_service_config()
+# Customize service_config if needed...
+# service_config.node_id = "my-node"
+# service_config.group_name = "my-group"
+local_service = slim_bindings.Service.new_with_config("my-service", service_config)
+
+# Each local service operates independently
+another_service = slim_bindings.Service("another-service")
+```
+
+**Use cases:**
+- Testing scenarios requiring isolation
+- Multi-tenant applications with separate data planes
+- Complex applications with distinct service configurations
+
+**Note:** Unless you have a specific reason to use local services, stick with the global service pattern shown in all the examples.
+
+#### Blocking vs. Async Methods
+
+Version 1.x provides **both blocking and async versions** of most methods to support different programming styles:
+
+**Naming Convention**
+
+- **Async methods**: Suffix `_async` (e.g., `create_session_async()`, `publish_async()`)
+- **Blocking methods**: No suffix (e.g., `create_session()`, `publish()`)
+
+**Combined Operations**
+
+Many operations also have `_and_wait` variants that combine the operation with waiting for completion:
+
+- `create_session_and_wait_async()` - Creates session and waits for establishment
+- `delete_session_and_wait_async()` - Deletes session and waits for completion
+- `publish_and_wait_async()` - Publishes message and waits for delivery
+- `invite_and_wait_async()` - Invites participant and waits for completion
+- `remove_and_wait_async()` - Removes participant and waits for completion
+
+**Example Comparison**
+
+```python
+# Two-step approach (more control)
+session_ctx = await app.create_session_async(config, destination)
+await session_ctx.completion.wait_async()
+session = session_ctx.session
+
+# Combined approach (simpler)
+session = await app.create_session_and_wait_async(config, destination)
+```
+
+**When to Use Each**
+
+- **Async methods** (`_async`): When you're using `asyncio` in Python
+- **Blocking methods**: For synchronous code or when called from non-async contexts
+- **Combined methods** (`_and_wait_async`): When you don't need the completion handle separately
+
+**Note:** Python examples typically use the async versions since SLIM operations are inherently asynchronous.
+
+#### Error Handling Changes
+
+**v0.7.x - Direct Property Access**
+```python
+# Properties returned values directly
+session_id = session.id
+source = session.src
+destination = session.dst
+instance_id = local_app.id_str
+```
+
+**v1.x - Methods Return Results**
+
+In v1.x, most property accessors are now methods that can raise `SlimError` exceptions:
+
+```python
+try:
+    # These can raise SlimError if session is closed
+    session_id = session.session_id()
+    source = session.source()
+    destination = session.destination()
+except Exception as e:
+    print(f"Error accessing session property: {e}")
+    # Handle closed session
+```
+
+**Best Practices**
+
+1. **Check session validity before accessing properties:**
+   ```python
+   # Store values early in session lifecycle
+   session_id = session.session_id()
+   source = session.source()
+   destination = session.destination()
+   
+   # Use stored values later instead of calling methods again
+   ```
+
+2. **Handle errors gracefully:**
+   ```python
+   try:
+       await session.publish_async(data, None, None)
+   except Exception as e:
+       if "session closed" in str(e).lower():
+           print("Session was closed")
+       else:
+           raise
+   ```
+
+#### Core API Changes
+
+**Service Architecture**
+
+v0.7.x:
+```python
+# Tracing initialization
+await slim_bindings.init_tracing({
+    "log_level": "info",
+    "opentelemetry": {
+        "enabled": enable_opentelemetry,
+        "grpc": {"endpoint": "http://localhost:4317"}
+    }
+})
+
+# Create app directly
+local_app = slim_bindings.Slim(local_name, provider, verifier)
+```
+
+v1.x:
+```python
+# Initialize with config objects
+tracing_config = slim_bindings.new_tracing_config()
+runtime_config = slim_bindings.new_runtime_config()
+service_config = slim_bindings.new_service_config()
+
+tracing_config.log_level = "info"
+
+slim_bindings.initialize_with_configs(
+    tracing_config=tracing_config,
+    runtime_config=runtime_config,
+    service_config=[service_config],
+)
+
+# Get global service (recommended)
+service = slim_bindings.get_global_service()
+
+# Alternative: Create a local service instance
+# service = slim_bindings.Service("my-service")
+
+# Create app from service
+local_app = service.create_app(local_name, provider_config, verifier_config)
+```
+
+**Application Creation**
+
+v0.7.x - Shared Secret:
+```python
+provider = slim_bindings.IdentityProvider.SharedSecret(
+    identity=identity, 
+    shared_secret=secret
+)
+verifier = slim_bindings.IdentityVerifier.SharedSecret(
+    identity=identity, 
+    shared_secret=secret
+)
+local_app = slim_bindings.Slim(local_name, provider, verifier)
+```
+
+v1.x - Shared Secret (Option 1 - Using App constructor):
+```python
+provider_config = slim_bindings.IdentityProviderConfig.SharedSecret(
+    id=str(local_name),
+    data=secret
+)
+verifier_config = slim_bindings.IdentityVerifierConfig.SharedSecret(
+    id=str(local_name),
+    data=secret
+)
+local_app = slim_bindings.App.new(local_name, provider_config, verifier_config)
+```
+
+v1.x - Shared Secret (Option 2 - Simplified):
+```python
+service = slim_bindings.get_global_service()
+# Simplified API for shared secret
+local_app = service.create_app_with_secret(local_name, secret)
+```
+
+**JWT Authentication**
+
+v0.7.x:
+```python
+provider = slim_bindings.IdentityProvider.StaticJwt(path=jwt_path)
+
+pykey = slim_bindings.Key(
+    algorithm=slim_bindings.Algorithm.RS256,
+    format=slim_bindings.KeyFormat.Jwks,
+    key=slim_bindings.KeyData.Content(content=jwks_json),
+)
+
+verifier = slim_bindings.IdentityVerifier.Jwt(
+    public_key=pykey,
+    issuer=iss,
+    audience=aud,
+    subject=sub,
+)
+```
+
+v1.x:
+```python
+import datetime
+
+encoding_key_config = slim_bindings.JwtKeyConfig(
+    algorithm=slim_bindings.JwtAlgorithm.RS256,
+    format=slim_bindings.JwtKeyFormat.PEM,
+    key=slim_bindings.JwtKeyData.DATA(value=jwt_content),
+)
+
+provider_config = slim_bindings.IdentityProviderConfig.JWT(
+    config=slim_bindings.ClientJwtAuth(
+        key=slim_bindings.JwtKeyType.ENCODING(key=encoding_key_config),
+        audience=["default-audience"],
+        issuer="default-issuer",
+        subject=local_name,
+        duration=datetime.timedelta(seconds=3600),
+    )
+)
+
+decoding_key_config = slim_bindings.JwtKeyConfig(
+    algorithm=slim_bindings.JwtAlgorithm.RS256,
+    format=slim_bindings.JwtKeyFormat.JWKS,
+    key=slim_bindings.JwtKeyData.DATA(value=jwks_json),
+)
+
+verifier_config = slim_bindings.IdentityVerifierConfig.JWT(
+    config=slim_bindings.JwtAuth(
+        key=slim_bindings.JwtKeyType.DECODING(key=decoding_key_config),
+        audience=["default-audience"],
+        issuer="default-issuer",
+        subject=None,
+        duration=datetime.timedelta(seconds=3600),
+    )
+)
+```
+
+**Connection Management**
+
+v0.7.x:
+```python
+conn_id = await local_app.connect({
+    "endpoint": "http://127.0.0.1:46357",
+    "tls": {"insecure": True}
+})
+```
+
+v1.x (Option 1 - Simple):
+```python
+service = slim_bindings.get_global_service()
+client_config = slim_bindings.new_insecure_client_config("http://127.0.0.1:46357")
+conn_id = await service.connect_async(client_config)
+
+# Subscribe to local name
+await local_app.subscribe_async(local_name, conn_id)
+```
+
+**Session Creation**
+
+v0.7.x - Point-to-Point:
+```python
+import datetime
+
+config = slim_bindings.SessionConfiguration.PointToPoint(
+    max_retries=5,
+    timeout=datetime.timedelta(seconds=5),
+    mls_enabled=enable_mls,
+)
+
+session, handle = await local_app.create_session(remote_name, config)
+await handle
+```
+
+v1.x - Point-to-Point:
+```python
+import datetime
+
+session_config = slim_bindings.SessionConfig(
+    session_type=slim_bindings.SessionType.POINT_TO_POINT,
+    enable_mls=enable_mls,
+    max_retries=5,
+    interval=datetime.timedelta(seconds=5),
+    metadata={},
+)
+
+session_context = await local_app.create_session_async(session_config, remote_name)
+await session_context.completion.wait_async()
+session = session_context.session
+
+# Or use the combined version
+session = await local_app.create_session_and_wait_async(session_config, remote_name)
+```
+
+**Message Handling**
+
+v0.7.x - Publishing:
+```python
+# Simple publish
+await session.publish(message.encode())
+
+# Publish with reply
+await session.publish_to(msg_ctx, reply.encode())
+```
+
+v1.x - Publishing:
+```python
+# Simple publish - now requires metadata parameters
+await session.publish_async(message.encode(), None, None)
+
+# Publish with reply - explicit metadata
+await session.publish_to_async(msg_ctx, reply.encode(), None, msg_ctx.metadata)
+```
+
+v0.7.x - Receiving:
+```python
+# Returns tuple
+msg_ctx, payload = await session.get_message()
+
+# Access fields
+sender = msg_ctx.source_name
+data = payload.decode()
+```
+
+v1.x - Receiving:
+```python
+import datetime
+
+# Returns ReceivedMessage object with timeout
+received_msg = await session.get_message_async(timeout=datetime.timedelta(seconds=30))
+
+# Access fields via attributes
+ctx = received_msg.context
+payload = received_msg.payload
+
+sender = ctx.source_name if hasattr(ctx, "source_name") else session.source()
+data = payload.decode()
+```
+
+**Getting Participant List (New in v1.x)**
+
+v1.x introduces the ability to retrieve the list of participants in a group session:
+
+```python
+# Get list of participants in a group session
+participants = session.participants_list()
+
+# participants is a list of Name objects
+for participant in participants:
+    print(f"Participant: {participant}")
+
+# You can also convert to string
+participant_names = [str(p) for p in participants]
+```
+
+This is particularly useful for:
+- Monitoring who is currently in a group session
+- Displaying active participants in the UI
+- Implementing logic based on current participant count
+
+#### Breaking Changes Summary
+
+**Required Changes:**
+
+1. **Update App creation**
+   - **v0.7.x**: `Slim(name, provider, verifier)`
+   - **v1.x**: Three options available:
+     - `App.new(name, provider_config, verifier_config)` - Direct constructor
+     - `service.create_app(name, provider_config, verifier_config)` - Via service instance
+     - `App.new_with_secret(name, secret)` - Convenience for shared secrets
+
+2. **Update all async method names**
+   - Add `_async` suffix to all async methods
+   - `create_session` → `create_session_async`
+   - `get_message` → `get_message_async`
+   - Consider using `_and_wait_async()` variants
+
+3. **Update session creation return values**
+   - Access via `.session` and `.completion` attributes
+   - Wait for completion with `.wait_async()`
+
+4. **Update message retrieval**
+   - Access via `.context` and `.payload` attributes
+   - Add timeout parameter
+
+5. **Update authentication configuration**
+   - Use `IdentityProviderConfig` and `IdentityVerifierConfig`
+   - Build nested config objects
+
+6. **Update session properties and add error handling**
+   - Call methods instead of accessing attributes: `session.session_id()`, `session.source()`, `session.destination()`
+   - These methods can raise `SlimError` - wrap in try/except
+   - Store property values early in session lifecycle
+
+7. **Update publish calls**
+   - Add `None, None` for topic and metadata parameters if not used
+
+8. **Add connection ID to routing**
+   - `set_route_async(name, conn_id)`
+
+#### Migration Checklist
+
+- [ ] Update imports and initialization
+  - [ ] Replace `init_tracing()` with config-based initialization
+  - [ ] Initialize global service
+  - [ ] Get service instance
+
+- [ ] Update authentication
+  - [ ] Migrate `IdentityProvider` to `IdentityProviderConfig`
+  - [ ] Migrate `IdentityVerifier` to `IdentityVerifierConfig`
+  - [ ] Use `create_app_with_secret()` for shared secrets
+
+- [ ] Update app creation
+  - [ ] Use `service.create_app()` instead of `Slim()`
+  - [ ] Add connection via `service.connect_async()`
+  - [ ] Subscribe to local name
+
+- [ ] Update session handling
+  - [ ] Add `_async` suffix to methods
+  - [ ] Update session creation to use `SessionContext`
+  - [ ] Update message retrieval to use `ReceivedMessage`
+  - [ ] Add timeouts to `get_message_async()`
+
+- [ ] Update session operations
+  - [ ] Change property access to method calls
+  - [ ] Add `None, None` to publish calls
+  - [ ] Update handle waiting with `wait_async()`
+
+- [ ] Update routing
+  - [ ] Pass connection ID to `set_route_async()`
+
+- [ ] Add error handling
+  - [ ] Wrap session property access in try/except
+  - [ ] Handle "session closed" errors gracefully
+  - [ ] Store session properties early in lifecycle
+
+- [ ] Test migration
+  - [ ] Test connection and authentication
+  - [ ] Test session creation
+  - [ ] Test message send/receive
+  - [ ] Test error conditions
+  - [ ] Test cleanup and shutdown
+
+#### Quick Reference: Common API Replacements
+
+| v0.7.x | v1.x | Notes |
+|--------|------|-------|
+| `slim_bindings.Slim(name, provider, verifier)` | `slim_bindings.App.new(name, provider_config, verifier_config)` | Both constructors available |
+| `await slim.connect(config_dict)` | `await service.connect_async(client_config)` | Returns connection ID |
+| `IdentityProvider.SharedSecret(...)` | `IdentityProviderConfig.SharedSecret(...)` | Nested config objects |
+| `session, handle = await app.create_session(...)` | `session_ctx = await app.create_session_async(...)`<br>`session = session_ctx.session` | Returns SessionContext |
+| `await handle` | `await handle.wait_async()` | Explicit wait method |
+| `await session.publish(data)` | `await session.publish_async(data, None, None)` | Additional parameters required |
+| `ctx, payload = await session.get_message()` | `msg = await session.get_message_async(timeout)`<br>`ctx = msg.context`<br>`payload = msg.payload` | Returns ReceivedMessage object |
+| `session.id` | `session.session_id()` | Method call |
+| `session.src` | `session.source()` | Method call |
+| `session.dst` | `session.destination()` | Method call |
+| `local_app.id_str` | `str(local_app.id())` | Method call |
+| `await local_app.set_route(name)` | `await local_app.set_route_async(name, conn_id)` | Requires connection ID |
+| `SessionConfiguration.PointToPoint(...)` | `SessionConfig(session_type=SessionType.POINT_TO_POINT, ...)` | Unified config struct |
+
+#### Additional Resources
+
+- Go Bindings: [github.com/agntcy/slim-bindings-go](https://github.com/agntcy/slim-bindings-go)
+- Semantic Versioning Specification: [docs/semantic-versioning.md](docs/semantic-versioning.md)
+- UniFFI Documentation: https://mozilla.github.io/uniffi-rs/
+
 ## v0.6.0 (9 October 2025)
 
 ### Key Highlights
