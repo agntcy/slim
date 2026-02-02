@@ -19,11 +19,11 @@ RUN sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/loc
 
 # # Build control-plane binaries (control-plane, token-service, slimctl)
 # # control-plane and token-service don't need CGO
-RUN task control-plane:control-plane:build
-RUN task control-plane:token-service:build
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 task control-plane:control-plane:build
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 task control-plane:token-service:build
 
 ## https://github.com/GoogleContainerTools/distroless
-FROM gcr.io/distroless/static:nonroot AS control-plane
+FROM --platform=${TARGETOS}/${TARGETARCH} gcr.io/distroless/static:nonroot AS control-plane
 
 WORKDIR /
 
