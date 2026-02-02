@@ -67,22 +67,12 @@ func (m *manager) Start(_ context.Context) error {
 	endpoint := config.GetDisplayEndpoint()
 	logLevel := config.GetDisplayLogLevel()
 
-	fmt.Printf("🌐 Starting SLIM server...\n")
-	fmt.Printf("   Configuration: %s\n", configPath)
-	fmt.Printf("   Endpoint: %s\n", endpoint)
-	fmt.Printf("   Log level: %s\n", logLevel)
-	fmt.Println()
-	fmt.Println("   Waiting for clients to connect...")
-	fmt.Println()
-
 	// The server is already running from InitializeFromConfig
 	// Just need to display status and wait for signal
 	time.Sleep(100 * time.Millisecond)
 
-	fmt.Println("✅ Server running and listening")
-	fmt.Println()
-	fmt.Printf("📡 Endpoint: %s\n", endpoint)
-	fmt.Println()
+	fmt.Println("SLIM dataplane running")
+	fmt.Printf("   Configuration: %s\n", configPath)
 	fmt.Println("Press Ctrl+C to stop")
 
 	// Wait for interrupt signal
