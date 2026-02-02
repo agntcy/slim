@@ -1,0 +1,5 @@
+[bindings.java]
+package_name = "io.agntcy.slim.bindings"
+cdylib_name = "slim_bindings"
+generate_immutable_records = false
+android = false

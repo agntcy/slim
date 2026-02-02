@@ -1,0 +1,154 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+version: '3'
+
+silent: true
+set: [pipefail]
+shopt: [globstar]
+
+includes:
+  adapter:
+    taskfile: ../rust/Taskfile.yaml
+    internal: false
+  rust:
+    taskfile: ../../../tasks/rust.yaml
+    internal: true
+  examples:
+    taskfile: ./examples/Taskfile.yaml
+    internal: false
+
+vars:
+  BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
+  PROFILE: '{{.PROFILE | default "release"}}'
+  CURRENT_TARGET:
+    sh: 'rustc -vV | sed -n "s|host: ||p"'
+  TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
+  SERVICE_TARGET: "{{.TASKFILE_DIR}}/../../target/{{.TARGET}}/{{.PROFILE}}"
+  LIB_NAME: slim_bindings
+  _DEFAULT_LIB_PATH:
+    sh: |
+      # Detect OS to determine library extension
+      OS=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
+      case "$OS" in
+        mingw*|msys*|cygwin*)
+          echo "{{.SERVICE_TARGET}}/{{.LIB_NAME}}.lib"
+          ;;
+        darwin*)
+          echo "{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.dylib"
+          ;;
+        *)
+          echo "{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.so"
+          ;;
+      esac
+  LIB_PATH: "{{.LIB_PATH | default ._DEFAULT_LIB_PATH}}"
+
+tasks:
+  default:
+    cmds:
+      - task -l
+
+  install-uniffi-bindgen-java:
+    desc: Install uniffi-bindgen-java CLI tool
+    status:
+      - which uniffi-bindgen-java
+    cmds:
+      - echo "📦 Installing uniffi-bindgen-java..."
+      - cargo install uniffi-bindgen-java --git https://github.com/IronCoreLabs/uniffi-bindgen-java --tag 0.2.1
+      - echo "✅ uniffi-bindgen-java installed"
+
+  generate:
+    desc: Generate Java bindings from compiled Rust library
+    deps:
+      - task: adapter:bindings:build:all
+        vars:
+          PROFILE: release
+      - install-uniffi-bindgen-java
+    cmds:
+      - echo "🔧 Generating Java bindings from compiled library..."
+      - |
+        uniffi-bindgen-java generate \
+          --library '{{.LIB_PATH}}' \
+          --out-dir generated/uniffi \
+          --config uniffi.toml
+      - task: copy-library
+      - task: patch-bindings
+      - echo "✅ Bindings generated in generated/"
+
+  copy-library:
+    desc: Copy native library to generated directory for JNA loading
+    internal: true
+    cmds:
+      - echo "📦 Copying native library..."
+      - |
+        mkdir -p generated/native
+        LIB_DIR=$(dirname "{{.LIB_PATH}}")
+        
+        # Detect OS and architecture
+        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+        ARCH=$(uname -m)
+        
+        case "$OS" in
+          darwin*)
+            OS_DIR="darwin"
+            LIB_EXT="dylib"
+            ;;
+          linux*)
+            OS_DIR="linux"
+            LIB_EXT="so"
+            ;;
+          mingw*|msys*|cygwin*)
+            OS_DIR="windows"
+            LIB_EXT="dll"
+            ;;
+        esac
+        
+        case "$ARCH" in
+          x86_64|amd64) ARCH_DIR="x86_64" ;;
+          arm64|aarch64) ARCH_DIR="aarch64" ;;
+        esac
+        
+        DEST_DIR="generated/native/${OS_DIR}-${ARCH_DIR}"
+        mkdir -p "$DEST_DIR"
+        
+        if [ -f "{{.LIB_PATH}}" ]; then
+          cp "{{.LIB_PATH}}" "$DEST_DIR/lib{{.LIB_NAME}}.${LIB_EXT}"
+          echo "✅ Copied library to $DEST_DIR/"
+        else
+          echo "⚠️  Library not found: {{.LIB_PATH}}"
+          exit 1
+        fi
+
+  patch-bindings:
+    desc: Patch generated Java bindings to fix compatibility issues
+    internal: true
+    cmds:
+      - ./patch-bindings.sh
+
+  build:
+    desc: Build Java code and create JAR
+    deps:
+      - generate
+    cmds:
+      - echo "🔨 Building Java bindings..."
+      - mvn clean package -DskipTests
+      - echo "✅ Build complete"
+
+  install:
+    desc: Install Java bindings JAR to local Maven repository
+    deps:
+      - build
+    cmds:
+      - echo "📦 Installing Java bindings to local Maven repository..."
+      - mvn install -DskipTests
+      - echo "✅ Installed to local Maven repository"
+
+  clean:
+    desc: Clean build artifacts and generated code
+    cmds:
+      - echo "🧹 Cleaning build artifacts..."
+      - rm -rf generated/
+      - rm -rf target/
+      - mvn clean 2>/dev/null || true
+      - echo "✅ Clean complete"
