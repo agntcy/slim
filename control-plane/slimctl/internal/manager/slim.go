@@ -63,16 +63,12 @@ func (m *manager) Start(_ context.Context) error {
 	// The bindings will panic with a descriptive error if the config is invalid
 	slim.InitializeFromConfig(configPath)
 
-	// Display startup information using environment variables
-	endpoint := config.GetDisplayEndpoint()
-	logLevel := config.GetDisplayLogLevel()
-
 	// The server is already running from InitializeFromConfig
 	// Just need to display status and wait for signal
 	time.Sleep(100 * time.Millisecond)
 
 	fmt.Println("SLIM dataplane running")
-	fmt.Printf("   Configuration: %s\n", configPath)
+	fmt.Println("   Configuration: ", configPath)
 	fmt.Println("Press Ctrl+C to stop")
 
 	// Wait for interrupt signal
