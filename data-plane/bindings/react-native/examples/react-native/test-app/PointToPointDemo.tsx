@@ -290,7 +290,7 @@ export default function PointToPointDemo({slimBindings}: PointToPointDemoProps) 
         
         // Give route time to propagate (like Go example)
         console.log('[Bob] Waiting 100ms for route to propagate...');
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise<void>(resolve => setTimeout(() => resolve(), 100));
       } catch (e: any) {
         console.error('[Bob] setRoute error:', e);
         console.error('[Bob] setRoute error stack:', e.stack);
@@ -363,7 +363,7 @@ export default function PointToPointDemo({slimBindings}: PointToPointDemoProps) 
           }
           
           // Wait between messages
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          await new Promise<void>(resolve => setTimeout(() => resolve(), 1000));
         }
         
         console.log('[Bob] Step 7: Cleanup');
