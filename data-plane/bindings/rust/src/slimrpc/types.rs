@@ -184,13 +184,6 @@ impl ResponseSink {
     }
 }
 
-/// Response stream for unary-stream and stream-stream handlers
-///
-/// This type represents the return value of streaming handlers.
-/// It's an alias for compatibility with the handler trait definitions.
-pub type ResponseStream =
-    Box<dyn futures::Stream<Item = Result<Vec<u8>, slim_rpc::Status>> + Send + Unpin>;
-
 #[cfg(test)]
 mod tests {
     use super::*;

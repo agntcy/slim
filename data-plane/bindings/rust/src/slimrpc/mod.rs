@@ -77,7 +77,7 @@ pub use handler::{
     UnaryUnaryHandler,
 };
 pub use server::Server as RpcServer;
-pub use types::{RequestStream, ResponseSink, ResponseStream, StreamMessage};
+pub use types::{RequestStream, ResponseSink, StreamMessage};
 
 // Legacy compatibility re-exports
 pub use channel::Channel;
