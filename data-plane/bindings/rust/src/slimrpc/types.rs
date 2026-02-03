@@ -8,8 +8,8 @@
 //! pull/push interfaces backed by async channels.
 
 use futures::StreamExt;
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use parking_lot::Mutex;
+use tokio::sync::Mutex as TokioMutex;
 
 use crate::slimrpc::error::RpcError;
 
@@ -21,14 +21,14 @@ use crate::slimrpc::error::RpcError;
 #[derive(uniffi::Object)]
 pub struct RequestStream {
     /// Inner stream wrapped in a mutex for interior mutability
-    inner: Arc<Mutex<slim_rpc::RequestStream<Vec<u8>>>>,
+    inner: TokioMutex<slim_rpc::RequestStream<Vec<u8>>>,
 }
 
 impl RequestStream {
     /// Create a new request stream wrapper
     pub(crate) fn new(stream: slim_rpc::RequestStream<Vec<u8>>) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(stream)),
+            inner: TokioMutex::new(stream),
         }
     }
 }
@@ -73,10 +73,8 @@ pub enum StreamMessage {
 /// suitable for UniFFI callback traits.
 #[derive(uniffi::Object)]
 pub struct ResponseSink {
-    /// Channel sender for streaming responses
-    sender: Arc<Mutex<tokio::sync::mpsc::UnboundedSender<Result<Vec<u8>, slim_rpc::Status>>>>,
-    /// Flag to track if the sink has been closed
-    closed: Arc<Mutex<bool>>,
+    /// Channel sender for streaming responses (None when closed)
+    sender: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Result<Vec<u8>, slim_rpc::Status>>>>,
 }
 
 impl ResponseSink {
@@ -85,8 +83,7 @@ impl ResponseSink {
         sender: tokio::sync::mpsc::UnboundedSender<Result<Vec<u8>, slim_rpc::Status>>,
     ) -> Self {
         Self {
-            sender: Arc::new(Mutex::new(sender)),
-            closed: Arc::new(Mutex::new(false)),
+            sender: Mutex::new(Some(sender)),
         }
     }
 
@@ -114,22 +111,19 @@ impl ResponseSink {
     ///
     /// Returns an error if the stream has been closed or if sending fails.
     pub async fn send_async(&self, data: Vec<u8>) -> Result<(), RpcError> {
-        let closed = self.closed.lock().await;
-        if *closed {
-            return Err(RpcError::new(
+        let sender = self.sender.lock();
+        match sender.as_ref() {
+            Some(s) => s.send(Ok(data)).map_err(|_| {
+                RpcError::new(
+                    crate::slimrpc::error::RpcCode::Unavailable,
+                    "Failed to send response".to_string(),
+                )
+            }),
+            None => Err(RpcError::new(
                 crate::slimrpc::error::RpcCode::FailedPrecondition,
                 "Response sink is closed".to_string(),
-            ));
+            )),
         }
-        drop(closed);
-
-        let sender = self.sender.lock().await;
-        sender.send(Ok(data)).map_err(|_| {
-            RpcError::new(
-                crate::slimrpc::error::RpcCode::Unavailable,
-                "Failed to send response".to_string(),
-            )
-        })
     }
 
     /// Send an error to the response stream and close it (blocking version)
@@ -143,24 +137,22 @@ impl ResponseSink {
     ///
     /// This terminates the stream with an error status.
     pub async fn send_error_async(&self, error: RpcError) -> Result<(), RpcError> {
-        let mut closed = self.closed.lock().await;
-        if *closed {
-            return Err(RpcError::new(
+        let mut sender_guard = self.sender.lock();
+        match sender_guard.take() {
+            Some(sender) => {
+                let status: slim_rpc::Status = error.into();
+                sender.send(Err(status)).map_err(|_| {
+                    RpcError::new(
+                        crate::slimrpc::error::RpcCode::Unavailable,
+                        "Failed to send error".to_string(),
+                    )
+                })
+            }
+            None => Err(RpcError::new(
                 crate::slimrpc::error::RpcCode::FailedPrecondition,
                 "Response sink is already closed".to_string(),
-            ));
+            )),
         }
-        *closed = true;
-        drop(closed);
-
-        let sender = self.sender.lock().await;
-        let status: slim_rpc::Status = error.into();
-        sender.send(Err(status)).map_err(|_| {
-            RpcError::new(
-                crate::slimrpc::error::RpcCode::Unavailable,
-                "Failed to send error".to_string(),
-            )
-        })
     }
 
     /// Close the response stream (blocking version)
@@ -176,17 +168,8 @@ impl ResponseSink {
     /// Signals that no more messages will be sent.
     /// The stream will end gracefully.
     pub async fn close_async(&self) -> Result<(), RpcError> {
-        let mut closed = self.closed.lock().await;
-        if *closed {
-            return Ok(()); // Already closed, idempotent
-        }
-        *closed = true;
-        drop(closed);
-
-        // Drop the sender to signal stream end
-        // The sender is wrapped in Arc<Mutex>, so we need to drop the actual sender
-        // by replacing it or letting all references go
-        // For now, we just mark as closed and the actual close happens when dropped
+        let mut sender = self.sender.lock();
+        sender.take(); // Drop the sender to signal stream end
         Ok(())
     }
 
@@ -197,7 +180,7 @@ impl ResponseSink {
 
     /// Check if the sink has been closed (async version)
     pub async fn is_closed_async(&self) -> bool {
-        *self.closed.lock().await
+        self.sender.lock().is_none()
     }
 }
 
