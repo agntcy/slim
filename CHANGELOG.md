@@ -155,6 +155,7 @@ Version 1.x introduces a **service-based architecture** that significantly chang
 - Supports both global and local service instances (global is recommended for most use cases)
 - Introduces structured configuration objects using Pydantic
 - Changes the session creation and message retrieval APIs
+- Provides both synchronous and asynchronous versions of functions (async versions use `_async` suffix)
 - Modernizes the authentication configuration approach
 
 #### Major Changes
@@ -167,16 +168,18 @@ Version 1.x introduces a **service-based architecture** that significantly chang
 
 **2. Connection Management**
 - **v0.7.x**: Connection via `slim.connect(config_dict)`
-- **v1.x**: Connection via `service.connect_async(client_config)` returning a connection ID
+- **v1.x**: Connection via `service.connect_async(client_config)` or `service.connect(client_config)` returning a connection ID
 
 **3. Session API**
 - **v0.7.x**: `create_session()` returns `(Session, CompletionHandle)`
-- **v1.x**: `create_session_async()` returns `SessionContext` with `.session` and `.completion` attributes
+- **v1.x**: `create_session_async()` or `create_session()` returns `SessionContext` with `.session` and `.completion` attributes
 
 **4. Message Retrieval**
+
 - **v0.7.x**: `session.get_message()` returns `(MessageContext, bytes)`
-- **v1.x**: `session.get_message_async()` returns `ReceivedMessage` with `.context` and `.payload` attributes
-  - Both blocking (`get_message()`) and async (`get_message_async()`) versions available
+- **v1.x**: `session.get_message_async()` or `session.get_message()` returns `ReceivedMessage` with `.context` and `.payload` attributes
+  - Async version: `get_message_async()` for use with asyncio
+  - Blocking version: `get_message()` for synchronous code
 
 **5. Authentication Configuration**
 - **v0.7.x**: Used variant enums like `IdentityProvider.SharedSecret()`, `IdentityProvider.StaticJwt()`
@@ -241,6 +244,28 @@ Version 1.x provides **both blocking and async versions** of most methods to sup
 
 - **Async methods**: Suffix `_async` (e.g., `create_session_async()`, `publish_async()`)
 - **Blocking methods**: No suffix (e.g., `create_session()`, `publish()`)
+
+**Examples**
+
+```python
+# Async version (for use with asyncio)
+async def send_message_async():
+    service = slim_bindings.get_global_service()
+    connection_id = await service.connect_async(client_config)
+    app = service.get_app(connection_id)
+    session_ctx = await app.create_session_async(config, destination)
+    await session_ctx.completion.wait_async()
+    await session_ctx.session.publish_async(b"Hello, World!")
+
+# Sync/blocking version (for synchronous code)
+def send_message_sync():
+    service = slim_bindings.get_global_service()
+    connection_id = service.connect(client_config)
+    app = service.get_app(connection_id)
+    session_ctx = app.create_session(config, destination)
+    session_ctx.completion.wait()
+    session_ctx.session.publish(b"Hello, World!")
+```
 
 **Combined Operations**
 
@@ -465,6 +490,7 @@ conn_id = await local_app.connect({
     "endpoint": "http://127.0.0.1:46357",
     "tls": {"insecure": True}
 })
+# Note: Subscription to local name was done implicitly
 ```
 
 v1.x (Option 1 - Simple):
@@ -473,7 +499,7 @@ service = slim_bindings.get_global_service()
 client_config = slim_bindings.new_insecure_client_config("http://127.0.0.1:46357")
 conn_id = await service.connect_async(client_config)
 
-# Subscribe to local name
+# Subscribe to local name - now MUST be done explicitly
 await local_app.subscribe_async(local_name, conn_id)
 ```
 
@@ -579,6 +605,37 @@ This is particularly useful for:
 - Displaying active participants in the UI
 - Implementing logic based on current participant count
 
+**Traffic Direction Control (New in v1.x)**
+
+v1.x allows you to selectively enable/disable send and receive capabilities when creating an App using `Direction`:
+
+- `Direction.SEND` - Send-only (can publish messages but not receive)
+- `Direction.RECV` - Receive-only (can receive messages but not publish)
+- `Direction.BIDIRECTIONAL` - Both send and receive (default behavior)
+- `Direction.NONE` - Neither send nor receive data messages
+
+Use `App.new_with_direction()` or `App.new_with_direction_async()` to specify direction.
+
+**Examples**
+
+```python
+# Async version - Create a send-only app
+app = await App.new_with_direction_async(
+    name,
+    identity_provider_config,
+    identity_verifier_config,
+    Direction.SEND
+)
+
+# Blocking version - Create a receive-only app
+app = App.new_with_direction(
+    name,
+    identity_provider_config,
+    identity_verifier_config,
+    Direction.RECV
+)
+```
+
 #### Breaking Changes Summary
 
 **Required Changes:**
@@ -634,7 +691,7 @@ This is particularly useful for:
 - [ ] Update app creation
   - [ ] Use `service.create_app()` instead of `Slim()`
   - [ ] Add connection via `service.connect_async()`
-  - [ ] Subscribe to local name
+  - [ ] Subscribe to local name (now required - was implicit in v0.7.x)
 
 - [ ] Update session handling
   - [ ] Add `_async` suffix to methods
