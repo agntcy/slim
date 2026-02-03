@@ -124,8 +124,15 @@ export default function PointToPointDemo({slimBindings}: PointToPointDemoProps) 
         const config = slimBindings.newInsecureClientConfig(serverUrl);
         console.log('[createAndConnectApp] Created config');
         
-        connId = await service.connectAsync(config);
-        console.log('[createAndConnectApp] Connected, connId:', connId);
+        try {
+          connId =  service.connect(config);
+        } catch (e: any) {
+          console.error('[createAndConnectApp] connectAsync error:',e.inner);
+          console.error('[createAndConnectApp] connectAsync error stack:', e.stack);
+          addMessage('system', `❌ connectAsync failed: ${e.message || String(e)}`);
+          throw new Error(`connectAsync failed: ${e.message || String(e)}`);
+        }
+
         
         // Store for reuse
         globalConnectionRef.current = { connId, service };
@@ -294,7 +301,7 @@ export default function PointToPointDemo({slimBindings}: PointToPointDemoProps) 
       console.log('[Bob] Step 4: Creating session config');
       // metadata MUST be a Map object (required field)
       const config: any = {
-        sessionType: 'pointToPoint',
+        sessionType: slimBindings.SessionType.PointToPoint,
         enableMls: false,
         metadata: new Map(),  // Required: Map object
       };
@@ -305,7 +312,20 @@ export default function PointToPointDemo({slimBindings}: PointToPointDemoProps) 
       try {
         // Use createSessionAndWaitAsync (matches Go's CreateSessionAndWait)
         console.log('[Bob] Calling createSessionAndWaitAsync...');
-        const session = await app.createSessionAndWaitAsync(config, remoteName);
+        let session: any;
+
+        try {
+          session = await app.createSessionAndWaitAsync(config, remoteName);
+          sessionRef.current = session;
+          addMessage('system', '📡 Session created');
+        } catch (e: any) {
+          console.error('[Bob] createSessionAndWaitAsync error:', e);
+          console.error('[Bob] createSessionAndWaitAsync error:', e.inner);
+          console.error('[Bob] createSessionAndWaitAsync error stack:', e.stack);
+          addMessage('system', `❌ createSessionAndWaitAsync failed: ${e.inner || String(e.inner)}`);
+          throw new Error(`createSessionAndWaitAsync failed: ${e.inner || String(e.inner)}`);
+        }
+        
         console.log('[Bob] Session created and ready');
         sessionRef.current = session;
         addMessage('system', '📡 Session created');
