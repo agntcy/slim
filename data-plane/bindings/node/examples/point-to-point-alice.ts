@@ -79,10 +79,76 @@ async function handleSession(app: any, session: any, instance: bigint): Promise<
         const text = Buffer.from(payload).toString('utf-8');
         logMessage(instance, `📨 Received: ${text}`);
 
-        // NOTE: Reply sending is blocked by uniffi-bindgen-node FFI incompatibility
-        // The tool generates code for React Native's JSI, which doesn't work with ffi-rs
-        // Attempting to send will fail with: "Object property 'data' type mismatch"
-        logMessage(instance, '⚠️  Reply not sent (uniffi-bindgen-node limitation)');
+        // try to send a reply using synchronous call
+        try {
+          session.publishToAndWait(receivedMsg.context, Buffer.from('Hello from Alice'), undefined, undefined);
+          logMessage(instance, '📤 Sent reply: Hello from Alice');
+        } catch (error: any) {
+          // Debug: log the raw error structure to understand what we're getting
+          console.log('[DEBUG] Raw error:', error);
+          console.log('[DEBUG] Error type:', typeof error);
+          console.log('[DEBUG] Error constructor:', error?.constructor?.name);
+          console.log('[DEBUG] Is array:', Array.isArray(error));
+          if (Array.isArray(error)) {
+            console.log('[DEBUG] Array length:', error.length);
+            console.log('[DEBUG] Array[0]:', error[0]);
+            console.log('[DEBUG] Array[1]:', error[1]);
+          }
+          
+          // Error is returned as a tuple: ["SlimError", SlimError]
+          // SlimError is a tagged union with different error types
+          let errorMessage = 'Unknown error';
+          
+          if (Array.isArray(error) && error.length === 2 && error[0] === 'SlimError' && error[1]) {
+            const slimError = error[1];
+            console.log('[DEBUG] SlimError object:', JSON.stringify(slimError, null, 2));
+            
+            // Extract message based on error tag
+            switch (slimError.tag) {
+              case 'sendError':
+                errorMessage = `Send error: ${slimError.inner.message}`;
+                break;
+              case 'sessionError':
+                errorMessage = `Session error: ${slimError.inner.message}`;
+                break;
+              case 'serviceError':
+                errorMessage = `Service error: ${slimError.inner.message}`;
+                break;
+              case 'timeout':
+                errorMessage = 'Timeout sending reply';
+                break;
+              case 'invalidArgument':
+                errorMessage = `Invalid argument: ${slimError.inner.message}`;
+                break;
+              case 'internalError':
+                errorMessage = `Internal error: ${slimError.inner.message}`;
+                break;
+              case 'authError':
+                errorMessage = `Auth error: ${slimError.inner.message}`;
+                break;
+              case 'configError':
+                errorMessage = `Config error: ${slimError.inner.message}`;
+                break;
+              case 'receiveError':
+                errorMessage = `Receive error: ${slimError.inner.message}`;
+                break;
+              default:
+                errorMessage = `${slimError.tag}: ${JSON.stringify(slimError)}`;
+            }
+          } else if (error?.message) {
+            errorMessage = error.message;
+          } else if (error instanceof Error) {
+            errorMessage = `${error.name}: ${error.message}`;
+            if (error.stack) {
+              console.log('[DEBUG] Error stack:', error.stack);
+            }
+          } else {
+            errorMessage = String(error);
+          }
+          
+          logMessage(instance, `❌ Error sending reply: ${errorMessage}`);
+        }
+        
       } catch (error: any) {
         // Check if session closed or timeout
         if (error.message && error.message.toLowerCase().includes('timeout')) {

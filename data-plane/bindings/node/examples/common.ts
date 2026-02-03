@@ -77,13 +77,30 @@ export async function createAndConnectApp(
   } catch (error: any) {
     let errorMsg = 'Unknown error';
     if (error && typeof error === 'object') {
-      if (error.message) errorMsg = error.message;
-      else if (error.toString && error.toString() !== '[object Object]') errorMsg = error.toString();
-      else errorMsg = JSON.stringify(error, null, 2);
+      // Parse UniffiError message format: "SlimError.[object Object]"
+      if (error.message && typeof error.message === 'string') {
+        if (error.message.startsWith('SlimError.')) {
+          // Extract error data from the error's internal state
+          // Unfortunately UniffiError wraps the object in a way that loses the details
+          // Try to extract from stack or other properties
+          errorMsg = error.message + ' (SlimError details not accessible via UniffiError wrapper)';
+        } else {
+          errorMsg = error.message;
+        }
+      } else if (error.toString && error.toString() !== '[object Object]') {
+        errorMsg = error.toString();
+      } else {
+        errorMsg = JSON.stringify(error, Object.getOwnPropertyNames(error), 2);
+      }
     } else {
       errorMsg = String(error);
     }
     console.error('Full error object:', error);
+    console.error('Error type:', typeof error);
+    console.error('Error keys (own):', Object.getOwnPropertyNames(error));
+    console.error('Error message:', error?.message);
+    console.error('Error name:', error?.name);
+    console.error('Error constructor:', error?.constructor?.name);
     throw new Error(`Create and connect failed: ${errorMsg}`);
   }
 }

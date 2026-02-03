@@ -45,19 +45,19 @@ tasks:
       - which uniffi-bindgen-node
     cmds:
       - echo "📦 Installing uniffi-bindgen-node..."
-      - cargo install --git https://github.com/livekit/uniffi-bindgen-node.git --tag v0.1.1
+      - cargo install --git https://github.com/livekit/uniffi-bindgen-node.git --tag v0.1.3
     silent: true
 
   generate:
     desc: Generate Node.js bindings using uniffi-bindgen-node
     dir: "{{.TASKFILE_DIR}}"
     deps:
+      - task: adapter:bindings:build:all
+        vars:
+          TARGET: "{{.TARGET}}"
+          PROFILE: release
       - task: install-uniffi-bindgen-node
     cmds:
-      - echo "🔧 Building Rust library as cdylib in release mode..."
-      - |
-        cd {{.TASKFILE_DIR}}/../rust
-        RUSTFLAGS="-C link-arg=-Wl,-undefined,dynamic_lookup" cargo rustc --release --package agntcy-slim-bindings --target {{.TARGET}} --crate-type cdylib
       - echo "🔧 Generating Node.js bindings..."
       - |
         # Compute library path with release profile
@@ -97,15 +97,10 @@ tasks:
         echo "✅ Copied $LIB_NAME to generated/"
         rm -f /tmp/slim-node-dylib-path.txt
       - |
-        # Patch FfiConverterBytes -> FfiConverterArrayBuffer
-        echo "🔧 Patching FfiConverterBytes references..."
+        # Apply FFI compatibility patches using TypeScript script
         cd {{.TASKFILE_DIR}}/generated
-        if [ -f slim-bindings-node.ts ]; then
-          sed -i.bak 's/FfiConverterBytes/FfiConverterArrayBuffer/g' slim-bindings-node.ts
-          rm -f slim-bindings-node.ts.bak
-          echo "✅ Patched slim-bindings-node.ts"
-        fi
-      - echo "✅ Node.js bindings generated in generated/"
+        npx tsx {{.TASKFILE_DIR}}/scripts/patch-generated.ts {{.TASKFILE_DIR}}/generated
+      - echo "✅ Node.js bindings generated and patched in generated/"
     silent: false
 
   install:
@@ -154,7 +149,7 @@ tasks:
     desc: Run Alice (receiver) for point-to-point example
     aliases: [example:p2p:alice]
     deps:
-      - task: install:examples
+      ## - task: install:examples
     dir: "{{.TASKFILE_DIR}}/examples"
     cmds:
       - echo "👩 Starting Alice (receiver)..."
