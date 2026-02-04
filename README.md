@@ -10,11 +10,11 @@ communication framework that provides the secure, scalable transport layer for
 AI agent protocols like [A2A (Agent-to-Agent)](https://a2a.ai) and
 [MCP (Model Context Protocol)](https://modelcontextprotocol.io).
 
-📖 **[Read the full documentation](https://docs.agntcy.org/slim/overview/)**
-| 🎓 **[Getting Started Tutorial](https://docs.agntcy.org/slim/slim-group-tutorial/)**
-| 🔌 **[Integrations (RPC)](https://docs.agntcy.org/slim/slim-rpc/)**
-| 🚀 **[Deployment Strategies](./deployments/readme.md)**
-| 📝 **[Technical blog post](https://blogs.agntcy.org/technical/2026/02/03/slim-v1.html)**
+- 📖 **[Read the full documentation](https://docs.agntcy.org/slim/overview/)**
+- 🎓 **[Getting Started Tutorial](https://docs.agntcy.org/slim/slim-group-tutorial/)**
+- 🔌 **[Integrations (RPC)](https://docs.agntcy.org/slim/slim-rpc/)**
+- 🚀 **[Deployment Strategies](./deployments/readme.md)**
+- 📝 **[Technical blog post](https://blogs.agntcy.org/technical/2026/02/03/slim-v1.html)**
 
 ## Architecture
 
