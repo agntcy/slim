@@ -3,7 +3,7 @@
 
 package io.agntcy.slim.examples.common
 
-import uniffi.slim_bindings.*
+import io.agntcy.slim.bindings.*
 import java.io.File
 import java.time.Duration
 import kotlinx.coroutines.*
