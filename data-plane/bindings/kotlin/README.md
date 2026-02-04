@@ -334,46 +334,11 @@ The project uses [Task](https://taskfile.dev/) for build automation:
 - `task clean` - Remove build artifacts and generated code
 - `task example:server` - Run the server example
 - `task example:p2p:alice` - Run Alice (P2P receiver)
-- `task example:p2p:bob` - Run Bob (P2P sender)
+- `task example:p2p:no-mls:bob` - Run Bob (P2P sender, without encryption)
 - `task example:p2p:mls:bob` - Run Bob with MLS encryption
 - `task example:group:moderator` - Run group moderator
 - `task example:group:client-1` - Run group participant 1
 - `task example:group:client-2` - Run group participant 2
-
-### Manual Build
-
-You can also use Gradle directly:
-
-```bash
-# Generate bindings first
-task generate
-
-# Build with Gradle
-./gradlew build
-
-# Run examples
-./gradlew :runServer
-./gradlew :runPointToPoint --args="--local org/alice/app"
-./gradlew :runGroup --args="--local org/alice/app"
-```
-
-### Create Fat JARs
-
-Build standalone executable JARs with all dependencies:
-
-```bash
-./gradlew serverJar
-./gradlew pointToPointJar
-./gradlew groupJar
-```
-
-The JARs will be in `build/libs/`:
-
-```bash
-java -jar build/libs/slim-server.jar --slim 127.0.0.1:8080
-java -jar build/libs/slim-point-to-point.jar --local org/alice/app
-java -jar build/libs/slim-group.jar --local org/alice/app
-```
 
 ## Dependencies
 
@@ -429,33 +394,6 @@ try {
 }
 ```
 
-## Troubleshooting
-
-### Native Library Not Found
-
-If you get `UnsatisfiedLinkError`, ensure bindings are generated:
-
-```bash
-task generate
-```
-
-### Build Errors
-
-Clean and rebuild:
-
-```bash
-task clean
-task build
-```
-
-### Connection Refused
-
-Ensure the SLIM server is running:
-
-```bash
-task example:server
-```
-
 ## Development
 
 ### Project Layout
@@ -465,25 +403,6 @@ task example:server
 - `generated/` - UniFFI-generated Kotlin code (not in git)
 - `build.gradle.kts` - Gradle build configuration
 - `Taskfile.yaml` - Task automation
-
-### Adding New Examples
-
-1. Create a new `.kt` file in `examples/`
-2. Add a Gradle task in `build.gradle.kts`:
-   ```kotlin
-   tasks.register<JavaExec>("runMyExample") {
-       classpath = sourceSets["main"].runtimeClasspath
-       mainClass.set("io.agntcy.slim.examples.MyExampleKt")
-   }
-   ```
-3. Add a Task task in `Taskfile.yaml`:
-   ```yaml
-   example:my-example:
-     desc: "Run my example"
-     deps: [build]
-     cmds:
-       - ./gradlew :runMyExample --args="{{.CLI_ARGS}}"
-   ```
 
 ## License
 
