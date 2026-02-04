@@ -13,7 +13,6 @@ members = [
     "core/slim",
     "core/tracing",
     "examples",
-    "slimrpc",
     "slimrpc-compiler",
     "testing",
 ]
@@ -26,7 +25,6 @@ default-members = [
     "core/service",
     "core/signal",
     "core/tracing",
-    "slimrpc",
     "slimrpc-compiler",
     "examples",
     "testing",
@@ -48,7 +46,6 @@ agntcy-slim-session = { path = "core/session", version = "0.1.3" }
 agntcy-slim-signal = { path = "core/signal", version = "0.1.4" }
 agntcy-slim-testing = { path = "testing" }
 agntcy-slim-tracing = { path = "core/tracing", version = "0.3.0" }
-agntcy-slimrpc = { path = "slimrpc", version = "0.1.0" }
 
 anyhow = "1.0.98"
 

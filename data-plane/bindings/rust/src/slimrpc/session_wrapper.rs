@@ -19,7 +19,6 @@ use slim_service::app::App as SlimApp;
 use slim_session::context::SessionContext;
 use slim_session::errors::SessionError;
 use slim_session::{AppChannelReceiver, CompletionHandle};
-use tokio::sync::RwLock;
 
 use super::Status;
 
@@ -32,53 +31,37 @@ pub struct ReceivedMessage {
     pub payload: Vec<u8>,
 }
 
-/// Internal session state shared across clones
-struct SessionInner {
+/// Session transmitter - used only for sending messages
+pub struct SessionTx {
     /// The underlying session controller
     controller: Arc<slim_session::session_controller::SessionController>,
-    /// Receiver for incoming messages (wrapped in RwLock for concurrent access)
-    rx: RwLock<AppChannelReceiver>,
 }
 
-/// Thin wrapper around SessionContext for RPC operations
-pub struct Session {
-    inner: SessionInner,
+/// Session receiver - used only for receiving messages
+pub struct SessionRx {
+    /// Receiver for incoming messages
+    rx: AppChannelReceiver,
 }
 
-impl Session {
-    /// Create a new session wrapper from a SessionContext
-    pub fn new(ctx: SessionContext) -> Self {
-        let (session_weak, rx) = ctx.into_parts();
-        let controller = session_weak
-            .upgrade()
-            .expect("Session controller should be available");
-
-        Self {
-            inner: SessionInner {
-                controller,
-                rx: RwLock::new(rx),
-            },
-        }
-    }
-
+impl SessionTx {
     /// Get the session ID
-    pub async fn session_id(&self) -> u32 {
-        self.inner.controller.id()
+    pub fn session_id(&self) -> u32 {
+        self.controller.id()
     }
 
     /// Get the source name
-    pub async fn source(&self) -> Name {
-        self.inner.controller.source().clone()
+    pub fn source(&self) -> Name {
+        self.controller.source().clone()
     }
 
     /// Get the destination name
-    pub async fn destination(&self) -> Name {
-        self.inner.controller.dst().clone()
+    pub fn destination(&self) -> Name {
+        self.controller.dst().clone()
     }
 
     /// Get session metadata
-    pub async fn metadata(&self) -> std::collections::HashMap<String, String> {
-        self.inner.controller.metadata()
+    pub fn metadata(&self) -> std::collections::HashMap<String, String> {
+        self.controller.metadata()
     }
 
     /// Publish a message through this session
@@ -94,13 +77,13 @@ impl Session {
         let flags = SlimHeaderFlags::new(0, None, None, None, None);
 
         let mut msg = ProtoMessage::builder()
-            .source(self.inner.controller.source().clone())
-            .destination(self.inner.controller.dst().clone())
+            .source(self.controller.source().clone())
+            .destination(self.controller.dst().clone())
             .identity("")
             .flags(flags)
-            .session_type(self.inner.controller.session_type())
+            .session_type(self.controller.session_type())
             .session_message_type(ProtoSessionMessageType::Msg)
-            .session_id(self.inner.controller.id())
+            .session_id(self.controller.id())
             .message_id(rand::random::<u32>())
             .application_payload(&ct, data)
             .build_publish()
@@ -113,7 +96,6 @@ impl Session {
         }
 
         let handle = self
-            .inner
             .controller
             .publish_message(msg)
             .await
@@ -122,18 +104,49 @@ impl Session {
         Ok(handle)
     }
 
+    /// Get a clone of the underlying session controller
+    pub fn controller(&self) -> Arc<slim_session::session_controller::SessionController> {
+        self.controller.clone()
+    }
+
+    /// Close the session and delete it from the app
+    ///
+    /// This properly cleans up the session resources by calling app.delete_session().
+    /// After calling this, the session should not be used anymore.
+    ///
+    /// # Arguments
+    /// * `app` - The SLIM app instance to delete the session from
+    pub async fn close(&self, app: &SlimApp<AuthProvider, AuthVerifier>) -> Result<(), Status> {
+        tracing::debug!(session_id = %self.controller.id(), "Closing session");
+
+        if let Ok(handle) = app.delete_session(self.controller.as_ref()) {
+            handle.await.map_err(|e| {
+                Status::internal(format!("Failed to delete session: {}", e.chain()))
+            })?;
+            tracing::debug!(session_id = %self.controller.id(), "Successfully deleted session");
+        } else {
+            tracing::warn!(session_id = %self.controller.id(), "Failed to delete session");
+        }
+
+        Ok(())
+    }
+}
+
+impl SessionRx {
     /// Receive a message from the session with optional timeout
-    pub async fn get_message(&self, timeout: Option<Duration>) -> Result<ReceivedMessage, Status> {
+    pub async fn get_message(
+        &mut self,
+        timeout: Option<Duration>,
+    ) -> Result<ReceivedMessage, Status> {
         let recv_future = async {
-            let msg = {
-                let mut rx = self.inner.rx.write().await;
-                rx.recv()
-                    .await
-                    .ok_or_else(|| Status::internal("Session closed"))?
-                    .map_err(|e: SessionError| {
-                        Status::internal(format!("Receive error: {}", e.chain()))
-                    })?
-            };
+            let msg = self
+                .rx
+                .recv()
+                .await
+                .ok_or_else(|| Status::internal("Session closed"))?
+                .map_err(|e: SessionError| {
+                    Status::internal(format!("Receive error: {}", e.chain()))
+                })?;
 
             // Extract payload from the proto message
             let payload = if let Some(content) = msg.get_payload() {
@@ -170,31 +183,24 @@ impl Session {
             recv_future.await
         }
     }
+}
 
-    /// Get a clone of the underlying session controller
-    pub async fn controller(&self) -> Arc<slim_session::session_controller::SessionController> {
-        self.inner.controller.clone()
-    }
+/// Create session transmitter and receiver from a SessionContext
+///
+/// Returns a tuple of (SessionTx, SessionRx) where:
+/// - SessionTx is used only for sending messages
+/// - SessionRx is used only for receiving messages
+pub fn new_session(ctx: SessionContext) -> (SessionTx, SessionRx) {
+    let (session_weak, rx) = ctx.into_parts();
+    let controller = session_weak
+        .upgrade()
+        .expect("Session controller should be available");
 
-    /// Close the session and delete it from the app
-    ///
-    /// This properly cleans up the session resources by calling app.delete_session().
-    /// After calling this, the session should not be used anymore.
-    ///
-    /// # Arguments
-    /// * `app` - The SLIM app instance to delete the session from
-    pub async fn close(&self, app: &SlimApp<AuthProvider, AuthVerifier>) -> Result<(), Status> {
-        tracing::debug!(session_id = %self.inner.controller.id(), "Closing session");
+    let tx = SessionTx {
+        controller: controller.clone(),
+    };
 
-        if let Ok(handle) = app.delete_session(self.inner.controller.as_ref()) {
-            handle.await.map_err(|e| {
-                Status::internal(format!("Failed to delete session: {}", e.chain()))
-            })?;
-            tracing::debug!(session_id = %self.inner.controller.id(), "Successfully deleted session");
-        } else {
-            tracing::warn!(session_id = %self.inner.controller.id(), "Failed to delete session");
-        }
+    let rx_wrapper = SessionRx { rx };
 
-        Ok(())
-    }
+    (tx, rx_wrapper)
 }

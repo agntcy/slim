@@ -13,9 +13,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use slim_bindings::{
-    App, RpcChannel, Code, Direction, IdentityProviderConfig, IdentityVerifierConfig, Name,
-    RpcError, Server, StreamMessage, StreamStreamHandler, StreamUnaryHandler,
-    UnaryStreamHandler, UnaryUnaryHandler, initialize_with_defaults,
+    App, Channel, Code, Direction, IdentityProviderConfig, IdentityVerifierConfig, Name, RpcError,
+    Server, StreamMessage, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler,
+    UnaryUnaryHandler, initialize_with_defaults,
 };
 
 // ============================================================================
@@ -242,7 +242,7 @@ impl StreamStreamHandler for TransformHandler {
 // ============================================================================
 
 struct TestEnv {
-    server: Arc<Server>,
+    server: Server,
     _app: Arc<App>,
     _server_handle: Option<tokio::task::JoinHandle<()>>,
 }
@@ -299,19 +299,13 @@ impl TestEnv {
     async fn start_server(&mut self) {
         // Start server in background
         println!("Starting server in background...");
-        let server_clone = self.server.clone();
-        let server_handle = tokio::spawn(async move {
-            println!("Server serve_async starting...");
-            let _ = server_clone.serve_async().await;
-        });
+        self.server.serve_async().await.unwrap();
 
         // Give server time to start and subscribe
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-        self._server_handle = Some(server_handle);
     }
 
-    async fn create_client(&self, test_name: &str) -> Arc<RpcChannel> {
+    async fn create_client(&self, test_name: &str) -> Channel {
         let client_name = Arc::new(Name::new(
             "org".to_string(),
             "test".to_string(),
@@ -342,7 +336,7 @@ impl TestEnv {
             test_name.to_string(),
         ));
 
-        RpcChannel::new(client_app, server_name)
+        Channel::new(client_app, server_name)
     }
 }
 

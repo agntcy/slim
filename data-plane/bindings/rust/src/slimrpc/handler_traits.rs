@@ -8,8 +8,8 @@
 
 use std::sync::Arc;
 
-use super::{Context, RpcError};
 use super::stream_types::{RequestStream, ResponseSink};
+use super::{Context, RpcError};
 
 /// UniFFI-compatible wrapper for Context
 #[derive(Clone, uniffi::Object)]
@@ -50,7 +50,11 @@ pub trait UnaryUnaryHandler: Send + Sync {
     ///
     /// # Returns
     /// The response message bytes or an error
-    async fn handle(&self, request: Vec<u8>, context: Arc<UniffiContext>) -> Result<Vec<u8>, RpcError>;
+    async fn handle(
+        &self,
+        request: Vec<u8>,
+        context: Arc<UniffiContext>,
+    ) -> Result<Vec<u8>, RpcError>;
 }
 
 /// Unary-to-Stream RPC handler trait

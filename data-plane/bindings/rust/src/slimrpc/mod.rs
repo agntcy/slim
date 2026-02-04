@@ -25,26 +25,26 @@
 //! ## Client Example
 //!
 //! ```no_run
-//! # use slim_rpc::{Channel, Context, Status};
-//! # use slim_datapath::messages::Name;
+//! # use slim_bindings::{Channel, Context, Status, Encoder, Decoder};
+//! # use slim_bindings::Name;
 //! # use slim_service::app::App;
 //! # use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 //! # use std::sync::Arc;
-//! # async fn example(app: Arc<App<AuthProvider, AuthVerifier>>) -> std::result::Result<(), Status> {
+//! # async fn example(app: Arc<App<AuthProvider, AuthVerifier>>) -> Result<(), Status> {
 //! # #[derive(Default)]
 //! # struct Request {}
-//! # impl slim_rpc::Encoder for Request {
-//! #     fn encode(self) -> std::result::Result<Vec<u8>, Status> { Ok(vec![]) }
+//! # impl Encoder for Request {
+//! #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
 //! # }
 //! # #[derive(Default)]
 //! # struct Response {}
-//! # impl slim_rpc::Decoder for Response {
-//! #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(Response::default()) }
+//! # impl Decoder for Response {
+//! #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(Response::default()) }
 //! # }
 //! # let request = Request::default();
 //! // Create a channel
-//! let remote = Name::from_strings(["org".to_string(), "namespace".to_string(), "service".to_string()]);
-//! let channel = Channel::new(app.clone(), remote);
+//! let remote = Name::new("org".to_string(), "namespace".to_string(), "service".to_string());
+//! let channel = Channel::new_internal(app.clone(), remote.as_slim_name());
 //!
 //! // Make an RPC call (typically through generated code)
 //! let response: Response = channel.unary("MyService", "MyMethod", request, None, None).await?;
@@ -55,40 +55,37 @@
 //! ## Server Example
 //!
 //! ```no_run
-//! # use slim_rpc::{Server, Context, Status};
-//! # use slim_datapath::messages::Name;
-//! # use slim_service::app::App;
-//! # use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
+//! # use slim_bindings::{Server, Context, Status, Encoder, Decoder, App, Name, IdentityProviderConfig, IdentityVerifierConfig};
 //! # use std::sync::Arc;
-//! # async fn example(app: Arc<App<AuthProvider, AuthVerifier>>, notification_rx: tokio::sync::mpsc::Receiver<std::result::Result<slim_session::notification::Notification, slim_session::errors::SessionError>>) -> std::result::Result<(), Status> {
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # let app_name = Arc::new(Name::new("test".to_string(), "app".to_string(), "v1".to_string()));
+//! # let provider = IdentityProviderConfig::SharedSecret { id: "test".to_string(), data: "secret".to_string() };
+//! # let verifier = IdentityVerifierConfig::SharedSecret { id: "test".to_string(), data: "secret".to_string() };
+//! # let app = App::new(app_name, provider, verifier)?;
+//! # let core_app = app.inner();
+//! # let notification_rx = app.notification_receiver();
 //! # #[derive(Default)]
 //! # struct Request {}
-//! # impl slim_rpc::Decoder for Request {
-//! #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(Request::default()) }
+//! # impl Decoder for Request {
+//! #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(Request::default()) }
 //! # }
 //! # #[derive(Default)]
 //! # struct Response {}
-//! # impl slim_rpc::Encoder for Response {
-//! #     fn encode(self) -> std::result::Result<Vec<u8>, Status> { Ok(vec![]) }
+//! # impl Encoder for Response {
+//! #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
 //! # }
 //! // Register and run server
-//! let base_name = Name::from_strings(["org".to_string(), "namespace".to_string(), "service".to_string()]);
-//! let server = Server::new(app, base_name, notification_rx);
+//! let base_name = Name::new("org".to_string(), "namespace".to_string(), "service".to_string());
+//! let server = Server::new_with_shared_rx_and_connection(core_app, base_name.as_slim_name(), None, notification_rx, None);
 //!
 //! // Register a handler
-//! server.register_unary_unary(
+//! server.register_unary_unary_internal(
 //!     "MyService",
 //!     "MyMethod",
 //!     |request: Request, _ctx: Context| async move {
 //!         Ok(Response::default())
 //!     }
 //! );
-//!
-//! // Start serving in background task
-//! let server_handle = server.serve();
-//!
-//! // Wait for server to complete
-//! server_handle.await.unwrap()?;
 //! # Ok(())
 //! # }
 //! ```
@@ -147,17 +144,16 @@ pub use codec::{Codec, Decoder, Encoder};
 pub use context::{Context, SessionContext};
 pub use metadata::Metadata;
 pub use server::{HandlerResponse, HandlerType, Server};
-pub use session_wrapper::{ReceivedMessage, Session};
-pub use status::{Code, Status, StatusError, RpcError};
+pub use session_wrapper::{ReceivedMessage, SessionRx, SessionTx, new_session};
+pub use status::{Code, RpcError, Status, StatusError};
 
 // UniFFI handler traits and stream types
 pub use handler_traits::{
-    UnaryUnaryHandler, UnaryStreamHandler, StreamUnaryHandler, StreamStreamHandler,
-    UniffiContext,
+    StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler, UniffiContext,
 };
 pub use stream_types::{
-    RequestStream as UniffiRequestStream, ResponseSink, StreamMessage,
-    ResponseStreamReader, RequestStreamWriter, BidiStreamHandler,
+    BidiStreamHandler, RequestStream as UniffiRequestStream, RequestStreamWriter, ResponseSink,
+    ResponseStreamReader, StreamMessage,
 };
 
 /// Key used in metadata for RPC deadline/timeout
@@ -180,19 +176,20 @@ pub type Result<T> = std::result::Result<T, Status>;
 /// # Example
 ///
 /// ```no_run
-/// # use slim_rpc::{RequestStream, Status};
+/// # use slim_bindings::{Status, Decoder, Encoder};
 /// # use futures::StreamExt;
+/// # use futures::stream::BoxStream;
 /// # #[derive(Default)]
 /// # struct MyRequest {}
-/// # impl slim_rpc::Decoder for MyRequest {
-/// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(MyRequest::default()) }
+/// # impl Decoder for MyRequest {
+/// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(MyRequest::default()) }
 /// # }
 /// # #[derive(Default)]
 /// # struct MyResponse {}
-/// # impl slim_rpc::Encoder for MyResponse {
-/// #     fn encode(self) -> std::result::Result<Vec<u8>, Status> { Ok(vec![]) }
+/// # impl Encoder for MyResponse {
+/// #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
 /// # }
-/// async fn handler(mut stream: RequestStream<MyRequest>) -> std::result::Result<MyResponse, Status> {
+/// async fn handler(mut stream: BoxStream<'static, Result<MyRequest, Status>>) -> Result<MyResponse, Status> {
 ///     while let Some(request) = stream.next().await {
 ///         let req = request?;
 ///         // Process request
@@ -214,16 +211,17 @@ pub type RequestStream<T> = futures::stream::BoxStream<'static, Result<T>>;
 /// # Example
 ///
 /// ```no_run
-/// # use slim_rpc::{Status, Result};
+/// # use slim_bindings::{Status, Decoder, Encoder};
+/// # type Result<T> = std::result::Result<T, Status>;
 /// # use futures::stream::{self, Stream};
 /// # #[derive(Default, Clone)]
 /// # struct MyRequest {}
-/// # impl slim_rpc::Decoder for MyRequest {
+/// # impl Decoder for MyRequest {
 /// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(MyRequest::default()) }
 /// # }
 /// # #[derive(Default, Clone)]
 /// # struct MyResponse {}
-/// # impl slim_rpc::Encoder for MyResponse {
+/// # impl Encoder for MyResponse {
 /// #     fn encode(self) -> std::result::Result<Vec<u8>, Status> { Ok(vec![]) }
 /// # }
 /// async fn handler(request: MyRequest) -> std::result::Result<impl Stream<Item = Result<MyResponse>>, Status> {

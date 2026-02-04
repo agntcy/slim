@@ -69,12 +69,12 @@ impl Context {
         }
     }
 
-    /// Create a new context from a Session wrapper
-    pub async fn from_session_wrapper(session: &super::Session) -> Self {
-        let session_id = session.session_id().await.to_string();
-        let source = session.source().await;
-        let destination = session.destination().await;
-        let metadata_map = session.metadata().await;
+    /// Create a new context from a SessionRx wrapper
+    pub fn from_session_tx(session: &super::SessionTx) -> Self {
+        let session_id = session.session_id().to_string();
+        let source = session.source();
+        let destination = session.destination();
+        let metadata_map = session.metadata();
         let metadata = Metadata::from_map(metadata_map);
         let deadline = Self::parse_deadline(&metadata);
 
@@ -283,7 +283,6 @@ mod tests {
 
         let mut ctx = Context {
             session: ctx_session,
-            message: None,
             metadata: Metadata::new(),
             deadline: None,
         };
@@ -305,7 +304,6 @@ mod tests {
 
         let mut ctx = Context {
             session: ctx_session,
-            message: None,
             metadata: Metadata::new(),
             deadline: None,
         };

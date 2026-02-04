@@ -28,7 +28,6 @@ agntcy-slim-datapath = { workspace = true }
 agntcy-slim-service = { workspace = true, features = ["session"] }
 agntcy-slim-session = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
-agntcy-slimrpc = { workspace = true }
 aws-lc-rs = { workspace = true }
 base64 = { workspace = true }
 bincode = { workspace = true }

@@ -23,21 +23,10 @@ use slim_datapath::messages::Name;
 use slim_service::app::App as SlimApp;
 
 use super::{
-    Code, Context, MAX_TIMEOUT, Metadata, STATUS_CODE_KEY, Session, Status,
+    Code, Context, MAX_TIMEOUT, Metadata, STATUS_CODE_KEY, Status,
     codec::{Decoder, Encoder},
+    session_wrapper::{SessionRx, SessionTx, new_session},
 };
-
-/// Inner channel state
-struct ChannelInner {
-    /// The SLIM app instance
-    app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
-    /// Remote service name (base name, will be extended with service/method)
-    remote: Name,
-    /// Optional connection ID for session creation propagation
-    connection_id: Option<u64>,
-    /// Runtime handle for spawning tasks (resolved at construction)
-    runtime: tokio::runtime::Handle,
-}
 
 /// Client-side channel for making RPC calls
 ///
@@ -47,7 +36,14 @@ struct ChannelInner {
 /// Each RPC call creates a new session which is closed after the RPC completes.
 #[derive(Clone, uniffi::Object)]
 pub struct Channel {
-    inner: Arc<ChannelInner>,
+    /// The SLIM app instance
+    app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
+    /// Remote service name (base name, will be extended with service/method)
+    remote: Name,
+    /// Optional connection ID for session creation propagation
+    connection_id: Option<u64>,
+    /// Runtime handle for spawning tasks (resolved at construction)
+    runtime: tokio::runtime::Handle,
 }
 
 impl Channel {
@@ -60,18 +56,18 @@ impl Channel {
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_rpc::Channel;
+    /// # use slim_bindings::Channel;
     /// # use slim_datapath::messages::Name;
     /// # use slim_service::app::App;
     /// # use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
     /// # use std::sync::Arc;
     /// # async fn example(app: Arc<App<AuthProvider, AuthVerifier>>) {
     /// let remote = Name::from_strings(["org".to_string(), "namespace".to_string(), "service".to_string()]);
-    /// let channel = Channel::new(app, remote);
+    /// let channel = Channel::new_internal(app, remote);
     /// # }
     /// ```
     pub fn new_internal(app: Arc<SlimApp<AuthProvider, AuthVerifier>>, remote: Name) -> Self {
-        Self::create_with_connection_internal(app, remote, None, None)
+        Self::new_with_connection_internal(app, remote, None, None)
     }
 
     /// Create a new channel with optional connection ID for session propagation
@@ -88,18 +84,18 @@ impl Channel {
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_rpc::Channel;
+    /// # use slim_bindings::Channel;
     /// # use slim_datapath::messages::Name;
     /// # use slim_service::app::App;
     /// # use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
     /// # use std::sync::Arc;
     /// # async fn example(app: Arc<App<AuthProvider, AuthVerifier>>) {
     /// let remote = Name::from_strings(["org".to_string(), "namespace".to_string(), "service".to_string()]);
-    /// let connection_id = Some(42);
-    /// let channel = Channel::new_with_connection(app, remote, connection_id, None);
+    /// let connection_id = Some(12345);
+    /// let channel = Channel::create_with_connection_internal(app, remote, connection_id, None);
     /// # }
     /// ```
-    pub fn create_with_connection_internal(
+    pub fn new_with_connection_internal(
         app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
         remote: Name,
         connection_id: Option<u64>,
@@ -112,12 +108,10 @@ impl Channel {
         });
 
         Self {
-            inner: Arc::new(ChannelInner {
-                app,
-                remote,
-                connection_id,
-                runtime,
-            }),
+            app,
+            remote,
+            connection_id,
+            runtime,
         }
     }
 
@@ -127,7 +121,10 @@ impl Channel {
     }
 
     /// Close session and ignore errors
-    async fn close_session_safe(session: &Session, app: &Arc<SlimApp<AuthProvider, AuthVerifier>>) {
+    async fn close_session_safe(
+        session: &SessionTx,
+        app: &Arc<SlimApp<AuthProvider, AuthVerifier>>,
+    ) {
         let _ = session.close(app).await;
     }
 
@@ -169,17 +166,17 @@ impl Channel {
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_rpc::{Channel, Status};
+    /// # use slim_bindings::{Channel, Status, Encoder, Decoder};
     /// # use std::time::Duration;
     /// # #[derive(Default)]
     /// # struct Request {}
-    /// # impl slim_rpc::Encoder for Request {
-    /// #     fn encode(self) -> std::result::Result<Vec<u8>, Status> { Ok(vec![]) }
+    /// # impl Encoder for Request {
+    /// #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
     /// # }
     /// # #[derive(Default)]
     /// # struct Response {}
-    /// # impl slim_rpc::Decoder for Response {
-    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(Response::default()) }
+    /// # impl Decoder for Response {
+    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(Response::default()) }
     /// # }
     /// # async fn example(channel: Channel) -> std::result::Result<(), Status> {
     /// let request = Request::default();
@@ -218,20 +215,20 @@ impl Channel {
         tokio::select! {
             result = async {
                 // Create a new session for this RPC with deadline in metadata
-                let session = self.create_session(service_name, method_name, &ctx).await?;
+                let (session_tx, mut session_rx) = self.create_session(service_name, method_name, &ctx).await?;
 
                 // Send request
-                if let Err(e) = self.send_request(&session, &ctx, request, service_name, method_name).await {
+                if let Err(e) = self.send_request(&session_tx, &ctx, request, service_name, method_name).await {
                     // Close session on send error
-                    Self::close_session_safe(&session, &self.inner.app).await;
+                    Self::close_session_safe(&session_tx, &self.app).await;
                     return Err(e);
                 }
 
                 // Receive and decode response
-                let receive_result = self.receive_response(&session).await;
+                let receive_result = self.receive_response(&mut session_rx).await;
 
                 // Close the session after RPC completes
-                Self::close_session_safe(&session, &self.inner.app).await;
+                Self::close_session_safe(&session_tx, &self.app).await;
 
                 match receive_result {
                     Ok(response) => Ok(response),
@@ -263,19 +260,19 @@ impl Channel {
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_rpc::{Channel, Status};
+    /// # use slim_bindings::{Channel, Status, Encoder, Decoder};
     /// # use futures::{StreamExt, pin_mut};
     /// # #[derive(Default)]
     /// # struct Request { count: i32 }
-    /// # impl slim_rpc::Encoder for Request {
-    /// #     fn encode(self) -> std::result::Result<Vec<u8>, Status> { Ok(vec![]) }
+    /// # impl Encoder for Request {
+    /// #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
     /// # }
     /// # #[derive(Default)]
     /// # struct Response { value: i32 }
-    /// # impl slim_rpc::Decoder for Response {
-    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(Response::default()) }
+    /// # impl Decoder for Response {
+    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(Response::default()) }
     /// # }
-    /// # async fn example(channel: Channel) -> std::result::Result<(), Status> {
+    /// # async fn example(channel: Channel) -> Result<(), Status> {
     /// let request = Request { count: 10 };
     /// let stream = channel.unary_stream::<Request, Response>(
     ///     "MyService",
@@ -324,41 +321,41 @@ impl Channel {
                     Err(Status::deadline_exceeded("Client deadline exceeded during unary-stream call"))
                 }
             };
-            let session = session_result?;
+            let (session_tx, mut session_rx) = session_result?;
 
             // Send request with timeout using futures-timer
             let send_result = tokio::select! {
-                result = channel.send_request(&session, &ctx, request, &service_name, &method_name) => result,
+                result = channel.send_request(&session_tx, &ctx, request, &service_name, &method_name) => result,
                 _ = &mut delay => {
-                    Self::close_session_safe(&session, &channel.inner.app).await;
+                    Self::close_session_safe(&session_tx, &channel.inner.app).await;
                     Err(Status::deadline_exceeded("Client deadline exceeded while sending request"))
                 }
             };
             if let Err(e) = send_result {
-                Self::close_session_safe(&session, &channel.inner.app).await;
+                Self::close_session_safe(&session_tx, &channel.inner.app).await;
                 Err(e)?;
             }
 
             // Receive streaming responses with same deadline, yielding as we go
             loop {
                 let receive_result = tokio::select! {
-                    result = session.get_message(None) => result.map_err(|e| Status::internal(format!("Failed to receive response: {}", e))),
+                    result = session_rx.get_message(None) => result.map_err(|e| Status::internal(format!("Failed to receive response: {}", e))),
                     _ = &mut delay => {
-                        Self::close_session_safe(&session, &channel.inner.app).await;
+                        Self::close_session_safe(&session_tx, &channel.inner.app).await;
                         Err(Status::deadline_exceeded("Client deadline exceeded while receiving stream"))
                     }
                 };
                 let received = match receive_result {
                     Ok(r) => r,
                     Err(e) => {
-                        Self::close_session_safe(&session, &channel.inner.app).await;
+                        Self::close_session_safe(&session_tx, &channel.inner.app).await;
                         Err(e)?
                     }
                 };
 
                 // Check if this is end of stream or an error
                 if channel.check_stream_message(&received)?.is_none() {
-                    Self::close_session_safe(&session, &channel.inner.app).await;
+                    Self::close_session_safe(&session_tx, &channel.inner.app).await;
                     break;
                 }
 
@@ -387,19 +384,19 @@ impl Channel {
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_rpc::{Channel, Status};
+    /// # use slim_bindings::{Channel, Status, Encoder, Decoder};
     /// # use futures::stream;
     /// # #[derive(Default)]
     /// # struct Request { data: Vec<u8> }
-    /// # impl slim_rpc::Encoder for Request {
-    /// #     fn encode(self) -> std::result::Result<Vec<u8>, Status> { Ok(vec![]) }
+    /// # impl Encoder for Request {
+    /// #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
     /// # }
     /// # #[derive(Default)]
     /// # struct Response { total: usize }
-    /// # impl slim_rpc::Decoder for Response {
-    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(Response::default()) }
+    /// # impl Decoder for Response {
+    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(Response::default()) }
     /// # }
-    /// # async fn example(channel: Channel) -> std::result::Result<(), Status> {
+    /// # async fn example(channel: Channel) -> Result<(), Status> {
     /// let requests = vec![
     ///     Request { data: vec![1, 2, 3] },
     ///     Request { data: vec![4, 5, 6] },
@@ -439,20 +436,20 @@ impl Channel {
         tokio::select! {
             result = async {
                 // Create a new session for this RPC with deadline in metadata
-                let session = self.create_session(service_name, method_name, &ctx).await?;
+                let (session_tx, mut session_rx) = self.create_session(service_name, method_name, &ctx).await?;
 
                 // Send all requests and end-of-stream marker
-                if let Err(e) = self.send_request_stream(&session, &ctx, request_stream, service_name, method_name).await {
+                if let Err(e) = self.send_request_stream(&session_tx, &ctx, request_stream, service_name, method_name).await {
                     // Close session on send error
-                    Self::close_session_safe(&session, &self.inner.app).await;
+                    Self::close_session_safe(&session_tx, &self.app).await;
                     return Err(e);
                 }
 
                 // Receive and decode response
-                let receive_result = self.receive_response(&session).await;
+                let receive_result = self.receive_response(&mut session_rx).await;
 
                 // Close the session after RPC completes
-                Self::close_session_safe(&session, &self.inner.app).await;
+                Self::close_session_safe(&session_tx, &self.app).await;
 
                 match receive_result {
                     Ok(response) => Ok(response),
@@ -485,17 +482,17 @@ impl Channel {
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_rpc::{Channel, Status};
+    /// # use slim_bindings::{Channel, Status, Encoder, Decoder};
     /// # use futures::{stream, StreamExt, pin_mut};
     /// # #[derive(Default)]
     /// # struct Request { message: String }
-    /// # impl slim_rpc::Encoder for Request {
-    /// #     fn encode(self) -> std::result::Result<Vec<u8>, Status> { Ok(vec![]) }
+    /// # impl Encoder for Request {
+    /// #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
     /// # }
     /// # #[derive(Default)]
     /// # struct Response { reply: String }
-    /// # impl slim_rpc::Decoder for Response {
-    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(Response::default()) }
+    /// # impl Decoder for Response {
+    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(Response::default()) }
     /// # }
     /// # async fn example(channel: Channel) -> std::result::Result<(), Status> {
     /// let requests = vec![
@@ -551,54 +548,57 @@ impl Channel {
                     Err(Status::deadline_exceeded("Client deadline exceeded during stream-stream call"))
                 }
             };
-            let session = session_result?;
+            let (session_tx, mut session_rx) = session_result?;
+
+            // Wrap session_tx in Arc to share between send task and main task
+            let session_tx = Arc::new(session_tx);
 
             // Spawn background task to send requests concurrently with receiving
-            let session_for_send = session.clone();
+            let session_tx_for_send = session_tx.clone();
             let ctx_for_send = ctx.clone();
             let service_name_for_send = service_name.clone();
             let method_name_for_send = method_name.clone();
             let channel_for_send = channel.clone();
             let mut send_handle = channel.inner.runtime.spawn(async move {
-                channel_for_send.send_request_stream(&session_for_send, &ctx_for_send, request_stream, &service_name_for_send, &method_name_for_send).await
+                channel_for_send.send_request_stream(&session_tx_for_send, &ctx_for_send, request_stream, &service_name_for_send, &method_name_for_send).await
             });
 
             // Receive streaming responses with same deadline, also racing against send completion, yielding as we go
             let mut send_completed = false;
             loop {
                 let receive_result = tokio::select! {
-                    result = session.get_message(None) => result.map_err(|e| Status::internal(format!("Failed to receive response: {}", e))),
+                    result = session_rx.get_message(None) => result.map_err(|e| Status::internal(format!("Failed to receive response: {}", e))),
                     send_result = &mut send_handle, if !send_completed => {
                         send_completed = true;
                         // Check if send task completed successfully
                         match send_result {
                             Ok(Ok(_)) => continue, // Send completed successfully, continue receiving
                             Ok(Err(e)) => {
-                                Self::close_session_safe(&session, &channel.inner.app).await;
+                                Self::close_session_safe(&session_tx, &channel.inner.app).await;
                                 Err(e) // Send failed with error
                             },
                             Err(e) => {
-                                Self::close_session_safe(&session, &channel.inner.app).await;
+                                Self::close_session_safe(&session_tx, &channel.inner.app).await;
                                 Err(Status::internal(format!("Send task panicked: {}", e)))
                             },
                         }
                     }
                     _ = &mut delay => {
-                        Self::close_session_safe(&session, &channel.inner.app).await;
+                        Self::close_session_safe(&session_tx, &channel.inner.app).await;
                         Err(Status::deadline_exceeded("Client deadline exceeded while receiving stream"))
                     },
                 };
                 let received = match receive_result {
                     Ok(r) => r,
                     Err(e) => {
-                        Self::close_session_safe(&session, &channel.inner.app).await;
+                        Self::close_session_safe(&session_tx, &channel.inner.app).await;
                         Err(e)?
                     }
                 };
 
                 // Check if this is end of stream or an error
                 if channel.check_stream_message(&received)?.is_none() {
-                    Self::close_session_safe(&session, &channel.inner.app).await;
+                    Self::close_session_safe(&session_tx, &channel.inner.app).await;
                     break;
                 }
 
@@ -615,14 +615,14 @@ impl Channel {
         service_name: &str,
         method_name: &str,
         ctx: &Context,
-    ) -> Result<Session, Status> {
+    ) -> Result<(SessionTx, SessionRx), Status> {
         let service_name = service_name.to_string();
         let method_name = method_name.to_string();
         let ctx = ctx.clone();
-        let app = self.inner.app.clone();
-        let remote = self.inner.remote.clone();
-        let connection_id = self.inner.connection_id;
-        let runtime = self.inner.runtime.clone();
+        let app = self.app.clone();
+        let remote = self.remote.clone();
+        let connection_id = self.connection_id;
+        let runtime = self.runtime.clone();
 
         // Spawn the entire session creation in a background task
         let handle = runtime.spawn(async move {
@@ -681,9 +681,9 @@ impl Channel {
                 .map_err(|e| Status::unavailable(format!("Session handshake failed: {}", e)))?;
 
             // Wrap the session context for RPC operations
-            let session = Session::new(session_ctx);
+            let (session_tx, session_rx) = new_session(session_ctx);
 
-            Ok(session)
+            Ok((session_tx, session_rx))
         });
 
         // Await the spawned task
@@ -733,13 +733,13 @@ impl Channel {
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_rpc::Channel;
+    /// # use slim_bindings::Channel;
     /// # fn example(channel: Channel) {
     /// let app = channel.app();
     /// # }
     /// ```
     pub fn app(&self) -> &Arc<SlimApp<AuthProvider, AuthVerifier>> {
-        &self.inner.app
+        &self.app
     }
 
     /// Get the remote service name
@@ -747,14 +747,14 @@ impl Channel {
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_rpc::Channel;
+    /// # use slim_bindings::Channel;
     /// # fn example(channel: Channel) {
     /// let remote = channel.remote();
     /// println!("Remote: {}", remote);
     /// # }
     /// ```
     pub fn remote(&self) -> &Name {
-        &self.inner.remote
+        &self.remote
     }
 
     /// Get the optional connection ID used for session propagation
@@ -762,7 +762,7 @@ impl Channel {
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_rpc::Channel;
+    /// # use slim_bindings::Channel;
     /// # fn example(channel: Channel) {
     /// if let Some(conn_id) = channel.connection_id() {
     ///     println!("Connection ID: {}", conn_id);
@@ -770,13 +770,13 @@ impl Channel {
     /// # }
     /// ```
     pub fn connection_id(&self) -> Option<u64> {
-        self.inner.connection_id
+        self.connection_id
     }
 
     /// Send a single request and wait for completion
     async fn send_request<Req>(
         &self,
-        session: &Session,
+        session: &SessionTx,
         _ctx: &Context,
         request: Req,
         service_name: &str,
@@ -806,7 +806,7 @@ impl Channel {
     /// Send a stream of requests followed by end-of-stream marker
     async fn send_request_stream<Req>(
         &self,
-        session: &Session,
+        session: &SessionTx,
         _ctx: &Context,
         request_stream: impl Stream<Item = Req> + Send + 'static,
         service_name: &str,
@@ -856,7 +856,7 @@ impl Channel {
     /// Distinguishes between:
     /// - RPC errors: Status codes in metadata from the handler (keep session open)
     /// - Transport errors: Communication/decoding failures (close session)
-    async fn receive_response<Res>(&self, session: &Session) -> Result<Res, ReceiveError>
+    async fn receive_response<Res>(&self, session: &mut SessionRx) -> Result<Res, ReceiveError>
     where
         Res: Decoder,
     {
@@ -903,10 +903,7 @@ impl Channel {
     /// # Returns
     /// A new channel instance
     #[uniffi::constructor]
-    pub fn new(
-        app: std::sync::Arc<crate::App>,
-        remote: std::sync::Arc<crate::Name>,
-    ) -> std::sync::Arc<Self> {
+    pub fn new(app: std::sync::Arc<crate::App>, remote: std::sync::Arc<crate::Name>) -> Self {
         Self::new_with_connection(app, remote, None)
     }
 
@@ -927,17 +924,12 @@ impl Channel {
         app: std::sync::Arc<crate::App>,
         remote: std::sync::Arc<crate::Name>,
         connection_id: Option<u64>,
-    ) -> std::sync::Arc<Self> {
+    ) -> Self {
         let slim_app = app.inner_app().clone();
         let slim_name = remote.as_slim_name().clone();
         let runtime = crate::get_runtime().handle().clone();
 
-        std::sync::Arc::new(Self::create_with_connection_internal(
-            slim_app,
-            slim_name,
-            connection_id,
-            Some(runtime),
-        ))
+        Self::new_with_connection_internal(slim_app, slim_name, connection_id, Some(runtime))
     }
 
     /// Make a unary-to-unary RPC call (blocking version)

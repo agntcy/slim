@@ -306,7 +306,6 @@ dependencies = [
  "agntcy-slim-service",
  "agntcy-slim-session",
  "agntcy-slim-tracing",
- "agntcy-slimrpc",
  "aws-lc-rs",
  "base64",
  "bincode 2.0.1",
@@ -343,34 +342,6 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "uuid",
-]
-
-[[package]]
-name = "agntcy-slimrpc"
-version = "0.1.0"
-dependencies = [
- "agntcy-slim-auth",
- "agntcy-slim-config",
- "agntcy-slim-datapath",
- "agntcy-slim-service",
- "agntcy-slim-session",
- "agntcy-slim-testing",
- "async-stream",
- "bincode 2.0.1",
- "display-error-chain",
- "drain",
- "futures",
- "futures-timer",
- "parking_lot",
- "rand 0.9.2",
- "serde",
- "thiserror 2.0.17",
- "tokio",
- "tokio-stream",
- "tokio-test",
- "tokio-util",
- "tracing",
- "tracing-test",
 ]
 
 [[package]]

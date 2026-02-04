@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_stream::stream;
+use futures::future::join_all;
 use futures::stream::Stream;
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::BoxStream};
 
@@ -25,9 +26,12 @@ use slim_service::app::App as SlimApp;
 use slim_session::errors::SessionError;
 use slim_session::notification::Notification;
 
+use crate::RpcError;
+
 use super::{
-    Code, Context, MAX_TIMEOUT, STATUS_CODE_KEY, Session, Status,
+    Code, Context, MAX_TIMEOUT, STATUS_CODE_KEY, SessionRx, SessionTx, Status,
     codec::{Decoder, Encoder},
+    session_wrapper::new_session,
 };
 
 pub type Item = Vec<u8>;
@@ -62,6 +66,7 @@ pub enum HandlerType {
 }
 
 /// Registry for RPC service methods (internal implementation detail)
+#[derive(Clone)]
 struct ServiceRegistry {
     /// Map of method paths to handlers (for unary-input methods)
     handlers: HashMap<String, (RpcHandler, HandlerType)>,
@@ -248,31 +253,6 @@ impl Default for ServiceRegistry {
     }
 }
 
-/// Internal server state shared across clones
-struct ServerInner {
-    /// The SLIM app instance
-    app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
-    /// Service registry containing all registered handlers
-    registry: RwLock<ServiceRegistry>,
-    /// Base service name
-    base_name: Name,
-    /// Running task handles
-    tasks: RwLock<Vec<JoinHandle<()>>>,
-    /// Optional connection ID for subscription propagation
-    #[allow(dead_code)]
-    connection_id: Option<u64>,
-    /// Notification receiver for incoming sessions (either owned or shared)
-    notification_rx: tokio::sync::Mutex<Option<NotificationReceiver>>,
-    /// Cancellation token for shutdown
-    cancellation_token: CancellationToken,
-    /// Drain signal for graceful shutdown
-    drain_signal: RwLock<Option<drain::Signal>>,
-    /// Drain watch for session handlers
-    drain_watch: RwLock<Option<drain::Watch>>,
-    /// Runtime handle for spawning tasks (resolved at construction)
-    runtime: tokio::runtime::Handle,
-}
-
 /// Enum to hold either an owned or shared notification receiver
 enum NotificationReceiver {
     Owned(mpsc::Receiver<Result<Notification, SessionError>>),
@@ -287,45 +267,61 @@ enum NotificationReceiver {
 /// # Example
 ///
 /// ```no_run
-/// # use slim_rpc::{Server, Context, Status};
-/// # use slim_datapath::messages::Name;
-/// # use slim_service::app::App;
-/// # use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
+/// # use slim_bindings::{Server, Context, Status, Decoder, Encoder, App, Name};
 /// # use std::sync::Arc;
-/// # async fn example(app: Arc<App<AuthProvider, AuthVerifier>>, notification_rx: tokio::sync::mpsc::Receiver<std::result::Result<slim_session::notification::Notification, slim_session::errors::SessionError>>) -> std::result::Result<(), Status> {
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// # use slim_bindings::{IdentityProviderConfig, IdentityVerifierConfig};
+/// # let app_name = Arc::new(Name::new("test".to_string(), "app".to_string(), "v1".to_string()));
+/// # let provider = IdentityProviderConfig::SharedSecret { id: "test".to_string(), data: "secret".to_string() };
+/// # let verifier = IdentityVerifierConfig::SharedSecret { id: "test".to_string(), data: "secret".to_string() };
+/// # let app = App::new(app_name, provider, verifier)?;
+/// # let core_app = app.inner();
+/// # let notification_rx = app.notification_receiver();
 /// # #[derive(Default)]
 /// # struct Request {}
-/// # impl slim_rpc::Decoder for Request {
-/// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(Request::default()) }
+/// # impl Decoder for Request {
+/// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(Request::default()) }
 /// # }
 /// # #[derive(Default)]
 /// # struct Response {}
-/// # impl slim_rpc::Encoder for Response {
-/// #     fn encode(self) -> std::result::Result<Vec<u8>, Status> { Ok(vec![]) }
+/// # impl Encoder for Response {
+/// #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
 /// # }
-/// let base_name = Name::from_strings(["org".to_string(), "namespace".to_string(), "service".to_string()]);
-/// let server = Server::new(app, base_name, notification_rx);
+/// let base_name = Name::new("org".to_string(), "namespace".to_string(), "service".to_string());
+/// let server = Server::new_with_shared_rx_and_connection(core_app, base_name.as_slim_name(), None, notification_rx, None);
 ///
 /// // Register handlers
-/// server.register_unary_unary(
+/// server.register_unary_unary_internal(
 ///     "MyService",
 ///     "MyMethod",
 ///     |request: Request, _ctx: Context| async move {
 ///         Ok(Response::default())
 ///     }
 /// );
-///
-/// // Start serving in background task
-/// let server_handle = server.serve();
-///
-/// // Wait for server to complete
-/// server_handle.await.unwrap()?;
 /// # Ok(())
 /// # }
 /// ```
 #[derive(uniffi::Object)]
 pub struct Server {
-    inner: Arc<ServerInner>,
+    /// The SLIM app instance
+    app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
+    /// Service registry containing all registered handlers
+    registry: RwLock<ServiceRegistry>,
+    /// Base service name
+    base_name: Name,
+    /// Optional connection ID for subscription propagation
+    #[allow(dead_code)]
+    connection_id: Option<u64>,
+    /// Notification receiver for incoming sessions (either owned or shared)
+    notification_rx: parking_lot::Mutex<Option<NotificationReceiver>>,
+    /// Cancellation token for shutdown
+    cancellation_token: CancellationToken,
+    /// Drain signal for graceful shutdown
+    drain_signal: RwLock<Option<drain::Signal>>,
+    /// Drain watch for session handlers
+    drain_watch: RwLock<Option<drain::Watch>>,
+    /// Runtime handle for spawning tasks (resolved at construction)
+    runtime: tokio::runtime::Handle,
 }
 
 impl Server {
@@ -339,14 +335,18 @@ impl Server {
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_rpc::Server;
-    /// # use slim_datapath::messages::Name;
-    /// # use slim_service::app::App;
-    /// # use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
+    /// # use slim_bindings::{Server, App, Name, IdentityProviderConfig, IdentityVerifierConfig};
     /// # use std::sync::Arc;
-    /// # async fn example(app: Arc<App<AuthProvider, AuthVerifier>>, notification_rx: tokio::sync::mpsc::Receiver<std::result::Result<slim_session::notification::Notification, slim_session::errors::SessionError>>) {
-    /// let base_name = Name::from_strings(["org".to_string(), "namespace".to_string(), "service".to_string()]);
-    /// let server = Server::new(app, base_name, notification_rx);
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let app_name = Arc::new(Name::new("test".to_string(), "app".to_string(), "v1".to_string()));
+    /// # let provider = IdentityProviderConfig::SharedSecret { id: "test".to_string(), data: "secret".to_string() };
+    /// # let verifier = IdentityVerifierConfig::SharedSecret { id: "test".to_string(), data: "secret".to_string() };
+    /// # let app = App::new(app_name, provider, verifier)?;
+    /// # let core_app = app.inner();
+    /// # let notification_rx = app.notification_receiver();
+    /// let base_name = Name::new("org".to_string(), "namespace".to_string(), "service".to_string());
+    /// let server = Server::new_with_shared_rx_and_connection(core_app, base_name.as_slim_name(), None, notification_rx, None);
+    /// # Ok(())
     /// # }
     /// ```
     pub fn create_internal(
@@ -381,20 +381,17 @@ impl Server {
         });
 
         Self {
-            inner: Arc::new(ServerInner {
-                app,
-                registry: RwLock::new(ServiceRegistry::new()),
-                base_name,
-                tasks: RwLock::new(Vec::new()),
-                connection_id,
-                notification_rx: tokio::sync::Mutex::new(Some(NotificationReceiver::Owned(
-                    notification_rx,
-                ))),
-                cancellation_token: CancellationToken::new(),
-                drain_signal: RwLock::new(Some(drain_signal)),
-                drain_watch: RwLock::new(Some(drain_watch)),
-                runtime,
-            }),
+            app,
+            registry: RwLock::new(ServiceRegistry::new()),
+            base_name,
+            connection_id,
+            notification_rx: parking_lot::Mutex::new(Some(NotificationReceiver::Owned(
+                notification_rx,
+            ))),
+            cancellation_token: CancellationToken::new(),
+            drain_signal: RwLock::new(Some(drain_signal)),
+            drain_watch: RwLock::new(Some(drain_watch)),
+            runtime,
         }
     }
 
@@ -440,20 +437,17 @@ impl Server {
         });
 
         Self {
-            inner: Arc::new(ServerInner {
-                app,
-                registry: RwLock::new(ServiceRegistry::new()),
-                base_name,
-                tasks: RwLock::new(Vec::new()),
-                connection_id,
-                notification_rx: tokio::sync::Mutex::new(Some(NotificationReceiver::Shared(
-                    notification_rx,
-                ))),
-                cancellation_token: CancellationToken::new(),
-                drain_signal: RwLock::new(Some(drain_signal)),
-                drain_watch: RwLock::new(Some(drain_watch)),
-                runtime,
-            }),
+            app,
+            registry: RwLock::new(ServiceRegistry::new()),
+            base_name,
+            connection_id,
+            notification_rx: parking_lot::Mutex::new(Some(NotificationReceiver::Shared(
+                notification_rx,
+            ))),
+            cancellation_token: CancellationToken::new(),
+            drain_signal: RwLock::new(Some(drain_signal)),
+            drain_watch: RwLock::new(Some(drain_watch)),
+            runtime,
         }
     }
 
@@ -461,10 +455,9 @@ impl Server {
     fn register_method_mapping(&self, service_name: &str, method_name: &str) {
         // Build subscription name and register mapping
         let subscription_name =
-            super::build_method_subscription_name(&self.inner.base_name, service_name, method_name);
+            super::build_method_subscription_name(&self.base_name, service_name, method_name);
         let method_path = format!("{}/{}", service_name, method_name);
-        self.inner
-            .registry
+        self.registry
             .write()
             .register_subscription(subscription_name, method_path);
     }
@@ -481,19 +474,28 @@ impl Server {
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_rpc::{Server, Context, Status};
+    /// # use slim_bindings::{Server, Context, Status, Decoder, Encoder, App, Name, IdentityProviderConfig, IdentityVerifierConfig};
+    /// # use std::sync::Arc;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let app_name = Arc::new(Name::new("test".to_string(), "app".to_string(), "v1".to_string()));
+    /// # let provider = IdentityProviderConfig::SharedSecret { id: "test".to_string(), data: "secret".to_string() };
+    /// # let verifier = IdentityVerifierConfig::SharedSecret { id: "test".to_string(), data: "secret".to_string() };
+    /// # let app = App::new(app_name, provider, verifier)?;
+    /// # let core_app = app.inner();
+    /// # let notification_rx = app.notification_receiver();
+    /// # let base_name = Name::new("org".to_string(), "namespace".to_string(), "service".to_string());
+    /// # let server = Server::new_with_shared_rx_and_connection(core_app, base_name.as_slim_name(), None, notification_rx, None);
     /// # #[derive(Default)]
     /// # struct Request { name: String }
-    /// # impl slim_rpc::Decoder for Request {
-    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(Request::default()) }
+    /// # impl Decoder for Request {
+    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(Request::default()) }
     /// # }
     /// # #[derive(Default)]
     /// # struct Response { greeting: String }
-    /// # impl slim_rpc::Encoder for Response {
-    /// #     fn encode(self) -> std::result::Result<Vec<u8>, Status> { Ok(vec![]) }
+    /// # impl Encoder for Response {
+    /// #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
     /// # }
-    /// # fn example(server: Server) {
-    /// server.register_unary_unary(
+    /// server.register_unary_unary_internal(
     ///     "GreeterService",
     ///     "SayHello",
     ///     |request: Request, _ctx: Context| async move {
@@ -502,6 +504,7 @@ impl Server {
     ///         })
     ///     }
     /// );
+    /// # Ok(())
     /// # }
     /// ```
     pub fn register_unary_unary_internal<F, Req, Res, Fut>(
@@ -515,8 +518,7 @@ impl Server {
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
     {
-        self.inner
-            .registry
+        self.registry
             .write()
             .register_unary_unary(service_name, method_name, handler);
 
@@ -535,29 +537,39 @@ impl Server {
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_rpc::{Server, Context, Status};
+    /// # use slim_bindings::{Server, Context, Status, Decoder, Encoder, App, Name, IdentityProviderConfig, IdentityVerifierConfig};
+    /// # use std::sync::Arc;
     /// # use futures::stream;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let app_name = Arc::new(Name::new("test".to_string(), "app".to_string(), "v1".to_string()));
+    /// # let provider = IdentityProviderConfig::SharedSecret { id: "test".to_string(), data: "secret".to_string() };
+    /// # let verifier = IdentityVerifierConfig::SharedSecret { id: "test".to_string(), data: "secret".to_string() };
+    /// # let app = App::new(app_name, provider, verifier)?;
+    /// # let core_app = app.inner();
+    /// # let notification_rx = app.notification_receiver();
+    /// # let base_name = Name::new("org".to_string(), "namespace".to_string(), "service".to_string());
+    /// # let server = Server::new_with_shared_rx_and_connection(core_app, base_name.as_slim_name(), None, notification_rx, None);
     /// # #[derive(Default)]
     /// # struct Request { count: i32 }
-    /// # impl slim_rpc::Decoder for Request {
-    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(Request::default()) }
+    /// # impl Decoder for Request {
+    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(Request::default()) }
     /// # }
     /// # #[derive(Default)]
     /// # struct Response { value: i32 }
-    /// # impl slim_rpc::Encoder for Response {
-    /// #     fn encode(self) -> std::result::Result<Vec<u8>, Status> { Ok(vec![]) }
+    /// # impl Encoder for Response {
+    /// #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
     /// # }
-    /// # fn example(server: Server) {
-    /// server.register_unary_stream(
+    /// server.register_unary_stream_internal(
     ///     "NumberService",
     ///     "GenerateNumbers",
     ///     |request: Request, _ctx: Context| async move {
-    ///         let numbers: Vec<std::result::Result<Response, Status>> = (0..request.count)
+    ///         let numbers: Vec<Result<Response, Status>> = (0..request.count)
     ///             .map(|i| Ok(Response { value: i }))
     ///             .collect();
     ///         Ok(stream::iter(numbers))
     ///     }
     /// );
+    /// # Ok(())
     /// # }
     /// ```
     pub fn register_unary_stream_internal<F, Req, Res, S, Fut>(
@@ -572,8 +584,7 @@ impl Server {
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
     {
-        self.inner
-            .registry
+        self.registry
             .write()
             .register_unary_stream(service_name, method_name, handler);
 
@@ -592,23 +603,33 @@ impl Server {
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_rpc::{Server, Context, Status, RequestStream};
+    /// # use slim_bindings::{Server, Context, Status, Decoder, Encoder, App, Name, IdentityProviderConfig, IdentityVerifierConfig};
+    /// # use std::sync::Arc;
     /// # use futures::StreamExt;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let app_name = Arc::new(Name::new("test".to_string(), "app".to_string(), "v1".to_string()));
+    /// # let provider = IdentityProviderConfig::SharedSecret { id: "test".to_string(), data: "secret".to_string() };
+    /// # let verifier = IdentityVerifierConfig::SharedSecret { id: "test".to_string(), data: "secret".to_string() };
+    /// # let app = App::new(app_name, provider, verifier)?;
+    /// # let core_app = app.inner();
+    /// # let notification_rx = app.notification_receiver();
+    /// # let base_name = Name::new("org".to_string(), "namespace".to_string(), "service".to_string());
+    /// # let server = Server::new_with_shared_rx_and_connection(core_app, base_name.as_slim_name(), None, notification_rx, None);
     /// # #[derive(Default)]
     /// # struct Request { value: i32 }
-    /// # impl slim_rpc::Decoder for Request {
-    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(Request::default()) }
+    /// # impl Decoder for Request {
+    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(Request::default()) }
     /// # }
     /// # #[derive(Default)]
     /// # struct Response { sum: i32 }
-    /// # impl slim_rpc::Encoder for Response {
-    /// #     fn encode(self) -> std::result::Result<Vec<u8>, Status> { Ok(vec![]) }
+    /// # impl Encoder for Response {
+    /// #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
     /// # }
-    /// # fn example(server: Server) {
-    /// server.register_stream_unary(
+    /// # use futures::stream::BoxStream;
+    /// server.register_stream_unary_internal(
     ///     "AggregateService",
     ///     "SumNumbers",
-    ///     |mut request_stream: RequestStream<Request>, _ctx: Context| async move {
+    ///     |mut request_stream: BoxStream<'static, Result<Request, Status>>, _ctx: Context| async move {
     ///         let mut sum = 0;
     ///         while let Some(result) = request_stream.next().await {
     ///             let request = result?;
@@ -617,6 +638,7 @@ impl Server {
     ///         Ok(Response { sum })
     ///     }
     /// );
+    /// # Ok(())
     /// # }
     /// ```
     pub fn register_stream_unary_internal<F, Req, Res, Fut>(
@@ -630,8 +652,7 @@ impl Server {
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
     {
-        self.inner
-            .registry
+        self.registry
             .write()
             .register_stream_unary(service_name, method_name, handler);
 
@@ -650,24 +671,35 @@ impl Server {
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_rpc::{Server, Context, Status, RequestStream};
-    /// # use futures::{stream, StreamExt};
+    /// # use slim_bindings::{Server, Context, Status, Decoder, Encoder, App, Name, IdentityProviderConfig, IdentityVerifierConfig};
+    /// # use std::sync::Arc;
+    /// # use futures::StreamExt;
+    /// # use async_stream::stream;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let app_name = Arc::new(Name::new("test".to_string(), "app".to_string(), "v1".to_string()));
+    /// # let provider = IdentityProviderConfig::SharedSecret { id: "test".to_string(), data: "secret".to_string() };
+    /// # let verifier = IdentityVerifierConfig::SharedSecret { id: "test".to_string(), data: "secret".to_string() };
+    /// # let app = App::new(app_name, provider, verifier)?;
+    /// # let core_app = app.inner();
+    /// # let notification_rx = app.notification_receiver();
+    /// # let base_name = Name::new("org".to_string(), "namespace".to_string(), "service".to_string());
+    /// # let server = Server::new_with_shared_rx_and_connection(core_app, base_name.as_slim_name(), None, notification_rx, None);
     /// # #[derive(Default)]
     /// # struct Request { message: String }
-    /// # impl slim_rpc::Decoder for Request {
-    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(Request::default()) }
+    /// # impl Decoder for Request {
+    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(Request::default()) }
     /// # }
     /// # #[derive(Default)]
     /// # struct Response { reply: String }
-    /// # impl slim_rpc::Encoder for Response {
-    /// #     fn encode(self) -> std::result::Result<Vec<u8>, Status> { Ok(vec![]) }
+    /// # impl Encoder for Response {
+    /// #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
     /// # }
-    /// # fn example(server: Server) {
-    /// server.register_stream_stream(
+    /// # use futures::stream::BoxStream;
+    /// server.register_stream_stream_internal(
     ///     "EchoService",
     ///     "Echo",
-    ///     |mut request_stream: RequestStream<Request>, _ctx: Context| async move {
-    ///         let responses = async_stream::stream! {
+    ///     |mut request_stream: BoxStream<'static, Result<Request, Status>>, _ctx: Context| async move {
+    ///         let responses = stream! {
     ///             while let Some(result) = request_stream.next().await {
     ///                 match result {
     ///                     Ok(request) => {
@@ -685,6 +717,7 @@ impl Server {
     ///         Ok(responses)
     ///     }
     /// );
+    /// # Ok(())
     /// # }
     /// ```
     pub fn register_stream_stream_internal<F, Req, Res, S, Fut>(
@@ -699,8 +732,7 @@ impl Server {
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
     {
-        self.inner
-            .registry
+        self.registry
             .write()
             .register_stream_stream(service_name, method_name, handler);
 
@@ -714,16 +746,26 @@ impl Server {
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_rpc::Server;
-    /// # fn example(server: Server) {
+    /// # use slim_bindings::{Server, App, Name, IdentityProviderConfig, IdentityVerifierConfig};
+    /// # use std::sync::Arc;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let app_name = Arc::new(Name::new("test".to_string(), "app".to_string(), "v1".to_string()));
+    /// # let provider = IdentityProviderConfig::SharedSecret { id: "test".to_string(), data: "secret".to_string() };
+    /// # let verifier = IdentityVerifierConfig::SharedSecret { id: "test".to_string(), data: "secret".to_string() };
+    /// # let app = App::new(app_name, provider, verifier)?;
+    /// # let core_app = app.inner();
+    /// # let notification_rx = app.notification_receiver();
+    /// # let base_name = Name::new("org".to_string(), "namespace".to_string(), "service".to_string());
+    /// # let server = Server::new_with_shared_rx_and_connection(core_app, base_name.as_slim_name(), None, notification_rx, None);
     /// let methods = server.methods();
     /// for method in methods {
     ///     println!("Registered: {}", method);
     /// }
+    /// # Ok(())
     /// # }
     /// ```
     pub fn methods(&self) -> Vec<String> {
-        self.inner.registry.read().methods()
+        self.registry.read().methods()
     }
 
     /// Start the server and listen for incoming RPC requests in a separate task
@@ -742,48 +784,82 @@ impl Server {
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_rpc::{Server, Status};
-    /// # async fn example(server: Server) -> std::result::Result<(), Status> {
+    /// # use slim_bindings::{Server, Status, App, Name, IdentityProviderConfig, IdentityVerifierConfig};
+    /// # use std::sync::Arc;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let app_name = Arc::new(Name::new("test".to_string(), "app".to_string(), "v1".to_string()));
+    /// # let provider = IdentityProviderConfig::SharedSecret { id: "test".to_string(), data: "secret".to_string() };
+    /// # let verifier = IdentityVerifierConfig::SharedSecret { id: "test".to_string(), data: "secret".to_string() };
+    /// # let app = App::new(app_name, provider, verifier)?;
+    /// # let core_app = app.inner();
+    /// # let notification_rx = app.notification_receiver();
+    /// # let base_name = Name::new("org".to_string(), "namespace".to_string(), "service".to_string());
+    /// # let server = Server::new_with_shared_rx_and_connection(core_app, base_name.as_slim_name(), None, notification_rx, None);
     /// // Register handlers first...
     ///
     /// // Start serving in background task
-    /// let server_handle = server.serve();
+    /// let _server_handle = server.serve_handle()?;
     ///
     /// // Do other work...
-    ///
-    /// // Wait for server to complete (or handle shutdown)
-    /// server_handle.await.unwrap()?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn serve_handle(&self) -> JoinHandle<Result<(), Status>> {
-        let server = self.clone();
-        self.inner
-            .runtime
-            .spawn(async move { server.serve_internal().await })
+    pub fn serve_handle(&self) -> Result<JoinHandle<Result<(), Status>>, RpcError> {
+        let notification = self
+            .notification_rx
+            .lock()
+            .take()
+            .ok_or(Status::internal("server already running"))?;
+
+        let registry = self.registry.read().clone();
+        let base_name = self.base_name.clone();
+        let app = self.app.clone();
+        let cancellation_token = self.cancellation_token.clone();
+        let connection_id = self.connection_id;
+        let drain_watch = self
+            .drain_watch
+            .read()
+            .clone()
+            .ok_or_else(|| Status::internal("drain watch not available"))?;
+
+        let ret = self.runtime.spawn(Server::serve_internal(
+            notification,
+            registry,
+            connection_id,
+            base_name,
+            app,
+            cancellation_token,
+            drain_watch,
+        ));
+
+        Ok(ret)
     }
 
     /// Internal server loop implementation
     ///
     /// This method contains the actual server loop logic and is called by [`serve`](Self::serve)
     /// in a spawned task.
-    async fn serve_internal(&self) -> Result<(), Status> {
+    async fn serve_internal(
+        mut rx: NotificationReceiver,
+        registry: ServiceRegistry,
+        connection_id: Option<u64>,
+        base_name: Name,
+        app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
+        cancellation_token: CancellationToken,
+        drain_watch: drain::Watch,
+    ) -> Result<(), Status> {
         tracing::info!(
-            base_name = %self.inner.base_name,
+            %base_name,
             "SlimRPC server starting"
         );
 
         // Subscribe to all registered methods
-        let subscription_names: Vec<Name> = {
-            let registry = self.inner.registry.read();
-            registry.subscription_to_method.keys().cloned().collect()
-        };
+        let subscription_names: Vec<Name> =
+            registry.subscription_to_method.keys().cloned().collect();
 
         for subscription_name in subscription_names {
             tracing::info!(%subscription_name, "Subscribing");
-            self.inner
-                .app
-                .subscribe(&subscription_name, self.inner.connection_id)
+            app.subscribe(&subscription_name, connection_id)
                 .await
                 .map_err(|e| {
                     Status::internal(format!(
@@ -793,16 +869,19 @@ impl Server {
                 })?;
         }
 
+        // Save spawned tasks
+        let mut tasks = vec![];
+
         // Main server loop - listen for sessions
         loop {
             tokio::select! {
                 // Handle shutdown signal
-                _ = self.inner.cancellation_token.cancelled() => {
+                _ = cancellation_token.cancelled() => {
                     tracing::info!("Server received shutdown signal");
                     return Ok(());
                 }
                 // Handle incoming sessions
-                session_result = self.listen_for_session() => {
+                session_result = Server::listen_for_session(&mut rx) => {
                     tracing::debug!("Received session notification");
 
                     let session_ctx = session_result?;
@@ -815,19 +894,8 @@ impl Server {
 
                     tracing::debug!(%subscription_name, "Processing session for subscription");
 
-                    // Log the registry for debugging
-                    {
-                        let registry = self.inner.registry.read();
-                        let methods = registry.methods();
-                        tracing::debug!(
-                            methods = ?methods,
-                            "Registered methods in service registry"
-                        );
-                    }
-
                     // Look up the method path and handler info for this subscription
                     let lookup_result = {
-                        let registry = self.inner.registry.read();
                         let method_path_opt = registry.get_method_from_subscription(&mut subscription_name);
                         method_path_opt.and_then(|method_path| {
                             registry.get_handler_info(&method_path).map(|handler_info| (method_path, handler_info))
@@ -835,37 +903,63 @@ impl Server {
                     };
 
                     // Spawn a task to handle this session
-                    let server = self.clone();
-                    let session = Session::new(session_ctx);
-                    let handle = self.inner.runtime.spawn(async move {
-                        // Check if method is registered and handle error in task
-                        let Some((method_path, handler_info)) = lookup_result else {
-                            tracing::error!(%subscription_name, "No method registered for subscription");
-                            // Send error and wait for acknowledgment
-                            let _ = server.send_error(&session, Status::internal("No method registered for subscription")).await;
+                    let (session_tx, mut session_rx) = new_session(session_ctx);
+                    let app_clone = app.clone();
+                    let watch_clone = drain_watch.clone();
+                    let handle = tokio::spawn(async move {
+                        let watch = std::pin::pin!(watch_clone.signaled());
 
-                            // Delete the session when done
-                            let _ = session.close(server.inner.app.as_ref()).await;
-                            return;
-                        };
+                        tokio::select! {
+                            _ = watch => {
+                                tracing::debug!(%subscription_name, "Session task terminated due to server shutdown");
+                                let _ = session_tx.close(app_clone.as_ref()).await;
+                                return;
+                            }
+                            _ = async {
+                                // Check if method is registered and handle error in task
+                                let Some((method_path, handler_info)) = lookup_result else {
+                                    tracing::error!(%subscription_name, "No method registered for subscription");
+                                    // Send error and wait for acknowledgment
+                                    let _ = Self::send_error(&session_tx, Status::internal("No method registered for subscription")).await;
 
-                        tracing::debug!(%method_path, %subscription_name, "Received session for method");
+                                    // Delete the session when done
+                                    let _ = session_tx.close(app_clone.as_ref()).await;
+                                    return;
+                                };
 
-                        if let Err(e) = server.handle_session(&session, &method_path, handler_info).await {
-                            tracing::error!(%method_path, error = %e, "Error handling session");
+                                tracing::debug!(%method_path, %subscription_name, "Received session for method");
 
-                            // Send error to client before closing
-                            let _ = server.send_error(&session, e).await;
+                                let result = match handler_info {
+                                    HandlerInfo::Stream(stream_handler, handler_type) => {
+                                        // For stream-based methods, we need to pass ownership of session_rx
+                                        Server::handle_stream_based_method_wrapper(&session_tx, session_rx, &method_path, stream_handler, handler_type).await
+                                    }
+                                    _ => {
+                                        // For unary methods, we can pass mutable reference
+                                        Server::handle_session(&session_tx, &mut session_rx, &method_path, handler_info).await
+                                    }
+                                };
+
+                                if let Err(e) = result {
+                                    tracing::error!(%method_path, error = %e, "Error handling session");
+
+                                    // Send error to client before closing
+                                    let _ = Self::send_error(&session_tx, e).await;
+                                }
+
+                                // Close the session after handling (success or after sending error)
+                                let _ = session_tx.close(app_clone.as_ref()).await;
+                            } => {}
                         }
-
-                        // Close the session after handling (success or after sending error)
-                        let _ = session.close(server.inner.app.as_ref()).await;
                     });
 
-                    self.inner.tasks.write().push(handle);
+                    tasks.push(handle);
                 }
             }
         }
+
+        // // Wait for all tasks to finish
+        // join_all(tasks).await
     }
 
     /// Shutdown the server gracefully
@@ -876,21 +970,33 @@ impl Server {
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_rpc::Server;
-    /// # async fn example(server: Server) {
+    /// # use slim_bindings::{Server, App, Name, IdentityProviderConfig, IdentityVerifierConfig};
+    /// # use std::sync::Arc;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let app_name = Arc::new(Name::new("test".to_string(), "app".to_string(), "v1".to_string()));
+    /// # let provider = IdentityProviderConfig::SharedSecret { id: "test".to_string(), data: "secret".to_string() };
+    /// # let verifier = IdentityVerifierConfig::SharedSecret { id: "test".to_string(), data: "secret".to_string() };
+    /// # let app = App::new(app_name, provider, verifier)?;
+    /// # let core_app = app.inner();
+    /// # let notification_rx = app.notification_receiver();
+    /// # let base_name = Name::new("org".to_string(), "namespace".to_string(), "service".to_string());
+    /// # let server = Server::new_with_shared_rx_and_connection(core_app, base_name.as_slim_name(), None, notification_rx, None);
     /// // In another task or signal handler:
-    /// server.shutdown().await;
+    /// # slim_bindings::get_runtime().block_on(async {
+    /// server.shutdown_internal().await;
+    /// # });
+    /// # Ok(())
     /// # }
     /// ```
     pub async fn shutdown_internal(&self) {
         tracing::info!("Shutting down SlimRPC server");
 
         // Signal cancellation to the main serve loop
-        self.inner.cancellation_token.cancel();
+        self.cancellation_token.cancel();
 
         // Take the drain signal and watch
-        let drain_signal = self.inner.drain_signal.write().take();
-        let drain_watch = self.inner.drain_watch.write().take();
+        let drain_signal = self.drain_signal.write().take();
+        let drain_watch = self.drain_watch.write().take();
 
         // Drop the watch to complete the drain
         drop(drain_watch);
@@ -904,8 +1010,8 @@ impl Server {
 
         // Recreate drain signal and watch so the server can be restarted
         let (new_signal, new_watch) = drain::channel();
-        *self.inner.drain_signal.write() = Some(new_signal);
-        *self.inner.drain_watch.write() = Some(new_watch);
+        *self.drain_signal.write() = Some(new_signal);
+        *self.drain_watch.write() = Some(new_watch);
 
         tracing::debug!("Server shutdown complete, ready to restart");
     }
@@ -918,7 +1024,7 @@ impl Server {
     }
 
     /// Send a message with status code
-    async fn send_message(session: &Session, payload: Vec<u8>, code: Code) -> Result<(), Status> {
+    async fn send_message(session: &SessionTx, payload: Vec<u8>, code: Code) -> Result<(), Status> {
         let metadata = Self::create_status_metadata(code);
         let handle = session
             .publish(payload, Some("msg".to_string()), Some(metadata))
@@ -930,12 +1036,15 @@ impl Server {
     }
 
     /// Send end-of-stream marker
-    async fn send_end_of_stream(session: &Session) -> Result<(), Status> {
+    async fn send_end_of_stream(session: &SessionTx) -> Result<(), Status> {
         Self::send_message(session, Vec::new(), Code::Ok).await
     }
 
     /// Send all responses from a stream
-    async fn send_response_stream(session: &Session, mut stream: ItemStream) -> Result<(), Status> {
+    async fn send_response_stream(
+        session: &SessionTx,
+        mut stream: ItemStream,
+    ) -> Result<(), Status> {
         while let Some(result) = stream.next().await {
             match result {
                 Ok(response_bytes) => {
@@ -954,43 +1063,66 @@ impl Server {
     }
 
     /// Receive first message from session
-    async fn receive_first_message(session: &Session) -> Result<super::ReceivedMessage, Status> {
+    async fn receive_first_message(
+        session: &mut SessionRx,
+    ) -> Result<super::ReceivedMessage, Status> {
         session.get_message(None).await.map_err(|e| {
             tracing::debug!(error = %e, "Session closed or error receiving message");
             Status::internal(format!("Failed to receive message: {}", e))
         })
     }
 
+    /// Wrapper to handle stream-based methods that need to take ownership of session_rx
+    async fn handle_stream_based_method_wrapper(
+        session_tx: &SessionTx,
+        session_rx: SessionRx,
+        method_path: &str,
+        stream_handler: StreamRpcHandler,
+        handler_type: HandlerType,
+    ) -> Result<(), Status> {
+        // Create context from session wrapper (using SessionRx for metadata)
+        let ctx = Context::from_session_tx(&session_tx);
+
+        tracing::debug!(%method_path, "Processing RPC");
+
+        // Check deadline for stream-based methods
+        if ctx.is_deadline_exceeded() {
+            return Err(Status::deadline_exceeded("Deadline exceeded"));
+        }
+
+        let result = Server::handle_stream_based_method(
+            stream_handler,
+            handler_type,
+            session_tx,
+            session_rx,
+            ctx,
+        )
+        .await;
+
+        if let Err(e) = &result {
+            tracing::error!(%method_path, error = %e, "Error handling RPC");
+        } else {
+            tracing::debug!(%method_path, "RPC completed successfully");
+        }
+
+        result
+    }
+
     /// Listen for an incoming session from the notification receiver
-    async fn listen_for_session(&self) -> Result<slim_session::context::SessionContext, Status> {
+    async fn listen_for_session(
+        notification_rx: &mut NotificationReceiver,
+    ) -> Result<slim_session::context::SessionContext, Status> {
         tracing::debug!("Waiting for incoming session notification");
-        let mut rx_guard = self.inner.notification_rx.lock().await;
-        tracing::debug!("Notification receiver lock acquired");
-        let rx_opt = rx_guard.take();
-
-        let notification_opt = match rx_opt {
-            Some(NotificationReceiver::Owned(mut rx)) => {
-                let result = rx.recv().await;
-                // Put the receiver back
-                *rx_guard = Some(NotificationReceiver::Owned(rx));
-                result
-            }
-            Some(NotificationReceiver::Shared(rx_arc)) => {
+        let notification_opt = match notification_rx {
+            NotificationReceiver::Owned(rx) => rx.recv().await,
+            NotificationReceiver::Shared(rx_arc) => {
                 // For shared receiver, put it back immediately and work with the Arc
-                *rx_guard = Some(NotificationReceiver::Shared(rx_arc.clone()));
-                drop(rx_guard);
-
                 tracing::debug!("Acquiring shared notification receiver");
 
                 // Now lock and receive from the shared receiver
                 let mut rx = rx_arc.write().await;
-
                 tracing::debug!("Receiving from shared notification receiver");
-
                 rx.recv().await
-            }
-            None => {
-                return Err(Status::internal("notification receiver not available"));
             }
         };
 
@@ -1010,67 +1142,43 @@ impl Server {
 
     /// Handle a session for a specific method, processing multiple RPCs until session closes
     async fn handle_session(
-        &self,
-        session: &Session,
+        session_tx: &SessionTx,
+        session_rx: &mut SessionRx,
         method_path: &str,
         handler_info: HandlerInfo,
     ) -> Result<(), Status> {
-        // Get a drain watch handle for this session
-        let drain_watch = self
-            .inner
-            .drain_watch
-            .read()
-            .clone()
-            .ok_or_else(|| Status::internal("drain watch not available"))?;
-
-        // Create context from session wrapper
-        let ctx = Context::from_session_wrapper(session).await;
+        // Create context from session wrapper (using SessionRx for metadata)
+        let ctx = Context::from_session_tx(session_tx);
 
         tracing::debug!(%method_path, "Processing RPC");
 
         // Handle based on handler type (already looked up before calling this function)
+        // Note: This function should only be called for unary methods now
         let result = match handler_info {
-            HandlerInfo::Stream(stream_handler, handler_type) => {
-                // Check deadline for stream-based methods
-                if ctx.is_deadline_exceeded() {
-                    Err(Status::deadline_exceeded("Deadline exceeded"))
-                } else {
-                    self.handle_stream_based_method(
-                        stream_handler,
-                        handler_type,
-                        session,
-                        ctx,
-                        &drain_watch,
-                    )
-                    .await
-                }
-            }
             HandlerInfo::Unary(handler, handler_type) => {
                 // Check deadline
                 if ctx.is_deadline_exceeded() {
                     Err(Status::deadline_exceeded("Deadline exceeded"))
                 } else {
                     // Handle based on type (only unary-input handlers reach here)
-                    tokio::select! {
-                        result = async {
-                            match handler_type {
-                                HandlerType::UnaryUnary => {
-                                    self.handle_unary_unary(handler, session, ctx).await
-                                }
-                                HandlerType::UnaryStream => {
-                                    self.handle_unary_stream(handler, session, ctx).await
-                                }
-                                _ => {
-                                    Err(Status::internal("Invalid handler type for unary-input method"))
-                                }
-                            }
-                        } => result,
-                        _ = drain_watch.clone().signaled() => {
-                            tracing::debug!("Session handler terminated due to server shutdown");
-                            return Err(Status::unavailable("Server is shutting down"));
+                    match handler_type {
+                        HandlerType::UnaryUnary => {
+                            Self::handle_unary_unary(handler, session_tx, session_rx, ctx).await
                         }
+                        HandlerType::UnaryStream => {
+                            Self::handle_unary_stream(handler, session_tx, session_rx, ctx).await
+                        }
+                        _ => Err(Status::internal(
+                            "Invalid handler type for unary-input method",
+                        )),
                     }
                 }
+            }
+            HandlerInfo::Stream(_, _) => {
+                // This shouldn't happen as stream methods are handled in handle_stream_based_method_wrapper
+                return Err(Status::internal(
+                    "Stream methods should be handled separately",
+                ));
             }
         };
 
@@ -1085,13 +1193,13 @@ impl Server {
 
     /// Handle unary-unary RPC
     async fn handle_unary_unary(
-        &self,
         handler: RpcHandler,
-        session: &Session,
+        session_tx: &SessionTx,
+        session_rx: &mut SessionRx,
         ctx: Context,
     ) -> Result<(), Status> {
         // Get the first message from the session
-        let received = Self::receive_first_message(session).await?;
+        let received = Self::receive_first_message(session_rx).await?;
 
         // Update context with message metadata to parse deadline
         let ctx = ctx.with_message_metadata(received.metadata);
@@ -1109,7 +1217,7 @@ impl Server {
                 // Send response
                 match response {
                     HandlerResponse::Unary(response_bytes) => {
-                        Self::send_message(session, response_bytes, Code::Ok).await?;
+                        Self::send_message(session_tx, response_bytes, Code::Ok).await?;
                     }
                     _ => {
                         return Err(Status::internal(
@@ -1129,13 +1237,13 @@ impl Server {
 
     /// Handle unary-stream RPC
     async fn handle_unary_stream(
-        &self,
         handler: RpcHandler,
-        session: &Session,
+        session_tx: &SessionTx,
+        session_rx: &mut SessionRx,
         ctx: Context,
     ) -> Result<(), Status> {
         // Get the first message from the session
-        let received = Self::receive_first_message(session).await?;
+        let received = Self::receive_first_message(session_rx).await?;
 
         // Calculate deadline and create sleep future
         let timeout_duration = Self::get_timeout_duration(&ctx);
@@ -1152,7 +1260,7 @@ impl Server {
                 // Send streaming responses
                 match response {
                     HandlerResponse::Stream(stream) => {
-                        Self::send_response_stream(session, stream).await?;
+                        Self::send_response_stream(session_tx, stream).await?;
                     }
                     _ => {
                         return Err(Status::internal(
@@ -1172,12 +1280,11 @@ impl Server {
 
     /// Handle stream-based methods (stream-unary and stream-stream)
     async fn handle_stream_based_method(
-        &self,
         handler: StreamRpcHandler,
         handler_type: HandlerType,
-        session: &Session,
+        session_tx: &SessionTx,
+        session_rx: SessionRx,
         ctx: Context,
-        drain_watch: &drain::Watch,
     ) -> Result<(), Status> {
         // Calculate deadline and create sleep future
         let timeout_duration = Self::get_timeout_duration(&ctx);
@@ -1185,25 +1292,16 @@ impl Server {
         let sleep_fut = tokio::time::sleep_until(deadline);
         tokio::pin!(sleep_fut);
 
-        // Create a oneshot channel to signal stream completion
-        let (stream_done_tx, stream_done_rx) = tokio::sync::oneshot::channel::<()>();
-
         // Create a stream of incoming requests
-        let session_clone = session.clone();
-        let drain_for_stream = drain_watch.clone();
-
-        // Wrap sender in Option so we can move it into the stream
-        let mut stream_done_tx = Some(stream_done_tx);
+        // Wrap session_rx in Arc<Mutex> to allow capturing in stream! macro
+        let session_rx = Arc::new(tokio::sync::Mutex::new(session_rx));
+        let session_rx_for_stream = session_rx.clone();
 
         let request_stream = stream! {
             loop {
-                // Get the next message from the session
-                let received_result = tokio::select! {
-                    result = session_clone.get_message(None) => result,
-                    _ = drain_for_stream.clone().signaled() => {
-                        tracing::debug!("Request stream terminated due to server shutdown");
-                        break;
-                    }
+                let received_result = {
+                    let mut rx = session_rx_for_stream.lock().await;
+                    rx.get_message(None).await
                 };
 
                 tracing::debug!("Received message in stream-based method");
@@ -1234,18 +1332,13 @@ impl Server {
 
                 yield Ok(received.payload);
             }
-
-            // Signal that the stream has completed
-            if let Some(tx) = stream_done_tx.take() {
-                let _ = tx.send(());
-            }
         };
 
         // Box and pin the stream
         let boxed_stream = request_stream.boxed();
 
         // Call handler and send responses with deadline and drain signal awareness
-        tokio::select! {
+        let result = tokio::select! {
             result = async {
                 // Call handler
                 let handler_result = handler(boxed_stream, ctx).await?;
@@ -1263,7 +1356,7 @@ impl Server {
                             }
                         };
 
-                        Self::send_message(session, response, Code::Ok).await?;
+                        Self::send_message(session_tx, response, Code::Ok).await?;
                     }
                     HandlerType::StreamStream => {
                         // Send streaming responses
@@ -1276,7 +1369,7 @@ impl Server {
                             }
                         };
 
-                        Self::send_response_stream(session, response_stream).await?;
+                        Self::send_response_stream(session_tx, response_stream).await?;
                     }
                     _ => {
                         return Err(Status::internal(
@@ -1291,21 +1384,13 @@ impl Server {
                 tracing::debug!("Handler execution exceeded deadline");
                 Err(Status::deadline_exceeded("Handler execution exceeded deadline"))
             }
-            _ = drain_watch.clone().signaled() => {
-                tracing::debug!("Stream handler terminated due to server shutdown");
-                Err(Status::unavailable("Server is shutting down"))
-            }
-        }?;
+        };
 
-        // Wait for the request stream to complete before returning
-        // This ensures all background tasks are finished before resource cleanup
-        let _ = stream_done_rx.await;
-
-        Ok(())
+        result
     }
 
     /// Send an error response
-    async fn send_error(&self, session: &Session, status: Status) -> Result<(), Status> {
+    async fn send_error(session: &SessionTx, status: Status) -> Result<(), Status> {
         let message = status.message().unwrap_or("").to_string();
         Self::send_message(session, message.into_bytes(), status.code())
             .await
@@ -1313,14 +1398,6 @@ impl Server {
                 tracing::warn!(error = %e, "Failed to send error response");
                 e
             })
-    }
-}
-
-impl Clone for Server {
-    fn clone(&self) -> Self {
-        Self {
-            inner: Arc::clone(&self.inner),
-        }
     }
 }
 
@@ -1341,7 +1418,7 @@ impl Server {
     /// # Returns
     /// A new RPC server instance wrapped in an Arc for shared ownership
     #[uniffi::constructor]
-    pub fn new(app: &std::sync::Arc<crate::App>, base_name: std::sync::Arc<crate::Name>) -> std::sync::Arc<Self> {
+    pub fn new(app: &Arc<crate::App>, base_name: Arc<crate::Name>) -> Self {
         Self::new_with_connection(app, base_name, None)
     }
 
@@ -1361,29 +1438,20 @@ impl Server {
     /// A new RPC server instance wrapped in an Arc for shared ownership
     #[uniffi::constructor]
     pub fn new_with_connection(
-        app: &std::sync::Arc<crate::App>,
-        base_name: std::sync::Arc<crate::Name>,
+        app: &Arc<crate::App>,
+        base_name: Arc<crate::Name>,
         connection_id: Option<u64>,
-    ) -> std::sync::Arc<Self> {
-        let app_inner = app.inner_app().clone();
-        let slim_name = base_name.as_slim_name().clone();
+    ) -> Self {
+        let app_inner = app.inner();
         let rx = app.notification_receiver();
 
-        // Get the notification receiver from the app
-        let notification_rx = crate::get_runtime().block_on(async {
-            let mut lock = rx.write().await;
-            // Take ownership of the receiver by replacing it with a dummy channel
-            let (_, new_rx) = tokio::sync::mpsc::channel(1);
-            std::mem::replace(&mut *lock, new_rx)
-        });
-
-        std::sync::Arc::new(Self::create_with_connection_and_runtime(
+        Self::new_with_shared_rx_and_connection(
             app_inner,
-            slim_name,
+            base_name.as_ref().into(),
             connection_id,
-            notification_rx,
+            rx,
             Some(crate::get_runtime().handle().clone()),
-        ))
+        )
     }
 
     /// Register a unary-to-unary RPC handler
@@ -1396,7 +1464,7 @@ impl Server {
         &self,
         service_name: String,
         method_name: String,
-        handler: std::sync::Arc<dyn super::UnaryUnaryHandler>,
+        handler: Arc<dyn super::UnaryUnaryHandler>,
     ) {
         let handler_clone = handler.clone();
         let service_clone = service_name.clone();
@@ -1414,7 +1482,7 @@ impl Server {
                 tracing::debug!(service = %service_clone, method = %method_clone, "Handling unary-unary request");
 
                 Box::pin(async move {
-                    let result = handler.handle(request, std::sync::Arc::new(ctx)).await;
+                    let result = handler.handle(request, Arc::new(ctx)).await;
                     result.map_err(|e| e.into())
                 })
             },
@@ -1431,7 +1499,7 @@ impl Server {
         &self,
         service_name: String,
         method_name: String,
-        handler: std::sync::Arc<dyn super::UnaryStreamHandler>,
+        handler: Arc<dyn super::UnaryStreamHandler>,
     ) {
         let handler_clone = handler.clone();
 
@@ -1444,13 +1512,15 @@ impl Server {
 
                 Box::pin(async move {
                     let (sink, rx) = super::ResponseSink::receiver();
-                    let sink_arc = std::sync::Arc::new(sink);
+                    let sink_arc = Arc::new(sink);
 
                     // Spawn a task to run the handler
                     let handler_task = {
                         let sink = sink_arc.clone();
                         crate::get_runtime().spawn(async move {
-                            if let Err(e) = handler.handle(request, std::sync::Arc::new(ctx), sink.clone()).await {
+                            if let Err(e) =
+                                handler.handle(request, Arc::new(ctx), sink.clone()).await
+                            {
                                 let _ = sink.send_error_async(e).await;
                             }
                         })
@@ -1477,7 +1547,7 @@ impl Server {
         &self,
         service_name: String,
         method_name: String,
-        handler: std::sync::Arc<dyn super::StreamUnaryHandler>,
+        handler: Arc<dyn super::StreamUnaryHandler>,
     ) {
         let handler_clone = handler.clone();
 
@@ -1487,10 +1557,10 @@ impl Server {
             move |stream: super::RequestStream<Vec<u8>>, context: super::Context| {
                 let handler = handler_clone.clone();
                 let ctx = super::UniffiContext::new(context);
-                let request_stream = std::sync::Arc::new(super::UniffiRequestStream::new(stream));
+                let request_stream = Arc::new(super::UniffiRequestStream::new(stream));
 
                 Box::pin(async move {
-                    let result = handler.handle(request_stream, std::sync::Arc::new(ctx)).await;
+                    let result = handler.handle(request_stream, Arc::new(ctx)).await;
                     result.map_err(|e| e.into())
                 })
             },
@@ -1507,7 +1577,7 @@ impl Server {
         &self,
         service_name: String,
         method_name: String,
-        handler: std::sync::Arc<dyn super::StreamStreamHandler>,
+        handler: Arc<dyn super::StreamStreamHandler>,
     ) {
         let handler_clone = handler.clone();
 
@@ -1517,17 +1587,20 @@ impl Server {
             move |stream: super::RequestStream<Vec<u8>>, context: super::Context| {
                 let handler = handler_clone.clone();
                 let ctx = super::UniffiContext::new(context);
-                let request_stream = std::sync::Arc::new(super::UniffiRequestStream::new(stream));
+                let request_stream = Arc::new(super::UniffiRequestStream::new(stream));
 
                 Box::pin(async move {
                     let (sink, rx) = super::ResponseSink::receiver();
-                    let sink_arc = std::sync::Arc::new(sink);
+                    let sink_arc = Arc::new(sink);
 
                     // Spawn a task to run the handler
                     let handler_task = {
                         let sink = sink_arc.clone();
                         crate::get_runtime().spawn(async move {
-                            if let Err(e) = handler.handle(request_stream, std::sync::Arc::new(ctx), sink.clone()).await {
+                            if let Err(e) = handler
+                                .handle(request_stream, Arc::new(ctx), sink.clone())
+                                .await
+                            {
                                 let _ = sink.send_error_async(e).await;
                             }
                         })
@@ -1549,14 +1622,7 @@ impl Server {
     /// This is a blocking method that runs until the server is shut down.
     /// It listens for incoming RPC calls and dispatches them to registered handlers.
     pub fn serve(&self) -> Result<(), super::RpcError> {
-        let handle = self.serve_handle();
-        crate::get_runtime().block_on(async move {
-            match handle.await {
-                Ok(Ok(())) => Ok(()),
-                Ok(Err(status)) => Err(status.into()),
-                Err(e) => Err(super::RpcError::new(super::Code::Internal, e.to_string())),
-            }
-        })
+        crate::get_runtime().block_on(self.serve_async())
     }
 
     /// Start serving RPC requests (async version)
@@ -1564,12 +1630,9 @@ impl Server {
     /// This is an async method that runs until the server is shut down.
     /// It listens for incoming RPC calls and dispatches them to registered handlers.
     pub async fn serve_async(&self) -> Result<(), super::RpcError> {
-        let handle = self.serve_handle();
-        match handle.await {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(status)) => Err(status.into()),
-            Err(e) => Err(super::RpcError::new(super::Code::Internal, e.to_string())),
-        }
+        let _handle = self.serve_handle()?;
+
+        Ok(())
     }
 
     /// Shutdown the server gracefully (blocking version)
