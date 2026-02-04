@@ -49,7 +49,7 @@ SLIM consists of multiple components with different installation methods:
 
 - **SLIM Node** (data plane): Docker, Cargo, or Helm
 - **Control Plane**: Docker or Helm
-- **slimctl CLI**: Download from releases
+- **slimctl CLI**: Download from [releases](https://github.com/agntcy/slim/releases?q=slimctl-v1.&expanded=true)
 - **Language Bindings**: Python (pip), Go, C#, JavaScript/TypeScript, Kotlin
 
 📦 **[Complete installation instructions](https://docs.agntcy.org/slim/slim-howto/)**
