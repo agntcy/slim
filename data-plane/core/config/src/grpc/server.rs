@@ -62,7 +62,7 @@ pub struct KeepaliveServerParameters {
 }
 
 /// Enum holding one configuration for the client.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum AuthenticationConfig {
     /// Basic authentication configuration.
@@ -70,13 +70,8 @@ pub enum AuthenticationConfig {
     /// JWT authentication configuration.
     Jwt(JwtAuthenticationConfig),
     /// None
+    #[default]
     None,
-}
-
-impl Default for AuthenticationConfig {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]

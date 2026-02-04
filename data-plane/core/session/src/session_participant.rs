@@ -343,14 +343,9 @@ where
             .add_route(&source, msg.get_incoming_conn())
             .await?;
 
-        let payload = if self.mls_state.is_some() {
+        let payload = if let Some(mls_state) = &mut self.mls_state {
             debug!("mls enabled, create the package key");
-            let key = self
-                .mls_state
-                .as_mut()
-                .unwrap()
-                .generate_key_package()
-                .await?;
+            let key = mls_state.generate_key_package().await?;
             Some(key)
         } else {
             None
@@ -377,12 +372,8 @@ where
             "received welcome message",
         );
 
-        if self.mls_state.is_some() {
-            self.mls_state
-                .as_mut()
-                .unwrap()
-                .process_welcome_message(&msg)
-                .await?;
+        if let Some(mls_state) = &mut self.mls_state {
+            mls_state.process_welcome_message(&msg).await?;
         }
 
         self.join(&msg).await?;
@@ -432,12 +423,9 @@ where
             "received update",
         );
 
-        if self.mls_state.is_some() {
+        if let Some(mls_state) = &mut self.mls_state {
             debug!("process mls control update");
-            let ret = self
-                .mls_state
-                .as_mut()
-                .unwrap()
+            let ret = mls_state
                 .process_control_message(msg.clone(), &self.common.settings.source)
                 .await?;
 

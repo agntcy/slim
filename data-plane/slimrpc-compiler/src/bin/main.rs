@@ -115,9 +115,9 @@ fn handle_code_generation(request: CodeGeneratorRequest) -> Result<CodeGenerator
     let mut types_module_import = String::new();
 
     // Parse parameters, if any
-    if request.parameter.is_some() {
+    if let Some(p) = &request.parameter {
         // Split by , and process parameters in the form key=value
-        for param in request.parameter.as_ref().unwrap().split(',') {
+        for param in p.split(',') {
             let mut parts = param.splitn(2, '=');
             if let (Some(key), Some(value)) = (parts.next(), parts.next()) {
                 // Handle parameter
