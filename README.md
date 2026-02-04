@@ -15,7 +15,10 @@ AI agent protocols like [A2A (Agent-to-Agent)](https://a2a.ai) and
 - 💻 **[Code Examples](./data-plane/bindings)** - 
   [Python](./data-plane/bindings/python/examples) | 
   [Go](./data-plane/bindings/go/examples)
-- 🔌 **[Integrations (RPC)](https://docs.agntcy.org/slim/slim-rpc/)**
+- 🔌 **[Integrations](https://docs.agntcy.org/slim/slim-rpc/)** - 
+  [A2A](https://github.com/agntcy/slim-a2a-python) | 
+  [MCP](https://github.com/agntcy/slim-mcp-python) | 
+  [OpenTelemetry](https://github.com/agntcy/slim-otel)
 - 🚀 **[Deployment Strategies](./deployments/readme.md)**
 - 📝 **[Technical blog post](https://blogs.agntcy.org/technical/2026/02/03/slim-v1.html)**
 
