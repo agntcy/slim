@@ -56,26 +56,6 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-MCP proxy labels
-*/}}
-{{- define "slim.mcpProxyLabels" -}}
-helm.sh/chart: {{ include "slim.chart" . }}
-{{ include "slim.mcpProxySelectorLabels" . }}
-{{- if .Chart.AppVersion }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
-{{- end }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
-{{- end }}
-
-{{/*
-Selector labels for MCP proxy
-*/}}
-{{- define "slim.mcpProxySelectorLabels" -}}
-app.kubernetes.io/name: {{ include "slim.mcpProxyName" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
-{{- end }}
-
-{{/*
 Create the name of the service account to use
 */}}
 {{- define "slim.serviceAccountName" -}}

@@ -10,7 +10,6 @@ on:
       - 'tests/**'
       - 'control-plane/**'
       - 'data-plane/**'
-      - '!data-plane/integrations/mcp/**'
     branches:
       - main
   pull_request:
@@ -18,7 +17,6 @@ on:
       - 'tests/**'
       - 'control-plane/**'
       - 'data-plane/**'
-      - '!data-plane/integrations/mcp/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
