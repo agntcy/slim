@@ -24,7 +24,9 @@ AI agent protocols like [A2A (Agent-to-Agent)](https://a2a.ai) and
 
 ## Architecture
 
-SLIM uses a distributed architecture with three main components:
+SLIM uses a
+[distributed architecture](https://docs.agntcy.org/slim/overview/#slim-components)
+with three main components:
 
 - **Data Plane**: Pure message routing layer that forwards packets based on
   hierarchical names without inspecting application content
@@ -35,7 +37,8 @@ SLIM uses a distributed architecture with three main components:
 
 This separation enables efficient deployment: SLIM routing nodes run only the
 lightweight data plane, while applications use language bindings with the full
-stack (data plane client + session layer + SRPC) for secure, feature-rich
+stack (data plane client + [session layer](https://docs.agntcy.org/slim/slim-data-plane/) + 
+[SLIMRPC](https://docs.agntcy.org/slim/slim-rpc/)) for secure, feature-rich
 communication.
 
 ## Quick Start
@@ -82,10 +85,10 @@ docker run -it \
     ghcr.io/agntcy/slim:latest /slim --config /config.yaml
 ```
 
-See the [data-plane README](./data-plane/README.md) for detailed configuration
+Check the [data-plane README](./data-plane/README.md) for detailed configuration
 options including TLS, authentication, and mTLS.
 
-## Components
+## Repo Structure
 
 - **[data-plane](./data-plane)**: Rust-powered message routing and client
   libraries
