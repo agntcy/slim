@@ -7,7 +7,7 @@
  * This module provides shared helper functions used across examples,
  * ported from the Go bindings common package.
  */
-
+// @ts-expect-error - tsx resolves .js imports to .ts files at runtime
 import slimBindings from '../generated/slim-bindings-node.js';
 
 // Default configuration values (matching Go examples)

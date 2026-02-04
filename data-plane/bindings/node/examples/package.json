@@ -6,7 +6,8 @@
   "description": "Example applications for SLIM Node.js bindings",
   "scripts": {
     "server": "tsx server.ts",
-    "alice": "tsx point-to-point-alice.ts"
+    "alice": "tsx point-to-point-alice.ts",
+    "bob": "tsx point-to-point-bob.ts"
   },
   "dependencies": {
     "@agntcy/slim-bindings-node": "file:.."

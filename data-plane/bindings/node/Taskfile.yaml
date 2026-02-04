@@ -155,3 +155,14 @@ tasks:
       - echo "👩 Starting Alice (receiver)..."
       - npm run alice -- {{.CLI_ARGS}}
     silent: false
+
+  example:bob:
+    desc: Run Bob (sender) for point-to-point example
+    aliases: [example:p2p:bob]
+    deps:
+      ## - task: install:examples
+    dir: "{{.TASKFILE_DIR}}/examples"
+    cmds:
+      - echo "👨 Starting Bob (sender)..."
+      - npm run bob -- {{.CLI_ARGS}}
+    silent: false
