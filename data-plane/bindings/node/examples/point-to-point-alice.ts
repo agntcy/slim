@@ -7,7 +7,6 @@
  * This example demonstrates the receiver side of a point-to-point messaging scenario.
  * Alice listens for incoming sessions and receives messages from Bob.
  * 
- * Note: Sending replies is currently blocked by uniffi-bindgen-node limitations.
  */
 
 import { createAndConnectApp, logMessage, sleep, DEFAULT_SERVER_ENDPOINT, DEFAULT_SHARED_SECRET } from './common.js';
@@ -61,8 +60,7 @@ function parseArgs(): CliArgs {
 /**
  * Handle an incoming session
  * Receives messages until the session closes
- * 
- * Note: Sending replies is blocked by uniffi-bindgen-node limitations
+
  */
 async function handleSession(app: any, session: any, instance: bigint): Promise<void> {
   const sessionId = session.sessionId();
@@ -79,29 +77,17 @@ async function handleSession(app: any, session: any, instance: bigint): Promise<
         const text = Buffer.from(payload).toString('utf-8');
         logMessage(instance, `📨 Received: ${text}`);
 
-        // try to send a reply using synchronous call
+        // Send a reply
         try {
           session.publishToAndWait(receivedMsg.context, Buffer.from('Hello from Alice'), undefined, undefined);
           logMessage(instance, '📤 Sent reply: Hello from Alice');
         } catch (error: any) {
-          // Debug: log the raw error structure to understand what we're getting
-          console.log('[DEBUG] Raw error:', error);
-          console.log('[DEBUG] Error type:', typeof error);
-          console.log('[DEBUG] Error constructor:', error?.constructor?.name);
-          console.log('[DEBUG] Is array:', Array.isArray(error));
-          if (Array.isArray(error)) {
-            console.log('[DEBUG] Array length:', error.length);
-            console.log('[DEBUG] Array[0]:', error[0]);
-            console.log('[DEBUG] Array[1]:', error[1]);
-          }
-          
           // Error is returned as a tuple: ["SlimError", SlimError]
           // SlimError is a tagged union with different error types
           let errorMessage = 'Unknown error';
           
           if (Array.isArray(error) && error.length === 2 && error[0] === 'SlimError' && error[1]) {
             const slimError = error[1];
-            console.log('[DEBUG] SlimError object:', JSON.stringify(slimError, null, 2));
             
             // Extract message based on error tag
             switch (slimError.tag) {
@@ -136,12 +122,9 @@ async function handleSession(app: any, session: any, instance: bigint): Promise<
                 errorMessage = `${slimError.tag}: ${JSON.stringify(slimError)}`;
             }
           } else if (error?.message) {
-            errorMessage = error.message;
+            errorMessage = error.message || '(empty error message)';
           } else if (error instanceof Error) {
             errorMessage = `${error.name}: ${error.message}`;
-            if (error.stack) {
-              console.log('[DEBUG] Error stack:', error.stack);
-            }
           } else {
             errorMessage = String(error);
           }

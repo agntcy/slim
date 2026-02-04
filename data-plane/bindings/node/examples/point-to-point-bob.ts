@@ -104,14 +104,8 @@ async function runSender(args: CliArgs): Promise<void> {
     // Parse remote name
     const remoteName = splitId(args.remote);
     
-    // Debug connId type
-    console.log('[DEBUG] connId value:', connId);
-    console.log('[DEBUG] connId type:', typeof connId);
-    
-    // Convert connId to number for FFI (ffi-rs expects number, not bigint)
+    // Convert bigint -> number for FFI compatibility (ffi-rs requires number type)
     const connIdNum = Number(connId);
-    console.log('[DEBUG] connIdNum value:', connIdNum);
-    console.log('[DEBUG] connIdNum type:', typeof connIdNum);
     
     logMessage(instance, '📍 Setting route to remote peer...');
     
@@ -120,25 +114,10 @@ async function runSender(args: CliArgs): Promise<void> {
       app.setRoute(remoteName, connIdNum);
       logMessage(instance, '✅ Route established');
     } catch (error: any) {
-      // Debug: log the raw error structure
-      console.log('[DEBUG] setRoute error - raw:', error);
-      console.log('[DEBUG] setRoute error - type:', typeof error);
-      console.log('[DEBUG] setRoute error - constructor:', error?.constructor?.name);
-      console.log('[DEBUG] setRoute error - is array:', Array.isArray(error));
-      if (Array.isArray(error)) {
-        console.log('[DEBUG] setRoute error - array length:', error.length);
-        console.log('[DEBUG] setRoute error - array[0]:', error[0]);
-        console.log('[DEBUG] setRoute error - array[1]:', error[1]);
-        if (error[1]) {
-          console.log('[DEBUG] setRoute error - SlimError object:', JSON.stringify(error[1], null, 2));
-        }
-      }
-      
       // Parse error properly
       let errorMsg = 'Unknown error';
       if (Array.isArray(error) && error.length === 2 && error[0] === 'SlimError' && error[1]) {
         const slimError = error[1];
-        console.log('[DEBUG] SlimError tag:', slimError.tag);
         switch (slimError.tag) {
           case 'sendError':
           case 'sessionError':

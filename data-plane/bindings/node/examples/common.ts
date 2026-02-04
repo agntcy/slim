@@ -69,10 +69,12 @@ export async function createAndConnectApp(
     console.log(`[${app.id()}] 🔌 Connected to ${serverAddr} (conn ID: ${connId})`);
 
     // Forward subscription to next node
-    // Note: connId must be converted to BigInt for subscribeAsync
+    // Note: Generated bindings expect bigint, but connectAsync returns number
+    // Convert number -> bigint for the subscription call
     await app.subscribeAsync(appName, BigInt(connId));
     console.log(`[${app.id()}] ✅ Subscribed to sessions`);
 
+    // Return connId as bigint for consistency with TypeScript signatures
     return { app, connId: BigInt(connId), service };
   } catch (error: any) {
     let errorMsg = 'Unknown error';
