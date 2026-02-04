@@ -4,7 +4,7 @@
 package io.agntcy.slim.examples
 
 import io.agntcy.slim.examples.common.*
-import uniffi.slim_bindings.*
+import io.agntcy.slim.bindings.*
 import kotlinx.coroutines.*
 import java.time.Duration
 

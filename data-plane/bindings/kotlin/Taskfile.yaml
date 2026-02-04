@@ -57,7 +57,7 @@ tasks:
       - which uniffi-bindgen
     cmds:
       - echo "📦 Installing uniffi-bindgen..."
-      - cargo install uniffi-bindgen --git https://github.com/mozilla/uniffi-rs.git --tag v0.28.3
+      - cargo install uniffi-bindgen-cli --git https://github.com/mozilla/uniffi-rs.git --tag v0.28.3
       - echo "✅ uniffi-bindgen installed"
 
   generate:
@@ -73,6 +73,7 @@ tasks:
         uniffi-bindgen generate \
           --library '{{.LIB_PATH}}' \
           --language kotlin \
+          --config uniffi.toml \
           --out-dir generated
       - task: copy-library
       - task: patch-bindings
@@ -171,7 +172,7 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  examples:p2p:bob:
+  examples:p2p:no-mls:bob:
     desc: "Point to Point example - Bob sends unencrypted messages to Alice"
     deps:
       - build

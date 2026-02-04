@@ -6,7 +6,7 @@ package io.agntcy.slim.examples
 import io.agntcy.slim.examples.common.ServerConfig
 import io.agntcy.slim.examples.common.ConfigParser
 import io.agntcy.slim.examples.common.setupService
-import uniffi.slim_bindings.*
+import io.agntcy.slim.bindings.*
 import kotlinx.coroutines.*
 
 /**
