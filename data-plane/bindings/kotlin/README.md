@@ -23,6 +23,8 @@ This package provides Kotlin bindings for SLIM, enabling secure messaging with:
 ```
 kotlin/
 ├── Taskfile.yaml           # Build automation tasks
+├── uniffi.toml             # UniFFI configuration (package name)
+├── patch-bindings.sh       # Post-generation patches
 ├── build.gradle.kts        # Gradle build configuration
 ├── settings.gradle.kts     # Gradle settings
 ├── gradle.properties       # Build properties
@@ -35,6 +37,8 @@ kotlin/
 │   ├── Group.kt            # Group messaging example
 │   └── Server.kt           # SLIM server example
 └── generated/              # UniFFI-generated code (gitignored)
+    └── io/agntcy/slim/bindings/
+        └── slim_bindings.kt
 ```
 
 ## Quick Start
@@ -49,8 +53,9 @@ task generate
 
 This will:
 1. Build the Rust `slim_bindings` library
-2. Run `uniffi-bindgen` to generate Kotlin code
-3. Copy the native library to `generated/jniLibs/`
+2. Run `uniffi-bindgen` with `uniffi.toml` config to generate Kotlin code in the `io.agntcy.slim.bindings` package
+3. Apply compatibility patches (exception message parameters, wait() method conflicts)
+4. Copy the native library to `generated/jniLibs/`
 
 ### 2. Build Examples
 
@@ -119,7 +124,7 @@ task example:group:client-2
 
 ```kotlin
 import io.agntcy.slim.examples.common.*
-import uniffi.slim_bindings.*
+import io.agntcy.slim.bindings.*
 import kotlinx.coroutines.*
 
 suspend fun main() = coroutineScope {
