@@ -22,7 +22,6 @@ use crate::api::{
 };
 
 use thiserror::Error;
-use tracing::error;
 
 /// IS_MODERATOR is used in the Join request metadata to indicate whether a participant is the moderator/initiator of a session.
 /// The value is set to `TRUE_VAL` when the participant is a moderator.

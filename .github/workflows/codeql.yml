@@ -142,6 +142,10 @@ jobs:
             - "**/vendor/**"
             - "**/target/**"
             - "**/examples/**"
+            - "**/testing/**"
+            - "**/tests/**"
+            - "**/*_test.go"
+            - "**/test_*.py"
 
     - name: Install Python dependencies
       if: matrix.language == 'python'

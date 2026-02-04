@@ -7,6 +7,7 @@ import (
 
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cfg"
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd"
+	"github.com/agntcy/slim/control-plane/slimctl/internal/config"
 	"github.com/agntcy/slim/control-plane/slimctl/internal/manager"
 )
 
@@ -28,25 +29,52 @@ func NewSlimCmd(_ context.Context, appConfig *cfg.AppConfig) *cobra.Command {
 
 // NewStartCmd creates the 'start' command.
 func NewStartCmd(appConfig *cfg.AppConfig) *cobra.Command {
+	var configFile string
 	var endpoint string
-	var port string
 
 	startCmd := &cobra.Command{
 		Use:   "start",
 		Short: "Start the SLIM instance",
-		Long:  `Start the SLIM instance`,
+		Long: `Start the SLIM instance with production configuration.
+
+Configuration is loaded using the SLIM bindings' native InitializeFromConfig,
+which handles all validation and processing.
+
+The --endpoint flag can optionally override the server endpoint by setting the
+SLIM_ENDPOINT environment variable, which can be referenced in config files 
+using ${env:SLIM_ENDPOINT} syntax.
+
+For example configurations, see the data-plane/config/ directory in the 
+repository, which contains production-ready SLIM configurations.
+
+Log level can be controlled via the RUST_LOG environment variable.
+
+All configuration validation is performed by the bindings library.`,
 		RunE: func(c *cobra.Command, _ []string) error {
-			// If no endpoint specified, bind to loopback on the given port
-			if endpoint == "" {
-				endpoint = "127.0.0.1:" + port
+			// Create config manager - just manages paths, no validation
+			configMgr := config.New(configFile)
+
+			// Set SLIM_ENDPOINT environment variable if --endpoint flag is provided
+			var endpointPtr *string
+			if c.Flags().Changed("endpoint") || configFile == "" {
+				endpointPtr = &endpoint
 			}
-			mgr := manager.NewManager(appConfig.CommonOpts.Logger, endpoint, port)
+
+			// Set environment variable - bindings will handle substitution
+			if err := config.SetEndpointOverride(endpointPtr); err != nil {
+				return err
+			}
+
+			// Create manager and start - all validation happens in bindings
+			mgr := manager.NewManager(appConfig.CommonOpts.Logger, configMgr)
 			return mgr.Start(c.Context())
 		},
 	}
 
-	startCmd.Flags().StringVar(&endpoint, "endpoint", "", "Endpoint to bind (default: 127.0.0.1:<port>)")
-	startCmd.Flags().StringVar(&port, "port", "8080", "Port to listen on")
+	startCmd.Flags().StringVarP(&configFile, "config", "c", "",
+		"Path to YAML configuration file (production SLIM format)")
+	startCmd.Flags().StringVar(&endpoint, "endpoint", "",
+		"Server endpoint (sets SLIM_ENDPOINT environment variable)")
 
 	return startCmd
 }

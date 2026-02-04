@@ -14,7 +14,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim"
-version = "0.7.2"
+version = "1.0.0"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-service",
@@ -77,7 +77,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-bindings"
-version = "1.0.0-rc.0"
+version = "1.0.0"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
@@ -113,7 +113,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-config"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-testing",
@@ -158,7 +158,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-controller"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -191,7 +191,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-datapath"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-tracing",
@@ -223,7 +223,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-mls"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
@@ -243,7 +243,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-service"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -268,7 +268,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-session"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
@@ -327,7 +327,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-tracing"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agntcy-slim-config",
  "once_cell",
@@ -778,9 +778,9 @@ checksum = "5dd9dc738b7a8311c7ade152424974d8115f2cdad61e8dab8dac9f2362298510"
 
 [[package]]
 name = "bytes"
-version = "1.11.0"
+version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b35204fbdc0b3f4446b89fc1ac2cf84a8a68971995d0bf2e925ec7cd960f9cb3"
+checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 
 [[package]]
 name = "camino"

@@ -1,10 +1,10 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
-import asyncio
 import logging
 import sys
 import time
+from asyncio import TimeoutError, create_task
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
 from typing import Any, Tuple
@@ -113,7 +113,7 @@ class Server:
                 f"{instance} received a new session: {session.id}",
             )
 
-            asyncio.create_task(self.handle_session(session))
+            create_task(self.handle_session(session))
 
     async def handle_session(
         self,
@@ -164,7 +164,7 @@ class Server:
                     )
                     await ack
         except Exception as e:
-            if isinstance(e, asyncio.TimeoutError):
+            if isinstance(e, TimeoutError):
                 logger.warn(f"session {session.id} timed out after {timeout} seconds")
             else:
                 logger.error(f"error handling session {session.id}: {e}")

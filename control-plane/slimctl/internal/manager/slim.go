@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	slim "github.com/agntcy/slim-bindings-go"
+	"github.com/agntcy/slim/control-plane/slimctl/internal/config"
 )
 
 // Manager defines management operations for a local slim instance.
@@ -20,80 +21,91 @@ type Manager interface {
 	Status(ctx context.Context) (string, error)
 }
 
-// Service is the default implementation of Manager.
+// manager is the default implementation of Manager.
 type manager struct {
-	Logger   *zap.Logger
-	Endpoint string
-	Port     string
+	Logger        *zap.Logger
+	ConfigManager *config.Manager
 }
 
-// NewManager creates a new Manager. If logger is nil, a no-op logger is used.
-func NewManager(logger *zap.Logger, endpoint, port string) Manager {
+// NewManager creates a new Manager with a config.Manager. If logger is nil, a no-op logger is used.
+func NewManager(logger *zap.Logger, configMgr *config.Manager) Manager {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
 	return &manager{
-		Logger:   logger,
-		Endpoint: endpoint,
-		Port:     port,
+		Logger:        logger,
+		ConfigManager: configMgr,
 	}
 }
 
-// Start starts the local slim instance.
-func (s *manager) Start(_ context.Context) error {
-	s.Logger.Info("Starting slim instance")
+// Start starts the local slim instance using bindings' InitializeFromConfig.
+// All configuration validation and processing is delegated to the bindings library.
+func (m *manager) Start(_ context.Context) error {
+	m.Logger.Info("Starting slim instance")
 
-	// Initialize crypto
-	slim.InitializeWithDefaults()
+	// Get configuration path (original or temporary with env var refs)
+	// No validation - just get the path
+	configPath, _ := m.ConfigManager.GetConfigPath()
 
-	// Start server
-	config := slim.NewInsecureServerConfig(s.Endpoint)
-
-	fmt.Printf("🌐 Starting server on %s...\n", s.Endpoint)
-	fmt.Println("   Waiting for clients to connect...")
-	fmt.Println()
-
-	// Run server in goroutine (it blocks)
-	serverErr := make(chan error, 1)
-	go func() {
-		if err := slim.GetGlobalService().RunServer(config); err != nil {
-			serverErr <- err
+	// Ensure cleanup of temporary files
+	defer func() {
+		if err := m.ConfigManager.Cleanup(); err != nil {
+			m.Logger.Warn("failed to cleanup temporary config", zap.Error(err))
 		}
 	}()
 
-	// Give server a moment to start
+	m.Logger.Info("Initializing SLIM from configuration",
+		zap.String("config_path", configPath))
+
+	// Initialize SLIM using the bindings' native config loader
+	// This reads the YAML file, validates it, and processes ${env:} substitutions
+	// All validation and error handling is done by the bindings
+	// The bindings will panic with a descriptive error if the config is invalid
+	slim.InitializeFromConfig(configPath)
+
+	// Display startup information using environment variables
+	endpoint := config.GetDisplayEndpoint()
+	logLevel := config.GetDisplayLogLevel()
+
+	fmt.Printf("🌐 Starting SLIM server...\n")
+	fmt.Printf("   Configuration: %s\n", configPath)
+	fmt.Printf("   Endpoint: %s\n", endpoint)
+	fmt.Printf("   Log level: %s\n", logLevel)
+	fmt.Println()
+	fmt.Println("   Waiting for clients to connect...")
+	fmt.Println()
+
+	// The server is already running from InitializeFromConfig
+	// Just need to display status and wait for signal
 	time.Sleep(100 * time.Millisecond)
 
 	fmt.Println("✅ Server running and listening")
 	fmt.Println()
-	fmt.Printf("📡 Endpoint: %s\n", s.Endpoint)
+	fmt.Printf("📡 Endpoint: %s\n", endpoint)
 	fmt.Println()
 	fmt.Println("Press Ctrl+C to stop")
 
-	// Wait for interrupt or error
+	// Wait for interrupt signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	select {
-	case err := <-serverErr:
-		s.Logger.Error("server error", zap.Error(err))
-		return fmt.Errorf("server error: %w", err)
-	case sig := <-sigChan:
-		fmt.Printf("\n\n📋 Received signal: %v\n", sig)
-		fmt.Println("Shutting down...")
-	}
+	sig := <-sigChan
+	fmt.Printf("\n\n📋 Received signal: %v\n", sig)
+	fmt.Println("Shutting down...")
+
+	_ = slim.GetGlobalService().Shutdown()
 
 	return nil
 }
 
 // Stop stops the local slim instance.
-func (s *manager) Stop(_ context.Context) error {
-	s.Logger.Info("Stopping slim instance")
+func (m *manager) Stop(_ context.Context) error {
+	m.Logger.Info("Stopping slim instance")
 	return nil
 }
 
 // Status returns the status of the local slim instance.
-func (s *manager) Status(_ context.Context) (string, error) {
-	s.Logger.Info("Getting status of slim instance")
+func (m *manager) Status(_ context.Context) (string, error) {
+	m.Logger.Info("Getting status of slim instance")
 	return "unknown", nil
 }

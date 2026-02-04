@@ -1,0 +1,210 @@
+version: '3'
+
+# Taskfile for slimctl
+# Run from control-plane/slimctl directory or use: task -d control-plane/slimctl <task-name>
+
+vars:
+  # Binary location relative to this Taskfile (control-plane/slimctl/)
+  SLIMCTL_BIN: ../../.dist/bin/slimctl
+  TESTDATA_DIR: testdata
+  # Use production certificates from data-plane/config/crypto
+  CRYPTO_DIR: ../../data-plane/config/crypto
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  help:manual:
+    desc: Show manual testing help
+    cmds:
+      - echo "╔════════════════════════════════════════════════════╗"
+      - echo "║     SLIM Manual Testing Guide                     ║"
+      - echo "╚════════════════════════════════════════════════════╝"
+      - echo ""
+      - echo "🎯 Quick Start:"
+      - echo "  task test:manual           - Complete guided workflow"
+      - echo "  task run:base              - Run with base config"
+      - echo "  task run:tls               - Run with TLS config"
+      - echo ""
+      - echo "📋 Step-by-step:"
+      - echo "  1. Build binary            - cd ../.. && task -d control-plane slimctl:build"
+      - echo "  2. task test:manual        - Run manual test"
+      - echo ""
+      - echo "🔧 Custom testing:"
+      - echo "  task run:config CONFIG=path/to/config.yaml"
+      - echo ""
+      - echo "🧹 Cleanup:"
+      - echo "  task clean                 - Remove test files"
+      - echo ""
+      - echo "For full command list - task --list"
+    silent: true
+
+  # Testing tasks (manual testing only)
+  test:
+    desc: Run manual tests (use test:manual for guided workflow)
+    cmds:
+      - task: test:manual
+
+  test:manual:
+    desc: Complete manual testing workflow
+    cmds:
+      - echo "╔════════════════════════════════════════════════════╗"
+      - echo "║     SLIM Manual Testing Workflow                  ║"
+      - echo "╚════════════════════════════════════════════════════╝"
+      - echo ""
+      - echo "📋 Step 1/3 - Verifying binary..."
+      - task: verify:binary
+      - echo ""
+      - echo "📋 Step 2/3 - Environment ready!"
+      - echo ""
+      - echo "Available test scenarios:"
+      - echo "  1️⃣  Base config - task run:base"
+      - echo "  2️⃣  TLS config - task run:tls"
+      - echo "  3️⃣  Custom config - task run:config CONFIG=path/to/config.yaml"
+      - echo ""
+      - echo "Or run directly:"
+      - echo "  {{.SLIMCTL_BIN}} slim start --config ../../data-plane/config/base/server-config.yaml"
+      - echo "  {{.SLIMCTL_BIN}} slim start --config ../../data-plane/config/base/server-config.yaml --endpoint 127.0.0.1:9090"
+      - echo ""
+      - echo "📋 Step 3/3 - Choose a test scenario above and run it! 🚀"
+    silent: false
+
+  # Certificate information tasks - uses production certificates from data-plane/config/crypto
+
+  certs:verify:
+    desc: Verify production certificate version and details
+    cmds:
+      - |
+        echo "🔍 Verifying production certificates..."
+        CERT_VERSION=$(openssl x509 -in {{.CRYPTO_DIR}}/server-cert.pem -noout -text | grep "Version:" | sed 's/.*Version: \([0-9]\).*/\1/')
+        if [ "$CERT_VERSION" = "3" ]; then
+          echo "   ✅ Certificate version: v3 (compatible with rustls)"
+        else
+          echo "   ❌ Warning: Certificate version v$CERT_VERSION may not be compatible"
+        fi
+      - echo "   Certificate location - {{.CRYPTO_DIR}}"
+      - echo "   To regenerate - cd {{.CRYPTO_DIR}} && ./gen-keys.sh"
+    silent: false
+    preconditions:
+      - sh: test -f {{.CRYPTO_DIR}}/server-cert.pem
+        msg: "Production certificates not found. Generate with: cd {{.CRYPTO_DIR}} && ./gen-keys.sh"
+
+  certs:info:
+    desc: Show production certificate information
+    cmds:
+      - echo "Production Certificate Information"
+      - echo ""
+      - echo "Server Certificate"
+      - openssl x509 -in {{.CRYPTO_DIR}}/server-cert.pem -noout -subject -dates
+      - echo ""
+      - echo "Location - {{.CRYPTO_DIR}}"
+    silent: false
+    preconditions:
+      - sh: test -f {{.CRYPTO_DIR}}/server-cert.pem
+        msg: "Production certificates not found. Generate with: cd {{.CRYPTO_DIR}} && ./gen-keys.sh"
+
+  # Run tasks (for quick testing)
+  run:base:
+    desc: Run slimctl with base configuration
+    cmds:
+      - echo "🚀 Starting slimctl with base config..."
+      - echo "   Config - ../../data-plane/config/base/server-config.yaml"
+      - echo ""
+      - "{{.SLIMCTL_BIN}} slim start --config ../../data-plane/config/base/server-config.yaml"
+    silent: false
+    preconditions:
+      - sh: test -f {{.SLIMCTL_BIN}}
+        msg: "slimctl binary not found at {{.SLIMCTL_BIN}}. Build it first with: cd ../.. && task -d control-plane slimctl:build"
+      - sh: test -f ../../data-plane/config/base/server-config.yaml
+        msg: "Base config not found at ../../data-plane/config/base/server-config.yaml"
+
+  run:tls:
+    desc: Run slimctl with TLS configuration
+    cmds:
+      - echo "🚀 Starting slimctl with TLS config..."
+      - echo "   Config - ../../data-plane/config/tls/server-config.yaml"
+      - echo "   Certificates - {{.CRYPTO_DIR}}/"
+      - echo ""
+      - "{{.SLIMCTL_BIN}} slim start --config ../../data-plane/config/tls/server-config.yaml"
+    silent: false
+    preconditions:
+      - sh: test -f {{.SLIMCTL_BIN}}
+        msg: "slimctl binary not found at {{.SLIMCTL_BIN}}. Build it first with: cd ../.. && task -d control-plane slimctl:build"
+      - sh: test -f ../../data-plane/config/tls/server-config.yaml
+        msg: "TLS config not found at ../../data-plane/config/tls/server-config.yaml"
+      - sh: test -f {{.CRYPTO_DIR}}/server-cert.pem
+        msg: "Production certificates not found. Generate with: cd {{.CRYPTO_DIR}} && ./gen-keys.sh"
+
+  run:config:
+    desc: Run slimctl with custom config file
+    cmds:
+      - echo "🚀 Starting slimctl with config {{.CONFIG}}"
+      - "{{.SLIMCTL_BIN}} slim start --config {{.CONFIG}}"
+    silent: false
+    requires:
+      vars: [CONFIG]
+    preconditions:
+      - sh: test -f {{.SLIMCTL_BIN}}
+        msg: "slimctl binary not found at {{.SLIMCTL_BIN}}. Build it first with: cd ../.. && task -d control-plane slimctl:build"
+      - sh: test -f {{.CONFIG}}
+        msg: "Config file not found: {{.CONFIG}}"
+
+  run:endpoint-override:
+    desc: Test endpoint override with CLI flag
+    cmds:
+      - echo "🧪 Testing endpoint override..."
+      - echo "   Config - ../../data-plane/config/base/server-config.yaml"
+      - echo "   Override - --endpoint 127.0.0.1 port 9090"
+      - echo ""
+      - "{{.SLIMCTL_BIN}} slim start --config ../../data-plane/config/base/server-config.yaml --endpoint 127.0.0.1:9090"
+    silent: false
+    preconditions:
+      - sh: test -f {{.SLIMCTL_BIN}}
+        msg: "slimctl binary not found at {{.SLIMCTL_BIN}}. Build it first with: cd ../.. && task -d control-plane slimctl:build"
+
+  # Clean tasks
+  clean:
+    desc: Clean all generated test files (preserves production certificates)
+    cmds:
+      - echo "🧹 Cleaning generated test files..."
+      - rm -rf {{.TESTDATA_DIR}}
+      - echo "✅ Clean complete"
+      - echo "   Production certificates preserved at {{.CRYPTO_DIR}}"
+    silent: false
+
+  clean:all:
+    desc: Clean everything including binary
+    cmds:
+      - task: clean
+      - rm -f {{.SLIMCTL_BIN}}
+      - echo "✅ All clean (including binary at {{.SLIMCTL_BIN}})"
+    silent: false
+
+  # Validation tasks
+  validate:
+    desc: Validate test environment setup
+    cmds:
+      - echo "🔍 Validating test environment..."
+      - task: verify:binary
+      - echo "✅ Validation complete"
+    silent: false
+
+  verify:binary:
+    desc: Verify slimctl binary exists and show version
+    cmds:
+      - |
+        if [ ! -f "{{.SLIMCTL_BIN}}" ]; then
+          echo "❌ Binary not found at: {{.SLIMCTL_BIN}}"
+          echo ""
+          echo "Build it with:"
+          echo "  cd ../.. && task -d control-plane slimctl:build"
+          exit 1
+        fi
+        echo "✅ Binary found: {{.SLIMCTL_BIN}}"
+        echo ""
+        echo "Version info:"
+        {{.SLIMCTL_BIN}} version 2>/dev/null || echo "  (version command not available)"
+    silent: false

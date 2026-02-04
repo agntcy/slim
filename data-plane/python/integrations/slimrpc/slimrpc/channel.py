@@ -1,11 +1,11 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
-import asyncio
 import datetime
 import logging
 import sys
 import time
+from asyncio import get_running_loop
 from collections.abc import AsyncGenerator, AsyncIterable, Callable
 from typing import Any
 
@@ -350,4 +350,4 @@ def _compute_real_deadline(timeout: int) -> float:
 
 
 def _compute_loop_deadline_from_real_deadline(real_deadline: float) -> float:
-    return asyncio.get_running_loop().time() + (real_deadline - time.time())
+    return get_running_loop().time() + (real_deadline - time.time())

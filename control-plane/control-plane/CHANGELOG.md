@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.0.0](https://github.com/agntcy/slim/compare/control-plane-v0.7.1...control-plane-v1.0.0) (2026-01-30)
+
+
+### Features
+
+* slimctl: show all properties of outlined routes ([#1002](https://github.com/agntcy/slim/issues/1002)) ([33fd62f](https://github.com/agntcy/slim/commit/33fd62f94a4d5a30a7a886fc44ed60ddd054b18c))
+* Support different trust domains in auto route setup ([#1001](https://github.com/agntcy/slim/issues/1001)) ([9a7e930](https://github.com/agntcy/slim/commit/9a7e930f167751f185592c33d11b14f942ee9bb1))
+* support for configuring the locally started slim instance ([#1139](https://github.com/agntcy/slim/issues/1139)) ([34af1c7](https://github.com/agntcy/slim/commit/34af1c74f469ae92498205390b1dabe6a17314f6))
+* support for managing a slim node instance local to the tool ([#1015](https://github.com/agntcy/slim/issues/1015)) ([c7bbd29](https://github.com/agntcy/slim/commit/c7bbd2922d79774c2be3a702910b55d9e49214bc))
+* use Controller internal DB to find moderator node ([#992](https://github.com/agntcy/slim/issues/992)) ([0ca09a1](https://github.com/agntcy/slim/commit/0ca09a155f7420ba41f7022118f9680f77e2fdce))
+
+
+### Bug Fixes
+
+* flaky integration test ([#1109](https://github.com/agntcy/slim/issues/1109)) ([fd8fe52](https://github.com/agntcy/slim/commit/fd8fe52525c102f902ad5f7b855c33e624bb8445))
+* return ack from control plane ([#1098](https://github.com/agntcy/slim/issues/1098)) ([7f873b5](https://github.com/agntcy/slim/commit/7f873b578b4cf4146b4b6aa6c494a21b5c0b0005))
+
 ## [0.7.1](https://github.com/agntcy/slim/compare/control-plane-v0.7.0...control-plane-v0.7.1) (2025-11-19)
 
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.7.1](https://github.com/agntcy/slim/compare/helm-slim-v0.7.0...helm-slim-v0.7.1) (2026-02-02)
+
+
+### Features
+
+* Migrate Rust MCP proxy to its own repo ([#1100](https://github.com/agntcy/slim/issues/1100)) ([c016c7d](https://github.com/agntcy/slim/commit/c016c7d956843446fb72b027828708c594fda2ae))
+* **slim-helm:** upgrade SLIM to 1.0.0 ([#1166](https://github.com/agntcy/slim/issues/1166)) ([be2d8ab](https://github.com/agntcy/slim/commit/be2d8abc09d4ad3bef462febcade01020e1ac219))
+* Support different trust domains in auto route setup ([#1001](https://github.com/agntcy/slim/issues/1001)) ([9a7e930](https://github.com/agntcy/slim/commit/9a7e930f167751f185592c33d11b14f942ee9bb1))
+
 ## [0.7.0](https://github.com/agntcy/slim/compare/helm-slim-v0.6.0...helm-slim-v0.7.0) (2025-11-18)
 
 

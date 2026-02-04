@@ -1,9 +1,9 @@
 module github.com/agntcy/slim/control-plane/slimctl
 
-go 1.25.5
+go 1.25.6
 
 require (
-	github.com/agntcy/slim-bindings-go v0.7.3
+	github.com/agntcy/slim-bindings-go v1.0.0
 	github.com/agntcy/slim/control-plane/common v0.0.0-00010101000000-000000000000
 	github.com/google/uuid v1.6.0
 	github.com/knadh/koanf v1.5.0

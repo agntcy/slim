@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/agntcy/slim/compare/slim-config-v0.5.0...slim-config-v0.6.0) - 2026-01-30
+
+### Added
+
+- add support of gRPC using the uds for the local communication ([#1060](https://github.com/agntcy/slim/pull/1060))
+
 ## [0.5.0](https://github.com/agntcy/slim/compare/slim-config-v0.4.3...slim-config-v0.5.0) - 2026-01-29
 
 ### Added
