@@ -16,7 +16,7 @@ Node.js bindings for SLIM using UniFFI.
 task generate
 ```
 
-### 2. Run Examples
+### 2. Run P2P Examples
 
 ```bash
 # Terminal 1: Start the server
@@ -25,8 +25,8 @@ task example:server
 # Terminal 2: Start Alice (receiver)
 task example:alice
 
-# Terminal 3: Start Bob (sender) from Go bindings
-cd ../go && task example:p2p:bob
+# Terminal 3: Start Bob (sender) 
+task example:bob
 ```
 
 ### Available Commands
@@ -36,13 +36,9 @@ task generate         # Generate bindings
 task clean            # Clean build artifacts
 task example:server   # Run server
 task example:alice    # Run Alice receiver
+task example:bob      # Run Bob sender
 ```
 
-## Limitations
-
-⚠️ **Sending is not supported** - Node.js can only receive messages, not send them.
-
-**Reason:** `uniffi-bindgen-node` imports types from `uniffi-bindgen-react-native` (designed for React Native's JSI) but uses `ffi-rs` for Node.js FFI. These are incompatible for passing byte arrays from JS to Rust.
 
 ## Resources
 
