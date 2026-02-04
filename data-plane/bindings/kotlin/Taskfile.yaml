@@ -74,6 +74,7 @@ tasks:
           --library '{{.LIB_PATH}}' \
           --language kotlin \
           --config uniffi.toml \
+          --no-format \
           --out-dir generated
       - task: copy-library
       - task: patch-bindings
