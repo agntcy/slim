@@ -13,7 +13,7 @@ use slim_datapath::messages::Name as SlimName;
 use tokio::sync::{RwLock, mpsc};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
-use slim_rpc::Server as CoreServer;
+use crate::slimrpc_core::Server as CoreServer;
 use slim_session::errors::SessionError as SlimSessionError;
 use slim_session::notification::Notification;
 
@@ -180,7 +180,7 @@ impl Server {
             .register_unary_unary(
                 &service_name,
                 &method_name,
-                move |request: Vec<u8>, context: slim_rpc::Context| {
+                move |request: Vec<u8>, context: crate::slimrpc_core::Context| {
                     let handler = handler_clone.clone();
                     let ctx = Context::from_inner(context);
 
@@ -211,7 +211,7 @@ impl Server {
         self.inner.register_unary_stream(
             &service_name,
             &method_name,
-            move |request: Vec<u8>, context: slim_rpc::Context| {
+            move |request: Vec<u8>, context: crate::slimrpc_core::Context| {
                 let handler = handler_clone.clone();
                 let ctx = Context::from_inner(context);
 
@@ -259,7 +259,7 @@ impl Server {
         self.inner.register_stream_unary(
             &service_name,
             &method_name,
-            move |stream: slim_rpc::RequestStream<Vec<u8>>, context: slim_rpc::Context| {
+            move |stream: crate::slimrpc_core::RequestStream<Vec<u8>>, context: crate::slimrpc_core::Context| {
                 let handler = handler_clone.clone();
                 let ctx = Context::from_inner(context);
                 let request_stream = Arc::new(RequestStream::new(stream));
@@ -289,7 +289,7 @@ impl Server {
         self.inner.register_stream_stream(
             &service_name,
             &method_name,
-            move |stream: slim_rpc::RequestStream<Vec<u8>>, context: slim_rpc::Context| {
+            move |stream: crate::slimrpc_core::RequestStream<Vec<u8>>, context: crate::slimrpc_core::Context| {
                 let handler = handler_clone.clone();
                 let ctx = Context::from_inner(context);
                 let request_stream = Arc::new(RequestStream::new(stream));

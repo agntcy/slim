@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use slim_rpc::Context as SlimContext;
+use crate::slimrpc_core::Context as SlimContext;
 
 use crate::Name;
 
@@ -88,7 +88,7 @@ impl Context {
 #[derive(Clone, uniffi::Object)]
 pub struct SessionContext {
     /// Wrapped core session context
-    inner: slim_rpc::SessionContext,
+    inner: crate::slimrpc_core::SessionContext,
 }
 
 #[uniffi::export]

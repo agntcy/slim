@@ -6,7 +6,7 @@
 //! Provides UniFFI-compatible error types that wrap the core SlimRPC error types.
 
 // Re-export core types
-pub use slim_rpc::{Code, Status, StatusError};
+pub use crate::slimrpc_core::{Code, Status, StatusError};
 
 /// UniFFI-compatible RPC error
 ///

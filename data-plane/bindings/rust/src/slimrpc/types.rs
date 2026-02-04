@@ -21,12 +21,12 @@ use crate::slimrpc::error::RpcError;
 #[derive(uniffi::Object)]
 pub struct RequestStream {
     /// Inner stream wrapped in a mutex for interior mutability
-    inner: TokioMutex<slim_rpc::RequestStream<Vec<u8>>>,
+    inner: TokioMutex<crate::slimrpc_core::RequestStream<Vec<u8>>>,
 }
 
 impl RequestStream {
     /// Create a new request stream wrapper
-    pub(crate) fn new(stream: slim_rpc::RequestStream<Vec<u8>>) -> Self {
+    pub(crate) fn new(stream: crate::slimrpc_core::RequestStream<Vec<u8>>) -> Self {
         Self {
             inner: TokioMutex::new(stream),
         }
@@ -74,13 +74,13 @@ pub enum StreamMessage {
 #[derive(uniffi::Object)]
 pub struct ResponseSink {
     /// Channel sender for streaming responses (None when closed)
-    sender: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Result<Vec<u8>, slim_rpc::Status>>>>,
+    sender: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Result<Vec<u8>, crate::slimrpc_core::Status>>>>,
 }
 
 impl ResponseSink {
     /// Create a new response sink wrapper
     pub(crate) fn new(
-        sender: tokio::sync::mpsc::UnboundedSender<Result<Vec<u8>, slim_rpc::Status>>,
+        sender: tokio::sync::mpsc::UnboundedSender<Result<Vec<u8>, crate::slimrpc_core::Status>>,
     ) -> Self {
         Self {
             sender: Mutex::new(Some(sender)),
@@ -90,7 +90,7 @@ impl ResponseSink {
     /// Get the receiver side of the channel
     pub(crate) fn receiver() -> (
         Self,
-        tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, slim_rpc::Status>>,
+        tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, crate::slimrpc_core::Status>>,
     ) {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = Self::new(tx);
@@ -140,7 +140,7 @@ impl ResponseSink {
         let mut sender_guard = self.sender.lock();
         match sender_guard.take() {
             Some(sender) => {
-                let status: slim_rpc::Status = error.into();
+                let status: crate::slimrpc_core::Status = error.into();
                 sender.send(Err(status)).map_err(|_| {
                     RpcError::new(
                         crate::slimrpc::error::RpcCode::Unavailable,

@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use async_stream::stream;
 use futures::StreamExt;
-use slim_rpc::Channel as CoreChannel;
+use crate::slimrpc_core::Channel as CoreChannel;
 
 use crate::slimrpc::error::RpcError;
 use crate::slimrpc::types::StreamMessage;
@@ -268,13 +268,13 @@ impl Channel {
 pub struct ResponseStreamReader {
     /// Inner receiver channel for stream messages
     inner:
-        tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, slim_rpc::Status>>>,
+        tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, crate::slimrpc_core::Status>>>,
 }
 
 impl ResponseStreamReader {
     /// Create a new response stream reader
     pub(crate) fn new(
-        rx: tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, slim_rpc::Status>>,
+        rx: tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, crate::slimrpc_core::Status>>,
     ) -> Self {
         Self {
             inner: tokio::sync::Mutex::new(rx),
@@ -311,7 +311,7 @@ impl ResponseStreamReader {
 pub struct RequestStreamWriter {
     sender: tokio::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>,
     response:
-        tokio::sync::Mutex<Option<tokio::task::JoinHandle<Result<Vec<u8>, slim_rpc::Status>>>>,
+        tokio::sync::Mutex<Option<tokio::task::JoinHandle<Result<Vec<u8>, crate::slimrpc_core::Status>>>>,
 }
 
 impl RequestStreamWriter {
@@ -418,7 +418,7 @@ impl RequestStreamWriter {
 pub struct BidiStreamHandler {
     sender: tokio::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>,
     receiver:
-        tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, slim_rpc::Status>>>,
+        tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, crate::slimrpc_core::Status>>>,
 }
 
 impl BidiStreamHandler {

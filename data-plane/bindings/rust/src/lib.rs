@@ -59,6 +59,10 @@ mod server_config;
 mod service;
 mod session;
 
+// SlimRPC core module (previously separate crate)
+pub mod slimrpc_core;
+
+// SlimRPC UniFFI bindings wrapper
 pub mod slimrpc;
 
 // Public re-exports

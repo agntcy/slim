@@ -13,7 +13,7 @@ use crate::slimrpc::error::RpcError;
 use crate::slimrpc::types::{RequestStream, ResponseSink};
 
 // Re-export handler types from core
-pub use slim_rpc::HandlerType;
+pub use crate::slimrpc_core::HandlerType;
 
 /// Response from an RPC handler
 ///
