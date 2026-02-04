@@ -15,9 +15,9 @@ includes:
   rust:
     taskfile: ../../../tasks/rust.yaml
     internal: true
-  examples:
-    taskfile: ./examples/Taskfile.yaml
-    internal: false
+
+env:
+  SHARED_SECRET: "demo-secret-key-for-examples012345"
 
 vars:
   BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
@@ -151,4 +151,120 @@ tasks:
       - rm -rf generated/
       - rm -rf target/
       - mvn clean 2>/dev/null || true
+      - cd examples && mvn clean 2>/dev/null || true
+      - echo "✅ Clean complete"
+
+  # ==========================================================================
+  # Examples Tasks
+  # ==========================================================================
+
+  examples:install:bindings:
+    desc: Install Java bindings JAR to local Maven repository
+    cmds:
+      - echo "📦 Installing Java bindings to Maven local repository..."
+      - |
+        if [ ! -f target/slim-bindings-java-0.7.0.jar ]; then
+          echo "⚠️  Java bindings JAR not found, building first..."
+          task build
+        fi
+      - |
+        mvn install:install-file \
+          -Dfile=target/slim-bindings-java-0.7.0.jar \
+          -DgroupId=io.agntcy.slim \
+          -DartifactId=slim-bindings-java \
+          -Dversion=0.7.0 \
+          -Dpackaging=jar \
+          -DgeneratePom=true
+      - echo "✅ Java bindings installed to ~/.m2/repository/io/agntcy/slim/slim-bindings-java/0.7.0/"
+
+  examples:compile:
+    desc: Compile Java examples
+    deps:
+      - examples:install:bindings
+    cmds:
+      - echo "🔨 Compiling Java examples..."
+      - cd examples && mvn clean compile
+      - echo "✅ Java compilation complete"
+
+  examples:server:
+    desc: Run the SLIM server example
+    deps:
+      - examples:compile
+    cmds:
+      - echo "🚀 Starting SLIM server..."
+      - cd examples && mvn exec:java@server -Dexec.args="{{.CLI_ARGS}}"
+    vars:
+      CLI_ARGS: '{{.CLI_ARGS | default ""}}'
+
+  examples:p2p:alice:
+    desc: "Point to Point example - Alice listens for messages and echoes them"
+    deps:
+      - examples:compile
+    cmds:
+      - |
+        cd examples && mvn exec:java@p2p \
+          -Dexec.args="--local agntcy/ns/alice --shared-secret $SHARED_SECRET {{.EXTRA_ARGS}}"
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  examples:p2p:no-mls:bob:
+    desc: "Point to Point example - Bob sends unencrypted messages to Alice"
+    deps:
+      - examples:compile
+    cmds:
+      - |
+        cd examples && mvn exec:java@p2p \
+          -Dexec.args="--local agntcy/ns/bob --shared-secret $SHARED_SECRET --remote agntcy/ns/alice --message 'hello from Java' --iterations 5 {{.EXTRA_ARGS}}"
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  examples:p2p:mls:bob:
+    desc: "Point to Point example - Bob sends encrypted messages to Alice"
+    deps:
+      - examples:compile
+    cmds:
+      - |
+        cd examples && mvn exec:java@p2p \
+          -Dexec.args="--local agntcy/ns/bob --shared-secret $SHARED_SECRET --remote agntcy/ns/alice --message 'hello from Java (MLS)' --iterations 5 --enable-mls {{.EXTRA_ARGS}}"
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  examples:group:moderator:
+    desc: "Group moderator - Creates channel, invites participants"
+    deps:
+      - examples:compile
+    cmds:
+      - |
+        cd examples && mvn exec:java@group \
+          -Dexec.args="--local agntcy/ns/moderator --shared-secret $SHARED_SECRET --remote agntcy/ns/chat --invites agntcy/ns/client-1 --invites agntcy/ns/client-2 {{.EXTRA_ARGS}}"
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  examples:group:client-1:
+    desc: "Group participant - Waits for invitation"
+    deps:
+      - examples:compile
+    cmds:
+      - |
+        cd examples && mvn exec:java@group \
+          -Dexec.args="--local agntcy/ns/client-1 --shared-secret $SHARED_SECRET {{.EXTRA_ARGS}}"
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  examples:group:client-2:
+    desc: "Group participant - Waits for invitation"
+    deps:
+      - examples:compile
+    cmds:
+      - |
+        cd examples && mvn exec:java@group \
+          -Dexec.args="--local agntcy/ns/client-2 --shared-secret $SHARED_SECRET {{.EXTRA_ARGS}}"
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  examples:clean:
+    desc: Clean Maven build artifacts for examples
+    cmds:
+      - echo "🧹 Cleaning Java example build artifacts..."
+      - cd examples && mvn clean
       - echo "✅ Clean complete"
