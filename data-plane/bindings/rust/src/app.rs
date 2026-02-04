@@ -133,7 +133,7 @@ impl App {
     ///
     /// This is used internally by other bindings modules (like slimrpc) that need
     /// to interact with the core SLIM app.
-    pub(crate) fn inner(&self) -> Arc<SlimApp<AuthProvider, AuthVerifier>> {
+    pub fn inner(&self) -> Arc<SlimApp<AuthProvider, AuthVerifier>> {
         self.app.clone()
     }
 

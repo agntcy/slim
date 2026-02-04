@@ -13,9 +13,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use slim_bindings::{
-    App, Direction, IdentityProviderConfig, IdentityVerifierConfig, Name, RpcCode, RpcError,
-    RpcServer, StreamMessage, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler,
-    UnaryUnaryHandler, initialize_with_defaults,
+    App, Channel, Code, Context, Direction, IdentityProviderConfig, IdentityVerifierConfig, Name,
+    RpcError, Server, Status, StreamMessage, StreamStreamHandler, StreamUnaryHandler,
+    UnaryStreamHandler, UnaryUnaryHandler, initialize_with_defaults,
 };
 
 // ============================================================================
@@ -49,7 +49,7 @@ impl UnaryUnaryHandler for ErrorHandler {
         _context: Arc<slim_bindings::RpcContext>,
     ) -> Result<Vec<u8>, RpcError> {
         Err(RpcError::new(
-            RpcCode::InvalidArgument,
+            Code::InvalidArgument,
             "Intentional error".to_string(),
         ))
     }
@@ -101,7 +101,7 @@ impl UnaryStreamHandler for StreamErrorHandler {
 
         // Then send an error
         sink.send_error_async(RpcError::new(
-            RpcCode::Internal,
+            Code::Internal,
             "Stream error after 2 messages".to_string(),
         ))
         .await?;
@@ -163,7 +163,7 @@ impl StreamUnaryHandler for StreamInputErrorHandler {
                     // Check for error marker (first byte == 255)
                     if !data.is_empty() && data[0] == 255 {
                         return Err(RpcError::new(
-                            RpcCode::InvalidArgument,
+                            Code::InvalidArgument,
                             format!("Invalid data at message {}", count),
                         ));
                     }
@@ -242,7 +242,7 @@ impl StreamStreamHandler for TransformHandler {
 // ============================================================================
 
 struct TestEnv {
-    server: Arc<RpcServer>,
+    server: Arc<Server>,
     _app: Arc<App>,
     _server_handle: Option<tokio::task::JoinHandle<()>>,
 }
@@ -283,9 +283,9 @@ impl TestEnv {
         .expect("Failed to create server app");
         println!("Server app created");
 
-        // Create server with the notification receiver directly
+        // Create server using UniFFI constructor
         println!("Creating RPC server...");
-        let server = RpcServer::new(&server_app, server_name.clone());
+        let server = Arc::new(Server::new_from_app(server_app.clone(), server_name.clone()));
         println!("RPC server created");
 
         println!("TestEnv::new completed for {}", test_name);
@@ -302,7 +302,7 @@ impl TestEnv {
         let server_clone = self.server.clone();
         let server_handle = tokio::spawn(async move {
             println!("Server serve_async starting...");
-            let _ = server_clone.serve_async().await;
+            let _ = server_clone.serve_async_uniffi().await;
         });
 
         // Give server time to start and subscribe
@@ -311,7 +311,7 @@ impl TestEnv {
         self._server_handle = Some(server_handle);
     }
 
-    async fn create_client(&self, test_name: &str) -> Arc<slim_bindings::RpcChannel> {
+    async fn create_client(&self, test_name: &str) -> Arc<Channel> {
         let client_name = Arc::new(Name::new(
             "org".to_string(),
             "test".to_string(),
@@ -342,7 +342,7 @@ impl TestEnv {
             test_name.to_string(),
         ));
 
-        slim_bindings::RpcChannel::new(client_app, server_name)
+        Arc::new(Channel::new_from_app(client_app, server_name))
     }
 }
 
@@ -416,7 +416,7 @@ async fn test_unary_unary_error_handling() {
 
     assert!(result.is_err());
     let error = result.unwrap_err();
-    assert_eq!(error.code(), RpcCode::InvalidArgument);
+    assert_eq!(error.code(), Code::InvalidArgument);
     assert!(error.message().contains("Intentional error"));
 
     env.server.shutdown_async().await;
@@ -515,7 +515,7 @@ async fn test_unary_stream_error_handling() {
                 responses.push(data);
             }
             StreamMessage::Error(e) => {
-                assert_eq!(e.code(), RpcCode::Internal);
+                assert_eq!(e.code(), Code::Internal);
                 assert!(e.message().contains("Stream error after 2 messages"));
                 got_error = true;
                 break;
@@ -619,7 +619,7 @@ async fn test_stream_unary_error_handling() {
     let result = writer.finalize_async().await;
     assert!(result.is_err());
     let error = result.unwrap_err();
-    assert_eq!(error.code(), RpcCode::InvalidArgument);
+    assert_eq!(error.code(), Code::InvalidArgument);
     assert!(error.message().contains("Invalid data"));
 
     env.server.shutdown_async().await;
