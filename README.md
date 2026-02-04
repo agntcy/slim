@@ -1,4 +1,3 @@
-#
 [![Data-plane CI](https://github.com/agntcy/slim/actions/workflows/data-plane.yaml/badge.svg)](https://github.com/agntcy/slim/actions/workflows/data-plane.yaml)
 [![Control-plane CI](https://github.com/agntcy/slim/actions/workflows/control-plane.yaml/badge.svg)](https://github.com/agntcy/slim/actions/workflows/control-plane.yaml)
 [![codecov](https://codecov.io/gh/agntcy/slim/branch/main/graph/badge.svg)](https://codecov.io/gh/agntcy/slim)
@@ -6,32 +5,98 @@
 
 # SLIM
 
-SLIM (Secure Low-Latency Interactive Messaging) facilitates communication
-between AI agents. It supports various communication patterns such as unicast,
-anycast and multicast groups. Built on the gRPC framework, SLIM ensures 
-secure and scalable interactions among agents.
+**SLIM (Secure Low-Latency Interactive Messaging)** is a next-generation
+communication framework that provides the secure, scalable transport layer for
+AI agent protocols like [A2A (Agent-to-Agent)](https://a2a.ai) and
+[MCP (Model Context Protocol)](https://modelcontextprotocol.io).
 
+📖 **[Read the full documentation](https://docs.agntcy.org/slim/overview/)**
+| 🎓 **[Getting Started Tutorial](https://docs.agntcy.org/slim/slim-group-tutorial/)**
+| 🔌 **[Integrations (RPC)](https://docs.agntcy.org/slim/slim-rpc/)**
+| 🚀 **[Deployment Strategies](./deployments/readme.md)**
+| 📝 **[Technical blog post](https://blogs.agntcy.org/technical/2026/02/03/slim-v1.html)**
 
-## Features
+## Architecture
 
-- **Security**: Employs authentication, authorization, and end-to-end encryption
-  with [MLS](https://datatracker.ietf.org/doc/rfc9420/) to protect data privacy
-  and integrity.
-- **Scalability**: Designed to handle a large number of concurrent connections
-  and messages, making it suitable for high-load scenarios.
-- **Flexibility**: Supports various communication patterns, including unicast,
-  anycast, and multicast, to accommodate different use cases.
-- **Performance**: Optimized for low-latency communication, ensuring quick
-  message delivery and responsiveness.
+SLIM uses a distributed architecture with three main components:
 
-## Source tree
+- **Data Plane**: Pure message routing layer that forwards packets based on
+  hierarchical names without inspecting application content
+- **Session Layer**: Handles reliable delivery, end-to-end MLS encryption, and
+  group membership management
+- **Control Plane**: Manages configuration, monitoring, and orchestration of
+  SLIM routing nodes
 
-Main software components:
+This separation enables efficient deployment: SLIM routing nodes run only the
+lightweight data plane, while applications use language bindings with the full
+stack (data plane client + session layer + SRPC) for secure, feature-rich
+communication.
 
-- [data-plane](./data-plane): client and cloud components for efficient message
-  forwarding among agents
-- [control-plane](./control-plane): cloud services to manage control-plane ops
-  carried out by agents
+## Quick Start
+
+### Installation
+
+SLIM consists of multiple components with different installation methods:
+
+- **SLIM Node** (data plane): Docker, Cargo, or Helm
+- **Control Plane**: Docker or Helm
+- **slimctl CLI**: Download from releases
+- **Language Bindings**: Python (pip), Go, C#, JavaScript/TypeScript, Kotlin
+
+📦 **[Complete installation instructions](https://docs.agntcy.org/slim/slim-howto/)**
+
+### Building from Source
+
+Build all components using [Taskfile](https://taskfile.dev/):
+
+```bash
+# Build data-plane (Rust)
+task data-plane:build PROFILE=release
+
+# Build control-plane (Go)
+task control-plane:build
+
+# Run tests
+task data-plane:test
+task control-plane:test
+```
+
+### Running SLIM
+
+Start a SLIM server node:
+
+```bash
+# Run with basic configuration
+cd data-plane && cargo run --bin slim -- --config ./config/base/server-config.yaml
+
+# Or using Docker
+docker run -it \
+    -v ./data-plane/config/base/server-config.yaml:/config.yaml \
+    -p 46357:46357 \
+    ghcr.io/agntcy/slim:latest /slim --config /config.yaml
+```
+
+See the [data-plane README](./data-plane/README.md) for detailed configuration
+options including TLS, authentication, and mTLS.
+
+## Components
+
+- **[data-plane](./data-plane)**: Rust-powered message routing and client
+  libraries
+    - SLIM node binary for message forwarding
+    - Session layer with MLS encryption
+    - SRPC (SLIM RPC) for request-response patterns
+    - Language bindings: [Python](./data-plane/python/bindings), Go
+      (coming soon)
+
+- **[control-plane](./control-plane)**: Go-based management services
+    - Configuration management for SLIM nodes
+    - `slimctl` CLI tool for operations
+
+- **[charts](./charts)**: Kubernetes deployment
+    - [slim](./charts/slim): Helm chart for data-plane nodes
+    - [slim-control-plane](./charts/slim-control-plane): Helm chart for
+      control-plane services
 
 ## Prerequisites
 
@@ -47,18 +112,19 @@ documentations to find the best installation method for your system.
 <details>
   <summary>with brew</summary>
 
-  ```bash
-  brew install go-task
-  ```
+```bash
+brew install go-task
+```
+
 </details>
 <details>
   <summary>with curl</summary>
 
-  ```bash
-  sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b ~/.local/bin
-  ```
-</details>
+```bash
+sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b ~/.local/bin
+```
 
+</details>
 
 ### [Rust](https://rustup.rs/)
 
@@ -73,35 +139,28 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 The control-plane components are implemented in golang. Follow the installation
 instructions in the golang website.
 
-## Artifacts distribution
+## Use Cases
 
-### [Crates](./data-plane)
+- **Multi-agent AI systems**: Enable secure communication between specialized
+  agents collaborating on complex tasks
+- **A2A Protocol Transport**: Serve as the secure transport layer for A2A SDKs
+  across Python, JavaScript, Java, C#, and Go
+- **MCP Integration**: Support Model Context Protocol for context sharing
+  between agents and tools
+- **Distributed AI workflows**: Orchestrate agents across data centers, edge
+  devices, and browsers
+- **Real-time agent collaboration**: Low-latency communication for interactive
+  agent coordination
 
-See https://crates.io/users/artifacts-agntcy
+## Community & Resources
 
-```bash
-cargo install slim
-```
+- 📚 [Documentation](https://docs.agntcy.org/slim/overview)
+- 🐙 [GitHub Repository](https://github.com/agntcy/slim)
+- 📖 [IETF Specification](https://datatracker.ietf.org/doc/draft-slim-protocol/)
+- 💬 [Slack Community](https://join.slack.com/t/agntcy/shared_invite/)
+- 🎥 [YouTube Channel](https://www.youtube.com/@agntcy)
 
-### [Container images](./data-plane/Dockerfile)
-
-```bash
-docker pull ghcr.io/agntcy/slim:latest
-```
-
-### [Helm charts](./deploy/charts/slim)
-
-```bash
-helm pull ghcr.io/agntcy/slim/helm/slim:latest
-```
-
-### [Pypi packages](./data-plane/python/bindings)
-
-```bash
-pip install slim-bindings
-```
-
-### Copyright Notice
+## License
 
 [Copyright Notice and License](./LICENSE.md)
 
