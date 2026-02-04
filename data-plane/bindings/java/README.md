@@ -118,20 +118,20 @@ data-plane/bindings/java/
 ### Initialization
 
 ```java
-import uniffi.slim_bindings.*;
+import io.agntcy.slim.bindings.*;
 
 // Initialize with defaults
-SlimBindingsKt.initializeWithDefaults();
+SlimBindings.initializeWithDefaults();
 
 // Or with OpenTelemetry tracing
-SlimBindingsKt.initializeWithTracing("my-app", "localhost:4317");
+SlimBindings.initializeWithTracing("my-app", "localhost:4317");
 ```
 
 ### Creating an App
 
 ```java
-Service service = SlimBindingsKt.getGlobalService();
-Name appName = SlimBindingsKt.newName("org", "namespace", "app");
+Service service = SlimBindings.getGlobalService();
+Name appName = new Name("org", "namespace", "app");
 
 // Create app with shared secret
 App app = service.createAppWithSecret(appName, "my-secret-min-32-chars!!");
@@ -141,7 +141,7 @@ App app = service.createAppWithSecret(appName, "my-secret-min-32-chars!!");
 
 ```java
 // Create client config
-ClientConfig config = SlimBindingsKt.newInsecureClientConfig("http://localhost:46357");
+ClientConfig config = SlimBindings.newInsecureClientConfig("http://localhost:46357");
 
 // Connect asynchronously
 CompletableFuture<Long> connFuture = service.connectAsync(config);
@@ -151,7 +151,7 @@ Long connectionId = connFuture.get();
 ### Creating Sessions
 
 ```java
-Name remoteName = SlimBindingsKt.newName("org", "namespace", "remote");
+Name remoteName = new Name("org", "namespace", "remote");
 
 // Create point-to-point session
 SessionConfig sessionConfig = new SessionConfig(
@@ -159,7 +159,7 @@ SessionConfig sessionConfig = new SessionConfig(
     true,  // enableMls
     null,  // maxRetries
     null,  // interval
-    null   // metadata
+    Map.of()  // metadata
 );
 
 CompletableFuture<Session> sessionFuture = 
@@ -183,19 +183,8 @@ Duration timeout = Duration.ofSeconds(30);
 CompletableFuture<ReceivedMessage> msgFuture = session.getMessageAsync(timeout);
 ReceivedMessage msg = msgFuture.get();
 
-System.out.println("Received: " + new String(msg.getPayload()));
+System.out.println("Received: " + new String(msg.payload()));
 ```
-
-## Key Differences: Java vs Kotlin Bindings
-
-| Aspect | Kotlin Bindings | Java Bindings |
-|--------|----------------|---------------|
-| Generator | uniffi-bindgen (official) | uniffi-bindgen-java (IronCore) |
-| Async API | Kotlin coroutines (`suspend`) | Java `CompletableFuture` |
-| Build Tool | Gradle | Maven |
-| Null Safety | Kotlin nullable types (`?`) | Java `Optional`/null |
-| Records | Kotlin data classes | Java records |
-| Wait Method | `waitAsync()` | `.get()` or `.join()` |
 
 ## Available Tasks
 
@@ -216,67 +205,6 @@ task examples:group:*     # Run group examples
 ## Examples
 
 See [examples/README.md](examples/README.md) for detailed example documentation.
-
-## Development
-
-### Regenerating Bindings
-
-After changing the Rust bindings crate:
-
-```bash
-task clean
-task generate
-task build
-task install
-```
-
-### Building from Source
-
-```bash
-# Build Rust library in release mode
-cd ../rust
-cargo build --release
-
-# Generate and build Java bindings
-cd ../java
-task generate
-task build
-```
-
-## Troubleshooting
-
-### JNA Library Loading Issues
-
-If you see errors about library loading:
-
-1. Check that native library exists:
-   ```bash
-   ls generated/native/$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)/
-   ```
-
-2. Verify JNA can find it:
-   ```bash
-   java -Djava.library.path=generated/native ...
-   ```
-
-### uniffi-bindgen-java Not Found
-
-```bash
-# Install manually
-cargo install uniffi-bindgen-java \
-  --git https://github.com/IronCoreLabs/uniffi-bindgen-java
-```
-
-### Maven Compilation Errors
-
-```bash
-# Clean everything and rebuild
-task clean
-rm -rf ~/.m2/repository/io/agntcy/slim/slim-bindings-java
-task generate
-task build
-task install
-```
 
 ## Platform Support
 
