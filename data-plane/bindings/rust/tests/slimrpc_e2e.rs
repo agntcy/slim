@@ -13,8 +13,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use slim_bindings::{
-    App, Channel, Code, Context, Direction, IdentityProviderConfig, IdentityVerifierConfig, Name,
-    RpcError, Server, Status, StreamMessage, StreamStreamHandler, StreamUnaryHandler,
+    App, RpcChannel, Code, Direction, IdentityProviderConfig, IdentityVerifierConfig, Name,
+    RpcError, Server, StreamMessage, StreamStreamHandler, StreamUnaryHandler,
     UnaryStreamHandler, UnaryUnaryHandler, initialize_with_defaults,
 };
 
@@ -285,7 +285,7 @@ impl TestEnv {
 
         // Create server using UniFFI constructor
         println!("Creating RPC server...");
-        let server = Arc::new(Server::new_from_app(server_app.clone(), server_name.clone()));
+        let server = Server::new(&server_app, server_name.clone());
         println!("RPC server created");
 
         println!("TestEnv::new completed for {}", test_name);
@@ -302,7 +302,7 @@ impl TestEnv {
         let server_clone = self.server.clone();
         let server_handle = tokio::spawn(async move {
             println!("Server serve_async starting...");
-            let _ = server_clone.serve_async_uniffi().await;
+            let _ = server_clone.serve_async().await;
         });
 
         // Give server time to start and subscribe
@@ -311,7 +311,7 @@ impl TestEnv {
         self._server_handle = Some(server_handle);
     }
 
-    async fn create_client(&self, test_name: &str) -> Arc<Channel> {
+    async fn create_client(&self, test_name: &str) -> Arc<RpcChannel> {
         let client_name = Arc::new(Name::new(
             "org".to_string(),
             "test".to_string(),
@@ -342,7 +342,7 @@ impl TestEnv {
             test_name.to_string(),
         ));
 
-        Arc::new(Channel::new_from_app(client_app, server_name))
+        RpcChannel::new(client_app, server_name)
     }
 }
 
@@ -847,8 +847,7 @@ impl UnaryUnaryHandler for ContextInfoHandler {
         context: Arc<slim_bindings::RpcContext>,
     ) -> Result<Vec<u8>, RpcError> {
         // Access context information
-        let session = context.session();
-        let session_id = session.session_id();
+        let session_id = context.session_id();
 
         // Return session ID as bytes
         Ok(session_id.as_bytes().to_vec())

@@ -22,7 +22,7 @@ use slim_service::service::Service;
 use slim_testing::utils::TEST_VALID_SECRET;
 use tokio::sync::Mutex;
 
-use slim_bindings::slimrpc::{Channel, Code, Context, Decoder, Encoder, RequestStream, Server, Status};
+use slim_bindings::slimrpc::{RpcChannel, Code, Context, Decoder, Encoder, RequestStream, Server, Status};
 
 // ============================================================================
 // Test Message Types
@@ -85,7 +85,7 @@ struct TestEnv {
     service: Arc<Service>,
     server: Server,
     server_handle: Option<tokio::task::JoinHandle<Result<(), Status>>>,
-    channel: Channel,
+    channel: RpcChannel,
 }
 
 impl TestEnv {
@@ -122,7 +122,7 @@ impl TestEnv {
             )
             .unwrap();
         let client_app = Arc::new(client_app);
-        let channel = Channel::new_internal(client_app.clone(), server_name.clone());
+        let channel = RpcChannel::new_internal(client_app.clone(), server_name.clone());
 
         Self {
             service,

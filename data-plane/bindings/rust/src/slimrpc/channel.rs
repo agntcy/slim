@@ -891,19 +891,6 @@ enum ReceiveError {
     Rpc(Status),
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_status_code() {
-        // Test status code parsing
-        assert_eq!(Code::from_i32(0), Some(Code::Ok));
-        assert_eq!(Code::from_i32(13), Some(Code::Internal));
-        assert_eq!(Code::from_i32(999), None);
-    }
-}
-
 // UniFFI-compatible methods for foreign language bindings
 #[uniffi::export]
 impl Channel {
@@ -916,7 +903,10 @@ impl Channel {
     /// # Returns
     /// A new channel instance
     #[uniffi::constructor]
-    pub fn new(app: std::sync::Arc<crate::App>, remote: std::sync::Arc<crate::Name>) -> std::sync::Arc<Self> {
+    pub fn new(
+        app: std::sync::Arc<crate::App>,
+        remote: std::sync::Arc<crate::Name>,
+    ) -> std::sync::Arc<Self> {
         Self::new_with_connection(app, remote, None)
     }
 
@@ -1126,5 +1116,18 @@ impl Channel {
             method_name,
             timeout,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_status_code() {
+        // Test status code parsing
+        assert_eq!(Code::from_i32(0), Some(Code::Ok));
+        assert_eq!(Code::from_i32(13), Some(Code::Internal));
+        assert_eq!(Code::from_i32(999), None);
     }
 }

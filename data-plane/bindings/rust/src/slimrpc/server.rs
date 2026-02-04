@@ -1368,7 +1368,7 @@ impl Server {
         let app_inner = app.inner_app().clone();
         let slim_name = base_name.as_slim_name().clone();
         let rx = app.notification_receiver();
-        
+
         // Get the notification receiver from the app
         let notification_rx = crate::get_runtime().block_on(async {
             let mut lock = rx.write().await;
@@ -1376,7 +1376,7 @@ impl Server {
             let (_, new_rx) = tokio::sync::mpsc::channel(1);
             std::mem::replace(&mut *lock, new_rx)
         });
-        
+
         std::sync::Arc::new(Self::create_with_connection_and_runtime(
             app_inner,
             slim_name,
@@ -1403,7 +1403,7 @@ impl Server {
         let method_clone = method_name.clone();
 
         tracing::debug!(service = %service_clone, method = %method_clone, "Registering unary-unary handler");
-        
+
         self.register_unary_unary_internal(
             &service_name,
             &method_name,

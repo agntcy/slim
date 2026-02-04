@@ -106,7 +106,7 @@ pub use slimrpc::{
     HandlerResponse, HandlerType, MAX_TIMEOUT, Metadata, RequestStreamWriter, ResponseSink,
     ResponseStream, ResponseStreamReader, RpcError, STATUS_CODE_KEY, Server, Status, StatusError,
     StreamMessage, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler,
-    UnaryUnaryHandler, MessageContext as RpcMessageContext, SessionContext as RpcSessionContext,
+    UnaryUnaryHandler, SessionContext as RpcSessionContext,
     UniffiContext as RpcContext, UniffiRequestStream as RequestStream,
     build_method_subscription_name,
 };

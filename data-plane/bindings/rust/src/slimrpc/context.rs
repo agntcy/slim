@@ -24,8 +24,6 @@ use super::{DEADLINE_KEY, Metadata};
 pub struct Context {
     /// Session context information
     session: SessionContext,
-    /// Message context information (for individual messages in streams)
-    message: Option<MessageContext>,
     /// Request metadata
     metadata: Metadata,
     /// Deadline for the RPC call
@@ -48,7 +46,6 @@ impl Context {
                 destination: Name::from_strings(["", "", ""]),
                 metadata: Metadata::new(),
             },
-            message: None,
             metadata: Metadata::new(),
             deadline: None,
         }
@@ -67,7 +64,6 @@ impl Context {
 
         Self {
             session: SessionContext::from_session(session),
-            message: None,
             metadata,
             deadline,
         }
@@ -89,7 +85,6 @@ impl Context {
                 destination,
                 metadata: metadata.clone(),
             },
-            message: None,
             metadata,
             deadline,
         }
@@ -111,11 +106,6 @@ impl Context {
     /// Get the session context
     pub fn session(&self) -> &SessionContext {
         &self.session
-    }
-
-    /// Get the message context (if available)
-    pub fn message(&self) -> Option<&MessageContext> {
-        self.message.as_ref()
     }
 
     /// Get the request metadata
@@ -236,56 +226,6 @@ impl SessionContext {
     }
 
     /// Get the session metadata
-    pub fn metadata(&self) -> &Metadata {
-        &self.metadata
-    }
-}
-
-/// Message-level context information
-#[derive(Debug, Clone)]
-pub struct MessageContext {
-    /// Source name from message
-    source: Name,
-    /// Destination name from message
-    destination: Option<Name>,
-    /// Payload type
-    payload_type: String,
-    /// Message metadata
-    metadata: Metadata,
-}
-
-impl MessageContext {
-    /// Create a new message context
-    pub fn new(
-        source: Name,
-        destination: Option<Name>,
-        payload_type: String,
-        metadata: Metadata,
-    ) -> Self {
-        Self {
-            source,
-            destination,
-            payload_type,
-            metadata,
-        }
-    }
-
-    /// Get the source name
-    pub fn source(&self) -> &Name {
-        &self.source
-    }
-
-    /// Get the destination name
-    pub fn destination(&self) -> Option<&Name> {
-        self.destination.as_ref()
-    }
-
-    /// Get the payload type
-    pub fn payload_type(&self) -> &str {
-        &self.payload_type
-    }
-
-    /// Get the message metadata
     pub fn metadata(&self) -> &Metadata {
         &self.metadata
     }

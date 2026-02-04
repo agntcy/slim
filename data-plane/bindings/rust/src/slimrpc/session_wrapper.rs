@@ -42,7 +42,7 @@ struct SessionInner {
 
 /// Thin wrapper around SessionContext for RPC operations
 pub struct Session {
-    inner: Arc<SessionInner>,
+    inner: SessionInner,
 }
 
 impl Session {
@@ -54,10 +54,10 @@ impl Session {
             .expect("Session controller should be available");
 
         Self {
-            inner: Arc::new(SessionInner {
+            inner: SessionInner {
                 controller,
                 rx: RwLock::new(rx),
-            }),
+            },
         }
     }
 
@@ -196,13 +196,5 @@ impl Session {
         }
 
         Ok(())
-    }
-}
-
-impl Clone for Session {
-    fn clone(&self) -> Self {
-        Self {
-            inner: Arc::clone(&self.inner),
-        }
     }
 }

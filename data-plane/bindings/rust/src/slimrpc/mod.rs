@@ -144,7 +144,7 @@ mod stream_types;
 
 pub use channel::Channel;
 pub use codec::{Codec, Decoder, Encoder};
-pub use context::{Context, MessageContext, SessionContext};
+pub use context::{Context, SessionContext};
 pub use metadata::Metadata;
 pub use server::{HandlerResponse, HandlerType, Server};
 pub use session_wrapper::{ReceivedMessage, Session};
