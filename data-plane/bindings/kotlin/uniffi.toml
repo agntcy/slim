@@ -1,0 +1,5 @@
+# UniFFI Configuration for Kotlin Bindings
+# See: https://mozilla.github.io/uniffi-rs/latest/kotlin/configuration.html
+
+[bindings.kotlin]
+package_name = "io.agntcy.slim.bindings"
