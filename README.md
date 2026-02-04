@@ -148,23 +148,9 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 The control-plane components are implemented in golang. Follow the installation
 instructions in the golang website.
 
-## Use Cases
-
-- **Multi-agent AI systems**: Enable secure communication between specialized
-  agents collaborating on complex tasks
-- **A2A Protocol Transport**: Serve as the secure transport layer for A2A SDKs
-  across Python, JavaScript, Java, C#, and Go
-- **MCP Integration**: Support Model Context Protocol for context sharing
-  between agents and tools
-- **Distributed AI workflows**: Orchestrate agents across data centers, edge
-  devices, and browsers
-- **Real-time agent collaboration**: Low-latency communication for interactive
-  agent coordination
-
 ## Community & Resources
 
 - 📚 [Documentation](https://docs.agntcy.org/slim/overview)
-- 🐙 [GitHub Repository](https://github.com/agntcy/slim)
 - 📖 [IETF Specification](https://datatracker.ietf.org/doc/draft-slim-protocol/)
 - 💬 [Slack Community](https://join.slack.com/t/agntcy/shared_invite/)
 - 🎥 [YouTube Channel](https://www.youtube.com/@agntcy)
