@@ -24,19 +24,16 @@ jobs:
         include:
           - image: slim-node
             repo: ghcr.io/${{ github.repository_owner }}/slim
-            version: 0.6.1
+            version: 1.0.0
           - image: slim-controller
             repo: ghcr.io/${{ github.repository_owner }}/slim/control-plane
-            version: 0.6.0
+            version: 1.0.0
           - image: spire-server
             repo: ghcr.io/spiffe/spire-server
-            version: 1.13.3
+            version: 1.14.1
           - image: spire-agent
             repo: ghcr.io/spiffe/spire-agent
-            version: 1.13.3
-          - image: spire-helper
-            repo: ghcr.io/spiffe/spiffe-helper
-            version: 0.10.1
+            version: 1.14.1
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
