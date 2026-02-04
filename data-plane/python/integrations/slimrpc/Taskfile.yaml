@@ -10,14 +10,3 @@ includes:
     taskfile: ../../../../tasks/python.yaml
     vars:
       UV_ARGS: '--package slimrpc'
-
-tasks:
-  run-server:
-    desc: "Run the Python SlimRPC server example"
-    cmds:
-      - uv run simple-server
-
-  run-client:
-    desc: "Run the Python SlimRPC client example"
-    cmds:
-      - uv run simple-client

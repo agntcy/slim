@@ -33,7 +33,7 @@ pub enum ControllerError {
     MalformedName(String),
 
     // Propagated lower-level errors
-    #[error("datapath error: {0}")]
+    #[error("datapath error")]
     Datapath(#[from] DataPathError),
     #[error("error sending message to data plane: {0}")]
     DatapathSendError(String),

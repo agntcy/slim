@@ -1,10 +1,13 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+// Allow deprecated Basic auth - used for simple authentication scenarios
+#[allow(deprecated)]
+use tower_http::auth::require_authorization::Basic;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-#[allow(deprecated)]
-use tower_http::auth::{AddAuthorizationLayer, require_authorization::Basic};
+use tower_http::auth::AddAuthorizationLayer;
 use tower_http::validate_request::ValidateRequestHeaderLayer;
 
 use super::{ClientAuthenticator, ConfigAuthError, ServerAuthenticator};
@@ -52,7 +55,6 @@ impl ClientAuthenticator for Config {
     // Associated types
     type ClientLayer = AddAuthorizationLayer;
 
-    #[allow(deprecated)]
     fn get_client_layer(&self) -> Result<Self::ClientLayer, ConfigAuthError> {
         match (self.username(), self.password().as_ref()) {
             ("", _) => Err(ConfigAuthError::AuthBasicEmptyUsername),

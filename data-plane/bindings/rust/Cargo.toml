@@ -35,7 +35,6 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
-tokio-util = { workspace = true }
 tracing = { workspace = true }
 uniffi = { version = "0.28.3", features = ["cli"] }
 
