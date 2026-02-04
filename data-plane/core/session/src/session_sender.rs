@@ -283,7 +283,7 @@ impl SessionSender {
         let is_publish_to = message.metadata.contains_key(PUBLISH_TO);
         debug!(%message_id, "send new message");
 
-        if self.timer_factory.is_some() {
+        if let Some(timer_factory) = &self.timer_factory {
             debug!("reliable sender, set all timers");
             // set the list of missing timers according to the destination of message
             let missing_timers = if is_publish_to {
@@ -295,7 +295,7 @@ impl SessionSender {
             // create a timer for the new packet and update the state
             let gt = GroupTimer {
                 missing_timers,
-                timer: self.timer_factory.as_ref().unwrap().create_and_start_timer(
+                timer: timer_factory.create_and_start_timer(
                     message_id,
                     message.get_session_message_type(),
                     None,

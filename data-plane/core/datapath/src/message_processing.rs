@@ -760,13 +760,13 @@ impl MessageProcessor {
                                         // 1. the message is coming from remote
                                         // 2. it is not coming from the control plane itself
                                         // 3. the control plane exists
-                                        if !is_local && !from_control_plane && tx_cp.is_some(){
+                                        if !is_local && !from_control_plane && let Some(txcp) = &tx_cp {
                                             match msg.get_type() {
                                                 PublishType(_) => {/* do nothing */}
                                                 _ => {
                                                     // send subscriptions and unsupcriptions
                                                     // to the control plane
-                                                    let _ = tx_cp.as_ref().unwrap().send(Ok(msg.clone())).await;
+                                                    let _ = txcp.send(Ok(msg.clone())).await;
                                                 }
                                             }
                                         }

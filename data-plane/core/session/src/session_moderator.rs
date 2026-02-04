@@ -750,13 +750,8 @@ where
         self.add_endpoint(&msg.get_source()).await?;
 
         // get mls data if MLS is enabled
-        let (commit, welcome) = if self.mls_state.is_some() {
-            let (commit_payload, welcome_payload) = self
-                .mls_state
-                .as_mut()
-                .unwrap()
-                .add_participant(&msg)
-                .await?;
+        let (commit, welcome) = if let Some(mls_state) = &mut self.mls_state {
+            let (commit_payload, welcome_payload) = mls_state.add_participant(&msg).await?;
 
             // get the id of the commit, the welcome message has a random id
             let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
@@ -1173,11 +1168,10 @@ where
             if !self.current_task.as_mut().unwrap().task_complete() {
                 // if the task is not finished yet we may need to send a leave
                 // message that was postponed to send all group update first
-                if self.postponed_message.is_some()
+                if let Some(leave_message) = &self.postponed_message
                     && matches!(self.current_task, Some(ModeratorTask::Remove(_)))
                 {
                     // send the leave message an progress
-                    let leave_message = self.postponed_message.as_ref().unwrap();
                     self.common.sender.on_message(leave_message).await?;
                     self.current_task
                         .as_mut()
