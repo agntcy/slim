@@ -52,6 +52,8 @@ vars:
     x86_64-apple-darwin|osx-x64|dylib
     aarch64-apple-darwin|osx-arm64|dylib
     x86_64-pc-windows-gnu|win-x64|dll
+    x86_64-pc-windows-msvc|win-x64|dll
+    aarch64-pc-windows-msvc|win-arm64|dll
 
 env:
   PATH: "{{.TOOLS_INSTALL_DIR}}/zig:{{.PATH}}"
@@ -102,32 +104,6 @@ tasks:
         done
     silent: true
 
-  copy:runtimes:
-    desc: "Copy native libraries to runtimes directory for NuGet packaging"
-    deps:
-      - build:rust:all
-    cmds:
-      - rm -rf {{.RUNTIMES_DIR}}
-      - mkdir -p {{.RUNTIMES_DIR}}
-      - |
-        echo "{{.PLATFORMS}}" | while IFS='|' read -r target rid ext; do
-          if [[ -n "$target" ]]; then
-            case "$ext" in
-              so|dylib) lib_name="lib{{.LIB_NAME}}.$ext" ;;
-              dll) lib_name="{{.LIB_NAME}}.$ext" ;;
-            esac
-            runtime_dir="{{.RUNTIMES_DIR}}/$rid/native"
-            mkdir -p "$runtime_dir"
-            src="{{.TARGET_DIR}}/$target/{{.PROFILE}}/$lib_name"
-            if [[ -f "$src" ]]; then
-              cp "$src" "$runtime_dir/"
-            else
-              echo "WARNING: Library not found: $src"
-            fi
-          fi
-        done
-    silent: true
-
   generate:
     desc: "Generate C# bindings using uniffi-bindgen-cs"
     deps:
@@ -156,73 +132,118 @@ tasks:
         echo "Bindings generated successfully"
     silent: true
 
-  copy:runtime:current:
-    desc: "Copy native library for current platform to runtimes directory"
-    deps:
-      - generate
+  copy:runtimes:from-artifacts:
+    desc: "Copy native libraries from artifacts to runtimes directory (unified for CI and local dev)"
     cmds:
+      - rm -rf {{.RUNTIMES_DIR}}
+      - mkdir -p {{.RUNTIMES_DIR}}
       - |
-        # Determine source library and extract platform info
-        if [[ -n "{{.BINDGEN_LIB}}" ]]; then
-          # BINDGEN_LIB points to .a file (used for generation)
-          # We need to find the corresponding .so/.dylib/.dll for runtime
-          bindgen_lib="{{.BINDGEN_LIB}}"
+        # Determine source directory: ARTIFACTS_DIR (CI) or TARGET_DIR (local)
+        if [[ -n "{{.ARTIFACTS_DIR}}" && -d "{{.ARTIFACTS_DIR}}" ]]; then
+          SOURCE_DIR="{{.ARTIFACTS_DIR}}"
+          SOURCE_TYPE="artifacts"
+        elif [[ -d "{{.TARGET_DIR}}" ]]; then
+          SOURCE_DIR="{{.TARGET_DIR}}"
+          SOURCE_TYPE="local"
+        else
+          echo "ERROR: Neither ARTIFACTS_DIR nor TARGET_DIR exists"
+          exit 1
+        fi
+        
+        # Determine if we're filtering to a single target
+        FILTER_TARGET="{{.TARGET}}"
+        if [[ -n "$FILTER_TARGET" ]]; then
+          echo "Copying runtime library for $FILTER_TARGET from $SOURCE_TYPE..."
+        else
+          echo "Copying runtime libraries for all platforms from $SOURCE_TYPE..."
+        fi
+        
+        # Iterate through target directories
+        # For artifacts: bindings-* directories
+        # For local: target triple directories under TARGET_DIR
+        if [[ "$SOURCE_TYPE" == "artifacts" ]]; then
+          SEARCH_PATTERN="$SOURCE_DIR/bindings-*"
+        else
+          SEARCH_PATTERN="$SOURCE_DIR/*"
+        fi
+        
+        for target_dir in $SEARCH_PATTERN; do
+          if [[ ! -d "$target_dir" ]]; then
+            continue
+          fi
           
-          # Extract RID and lib_name from TARGET and PLATFORMS mapping
-          TARGET="{{.TARGET}}"
-          while IFS='|' read -r target rid ext; do
-            if [[ "$target" == "$TARGET" ]]; then
-              RID="$rid"
-              case "$ext" in
-                so|dylib) lib_name="lib{{.LIB_NAME}}.$ext" ;;
-                dll) lib_name="{{.LIB_NAME}}.$ext" ;;
-              esac
+          # Extract target triple from directory name
+          if [[ "$SOURCE_TYPE" == "artifacts" ]]; then
+            target=$(basename "$target_dir" | sed 's/^bindings-//')
+            artifact_dir="$target_dir"
+          else
+            target=$(basename "$target_dir")
+            artifact_dir="$target_dir/{{.PROFILE}}"
+            if [[ ! -d "$artifact_dir" ]]; then
+              continue
+            fi
+          fi
+          
+          # Skip if filtering and this isn't the target we want
+          if [[ -n "$FILTER_TARGET" && "$target" != "$FILTER_TARGET" ]]; then
+            continue
+          fi
+          
+          # Look up the target in PLATFORMS to get RID and extension
+          rid=""
+          ext=""
+          while IFS='|' read -r platform_target platform_rid platform_ext; do
+            if [[ "$platform_target" == "$target" ]]; then
+              rid="$platform_rid"
+              ext="$platform_ext"
               break
             fi
           done <<< "{{.PLATFORMS}}"
           
-          if [[ -z "$RID" ]]; then
-            echo "ERROR: Target $TARGET not found in PLATFORMS"
-            exit 1
+          if [[ -z "$rid" || -z "$ext" ]]; then
+            continue
           fi
           
-          # Find runtime library in same directory as .a file
-          # Artifacts may have target suffix in filename (e.g., libslim_bindings_x86_64_linux_gnu.so)
-          src_dir=$(dirname "$bindgen_lib")
-          src="$src_dir/$lib_name"
+          echo "Processing $target..."
           
-          # If base name doesn't exist, try with target suffix
-          if [[ ! -f "$src" ]]; then
-            # Convert target triple to underscores (e.g., x86_64-unknown-linux-gnu -> x86_64_linux_gnu)
-            target_suffix=$(echo "$TARGET" | sed 's/-unknown-/-/' | tr '-' '_')
-            case "$ext" in
-              so|dylib) src="$src_dir/lib{{.LIB_NAME}}_${target_suffix}.$ext" ;;
-              dll) src="$src_dir/{{.LIB_NAME}}_${target_suffix}.$ext" ;;
-            esac
+          # Determine library name patterns
+          case "$ext" in
+            so|dylib) 
+              lib_pattern="lib{{.LIB_NAME}}*.$ext"
+              lib_name="lib{{.LIB_NAME}}.$ext"
+              ;;
+            dll) 
+              lib_pattern="{{.LIB_NAME}}*.$ext"
+              lib_name="{{.LIB_NAME}}.$ext"
+              ;;
+          esac
+          
+          # Find the runtime library
+          src=$(find "$artifact_dir" -maxdepth 1 -name "$lib_pattern" -type f | head -1)
+          
+          if [[ -z "$src" || ! -f "$src" ]]; then
+            echo "  WARNING: Runtime library not found (pattern: $lib_pattern)"
+            continue
           fi
           
-          if [[ ! -f "$src" ]]; then
-            echo "ERROR: Runtime library not found: $src"
-            echo "Looking for runtime library..."
-            echo "Checked: $src_dir/$lib_name"
-            echo "Checked: $src"
-            echo "Available files:"
-            ls -lah "$src_dir"
-            exit 1
-          fi
-        else
-          LIB_INFO=$(task _get-lib-info PROFILE=release)
-          src=$(echo "$LIB_INFO" | cut -d'|' -f1)
-          RID=$(echo "$LIB_INFO" | cut -d'|' -f2)
-          lib_name=$(echo "$LIB_INFO" | cut -d'|' -f3)
-          [[ ! -f "$src" ]] && echo "ERROR: Library not found: $src" && exit 1
-        fi
+          # Copy to runtimes directory
+          runtime_dir="{{.RUNTIMES_DIR}}/$rid/native"
+          mkdir -p "$runtime_dir"
+          cp "$src" "$runtime_dir/$lib_name"
+          echo "  ✓ Copied to $rid/native/$lib_name"
+        done
         
-        runtime_dir="{{.RUNTIMES_DIR}}/$RID/native"
-        mkdir -p "$runtime_dir"
-        cp "$src" "$runtime_dir/$lib_name"
-        echo "Runtime library copied: $runtime_dir/$lib_name"
+        echo ""
+        echo "Runtime libraries copied:"
+        find {{.RUNTIMES_DIR}} -type f -ls || true
     silent: true
+
+  copy:runtime:current:
+    desc: "Copy native library for current platform to runtimes directory (for local development)"
+    deps:
+      - generate
+    cmds:
+      - task copy:runtimes:from-artifacts TARGET={{.TARGET}}
 
   build:
     desc: "Build the .NET solution"
@@ -262,7 +283,7 @@ tasks:
   pack:
     desc: "Create NuGet package with all runtime libraries (every major OS and platform)"
     deps:
-      - task: copy:runtimes
+      - task: build:rust:all
         vars:
           PROFILE: "release"
       - task: generate
@@ -270,6 +291,7 @@ tasks:
       VERSION:
         sh: grep '^version = ' ../rust/Cargo.toml | sed 's/version = "\(.*\)"/\1/'
     cmds:
+      - task copy:runtimes:from-artifacts
       - dotnet pack Slim/Slim.csproj --configuration Release --output ./nupkg -p:Version={{.VERSION}}
       - echo "Built NuGet package version {{.VERSION}}"
       - ls -lh nupkg/*.nupkg
@@ -339,7 +361,6 @@ tasks:
     desc: "Run CI pipeline: generate, build, test, and pack"
     deps:
       - generate
-      - copy:runtime:current
     vars:
       VERSION:
         sh: |
@@ -353,6 +374,8 @@ tasks:
       - dotnet test Slim.Tests/Slim.Tests.csproj --configuration Release --filter "FullyQualifiedName~SmokeTests" --verbosity normal
       - |
         if [[ -n "{{.ARTIFACTS_DIR}}" ]]; then
+          # Copy all runtime libraries from artifacts before packing
+          task copy:runtimes:from-artifacts ARTIFACTS_DIR={{.ARTIFACTS_DIR}}
           mkdir -p {{.ARTIFACTS_DIR}}
           dotnet pack Slim/Slim.csproj --configuration Release --output {{.ARTIFACTS_DIR}} -p:Version={{.VERSION}}
           echo "Built NuGet package version {{.VERSION}}"
