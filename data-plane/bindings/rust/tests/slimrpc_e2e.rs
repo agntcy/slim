@@ -30,7 +30,7 @@ impl UnaryUnaryHandler for EchoHandler {
     async fn handle(
         &self,
         request: Vec<u8>,
-        _context: Arc<slim_bindings::RpcContext>,
+        _context: Arc<slim_bindings::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         // Echo the request back
         println!("EchoHandler received request: {:?}", request);
@@ -46,7 +46,7 @@ impl UnaryUnaryHandler for ErrorHandler {
     async fn handle(
         &self,
         _request: Vec<u8>,
-        _context: Arc<slim_bindings::RpcContext>,
+        _context: Arc<slim_bindings::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         Err(RpcError::new(
             Code::InvalidArgument,
@@ -63,7 +63,7 @@ impl UnaryStreamHandler for CounterHandler {
     async fn handle(
         &self,
         request: Vec<u8>,
-        _context: Arc<slim_bindings::RpcContext>,
+        _context: Arc<slim_bindings::Context>,
         sink: Arc<slim_bindings::ResponseSink>,
     ) -> Result<(), RpcError> {
         // Parse count from request (simple u32 encoding)
@@ -92,7 +92,7 @@ impl UnaryStreamHandler for StreamErrorHandler {
     async fn handle(
         &self,
         _request: Vec<u8>,
-        _context: Arc<slim_bindings::RpcContext>,
+        _context: Arc<slim_bindings::Context>,
         sink: Arc<slim_bindings::ResponseSink>,
     ) -> Result<(), RpcError> {
         // Send a couple of messages
@@ -118,7 +118,7 @@ impl StreamUnaryHandler for AccumulatorHandler {
     async fn handle(
         &self,
         stream: Arc<slim_bindings::RequestStream>,
-        _context: Arc<slim_bindings::RpcContext>,
+        _context: Arc<slim_bindings::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         let mut total = 0u32;
         let mut count = 0u32;
@@ -152,7 +152,7 @@ impl StreamUnaryHandler for StreamInputErrorHandler {
     async fn handle(
         &self,
         stream: Arc<slim_bindings::RequestStream>,
-        _context: Arc<slim_bindings::RpcContext>,
+        _context: Arc<slim_bindings::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         let mut count = 0u32;
 
@@ -185,7 +185,7 @@ impl StreamStreamHandler for StreamEchoHandler {
     async fn handle(
         &self,
         stream: Arc<slim_bindings::RequestStream>,
-        _context: Arc<slim_bindings::RpcContext>,
+        _context: Arc<slim_bindings::Context>,
         sink: Arc<slim_bindings::ResponseSink>,
     ) -> Result<(), RpcError> {
         loop {
@@ -214,7 +214,7 @@ impl StreamStreamHandler for TransformHandler {
     async fn handle(
         &self,
         stream: Arc<slim_bindings::RequestStream>,
-        _context: Arc<slim_bindings::RpcContext>,
+        _context: Arc<slim_bindings::Context>,
         sink: Arc<slim_bindings::ResponseSink>,
     ) -> Result<(), RpcError> {
         loop {
@@ -838,7 +838,7 @@ impl UnaryUnaryHandler for ContextInfoHandler {
     async fn handle(
         &self,
         _request: Vec<u8>,
-        context: Arc<slim_bindings::RpcContext>,
+        context: Arc<slim_bindings::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         // Access context information
         let session_id = context.session_id();

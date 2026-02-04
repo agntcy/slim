@@ -21,7 +21,7 @@ use super::{DEADLINE_KEY, Metadata};
 /// - Deadline/timeout information
 /// - Message routing details
 #[derive(Debug, Clone)]
-pub struct Context {
+pub struct RpcContext {
     /// Session context information
     session: SessionContext,
     /// Request metadata
@@ -30,13 +30,13 @@ pub struct Context {
     deadline: Option<SystemTime>,
 }
 
-impl Default for Context {
+impl Default for RpcContext {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Context {
+impl RpcContext {
     /// Create a new empty context
     pub fn new() -> Self {
         Self {
@@ -248,7 +248,7 @@ mod tests {
             .as_secs_f64();
         metadata.insert(DEADLINE_KEY, seconds.to_string());
 
-        let parsed = Context::parse_deadline(&metadata);
+        let parsed = RpcContext::parse_deadline(&metadata);
         assert!(parsed.is_some());
     }
 
@@ -264,7 +264,7 @@ mod tests {
             .as_secs_f64();
         metadata.insert(DEADLINE_KEY, seconds.to_string());
 
-        let deadline = Context::parse_deadline(&metadata);
+        let deadline = RpcContext::parse_deadline(&metadata);
         assert!(deadline.is_some());
         if let Some(d) = deadline {
             assert!(SystemTime::now() > d);
@@ -281,7 +281,7 @@ mod tests {
             metadata: Metadata::from_map(session_metadata),
         };
 
-        let mut ctx = Context {
+        let mut ctx = RpcContext {
             session: ctx_session,
             metadata: Metadata::new(),
             deadline: None,
@@ -302,7 +302,7 @@ mod tests {
             metadata: Metadata::from_map(session_metadata),
         };
 
-        let mut ctx = Context {
+        let mut ctx = RpcContext {
             session: ctx_session,
             metadata: Metadata::new(),
             deadline: None,

@@ -9,26 +9,26 @@
 use std::sync::Arc;
 
 use super::stream_types::{RequestStream, ResponseSink};
-use super::{Context, RpcError};
+use super::{RpcContext, RpcError};
 
 /// UniFFI-compatible wrapper for Context
 #[derive(Clone, uniffi::Object)]
-pub struct UniffiContext {
-    inner: Context,
+pub struct Context {
+    inner: RpcContext,
 }
 
-impl UniffiContext {
-    pub fn new(context: Context) -> Self {
+impl Context {
+    pub fn new(context: RpcContext) -> Self {
         Self { inner: context }
     }
 
-    pub fn inner(&self) -> &Context {
+    pub fn inner(&self) -> &RpcContext {
         &self.inner
     }
 }
 
 #[uniffi::export]
-impl UniffiContext {
+impl Context {
     /// Get the session ID
     pub fn session_id(&self) -> String {
         self.inner.session().session_id().to_string()
@@ -50,11 +50,7 @@ pub trait UnaryUnaryHandler: Send + Sync {
     ///
     /// # Returns
     /// The response message bytes or an error
-    async fn handle(
-        &self,
-        request: Vec<u8>,
-        context: Arc<UniffiContext>,
-    ) -> Result<Vec<u8>, RpcError>;
+    async fn handle(&self, request: Vec<u8>, context: Arc<Context>) -> Result<Vec<u8>, RpcError>;
 }
 
 /// Unary-to-Stream RPC handler trait
@@ -79,7 +75,7 @@ pub trait UnaryStreamHandler: Send + Sync {
     async fn handle(
         &self,
         request: Vec<u8>,
-        context: Arc<UniffiContext>,
+        context: Arc<Context>,
         sink: Arc<ResponseSink>,
     ) -> Result<(), RpcError>;
 }
@@ -102,7 +98,7 @@ pub trait StreamUnaryHandler: Send + Sync {
     async fn handle(
         &self,
         stream: Arc<RequestStream>,
-        context: Arc<UniffiContext>,
+        context: Arc<Context>,
     ) -> Result<Vec<u8>, RpcError>;
 }
 
@@ -128,7 +124,7 @@ pub trait StreamStreamHandler: Send + Sync {
     async fn handle(
         &self,
         stream: Arc<RequestStream>,
-        context: Arc<UniffiContext>,
+        context: Arc<Context>,
         sink: Arc<ResponseSink>,
     ) -> Result<(), RpcError>;
 }

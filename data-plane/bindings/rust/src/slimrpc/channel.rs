@@ -23,7 +23,7 @@ use slim_datapath::messages::Name;
 use slim_service::app::App as SlimApp;
 
 use super::{
-    Code, Context, MAX_TIMEOUT, Metadata, STATUS_CODE_KEY, Status,
+    Code, MAX_TIMEOUT, Metadata, RpcContext, STATUS_CODE_KEY, Status,
     codec::{Decoder, Encoder},
     session_wrapper::{SessionRx, SessionTx, new_session},
 };
@@ -92,7 +92,7 @@ impl Channel {
     /// # async fn example(app: Arc<App<AuthProvider, AuthVerifier>>) {
     /// let remote = Name::from_strings(["org".to_string(), "namespace".to_string(), "service".to_string()]);
     /// let connection_id = Some(12345);
-    /// let channel = Channel::create_with_connection_internal(app, remote, connection_id, None);
+    /// let channel = Channel::new_with_connection_internal(app, remote, connection_id, None);
     /// # }
     /// ```
     pub fn new_with_connection_internal(
@@ -327,12 +327,12 @@ impl Channel {
             let send_result = tokio::select! {
                 result = channel.send_request(&session_tx, &ctx, request, &service_name, &method_name) => result,
                 _ = &mut delay => {
-                    Self::close_session_safe(&session_tx, &channel.inner.app).await;
+                    Self::close_session_safe(&session_tx, &channel.app).await;
                     Err(Status::deadline_exceeded("Client deadline exceeded while sending request"))
                 }
             };
             if let Err(e) = send_result {
-                Self::close_session_safe(&session_tx, &channel.inner.app).await;
+                Self::close_session_safe(&session_tx, &channel.app).await;
                 Err(e)?;
             }
 
@@ -341,21 +341,21 @@ impl Channel {
                 let receive_result = tokio::select! {
                     result = session_rx.get_message(None) => result.map_err(|e| Status::internal(format!("Failed to receive response: {}", e))),
                     _ = &mut delay => {
-                        Self::close_session_safe(&session_tx, &channel.inner.app).await;
+                        Self::close_session_safe(&session_tx, &channel.app).await;
                         Err(Status::deadline_exceeded("Client deadline exceeded while receiving stream"))
                     }
                 };
                 let received = match receive_result {
                     Ok(r) => r,
                     Err(e) => {
-                        Self::close_session_safe(&session_tx, &channel.inner.app).await;
+                        Self::close_session_safe(&session_tx, &channel.app).await;
                         Err(e)?
                     }
                 };
 
                 // Check if this is end of stream or an error
                 if channel.check_stream_message(&received)?.is_none() {
-                    Self::close_session_safe(&session_tx, &channel.inner.app).await;
+                    Self::close_session_safe(&session_tx, &channel.app).await;
                     break;
                 }
 
@@ -559,7 +559,7 @@ impl Channel {
             let service_name_for_send = service_name.clone();
             let method_name_for_send = method_name.clone();
             let channel_for_send = channel.clone();
-            let mut send_handle = channel.inner.runtime.spawn(async move {
+            let mut send_handle = channel.runtime.spawn(async move {
                 channel_for_send.send_request_stream(&session_tx_for_send, &ctx_for_send, request_stream, &service_name_for_send, &method_name_for_send).await
             });
 
@@ -574,31 +574,31 @@ impl Channel {
                         match send_result {
                             Ok(Ok(_)) => continue, // Send completed successfully, continue receiving
                             Ok(Err(e)) => {
-                                Self::close_session_safe(&session_tx, &channel.inner.app).await;
+                                Self::close_session_safe(&session_tx, &channel.app).await;
                                 Err(e) // Send failed with error
                             },
                             Err(e) => {
-                                Self::close_session_safe(&session_tx, &channel.inner.app).await;
+                                Self::close_session_safe(&session_tx, &channel.app).await;
                                 Err(Status::internal(format!("Send task panicked: {}", e)))
                             },
                         }
                     }
                     _ = &mut delay => {
-                        Self::close_session_safe(&session_tx, &channel.inner.app).await;
+                        Self::close_session_safe(&session_tx, &channel.app).await;
                         Err(Status::deadline_exceeded("Client deadline exceeded while receiving stream"))
                     },
                 };
                 let received = match receive_result {
                     Ok(r) => r,
                     Err(e) => {
-                        Self::close_session_safe(&session_tx, &channel.inner.app).await;
+                        Self::close_session_safe(&session_tx, &channel.app).await;
                         Err(e)?
                     }
                 };
 
                 // Check if this is end of stream or an error
                 if channel.check_stream_message(&received)?.is_none() {
-                    Self::close_session_safe(&session_tx, &channel.inner.app).await;
+                    Self::close_session_safe(&session_tx, &channel.app).await;
                     break;
                 }
 
@@ -614,7 +614,7 @@ impl Channel {
         &self,
         service_name: &str,
         method_name: &str,
-        ctx: &Context,
+        ctx: &RpcContext,
     ) -> Result<(SessionTx, SessionRx), Status> {
         let service_name = service_name.to_string();
         let method_name = method_name.to_string();
@@ -697,7 +697,7 @@ impl Channel {
         &self,
         timeout: Option<Duration>,
         metadata: Option<Metadata>,
-    ) -> Context {
+    ) -> RpcContext {
         // Calculate deadline for this RPC call
         let timeout_duration = timeout.unwrap_or(Duration::from_secs(MAX_TIMEOUT));
         let deadline = SystemTime::now()
@@ -705,7 +705,7 @@ impl Channel {
             .unwrap_or_else(|| SystemTime::now() + Duration::from_secs(MAX_TIMEOUT));
 
         // Create a new context with the deadline
-        let mut ctx = Context::new();
+        let mut ctx = RpcContext::new();
         ctx.set_deadline(deadline);
 
         // Merge in user metadata
@@ -777,7 +777,7 @@ impl Channel {
     async fn send_request<Req>(
         &self,
         session: &SessionTx,
-        _ctx: &Context,
+        _ctx: &RpcContext,
         request: Req,
         service_name: &str,
         method_name: &str,
@@ -807,7 +807,7 @@ impl Channel {
     async fn send_request_stream<Req>(
         &self,
         session: &SessionTx,
-        _ctx: &Context,
+        _ctx: &RpcContext,
         request_stream: impl Stream<Item = Req> + Send + 'static,
         service_name: &str,
         method_name: &str,

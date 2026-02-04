@@ -23,7 +23,7 @@ use slim_testing::utils::TEST_VALID_SECRET;
 use tokio::sync::Mutex;
 
 use slim_bindings::slimrpc::{
-    Channel, Code, Context, Decoder, Encoder, RequestStream, Server, Status,
+    Channel, Code, Decoder, Encoder, RequestStream, RpcContext, Server, Status,
 };
 
 // ============================================================================
@@ -169,7 +169,7 @@ async fn test_unary_unary_rpc() {
     env.server.register_unary_unary_internal(
         "TestService",
         "Echo",
-        |request: TestRequest, _ctx: Context| async move {
+        |request: TestRequest, _ctx: RpcContext| async move {
             Ok(TestResponse {
                 result: format!("Echo: {}", request.message),
                 count: request.value * 2,
@@ -205,7 +205,7 @@ async fn test_unary_unary_error_handling() {
     env.server.register_unary_unary_internal(
         "TestService",
         "ErrorMethod",
-        |_request: TestRequest, _ctx: Context| async move {
+        |_request: TestRequest, _ctx: RpcContext| async move {
             Err::<TestResponse, _>(Status::invalid_argument("Invalid input"))
         },
     );
@@ -243,7 +243,7 @@ async fn test_stream_unary_rpc() {
     env.server.register_stream_unary_internal(
         "TestService",
         "Sum",
-        |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
+        |mut request_stream: RequestStream<TestRequest>, _ctx: RpcContext| async move {
             let mut total = 0;
             let mut messages = Vec::new();
 
@@ -312,7 +312,7 @@ async fn test_stream_unary_error_handling() {
     env.server.register_stream_unary_internal(
         "TestService",
         "SumWithValidation",
-        |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
+        |mut request_stream: RequestStream<TestRequest>, _ctx: RpcContext| async move {
             let mut total = 0;
             let mut messages = Vec::new();
 
@@ -404,7 +404,7 @@ async fn test_unary_stream_rpc() {
     env.server.register_unary_stream_internal(
         "TestService",
         "Generate",
-        |request: TestRequest, _ctx: Context| async move {
+        |request: TestRequest, _ctx: RpcContext| async move {
             let count = request.value;
             let message = request.message.clone();
 
@@ -478,7 +478,7 @@ async fn test_unary_stream_error_handling() {
     env.server.register_unary_stream_internal(
         "TestService",
         "GenerateWithError",
-        |request: TestRequest, _ctx: Context| async move {
+        |request: TestRequest, _ctx: RpcContext| async move {
             let count = request.value;
             let message = request.message.clone();
 
@@ -567,7 +567,7 @@ async fn test_stream_stream_rpc() {
     env.server.register_stream_stream_internal(
         "TestService",
         "Transform",
-        |request_stream, _ctx: Context| async move {
+        |request_stream, _ctx: RpcContext| async move {
             // Using .map() processes items as they arrive (lazy/incremental)
             // For more complex async processing, use async_stream or spawn a task
             // with a channel (see the SlimRPC examples for the channel pattern)
@@ -645,7 +645,7 @@ async fn test_stream_stream_with_async_processing() {
     env.server.register_stream_stream_internal(
         "TestService",
         "ProcessAsync",
-        |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
+        |mut request_stream: RequestStream<TestRequest>, _ctx: RpcContext| async move {
             // Create channel for responses
             let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
@@ -733,7 +733,7 @@ async fn test_empty_stream_unary() {
     env.server.register_stream_unary_internal(
         "TestService",
         "EmptySum",
-        |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
+        |mut request_stream: RequestStream<TestRequest>, _ctx: RpcContext| async move {
             println!("Processing empty stream...");
 
             let mut count = 0;
@@ -776,7 +776,7 @@ async fn test_concurrent_unary_calls() {
     env.server.register_unary_unary_internal(
         "TestService",
         "Count",
-        move |request: TestRequest, _ctx: Context| {
+        move |request: TestRequest, _ctx: RpcContext| {
             let counter = counter_clone.clone();
             async move {
                 let mut count = counter.lock().await;
@@ -846,7 +846,7 @@ async fn test_one_session_per_rpc() {
     env.server.register_unary_unary_internal(
         "TestService",
         "Echo",
-        move |request: TestRequest, ctx: Context| {
+        move |request: TestRequest, ctx: RpcContext| {
             let count = call_count_clone.clone();
             let ids = session_ids_clone.clone();
             async move {
@@ -979,7 +979,7 @@ async fn test_session_per_rpc_even_after_error() {
     env.server.register_unary_unary_internal(
         "TestService",
         "FlakyMethod",
-        move |request: TestRequest, ctx: Context| {
+        move |request: TestRequest, ctx: RpcContext| {
             let count = call_count_clone.clone();
             let ids = session_ids_clone.clone();
             async move {
@@ -1081,7 +1081,7 @@ async fn test_different_methods_different_sessions() {
     env.server.register_unary_unary_internal(
         "TestService",
         "Method1",
-        move |request: TestRequest, _ctx: Context| {
+        move |request: TestRequest, _ctx: RpcContext| {
             let count = m1_clone.clone();
             async move {
                 let mut c = count.lock().await;
@@ -1099,7 +1099,7 @@ async fn test_different_methods_different_sessions() {
     env.server.register_unary_unary_internal(
         "TestService",
         "Method2",
-        move |request: TestRequest, _ctx: Context| {
+        move |request: TestRequest, _ctx: RpcContext| {
             let count = m2_clone.clone();
             async move {
                 let mut c = count.lock().await;
@@ -1168,7 +1168,7 @@ async fn test_separate_sessions_for_streaming() {
     env.server.register_unary_stream_internal(
         "TestService",
         "GenerateNumbers",
-        move |request: TestRequest, ctx: Context| {
+        move |request: TestRequest, ctx: RpcContext| {
             let count = call_count_clone.clone();
             let ids = session_ids_clone.clone();
             async move {
@@ -1289,7 +1289,7 @@ async fn test_concurrent_calls_independent() {
     env.server.register_unary_unary_internal(
         "TestService",
         "SlowEcho",
-        move |request: TestRequest, _ctx: Context| {
+        move |request: TestRequest, _ctx: RpcContext| {
             let active = active_clone.clone();
             let max = max_clone.clone();
             async move {
@@ -1378,7 +1378,7 @@ async fn test_multiple_handler_types_same_client() {
     env.server.register_unary_unary_internal(
         "MultiService",
         "UnaryUnary",
-        move |request: TestRequest, _ctx: Context| {
+        move |request: TestRequest, _ctx: RpcContext| {
             let counter = uu_counter.clone();
             async move {
                 let mut c = counter.lock().await;
@@ -1398,7 +1398,7 @@ async fn test_multiple_handler_types_same_client() {
     env.server.register_stream_unary_internal(
         "MultiService",
         "StreamUnary",
-        move |mut stream: RequestStream<TestRequest>, _ctx: Context| {
+        move |mut stream: RequestStream<TestRequest>, _ctx: RpcContext| {
             let counter = su_counter.clone();
             async move {
                 let mut c = counter.lock().await;
@@ -1426,7 +1426,7 @@ async fn test_multiple_handler_types_same_client() {
     env.server.register_unary_stream_internal(
         "MultiService",
         "UnaryStream",
-        move |request: TestRequest, _ctx: Context| {
+        move |request: TestRequest, _ctx: RpcContext| {
             let counter = us_counter.clone();
             async move {
                 let mut c = counter.lock().await;
@@ -1450,7 +1450,7 @@ async fn test_multiple_handler_types_same_client() {
     env.server.register_stream_stream_internal(
         "MultiService",
         "StreamStream",
-        move |mut stream: RequestStream<TestRequest>, _ctx: Context| {
+        move |mut stream: RequestStream<TestRequest>, _ctx: RpcContext| {
             let counter = ss_counter.clone();
             async move {
                 let mut c = counter.lock().await;
@@ -1616,7 +1616,7 @@ async fn test_client_deadline_unary_unary() {
     env.server.register_unary_unary_internal(
         "TestService",
         "SlowMethod",
-        |request: TestRequest, _ctx: Context| async move {
+        |request: TestRequest, _ctx: RpcContext| async move {
             // Sleep for 2 seconds
             tokio::time::sleep(Duration::from_secs(2)).await;
             Ok(TestResponse {
@@ -1662,7 +1662,7 @@ async fn test_client_deadline_unary_stream() {
     env.server.register_unary_stream_internal(
         "TestService",
         "SlowStream",
-        |request: TestRequest, _ctx: Context| async move {
+        |request: TestRequest, _ctx: RpcContext| async move {
             Ok(stream::iter((0..5).map(move |i| {
                 let msg = request.message.clone();
                 async move {
@@ -1737,7 +1737,7 @@ async fn test_server_deadline_unary_unary() {
     env.server.register_unary_unary_internal(
         "TestService",
         "SlowHandler",
-        |request: TestRequest, _ctx: Context| async move {
+        |request: TestRequest, _ctx: RpcContext| async move {
             // Handler takes 2 seconds
             tokio::time::sleep(Duration::from_secs(2)).await;
             Ok(TestResponse {
@@ -1783,7 +1783,7 @@ async fn test_server_deadline_unary_stream() {
     env.server.register_unary_stream_internal(
         "TestService",
         "SlowStreamHandler",
-        |request: TestRequest, _ctx: Context| async move {
+        |request: TestRequest, _ctx: RpcContext| async move {
             // Handler setup takes 2 seconds before returning stream
             tokio::time::sleep(Duration::from_secs(2)).await;
             Ok(stream::iter((0..3).map(move |i| {
@@ -1836,7 +1836,7 @@ async fn test_server_deadline_stream_unary() {
     env.server.register_stream_unary_internal(
         "TestService",
         "SlowStreamUnary",
-        |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
+        |mut request_stream: RequestStream<TestRequest>, _ctx: RpcContext| async move {
             // Collect all requests
             let mut messages = Vec::new();
             while let Some(req_result) = request_stream.next().await {
@@ -1896,7 +1896,7 @@ async fn test_server_deadline_stream_stream() {
     env.server.register_stream_stream_internal(
         "TestService",
         "SlowStreamStream",
-        |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
+        |mut request_stream: RequestStream<TestRequest>, _ctx: RpcContext| async move {
             // Consume one request
             if let Some(req_result) = request_stream.next().await {
                 let _ = req_result?;
@@ -1968,7 +1968,7 @@ async fn test_server_deadline_already_exceeded() {
     env.server.register_unary_unary_internal(
         "TestService",
         "CheckDeadline",
-        move |request: TestRequest, _ctx: Context| {
+        move |request: TestRequest, _ctx: RpcContext| {
             let called = handler_called_clone.clone();
             async move {
                 *called.lock().await = true;
@@ -2035,7 +2035,7 @@ async fn test_deadline_propagation() {
     env.server.register_unary_unary_internal(
         "TestService",
         "CaptureDeadline",
-        move |request: TestRequest, ctx: Context| {
+        move |request: TestRequest, ctx: RpcContext| {
             let deadline = deadline_clone.clone();
             async move {
                 *deadline.lock().await = ctx.deadline();

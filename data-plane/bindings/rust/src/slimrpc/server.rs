@@ -9,15 +9,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use async_stream::stream;
-use futures::future::join_all;
 use futures::stream::Stream;
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::BoxStream};
 
 use parking_lot::RwLock;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tokio_util::sync::CancellationToken;
 
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_datapath::messages::Name;
@@ -29,8 +26,9 @@ use slim_session::notification::Notification;
 use crate::RpcError;
 
 use super::{
-    Code, Context, MAX_TIMEOUT, STATUS_CODE_KEY, SessionRx, SessionTx, Status,
+    HandlerInfo, RpcContext, RpcSession, Status, StreamRpcSession,
     codec::{Decoder, Encoder},
+    send_error,
     session_wrapper::new_session,
 };
 
@@ -39,10 +37,10 @@ pub type ItemStream = BoxStream<'static, Result<Vec<u8>, Status>>;
 pub type ResponseStream = BoxFuture<'static, Result<HandlerResponse, Status>>;
 
 /// Handler function type for RPC methods (unary input)
-pub type RpcHandler = Arc<dyn Fn(Item, Context) -> ResponseStream + Send + Sync>;
+pub type RpcHandler = Arc<dyn Fn(Item, RpcContext) -> ResponseStream + Send + Sync>;
 
 /// Handler function type for stream-input RPC methods
-pub type StreamRpcHandler = Arc<dyn Fn(ItemStream, Context) -> ResponseStream + Send + Sync>;
+pub type StreamRpcHandler = Arc<dyn Fn(ItemStream, RpcContext) -> ResponseStream + Send + Sync>;
 
 /// Response from an RPC handler
 pub enum HandlerResponse {
@@ -106,14 +104,14 @@ impl ServiceRegistry {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(Req, Context) -> Fut + Send + Sync + 'static,
+        F: Fn(Req, RpcContext) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<Res, Status>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
     {
         let method_path = format!("{}/{}", service_name, method_name);
         let handler = Arc::new(handler);
-        let wrapper = Arc::new(move |bytes: Vec<u8>, ctx: Context| {
+        let wrapper = Arc::new(move |bytes: Vec<u8>, ctx: RpcContext| {
             let handler = Arc::clone(&handler);
             async move {
                 let request = Req::decode(bytes)?;
@@ -135,7 +133,7 @@ impl ServiceRegistry {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(Req, Context) -> Fut + Send + Sync + 'static,
+        F: Fn(Req, RpcContext) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<S, Status>> + Send + 'static,
         S: Stream<Item = Result<Res, Status>> + Send + 'static,
         Req: Decoder + Send + 'static,
@@ -143,7 +141,7 @@ impl ServiceRegistry {
     {
         let method_path = format!("{}/{}", service_name, method_name);
         let handler = Arc::new(handler);
-        let wrapper = Arc::new(move |bytes: Vec<u8>, ctx: Context| {
+        let wrapper = Arc::new(move |bytes: Vec<u8>, ctx: RpcContext| {
             let handler = Arc::clone(&handler);
             async move {
                 let request = Req::decode(bytes)?;
@@ -167,14 +165,14 @@ impl ServiceRegistry {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(super::RequestStream<Req>, Context) -> Fut + Send + Sync + 'static,
+        F: Fn(super::RequestStream<Req>, RpcContext) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<Res, Status>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
     {
         let method_path = format!("{}/{}", service_name, method_name);
         let handler = Arc::new(handler);
-        let wrapper = Arc::new(move |stream: ItemStream, ctx: Context| {
+        let wrapper = Arc::new(move |stream: ItemStream, ctx: RpcContext| {
             let handler = Arc::clone(&handler);
             async move {
                 let mapped = stream.map(|res| res.and_then(|bytes| Req::decode(bytes)));
@@ -197,7 +195,7 @@ impl ServiceRegistry {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(super::RequestStream<Req>, Context) -> Fut + Send + Sync + 'static,
+        F: Fn(super::RequestStream<Req>, RpcContext) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<S, Status>> + Send + 'static,
         S: Stream<Item = Result<Res, Status>> + Send + 'static,
         Req: Decoder + Send + 'static,
@@ -205,7 +203,7 @@ impl ServiceRegistry {
     {
         let method_path = format!("{}/{}", service_name, method_name);
         let handler = Arc::new(handler);
-        let wrapper = Arc::new(move |stream: ItemStream, ctx: Context| {
+        let wrapper = Arc::new(move |stream: ItemStream, ctx: RpcContext| {
             let handler = Arc::clone(&handler);
             async move {
                 let mapped = stream.map(|res| res.and_then(|bytes| Req::decode(bytes)));
@@ -239,12 +237,6 @@ impl ServiceRegistry {
         methods.extend(self.stream_handlers.keys().cloned());
         methods
     }
-}
-
-/// Handler information retrieved from registry
-enum HandlerInfo {
-    Stream(StreamRpcHandler, HandlerType),
-    Unary(RpcHandler, HandlerType),
 }
 
 impl Default for ServiceRegistry {
@@ -310,12 +302,9 @@ pub struct Server {
     /// Base service name
     base_name: Name,
     /// Optional connection ID for subscription propagation
-    #[allow(dead_code)]
     connection_id: Option<u64>,
     /// Notification receiver for incoming sessions (either owned or shared)
     notification_rx: parking_lot::Mutex<Option<NotificationReceiver>>,
-    /// Cancellation token for shutdown
-    cancellation_token: CancellationToken,
     /// Drain signal for graceful shutdown
     drain_signal: RwLock<Option<drain::Signal>>,
     /// Drain watch for session handlers
@@ -388,7 +377,6 @@ impl Server {
             notification_rx: parking_lot::Mutex::new(Some(NotificationReceiver::Owned(
                 notification_rx,
             ))),
-            cancellation_token: CancellationToken::new(),
             drain_signal: RwLock::new(Some(drain_signal)),
             drain_watch: RwLock::new(Some(drain_watch)),
             runtime,
@@ -444,7 +432,6 @@ impl Server {
             notification_rx: parking_lot::Mutex::new(Some(NotificationReceiver::Shared(
                 notification_rx,
             ))),
-            cancellation_token: CancellationToken::new(),
             drain_signal: RwLock::new(Some(drain_signal)),
             drain_watch: RwLock::new(Some(drain_watch)),
             runtime,
@@ -513,7 +500,7 @@ impl Server {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(Req, Context) -> Fut + Send + Sync + 'static,
+        F: Fn(Req, RpcContext) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<Res, Status>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
@@ -578,7 +565,7 @@ impl Server {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(Req, Context) -> Fut + Send + Sync + 'static,
+        F: Fn(Req, RpcContext) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<S, Status>> + Send + 'static,
         S: Stream<Item = Result<Res, Status>> + Send + 'static,
         Req: Decoder + Send + 'static,
@@ -647,7 +634,7 @@ impl Server {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(super::RequestStream<Req>, Context) -> Fut + Send + Sync + 'static,
+        F: Fn(super::RequestStream<Req>, RpcContext) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<Res, Status>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
@@ -726,7 +713,7 @@ impl Server {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(super::RequestStream<Req>, Context) -> Fut + Send + Sync + 'static,
+        F: Fn(super::RequestStream<Req>, RpcContext) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<S, Status>> + Send + 'static,
         S: Stream<Item = Result<Res, Status>> + Send + 'static,
         Req: Decoder + Send + 'static,
@@ -814,7 +801,6 @@ impl Server {
         let registry = self.registry.read().clone();
         let base_name = self.base_name.clone();
         let app = self.app.clone();
-        let cancellation_token = self.cancellation_token.clone();
         let connection_id = self.connection_id;
         let drain_watch = self
             .drain_watch
@@ -828,7 +814,6 @@ impl Server {
             connection_id,
             base_name,
             app,
-            cancellation_token,
             drain_watch,
         ));
 
@@ -845,7 +830,6 @@ impl Server {
         connection_id: Option<u64>,
         base_name: Name,
         app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
-        cancellation_token: CancellationToken,
         drain_watch: drain::Watch,
     ) -> Result<(), Status> {
         tracing::info!(
@@ -872,13 +856,16 @@ impl Server {
         // Save spawned tasks
         let mut tasks = vec![];
 
+        // Pin the drain watch for use in select (clone to avoid moving)
+        let mut drain_signaled = std::pin::pin!(drain_watch.clone().signaled());
+
         // Main server loop - listen for sessions
         loop {
             tokio::select! {
-                // Handle shutdown signal
-                _ = cancellation_token.cancelled() => {
-                    tracing::info!("Server received shutdown signal");
-                    return Ok(());
+                // Handle shutdown signal via drain
+                _ = &mut drain_signaled => {
+                    tracing::info!("Server received drain signal, waiting for {} tasks to complete", tasks.len());
+                    break;
                 }
                 // Handle incoming sessions
                 session_result = Server::listen_for_session(&mut rx) => {
@@ -913,14 +900,13 @@ impl Server {
                             _ = watch => {
                                 tracing::debug!(%subscription_name, "Session task terminated due to server shutdown");
                                 let _ = session_tx.close(app_clone.as_ref()).await;
-                                return;
                             }
                             _ = async {
                                 // Check if method is registered and handle error in task
                                 let Some((method_path, handler_info)) = lookup_result else {
                                     tracing::error!(%subscription_name, "No method registered for subscription");
                                     // Send error and wait for acknowledgment
-                                    let _ = Self::send_error(&session_tx, Status::internal("No method registered for subscription")).await;
+                                    let _ = send_error(&session_tx, Status::internal("No method registered for subscription")).await;
 
                                     // Delete the session when done
                                     let _ = session_tx.close(app_clone.as_ref()).await;
@@ -931,12 +917,14 @@ impl Server {
 
                                 let result = match handler_info {
                                     HandlerInfo::Stream(stream_handler, handler_type) => {
-                                        // For stream-based methods, we need to pass ownership of session_rx
-                                        Server::handle_stream_based_method_wrapper(&session_tx, session_rx, &method_path, stream_handler, handler_type).await
+                                        // For stream-based methods, create StreamRpcSession
+                                        let stream_session = StreamRpcSession::new(&session_tx, session_rx, method_path.clone());
+                                        stream_session.handle(stream_handler, handler_type).await
                                     }
                                     _ => {
-                                        // For unary methods, we can pass mutable reference
-                                        Server::handle_session(&session_tx, &mut session_rx, &method_path, handler_info).await
+                                        // For unary methods, create RpcSession
+                                        let session = RpcSession::new(&session_tx, &mut session_rx, method_path.clone());
+                                        session.handle(handler_info).await
                                     }
                                 };
 
@@ -944,7 +932,7 @@ impl Server {
                                     tracing::error!(%method_path, error = %e, "Error handling session");
 
                                     // Send error to client before closing
-                                    let _ = Self::send_error(&session_tx, e).await;
+                                    let _ = send_error(&session_tx, e).await;
                                 }
 
                                 // Close the session after handling (success or after sending error)
@@ -958,8 +946,26 @@ impl Server {
             }
         }
 
-        // // Wait for all tasks to finish
-        // join_all(tasks).await
+        // Wait for all tasks to finish
+        tracing::debug!("Waiting for {} session tasks to complete", tasks.len());
+        let results = futures::future::join_all(tasks).await;
+
+        // Log any panicked tasks
+        let mut panicked_count = 0;
+        for (idx, result) in results.iter().enumerate() {
+            if let Err(e) = result {
+                tracing::error!(task_index = idx, error = %e, "Session task panicked");
+                panicked_count += 1;
+            }
+        }
+
+        if panicked_count > 0 {
+            tracing::warn!("{} session tasks panicked during shutdown", panicked_count);
+        } else {
+            tracing::info!("All session tasks completed successfully");
+        }
+
+        Ok(())
     }
 
     /// Shutdown the server gracefully
@@ -991,9 +997,6 @@ impl Server {
     pub async fn shutdown_internal(&self) {
         tracing::info!("Shutting down SlimRPC server");
 
-        // Signal cancellation to the main serve loop
-        self.cancellation_token.cancel();
-
         // Take the drain signal and watch
         let drain_signal = self.drain_signal.write().take();
         let drain_watch = self.drain_watch.write().take();
@@ -1014,98 +1017,6 @@ impl Server {
         *self.drain_watch.write() = Some(new_watch);
 
         tracing::debug!("Server shutdown complete, ready to restart");
-    }
-
-    /// Create status code metadata
-    fn create_status_metadata(code: Code) -> HashMap<String, String> {
-        let mut metadata = HashMap::new();
-        metadata.insert(STATUS_CODE_KEY.to_string(), code.as_i32().to_string());
-        metadata
-    }
-
-    /// Send a message with status code
-    async fn send_message(session: &SessionTx, payload: Vec<u8>, code: Code) -> Result<(), Status> {
-        let metadata = Self::create_status_metadata(code);
-        let handle = session
-            .publish(payload, Some("msg".to_string()), Some(metadata))
-            .await
-            .map_err(|e| Status::internal(format!("Failed to send message: {}", e)))?;
-        handle
-            .await
-            .map_err(|e| Status::internal(format!("Failed to complete message send: {}", e)))
-    }
-
-    /// Send end-of-stream marker
-    async fn send_end_of_stream(session: &SessionTx) -> Result<(), Status> {
-        Self::send_message(session, Vec::new(), Code::Ok).await
-    }
-
-    /// Send all responses from a stream
-    async fn send_response_stream(
-        session: &SessionTx,
-        mut stream: ItemStream,
-    ) -> Result<(), Status> {
-        while let Some(result) = stream.next().await {
-            match result {
-                Ok(response_bytes) => {
-                    Self::send_message(session, response_bytes, Code::Ok).await?;
-                }
-                Err(e) => return Err(e),
-            }
-        }
-        Self::send_end_of_stream(session).await
-    }
-
-    /// Get timeout duration from context
-    fn get_timeout_duration(ctx: &Context) -> std::time::Duration {
-        ctx.remaining_time()
-            .unwrap_or(std::time::Duration::from_secs(MAX_TIMEOUT))
-    }
-
-    /// Receive first message from session
-    async fn receive_first_message(
-        session: &mut SessionRx,
-    ) -> Result<super::ReceivedMessage, Status> {
-        session.get_message(None).await.map_err(|e| {
-            tracing::debug!(error = %e, "Session closed or error receiving message");
-            Status::internal(format!("Failed to receive message: {}", e))
-        })
-    }
-
-    /// Wrapper to handle stream-based methods that need to take ownership of session_rx
-    async fn handle_stream_based_method_wrapper(
-        session_tx: &SessionTx,
-        session_rx: SessionRx,
-        method_path: &str,
-        stream_handler: StreamRpcHandler,
-        handler_type: HandlerType,
-    ) -> Result<(), Status> {
-        // Create context from session wrapper (using SessionRx for metadata)
-        let ctx = Context::from_session_tx(&session_tx);
-
-        tracing::debug!(%method_path, "Processing RPC");
-
-        // Check deadline for stream-based methods
-        if ctx.is_deadline_exceeded() {
-            return Err(Status::deadline_exceeded("Deadline exceeded"));
-        }
-
-        let result = Server::handle_stream_based_method(
-            stream_handler,
-            handler_type,
-            session_tx,
-            session_rx,
-            ctx,
-        )
-        .await;
-
-        if let Err(e) = &result {
-            tracing::error!(%method_path, error = %e, "Error handling RPC");
-        } else {
-            tracing::debug!(%method_path, "RPC completed successfully");
-        }
-
-        result
     }
 
     /// Listen for an incoming session from the notification receiver
@@ -1138,266 +1049,6 @@ impl Server {
             Notification::NewSession(session_ctx) => Ok(session_ctx),
             _ => Err(Status::internal("Unexpected notification type")),
         }
-    }
-
-    /// Handle a session for a specific method, processing multiple RPCs until session closes
-    async fn handle_session(
-        session_tx: &SessionTx,
-        session_rx: &mut SessionRx,
-        method_path: &str,
-        handler_info: HandlerInfo,
-    ) -> Result<(), Status> {
-        // Create context from session wrapper (using SessionRx for metadata)
-        let ctx = Context::from_session_tx(session_tx);
-
-        tracing::debug!(%method_path, "Processing RPC");
-
-        // Handle based on handler type (already looked up before calling this function)
-        // Note: This function should only be called for unary methods now
-        let result = match handler_info {
-            HandlerInfo::Unary(handler, handler_type) => {
-                // Check deadline
-                if ctx.is_deadline_exceeded() {
-                    Err(Status::deadline_exceeded("Deadline exceeded"))
-                } else {
-                    // Handle based on type (only unary-input handlers reach here)
-                    match handler_type {
-                        HandlerType::UnaryUnary => {
-                            Self::handle_unary_unary(handler, session_tx, session_rx, ctx).await
-                        }
-                        HandlerType::UnaryStream => {
-                            Self::handle_unary_stream(handler, session_tx, session_rx, ctx).await
-                        }
-                        _ => Err(Status::internal(
-                            "Invalid handler type for unary-input method",
-                        )),
-                    }
-                }
-            }
-            HandlerInfo::Stream(_, _) => {
-                // This shouldn't happen as stream methods are handled in handle_stream_based_method_wrapper
-                return Err(Status::internal(
-                    "Stream methods should be handled separately",
-                ));
-            }
-        };
-
-        if let Err(e) = &result {
-            tracing::error!(%method_path, error = %e, "Error handling RPC");
-        } else {
-            tracing::debug!(%method_path, "RPC completed successfully");
-        }
-
-        result
-    }
-
-    /// Handle unary-unary RPC
-    async fn handle_unary_unary(
-        handler: RpcHandler,
-        session_tx: &SessionTx,
-        session_rx: &mut SessionRx,
-        ctx: Context,
-    ) -> Result<(), Status> {
-        // Get the first message from the session
-        let received = Self::receive_first_message(session_rx).await?;
-
-        // Update context with message metadata to parse deadline
-        let ctx = ctx.with_message_metadata(received.metadata);
-
-        // Calculate deadline
-        let timeout_duration = Self::get_timeout_duration(&ctx);
-        let deadline = tokio::time::Instant::now() + timeout_duration;
-
-        // Call handler and send response with deadline
-        tokio::select! {
-            result = async {
-                // Call handler
-                let response = handler(received.payload, ctx).await?;
-
-                // Send response
-                match response {
-                    HandlerResponse::Unary(response_bytes) => {
-                        Self::send_message(session_tx, response_bytes, Code::Ok).await?;
-                    }
-                    _ => {
-                        return Err(Status::internal(
-                            "Handler returned unexpected response type",
-                        ));
-                    }
-                }
-
-                Ok(())
-            } => result,
-            _ = tokio::time::sleep_until(deadline) => {
-                tracing::debug!("Handler execution exceeded deadline");
-                Err(Status::deadline_exceeded("Handler execution exceeded deadline"))
-            }
-        }
-    }
-
-    /// Handle unary-stream RPC
-    async fn handle_unary_stream(
-        handler: RpcHandler,
-        session_tx: &SessionTx,
-        session_rx: &mut SessionRx,
-        ctx: Context,
-    ) -> Result<(), Status> {
-        // Get the first message from the session
-        let received = Self::receive_first_message(session_rx).await?;
-
-        // Calculate deadline and create sleep future
-        let timeout_duration = Self::get_timeout_duration(&ctx);
-        let deadline = tokio::time::Instant::now() + timeout_duration;
-        let sleep_fut = tokio::time::sleep_until(deadline);
-        tokio::pin!(sleep_fut);
-
-        // Call handler and send streaming responses with deadline
-        tokio::select! {
-            result = async {
-                // Call handler
-                let response = handler(received.payload, ctx).await?;
-
-                // Send streaming responses
-                match response {
-                    HandlerResponse::Stream(stream) => {
-                        Self::send_response_stream(session_tx, stream).await?;
-                    }
-                    _ => {
-                        return Err(Status::internal(
-                            "Handler returned unexpected response type",
-                        ));
-                    }
-                }
-
-                Ok(())
-            } => result,
-            _ = &mut sleep_fut => {
-                tracing::debug!("Handler execution exceeded deadline");
-                Err(Status::deadline_exceeded("Handler execution exceeded deadline"))
-            }
-        }
-    }
-
-    /// Handle stream-based methods (stream-unary and stream-stream)
-    async fn handle_stream_based_method(
-        handler: StreamRpcHandler,
-        handler_type: HandlerType,
-        session_tx: &SessionTx,
-        session_rx: SessionRx,
-        ctx: Context,
-    ) -> Result<(), Status> {
-        // Calculate deadline and create sleep future
-        let timeout_duration = Self::get_timeout_duration(&ctx);
-        let deadline = tokio::time::Instant::now() + timeout_duration;
-        let sleep_fut = tokio::time::sleep_until(deadline);
-        tokio::pin!(sleep_fut);
-
-        // Create a stream of incoming requests
-        // Wrap session_rx in Arc<Mutex> to allow capturing in stream! macro
-        let session_rx = Arc::new(tokio::sync::Mutex::new(session_rx));
-        let session_rx_for_stream = session_rx.clone();
-
-        let request_stream = stream! {
-            loop {
-                let received_result = {
-                    let mut rx = session_rx_for_stream.lock().await;
-                    rx.get_message(None).await
-                };
-
-                tracing::debug!("Received message in stream-based method");
-
-                let received = match received_result {
-                    Ok(msg) => msg,
-                    Err(e) => {
-                        yield Err(e);
-                        break;
-                    }
-                };
-
-                // Check for end-of-stream marker
-                let code = received.metadata.get(STATUS_CODE_KEY)
-                    .and_then(|s| s.parse::<i32>().ok())
-                    .and_then(Code::from_i32)
-                    .unwrap_or(Code::Ok);
-
-                if code == Code::Ok && received.payload.is_empty() {
-                    break;
-                }
-
-                if code != Code::Ok {
-                    let message = String::from_utf8_lossy(&received.payload).to_string();
-                    yield Err(Status::new(code, message));
-                    break;
-                }
-
-                yield Ok(received.payload);
-            }
-        };
-
-        // Box and pin the stream
-        let boxed_stream = request_stream.boxed();
-
-        // Call handler and send responses with deadline and drain signal awareness
-        let result = tokio::select! {
-            result = async {
-                // Call handler
-                let handler_result = handler(boxed_stream, ctx).await?;
-
-                // Send responses based on handler type
-                match handler_type {
-                    HandlerType::StreamUnary => {
-                        // Send single response
-                        let response = match handler_result {
-                            HandlerResponse::Unary(bytes) => bytes,
-                            _ => {
-                                return Err(Status::internal(
-                                    "Handler returned unexpected response type",
-                                ));
-                            }
-                        };
-
-                        Self::send_message(session_tx, response, Code::Ok).await?;
-                    }
-                    HandlerType::StreamStream => {
-                        // Send streaming responses
-                        let response_stream = match handler_result {
-                            HandlerResponse::Stream(stream) => stream,
-                            _ => {
-                                return Err(Status::internal(
-                                    "Handler returned unexpected response type",
-                                ));
-                            }
-                        };
-
-                        Self::send_response_stream(session_tx, response_stream).await?;
-                    }
-                    _ => {
-                        return Err(Status::internal(
-                            "Invalid handler type for stream-based method",
-                        ));
-                    }
-                }
-
-                Ok(())
-            } => result,
-            _ = &mut sleep_fut => {
-                tracing::debug!("Handler execution exceeded deadline");
-                Err(Status::deadline_exceeded("Handler execution exceeded deadline"))
-            }
-        };
-
-        result
-    }
-
-    /// Send an error response
-    async fn send_error(session: &SessionTx, status: Status) -> Result<(), Status> {
-        let message = status.message().unwrap_or("").to_string();
-        Self::send_message(session, message.into_bytes(), status.code())
-            .await
-            .map_err(|e| {
-                tracing::warn!(error = %e, "Failed to send error response");
-                e
-            })
     }
 }
 
@@ -1475,9 +1126,9 @@ impl Server {
         self.register_unary_unary_internal(
             &service_name,
             &method_name,
-            move |request: Vec<u8>, context: super::Context| {
+            move |request: Vec<u8>, context: super::RpcContext| {
                 let handler = handler_clone.clone();
-                let ctx = super::UniffiContext::new(context);
+                let ctx = super::Context::new(context);
 
                 tracing::debug!(service = %service_clone, method = %method_clone, "Handling unary-unary request");
 
@@ -1506,9 +1157,9 @@ impl Server {
         self.register_unary_stream_internal(
             &service_name,
             &method_name,
-            move |request: Vec<u8>, context: super::Context| {
+            move |request: Vec<u8>, context: super::RpcContext| {
                 let handler = handler_clone.clone();
-                let ctx = super::UniffiContext::new(context);
+                let ctx = super::Context::new(context);
 
                 Box::pin(async move {
                     let (sink, rx) = super::ResponseSink::receiver();
@@ -1554,9 +1205,9 @@ impl Server {
         self.register_stream_unary_internal(
             &service_name,
             &method_name,
-            move |stream: super::RequestStream<Vec<u8>>, context: super::Context| {
+            move |stream: super::RequestStream<Vec<u8>>, context: super::RpcContext| {
                 let handler = handler_clone.clone();
-                let ctx = super::UniffiContext::new(context);
+                let ctx = super::Context::new(context);
                 let request_stream = Arc::new(super::UniffiRequestStream::new(stream));
 
                 Box::pin(async move {
@@ -1584,9 +1235,9 @@ impl Server {
         self.register_stream_stream_internal(
             &service_name,
             &method_name,
-            move |stream: super::RequestStream<Vec<u8>>, context: super::Context| {
+            move |stream: super::RequestStream<Vec<u8>>, context: super::RpcContext| {
                 let handler = handler_clone.clone();
-                let ctx = super::UniffiContext::new(context);
+                let ctx = super::Context::new(context);
                 let request_stream = Arc::new(super::UniffiRequestStream::new(stream));
 
                 Box::pin(async move {
