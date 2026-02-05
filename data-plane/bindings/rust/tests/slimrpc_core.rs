@@ -108,7 +108,7 @@ impl TestEnv {
             .unwrap();
         let server_app = Arc::new(server_app);
 
-        let server = Server::create_internal(
+        let server = Server::new_internal(
             server_app.clone(),
             server_name.clone(),
             server_notifications,
@@ -136,7 +136,7 @@ impl TestEnv {
 
     /// Start the server in the background
     async fn start_server(&mut self) {
-        let _server_handle = self.server.serve_handle().unwrap();
+        self.server.serve_async().await.unwrap();
 
         // Give server time to start and subscribe
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -2093,5 +2093,114 @@ async fn test_deadline_propagation() {
         diff
     );
 
+    env.shutdown().await;
+}
+
+/// Test that verifies a server can be shut down and restarted successfully
+#[tokio::test]
+async fn test_server_restart() {
+    let mut env = TestEnv::new("test-server-restart").await;
+
+    // Register a handler that counts calls
+    let call_count = Arc::new(Mutex::new(0u32));
+    let count_clone = call_count.clone();
+
+    env.server.register_unary_unary_internal(
+        "TestService",
+        "Counter",
+        move |request: TestRequest, _ctx: RpcContext| {
+            let count = count_clone.clone();
+            async move {
+                let mut counter = count.lock().await;
+                *counter += 1;
+                let current_count = *counter;
+                drop(counter);
+
+                Ok(TestResponse {
+                    result: format!("Call count: {}, Message: {}", current_count, request.message),
+                    count: current_count as i32,
+                })
+            }
+        },
+    );
+
+    // Start server first time
+    env.start_server().await;
+
+    // Make first call
+    let request1 = TestRequest {
+        message: "First call".to_string(),
+        value: 1,
+    };
+
+    let response1: TestResponse = env
+        .channel
+        .unary("TestService", "Counter", request1, None, None)
+        .await
+        .expect("First unary call failed");
+
+    assert_eq!(response1.count, 1);
+    assert!(response1.result.contains("Call count: 1"));
+    assert!(response1.result.contains("First call"));
+
+    // Make second call before shutdown
+    let request2 = TestRequest {
+        message: "Second call".to_string(),
+        value: 2,
+    };
+
+    let response2: TestResponse = env
+        .channel
+        .unary("TestService", "Counter", request2, None, None)
+        .await
+        .expect("Second unary call failed");
+
+    assert_eq!(response2.count, 2);
+    assert!(response2.result.contains("Call count: 2"));
+
+    // Shutdown the server
+    tracing::info!("Shutting down server for restart test...");
+    env.server.shutdown_async().await;
+
+    // Give a brief moment for cleanup
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Restart the server
+    tracing::info!("Restarting server...");
+    env.start_server().await;
+
+    // Make third call after restart
+    let request3 = TestRequest {
+        message: "Third call after restart".to_string(),
+        value: 3,
+    };
+
+    let response3: TestResponse = env
+        .channel
+        .unary("TestService", "Counter", request3, None, None)
+        .await
+        .expect("Third unary call after restart failed");
+
+    // The counter should continue from where it left off (state is preserved)
+    assert_eq!(response3.count, 3);
+    assert!(response3.result.contains("Call count: 3"));
+    assert!(response3.result.contains("Third call after restart"));
+
+    // Make fourth call to ensure server is fully functional
+    let request4 = TestRequest {
+        message: "Fourth call".to_string(),
+        value: 4,
+    };
+
+    let response4: TestResponse = env
+        .channel
+        .unary("TestService", "Counter", request4, None, None)
+        .await
+        .expect("Fourth unary call failed");
+
+    assert_eq!(response4.count, 4);
+    assert!(response4.result.contains("Call count: 4"));
+
+    // Final shutdown
     env.shutdown().await;
 }

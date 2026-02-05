@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use futures::future::join_all;
 use futures::stream::Stream;
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::BoxStream};
 
@@ -311,6 +312,9 @@ pub struct Server {
     drain_watch: RwLock<Option<drain::Watch>>,
     /// Runtime handle for spawning tasks (resolved at construction)
     runtime: tokio::runtime::Handle,
+    /// Handle to the active serve task (for recovering notification_rx on shutdown)
+    serve_handle:
+        parking_lot::Mutex<Option<JoinHandle<(NotificationReceiver, Result<(), Status>)>>>,
 }
 
 impl Server {
@@ -338,12 +342,18 @@ impl Server {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn create_internal(
+    pub fn new_internal(
         app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
         base_name: Name,
         notification_rx: mpsc::Receiver<Result<Notification, SessionError>>,
     ) -> Self {
-        Self::create_with_connection_and_runtime(app, base_name, None, notification_rx, None)
+        Self::construct_internal(
+            app,
+            base_name,
+            None,
+            NotificationReceiver::Owned(notification_rx),
+            None,
+        )
     }
 
     /// Create a new RPC server with optional connection ID
@@ -354,33 +364,20 @@ impl Server {
     /// * `connection_id` - Optional connection ID for subscription propagation to next SLIM node
     /// * `notification_rx` - Receiver for session notifications
     /// * `runtime` - Optional tokio runtime handle for spawning tasks
-    pub fn create_with_connection_and_runtime(
+    pub fn new_with_connection_and_runtime(
         app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
         base_name: Name,
         connection_id: Option<u64>,
         notification_rx: mpsc::Receiver<Result<Notification, SessionError>>,
         runtime: Option<tokio::runtime::Handle>,
     ) -> Self {
-        let (drain_signal, drain_watch) = drain::channel();
-
-        // Resolve runtime handle: use provided or try to get current
-        let runtime = runtime.unwrap_or_else(|| {
-            tokio::runtime::Handle::try_current()
-                .expect("No tokio runtime found. Either provide a runtime handle or call from within a tokio runtime context")
-        });
-
-        Self {
+        Self::construct_internal(
             app,
-            registry: RwLock::new(ServiceRegistry::new()),
             base_name,
             connection_id,
-            notification_rx: parking_lot::Mutex::new(Some(NotificationReceiver::Owned(
-                notification_rx,
-            ))),
-            drain_signal: RwLock::new(Some(drain_signal)),
-            drain_watch: RwLock::new(Some(drain_watch)),
+            NotificationReceiver::Owned(notification_rx),
             runtime,
-        }
+        )
     }
 
     /// Create a new RPC server with shared notification receiver
@@ -416,6 +413,30 @@ impl Server {
         >,
         runtime: Option<tokio::runtime::Handle>,
     ) -> Self {
+        Self::construct_internal(
+            app,
+            base_name,
+            connection_id,
+            NotificationReceiver::Shared(notification_rx),
+            runtime,
+        )
+    }
+
+    /// Internal constructor - single point of truth for Server construction
+    ///
+    /// # Arguments
+    /// * `app` - The SLIM app to use for communication
+    /// * `base_name` - The base name for this server
+    /// * `connection_id` - Optional connection ID for subscription propagation
+    /// * `notification_rx` - Notification receiver (owned or shared)
+    /// * `runtime` - Optional tokio runtime handle for spawning tasks
+    fn construct_internal(
+        app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
+        base_name: Name,
+        connection_id: Option<u64>,
+        notification_rx: NotificationReceiver,
+        runtime: Option<tokio::runtime::Handle>,
+    ) -> Self {
         let (drain_signal, drain_watch) = drain::channel();
 
         // Resolve runtime handle: use provided or try to get current
@@ -429,12 +450,11 @@ impl Server {
             registry: RwLock::new(ServiceRegistry::new()),
             base_name,
             connection_id,
-            notification_rx: parking_lot::Mutex::new(Some(NotificationReceiver::Shared(
-                notification_rx,
-            ))),
+            notification_rx: parking_lot::Mutex::new(Some(notification_rx)),
             drain_signal: RwLock::new(Some(drain_signal)),
             drain_watch: RwLock::new(Some(drain_watch)),
             runtime,
+            serve_handle: parking_lot::Mutex::new(None),
         }
     }
 
@@ -791,7 +811,9 @@ impl Server {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn serve_handle(&self) -> Result<JoinHandle<Result<(), Status>>, RpcError> {
+    fn serve_handle(
+        &self,
+    ) -> Result<JoinHandle<(NotificationReceiver, Result<(), Status>)>, RpcError> {
         let notification = self
             .notification_rx
             .lock()
@@ -831,7 +853,7 @@ impl Server {
         base_name: Name,
         app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
         drain_watch: drain::Watch,
-    ) -> Result<(), Status> {
+    ) -> (NotificationReceiver, Result<(), Status>) {
         tracing::info!(
             %base_name,
             "SlimRPC server starting"
@@ -843,14 +865,13 @@ impl Server {
 
         for subscription_name in subscription_names {
             tracing::info!(%subscription_name, "Subscribing");
-            app.subscribe(&subscription_name, connection_id)
-                .await
-                .map_err(|e| {
-                    Status::internal(format!(
-                        "Failed to subscribe to {}: {}",
-                        subscription_name, e
-                    ))
-                })?;
+            if let Err(e) = app.subscribe(&subscription_name, connection_id).await {
+                let status = Status::internal(format!(
+                    "Failed to subscribe to {}: {}",
+                    subscription_name, e
+                ));
+                return (rx, Err(status));
+            }
         }
 
         // Save spawned tasks
@@ -871,13 +892,22 @@ impl Server {
                 session_result = Server::listen_for_session(&mut rx) => {
                     tracing::debug!("Received session notification");
 
-                    let session_ctx = session_result?;
+                    let session_ctx = match session_result {
+                        Ok(ctx) => ctx,
+                        Err(e) => {
+                            tracing::error!("Error receiving session: {}", e);
+                            return (rx, Err(e));
+                        }
+                    };
 
                     // Get the source (subscription name) from the session controller to determine which method to call
-                    let mut subscription_name = session_ctx.session_arc()
-                        .ok_or_else(|| Status::internal("Session controller not available"))?
-                        .source()
-                        .clone();
+                    let mut subscription_name = match session_ctx.session_arc() {
+                        Some(session) => session.source().clone(),
+                        None => {
+                            let status = Status::internal("Session controller not available");
+                            return (rx, Err(status));
+                        }
+                    };
 
                     tracing::debug!(%subscription_name, "Processing session for subscription");
 
@@ -948,7 +978,7 @@ impl Server {
 
         // Wait for all tasks to finish
         tracing::debug!("Waiting for {} session tasks to complete", tasks.len());
-        let results = futures::future::join_all(tasks).await;
+        let results = join_all(tasks).await;
 
         // Log any panicked tasks
         let mut panicked_count = 0;
@@ -965,7 +995,7 @@ impl Server {
             tracing::info!("All session tasks completed successfully");
         }
 
-        Ok(())
+        (rx, Ok(()))
     }
 
     /// Shutdown the server gracefully
@@ -1009,6 +1039,23 @@ impl Server {
             tracing::debug!("Draining active sessions");
             signal.drain().await;
             tracing::info!("All sessions drained successfully");
+        }
+
+        // Await the serve task and recover the notification receiver
+        let handle = self.serve_handle.lock().take();
+        if let Some(handle) = handle {
+            match handle.await {
+                Ok((notification_rx, result)) => {
+                    // Restore the notification receiver for next serve
+                    *self.notification_rx.lock() = Some(notification_rx);
+                    if let Err(e) = result {
+                        tracing::error!("Serve task completed with error: {}", e);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Serve task panicked: {}", e);
+                }
+            }
         }
 
         // Recreate drain signal and watch so the server can be restarted
@@ -1281,7 +1328,8 @@ impl Server {
     /// This is an async method that runs until the server is shut down.
     /// It listens for incoming RPC calls and dispatches them to registered handlers.
     pub async fn serve_async(&self) -> Result<(), super::RpcError> {
-        let _handle = self.serve_handle()?;
+        let handle = self.serve_handle()?;
+        *self.serve_handle.lock() = Some(handle);
 
         Ok(())
     }
