@@ -12,7 +12,10 @@ on:
 env:
   LIBRARY_NAME: slim_bindings
   GO_BINDINGS_REPO: agntcy/slim-bindings-go
+  NUGET_PACKAGE_NAME: Agntcy.Slim
   UNIFFI_BINDGEN_GO_VERSION: v0.4.0+v0.28.3
+  UNIFFI_BINDGEN_CS_VERSION: v0.9.0+v0.28.3
+  DOTNET_VERSION: "8.0.x"
 
 jobs:
   # ==========================================================================
@@ -21,6 +24,8 @@ jobs:
   build-and-test-bindings:
     name: "Build and Test Bindings"
     uses: ./.github/workflows/reusable-bindings-build-and-test.yaml
+    with:
+      tag-name: ${{ github.ref_name }}
 
   # ==========================================================================
   # Job 2: Create GitHub release with library artifacts (for test tags)
@@ -128,3 +133,13 @@ jobs:
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
           packages-dir: dist
+
+  # ==========================================================================
+  # Job 5: Release .NET bindings to NuGet
+  # ==========================================================================
+  release-dotnet-bindings:
+    name: "Release .NET Bindings"
+    needs: build-and-test-bindings
+    uses: ./.github/workflows/reusable-dotnet-bindings-release.yaml
+    secrets:
+      nuget-api-token: ${{ secrets.NUGET_API_TOKEN }}
