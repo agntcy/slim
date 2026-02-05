@@ -56,10 +56,11 @@ func newDeleteParticipantCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
+			cpClient, conn, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
+			defer conn.Close()
 
 			deleteParticipantResponse, err := cpClient.DeleteParticipant(ctx, &grpcapi.DeleteParticipantRequest{
 				ParticipantName: ParticipantName,
@@ -99,10 +100,11 @@ func newAddParticipantCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
+			cpClient, conn, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
+			defer conn.Close()
 
 			addParticipantResponse, err := cpClient.AddParticipant(ctx, &grpcapi.AddParticipantRequest{
 				ParticipantName: ParticipantName,
@@ -136,10 +138,11 @@ func newListParticipantsCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
+			cpClient, conn, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
+			defer conn.Close()
 
 			listParticipantsResponse, err := cpClient.ListParticipants(ctx, &grpcapi.ListParticipantsRequest{
 				ChannelName: channelName,

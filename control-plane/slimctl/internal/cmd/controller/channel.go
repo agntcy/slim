@@ -47,10 +47,11 @@ func newCreateChannelCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
+			cpClient, conn, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
+			defer conn.Close()
 
 			createChannelResponse, err := cpClient.CreateChannel(ctx, &controlplanev1.CreateChannelRequest{
 				Moderators: moderators,
@@ -83,10 +84,11 @@ func newDeleteChannelCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
+			cpClient, conn, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
+			defer conn.Close()
 
 			deleteChannelResponse, err := cpClient.DeleteChannel(ctx, &grpcapi.DeleteChannelRequest{
 				ChannelName: channelName,
@@ -112,10 +114,11 @@ func newListChannelsCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
+			cpClient, conn, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
+			defer conn.Close()
 
 			listChannelsResponse, err := cpClient.ListChannels(ctx, &grpcapi.ListChannelsRequest{})
 			if err != nil {
