@@ -117,6 +117,10 @@ mod tests {
             .destination(slim_datapath::messages::Name::from_strings([
                 "org", "default", "target",
             ]))
+            .session_id(1)
+            .message_id(1)
+            .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
+            .session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg)
             .application_payload("text", b"test message".to_vec())
             .build_publish()
             .unwrap();
@@ -155,6 +159,10 @@ mod tests {
             .destination(slim_datapath::messages::Name::from_strings([
                 "org", "default", "bob",
             ]))
+            .session_id(1)
+            .message_id(1)
+            .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
+            .session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg)
             .application_payload("text", original_payload.to_vec())
             .build_publish()
             .unwrap();
@@ -199,7 +207,7 @@ mod tests {
         mls.initialize().await.unwrap();
         let _group_id = mls.create_group().await.unwrap();
 
-        // Create a Subscribe message (not Publish)
+        // Create a message with a control message type (not Msg)
         let mut msg = Message::builder()
             .source(
                 slim_datapath::messages::Name::from_strings(["org", "default", "test"]).with_id(0),
@@ -207,8 +215,12 @@ mod tests {
             .destination(slim_datapath::messages::Name::from_strings([
                 "org", "default", "target",
             ]))
+            .session_id(1)
+            .message_id(1)
+            .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
+            .session_message_type(slim_datapath::api::ProtoSessionMessageType::JoinRequest)
             .application_payload("text", b"test message".to_vec())
-            .build_subscribe()
+            .build_publish()
             .unwrap();
 
         let original_payload = msg

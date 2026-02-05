@@ -5,7 +5,9 @@
 use async_trait::async_trait;
 use slim_datapath::Status;
 use slim_datapath::api::ProtoMessage as Message;
+
 // Local crate
+use super::SessionInterceptorProvider;
 use crate::{common::SessionMessage, errors::SessionError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,7 +18,7 @@ pub enum ProcessingState {
 
 /// Session transmitter trait
 #[async_trait]
-pub trait Transmitter {
+pub trait Transmitter: SessionInterceptorProvider {
     async fn send_to_slim(&self, message: Result<Message, Status>) -> Result<(), SessionError>;
 
     async fn send_to_app(&self, message: Result<Message, SessionError>)

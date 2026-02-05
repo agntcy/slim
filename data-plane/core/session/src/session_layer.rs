@@ -20,6 +20,7 @@ use slim_datapath::messages::Name;
 
 use crate::common::SessionMessage;
 use crate::completion_handle::CompletionHandle;
+use crate::interceptor::IdentityInterceptor;
 use crate::notification::Notification;
 use crate::session_config::SessionConfig;
 use crate::session_controller::SessionController;
@@ -31,7 +32,7 @@ use super::context::SessionContext;
 
 use super::{SESSION_RANGE, SlimChannelSender};
 use super::{SessionError, session_controller::handle_channel_discovery_message};
-
+use crate::interceptor::SessionInterceptorProvider;
 use crate::traits::Transmitter; // needed for add_interceptor
 
 /// Direction enum for session creation
@@ -281,9 +282,16 @@ where
                 }
             }; // lock is dropped here
 
-            // Create a new transmitter
+            // Create a new transmitter with identity interceptors
             let (app_tx, app_rx) = tokio::sync::mpsc::unbounded_channel();
             let tx = SessionTransmitter::new(self.tx_slim.clone(), app_tx);
+
+            let identity_interceptor = Arc::new(IdentityInterceptor::new(
+                self.identity_provider.clone(),
+                self.identity_verifier.clone(),
+            ));
+
+            tx.add_interceptor(identity_interceptor);
 
             // Build the session controller (this is async, so no locks are held)
             let builder = SessionController::builder()
@@ -466,6 +474,11 @@ where
             session_id = %message.get_id(),
             "received message from SLIM",
         );
+
+        // Pass message to interceptors in the transmitter
+        self.transmitter
+            .on_msg_from_slim_interceptors(&mut message)
+            .await?;
 
         let (id, session_type, session_message_type) = {
             // get the session type and the session id from the message
