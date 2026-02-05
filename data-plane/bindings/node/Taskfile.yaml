@@ -166,3 +166,25 @@ tasks:
       - echo "👨 Starting Bob (sender)..."
       - npm run bob -- {{.CLI_ARGS}}
     silent: false
+
+  # Tests
+  install:tests:
+    desc: Install dependencies for tests
+    deps:
+      - task: install
+    dir: "{{.TASKFILE_DIR}}/tests"
+    cmds:
+      - echo "📦 Installing test dependencies..."
+      - npm install
+      - echo "✅ Test dependencies installed"
+    silent: true
+
+  test:integration:
+    desc: Run integration tests for Node.js bindings
+    deps:
+      - task: install:tests
+    dir: "{{.TASKFILE_DIR}}/tests"
+    cmds:
+      - echo "🧪 Running integration tests..."
+      - npm test
+    silent: false
