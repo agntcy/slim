@@ -28,10 +28,10 @@ use crate::transmitter::{AppTransmitter, SessionTransmitter};
 
 // Local crate
 use super::context::SessionContext;
-use super::interceptor::IdentityInterceptor;
+
 use super::{SESSION_RANGE, SlimChannelSender};
 use super::{SessionError, session_controller::handle_channel_discovery_message};
-use crate::interceptor::SessionInterceptorProvider;
+
 use crate::traits::Transmitter; // needed for add_interceptor
 
 /// Direction enum for session creation
@@ -281,16 +281,9 @@ where
                 }
             }; // lock is dropped here
 
-            // Create a new transmitter with identity interceptors
+            // Create a new transmitter
             let (app_tx, app_rx) = tokio::sync::mpsc::unbounded_channel();
             let tx = SessionTransmitter::new(self.tx_slim.clone(), app_tx);
-
-            let identity_interceptor = Arc::new(IdentityInterceptor::new(
-                self.identity_provider.clone(),
-                self.identity_verifier.clone(),
-            ));
-
-            tx.add_interceptor(identity_interceptor);
 
             // Build the session controller (this is async, so no locks are held)
             let builder = SessionController::builder()
@@ -424,7 +417,7 @@ where
                     session_type,
                 )?;
 
-                self.transmitter.send_to_slim(Ok(msg)).await
+                self.transmitter.send_to_slim::<(), ()>(Ok(msg), None).await
             }
             _ => Err(SessionError::SessionMessageTypeUnexpected(
                 session_message_type,
@@ -468,11 +461,6 @@ where
     /// Handle a message from the message processor, and pass it to the
     /// corresponding session
     pub async fn handle_message_from_slim(&self, mut message: Message) -> Result<(), SessionError> {
-        // Pass message to interceptors in the transmitter
-        self.transmitter
-            .on_msg_from_slim_interceptors(&mut message)
-            .await?;
-
         tracing::trace!(
             msg_type = %message.get_session_message_type().as_str_name(),
             session_id = %message.get_id(),

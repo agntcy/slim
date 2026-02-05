@@ -361,7 +361,7 @@ impl ControllerSender {
         };
 
         self.pending_replies.insert(id, pending);
-        self.tx.send_to_slim(Ok(message.clone())).await
+        self.tx.send_to_slim::<(), ()>(Ok(message.clone()), None).await
     }
 
     fn on_reply_message(&mut self, message: &Message) {
@@ -438,7 +438,7 @@ impl ControllerSender {
 
         // the timer is not related to a ping, resent the message if possible
         if let Some(pending) = self.pending_replies.get(&id) {
-            return self.tx.send_to_slim(Ok(pending.message.clone())).await;
+            return self.tx.send_to_slim::<(), ()>(Ok(pending.message.clone()), None).await;
         };
 
         Err(SessionError::TimerNotFound(id))
@@ -526,7 +526,7 @@ impl ControllerSender {
                     .collect::<HashSet<_>>();
 
                 // Send the ping message to slim
-                self.tx.send_to_slim(Ok(ping.clone())).await?;
+                self.tx.send_to_slim::<(), ()>(Ok(ping.clone()), None).await?;
 
                 if let Some(ping_state) = self.ping_state.as_mut() {
                     ping_state.ping = Some(PendingReply {
@@ -555,7 +555,7 @@ impl ControllerSender {
             if let Some(ping_message) = message_to_send {
                 debug!(%id, "ping message timeout, send it again");
                 // simply resend the message
-                return self.tx.send_to_slim(Ok(ping_message)).await;
+                return self.tx.send_to_slim::<(), ()>(Ok(ping_message), None).await;
             }
         }
 

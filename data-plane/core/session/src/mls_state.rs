@@ -31,7 +31,7 @@ where
     /// mls state for the channel of this endpoint
     /// the mls state should be created and initiated in the app
     /// so that it can be shared with the channel and the interceptors
-    pub(crate) mls: Arc<Mutex<Mls<P, V>>>,
+    pub(crate) mls: Mls<P, V>,
 
     /// used only if Some(mls)
     pub(crate) group: Vec<u8>,
@@ -48,8 +48,8 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    pub(crate) async fn new(mls: Arc<Mutex<Mls<P, V>>>) -> Result<Self, SessionError> {
-        mls.lock().await.initialize().await?;
+    pub(crate) async fn new(mut mls: Mls<P, V>) -> Result<Self, SessionError> {
+        mls.initialize().await?;
 
         Ok(MlsState {
             mls,
@@ -60,7 +60,7 @@ where
     }
 
     pub(crate) async fn generate_key_package(&mut self) -> Result<KeyPackageMsg, SessionError> {
-        let ret = self.mls.lock().await.generate_key_package().await?;
+        let ret = self.mls.generate_key_package().await?;
         Ok(ret)
     }
 
@@ -82,7 +82,7 @@ where
         self.last_mls_msg_id = mls_payload.commit_id;
         let welcome = &mls_payload.mls_content;
 
-        self.group = self.mls.lock().await.process_welcome(welcome).await?;
+        self.group = self.mls.process_welcome(welcome).await?;
 
         Ok(())
     }
@@ -142,11 +142,7 @@ where
         trace!(id = %mls_payload.commit_id,  "processing stored commit",);
 
         // process the commit message
-        self.mls
-            .lock()
-            .await
-            .process_commit(&mls_payload.mls_content)
-            .await?;
+        self.mls.process_commit(&mls_payload.mls_content).await?;
 
         Ok(())
     }
@@ -172,8 +168,6 @@ where
         }
 
         self.mls
-            .lock()
-            .await
             .process_proposal(&payload.mls_proposal, false)
             .await?;
 
@@ -266,7 +260,7 @@ where
     }
 
     pub(crate) async fn init_moderator(&mut self) -> Result<(), SessionError> {
-        self.common.mls.lock().await.create_group().await?;
+        self.common.mls.create_group().await?;
         Ok(())
     }
 
@@ -277,13 +271,7 @@ where
         let payload = msg.extract_join_reply()?;
 
         // Propagate MlsError directly (will become SessionError::MlsOp via #[from])
-        let ret = self
-            .common
-            .mls
-            .lock()
-            .await
-            .add_member(payload.key_package())
-            .await?;
+        let ret = self.common.mls.add_member(payload.key_package()).await?;
 
         // add participant to the list
         self.participants
@@ -306,7 +294,7 @@ where
             }
         };
 
-        let ret = self.common.mls.lock().await.remove_member(id).await?;
+        let ret = self.common.mls.remove_member(id).await?;
 
         // remove the participant from the list
         self.participants.remove(&name);
@@ -319,13 +307,7 @@ where
         &mut self,
         proposal: &ProposalMsg,
     ) -> Result<CommitMsg, SessionError> {
-        let commit = self
-            .common
-            .mls
-            .lock()
-            .await
-            .process_proposal(proposal, true)
-            .await?;
+        let commit = self.common.mls.process_proposal(proposal, true).await?;
 
         Ok(commit)
     }
@@ -334,13 +316,7 @@ where
     pub(crate) async fn process_local_pending_proposal(
         &mut self,
     ) -> Result<CommitMsg, SessionError> {
-        let commit = self
-            .common
-            .mls
-            .lock()
-            .await
-            .process_local_pending_proposal()
-            .await?;
+        let commit = self.common.mls.process_local_pending_proposal().await?;
 
         Ok(commit)
     }

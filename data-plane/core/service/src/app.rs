@@ -105,20 +105,11 @@ where
         storage_path: std::path::PathBuf,
         direction: Direction,
     ) -> Self {
-        // Create identity interceptor
-        let identity_interceptor = Arc::new(IdentityInterceptor::new(
-            identity_provider.clone(),
-            identity_verifier.clone(),
-        ));
-
         // Create the transmitter
         let transmitter = AppTransmitter {
             slim_tx: tx_slim.clone(),
             app_tx: tx_app.clone(),
-            interceptors: Arc::new(SyncRwLock::new(Vec::new())),
         };
-
-        transmitter.add_interceptor(identity_interceptor);
 
         // Create the session layer
         let session_layer = Arc::new(SessionLayer::new(

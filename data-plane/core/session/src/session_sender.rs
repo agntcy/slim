@@ -326,7 +326,7 @@ impl SessionSender {
 
         debug!("send message");
         // send the message
-        self.tx.send_to_slim(Ok(message)).await
+        self.tx.send_to_slim(Ok(message), None).await
     }
 
     fn on_ack_message(&mut self, message: &Message) {
@@ -398,7 +398,7 @@ impl SessionSender {
                 .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
 
             // send the message
-            self.tx.send_to_slim(Ok(msg)).await
+            self.tx.send_to_slim(Ok(msg), None).await?;
         } else {
             debug!("the message does not exists anymore, send and error");
             let msg = new_message_from_session_fields(
@@ -414,7 +414,7 @@ impl SessionSender {
             )?;
 
             // send the message
-            self.tx.send_to_slim(Ok(msg)).await
+            self.tx.send_to_slim(Ok(msg), None).await
         }
     }
 
@@ -424,7 +424,7 @@ impl SessionSender {
         if id > MAX_PUBLISH_ID {
             // this must be a message sent with publish_to, so get the message from the pending acks map
             if let Some((_gt, Some(msg))) = self.pending_acks.get_mut(&id) {
-                return self.tx.send_to_slim(Ok(msg.clone())).await;
+                return self.tx.send_to_slim(Ok(msg.clone()), None).await;
             } else {
                 return self.on_timer_failure(id);
             }
@@ -442,7 +442,7 @@ impl SessionSender {
                     m.get_slim_header_mut().set_destination(n);
 
                     // send the message
-                    self.tx.send_to_slim(Ok(m)).await?;
+                    self.tx.send_to_slim(Ok(m), None).await?;
                 }
             }
         } else {

@@ -569,12 +569,12 @@ where
 
     /// internal and helper functions
     pub(crate) async fn send_to_slim(&self, message: Message) -> Result<(), SessionError> {
-        self.settings.tx.send_to_slim(Ok(message)).await
+        self.settings.tx.send_to_slim::<(), ()>(Ok(message), None).await
     }
 
     /// Send error message to the application
     pub(crate) async fn send_to_app(&self, error: SessionError) -> Result<(), SessionError> {
-        self.settings.tx.send_to_app(Err(error)).await
+        self.settings.tx.send_to_app::<(), ()>(Err(error), None).await
     }
 
     /// Send control message without creating ack channel (for internal use by moderator)

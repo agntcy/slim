@@ -5,9 +5,9 @@
 use async_trait::async_trait;
 use slim_datapath::Status;
 use slim_datapath::api::ProtoMessage as Message;
+use slim_mls::mls::Mls;
 
 // Local crate
-use super::SessionInterceptorProvider;
 use crate::{common::SessionMessage, errors::SessionError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,11 +18,24 @@ pub enum ProcessingState {
 
 /// Session transmitter trait
 #[async_trait]
-pub trait Transmitter: SessionInterceptorProvider {
-    async fn send_to_slim(&self, message: Result<Message, Status>) -> Result<(), SessionError>;
+pub trait Transmitter {
+    async fn send_to_slim<P, V>(
+        &self,
+        message: Result<Message, Status>,
+        mls: Option<&mut Mls<P, V>>,
+    ) -> Result<(), SessionError>
+    where
+        P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
+        V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static;
 
-    async fn send_to_app(&self, message: Result<Message, SessionError>)
-    -> Result<(), SessionError>;
+    async fn send_to_app<P, V>(
+        &self,
+        message: Result<Message, SessionError>,
+        mls: Option<&mut Mls<P, V>>,
+    ) -> Result<(), SessionError>
+    where
+        P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
+        V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static;
 }
 
 /// Core trait for message handling at any layer.
