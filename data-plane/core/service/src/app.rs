@@ -774,7 +774,6 @@ mod tests {
     ///    - Destination name matches the publisher app name (from subscriber's perspective)
     ///    - Session type is PointToPoint
     ///    - Correct number of sessions (matching subscription count) are received
-    /// Test point-to-point sessions with multiple different subscription names
     async fn run_p2p_subscription_test(config: P2PTestConfig) {
         let service = create_test_service(config.test_name);
 
@@ -912,7 +911,6 @@ mod tests {
     ///    - Destination name matches the channel name
     ///    - Session type is Multicast
     ///    - Correct number of sessions are received
-    /// Test multicast sessions with many participants
     async fn run_multicast_test(config: MulticastTestConfig) {
         let service = create_test_service(config.test_name);
 
@@ -1304,13 +1302,11 @@ mod tests {
     /// 2. When MLS is DISABLED: messages are plaintext and spy can read them
     /// 3. Legitimate participants can always read messages (decrypt if needed)
     #[tokio::test]
-    #[tracing_test::traced_test]
     async fn test_mls_encryption_with_spy_enabled() {
         test_mls_with_spy(true).await;
     }
 
     #[tokio::test]
-    #[tracing_test::traced_test]
     async fn test_mls_encryption_with_spy_disabled() {
         test_mls_with_spy(false).await;
     }
@@ -1363,6 +1359,8 @@ mod tests {
                     .unwrap()
                     .blob
                     .clone();
+            } else {
+                println!("Ignoring control message");
             }
         }
     }
@@ -1413,7 +1411,11 @@ mod tests {
 
         let mut participant_ctx = wait_for_session(&mut participant_notifications).await;
 
-        let msg1 = b"Secret message - should be encrypted!";
+        let msg1: &[u8] = if mls_enabled {
+            b"Secret message - should be encrypted!"
+        } else {
+            b"Secret message - unencrypted!"
+        };
         let _ = session_arc
             .publish(&channel_name, msg1.to_vec(), None, None)
             .await;
