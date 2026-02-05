@@ -649,9 +649,7 @@ mod tests {
         assert!(content.contains("unary_stream"));
         assert!(content.contains("stream_unary"));
         assert!(content.contains("stream_stream"));
-        assert!(
-            content.contains("def UnaryToStream(self, request, context):")
-        );
+        assert!(content.contains("def UnaryToStream(self, request, context):"));
         assert!(content.contains("def StreamToUnary(self, request_iterator, context):"));
         assert!(content.contains("def StreamToStream(self, request_iterator, context):"));
         
