@@ -58,12 +58,14 @@ where
         return Ok(());
     }
 
-    let payload = &msg.get_payload().unwrap().as_application_payload()?.blob;
+    let payload = msg.get_payload().unwrap().as_application_payload()?;
 
     debug!("Encrypting message for group member");
-    let encrypted_payload = mls.encrypt_message(payload).await?;
+    let encrypted_payload = mls.encrypt_message(&payload.blob).await?;
 
-    msg.set_payload(ApplicationPayload::new("", encrypted_payload.to_vec()).as_content());
+    msg.set_payload(
+        ApplicationPayload::new(&payload.payload_type, encrypted_payload.to_vec()).as_content(),
+    );
 
     Ok(())
 }
@@ -89,12 +91,14 @@ where
         return Ok(());
     }
 
-    let payload = &msg.get_payload().unwrap().as_application_payload()?.blob;
+    let payload = msg.get_payload().unwrap().as_application_payload()?;
 
     debug!("Decrypting message for group member");
-    let decrypted_payload = mls.decrypt_message(payload).await?;
+    let decrypted_payload = mls.decrypt_message(&payload.blob).await?;
 
-    msg.set_payload(ApplicationPayload::new("", decrypted_payload.to_vec()).as_content());
+    msg.set_payload(
+        ApplicationPayload::new(&payload.payload_type, decrypted_payload.to_vec()).as_content(),
+    );
     Ok(())
 }
 
