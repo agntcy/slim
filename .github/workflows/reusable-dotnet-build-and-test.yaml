@@ -1,0 +1,162 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+name: dotnet-build-and-test
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: GitHub hosted runner or self-hosted runner
+        required: false
+        type: string
+        default: ubuntu-latest
+      continue-on-error:
+        description: Whether to skip the status update for this job
+        required: false
+        type: boolean
+        default: false
+      rust-workspace:
+        description: Rust workspace directory for caching
+        required: false
+        type: string
+        default: ./data-plane
+      dotnet-bindings-dir:
+        description: Directory containing .NET bindings and tests
+        required: false
+        type: string
+        default: ./data-plane/bindings/dotnet
+      dotnet-version:
+        description: .NET SDK version
+        required: false
+        type: string
+        default: "8.0.x"
+      rust-target:
+        description: Rust target triple for building libraries
+        required: false
+        type: string
+        default: x86_64-unknown-linux-musl
+
+env:
+  LIBRARY_NAME: slim_bindings
+
+jobs:
+  build-rust-library:
+    name: Build Rust library
+    runs-on: ${{ inputs.runner }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./data-plane/bindings/rust
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          workspace: ${{ inputs.rust-workspace }}
+
+      - name: Build library
+        run: |
+          task bindings:build:all TARGET=${{ inputs.rust-target }} PROFILE=release
+
+      - name: Strip and rename artifacts
+        run: |
+          ls -lah ../../target/${{ inputs.rust-target }}/release/
+
+          # Split target and use in filename
+          TARGET="${{ inputs.rust-target }}"
+          ARCH=$(echo "$TARGET" | cut -d'-' -f1)
+          OS=$(echo "$TARGET" | cut -d'-' -f3)
+          ABI=$(echo "$TARGET" | cut -d'-' -f4)
+
+          echo "Architecture: $ARCH"
+          echo "OS: $OS"
+          echo "ABI: $ABI"
+
+          # Build the library name with arch_os_abi if ABI is present, otherwise arch_os
+          if [ -n "$ABI" ] && [ "$ABI" != "" ]; then
+            LIB_NAME="slim_bindings_${ARCH}_${OS}_${ABI}"
+          else
+            LIB_NAME="slim_bindings_${ARCH}_${OS}"
+          fi
+
+          # Handle both libslim_bindings* (Unix) and slim_bindings* (Windows)
+          for file in ../../target/${{ inputs.rust-target }}/release/libslim_bindings* ../../target/${{ inputs.rust-target }}/release/slim_bindings.*; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+
+              # Replace slim_bindings with arch_os_abi version, keeping any existing prefix
+              new_filename="${filename/slim_bindings/${LIB_NAME}}"
+
+              if [ "$filename" != "$new_filename" ]; then
+                mv "$file" "../../target/${{ inputs.rust-target }}/release/${new_filename}"
+              fi
+            fi
+          done
+
+          echo "Renamed files:"
+          ls -lah ../../target/${{ inputs.rust-target }}/release/*slim_bindings*
+
+      - name: Upload libs
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindings-${{ inputs.rust-target }}
+          path: ./data-plane/target/${{ inputs.rust-target }}/release/*slim_bindings*
+
+  build-dotnet-package:
+    name: Build .NET package
+    runs-on: ${{ inputs.runner }}
+    needs: build-rust-library
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.dotnet-bindings-dir }}
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          workspace: ${{ inputs.rust-workspace }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Setup Task
+        uses: ./.github/actions/setup-task
+        with:
+          version: latest
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Download library artifacts from previous job
+      - name: Download library artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bindings-*
+          path: ${{ inputs.dotnet-bindings-dir }}/artifacts/
+
+      - name: List downloaded artifacts
+        run: |
+          echo "📦 Downloaded artifacts:"
+          find ./artifacts -type f -name "*.so" -o -name "*.dll" -o -name "*.dylib" -o -name "*.a" | sort
+
+      # Run complete CI pipeline using task command
+      # This generates bindings, copies runtimes, builds, tests, and packs
+      - name: Run CI pipeline
+        run: |
+          task ci \
+            ARTIFACTS_DIR=./artifacts \
+            OUTPUT_DIR=./nupkg \
+            BINDGEN_TARGET=${{ inputs.rust-target }}
+
+      - name: Upload NuGet package
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotnet-bindings-nuget
+          path: ${{ inputs.dotnet-bindings-dir }}/nupkg/*.nupkg
+          if-no-files-found: error
