@@ -19,23 +19,18 @@ fn should_process_message(msg: &Message) -> bool {
         return false;
     }
 
-    // Skip channel management messages
+    // Only process actual application data messages (Msg type)
+    // Skip all control/session management messages
     match msg.get_session_header().session_message_type() {
-        ProtoSessionMessageType::DiscoveryRequest
-        | ProtoSessionMessageType::DiscoveryReply
-        | ProtoSessionMessageType::JoinRequest
-        | ProtoSessionMessageType::JoinReply
-        | ProtoSessionMessageType::LeaveRequest
-        | ProtoSessionMessageType::LeaveReply
-        | ProtoSessionMessageType::GroupAdd
-        | ProtoSessionMessageType::GroupRemove
-        | ProtoSessionMessageType::GroupWelcome
-        | ProtoSessionMessageType::GroupProposal
-        | ProtoSessionMessageType::GroupAck => {
-            debug!("Skipping channel management message type");
+        ProtoSessionMessageType::Msg => {
+            // This is an application data message, process it
+            true
+        }
+        _ => {
+            // Skip all other message types (control messages, ACKs, etc.)
+            debug!("Skipping non-data message type: {:?}", msg.get_session_header().session_message_type());
             false
         }
-        _ => true,
     }
 }
 

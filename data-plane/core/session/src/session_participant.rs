@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{collections::HashSet, time::Duration};
 
 use async_trait::async_trait;
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -14,7 +14,6 @@ use slim_datapath::{
 };
 
 use slim_mls::mls::Mls;
-use tokio::sync::Mutex;
 use tracing::debug;
 
 use crate::{
@@ -105,7 +104,7 @@ where
     async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
         match message {
             SessionMessage::OnMessage {
-                message,
+                mut message,
                 direction,
                 ack_tx,
             } => {
@@ -117,6 +116,21 @@ where
                     );
                     self.process_control_message(message).await
                 } else {
+                    // Apply MLS encryption/decryption if enabled
+                    if let Some(mls_state) = &mut self.mls_state {
+                        let mls = &mut mls_state.mls;
+                        match direction {
+                            crate::common::MessageDirection::South => {
+                                // Encrypting message going to SLIM
+                                crate::mls_helpers::encrypt_message(mls, &mut message).await?;
+                            }
+                            crate::common::MessageDirection::North => {
+                                // Decrypting message coming from SLIM
+                                crate::mls_helpers::decrypt_message(mls, &mut message).await?;
+                            }
+                        }
+                    }
+
                     self.inner
                         .on_message(SessionMessage::OnMessage {
                             message,

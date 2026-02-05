@@ -178,7 +178,7 @@ impl SessionReceiver {
                 source = %message.get_source(),
                 "received message, send it to the app without reordering",
             );
-            return self.tx.send_to_app::<(), ()>(Ok(message), None).await;
+            return self.tx.send_to_app(Ok(message)).await;
         }
 
         let source = message.get_source();
@@ -214,7 +214,7 @@ impl SessionReceiver {
             publish_meta,
         )?;
 
-        self.tx.send_to_slim::<(), ()>(Ok(ack), None).await
+        self.tx.send_to_slim(Ok(ack)).await
     }
 
     pub async fn on_rtx_message(&mut self, message: Message) -> Result<(), SessionError> {
@@ -268,7 +268,7 @@ impl SessionReceiver {
                         source = %r.get_source(),
                         "received message, send it to the app",
                     );
-                    self.tx.send_to_app::<(), ()>(Ok(r), None).await?;
+                    self.tx.send_to_app(Ok(r)).await?;
                 }
                 None => {
                     debug!(
@@ -277,7 +277,7 @@ impl SessionReceiver {
                         "lost message"
                     );
                     self.tx
-                        .send_to_app::<(), ()>(Err(SessionError::MessageLost(self.session_id)), None)
+                        .send_to_app(Err(SessionError::MessageLost(self.session_id)))
                         .await?;
                 }
             }
@@ -324,7 +324,7 @@ impl SessionReceiver {
             // send message
             debug!(id = %rtx_id,
             source = %source, "send rtx request for message");
-            self.tx.send_to_slim::<(), ()>(Ok(rtx), None).await?;
+            self.tx.send_to_slim(Ok(rtx)).await?;
         }
 
         Ok(())
@@ -341,7 +341,7 @@ impl SessionReceiver {
             })?;
 
         debug!(%id, "send rtx request again");
-        self.tx.send_to_slim::<(), ()>(Ok(pending.message.clone()), None).await
+        self.tx.send_to_slim(Ok(pending.message.clone())).await
     }
 
     pub async fn on_timer_failure(&mut self, id: u32, name: Name) -> Result<(), SessionError> {
@@ -362,7 +362,7 @@ impl SessionReceiver {
 
         // notify the application that the message was not delivered correctly
         self.tx
-            .send_to_app::<(), ()>(Err(SessionError::receive_retry_failed(id)), None)
+            .send_to_app(Err(SessionError::receive_retry_failed(id)))
             .await
     }
 

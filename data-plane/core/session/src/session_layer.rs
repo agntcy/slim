@@ -417,7 +417,7 @@ where
                     session_type,
                 )?;
 
-                self.transmitter.send_to_slim::<(), ()>(Ok(msg), None).await
+                self.transmitter.send_to_slim(Ok(msg)).await
             }
             _ => Err(SessionError::SessionMessageTypeUnexpected(
                 session_message_type,

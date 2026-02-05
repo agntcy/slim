@@ -1,18 +1,21 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+// Standard library imports
+use std::sync::Arc;
+
 // Third-party crates
+use parking_lot::RwLock;
 use tokio::sync::mpsc::Sender;
 
 use slim_datapath::Status;
 use slim_datapath::api::ProtoMessage as Message;
-use slim_mls::mls::Mls;
 
 // Local crate
 use crate::{
     SessionError, SlimChannelSender, Transmitter,
     common::AppChannelSender,
-    mls_helpers,
+    interceptor::{SessionInterceptor, SessionInterceptorProvider},
     notification::Notification,
 };
 
@@ -37,21 +40,11 @@ impl SessionTransmitter {
 
 #[async_trait::async_trait]
 impl Transmitter for SessionTransmitter {
-    async fn send_to_app<P, V>(
+    async fn send_to_app(
         &self,
-        mut message: Result<Message, SessionError>,
-        mls: Option<&mut Mls<P, V>>,
-    ) -> Result<(), SessionError>
-    where
-        P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
-        V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
-    {
+        message: Result<Message, SessionError>,
+    ) -> Result<(), SessionError> {
         let tx = self.app_tx.clone();
-
-        // Apply MLS decryption if available and message is Ok
-        if let (Some(mls), Ok(msg)) = (mls, message.as_mut()) {
-            mls_helpers::decrypt_message(mls, msg).await?;
-        }
 
         let ret = tx
             .send(message)
@@ -60,21 +53,8 @@ impl Transmitter for SessionTransmitter {
         Ok(ret)
     }
 
-    async fn send_to_slim<P, V>(
-        &self,
-        mut message: Result<Message, Status>,
-        mls: Option<&mut Mls<P, V>>,
-    ) -> Result<(), SessionError>
-    where
-        P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
-        V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
-    {
+    async fn send_to_slim(&self, message: Result<Message, Status>) -> Result<(), SessionError> {
         let tx = self.slim_tx.clone();
-
-        // Apply MLS encryption if available and message is Ok
-        if let (Some(mls), Ok(msg)) = (mls, message.as_mut()) {
-            mls_helpers::encrypt_message(mls, msg).await?;
-        }
 
         tx.try_send(message)
             .map_err(|_e| SessionError::SlimMessageSendFailed)
@@ -89,24 +69,39 @@ pub struct AppTransmitter {
 
     /// App tx (bounded channel here; notifications)
     pub app_tx: Sender<Result<Notification, SessionError>>,
+
+    /// Interceptors to be called on message reception/send
+    pub interceptors: Arc<RwLock<Vec<Arc<dyn SessionInterceptor + Send + Sync>>>>,
+}
+
+impl SessionInterceptorProvider for AppTransmitter {
+    fn add_interceptor(&self, interceptor: Arc<dyn SessionInterceptor + Send + Sync + 'static>) {
+        self.interceptors.write().push(interceptor);
+    }
+
+    fn get_interceptors(&self) -> Vec<Arc<dyn SessionInterceptor + Send + Sync + 'static>> {
+        self.interceptors.read().clone()
+    }
 }
 
 #[async_trait::async_trait]
 impl Transmitter for AppTransmitter {
-    async fn send_to_app<P, V>(
+    async fn send_to_app(
         &self,
         mut message: Result<Message, SessionError>,
-        mls: Option<&mut Mls<P, V>>,
-    ) -> Result<(), SessionError>
-    where
-        P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
-        V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
-    {
+    ) -> Result<(), SessionError> {
         let tx = self.app_tx.clone();
 
-        // Apply MLS decryption if available and message is Ok
-        if let (Some(mls), Ok(msg)) = (mls, message.as_mut()) {
-            mls_helpers::decrypt_message(mls, msg).await?;
+        // Apply interceptors only on successful messages
+        let interceptors = match &message {
+            Ok(_) => self.interceptors.read().clone(),
+            Err(_) => Vec::new(),
+        };
+
+        if let Ok(msg) = message.as_mut() {
+            for interceptor in interceptors {
+                interceptor.on_msg_from_slim(msg).await?;
+            }
         }
 
         tx.send(message.map(|msg| Notification::NewMessage(Box::new(msg))))
@@ -114,20 +109,19 @@ impl Transmitter for AppTransmitter {
             .map_err(|_e| SessionError::ApplicationMessageSendFailed)
     }
 
-    async fn send_to_slim<P, V>(
-        &self,
-        mut message: Result<Message, Status>,
-        mls: Option<&mut Mls<P, V>>,
-    ) -> Result<(), SessionError>
-    where
-        P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
-        V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
-    {
+    async fn send_to_slim(&self, mut message: Result<Message, Status>) -> Result<(), SessionError> {
         let tx = self.slim_tx.clone();
 
-        // Apply MLS encryption if available and message is Ok
-        if let (Some(mls), Ok(msg)) = (mls, message.as_mut()) {
-            mls_helpers::encrypt_message(mls, msg).await?;
+        // Apply interceptors only on successful messages
+        let interceptors = match &message {
+            Ok(_) => self.interceptors.read().clone(),
+            Err(_) => Vec::new(),
+        };
+
+        if let Ok(msg) = message.as_mut() {
+            for interceptor in interceptors {
+                interceptor.on_msg_from_app(msg).await?;
+            }
         }
 
         tx.try_send(message)
@@ -163,11 +157,11 @@ mod tests {
         let (app_tx, mut app_rx) = mpsc::unbounded_channel::<Result<Message, SessionError>>();
         let tx = SessionTransmitter::new(slim_tx, app_tx);
 
-        tx.send_to_slim::<(), ()>(Ok(make_message()), None).await.unwrap();
+        tx.send_to_slim(Ok(make_message())).await.unwrap();
         let sent = slim_rx.recv().await.unwrap().unwrap();
         assert!(sent.get_payload().is_some());
 
-        tx.send_to_app::<(), ()>(Ok(make_message()), None).await.unwrap();
+        tx.send_to_app(Ok(make_message())).await.unwrap();
         let app_msg = app_rx.recv().await.unwrap().unwrap();
         assert!(app_msg.get_payload().is_some());
     }
@@ -178,7 +172,7 @@ mod tests {
         let (app_tx, _app_rx) = mpsc::unbounded_channel::<Result<Message, SessionError>>();
         let tx = SessionTransmitter::new(slim_tx, app_tx);
 
-        tx.send_to_slim::<(), ()>(Err(Status::failed_precondition("err")), None)
+        tx.send_to_slim(Err(Status::failed_precondition("err")))
             .await
             .unwrap();
         let result = slim_rx.recv().await.unwrap();
@@ -192,16 +186,17 @@ mod tests {
         let tx = AppTransmitter {
             slim_tx,
             app_tx,
+            interceptors: Arc::new(RwLock::new(vec![])),
         };
 
-        tx.send_to_app::<(), ()>(Ok(make_message()), None).await.unwrap();
+        tx.send_to_app(Ok(make_message())).await.unwrap();
         if let Ok(Notification::NewMessage(msg)) = app_rx.recv().await.unwrap() {
             assert!(msg.get_payload().is_some());
         } else {
             panic!("expected NewMessage notification");
         }
 
-        tx.send_to_slim::<(), ()>(Ok(make_message()), None).await.unwrap();
+        tx.send_to_slim(Ok(make_message())).await.unwrap();
         let slim_msg = slim_rx.recv().await.unwrap().unwrap();
         assert!(slim_msg.get_payload().is_some());
     }

@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 // Third-party crates
 use display_error_chain::ErrorChainExt;
-use parking_lot::RwLock as SyncRwLock;
 use slim_datapath::errors::ErrorPayload;
 use slim_session::Direction;
 use tokio::sync::mpsc;
@@ -24,10 +23,10 @@ use slim_session::{SessionConfig, session_controller::SessionController};
 // Local crate
 use crate::ServiceError;
 use slim_session::SlimChannelSender;
-use slim_session::interceptor::{IdentityInterceptor, SessionInterceptorProvider};
 use slim_session::notification::Notification;
 use slim_session::transmitter::AppTransmitter;
 use slim_session::{SessionError, SessionLayer, context::SessionContext};
+use slim_session::interceptor::{IdentityInterceptor, SessionInterceptorProvider};
 
 pub struct App<P, V>
 where
@@ -105,11 +104,20 @@ where
         storage_path: std::path::PathBuf,
         direction: Direction,
     ) -> Self {
+        // Create identity interceptor
+        let identity_interceptor = Arc::new(IdentityInterceptor::new(
+            identity_provider.clone(),
+            identity_verifier.clone(),
+        ));
+
         // Create the transmitter
         let transmitter = AppTransmitter {
             slim_tx: tx_slim.clone(),
             app_tx: tx_app.clone(),
+            interceptors: Arc::new(parking_lot::RwLock::new(vec![])),
         };
+
+        transmitter.add_interceptor(identity_interceptor);
 
         // Create the session layer
         let session_layer = Arc::new(SessionLayer::new(

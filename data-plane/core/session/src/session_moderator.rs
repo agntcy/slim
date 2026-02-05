@@ -3,7 +3,6 @@
 
 use std::{
     collections::{HashMap, VecDeque},
-    sync::Arc,
     time::Duration,
 };
 
@@ -20,7 +19,7 @@ use slim_datapath::{
         utils::{DELETE_GROUP, DISCONNECTION_DETECTED, LEAVING_SESSION, TRUE_VAL},
     },
 };
-use tokio::sync::{Mutex, oneshot};
+use tokio::sync::oneshot;
 
 use slim_mls::mls::Mls;
 use tracing::debug;
@@ -28,6 +27,7 @@ use tracing::debug;
 use crate::{
     common::{MessageDirection, SessionMessage},
     errors::SessionError,
+    mls_helpers,
     mls_state::{MlsModeratorState, MlsState},
     moderator_task::{
         AddParticipant, ModeratorTask, NotifyParticipants, RemoveParticipant, TaskUpdate,
@@ -149,6 +149,22 @@ where
                             .get_slim_header_mut()
                             .set_destination(&self.common.settings.destination);
                     }
+
+                    // Apply MLS encryption/decryption if enabled
+                    if let Some(mls_state) = &mut self.mls_state {
+                        let mls = &mut mls_state.common.mls;
+                        match direction {
+                            MessageDirection::South => {
+                                // Encrypting message going to SLIM
+                                mls_helpers::encrypt_message(mls, &mut message).await?;
+                            }
+                            MessageDirection::North => {
+                                // Decrypting message coming from SLIM
+                                mls_helpers::decrypt_message(mls, &mut message).await?;
+                            }
+                        }
+                    }
+
                     self.inner
                         .on_message(SessionMessage::OnMessage {
                             message,

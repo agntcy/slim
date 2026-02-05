@@ -2,13 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Standard library imports
-use std::{
-    collections::{BTreeMap, HashMap, btree_map::Entry},
-    sync::Arc,
-};
+use std::collections::{BTreeMap, HashMap, btree_map::Entry};
 
 // Third-party crates
-use tokio::sync::Mutex;
 use tracing::{debug, error, trace};
 
 use slim_auth::traits::{TokenProvider, Verifier};
