@@ -85,8 +85,7 @@ impl Decoder for TestResponse {
 /// Test environment containing service, server, and client components
 struct TestEnv {
     service: Arc<Service>,
-    server: Server,
-    server_handle: Option<tokio::task::JoinHandle<Result<(), Status>>>,
+    server: Arc<Server>,
     channel: Channel,
 }
 
@@ -108,11 +107,11 @@ impl TestEnv {
             .unwrap();
         let server_app = Arc::new(server_app);
 
-        let server = Server::new_internal(
+        let server = Arc::new(Server::new_internal(
             server_app.clone(),
             server_name.clone(),
             server_notifications,
-        );
+        ));
 
         // Create client
         let client_name = Name::from_strings(["org", "ns", "client"]);
@@ -129,14 +128,20 @@ impl TestEnv {
         Self {
             service,
             server,
-            server_handle: None,
             channel,
         }
     }
 
     /// Start the server in the background
-    async fn start_server(&mut self) {
-        self.server.serve_async().await.unwrap();
+    async fn start_server(&self) {
+        let server = self.server.clone();
+
+        // Spawn task to run the server
+        tokio::spawn(async move {
+            if let Err(e) = server.serve_async().await {
+                tracing::error!("Server error: {:?}", e);
+            }
+        });
 
         // Give server time to start and subscribe
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -146,11 +151,6 @@ impl TestEnv {
     async fn shutdown(&mut self) {
         tracing::info!("Shutting down server...");
         self.server.shutdown_internal().await;
-
-        if let Some(handle) = self.server_handle.take() {
-            tracing::info!("Waiting for server task to finish...");
-            let _ = handle.await.unwrap();
-        }
 
         tracing::info!("Shutting down service...");
         self.service.shutdown().await.unwrap();

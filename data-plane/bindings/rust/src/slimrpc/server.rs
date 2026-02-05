@@ -312,9 +312,6 @@ pub struct Server {
     drain_watch: RwLock<Option<drain::Watch>>,
     /// Runtime handle for spawning tasks (resolved at construction)
     runtime: tokio::runtime::Handle,
-    /// Handle to the active serve task (for recovering notification_rx on shutdown)
-    serve_handle:
-        parking_lot::Mutex<Option<JoinHandle<(NotificationReceiver, Result<(), Status>)>>>,
 }
 
 impl Server {
@@ -454,7 +451,6 @@ impl Server {
             drain_signal: RwLock::new(Some(drain_signal)),
             drain_watch: RwLock::new(Some(drain_watch)),
             runtime,
-            serve_handle: parking_lot::Mutex::new(None),
         }
     }
 
@@ -1043,23 +1039,6 @@ impl Server {
             tracing::info!("All sessions drained successfully");
         }
 
-        // Await the serve task and recover the notification receiver
-        let handle = self.serve_handle.lock().take();
-        if let Some(handle) = handle {
-            match handle.await {
-                Ok((notification_rx, result)) => {
-                    // Restore the notification receiver for next serve
-                    *self.notification_rx.lock() = Some(notification_rx);
-                    if let Err(e) = result {
-                        tracing::error!("Serve task completed with error: {}", e);
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("Serve task panicked: {}", e);
-                }
-            }
-        }
-
         // Recreate drain signal and watch so the server can be restarted
         let (new_signal, new_watch) = drain::channel();
         *self.drain_signal.write() = Some(new_signal);
@@ -1331,9 +1310,20 @@ impl Server {
     /// It listens for incoming RPC calls and dispatches them to registered handlers.
     pub async fn serve_async(&self) -> Result<(), super::RpcError> {
         let handle = self.serve_handle()?;
-        *self.serve_handle.lock() = Some(handle);
 
-        Ok(())
+        // Wait for the server task to complete and restore the NotificationReceiver
+        let (notification_rx, result) = handle.await.map_err(|e| {
+            super::RpcError::new(
+                super::Code::Internal,
+                format!("Server task panicked: {}", e),
+            )
+        })?;
+
+        // Restore the NotificationReceiver back to the server
+        *self.notification_rx.lock() = Some(notification_rx);
+
+        // Return the result from the server task
+        result.map_err(|e| super::RpcError::new(super::Code::Internal, e.to_string()))
     }
 
     /// Shutdown the server gracefully (blocking version)

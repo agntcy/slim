@@ -242,9 +242,8 @@ impl StreamStreamHandler for TransformHandler {
 // ============================================================================
 
 struct TestEnv {
-    server: Server,
+    server: Arc<Server>,
     _app: Arc<App>,
-    _server_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl TestEnv {
@@ -285,21 +284,27 @@ impl TestEnv {
 
         // Create server using UniFFI constructor
         println!("Creating RPC server...");
-        let server = Server::new(&server_app, server_name.clone());
+        let server = Arc::new(Server::new(&server_app, server_name.clone()));
         println!("RPC server created");
 
         println!("TestEnv::new completed for {}", test_name);
         Self {
             server,
             _app: server_app,
-            _server_handle: None,
         }
     }
 
-    async fn start_server(&mut self) {
+    async fn start_server(&self) {
         // Start server in background
         println!("Starting server in background...");
-        self.server.serve_async().await.unwrap();
+        let server = self.server.clone();
+
+        // Spawn task to run the server
+        tokio::spawn(async move {
+            if let Err(e) = server.serve_async().await {
+                eprintln!("Server error: {:?}", e);
+            }
+        });
 
         // Give server time to start and subscribe
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -347,7 +352,7 @@ impl TestEnv {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_unary_unary_rpc() {
-    let mut env = TestEnv::new("unary-echo").await;
+    let env = TestEnv::new("unary-echo").await;
 
     // Register echo handler
     println!("Registering EchoHandler...");
@@ -384,7 +389,7 @@ async fn test_unary_unary_rpc() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_unary_unary_error_handling() {
-    let mut env = TestEnv::new("unary-error").await;
+    let env = TestEnv::new("unary-error").await;
 
     // Register error handler
     env.server.register_unary_unary(
@@ -423,7 +428,7 @@ async fn test_unary_unary_error_handling() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_unary_stream_rpc() {
-    let mut env = TestEnv::new("unary-stream").await;
+    let env = TestEnv::new("unary-stream").await;
 
     // Register counter handler
     env.server.register_unary_stream(
@@ -476,7 +481,7 @@ async fn test_unary_stream_rpc() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_unary_stream_error_handling() {
-    let mut env = TestEnv::new("unary-stream-error").await;
+    let env = TestEnv::new("unary-stream-error").await;
 
     // Register error handler
     env.server.register_unary_stream(
@@ -531,7 +536,7 @@ async fn test_unary_stream_error_handling() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_stream_unary_rpc() {
-    let mut env = TestEnv::new("stream-unary").await;
+    let env = TestEnv::new("stream-unary").await;
 
     // Register accumulator handler
     env.server.register_stream_unary(
@@ -577,7 +582,7 @@ async fn test_stream_unary_rpc() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_stream_unary_error_handling() {
-    let mut env = TestEnv::new("stream-unary-error").await;
+    let env = TestEnv::new("stream-unary-error").await;
 
     // Register error handler
     env.server.register_stream_unary(
@@ -626,7 +631,7 @@ async fn test_stream_unary_error_handling() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_stream_stream_echo() {
-    let mut env = TestEnv::new("stream-stream-echo").await;
+    let env = TestEnv::new("stream-stream-echo").await;
 
     // Register stream echo handler
     env.server.register_stream_stream(
@@ -681,7 +686,7 @@ async fn test_stream_stream_echo() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_stream_stream_transform() {
-    let mut env = TestEnv::new("stream-stream-transform").await;
+    let env = TestEnv::new("stream-stream-transform").await;
 
     // Register transform handler
     env.server.register_stream_stream(
@@ -747,7 +752,7 @@ async fn test_stream_stream_transform() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_concurrent_unary_calls() {
-    let mut env = TestEnv::new("concurrent-unary").await;
+    let env = TestEnv::new("concurrent-unary").await;
 
     // Register echo handler
     env.server.register_unary_unary(
@@ -796,7 +801,7 @@ async fn test_concurrent_unary_calls() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_handler_registration() {
-    let mut env = TestEnv::new("handler-registration").await;
+    let env = TestEnv::new("handler-registration").await;
 
     // Register multiple handlers
     env.server.register_unary_unary(
@@ -851,7 +856,7 @@ impl UnaryUnaryHandler for ContextInfoHandler {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_context_access() {
-    let mut env = TestEnv::new("context-access").await;
+    let env = TestEnv::new("context-access").await;
 
     // Register context info handler
     env.server.register_unary_unary(
