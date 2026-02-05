@@ -6,11 +6,34 @@ package types
 import (
 	"context"
 	"fmt"
-
+	"time"
+	
 	slim_bindings "github.com/agntcy/slim-bindings-go"
 	"github.com/agntcy/slim-bindings-go/slimrpc"
 	"google.golang.org/protobuf/proto"
+
 )
+
+// Context keys for accessing RPC context values
+type contextKey int
+
+const (
+	sessionContextKey contextKey = iota
+	metadataContextKey
+)
+
+// SessionFromContext extracts the session from the context
+func SessionFromContext(ctx context.Context) (string, bool) {
+	session, ok := ctx.Value(sessionContextKey).(string)
+	return session, ok
+}
+
+// MetadataFromContext extracts the metadata from the context
+func MetadataFromContext(ctx context.Context) (map[string]string, bool) {
+	metadata, ok := ctx.Value(metadataContextKey).(map[string]string)
+	return metadata, ok
+}
+
 
 // TestClient is the client API for Test service.
 type TestClient interface {
@@ -32,25 +55,26 @@ func NewTestClient(channel *slim_bindings.Channel) TestClient {
 	}
 }
 
+
 func (c *TestClientImpl) ExampleUnaryUnary(ctx context.Context, req *ExampleRequest) (*ExampleResponse, error) {
 	// Serialize request
 	reqBytes, err := proto.Marshal(req)
 	if err != nil {
 		return nil, err
 	}
-
+	
 	// Make RPC call
 	respBytes, err := c.channel.CallUnaryAsync("example_service.Test", "ExampleUnaryUnary", reqBytes, nil)
 	if err != nil {
 		return nil, err
 	}
-
+	
 	// Deserialize response
 	resp := &ExampleResponse{}
 	if err := proto.Unmarshal(respBytes, resp); err != nil {
 		return nil, err
 	}
-
+	
 	return resp, nil
 }
 
@@ -60,13 +84,13 @@ func (c *TestClientImpl) ExampleUnaryStream(ctx context.Context, req *ExampleReq
 	if err != nil {
 		return nil, err
 	}
-
+	
 	// Make RPC call
 	stream, err := c.channel.CallUnaryStreamAsync("example_service.Test", "ExampleUnaryStream", reqBytes, nil)
 	if err != nil {
 		return nil, err
 	}
-
+	
 	return slimrpc.NewClientResponseStream[*ExampleResponse](stream), nil
 }
 
@@ -76,13 +100,13 @@ func (c *TestClientImpl) ExampleUnaryStreamTwo(ctx context.Context, req *Example
 	if err != nil {
 		return nil, err
 	}
-
+	
 	// Make RPC call
 	stream, err := c.channel.CallUnaryStreamAsync("example_service.Test", "ExampleUnaryStreamTwo", reqBytes, nil)
 	if err != nil {
 		return nil, err
 	}
-
+	
 	return slimrpc.NewClientResponseStream[*ExampleResponse](stream), nil
 }
 
@@ -96,40 +120,43 @@ func (c *TestClientImpl) ExampleStreamStream(ctx context.Context) (slimrpc.Clien
 	return slimrpc.NewClientBidiStream[*ExampleRequest, *ExampleResponse](stream), nil
 }
 
+
 // TestServer is the server API for Test service.
 // All implementations must embed UnimplementedTestServer
 // for forward compatibility
 type TestServer interface {
 	ExampleUnaryUnary(ctx context.Context, req *ExampleRequest) (*ExampleResponse, error)
-	ExampleUnaryStream(req *ExampleRequest, stream slimrpc.RequestStream[*ExampleResponse]) error
-	ExampleUnaryStreamTwo(req *ExampleRequest, stream slimrpc.RequestStream[*ExampleResponse]) error
-	ExampleStreamUnary(stream slimrpc.ResponseStream[*ExampleRequest]) (*ExampleResponse, error)
-	ExampleStreamStream(stream slimrpc.ServerBidiStream[*ExampleRequest, *ExampleResponse]) error
+	ExampleUnaryStream(ctx context.Context, req *ExampleRequest, stream slimrpc.RequestStream[*ExampleResponse]) error
+	ExampleUnaryStreamTwo(ctx context.Context, req *ExampleRequest, stream slimrpc.RequestStream[*ExampleResponse]) error
+	ExampleStreamUnary(ctx context.Context, stream slimrpc.ResponseStream[*ExampleRequest]) (*ExampleResponse, error)
+	ExampleStreamStream(ctx context.Context, stream slimrpc.ServerBidiStream[*ExampleRequest, *ExampleResponse]) error
 }
 
 // UnimplementedTestServer must be embedded to have forward compatible implementations.
 type UnimplementedTestServer struct {
 }
 
+
 func (UnimplementedTestServer) ExampleUnaryUnary(ctx context.Context, req *ExampleRequest) (*ExampleResponse, error) {
 	return nil, fmt.Errorf("method ExampleUnaryUnary not implemented")
 }
 
-func (UnimplementedTestServer) ExampleUnaryStream(req *ExampleRequest, stream slimrpc.RequestStream[*ExampleResponse]) error {
+func (UnimplementedTestServer) ExampleUnaryStream(ctx context.Context, req *ExampleRequest, stream slimrpc.RequestStream[*ExampleResponse]) error {
 	return fmt.Errorf("method ExampleUnaryStream not implemented")
 }
 
-func (UnimplementedTestServer) ExampleUnaryStreamTwo(req *ExampleRequest, stream slimrpc.RequestStream[*ExampleResponse]) error {
+func (UnimplementedTestServer) ExampleUnaryStreamTwo(ctx context.Context, req *ExampleRequest, stream slimrpc.RequestStream[*ExampleResponse]) error {
 	return fmt.Errorf("method ExampleUnaryStreamTwo not implemented")
 }
 
-func (UnimplementedTestServer) ExampleStreamUnary(stream slimrpc.ResponseStream[*ExampleRequest]) (*ExampleResponse, error) {
+func (UnimplementedTestServer) ExampleStreamUnary(ctx context.Context, stream slimrpc.ResponseStream[*ExampleRequest]) (*ExampleResponse, error) {
 	return nil, fmt.Errorf("method ExampleStreamUnary not implemented")
 }
 
-func (UnimplementedTestServer) ExampleStreamStream(stream slimrpc.ServerBidiStream[*ExampleRequest, *ExampleResponse]) error {
+func (UnimplementedTestServer) ExampleStreamStream(ctx context.Context, stream slimrpc.ServerBidiStream[*ExampleRequest, *ExampleResponse]) error {
 	return fmt.Errorf("method ExampleStreamStream not implemented")
 }
+
 
 // RegisterTestServer registers the server with slim_bindings.
 func RegisterTestServer(server *slim_bindings.Server, impl TestServer) {
@@ -140,6 +167,7 @@ func RegisterTestServer(server *slim_bindings.Server, impl TestServer) {
 	server.RegisterStreamStream("example_service.Test", "ExampleStreamStream", &Test_ExampleStreamStream_Handler{impl: impl})
 }
 
+
 type Test_ExampleUnaryUnary_Handler struct {
 	impl TestServer
 }
@@ -149,15 +177,29 @@ func (h *Test_ExampleUnaryUnary_Handler) Handle(request []byte, rpcContext *slim
 	if err := proto.Unmarshal(request, req); err != nil {
 		return nil, err
 	}
-
+	
+	// Convert slim_bindings.Context to context.Context
 	ctx := context.Background()
-	// TODO: Add deadline from rpcContext to ctx if needed
-
+	
+	// Add deadline if present
+	if rpcContext.Deadline > 0 {
+		deadline := time.UnixMilli(int64(rpcContext.Deadline))
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, deadline)
+		defer cancel()
+	}
+	
+	// Add session to context
+	ctx = context.WithValue(ctx, sessionContextKey, rpcContext.Session)
+	
+	// Add metadata to context
+	ctx = context.WithValue(ctx, metadataContextKey, rpcContext.Metadata)
+	
 	resp, err := h.impl.ExampleUnaryUnary(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-
+	
 	return proto.Marshal(resp)
 }
 
@@ -170,16 +212,33 @@ func (h *Test_ExampleUnaryStream_Handler) Handle(request []byte, rpcContext *sli
 	if err := proto.Unmarshal(request, req); err != nil {
 		return err
 	}
-
+	
+	// Convert slim_bindings.Context to context.Context
+	ctx := context.Background()
+	
+	// Add deadline if present
+	if rpcContext.Deadline > 0 {
+		deadline := time.UnixMilli(int64(rpcContext.Deadline))
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, deadline)
+		defer cancel()
+	}
+	
+	// Add session to context
+	ctx = context.WithValue(ctx, sessionContextKey, rpcContext.Session)
+	
+	// Add metadata to context
+	ctx = context.WithValue(ctx, metadataContextKey, rpcContext.Metadata)
+	
 	stream := slimrpc.NewServerRequestStream[*ExampleResponse](sink)
-	err := h.impl.ExampleUnaryStream(req, stream)
-
+	err := h.impl.ExampleUnaryStream(ctx, req, stream)
+	
 	// Close the stream after handler returns
 	closeErr := sink.CloseAsync()
 	if err == nil {
 		err = closeErr
 	}
-
+	
 	return err
 }
 
@@ -192,16 +251,33 @@ func (h *Test_ExampleUnaryStreamTwo_Handler) Handle(request []byte, rpcContext *
 	if err := proto.Unmarshal(request, req); err != nil {
 		return err
 	}
-
+	
+	// Convert slim_bindings.Context to context.Context
+	ctx := context.Background()
+	
+	// Add deadline if present
+	if rpcContext.Deadline > 0 {
+		deadline := time.UnixMilli(int64(rpcContext.Deadline))
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, deadline)
+		defer cancel()
+	}
+	
+	// Add session to context
+	ctx = context.WithValue(ctx, sessionContextKey, rpcContext.Session)
+	
+	// Add metadata to context
+	ctx = context.WithValue(ctx, metadataContextKey, rpcContext.Metadata)
+	
 	stream := slimrpc.NewServerRequestStream[*ExampleResponse](sink)
-	err := h.impl.ExampleUnaryStreamTwo(req, stream)
-
+	err := h.impl.ExampleUnaryStreamTwo(ctx, req, stream)
+	
 	// Close the stream after handler returns
 	closeErr := sink.CloseAsync()
 	if err == nil {
 		err = closeErr
 	}
-
+	
 	return err
 }
 
@@ -210,13 +286,30 @@ type Test_ExampleStreamUnary_Handler struct {
 }
 
 func (h *Test_ExampleStreamUnary_Handler) Handle(stream *slim_bindings.RequestStream, rpcContext *slim_bindings.Context) ([]byte, error) {
+	// Convert slim_bindings.Context to context.Context
+	ctx := context.Background()
+	
+	// Add deadline if present
+	if rpcContext.Deadline > 0 {
+		deadline := time.UnixMilli(int64(rpcContext.Deadline))
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, deadline)
+		defer cancel()
+	}
+	
+	// Add session to context
+	ctx = context.WithValue(ctx, sessionContextKey, rpcContext.Session)
+	
+	// Add metadata to context
+	ctx = context.WithValue(ctx, metadataContextKey, rpcContext.Metadata)
+	
 	serverStream := slimrpc.NewServerResponseStream[*ExampleRequest](stream)
-
-	resp, err := h.impl.ExampleStreamUnary(serverStream)
+	
+	resp, err := h.impl.ExampleStreamUnary(ctx, serverStream)
 	if err != nil {
 		return nil, err
 	}
-
+	
 	return proto.Marshal(resp)
 }
 
@@ -225,15 +318,34 @@ type Test_ExampleStreamStream_Handler struct {
 }
 
 func (h *Test_ExampleStreamStream_Handler) Handle(stream *slim_bindings.RequestStream, rpcContext *slim_bindings.Context, sink *slim_bindings.ResponseSink) error {
+	// Convert slim_bindings.Context to context.Context
+	ctx := context.Background()
+	
+	// Add deadline if present
+	if rpcContext.Deadline > 0 {
+		deadline := time.UnixMilli(int64(rpcContext.Deadline))
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, deadline)
+		defer cancel()
+	}
+	
+	// Add session to context
+	ctx = context.WithValue(ctx, sessionContextKey, rpcContext.Session)
+	
+	// Add metadata to context
+	ctx = context.WithValue(ctx, metadataContextKey, rpcContext.Metadata)
+	
 	serverStream := slimrpc.NewServerBidiStream[*ExampleRequest, *ExampleResponse](stream, sink)
-
-	err := h.impl.ExampleStreamStream(serverStream)
-
+	
+	err := h.impl.ExampleStreamStream(ctx, serverStream)
+	
 	// Close the stream after handler returns
 	closeErr := sink.CloseAsync()
 	if err == nil {
 		err = closeErr
 	}
-
+	
 	return err
 }
+
+

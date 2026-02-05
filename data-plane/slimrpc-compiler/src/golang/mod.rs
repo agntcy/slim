@@ -17,12 +17,33 @@ package {{PACKAGE}}
 import (
 	"context"
 	"fmt"
+	"time"
 	
 	slim_bindings "github.com/agntcy/slim-bindings-go"
 	"github.com/agntcy/slim-bindings-go/slimrpc"
 	"google.golang.org/protobuf/proto"
 {{PROTO_IMPORTS}}
 )
+
+// Context keys for accessing RPC context values
+type contextKey int
+
+const (
+	sessionContextKey contextKey = iota
+	metadataContextKey
+)
+
+// SessionFromContext extracts the session from the context
+func SessionFromContext(ctx context.Context) (string, bool) {
+	session, ok := ctx.Value(sessionContextKey).(string)
+	return session, ok
+}
+
+// MetadataFromContext extracts the metadata from the context
+func MetadataFromContext(ctx context.Context) (map[string]string, bool) {
+	metadata, ok := ctx.Value(metadataContextKey).(map[string]string)
+	return metadata, ok
+}
 
 {{SERVICE_DEFINITIONS}}
 "#;
@@ -154,8 +175,22 @@ func (h *{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler) Handle(request []byte, rpcCon
 		return nil, err
 	}
 	
+	// Convert slim_bindings.Context to context.Context
 	ctx := context.Background()
-	// TODO: Add deadline from rpcContext to ctx if needed
+	
+	// Add deadline if present
+	if rpcContext.Deadline > 0 {
+		deadline := time.UnixMilli(int64(rpcContext.Deadline))
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, deadline)
+		defer cancel()
+	}
+	
+	// Add session to context
+	ctx = context.WithValue(ctx, sessionContextKey, rpcContext.Session)
+	
+	// Add metadata to context
+	ctx = context.WithValue(ctx, metadataContextKey, rpcContext.Metadata)
 	
 	resp, err := h.impl.{{METHOD_NAME}}(ctx, req)
 	if err != nil {
@@ -172,29 +207,29 @@ const REGISTER_METHOD: &str = r#"	server.RegisterUnaryUnary("{{PACKAGE_NAME}}.{{
 const UNARY_UNARY_SERVER_METHOD: &str = r#"	{{METHOD_NAME}}(ctx context.Context, req *{{INPUT_TYPE}}) (*{{OUTPUT_TYPE}}, error)
 "#;
 
-const UNARY_STREAM_SERVER_METHOD: &str = r#"	{{METHOD_NAME}}(req *{{INPUT_TYPE}}, stream slimrpc.RequestStream[*{{OUTPUT_TYPE}}]) error
+const UNARY_STREAM_SERVER_METHOD: &str = r#"	{{METHOD_NAME}}(ctx context.Context, req *{{INPUT_TYPE}}, stream slimrpc.RequestStream[*{{OUTPUT_TYPE}}]) error
 "#;
 
-const STREAM_UNARY_SERVER_METHOD: &str = r#"	{{METHOD_NAME}}(stream slimrpc.ResponseStream[*{{INPUT_TYPE}}]) (*{{OUTPUT_TYPE}}, error)
+const STREAM_UNARY_SERVER_METHOD: &str = r#"	{{METHOD_NAME}}(ctx context.Context, stream slimrpc.ResponseStream[*{{INPUT_TYPE}}]) (*{{OUTPUT_TYPE}}, error)
 "#;
 
-const STREAM_STREAM_SERVER_METHOD: &str = r#"	{{METHOD_NAME}}(stream slimrpc.ServerBidiStream[*{{INPUT_TYPE}}, *{{OUTPUT_TYPE}}]) error
+const STREAM_STREAM_SERVER_METHOD: &str = r#"	{{METHOD_NAME}}(ctx context.Context, stream slimrpc.ServerBidiStream[*{{INPUT_TYPE}}, *{{OUTPUT_TYPE}}]) error
 "#;
 
 const UNIMPLEMENTED_UNARY_STREAM_METHOD: &str = r#"
-func (Unimplemented{{SERVICE_NAME}}Server) {{METHOD_NAME}}(req *{{INPUT_TYPE}}, stream slimrpc.RequestStream[*{{OUTPUT_TYPE}}]) error {
+func (Unimplemented{{SERVICE_NAME}}Server) {{METHOD_NAME}}(ctx context.Context, req *{{INPUT_TYPE}}, stream slimrpc.RequestStream[*{{OUTPUT_TYPE}}]) error {
 	return fmt.Errorf("method {{METHOD_NAME}} not implemented")
 }
 "#;
 
 const UNIMPLEMENTED_STREAM_UNARY_METHOD: &str = r#"
-func (Unimplemented{{SERVICE_NAME}}Server) {{METHOD_NAME}}(stream slimrpc.ResponseStream[*{{INPUT_TYPE}}]) (*{{OUTPUT_TYPE}}, error) {
+func (Unimplemented{{SERVICE_NAME}}Server) {{METHOD_NAME}}(ctx context.Context, stream slimrpc.ResponseStream[*{{INPUT_TYPE}}]) (*{{OUTPUT_TYPE}}, error) {
 	return nil, fmt.Errorf("method {{METHOD_NAME}} not implemented")
 }
 "#;
 
 const UNIMPLEMENTED_STREAM_STREAM_METHOD: &str = r#"
-func (Unimplemented{{SERVICE_NAME}}Server) {{METHOD_NAME}}(stream slimrpc.ServerBidiStream[*{{INPUT_TYPE}}, *{{OUTPUT_TYPE}}]) error {
+func (Unimplemented{{SERVICE_NAME}}Server) {{METHOD_NAME}}(ctx context.Context, stream slimrpc.ServerBidiStream[*{{INPUT_TYPE}}, *{{OUTPUT_TYPE}}]) error {
 	return fmt.Errorf("method {{METHOD_NAME}} not implemented")
 }
 "#;
@@ -210,8 +245,25 @@ func (h *{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler) Handle(request []byte, rpcCon
 		return err
 	}
 	
+	// Convert slim_bindings.Context to context.Context
+	ctx := context.Background()
+	
+	// Add deadline if present
+	if rpcContext.Deadline > 0 {
+		deadline := time.UnixMilli(int64(rpcContext.Deadline))
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, deadline)
+		defer cancel()
+	}
+	
+	// Add session to context
+	ctx = context.WithValue(ctx, sessionContextKey, rpcContext.Session)
+	
+	// Add metadata to context
+	ctx = context.WithValue(ctx, metadataContextKey, rpcContext.Metadata)
+	
 	stream := slimrpc.NewServerRequestStream[*{{OUTPUT_TYPE}}](sink)
-	err := h.impl.{{METHOD_NAME}}(req, stream)
+	err := h.impl.{{METHOD_NAME}}(ctx, req, stream)
 	
 	// Close the stream after handler returns
 	closeErr := sink.CloseAsync()
@@ -229,9 +281,26 @@ type {{SERVICE_NAME}}_{{METHOD_NAME}}_Handler struct {
 }
 
 func (h *{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler) Handle(stream *slim_bindings.RequestStream, rpcContext *slim_bindings.Context) ([]byte, error) {
+	// Convert slim_bindings.Context to context.Context
+	ctx := context.Background()
+	
+	// Add deadline if present
+	if rpcContext.Deadline > 0 {
+		deadline := time.UnixMilli(int64(rpcContext.Deadline))
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, deadline)
+		defer cancel()
+	}
+	
+	// Add session to context
+	ctx = context.WithValue(ctx, sessionContextKey, rpcContext.Session)
+	
+	// Add metadata to context
+	ctx = context.WithValue(ctx, metadataContextKey, rpcContext.Metadata)
+	
 	serverStream := slimrpc.NewServerResponseStream[*{{INPUT_TYPE}}](stream)
 	
-	resp, err := h.impl.{{METHOD_NAME}}(serverStream)
+	resp, err := h.impl.{{METHOD_NAME}}(ctx, serverStream)
 	if err != nil {
 		return nil, err
 	}
@@ -246,9 +315,26 @@ type {{SERVICE_NAME}}_{{METHOD_NAME}}_Handler struct {
 }
 
 func (h *{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler) Handle(stream *slim_bindings.RequestStream, rpcContext *slim_bindings.Context, sink *slim_bindings.ResponseSink) error {
+	// Convert slim_bindings.Context to context.Context
+	ctx := context.Background()
+	
+	// Add deadline if present
+	if rpcContext.Deadline > 0 {
+		deadline := time.UnixMilli(int64(rpcContext.Deadline))
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, deadline)
+		defer cancel()
+	}
+	
+	// Add session to context
+	ctx = context.WithValue(ctx, sessionContextKey, rpcContext.Session)
+	
+	// Add metadata to context
+	ctx = context.WithValue(ctx, metadataContextKey, rpcContext.Metadata)
+	
 	serverStream := slimrpc.NewServerBidiStream[*{{INPUT_TYPE}}, *{{OUTPUT_TYPE}}](stream, sink)
 	
-	err := h.impl.{{METHOD_NAME}}(serverStream)
+	err := h.impl.{{METHOD_NAME}}(ctx, serverStream)
 	
 	// Close the stream after handler returns
 	closeErr := sink.CloseAsync()

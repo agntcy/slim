@@ -28,7 +28,7 @@ func (s *TestServiceImpl) ExampleUnaryUnary(ctx context.Context, req *pb.Example
 	}, nil
 }
 
-func (s *TestServiceImpl) ExampleUnaryStream(req *pb.ExampleRequest, stream slimrpc.RequestStream[*pb.ExampleResponse]) error {
+func (s *TestServiceImpl) ExampleUnaryStream(ctx context.Context, req *pb.ExampleRequest, stream slimrpc.RequestStream[*pb.ExampleResponse]) error {
 	log.Printf("Received unary-stream request: %+v", req)
 
 	// Generate response stream
@@ -45,7 +45,7 @@ func (s *TestServiceImpl) ExampleUnaryStream(req *pb.ExampleRequest, stream slim
 	return nil
 }
 
-func (s *TestServiceImpl) ExampleStreamUnary(stream slimrpc.ResponseStream[*pb.ExampleRequest]) (*pb.ExampleResponse, error) {
+func (s *TestServiceImpl) ExampleStreamUnary(ctx context.Context, stream slimrpc.ResponseStream[*pb.ExampleRequest]) (*pb.ExampleResponse, error) {
 	log.Println("Received stream-unary request")
 
 	var sum int64
@@ -72,7 +72,7 @@ func (s *TestServiceImpl) ExampleStreamUnary(stream slimrpc.ResponseStream[*pb.E
 	}, nil
 }
 
-func (s *TestServiceImpl) ExampleStreamStream(stream slimrpc.ServerBidiStream[*pb.ExampleRequest, *pb.ExampleResponse]) error {
+func (s *TestServiceImpl) ExampleStreamStream(ctx context.Context, stream slimrpc.ServerBidiStream[*pb.ExampleRequest, *pb.ExampleResponse]) error {
 	log.Println("Received stream-stream request")
 
 	for {
