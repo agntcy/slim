@@ -11,7 +11,7 @@ use std::collections::HashMap;
 ///
 /// Metadata is a collection of key-value pairs that can be sent with RPC requests
 /// and responses. It's used for passing headers, authentication tokens, tracing IDs, etc.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, uniffi::Record)]
 pub struct Metadata {
     inner: HashMap<String, String>,
 }

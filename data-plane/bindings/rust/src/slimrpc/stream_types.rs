@@ -11,7 +11,7 @@ use futures::StreamExt;
 use parking_lot::Mutex;
 use tokio::sync::Mutex as TokioMutex;
 
-use super::{Code, RpcError, Status};
+use super::{Channel, Code, RpcError, Status};
 
 /// Request stream reader
 ///
@@ -227,7 +227,7 @@ pub struct RequestStreamWriter {
 
 impl RequestStreamWriter {
     pub fn new(
-        channel: super::Channel,
+        channel: Channel,
         service_name: String,
         method_name: String,
         timeout: Option<std::time::Duration>,
@@ -327,7 +327,7 @@ pub struct BidiStreamHandler {
 
 impl BidiStreamHandler {
     pub fn new(
-        channel: super::Channel,
+        channel: Channel,
         service_name: String,
         method_name: String,
         timeout: Option<std::time::Duration>,

@@ -12,7 +12,6 @@ use std::sync::Arc;
 use futures::future::join_all;
 use futures::stream::Stream;
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::BoxStream};
-
 use parking_lot::RwLock;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -20,14 +19,13 @@ use tokio::task::JoinHandle;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_datapath::messages::Name;
 use slim_service::app::App as SlimApp;
-
 use slim_session::errors::SessionError;
 use slim_session::notification::Notification;
 
-use crate::RpcError;
-
 use super::{
-    HandlerInfo, RpcContext, RpcSession, Status, StreamRpcSession,
+    Code, Context, HandlerInfo, RequestStream, ResponseSink, RpcError, RpcSession, Status,
+    StreamRpcSession, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler,
+    UnaryUnaryHandler, UniffiRequestStream, build_method_subscription_name,
     codec::{Decoder, Encoder},
     send_error,
     session_wrapper::new_session,
@@ -38,10 +36,10 @@ pub type ItemStream = BoxStream<'static, Result<Vec<u8>, Status>>;
 pub type ResponseStream = BoxFuture<'static, Result<HandlerResponse, Status>>;
 
 /// Handler function type for RPC methods (unary input)
-pub type RpcHandler = Arc<dyn Fn(Item, RpcContext) -> ResponseStream + Send + Sync>;
+pub type RpcHandler = Arc<dyn Fn(Item, Context) -> ResponseStream + Send + Sync>;
 
 /// Handler function type for stream-input RPC methods
-pub type StreamRpcHandler = Arc<dyn Fn(ItemStream, RpcContext) -> ResponseStream + Send + Sync>;
+pub type StreamRpcHandler = Arc<dyn Fn(ItemStream, Context) -> ResponseStream + Send + Sync>;
 
 /// Response from an RPC handler
 pub enum HandlerResponse {
@@ -105,14 +103,14 @@ impl ServiceRegistry {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(Req, RpcContext) -> Fut + Send + Sync + 'static,
+        F: Fn(Req, Context) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<Res, Status>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
     {
         let method_path = format!("{}/{}", service_name, method_name);
         let handler = Arc::new(handler);
-        let wrapper = Arc::new(move |bytes: Vec<u8>, ctx: RpcContext| {
+        let wrapper = Arc::new(move |bytes: Vec<u8>, ctx: Context| {
             let handler = Arc::clone(&handler);
             async move {
                 let request = Req::decode(bytes)?;
@@ -134,7 +132,7 @@ impl ServiceRegistry {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(Req, RpcContext) -> Fut + Send + Sync + 'static,
+        F: Fn(Req, Context) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<S, Status>> + Send + 'static,
         S: Stream<Item = Result<Res, Status>> + Send + 'static,
         Req: Decoder + Send + 'static,
@@ -142,7 +140,7 @@ impl ServiceRegistry {
     {
         let method_path = format!("{}/{}", service_name, method_name);
         let handler = Arc::new(handler);
-        let wrapper = Arc::new(move |bytes: Vec<u8>, ctx: RpcContext| {
+        let wrapper = Arc::new(move |bytes: Vec<u8>, ctx: Context| {
             let handler = Arc::clone(&handler);
             async move {
                 let request = Req::decode(bytes)?;
@@ -166,14 +164,14 @@ impl ServiceRegistry {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(super::RequestStream<Req>, RpcContext) -> Fut + Send + Sync + 'static,
+        F: Fn(RequestStream<Req>, Context) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<Res, Status>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
     {
         let method_path = format!("{}/{}", service_name, method_name);
         let handler = Arc::new(handler);
-        let wrapper = Arc::new(move |stream: ItemStream, ctx: RpcContext| {
+        let wrapper = Arc::new(move |stream: ItemStream, ctx: Context| {
             let handler = Arc::clone(&handler);
             async move {
                 let mapped = stream.map(|res| res.and_then(|bytes| Req::decode(bytes)));
@@ -196,7 +194,7 @@ impl ServiceRegistry {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(super::RequestStream<Req>, RpcContext) -> Fut + Send + Sync + 'static,
+        F: Fn(RequestStream<Req>, Context) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<S, Status>> + Send + 'static,
         S: Stream<Item = Result<Res, Status>> + Send + 'static,
         Req: Decoder + Send + 'static,
@@ -204,7 +202,7 @@ impl ServiceRegistry {
     {
         let method_path = format!("{}/{}", service_name, method_name);
         let handler = Arc::new(handler);
-        let wrapper = Arc::new(move |stream: ItemStream, ctx: RpcContext| {
+        let wrapper = Arc::new(move |stream: ItemStream, ctx: Context| {
             let handler = Arc::clone(&handler);
             async move {
                 let mapped = stream.map(|res| res.and_then(|bytes| Req::decode(bytes)));
@@ -458,7 +456,7 @@ impl Server {
     fn register_method_mapping(&self, service_name: &str, method_name: &str) {
         // Build subscription name and register mapping
         let subscription_name =
-            super::build_method_subscription_name(&self.base_name, service_name, method_name);
+            build_method_subscription_name(&self.base_name, service_name, method_name);
         let method_path = format!("{}/{}", service_name, method_name);
         self.registry
             .write()
@@ -516,7 +514,7 @@ impl Server {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(Req, RpcContext) -> Fut + Send + Sync + 'static,
+        F: Fn(Req, Context) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<Res, Status>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
@@ -581,7 +579,7 @@ impl Server {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(Req, RpcContext) -> Fut + Send + Sync + 'static,
+        F: Fn(Req, Context) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<S, Status>> + Send + 'static,
         S: Stream<Item = Result<Res, Status>> + Send + 'static,
         Req: Decoder + Send + 'static,
@@ -650,7 +648,7 @@ impl Server {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(super::RequestStream<Req>, RpcContext) -> Fut + Send + Sync + 'static,
+        F: Fn(RequestStream<Req>, Context) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<Res, Status>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
@@ -729,7 +727,7 @@ impl Server {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(super::RequestStream<Req>, RpcContext) -> Fut + Send + Sync + 'static,
+        F: Fn(RequestStream<Req>, Context) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<S, Status>> + Send + 'static,
         S: Stream<Item = Result<Res, Status>> + Send + 'static,
         Req: Decoder + Send + 'static,
@@ -1143,9 +1141,8 @@ impl Server {
         &self,
         service_name: String,
         method_name: String,
-        handler: Arc<dyn super::UnaryUnaryHandler>,
+        handler: Arc<dyn UnaryUnaryHandler>,
     ) {
-        let handler_clone = handler.clone();
         let service_clone = service_name.clone();
         let method_clone = method_name.clone();
 
@@ -1154,15 +1151,12 @@ impl Server {
         self.register_unary_unary_internal(
             &service_name,
             &method_name,
-            move |request: Vec<u8>, context: super::RpcContext| {
-                let handler = handler_clone.clone();
-                let ctx = super::Context::new(context);
-
+            move |request: Vec<u8>, context: Context| {
+                let handler = handler.clone();
                 tracing::debug!(service = %service_clone, method = %method_clone, "Handling unary-unary request");
 
                 Box::pin(async move {
-                    let result = handler.handle(request, Arc::new(ctx)).await;
-                    result.map_err(|e| e.into())
+                    handler.handle(request, Arc::new(context)).await.map_err(|e| e.into())
                 })
             },
         );
@@ -1178,27 +1172,25 @@ impl Server {
         &self,
         service_name: String,
         method_name: String,
-        handler: Arc<dyn super::UnaryStreamHandler>,
+        handler: Arc<dyn UnaryStreamHandler>,
     ) {
-        let handler_clone = handler.clone();
-
         self.register_unary_stream_internal(
             &service_name,
             &method_name,
-            move |request: Vec<u8>, context: super::RpcContext| {
-                let handler = handler_clone.clone();
-                let ctx = super::Context::new(context);
+            move |request: Vec<u8>, context: Context| {
+                let handler = handler.clone();
 
                 Box::pin(async move {
-                    let (sink, rx) = super::ResponseSink::receiver();
+                    let (sink, rx) = ResponseSink::receiver();
                     let sink_arc = Arc::new(sink);
 
                     // Spawn a task to run the handler
                     let handler_task = {
                         let sink = sink_arc.clone();
                         crate::get_runtime().spawn(async move {
-                            if let Err(e) =
-                                handler.handle(request, Arc::new(ctx), sink.clone()).await
+                            if let Err(e) = handler
+                                .handle(request, Arc::new(context), sink.clone())
+                                .await
                             {
                                 let _ = sink.send_error_async(e).await;
                             }
@@ -1226,21 +1218,20 @@ impl Server {
         &self,
         service_name: String,
         method_name: String,
-        handler: Arc<dyn super::StreamUnaryHandler>,
+        handler: Arc<dyn StreamUnaryHandler>,
     ) {
-        let handler_clone = handler.clone();
-
         self.register_stream_unary_internal(
             &service_name,
             &method_name,
-            move |stream: super::RequestStream<Vec<u8>>, context: super::RpcContext| {
-                let handler = handler_clone.clone();
-                let ctx = super::Context::new(context);
-                let request_stream = Arc::new(super::UniffiRequestStream::new(stream));
+            move |stream: RequestStream<Vec<u8>>, context: Context| {
+                let handler = handler.clone();
+                let request_stream = Arc::new(UniffiRequestStream::new(stream));
 
                 Box::pin(async move {
-                    let result = handler.handle(request_stream, Arc::new(ctx)).await;
-                    result.map_err(|e| e.into())
+                    handler
+                        .handle(request_stream, Arc::new(context))
+                        .await
+                        .map_err(|e| e.into())
                 })
             },
         );
@@ -1256,20 +1247,17 @@ impl Server {
         &self,
         service_name: String,
         method_name: String,
-        handler: Arc<dyn super::StreamStreamHandler>,
+        handler: Arc<dyn StreamStreamHandler>,
     ) {
-        let handler_clone = handler.clone();
-
         self.register_stream_stream_internal(
             &service_name,
             &method_name,
-            move |stream: super::RequestStream<Vec<u8>>, context: super::RpcContext| {
-                let handler = handler_clone.clone();
-                let ctx = super::Context::new(context);
-                let request_stream = Arc::new(super::UniffiRequestStream::new(stream));
+            move |stream: RequestStream<Vec<u8>>, context: Context| {
+                let handler = handler.clone();
+                let request_stream = Arc::new(UniffiRequestStream::new(stream));
 
                 Box::pin(async move {
-                    let (sink, rx) = super::ResponseSink::receiver();
+                    let (sink, rx) = ResponseSink::receiver();
                     let sink_arc = Arc::new(sink);
 
                     // Spawn a task to run the handler
@@ -1277,7 +1265,7 @@ impl Server {
                         let sink = sink_arc.clone();
                         crate::get_runtime().spawn(async move {
                             if let Err(e) = handler
-                                .handle(request_stream, Arc::new(ctx), sink.clone())
+                                .handle(request_stream, Arc::new(context), sink.clone())
                                 .await
                             {
                                 let _ = sink.send_error_async(e).await;
@@ -1300,7 +1288,7 @@ impl Server {
     ///
     /// This is a blocking method that runs until the server is shut down.
     /// It listens for incoming RPC calls and dispatches them to registered handlers.
-    pub fn serve(&self) -> Result<(), super::RpcError> {
+    pub fn serve(&self) -> Result<(), RpcError> {
         crate::get_runtime().block_on(self.serve_async())
     }
 
@@ -1308,22 +1296,19 @@ impl Server {
     ///
     /// This is an async method that runs until the server is shut down.
     /// It listens for incoming RPC calls and dispatches them to registered handlers.
-    pub async fn serve_async(&self) -> Result<(), super::RpcError> {
+    pub async fn serve_async(&self) -> Result<(), RpcError> {
         let handle = self.serve_handle()?;
 
         // Wait for the server task to complete and restore the NotificationReceiver
-        let (notification_rx, result) = handle.await.map_err(|e| {
-            super::RpcError::new(
-                super::Code::Internal,
-                format!("Server task panicked: {}", e),
-            )
-        })?;
+        let (notification_rx, result) = handle
+            .await
+            .map_err(|e| RpcError::new(Code::Internal, format!("Server task panicked: {}", e)))?;
 
         // Restore the NotificationReceiver back to the server
         *self.notification_rx.lock() = Some(notification_rx);
 
         // Return the result from the server task
-        result.map_err(|e| super::RpcError::new(super::Code::Internal, e.to_string()))
+        result.map_err(|e| RpcError::new(Code::Internal, e.to_string()))
     }
 
     /// Shutdown the server gracefully (blocking version)

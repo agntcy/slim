@@ -13,7 +13,7 @@ use async_stream::stream;
 use futures::StreamExt;
 
 use super::{
-    Code, HandlerResponse, HandlerType, ItemStream, MAX_TIMEOUT, RpcContext, RpcHandler,
+    Code, Context, HandlerResponse, HandlerType, ItemStream, ReceivedMessage, RpcHandler,
     STATUS_CODE_KEY, SessionRx, SessionTx, Status, StreamRpcHandler,
 };
 
@@ -31,7 +31,7 @@ pub struct RpcSession<'a> {
     session_tx: &'a SessionTx,
     session_rx: &'a mut SessionRx,
     method_path: String,
-    ctx: RpcContext,
+    ctx: Context,
 }
 
 impl<'a> RpcSession<'a> {
@@ -41,7 +41,7 @@ impl<'a> RpcSession<'a> {
         session_rx: &'a mut SessionRx,
         method_path: String,
     ) -> Self {
-        let ctx = RpcContext::from_session_tx(session_tx);
+        let ctx = Context::from_session_tx(session_tx);
         Self {
             session_tx,
             session_rx,
@@ -197,7 +197,7 @@ impl<'a> RpcSession<'a> {
     }
 
     /// Receive first message from session
-    async fn receive_first_message(&mut self) -> Result<super::ReceivedMessage, Status> {
+    async fn receive_first_message(&mut self) -> Result<ReceivedMessage, Status> {
         self.session_rx.get_message(None).await.map_err(|e| {
             tracing::debug!(error = %e, "Session closed or error receiving message");
             Status::internal(format!("Failed to receive message: {}", e))
@@ -212,9 +212,17 @@ impl<'a> RpcSession<'a> {
     }
 
     /// Get timeout duration from context
-    fn get_timeout_duration(ctx: &RpcContext) -> std::time::Duration {
-        ctx.remaining_time()
-            .unwrap_or(std::time::Duration::from_secs(MAX_TIMEOUT))
+    ///
+    /// Returns the remaining time from context, or a minimum grace period if deadline passed
+    fn get_timeout_duration(ctx: &Context) -> std::time::Duration {
+        let remaining = ctx.remaining_time();
+        // If deadline has passed (remaining is ZERO), use a small grace period
+        // Otherwise use the remaining time
+        if remaining.is_zero() {
+            std::time::Duration::from_secs(1)
+        } else {
+            remaining
+        }
     }
 }
 
@@ -226,13 +234,13 @@ pub struct StreamRpcSession<'a> {
     session_tx: &'a SessionTx,
     session_rx: SessionRx,
     method_path: String,
-    ctx: RpcContext,
+    ctx: Context,
 }
 
 impl<'a> StreamRpcSession<'a> {
     /// Create a new RPC session handler for stream-based methods
     pub fn new(session_tx: &'a SessionTx, session_rx: SessionRx, method_path: String) -> Self {
-        let ctx = RpcContext::from_session_tx(session_tx);
+        let ctx = Context::from_session_tx(session_tx);
         Self {
             session_tx,
             session_rx,
@@ -428,9 +436,17 @@ impl<'a> StreamRpcSession<'a> {
     }
 
     /// Get timeout duration from context
-    fn get_timeout_duration(ctx: &RpcContext) -> std::time::Duration {
-        ctx.remaining_time()
-            .unwrap_or(std::time::Duration::from_secs(MAX_TIMEOUT))
+    ///
+    /// Returns the remaining time from context, or a minimum grace period if deadline passed
+    fn get_timeout_duration(ctx: &Context) -> std::time::Duration {
+        let remaining = ctx.remaining_time();
+        // If deadline has passed (remaining is ZERO), use a small grace period
+        // Otherwise use the remaining time
+        if remaining.is_zero() {
+            std::time::Duration::from_secs(1)
+        } else {
+            remaining
+        }
     }
 }
 

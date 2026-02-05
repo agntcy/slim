@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use async_stream::try_stream;
 use display_error_chain::ErrorChainExt;
@@ -23,7 +23,9 @@ use slim_datapath::messages::Name;
 use slim_service::app::App as SlimApp;
 
 use super::{
-    Code, MAX_TIMEOUT, Metadata, RpcContext, STATUS_CODE_KEY, Status,
+    BidiStreamHandler, Code, Context, Metadata, ReceivedMessage, RequestStreamWriter,
+    ResponseStreamReader, RpcError, STATUS_CODE_KEY, Status, build_method_subscription_name,
+    calculate_deadline, calculate_timeout_duration,
     codec::{Decoder, Encoder},
     session_wrapper::{SessionRx, SessionTx, new_session},
 };
@@ -115,11 +117,6 @@ impl Channel {
         }
     }
 
-    /// Calculate timeout duration from optional timeout
-    fn calculate_timeout_duration(timeout: Option<Duration>) -> Duration {
-        timeout.unwrap_or(Duration::from_secs(MAX_TIMEOUT))
-    }
-
     /// Close session and ignore errors
     async fn close_session_safe(
         session: &SessionTx,
@@ -129,10 +126,7 @@ impl Channel {
     }
 
     /// Check if received message is end-of-stream or error
-    fn check_stream_message(
-        &self,
-        received: &super::ReceivedMessage,
-    ) -> Result<Option<()>, Status> {
+    fn check_stream_message(&self, received: &ReceivedMessage) -> Result<Option<()>, Status> {
         let code = self.parse_status_code(received.metadata.get(STATUS_CODE_KEY))?;
 
         // Empty message with OK code signals end of stream
@@ -205,7 +199,7 @@ impl Channel {
         tracing::debug!(%service_name, %method_name, "Creating session for unary RPC");
 
         // Calculate timeout duration
-        let timeout_duration = Self::calculate_timeout_duration(timeout);
+        let timeout_duration = calculate_timeout_duration(timeout);
         let mut delay = Delay::new(timeout_duration);
 
         // Create context first so we can pass deadline in session metadata
@@ -308,7 +302,7 @@ impl Channel {
 
         try_stream! {
             // Calculate timeout duration
-            let timeout_duration = Self::calculate_timeout_duration(timeout);
+            let timeout_duration = calculate_timeout_duration(timeout);
             let mut delay = Delay::new(timeout_duration);
 
             // Create context first so we can pass deadline in session metadata
@@ -426,7 +420,7 @@ impl Channel {
         Res: Decoder,
     {
         // Calculate timeout duration
-        let timeout_duration = Self::calculate_timeout_duration(timeout);
+        let timeout_duration = calculate_timeout_duration(timeout);
         let mut delay = Delay::new(timeout_duration);
 
         // Create context first so we can pass deadline in session metadata
@@ -535,7 +529,7 @@ impl Channel {
 
         try_stream! {
             // Calculate timeout duration
-            let timeout_duration = Self::calculate_timeout_duration(timeout);
+            let timeout_duration = calculate_timeout_duration(timeout);
             let mut delay = Delay::new(timeout_duration);
 
             // Create context first so we can pass deadline in session metadata
@@ -614,7 +608,7 @@ impl Channel {
         &self,
         service_name: &str,
         method_name: &str,
-        ctx: &RpcContext,
+        ctx: &Context,
     ) -> Result<(SessionTx, SessionRx), Status> {
         let service_name = service_name.to_string();
         let method_name = method_name.to_string();
@@ -628,7 +622,7 @@ impl Channel {
         let handle = runtime.spawn(async move {
             // Build method-specific subscription name (e.g., org/namespace/app-Service-Method)
             let method_subscription_name =
-                super::build_method_subscription_name(&remote, &service_name, &method_name);
+                build_method_subscription_name(&remote, &service_name, &method_name);
 
             // Set route if connection_id is provided
             if let Some(conn_id) = connection_id {
@@ -666,7 +660,7 @@ impl Channel {
                 max_retries: Some(3),
                 interval: Some(Duration::from_secs(1)),
                 initiator: true,
-                metadata: ctx.metadata().as_map().clone(),
+                metadata: ctx.metadata(),
             };
 
             // Create session to the method-specific subscription name
@@ -697,15 +691,12 @@ impl Channel {
         &self,
         timeout: Option<Duration>,
         metadata: Option<Metadata>,
-    ) -> RpcContext {
+    ) -> Context {
         // Calculate deadline for this RPC call
-        let timeout_duration = timeout.unwrap_or(Duration::from_secs(MAX_TIMEOUT));
-        let deadline = SystemTime::now()
-            .checked_add(timeout_duration)
-            .unwrap_or_else(|| SystemTime::now() + Duration::from_secs(MAX_TIMEOUT));
+        let deadline = calculate_deadline(timeout);
 
         // Create a new context with the deadline
-        let mut ctx = RpcContext::new();
+        let mut ctx = Context::new();
         ctx.set_deadline(deadline);
 
         // Merge in user metadata
@@ -777,7 +768,7 @@ impl Channel {
     async fn send_request<Req>(
         &self,
         session: &SessionTx,
-        _ctx: &RpcContext,
+        _ctx: &Context,
         request: Req,
         service_name: &str,
         method_name: &str,
@@ -807,7 +798,7 @@ impl Channel {
     async fn send_request_stream<Req>(
         &self,
         session: &SessionTx,
-        _ctx: &RpcContext,
+        _ctx: &Context,
         request_stream: impl Stream<Item = Req> + Send + 'static,
         service_name: &str,
         method_name: &str,
@@ -948,7 +939,7 @@ impl Channel {
         method_name: String,
         request: Vec<u8>,
         timeout: Option<std::time::Duration>,
-    ) -> Result<Vec<u8>, super::RpcError> {
+    ) -> Result<Vec<u8>, RpcError> {
         crate::get_runtime().block_on(self.call_unary_async(
             service_name,
             method_name,
@@ -973,7 +964,7 @@ impl Channel {
         method_name: String,
         request: Vec<u8>,
         timeout: Option<std::time::Duration>,
-    ) -> Result<Vec<u8>, super::RpcError> {
+    ) -> Result<Vec<u8>, RpcError> {
         Ok(self
             .unary(&service_name, &method_name, request, timeout, None)
             .await?)
@@ -999,7 +990,7 @@ impl Channel {
         method_name: String,
         request: Vec<u8>,
         timeout: Option<std::time::Duration>,
-    ) -> Result<std::sync::Arc<super::ResponseStreamReader>, super::RpcError> {
+    ) -> Result<std::sync::Arc<ResponseStreamReader>, RpcError> {
         crate::get_runtime().block_on(self.call_unary_stream_async(
             service_name,
             method_name,
@@ -1028,7 +1019,7 @@ impl Channel {
         method_name: String,
         request: Vec<u8>,
         timeout: Option<std::time::Duration>,
-    ) -> Result<std::sync::Arc<super::ResponseStreamReader>, super::RpcError> {
+    ) -> Result<std::sync::Arc<ResponseStreamReader>, RpcError> {
         let channel = self.clone();
 
         // Create a channel to transfer stream items
@@ -1053,7 +1044,7 @@ impl Channel {
             }
         });
 
-        Ok(std::sync::Arc::new(super::ResponseStreamReader::new(rx)))
+        Ok(std::sync::Arc::new(ResponseStreamReader::new(rx)))
     }
 
     /// Make a stream-to-unary RPC call (blocking version)
@@ -1074,8 +1065,8 @@ impl Channel {
         service_name: String,
         method_name: String,
         timeout: Option<std::time::Duration>,
-    ) -> std::sync::Arc<super::RequestStreamWriter> {
-        std::sync::Arc::new(super::RequestStreamWriter::new(
+    ) -> std::sync::Arc<RequestStreamWriter> {
+        std::sync::Arc::new(RequestStreamWriter::new(
             self.clone(),
             service_name,
             method_name,
@@ -1101,8 +1092,8 @@ impl Channel {
         service_name: String,
         method_name: String,
         timeout: Option<std::time::Duration>,
-    ) -> std::sync::Arc<super::BidiStreamHandler> {
-        std::sync::Arc::new(super::BidiStreamHandler::new(
+    ) -> std::sync::Arc<BidiStreamHandler> {
+        std::sync::Arc::new(BidiStreamHandler::new(
             self.clone(),
             service_name,
             method_name,

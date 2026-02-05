@@ -6,12 +6,15 @@
 //! Provides context information for RPC handlers including metadata, deadlines,
 //! session information, and message routing details.
 
-use std::time::{Duration, SystemTime};
+use std::{
+    collections::HashMap,
+    time::{Duration, SystemTime},
+};
 
 use slim_datapath::messages::Name;
 use slim_session::context::SessionContext as SlimSessionContext;
 
-use super::{DEADLINE_KEY, Metadata};
+use super::{DEADLINE_KEY, Metadata, SessionTx, calculate_deadline};
 
 /// Context passed to RPC handlers
 ///
@@ -20,34 +23,71 @@ use super::{DEADLINE_KEY, Metadata};
 /// - Metadata (key-value pairs)
 /// - Deadline/timeout information
 /// - Message routing details
-#[derive(Debug, Clone)]
-pub struct RpcContext {
+#[derive(Debug, Clone, uniffi::Object)]
+pub struct Context {
     /// Session context information
     session: SessionContext,
     /// Request metadata
     metadata: Metadata,
-    /// Deadline for the RPC call
-    deadline: Option<SystemTime>,
+    /// Deadline for the RPC call (always set, defaults to now + MAX_TIMEOUT)
+    deadline: SystemTime,
 }
 
-impl Default for RpcContext {
+impl Default for Context {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl RpcContext {
-    /// Create a new empty context
+#[uniffi::export]
+impl Context {
+    /// Get the session ID
+    pub fn session_id(&self) -> String {
+        self.session.session_id().to_string()
+    }
+
+    /// Get the rpc session metadata
+    pub fn metadata(&self) -> HashMap<String, String> {
+        self.metadata.clone().into()
+    }
+
+    /// Get the deadline for this RPC call
+    pub fn deadline(&self) -> SystemTime {
+        self.deadline
+    }
+
+    /// Get the remaining time until deadline
+    ///
+    /// Returns Duration::ZERO if the deadline has already passed
+    pub fn remaining_time(&self) -> Duration {
+        self.deadline
+            .duration_since(SystemTime::now())
+            .unwrap_or(Duration::ZERO)
+    }
+
+    /// Check if the deadline has been exceeded
+    pub fn is_deadline_exceeded(&self) -> bool {
+        SystemTime::now() > self.deadline
+    }
+}
+
+impl Context {
+    /// Create a new empty context with default deadline (now + MAX_TIMEOUT)
     pub fn new() -> Self {
-        Self {
-            session: SessionContext {
-                session_id: String::new(),
-                source: Name::from_strings(["", "", ""]),
-                destination: Name::from_strings(["", "", ""]),
-                metadata: Metadata::new(),
-            },
+        Self::with_session(SessionContext {
+            session_id: String::new(),
+            source: Name::from_strings(["", "", ""]),
+            destination: Name::from_strings(["", "", ""]),
             metadata: Metadata::new(),
-            deadline: None,
+        })
+    }
+
+    /// Create a new context with a session context and default deadline
+    pub fn with_session(session: SessionContext) -> Self {
+        Self {
+            session,
+            metadata: Metadata::new(),
+            deadline: calculate_deadline(None),
         }
     }
 
@@ -60,7 +100,7 @@ impl RpcContext {
         } else {
             Metadata::new()
         };
-        let deadline = Self::parse_deadline(&metadata);
+        let deadline = Self::parse_deadline(&metadata).unwrap_or(calculate_deadline(None));
 
         Self {
             session: SessionContext::from_session(session),
@@ -70,13 +110,13 @@ impl RpcContext {
     }
 
     /// Create a new context from a SessionRx wrapper
-    pub fn from_session_tx(session: &super::SessionTx) -> Self {
+    pub fn from_session_tx(session: &SessionTx) -> Self {
         let session_id = session.session_id().to_string();
         let source = session.source();
         let destination = session.destination();
         let metadata_map = session.metadata();
         let metadata = Metadata::from_map(metadata_map);
-        let deadline = Self::parse_deadline(&metadata);
+        let deadline = Self::parse_deadline(&metadata).unwrap_or(calculate_deadline(None));
 
         Self {
             session: SessionContext {
@@ -99,7 +139,7 @@ impl RpcContext {
         // Merge message metadata into context metadata
         self.metadata.merge(msg_meta);
         // Re-parse deadline from merged metadata (message metadata takes precedence)
-        self.deadline = Self::parse_deadline(&self.metadata);
+        self.deadline = Self::parse_deadline(&self.metadata).unwrap_or(calculate_deadline(None));
         self
     }
 
@@ -109,42 +149,13 @@ impl RpcContext {
     }
 
     /// Get the request metadata
-    pub fn metadata(&self) -> &Metadata {
+    pub fn metadata_ref(&self) -> &Metadata {
         &self.metadata
     }
 
     /// Get a mutable reference to metadata
     pub fn metadata_mut(&mut self) -> &mut Metadata {
         &mut self.metadata
-    }
-
-    /// Get the deadline for this RPC call
-    pub fn deadline(&self) -> Option<SystemTime> {
-        self.deadline
-    }
-
-    /// Get the remaining time until deadline
-    pub fn remaining_time(&self) -> Option<Duration> {
-        self.deadline.and_then(|deadline| {
-            SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .ok()
-                .and_then(|now| {
-                    deadline
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .ok()
-                        .and_then(|d| d.checked_sub(now))
-                })
-        })
-    }
-
-    /// Check if the deadline has been exceeded
-    pub fn is_deadline_exceeded(&self) -> bool {
-        if let Some(deadline) = self.deadline {
-            SystemTime::now() > deadline
-        } else {
-            false
-        }
     }
 
     /// Parse deadline from metadata
@@ -158,7 +169,7 @@ impl RpcContext {
 
     /// Set the deadline
     pub fn set_deadline(&mut self, deadline: SystemTime) {
-        self.deadline = Some(deadline);
+        self.deadline = deadline;
         let seconds = deadline
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
@@ -248,7 +259,7 @@ mod tests {
             .as_secs_f64();
         metadata.insert(DEADLINE_KEY, seconds.to_string());
 
-        let parsed = RpcContext::parse_deadline(&metadata);
+        let parsed = Context::parse_deadline(&metadata);
         assert!(parsed.is_some());
     }
 
@@ -264,7 +275,7 @@ mod tests {
             .as_secs_f64();
         metadata.insert(DEADLINE_KEY, seconds.to_string());
 
-        let deadline = RpcContext::parse_deadline(&metadata);
+        let deadline = Context::parse_deadline(&metadata);
         assert!(deadline.is_some());
         if let Some(d) = deadline {
             assert!(SystemTime::now() > d);
@@ -281,14 +292,9 @@ mod tests {
             metadata: Metadata::from_map(session_metadata),
         };
 
-        let mut ctx = RpcContext {
-            session: ctx_session,
-            metadata: Metadata::new(),
-            deadline: None,
-        };
+        let mut ctx = Context::with_session(ctx_session);
 
         ctx.set_timeout(Duration::from_secs(30));
-        assert!(ctx.deadline().is_some());
         assert!(!ctx.is_deadline_exceeded());
     }
 
@@ -302,18 +308,11 @@ mod tests {
             metadata: Metadata::from_map(session_metadata),
         };
 
-        let mut ctx = RpcContext {
-            session: ctx_session,
-            metadata: Metadata::new(),
-            deadline: None,
-        };
+        let mut ctx = Context::with_session(ctx_session);
 
         ctx.set_timeout(Duration::from_secs(60));
         let remaining = ctx.remaining_time();
-        assert!(remaining.is_some());
-        if let Some(r) = remaining {
-            // Should be close to 60 seconds, allow some margin
-            assert!(r.as_secs() >= 59 && r.as_secs() <= 60);
-        }
+        // Should be close to 60 seconds, allow some margin
+        assert!(remaining.as_secs() >= 59 && remaining.as_secs() <= 60);
     }
 }

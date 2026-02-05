@@ -8,32 +8,10 @@
 
 use std::sync::Arc;
 
-use super::stream_types::{RequestStream, ResponseSink};
-use super::{RpcContext, RpcError};
-
-/// UniFFI-compatible wrapper for Context
-#[derive(Clone, uniffi::Object)]
-pub struct Context {
-    inner: RpcContext,
-}
-
-impl Context {
-    pub fn new(context: RpcContext) -> Self {
-        Self { inner: context }
-    }
-
-    pub fn inner(&self) -> &RpcContext {
-        &self.inner
-    }
-}
-
-#[uniffi::export]
-impl Context {
-    /// Get the session ID
-    pub fn session_id(&self) -> String {
-        self.inner.session().session_id().to_string()
-    }
-}
+use super::{
+    Context, RpcError,
+    stream_types::{RequestStream, ResponseSink},
+};
 
 /// Unary-to-Unary RPC handler trait
 ///

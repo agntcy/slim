@@ -104,7 +104,7 @@ pub use session::{Session, SessionConfig, SessionType};
 pub use slimrpc::{
     BidiStreamHandler, Channel, Code, Codec, Context, DEADLINE_KEY, Decoder, Encoder,
     HandlerResponse, HandlerType, MAX_TIMEOUT, Metadata, RequestStreamWriter, ResponseSink,
-    ResponseStream, ResponseStreamReader, RpcContext, RpcError, STATUS_CODE_KEY, Server,
+    ResponseStream, ResponseStreamReader, RpcError, STATUS_CODE_KEY, Server,
     SessionContext as RpcSessionContext, Status, StatusError, StreamMessage, StreamStreamHandler,
     StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
     UniffiRequestStream as RequestStream, build_method_subscription_name,

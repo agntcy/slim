@@ -142,7 +142,7 @@ mod stream_types;
 
 pub use channel::Channel;
 pub use codec::{Codec, Decoder, Encoder};
-pub use context::{RpcContext, SessionContext};
+pub use context::{Context, SessionContext};
 pub use metadata::Metadata;
 pub use rpc_session::{HandlerInfo, RpcSession, StreamRpcSession, send_error};
 pub use server::{HandlerResponse, HandlerType, ItemStream, RpcHandler, Server, StreamRpcHandler};
@@ -151,7 +151,7 @@ pub use status::{Code, RpcError, Status, StatusError};
 
 // UniFFI handler traits and stream types
 pub use handler_traits::{
-    Context, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
+    StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
 };
 pub use stream_types::{
     BidiStreamHandler, RequestStream as UniffiRequestStream, RequestStreamWriter, ResponseSink,
@@ -165,7 +165,27 @@ pub const DEADLINE_KEY: &str = "slimrpc-timeout";
 pub const STATUS_CODE_KEY: &str = "slimrpc-code";
 
 /// Maximum timeout in seconds (10 hours)
-pub const MAX_TIMEOUT: u64 = 36000;
+pub const MAX_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(36000);
+
+/// Calculate timeout duration from optional timeout
+///
+/// Returns the provided timeout or MAX_TIMEOUT if None.
+/// This is the single point of truth for timeout duration calculation in SlimRPC.
+pub fn calculate_timeout_duration(timeout: Option<std::time::Duration>) -> std::time::Duration {
+    timeout.unwrap_or(MAX_TIMEOUT)
+}
+
+/// Calculate deadline from optional timeout duration
+///
+/// Returns now + timeout_duration (or now + MAX_TIMEOUT if None).
+/// If overflow occurs, falls back to now + MAX_TIMEOUT.
+/// This is the single point of truth for deadline calculation in SlimRPC.
+pub fn calculate_deadline(timeout: Option<std::time::Duration>) -> std::time::SystemTime {
+    let timeout_duration = timeout.unwrap_or(MAX_TIMEOUT);
+    std::time::SystemTime::now()
+        .checked_add(timeout_duration)
+        .unwrap_or_else(|| std::time::SystemTime::now() + MAX_TIMEOUT)
+}
 
 /// Result type for SlimRPC operations
 pub type Result<T> = std::result::Result<T, Status>;
