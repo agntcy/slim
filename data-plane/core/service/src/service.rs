@@ -434,6 +434,11 @@ impl Service {
     pub fn get_connection_id(&self, endpoint: &str) -> Option<u64> {
         self.clients.read().get(endpoint).cloned()
     }
+
+    #[cfg(test)]
+    pub(crate) fn message_processor(&self) -> &Arc<MessageProcessor> {
+        &self.message_processor
+    }
 }
 
 #[async_trait::async_trait]

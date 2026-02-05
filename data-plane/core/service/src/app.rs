@@ -1544,4 +1544,278 @@ mod tests {
         // The invite mechanism is verified above
         tracing::info!("All invite tests passed!");
     }
+
+    /// E2E test to verify MLS encryption is working correctly
+    /// Creates a "spy" as a raw local connection that intercepts messages
+    /// Verifies that:
+    /// 1. When MLS is ENABLED: messages are encrypted and spy cannot read plaintext
+    /// 2. When MLS is DISABLED: messages are plaintext and spy can read them
+    /// 3. Legitimate participants can always read messages (decrypt if needed)
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_mls_encryption_with_spy_enabled() {
+        test_mls_with_spy(true).await;
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn test_mls_encryption_with_spy_disabled() {
+        test_mls_with_spy(false).await;
+    }
+
+    async fn test_mls_with_spy(mls_enabled: bool) {
+        use crate::service::Service;
+        use slim_config::component::id::{ID, Kind};
+        use slim_datapath::api::ProtoMessage;
+
+        // Create a service instance with unique name per test
+        let service_name = format!(
+            "test-service-mls-spy-{}",
+            if mls_enabled { "enabled" } else { "disabled" }
+        );
+        let id = ID::new_with_name(Kind::new("slim").unwrap(), &service_name).unwrap();
+        let service = Service::new(id);
+
+        // Create channel name
+        let channel_name = Name::from_strings(["org", "ns", "secure-channel"]).with_id(0);
+
+        // Create moderator app (will create the MLS group)
+        let moderator_name = Name::from_strings(["org", "ns", "moderator"]).with_id(0);
+        let (moderator_app, mut _moderator_notifications) = service
+            .create_app(
+                &moderator_name,
+                SharedSecret::new("moderator", TEST_VALID_SECRET).unwrap(),
+                SharedSecret::new("moderator", TEST_VALID_SECRET).unwrap(),
+            )
+            .unwrap();
+
+        // Create legitimate participant
+        let participant_name = Name::from_strings(["org", "ns", "participant"]).with_id(0);
+        let (participant_app, mut participant_notifications) = service
+            .create_app(
+                &participant_name,
+                SharedSecret::new("participant", TEST_VALID_SECRET).unwrap(),
+                SharedSecret::new("participant", TEST_VALID_SECRET).unwrap(),
+            )
+            .unwrap();
+
+        // Create a SPY - just a raw local connection that subscribes to intercept messages
+        // This simulates an attacker who can intercept transport-layer messages
+        let (spy_conn_id, spy_tx, mut spy_rx) = service
+            .message_processor()
+            .register_local_connection(false)
+            .unwrap();
+
+        // Spy subscribes to the channel to intercept messages
+        let spy_subscribe_msg = ProtoMessage::builder()
+            .source(Name::from_strings(["org", "ns", "spy"]).with_id(0))
+            .destination(channel_name.clone())
+            .identity("")
+            .incoming_conn(spy_conn_id)
+            .build_subscribe()
+            .unwrap();
+
+        spy_tx.send(Ok(spy_subscribe_msg)).await.unwrap();
+
+        // Have legitimate participant subscribe to the channel
+        // Give time for subscriptions to be processed
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // Create multicast session from moderator with MLS configurable
+        let session_config = SessionConfig {
+            session_type: ProtoSessionType::Multicast,
+            max_retries: Some(5),
+            interval: Some(std::time::Duration::from_millis(1000)),
+            mls_enabled, // MLS enabled/disabled based on test parameter
+            initiator: true,
+            metadata: HashMap::new(),
+        };
+
+        let (session_ctx, completion_handle) = moderator_app
+            .create_session(session_config, channel_name.clone(), None)
+            .await
+            .unwrap();
+
+        // Wait for session establishment
+        completion_handle.await.unwrap();
+
+        let session_arc = session_ctx.session_arc().unwrap();
+
+        // Invite ONLY the legitimate participant (NOT the spy)
+        // Invite the legitimate participant
+        let invite_handle = session_arc
+            .invite_participant(&participant_name)
+            .await
+            .unwrap();
+
+        // Give time for invite to be processed
+        invite_handle.await.unwrap();
+
+        // Participant should receive session notification
+        let participant_session_notification = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            participant_notifications.recv(),
+        )
+        .await
+        .expect("timeout waiting for participant session")
+        .expect("participant channel closed")
+        .expect("error receiving participant session");
+
+        let mut participant_session_ctx = match participant_session_notification {
+            slim_session::notification::Notification::NewSession(ctx) => ctx,
+            _ => panic!("unexpected notification for participant"),
+        };
+
+        // Send a test message through the multicast session
+        let original_message = b"Secret message - should be encrypted!";
+        session_arc
+            .publish(&channel_name, original_message.to_vec(), None, None)
+            .await
+            .unwrap();
+
+        // Give time for messages to be processed
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        // Legitimate participant should receive the DECRYPTED message
+        let participant_received = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            participant_session_ctx.rx.recv(),
+        )
+        .await
+        .expect("timeout waiting for message at participant")
+        .expect("participant channel closed")
+        .expect("error receiving message at participant");
+
+        let participant_payload = participant_received
+            .get_payload()
+            .unwrap()
+            .as_application_payload()
+            .unwrap();
+
+        // Verify participant received the ORIGINAL (decrypted) message
+        assert_eq!(
+            participant_payload.blob, original_message,
+            "Participant should receive decrypted message"
+        );
+
+        // Spy should receive the ENCRYPTED message at the raw transport layer
+        // Skip any control messages (JOIN, ACK, etc.) and ONLY verify Msg type messages
+        // This ensures we're checking actual application data, not protocol control messages
+        let spy_received = loop {
+            let msg = tokio::time::timeout(std::time::Duration::from_secs(2), spy_rx.recv())
+                .await
+                .expect("timeout waiting for spy to intercept message")
+                .expect("spy channel closed")
+                .expect("error receiving message at spy");
+
+            // Only process Msg type messages (actual application data), skip control messages
+            if msg.get_session_header().session_message_type() == ProtoSessionMessageType::Msg {
+                break msg;
+            }
+        };
+
+        let spy_payload = spy_received
+            .get_payload()
+            .unwrap()
+            .as_application_payload()
+            .unwrap();
+
+        if mls_enabled {
+            // When MLS is ENABLED: Spy should NOT receive the original plaintext message - it should be encrypted
+            assert_ne!(
+                spy_payload.blob, original_message,
+                "MLS ENABLED: Spy MUST NOT receive plaintext! Messages should be encrypted at transport layer"
+            );
+
+            // The encrypted payload should be different from the original
+            assert!(
+                spy_payload.blob.len() > 0,
+                "Spy should receive some encrypted data"
+            );
+        } else {
+            // When MLS is DISABLED: Spy SHOULD receive the original plaintext message
+            assert_eq!(
+                spy_payload.blob, original_message,
+                "MLS DISABLED: Spy MUST receive plaintext! Messages should NOT be encrypted"
+            );
+        }
+
+        let second_message = b"Another secret message";
+        session_arc
+            .publish(&channel_name, second_message.to_vec(), None, None)
+            .await
+            .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        // Participant should receive this message too (decrypted)
+        let participant_received_2 = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            participant_session_ctx.rx.recv(),
+        )
+        .await
+        .expect("timeout waiting for second message at participant")
+        .expect("participant channel closed")
+        .expect("error receiving second message");
+
+        let participant_payload_2 = participant_received_2
+            .get_payload()
+            .unwrap()
+            .as_application_payload()
+            .unwrap();
+
+        assert_eq!(
+            participant_payload_2.blob, second_message,
+            "Participant should receive second decrypted message"
+        );
+
+        // Check spy again for second message - should also be encrypted
+        // Skip any control messages and ONLY verify Msg type messages
+        let spy_received_2 = loop {
+            let msg = tokio::time::timeout(std::time::Duration::from_secs(2), spy_rx.recv())
+                .await
+                .expect("timeout waiting for spy to intercept second message")
+                .expect("spy channel closed")
+                .expect("error receiving second message at spy");
+
+            // Only process Msg type messages (actual application data), skip control messages
+            if msg.get_session_header().session_message_type() == ProtoSessionMessageType::Msg {
+                break msg;
+            }
+        };
+
+        let spy_payload_2 = spy_received_2
+            .get_payload()
+            .unwrap()
+            .as_application_payload()
+            .unwrap();
+
+        if mls_enabled {
+            // When MLS is ENABLED: Spy should still see encrypted data
+            assert_ne!(
+                spy_payload_2.blob, second_message,
+                "MLS ENABLED: Spy should still receive encrypted data, NOT plaintext"
+            );
+        } else {
+            // When MLS is DISABLED: Spy should still see plaintext
+            assert_eq!(
+                spy_payload_2.blob, second_message,
+                "MLS DISABLED: Spy should still receive plaintext"
+            );
+        }
+
+        // Cleanup
+        moderator_app
+            .delete_session(session_ctx.session().upgrade().unwrap().as_ref())
+            .unwrap();
+        participant_app
+            .delete_session(
+                participant_session_ctx
+                    .session()
+                    .upgrade()
+                    .unwrap()
+                    .as_ref(),
+            )
+            .unwrap();
+    }
 }
