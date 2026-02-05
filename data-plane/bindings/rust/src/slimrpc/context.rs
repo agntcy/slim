@@ -14,7 +14,9 @@ use std::{
 use slim_datapath::messages::Name;
 use slim_session::context::SessionContext as SlimSessionContext;
 
-use super::{DEADLINE_KEY, Metadata, SessionTx, calculate_deadline};
+use super::{DEADLINE_KEY, SessionTx, calculate_deadline};
+
+pub type Metadata = HashMap<String, String>;
 
 /// Context passed to RPC handlers
 ///
@@ -27,8 +29,6 @@ use super::{DEADLINE_KEY, Metadata, SessionTx, calculate_deadline};
 pub struct Context {
     /// Session context information
     session: SessionContext,
-    /// Request metadata
-    metadata: Metadata,
     /// Deadline for the RPC call (always set, defaults to now + MAX_TIMEOUT)
     deadline: SystemTime,
 }
@@ -48,7 +48,7 @@ impl Context {
 
     /// Get the rpc session metadata
     pub fn metadata(&self) -> HashMap<String, String> {
-        self.metadata.clone().into()
+        self.session.metadata.clone()
     }
 
     /// Get the deadline for this RPC call
@@ -85,26 +85,19 @@ impl Context {
     /// Create a new context with a session context and default deadline
     pub fn with_session(session: SessionContext) -> Self {
         Self {
-            session,
-            metadata: Metadata::new(),
             deadline: calculate_deadline(None),
+            session,
         }
     }
 
     /// Create a new context from a session
     pub fn from_session(session: &SlimSessionContext) -> Self {
-        // Get metadata from session controller
-        let session_arc = session.session_arc();
-        let metadata = if let Some(controller) = session_arc {
-            Metadata::from_map(controller.metadata())
-        } else {
-            Metadata::new()
-        };
-        let deadline = Self::parse_deadline(&metadata).unwrap_or(calculate_deadline(None));
+        let session_ctx = SessionContext::from_session(session);
+        let deadline =
+            Self::parse_deadline(&session_ctx.metadata).unwrap_or(calculate_deadline(None));
 
         Self {
-            session: SessionContext::from_session(session),
-            metadata,
+            session: session_ctx,
             deadline,
         }
     }
@@ -114,8 +107,7 @@ impl Context {
         let session_id = session.session_id().to_string();
         let source = session.source();
         let destination = session.destination();
-        let metadata_map = session.metadata();
-        let metadata = Metadata::from_map(metadata_map);
+        let metadata = session.metadata();
         let deadline = Self::parse_deadline(&metadata).unwrap_or(calculate_deadline(None));
 
         Self {
@@ -123,9 +115,8 @@ impl Context {
                 session_id,
                 source,
                 destination,
-                metadata: metadata.clone(),
+                metadata,
             },
-            metadata,
             deadline,
         }
     }
@@ -135,11 +126,11 @@ impl Context {
         mut self,
         msg_metadata: std::collections::HashMap<String, String>,
     ) -> Self {
-        let msg_meta = Metadata::from_map(msg_metadata);
         // Merge message metadata into context metadata
-        self.metadata.merge(msg_meta);
+        self.session.metadata.extend(msg_metadata);
         // Re-parse deadline from merged metadata (message metadata takes precedence)
-        self.deadline = Self::parse_deadline(&self.metadata).unwrap_or(calculate_deadline(None));
+        self.deadline =
+            Self::parse_deadline(&self.session.metadata).unwrap_or(calculate_deadline(None));
         self
     }
 
@@ -150,12 +141,12 @@ impl Context {
 
     /// Get the request metadata
     pub fn metadata_ref(&self) -> &Metadata {
-        &self.metadata
+        &self.session.metadata
     }
 
     /// Get a mutable reference to metadata
     pub fn metadata_mut(&mut self) -> &mut Metadata {
-        &mut self.metadata
+        &mut self.session.metadata
     }
 
     /// Parse deadline from metadata
@@ -174,7 +165,9 @@ impl Context {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs_f64();
-        self.metadata.insert(DEADLINE_KEY, seconds.to_string());
+        self.session
+            .metadata
+            .insert(DEADLINE_KEY.into(), seconds.to_string());
     }
 
     /// Set the deadline from a duration
@@ -196,7 +189,7 @@ pub struct SessionContext {
     /// Destination name (receiver)
     destination: Name,
     /// Session metadata
-    metadata: Metadata,
+    pub(crate) metadata: Metadata,
 }
 
 impl SessionContext {
@@ -208,7 +201,7 @@ impl SessionContext {
                 session_id: controller.id().to_string(),
                 source: controller.source().clone(),
                 destination: controller.dst().clone(),
-                metadata: Metadata::from_map(controller.metadata()),
+                metadata: controller.metadata(),
             }
         } else {
             // Fallback if session is already closed
@@ -257,7 +250,7 @@ mod tests {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs_f64();
-        metadata.insert(DEADLINE_KEY, seconds.to_string());
+        metadata.insert(DEADLINE_KEY.into(), seconds.to_string());
 
         let parsed = Context::parse_deadline(&metadata);
         assert!(parsed.is_some());
@@ -273,7 +266,7 @@ mod tests {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs_f64();
-        metadata.insert(DEADLINE_KEY, seconds.to_string());
+        metadata.insert(DEADLINE_KEY.into(), seconds.to_string());
 
         let deadline = Context::parse_deadline(&metadata);
         assert!(deadline.is_some());
@@ -289,7 +282,7 @@ mod tests {
             session_id: "test-session".to_string(),
             source: Name::from_strings(["org", "ns", "app"]),
             destination: Name::from_strings(["org", "ns", "dest"]),
-            metadata: Metadata::from_map(session_metadata),
+            metadata: session_metadata,
         };
 
         let mut ctx = Context::with_session(ctx_session);
@@ -305,7 +298,7 @@ mod tests {
             session_id: "test-session".to_string(),
             source: Name::from_strings(["org", "ns", "app"]),
             destination: Name::from_strings(["org", "ns", "dest"]),
-            metadata: Metadata::from_map(session_metadata),
+            metadata: session_metadata,
         };
 
         let mut ctx = Context::with_session(ctx_session);

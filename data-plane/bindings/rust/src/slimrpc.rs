@@ -130,7 +130,6 @@ pub fn build_method_subscription_name(
 mod channel;
 mod codec;
 mod context;
-mod metadata;
 mod rpc_session;
 mod server;
 mod session_wrapper;
@@ -142,8 +141,7 @@ mod stream_types;
 
 pub use channel::Channel;
 pub use codec::{Codec, Decoder, Encoder};
-pub use context::{Context, SessionContext};
-pub use metadata::Metadata;
+pub use context::{Context, Metadata, SessionContext};
 pub use rpc_session::{HandlerInfo, RpcSession, StreamRpcSession, send_error};
 pub use server::{HandlerResponse, HandlerType, ItemStream, RpcHandler, Server, StreamRpcHandler};
 pub use session_wrapper::{ReceivedMessage, SessionRx, SessionTx, new_session};

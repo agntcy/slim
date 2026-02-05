@@ -54,28 +54,40 @@ impl<'a> RpcSession<'a> {
     pub async fn handle(mut self, handler_info: HandlerInfo) -> Result<(), Status> {
         tracing::debug!(method_path = %self.method_path, "Processing RPC");
 
-        // Handle based on handler type
-        let result = match handler_info {
-            HandlerInfo::Unary(handler, handler_type) => {
-                // Check deadline
-                if self.ctx.is_deadline_exceeded() {
-                    Err(Status::deadline_exceeded("Deadline exceeded"))
-                } else {
-                    // Handle based on type (only unary-input handlers)
-                    match handler_type {
-                        HandlerType::UnaryUnary => self.handle_unary_unary(handler).await,
-                        HandlerType::UnaryStream => self.handle_unary_stream(handler).await,
-                        _ => Err(Status::internal(
-                            "Invalid handler type for unary-input method",
-                        )),
+        // Check deadline before starting
+        if self.ctx.is_deadline_exceeded() {
+            return Err(Status::deadline_exceeded("Deadline exceeded"));
+        }
+
+        // Get deadline from context for the entire handler execution
+        let deadline = tokio::time::Instant::now() + self.ctx.remaining_time();
+        let sleep_fut = std::pin::pin!(tokio::time::sleep_until(deadline));
+
+        // Handle based on handler type with deadline enforcement
+        let result = tokio::select! {
+            result = async {
+                match handler_info {
+                    HandlerInfo::Unary(handler, handler_type) => {
+                        // Handle based on type (only unary-input handlers)
+                        match handler_type {
+                            HandlerType::UnaryUnary => self.handle_unary_unary(handler).await,
+                            HandlerType::UnaryStream => self.handle_unary_stream(handler).await,
+                            _ => Err(Status::internal(
+                                "Invalid handler type for unary-input method",
+                            )),
+                        }
+                    }
+                    HandlerInfo::Stream(_, _) => {
+                        // This shouldn't happen as stream methods are handled separately
+                        Err(Status::internal(
+                            "Stream methods should be handled separately",
+                        ))
                     }
                 }
-            }
-            HandlerInfo::Stream(_, _) => {
-                // This shouldn't happen as stream methods are handled separately
-                return Err(Status::internal(
-                    "Stream methods should be handled separately",
-                ));
+            } => result,
+            _ = sleep_fut => {
+                tracing::debug!("RPC handler execution exceeded deadline");
+                Err(Status::deadline_exceeded("Deadline exceeded during RPC execution"))
             }
         };
 
@@ -96,35 +108,22 @@ impl<'a> RpcSession<'a> {
         // Update context with message metadata to parse deadline
         self.ctx = self.ctx.clone().with_message_metadata(received.metadata);
 
-        // Calculate deadline
-        let timeout_duration = Self::get_timeout_duration(&self.ctx);
-        let deadline = tokio::time::Instant::now() + timeout_duration;
+        // Call handler and send response
+        let response = handler(received.payload, self.ctx.clone()).await?;
 
-        // Call handler and send response with deadline
-        tokio::select! {
-            result = async {
-                // Call handler
-                let response = handler(received.payload, self.ctx.clone()).await?;
-
-                // Send response
-                match response {
-                    HandlerResponse::Unary(response_bytes) => {
-                        self.send_message(response_bytes, Code::Ok).await?;
-                    }
-                    _ => {
-                        return Err(Status::internal(
-                            "Handler returned unexpected response type",
-                        ));
-                    }
-                }
-
-                Ok(())
-            } => result,
-            _ = tokio::time::sleep_until(deadline) => {
-                tracing::debug!("Handler execution exceeded deadline");
-                Err(Status::deadline_exceeded("Handler execution exceeded deadline"))
+        // Send response
+        match response {
+            HandlerResponse::Unary(response_bytes) => {
+                self.send_message(response_bytes, Code::Ok).await?;
+            }
+            _ => {
+                return Err(Status::internal(
+                    "Handler returned unexpected response type",
+                ));
             }
         }
+
+        Ok(())
     }
 
     /// Handle unary-stream RPC
@@ -132,37 +131,25 @@ impl<'a> RpcSession<'a> {
         // Get the first message from the session
         let received = self.receive_first_message().await?;
 
-        // Calculate deadline and create sleep future
-        let timeout_duration = Self::get_timeout_duration(&self.ctx);
-        let deadline = tokio::time::Instant::now() + timeout_duration;
-        let sleep_fut = tokio::time::sleep_until(deadline);
-        tokio::pin!(sleep_fut);
+        // Update context with message metadata to parse deadline
+        self.ctx = self.ctx.clone().with_message_metadata(received.metadata);
 
-        // Call handler and send streaming responses with deadline
-        tokio::select! {
-            result = async {
-                // Call handler
-                let response = handler(received.payload, self.ctx.clone()).await?;
+        // Call handler and send streaming responses
+        let response = handler(received.payload, self.ctx.clone()).await?;
 
-                // Send streaming responses
-                match response {
-                    HandlerResponse::Stream(stream) => {
-                        self.send_response_stream(stream).await?;
-                    }
-                    _ => {
-                        return Err(Status::internal(
-                            "Handler returned unexpected response type",
-                        ));
-                    }
-                }
-
-                Ok(())
-            } => result,
-            _ = &mut sleep_fut => {
-                tracing::debug!("Handler execution exceeded deadline");
-                Err(Status::deadline_exceeded("Handler execution exceeded deadline"))
+        // Send streaming responses
+        match response {
+            HandlerResponse::Stream(stream) => {
+                self.send_response_stream(stream).await?;
+            }
+            _ => {
+                return Err(Status::internal(
+                    "Handler returned unexpected response type",
+                ));
             }
         }
+
+        Ok(())
     }
 
     /// Send a message with status code
@@ -210,20 +197,6 @@ impl<'a> RpcSession<'a> {
         metadata.insert(STATUS_CODE_KEY.to_string(), code.as_i32().to_string());
         metadata
     }
-
-    /// Get timeout duration from context
-    ///
-    /// Returns the remaining time from context, or a minimum grace period if deadline passed
-    fn get_timeout_duration(ctx: &Context) -> std::time::Duration {
-        let remaining = ctx.remaining_time();
-        // If deadline has passed (remaining is ZERO), use a small grace period
-        // Otherwise use the remaining time
-        if remaining.is_zero() {
-            std::time::Duration::from_secs(1)
-        } else {
-            remaining
-        }
-    }
 }
 
 /// RPC session handler for stream-based methods
@@ -264,9 +237,18 @@ impl<'a> StreamRpcSession<'a> {
             return Err(Status::deadline_exceeded("Deadline exceeded"));
         }
 
-        let result = self
-            .handle_stream_based_method(stream_handler, handler_type)
-            .await;
+        // Get deadline from context for the entire handler execution
+        let deadline = tokio::time::Instant::now() + self.ctx.remaining_time();
+        let sleep_fut = std::pin::pin!(tokio::time::sleep_until(deadline));
+
+        // Handle with deadline enforcement
+        let result = tokio::select! {
+            result = self.handle_stream_based_method(stream_handler, handler_type) => result,
+            _ = sleep_fut => {
+                tracing::debug!("Stream RPC handler execution exceeded deadline");
+                Err(Status::deadline_exceeded("Deadline exceeded during RPC execution"))
+            }
+        };
 
         if let Err(e) = &result {
             tracing::error!(%method_path, error = %e, "Error handling RPC");
@@ -283,12 +265,6 @@ impl<'a> StreamRpcSession<'a> {
         handler: StreamRpcHandler,
         handler_type: HandlerType,
     ) -> Result<(), Status> {
-        // Calculate deadline and create sleep future
-        let timeout_duration = Self::get_timeout_duration(&self.ctx);
-        let deadline = tokio::time::Instant::now() + timeout_duration;
-        let sleep_fut = tokio::time::sleep_until(deadline);
-        tokio::pin!(sleep_fut);
-
         // Extract fields to consume self properly
         let session_tx = self.session_tx;
         let session_rx = self.session_rx;
@@ -339,56 +315,45 @@ impl<'a> StreamRpcSession<'a> {
         // Box and pin the stream
         let boxed_stream = request_stream.boxed();
 
-        // Call handler and send responses with deadline
-        let result = tokio::select! {
-            result = async {
-                // Call handler
-                let handler_result = handler(boxed_stream, ctx.clone()).await?;
+        // Call handler
+        let handler_result = handler(boxed_stream, ctx.clone()).await?;
 
-                // Send responses based on handler type
-                match handler_type {
-                    HandlerType::StreamUnary => {
-                        // Send single response
-                        let response = match handler_result {
-                            HandlerResponse::Unary(bytes) => bytes,
-                            _ => {
-                                return Err(Status::internal(
-                                    "Handler returned unexpected response type",
-                                ));
-                            }
-                        };
-
-                        Self::send_message_static(session_tx, response, Code::Ok).await?;
-                    }
-                    HandlerType::StreamStream => {
-                        // Send streaming responses
-                        let response_stream = match handler_result {
-                            HandlerResponse::Stream(stream) => stream,
-                            _ => {
-                                return Err(Status::internal(
-                                    "Handler returned unexpected response type",
-                                ));
-                            }
-                        };
-
-                        Self::send_response_stream_static(session_tx, response_stream).await?;
-                    }
+        // Send responses based on handler type
+        match handler_type {
+            HandlerType::StreamUnary => {
+                // Send single response
+                let response = match handler_result {
+                    HandlerResponse::Unary(bytes) => bytes,
                     _ => {
                         return Err(Status::internal(
-                            "Invalid handler type for stream-based method",
+                            "Handler returned unexpected response type",
                         ));
                     }
-                }
+                };
 
-                Ok(())
-            } => result,
-            _ = &mut sleep_fut => {
-                tracing::debug!("Handler execution exceeded deadline");
-                Err(Status::deadline_exceeded("Handler execution exceeded deadline"))
+                Self::send_message_static(session_tx, response, Code::Ok).await?;
             }
-        };
+            HandlerType::StreamStream => {
+                // Send streaming responses
+                let response_stream = match handler_result {
+                    HandlerResponse::Stream(stream) => stream,
+                    _ => {
+                        return Err(Status::internal(
+                            "Handler returned unexpected response type",
+                        ));
+                    }
+                };
 
-        result
+                Self::send_response_stream_static(session_tx, response_stream).await?;
+            }
+            _ => {
+                return Err(Status::internal(
+                    "Invalid handler type for stream-based method",
+                ));
+            }
+        }
+
+        Ok(())
     }
 
     /// Send a message with status code (static version for after self is consumed)
@@ -433,20 +398,6 @@ impl<'a> StreamRpcSession<'a> {
         let mut metadata = HashMap::new();
         metadata.insert(STATUS_CODE_KEY.to_string(), code.as_i32().to_string());
         metadata
-    }
-
-    /// Get timeout duration from context
-    ///
-    /// Returns the remaining time from context, or a minimum grace period if deadline passed
-    fn get_timeout_duration(ctx: &Context) -> std::time::Duration {
-        let remaining = ctx.remaining_time();
-        // If deadline has passed (remaining is ZERO), use a small grace period
-        // Otherwise use the remaining time
-        if remaining.is_zero() {
-            std::time::Duration::from_secs(1)
-        } else {
-            remaining
-        }
     }
 }
 

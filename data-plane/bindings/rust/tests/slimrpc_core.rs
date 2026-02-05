@@ -158,6 +158,101 @@ impl TestEnv {
 }
 
 // ============================================================================
+// Test Helper Functions
+// ============================================================================
+
+/// Collect all responses from a stream into a vector
+async fn collect_stream_responses<T>(
+    mut stream: impl futures::Stream<Item = Result<T, Status>> + Unpin,
+) -> Vec<T> {
+    let mut responses = Vec::new();
+    while let Some(result) = stream.next().await {
+        responses.push(result.expect("Stream item failed"));
+    }
+    responses
+}
+
+/// Collect responses from a stream until an error occurs
+async fn collect_stream_until_error<T>(
+    mut stream: impl futures::Stream<Item = Result<T, Status>> + Unpin,
+) -> (Vec<T>, Option<Status>) {
+    let mut responses = Vec::new();
+    let mut error = None;
+    while let Some(result) = stream.next().await {
+        match result {
+            Ok(response) => responses.push(response),
+            Err(e) => {
+                error = Some(e);
+                break;
+            }
+        }
+    }
+    (responses, error)
+}
+
+/// Register a unary-unary handler that counts calls and tracks session IDs
+fn register_counting_handler(
+    server: &Arc<Server>,
+    service: &str,
+    method: &str,
+    call_count: Arc<Mutex<i32>>,
+    session_ids: Option<Arc<Mutex<Vec<String>>>>,
+) {
+    server.register_unary_unary_internal(
+        service,
+        method,
+        move |request: TestRequest, ctx: Context| {
+            let count = call_count.clone();
+            let ids = session_ids.clone();
+            async move {
+                let mut c = count.lock().await;
+                *c += 1;
+                let current = *c;
+                drop(c);
+
+                if let Some(ids) = ids {
+                    let session_id = ctx.session().session_id().to_string();
+                    tracing::info!(
+                        "RPC '{}' (call #{}) handled by session ID: {}",
+                        request.message,
+                        current,
+                        session_id
+                    );
+                    let mut id_list = ids.lock().await;
+                    id_list.push(session_id);
+                    drop(id_list);
+                }
+
+                Ok(TestResponse {
+                    result: format!("Echo: {}", request.message),
+                    count: current,
+                })
+            }
+        },
+    );
+}
+
+/// Assert that a result is an error with the expected code and optional message substring
+fn assert_error_with_code(
+    result: Result<impl std::fmt::Debug, Status>,
+    code: Code,
+    msg_contains: Option<&str>,
+) {
+    assert!(result.is_err(), "Expected an error");
+    let err = result.unwrap_err();
+    assert_eq!(err.code(), code, "Error code mismatch");
+    if let Some(expected_msg) = msg_contains {
+        let actual_msg = err.message().unwrap_or("");
+        assert!(
+            actual_msg.contains(expected_msg),
+            "Error message '{}' does not contain '{}'",
+            actual_msg,
+            expected_msg
+        );
+    }
+}
+
+// ============================================================================
 // Test 1: Unary-Unary RPC
 // ============================================================================
 
@@ -222,11 +317,7 @@ async fn test_unary_unary_error_handling() {
         .unary("TestService", "ErrorMethod", request, None, None)
         .await;
 
-    assert!(result.is_err());
-    let err = result.unwrap_err();
-    println!("{}", err);
-    assert_eq!(err.code(), Code::InvalidArgument);
-    assert_eq!(err.message(), Some("Invalid input"));
+    assert_error_with_code(result, Code::InvalidArgument, Some("Invalid input"));
 
     env.shutdown().await;
 }
@@ -434,21 +525,17 @@ async fn test_unary_stream_rpc() {
         value: 5,
     };
 
-    let responses = {
-        let response_stream =
-            env.channel
-                .unary_stream("TestService", "Generate", request, None, None);
+    let responses: Vec<TestResponse> = {
+        let response_stream = env.channel.unary_stream::<TestRequest, TestResponse>(
+            "TestService",
+            "Generate",
+            request,
+            None,
+            None,
+        );
         pin_mut!(response_stream);
 
-        // Collect all responses
-        let mut responses = Vec::new();
-        while let Some(result) = response_stream.next().await {
-            let response: TestResponse = result.expect("Stream item failed");
-            tracing::info!("Received response: {:?}", response);
-            responses.push(response);
-        }
-
-        responses
+        collect_stream_responses(response_stream).await
     };
 
     // Verify responses
@@ -516,28 +603,16 @@ async fn test_unary_stream_error_handling() {
     };
 
     let (responses, error_received) = {
-        let response_stream =
-            env.channel
-                .unary_stream("TestService", "GenerateWithError", request, None, None);
+        let response_stream = env.channel.unary_stream::<TestRequest, TestResponse>(
+            "TestService",
+            "GenerateWithError",
+            request,
+            None,
+            None,
+        );
         pin_mut!(response_stream);
 
-        // Collect responses until we hit the error
-        let mut responses: Vec<TestResponse> = Vec::new();
-        let mut error_received = None;
-
-        while let Some(result) = response_stream.next().await {
-            match result {
-                Ok(response) => {
-                    responses.push(response);
-                }
-                Err(status) => {
-                    error_received = Some(status);
-                    break;
-                }
-            }
-        }
-
-        (responses, error_received)
+        collect_stream_until_error(response_stream).await
     };
 
     // Verify we received 3 successful responses before the error
@@ -598,22 +673,19 @@ async fn test_stream_stream_rpc() {
         },
     ];
 
-    let responses = {
+    let responses: Vec<TestResponse> = {
         let request_stream = stream::iter(requests);
 
-        let response_stream =
-            env.channel
-                .stream_stream("TestService", "Transform", request_stream, None, None);
+        let response_stream = env.channel.stream_stream::<TestRequest, TestResponse>(
+            "TestService",
+            "Transform",
+            request_stream,
+            None,
+            None,
+        );
         pin_mut!(response_stream);
 
-        // Collect all responses
-        let mut responses = Vec::new();
-        while let Some(result) = response_stream.next().await {
-            let response: TestResponse = result.expect("Stream item failed");
-            responses.push(response);
-        }
-
-        responses
+        collect_stream_responses(response_stream).await
     };
 
     // Verify responses
@@ -693,22 +765,19 @@ async fn test_stream_stream_with_async_processing() {
         },
     ];
 
-    let responses = {
+    let responses: Vec<TestResponse> = {
         let request_stream = stream::iter(requests);
 
-        let response_stream =
-            env.channel
-                .stream_stream("TestService", "ProcessAsync", request_stream, None, None);
+        let response_stream = env.channel.stream_stream::<TestRequest, TestResponse>(
+            "TestService",
+            "ProcessAsync",
+            request_stream,
+            None,
+            None,
+        );
         pin_mut!(response_stream);
 
-        // Collect all responses
-        let mut responses = Vec::new();
-        while let Some(result) = response_stream.next().await {
-            let response: TestResponse = result.expect("Stream item failed");
-            responses.push(response);
-        }
-
-        responses
+        collect_stream_responses(response_stream).await
     };
 
     // Verify responses
@@ -837,44 +906,14 @@ async fn test_one_session_per_rpc() {
     let mut env = TestEnv::new("test-one-session-per-rpc").await;
 
     let call_count = Arc::new(Mutex::new(0));
-    let call_count_clone = call_count.clone();
-
-    // Track session IDs seen on the server side
     let session_ids = Arc::new(Mutex::new(Vec::new()));
-    let session_ids_clone = session_ids.clone();
 
-    env.server.register_unary_unary_internal(
+    register_counting_handler(
+        &env.server,
         "TestService",
         "Echo",
-        move |request: TestRequest, ctx: Context| {
-            let count = call_count_clone.clone();
-            let ids = session_ids_clone.clone();
-            async move {
-                let mut c = count.lock().await;
-                *c += 1;
-                let current = *c;
-                drop(c);
-
-                // Get session ID from context
-                let session_id = ctx.session().session_id().to_string();
-
-                tracing::info!(
-                    "RPC '{}' handled by session ID: {}",
-                    request.message,
-                    session_id
-                );
-
-                // Store the session ID
-                let mut id_list = ids.lock().await;
-                id_list.push(session_id.clone());
-                drop(id_list);
-
-                Ok(TestResponse {
-                    result: format!("Echo: {}", request.message),
-                    count: current,
-                })
-            }
-        },
+        call_count.clone(),
+        Some(session_ids.clone()),
     );
 
     env.start_server().await;
@@ -970,27 +1009,24 @@ async fn test_session_per_rpc_even_after_error() {
     let mut env = TestEnv::new("test-session-per-rpc-after-error").await;
 
     let call_count = Arc::new(Mutex::new(0));
-    let call_count_clone = call_count.clone();
-
-    // Track session IDs seen on the server side
     let session_ids = Arc::new(Mutex::new(Vec::new()));
-    let session_ids_clone = session_ids.clone();
+
+    let count_clone = call_count.clone();
+    let ids_clone = session_ids.clone();
 
     env.server.register_unary_unary_internal(
         "TestService",
         "FlakyMethod",
         move |request: TestRequest, ctx: Context| {
-            let count = call_count_clone.clone();
-            let ids = session_ids_clone.clone();
+            let count = count_clone.clone();
+            let ids = ids_clone.clone();
             async move {
                 let mut c = count.lock().await;
                 *c += 1;
                 let current = *c;
                 drop(c);
 
-                // Get session ID from context
                 let session_id = ctx.session().session_id().to_string();
-
                 tracing::info!(
                     "RPC '{}' (call #{}) handled by session ID: {}",
                     request.message,
@@ -998,7 +1034,6 @@ async fn test_session_per_rpc_even_after_error() {
                     session_id
                 );
 
-                // Store the session ID
                 let mut id_list = ids.lock().await;
                 id_list.push(session_id.clone());
                 drop(id_list);
@@ -1159,25 +1194,23 @@ async fn test_separate_sessions_for_streaming() {
     let mut env = TestEnv::new("test-separate-sessions-streaming").await;
 
     let call_count = Arc::new(Mutex::new(0));
-    let call_count_clone = call_count.clone();
-
-    // Track session IDs seen on the server side
     let session_ids = Arc::new(Mutex::new(Vec::new()));
-    let session_ids_clone = session_ids.clone();
+
+    let count_clone = call_count.clone();
+    let ids_clone = session_ids.clone();
 
     env.server.register_unary_stream_internal(
         "TestService",
         "GenerateNumbers",
         move |request: TestRequest, ctx: Context| {
-            let count = call_count_clone.clone();
-            let ids = session_ids_clone.clone();
+            let count = count_clone.clone();
+            let ids = ids_clone.clone();
             async move {
                 let mut c = count.lock().await;
                 *c += 1;
                 let current = *c;
                 drop(c);
 
-                // Get session ID from context
                 let session_id = ctx.session().session_id().to_string();
                 tracing::info!(
                     "Streaming RPC '{}' (call #{}) handled by session ID: {}",
@@ -1186,7 +1219,6 @@ async fn test_separate_sessions_for_streaming() {
                     session_id
                 );
 
-                // Store the session ID
                 let mut id_list = ids.lock().await;
                 id_list.push(session_id.clone());
                 drop(id_list);
@@ -1220,14 +1252,11 @@ async fn test_separate_sessions_for_streaming() {
         );
         pin_mut!(stream1);
 
-        let mut results1 = vec![];
-        while let Some(result) = stream1.next().await {
-            results1.push(result.expect("Stream error"));
-        }
+        let results1 = collect_stream_responses(stream1).await;
         assert_eq!(results1.len(), 3);
     } // stream1 dropped here
 
-    // Second streaming call in a scope - should reuse session
+    // Second streaming call in a scope - should create a 2nd session
     {
         let request2 = TestRequest {
             message: "second".to_string(),
@@ -1242,10 +1271,7 @@ async fn test_separate_sessions_for_streaming() {
         );
         pin_mut!(stream2);
 
-        let mut results2 = vec![];
-        while let Some(result) = stream2.next().await {
-            results2.push(result.expect("Stream error"));
-        }
+        let results2 = collect_stream_responses(stream2).await;
         assert_eq!(results2.len(), 2);
     } // stream2 dropped here
 
@@ -1548,14 +1574,12 @@ async fn test_multiple_handler_types_same_client() {
 
         pin_mut!(response_stream);
 
-        let mut count = 0;
-        while let Some(result) = response_stream.next().await {
-            let resp: TestResponse = result.expect("Stream item failed");
+        let responses: Vec<TestResponse> = collect_stream_responses(response_stream).await;
+        assert_eq!(responses.len(), 3);
+        for (count, resp) in responses.iter().enumerate() {
             assert_eq!(resp.result, format!("UnaryStream-{}: us-call-{}", count, i));
-            assert_eq!(resp.count, count);
-            count += 1;
+            assert_eq!(resp.count, count as i32);
         }
-        assert_eq!(count, 3);
     }
 
     // Test 4: Call stream-stream handler twice
@@ -1581,11 +1605,7 @@ async fn test_multiple_handler_types_same_client() {
 
         pin_mut!(response_stream);
 
-        let mut received = vec![];
-        while let Some(result) = response_stream.next().await {
-            let resp: TestResponse = result.expect("Stream item failed");
-            received.push(resp);
-        }
+        let received: Vec<TestResponse> = collect_stream_responses(response_stream).await;
 
         assert_eq!(received.len(), 2);
         assert_eq!(received[0].result, format!("StreamStream: ss-msg-{}-1", i));
@@ -1686,7 +1706,7 @@ async fn test_client_deadline_unary_stream() {
     };
 
     // Call with a timeout of 1 second (should only get 2 items before timeout)
-    let (count, last_error) = {
+    let (responses, last_error) = {
         let response_stream = env.channel.unary_stream::<TestRequest, TestResponse>(
             "TestService",
             "SlowStream",
@@ -1697,19 +1717,9 @@ async fn test_client_deadline_unary_stream() {
 
         pin_mut!(response_stream);
 
-        let mut count = 0;
-        let mut last_error = None;
-        while let Some(result) = response_stream.next().await {
-            match result {
-                Ok(_) => count += 1,
-                Err(e) => {
-                    last_error = Some(e);
-                    break;
-                }
-            }
-        }
-        (count, last_error)
+        collect_stream_until_error(response_stream).await
     };
+    let count = responses.len();
 
     // Should have received some items but then timed out
     assert!(
@@ -2091,6 +2101,478 @@ async fn test_deadline_propagation() {
         diff < Duration::from_secs(1),
         "Deadline should match expected value within tolerance, diff: {:?}",
         diff
+    );
+
+    env.shutdown().await;
+}
+
+// ============================================================================
+// Test: Server-side deadline enforcement (infrastructure checks, not handler)
+// ============================================================================
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_server_rejects_already_expired_deadline() {
+    let mut env = TestEnv::new("test-expired-deadline").await;
+
+    let handler_called = Arc::new(Mutex::new(false));
+    let handler_called_clone = handler_called.clone();
+
+    // Register a handler that should never be called
+    env.server.register_unary_unary_internal(
+        "TestService",
+        "ShouldNotBeCalled",
+        move |request: TestRequest, _ctx: Context| {
+            let called = handler_called_clone.clone();
+            async move {
+                tracing::error!("Handler was called when it should have been rejected!");
+                *called.lock().await = true;
+
+                Ok(TestResponse {
+                    result: format!("Processed: {}", request.message),
+                    count: request.value,
+                })
+            }
+        },
+    );
+
+    env.start_server().await;
+
+    let request = TestRequest {
+        message: "test".to_string(),
+        value: 42,
+    };
+
+    // Use a very short deadline (1ms) and wait before making the call
+    // to ensure the deadline is already expired when the server receives it
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let result: Result<TestResponse, Status> = env
+        .channel
+        .unary(
+            "TestService",
+            "ShouldNotBeCalled",
+            request,
+            Some(Duration::from_nanos(1)),
+            None,
+        )
+        .await;
+
+    // Should fail with deadline exceeded or timing-related error
+    assert!(result.is_err(), "Expected deadline exceeded error");
+    let err = result.unwrap_err();
+
+    // The error might be DeadlineExceeded or Internal depending on timing
+    // (if the deadline check happens before or after session setup)
+    assert!(
+        err.code() == Code::DeadlineExceeded || err.code() == Code::Internal,
+        "Expected DeadlineExceeded or Internal, got {:?}",
+        err.code()
+    );
+
+    // Give some time for any potential handler execution to occur
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Verify the handler was NOT called (server rejected the request before handler execution)
+    let was_called = *handler_called.lock().await;
+    assert!(
+        !was_called,
+        "Handler should not have been called for expired deadline"
+    );
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_server_enforces_deadline_during_handler_execution() {
+    let mut env = TestEnv::new("test-server-enforces-deadline").await;
+
+    let handler_started = Arc::new(Mutex::new(false));
+    let handler_completed = Arc::new(Mutex::new(false));
+    let started_clone = handler_started.clone();
+    let completed_clone = handler_completed.clone();
+
+    // Register a handler that takes a long time (ignores deadline)
+    env.server.register_unary_unary_internal(
+        "TestService",
+        "LongRunningIgnoresDeadline",
+        move |request: TestRequest, _ctx: Context| {
+            let started = started_clone.clone();
+            let completed = completed_clone.clone();
+            async move {
+                *started.lock().await = true;
+                tracing::info!("Handler started, will run for 5 seconds");
+
+                // Handler intentionally ignores the deadline and runs for a long time
+                tokio::time::sleep(Duration::from_secs(5)).await;
+
+                *completed.lock().await = true;
+                tracing::info!("Handler completed (this should not happen due to deadline)");
+
+                Ok(TestResponse {
+                    result: format!("Processed: {}", request.message),
+                    count: request.value,
+                })
+            }
+        },
+    );
+
+    env.start_server().await;
+
+    let request = TestRequest {
+        message: "test".to_string(),
+        value: 42,
+    };
+
+    // Set a short deadline (500ms) while handler takes 5 seconds
+    let result: Result<TestResponse, Status> = env
+        .channel
+        .unary(
+            "TestService",
+            "LongRunningIgnoresDeadline",
+            request,
+            Some(Duration::from_millis(500)),
+            None,
+        )
+        .await;
+
+    // Should fail with deadline exceeded (enforced by server, not handler)
+    assert!(result.is_err(), "Expected deadline exceeded error");
+    let err = result.unwrap_err();
+    assert_eq!(
+        err.code(),
+        Code::DeadlineExceeded,
+        "Expected DeadlineExceeded, got {:?}",
+        err.code()
+    );
+
+    // Give handler time to potentially complete (but it shouldn't)
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Verify the handler started but did not complete
+    // (server infrastructure cancelled it due to deadline)
+    let was_started = *handler_started.lock().await;
+    let was_completed = *handler_completed.lock().await;
+
+    assert!(was_started, "Handler should have started execution");
+    assert!(!was_completed, "Handler should not have completed");
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_server_enforces_deadline_for_stream_unary() {
+    let mut env = TestEnv::new("test-server-deadline-stream-unary").await;
+
+    let messages_received = Arc::new(Mutex::new(0));
+    let handler_completed = Arc::new(Mutex::new(false));
+    let message_received_clone = messages_received.clone();
+    let handler_completed_clone = handler_completed.clone();
+
+    // Register a stream-unary handler that processes messages slowly
+    env.server.register_stream_unary_internal(
+        "TestService",
+        "SlowStreamProcessor",
+        move |mut request_stream: RequestStream<TestRequest>, _ctx: Context| {
+            let received = message_received_clone.clone();
+            let completed = handler_completed_clone.clone();
+            async move {
+                // Process incoming messages slowly (ignores deadline)
+                while let Some(req_result) = request_stream.next().await {
+                    let req = req_result?;
+                    *received.lock().await += 1;
+
+                    tracing::info!(
+                        "Processing message {}: {}",
+                        *received.lock().await,
+                        req.message
+                    );
+
+                    // Slow processing (200ms per message)
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                }
+
+                *completed.lock().await = true;
+
+                let count = *received.lock().await;
+
+                tracing::info!("Handler completed processing {} messages", count);
+
+                Ok(TestResponse {
+                    result: format!("Processed {} messages", count),
+                    count,
+                })
+            }
+        },
+    );
+
+    env.start_server().await;
+
+    // Create a stream of 10 messages (would take 2 seconds to process)
+    let requests = (0..10)
+        .map(|i| TestRequest {
+            message: format!("msg-{}", i),
+            value: i,
+        })
+        .collect::<Vec<_>>();
+
+    // Set a deadline of 500ms (server should enforce this)
+    let result: Result<TestResponse, Status> = env
+        .channel
+        .stream_unary(
+            "TestService",
+            "SlowStreamProcessor",
+            stream::iter(requests),
+            Some(Duration::from_millis(500)),
+            None,
+        )
+        .await;
+
+    // Should fail with deadline exceeded (enforced by server infrastructure)
+    assert!(result.is_err(), "Expected deadline exceeded error");
+    let err = result.unwrap_err();
+    assert_eq!(
+        err.code(),
+        Code::DeadlineExceeded,
+        "Expected DeadlineExceeded, got {:?}",
+        err.code()
+    );
+
+    // Give handler time to potentially complete
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let was_completed = *handler_completed.lock().await;
+    let received = *messages_received.lock().await;
+
+    assert!(!was_completed, "Server should not have completed");
+
+    // Handler should not have completed due to server-enforced deadline
+    assert!(
+        received < 10,
+        "Handler should not have processed all messages due to deadline, got {}",
+        received
+    );
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_server_enforces_deadline_for_unary_stream() {
+    let mut env = TestEnv::new("test-server-deadline-unary-stream").await;
+
+    let messages_sent = Arc::new(Mutex::new(0));
+    let handler_completed = Arc::new(Mutex::new(false));
+    let sent_clone = messages_sent.clone();
+    let completed_clone = handler_completed.clone();
+
+    // Register a unary-stream handler that generates messages slowly
+    env.server.register_unary_stream_internal(
+        "TestService",
+        "SlowStreamGenerator",
+        move |request: TestRequest, _ctx: Context| {
+            let sent = sent_clone.clone();
+            let completed = completed_clone.clone();
+            async move {
+                let response_stream = async_stream::stream! {
+                    // Try to generate many messages slowly (ignores deadline)
+                    for i in 0..10 {
+                        tracing::info!("Generating message {}", i);
+
+                        // Slow generation (200ms per message)
+                        tokio::time::sleep(Duration::from_millis(200)).await;
+
+                        let mut count = sent.lock().await;
+                        *count += 1;
+                        drop(count);
+
+                        yield Ok(TestResponse {
+                            result: format!("{}-{}", request.message, i),
+                            count: i,
+                        });
+                    }
+
+                    *completed.lock().await = true;
+                    tracing::info!("Handler completed generating all messages");
+                };
+
+                Ok(response_stream)
+            }
+        },
+    );
+
+    env.start_server().await;
+
+    let request = TestRequest {
+        message: "item".to_string(),
+        value: 0,
+    };
+
+    // Set a deadline of 500ms (would take 2 seconds to generate all 10 messages)
+    let (responses, error) = {
+        let response_stream = env.channel.unary_stream::<TestRequest, TestResponse>(
+            "TestService",
+            "SlowStreamGenerator",
+            request,
+            Some(Duration::from_millis(500)),
+            None,
+        );
+
+        pin_mut!(response_stream);
+
+        collect_stream_until_error(response_stream).await
+    };
+    let responses_received = responses.len();
+
+    // Should have received some messages but not all due to deadline
+    assert!(
+        responses_received < 10,
+        "Should not have received all messages due to deadline, got {}",
+        responses_received
+    );
+
+    // Should get a deadline exceeded error
+    assert!(error.is_some(), "Expected deadline exceeded error");
+    let err = error.unwrap();
+    assert_eq!(
+        err.code(),
+        Code::DeadlineExceeded,
+        "Expected DeadlineExceeded, got {:?}",
+        err.code()
+    );
+
+    // Give handler time to potentially complete
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let was_completed = *handler_completed.lock().await;
+    let sent = *messages_sent.lock().await;
+
+    assert!(!was_completed, "Handler should not have completed");
+    assert!(
+        sent < 10,
+        "Handler should not have sent all messages due to deadline, sent {}",
+        sent
+    );
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_server_enforces_deadline_for_stream_stream() {
+    let mut env = TestEnv::new("test-server-deadline-stream-stream").await;
+
+    let messages_received = Arc::new(Mutex::new(0));
+    let messages_sent = Arc::new(Mutex::new(0));
+    let handler_completed = Arc::new(Mutex::new(false));
+    let received_clone = messages_received.clone();
+    let sent_clone = messages_sent.clone();
+    let completed_clone = handler_completed.clone();
+
+    // Register a stream-stream handler that processes slowly
+    env.server.register_stream_stream_internal(
+        "TestService",
+        "SlowStreamTransform",
+        move |mut request_stream: RequestStream<TestRequest>, _ctx: Context| {
+            let received = received_clone.clone();
+            let sent = sent_clone.clone();
+            let completed = completed_clone.clone();
+            async move {
+                let response_stream = async_stream::stream! {
+                    // Process incoming messages slowly (ignores deadline)
+                    while let Some(req_result) = request_stream.next().await {
+                        match req_result {
+                            Ok(req) => {
+                                let mut recv_count = received.lock().await;
+                                *recv_count += 1;
+                                drop(recv_count);
+
+                                tracing::info!("Processing message: {}", req.message);
+
+                                // Slow processing (300ms per message)
+                                tokio::time::sleep(Duration::from_millis(300)).await;
+
+                                let mut send_count = sent.lock().await;
+                                *send_count += 1;
+                                drop(send_count);
+
+                                yield Ok(TestResponse {
+                                    result: format!("Processed: {}", req.message),
+                                    count: req.value * 10,
+                                });
+                            }
+                            Err(e) => {
+                                yield Err(e);
+                                break;
+                            }
+                        }
+                    }
+
+                    *completed.lock().await = true;
+                    tracing::info!("Handler completed processing all messages");
+                };
+
+                Ok(response_stream)
+            }
+        },
+    );
+
+    env.start_server().await;
+
+    // Create a stream of 10 messages (would take 3 seconds to process)
+    let requests = (0..10)
+        .map(|i| TestRequest {
+            message: format!("msg-{}", i),
+            value: i,
+        })
+        .collect::<Vec<_>>();
+
+    // Set a deadline of 800ms (server should enforce this)
+    let (responses, error) = {
+        let response_stream = env.channel.stream_stream::<TestRequest, TestResponse>(
+            "TestService",
+            "SlowStreamTransform",
+            stream::iter(requests),
+            Some(Duration::from_millis(800)),
+            None,
+        );
+
+        pin_mut!(response_stream);
+
+        collect_stream_until_error(response_stream).await
+    };
+    let responses_received = responses.len();
+
+    // Should have received some messages but not all due to deadline
+    assert!(
+        responses_received < 10,
+        "Should not have received all messages due to deadline, got {}",
+        responses_received
+    );
+
+    // Should get a deadline exceeded error
+    assert!(error.is_some(), "Expected deadline exceeded error");
+    let err = error.unwrap();
+    assert_eq!(
+        err.code(),
+        Code::DeadlineExceeded,
+        "Expected DeadlineExceeded, got {:?}",
+        err.code()
+    );
+
+    // Give handler time to potentially complete
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let was_completed = *handler_completed.lock().await;
+    let sent = *messages_sent.lock().await;
+
+    assert!(!was_completed, "Handler should not have completed");
+    assert!(
+        sent < 10,
+        "Handler should not have sent all messages due to deadline, sent {}",
+        sent
     );
 
     env.shutdown().await;

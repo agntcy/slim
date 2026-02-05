@@ -231,6 +231,7 @@ impl RequestStreamWriter {
         service_name: String,
         method_name: String,
         timeout: Option<std::time::Duration>,
+        metadata: Option<std::collections::HashMap<String, String>>,
     ) -> Self {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
@@ -254,7 +255,7 @@ impl RequestStreamWriter {
                     &method_name_clone,
                     stream,
                     timeout,
-                    None,
+                    metadata,
                 )
                 .await
         });
@@ -331,6 +332,7 @@ impl BidiStreamHandler {
         service_name: String,
         method_name: String,
         timeout: Option<std::time::Duration>,
+        metadata: Option<std::collections::HashMap<String, String>>,
     ) -> Self {
         let (req_tx, mut req_rx) = tokio::sync::mpsc::unbounded_channel();
         let (resp_tx, resp_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -350,7 +352,7 @@ impl BidiStreamHandler {
                 &method_name,
                 request_stream,
                 timeout,
-                None,
+                metadata,
             );
 
             futures::pin_mut!(response_stream);

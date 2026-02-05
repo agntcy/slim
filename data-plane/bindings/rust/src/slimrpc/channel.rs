@@ -203,7 +203,7 @@ impl Channel {
         let mut delay = Delay::new(timeout_duration);
 
         // Create context first so we can pass deadline in session metadata
-        let ctx = self.create_context_for_rpc(timeout, metadata).await;
+        let ctx = self.create_context_for_rpc(timeout, metadata);
 
         // Wrap the entire operation in a runtime-agnostic timeout using futures-timer
         tokio::select! {
@@ -306,7 +306,7 @@ impl Channel {
             let mut delay = Delay::new(timeout_duration);
 
             // Create context first so we can pass deadline in session metadata
-            let ctx = channel.create_context_for_rpc(timeout, metadata.clone()).await;
+            let ctx = channel.create_context_for_rpc(timeout, metadata.clone());
 
             // Create a new session for this RPC with timeout using futures-timer
             let session_result = tokio::select! {
@@ -424,7 +424,7 @@ impl Channel {
         let mut delay = Delay::new(timeout_duration);
 
         // Create context first so we can pass deadline in session metadata
-        let ctx = self.create_context_for_rpc(timeout, metadata.clone()).await;
+        let ctx = self.create_context_for_rpc(timeout, metadata.clone());
 
         // Wrap the entire operation in a runtime-agnostic timeout using futures-timer
         tokio::select! {
@@ -533,7 +533,7 @@ impl Channel {
             let mut delay = Delay::new(timeout_duration);
 
             // Create context first so we can pass deadline in session metadata
-            let ctx = channel.create_context_for_rpc(timeout, metadata.clone()).await;
+            let ctx = channel.create_context_for_rpc(timeout, metadata.clone());
 
             // Create a new session for this RPC with timeout using futures-timer
             let session_result = tokio::select! {
@@ -687,7 +687,7 @@ impl Channel {
     }
 
     /// Create a context for a specific RPC call with deadline
-    async fn create_context_for_rpc(
+    fn create_context_for_rpc(
         &self,
         timeout: Option<Duration>,
         metadata: Option<Metadata>,
@@ -701,7 +701,7 @@ impl Channel {
 
         // Merge in user metadata
         if let Some(meta) = metadata {
-            ctx.metadata_mut().merge(meta);
+            ctx.metadata_mut().extend(meta);
         }
 
         ctx
@@ -939,12 +939,14 @@ impl Channel {
         method_name: String,
         request: Vec<u8>,
         timeout: Option<std::time::Duration>,
+        metadata: Option<Metadata>,
     ) -> Result<Vec<u8>, RpcError> {
         crate::get_runtime().block_on(self.call_unary_async(
             service_name,
             method_name,
             request,
             timeout,
+            metadata,
         ))
     }
 
@@ -964,9 +966,10 @@ impl Channel {
         method_name: String,
         request: Vec<u8>,
         timeout: Option<std::time::Duration>,
+        metadata: Option<Metadata>,
     ) -> Result<Vec<u8>, RpcError> {
         Ok(self
-            .unary(&service_name, &method_name, request, timeout, None)
+            .unary(&service_name, &method_name, request, timeout, metadata)
             .await?)
     }
 
@@ -990,12 +993,14 @@ impl Channel {
         method_name: String,
         request: Vec<u8>,
         timeout: Option<std::time::Duration>,
+        metadata: Option<Metadata>,
     ) -> Result<std::sync::Arc<ResponseStreamReader>, RpcError> {
         crate::get_runtime().block_on(self.call_unary_stream_async(
             service_name,
             method_name,
             request,
             timeout,
+            metadata,
         ))
     }
 
@@ -1019,6 +1024,7 @@ impl Channel {
         method_name: String,
         request: Vec<u8>,
         timeout: Option<std::time::Duration>,
+        metadata: Option<Metadata>,
     ) -> Result<std::sync::Arc<ResponseStreamReader>, RpcError> {
         let channel = self.clone();
 
@@ -1032,7 +1038,7 @@ impl Channel {
                 &method_name,
                 request,
                 timeout,
-                None,
+                metadata,
             );
             futures::pin_mut!(stream);
 
@@ -1065,12 +1071,14 @@ impl Channel {
         service_name: String,
         method_name: String,
         timeout: Option<std::time::Duration>,
+        metadata: Option<Metadata>,
     ) -> std::sync::Arc<RequestStreamWriter> {
         std::sync::Arc::new(RequestStreamWriter::new(
             self.clone(),
             service_name,
             method_name,
             timeout,
+            metadata,
         ))
     }
 
@@ -1092,12 +1100,14 @@ impl Channel {
         service_name: String,
         method_name: String,
         timeout: Option<std::time::Duration>,
+        metadata: Option<HashMap<String, String>>,
     ) -> std::sync::Arc<BidiStreamHandler> {
         std::sync::Arc::new(BidiStreamHandler::new(
             self.clone(),
             service_name,
             method_name,
             timeout,
+            metadata,
         ))
     }
 }

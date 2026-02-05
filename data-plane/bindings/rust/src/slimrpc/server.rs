@@ -784,8 +784,10 @@ impl Server {
     ///
     /// # Example
     ///
+    /// This is a private internal method. Use the public `serve()` or `serve_async()` methods instead:
+    ///
     /// ```no_run
-    /// # use slim_bindings::{Server, Status, App, Name, IdentityProviderConfig, IdentityVerifierConfig};
+    /// # use slim_bindings::{Server, App, Name, IdentityProviderConfig, IdentityVerifierConfig};
     /// # use std::sync::Arc;
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let app_name = Arc::new(Name::new("test".to_string(), "app".to_string(), "v1".to_string()));
@@ -798,10 +800,11 @@ impl Server {
     /// # let server = Server::new_with_shared_rx_and_connection(core_app, base_name.as_slim_name(), None, notification_rx, None);
     /// // Register handlers first...
     ///
-    /// // Start serving in background task
-    /// let _server_handle = server.serve_handle()?;
+    /// // For async contexts, use serve_async():
+    /// // server.serve_async().await?;
     ///
-    /// // Do other work...
+    /// // For blocking contexts, use serve():
+    /// // server.serve()?;
     /// # Ok(())
     /// # }
     /// ```

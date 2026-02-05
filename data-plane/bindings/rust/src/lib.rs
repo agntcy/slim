@@ -103,11 +103,11 @@ pub use session::{Session, SessionConfig, SessionType};
 // SLIMRpc re-exports
 pub use slimrpc::{
     BidiStreamHandler, Channel, Code, Codec, Context, DEADLINE_KEY, Decoder, Encoder,
-    HandlerResponse, HandlerType, MAX_TIMEOUT, Metadata, RequestStreamWriter, ResponseSink,
-    ResponseStream, ResponseStreamReader, RpcError, STATUS_CODE_KEY, Server,
-    SessionContext as RpcSessionContext, Status, StatusError, StreamMessage, StreamStreamHandler,
-    StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
-    UniffiRequestStream as RequestStream, build_method_subscription_name,
+    HandlerResponse, HandlerType, MAX_TIMEOUT, RequestStreamWriter, ResponseSink, ResponseStream,
+    ResponseStreamReader, RpcError, STATUS_CODE_KEY, Server, SessionContext as RpcSessionContext,
+    Status, StatusError, StreamMessage, StreamStreamHandler, StreamUnaryHandler,
+    UnaryStreamHandler, UnaryUnaryHandler, UniffiRequestStream as RequestStream,
+    build_method_subscription_name,
 };
 
 // UniFFI scaffolding setup (must be at crate root)
