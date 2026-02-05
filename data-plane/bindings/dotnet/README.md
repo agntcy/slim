@@ -31,9 +31,24 @@ Slim.Shutdown();
 
 ### Building from Source
 
+To build the complete SDK, you need artifacts from the Rust bindings build:
+
 ```bash
-cd data-plane/bindings/dotnet
-task build  # Build rust library, generate bindings, and build .NET solution
+# From the root of the repository
+cd data-plane/bindings/rust
+task bindings:build:all TARGET=x86_64-unknown-linux-gnu PROFILE=release
+
+# Copy artifacts and build .NET bindings
+cd ../dotnet
+task ci ARTIFACTS_DIR=../../target/x86_64-unknown-linux-gnu/release BINDGEN_TARGET=x86_64-unknown-linux-gnu
+```
+
+For development on a single platform:
+
+```bash
+task generate ARTIFACTS_DIR=./artifacts BINDGEN_TARGET=x86_64-unknown-linux-gnu
+task build
+task test
 ```
 
 ## API Overview
@@ -71,61 +86,59 @@ See example source code in `Slim.Examples.*` projects for full implementation de
 
 ## Running Tests
 
-**Smoke tests** (no server required):
+The SDK includes smoke tests that don't require a running SLIM server:
+
 ```bash
-task test:smoke
+task test
 ```
 
-**Integration tests** (requires running server):
-```bash
-# Terminal 1: Start the server
-cd ../../
-task run:server
+For full integration testing with a SLIM server, you would need to:
+1. Start a SLIM server instance
+2. Run the example applications to verify functionality
 
-# Terminal 2: Run integration tests
-task test:integration
-```
-
-**All tests:**
-```bash
-task test:all
-```
+See the `Slim.Examples.*` projects for working integration examples.
 
 ## Development
 
 ### Available Tasks
 
 ```bash
-task                     # List all available tasks
-task build               # Build rust library, generate bindings, and build .NET solution
-task test:smoke          # Run smoke tests (no server required)
-task test:integration    # Run integration tests (requires running SLIM server)
-task test:all            # Run all tests (smoke + integration)
-task pack                # Create NuGet package with all runtime libraries
-task publish             # Publish NuGet package to NuGet.org (requires NUGET_API_TOKEN)
-task test:verify-package # Verify NuGet package can be installed and works locally
-task clean               # Clean all build artifacts
+task                  # List all available tasks
+task ci               # Run complete CI pipeline: generate, copy runtimes, build, test, pack
+task generate         # Generate C# bindings from artifacts (requires ARTIFACTS_DIR)
+task copy:runtimes    # Copy runtime libraries from artifacts to runtimes directory
+task build            # Build .NET solution (expects bindings already generated)
+task test             # Run smoke tests (no server required)
+task pack             # Create NuGet package (expects runtimes already copied)
+task clean            # Clean all build artifacts
 ```
 
 ### Regenerating Bindings
 
-If the Rust bindings change:
+If the Rust bindings change, you need to rebuild the Rust library first, then regenerate C# bindings:
 
 ```bash
-task generate
-git add Slim/generated/
-git commit -m "Regenerate dotnet bindings"
+# Build Rust library for your platform
+cd ../rust
+task bindings:build:all TARGET=x86_64-unknown-linux-gnu PROFILE=release
+
+# Generate new C# bindings
+cd ../dotnet
+task generate ARTIFACTS_DIR=../../target/x86_64-unknown-linux-gnu/release BINDGEN_TARGET=x86_64-unknown-linux-gnu
 ```
 
 ## Platform Support
 
 | Platform | Architecture | .NET RID | Status |
 |----------|--------------|----------|--------|
-| Linux    | x86_64       | linux-x64 | Supported |
-| Linux    | aarch64      | linux-arm64 | Supported |
-| macOS    | x86_64       | osx-x64 | Supported |
-| macOS    | aarch64      | osx-arm64 | Supported |
-| Windows  | x86_64       | win-x64 | Supported |
+| Linux (GNU) | x86_64 | linux-x64 | Supported |
+| Linux (GNU) | aarch64 | linux-arm64 | Supported |
+| Linux (musl) | x86_64 | linux-musl-x64 | Supported |
+| Linux (musl) | aarch64 | linux-musl-arm64 | Supported |
+| macOS | x86_64 | osx-x64 | Supported |
+| macOS | aarch64 | osx-arm64 | Supported |
+| Windows | x86_64 | win-x64 | Supported |
+| Windows | aarch64 | win-arm64 | Supported |
 
 ## NuGet Package
 
@@ -143,23 +156,12 @@ dotnet run
 
 The NuGet package is automatically published when a release tag is pushed (e.g., `slim-bindings-v0.1.0`). The release workflow:
 
-1. Builds and tests bindings on all supported platforms
-2. Creates a NuGet package with native libraries for all platforms
-3. Publishes to NuGet.org
-4. Tests the published package on 5 platforms (Linux x64 GNU/musl, Windows x64, macOS x64/arm64)
-5. Finalizes the release
+1. Builds native libraries for all supported platforms
+2. Tests bindings locally with all platform libraries
+3. Creates a NuGet package with native libraries for all platforms
+4. Publishes to NuGet.org
 
-**Manual Publishing:**
-```bash
-# Create package
-task pack
 
-# Publish to NuGet.org
-task publish NUGET_API_TOKEN=<your-api-token>
-
-# Or verify locally before publishing
-task test:verify-package
-```
 
 ## License
 
