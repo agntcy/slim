@@ -24,6 +24,8 @@ jobs:
   build-and-test-bindings:
     name: "Build and Test Bindings"
     uses: ./.github/workflows/reusable-bindings-build-and-test.yaml
+    with:
+      tag-name: ${{ github.ref_name }}
 
   # ==========================================================================
   # Job 2: Create GitHub release with library artifacts (for test tags)

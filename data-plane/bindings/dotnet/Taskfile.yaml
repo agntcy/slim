@@ -65,6 +65,34 @@ tasks:
     cmds:
       - task -l
 
+  _resolve-version:
+    desc: "Test version resolution (for debugging): Resolve version from VERSION, TAG_NAME, or Cargo.toml (in priority order)"
+    vars:
+      VERSION_PARAM: '{{.VERSION | default ""}}'
+      TAG_NAME_PARAM: '{{.TAG_NAME | default ""}}'
+    cmds:
+      - |
+        # Priority 1: Explicit VERSION parameter (highest priority)
+        if [[ -n "{{.VERSION_PARAM}}" ]]; then
+          echo "{{.VERSION_PARAM}}"
+          exit 0
+        fi
+        
+        # Priority 2: Extract from TAG_NAME parameter
+        if [[ -n "{{.TAG_NAME_PARAM}}" ]]; then
+          TAG="{{.TAG_NAME_PARAM}}"
+          # Remove 'slim-bindings-' prefix if present
+          VERSION="${TAG#slim-bindings-}"
+          # Remove leading 'v' if present (e.g., v1.0.0 -> 1.0.0)
+          VERSION="${VERSION#v}"
+          echo "$VERSION"
+          exit 0
+        fi
+        
+        # Priority 3: Fallback to Cargo.toml
+        grep '^version = ' ../rust/Cargo.toml | sed 's/version = "\(.*\)"/\1/'
+    silent: true
+
   install-uniffi-bindgen-cs:
     desc: "Install uniffi-bindgen-cs for C# bindings generation"
     status:
@@ -230,8 +258,8 @@ tasks:
   pack:
     desc: "Create NuGet package (expects runtimes already copied)"
     vars:
-      VERSION:
-        sh: grep '^version = ' ../rust/Cargo.toml | sed 's/version = "\(.*\)"/\1/'
+      VERSION_RESOLVED:
+        sh: task _resolve-version VERSION="{{.VERSION}}" TAG_NAME="{{.TAG_NAME}}"
       OUTPUT_DIR: '{{.OUTPUT_DIR | default "./nupkg"}}'
     cmds:
       - |
@@ -240,7 +268,7 @@ tasks:
           exit 1
         fi
         
-        VERSION="{{.VERSION}}"
+        VERSION="{{.VERSION_RESOLVED}}"
         OUTPUT_DIR="{{.OUTPUT_DIR}}"
         
         echo "Creating NuGet package version $VERSION..."
@@ -260,8 +288,8 @@ tasks:
     vars:
       ARTIFACTS_DIR: '{{.ARTIFACTS_DIR | default "./artifacts"}}'
       OUTPUT_DIR: '{{.OUTPUT_DIR | default "./nupkg"}}'
-      VERSION:
-        sh: grep '^version = ' ../rust/Cargo.toml | sed 's/version = "\(.*\)"/\1/'
+      VERSION_RESOLVED:
+        sh: task _resolve-version VERSION="{{.VERSION}}" TAG_NAME="{{.TAG_NAME}}"
     cmds:
       - |
         echo "=================================================="
@@ -269,7 +297,7 @@ tasks:
         echo "=================================================="
         echo "Artifacts: {{.ARTIFACTS_DIR}}"
         echo "Output:    {{.OUTPUT_DIR}}"
-        echo "Version:   {{.VERSION}}"
+        echo "Version:   {{.VERSION_RESOLVED}}"
         echo ""
       - task: generate
         vars:
@@ -281,7 +309,8 @@ tasks:
       - task: test
       - task: pack
         vars:
-          VERSION: "{{.VERSION}}"
+          VERSION: "{{.VERSION_RESOLVED}}"
+          TAG_NAME: "{{.TAG_NAME}}"
           OUTPUT_DIR: "{{.OUTPUT_DIR}}"
       - |
         echo ""

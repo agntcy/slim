@@ -11,6 +11,11 @@ on:
         required: false
         type: string
         default: ubuntu-latest
+      tag-name:
+        description: Git tag name for version extraction (e.g., slim-bindings-1.2.3)
+        required: false
+        type: string
+        default: ""
       rust-workspace:
         description: Rust workspace directory for caching
         required: false
@@ -458,10 +463,16 @@ jobs:
       # This generates bindings, copies runtimes, builds, tests, and packs
       - name: Run CI pipeline
         run: |
+          TAG_NAME_PARAM=""
+          if [[ -n "${{ inputs.tag-name }}" ]]; then
+            TAG_NAME_PARAM="TAG_NAME=${{ inputs.tag-name }}"
+          fi
+          
           task ci \
             ARTIFACTS_DIR=./artifacts \
             OUTPUT_DIR=./nupkg \
-            BINDGEN_TARGET=x86_64-unknown-linux-gnu
+            BINDGEN_TARGET=x86_64-unknown-linux-gnu \
+            $TAG_NAME_PARAM
 
       - name: Upload NuGet package
         uses: actions/upload-artifact@v4

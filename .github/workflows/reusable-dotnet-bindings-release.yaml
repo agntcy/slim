@@ -68,12 +68,14 @@ jobs:
           echo "Downloaded NuGet package:"
           ls -lah ./nupkg/
 
-      - name: Extract version from tag
+      - name: Extract version from package name
         id: extract-version
         run: |
-          # Extract version from tag name (remove 'slim-bindings-' prefix)
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#slim-bindings-}"
+          # Extract version from the .nupkg filename
+          PACKAGE=$(ls ./nupkg/*.nupkg | head -1)
+          FILENAME=$(basename "$PACKAGE")
+          # Extract version from Agntcy.Slim.X.Y.Z.nupkg
+          VERSION=$(echo "$FILENAME" | sed -n 's/Agntcy\.Slim\.\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*.*\)\.nupkg/\1/p')
           echo "Extracted version: $VERSION"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
@@ -90,13 +92,12 @@ jobs:
           fi
 
       - name: Publish to NuGet.org
-        env:
-          NUGET_AUTH_TOKEN: ${{ secrets.nuget-api-token }}
         run: |
           PACKAGE=$(ls ./nupkg/*.nupkg | head -1)
           echo "Publishing package: $PACKAGE"
           
           dotnet nuget push "$PACKAGE" \
+            --api-key "${{ secrets.nuget-api-token }}" \
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate
           
