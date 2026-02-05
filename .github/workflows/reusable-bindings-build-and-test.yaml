@@ -411,6 +411,7 @@ jobs:
           echo "The wheel can be safely published."
 
   dotnet-bindings-build-and-test:
+    name: Build .NET Bindings
     runs-on: ${{ inputs.runner }}
     needs:
       - generate-matrix
@@ -441,7 +442,7 @@ jobs:
           version: latest
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Download all library artifacts
+      # Download all library artifacts from the build-libraries job
       - name: Download library artifacts
         uses: actions/download-artifact@v4
         with:
@@ -450,18 +451,21 @@ jobs:
 
       - name: List downloaded artifacts
         run: |
-          echo "Downloaded artifacts:"
-          find ./artifacts -type f -ls
+          echo "📦 Downloaded artifacts:"
+          find ./artifacts -type f -name "*.so" -o -name "*.dll" -o -name "*.dylib" -o -name "*.a" | sort
 
-      # Note: uniffi-bindgen-cs requires .a (static library) not .so (shared library)
-      # to properly extract UniFFI metadata. Same as Go bindings.
-      # IMPORTANT: Do NOT pass TARGET parameter to ci task, as it would filter runtime libraries
-      # We only need to specify which library to use for binding generation (BINDGEN_LIB)
-      - name: Generate bindings, build, test, and pack
-        run: task ci ARTIFACTS_DIR=./artifacts BINDGEN_LIB=./artifacts/bindings-x86_64-unknown-linux-gnu/libslim_bindings_x86_64_linux_gnu.a
+      # Run complete CI pipeline using task command
+      # This generates bindings, copies runtimes, builds, tests, and packs
+      - name: Run CI pipeline
+        run: |
+          task ci \
+            ARTIFACTS_DIR=./artifacts \
+            OUTPUT_DIR=./nupkg \
+            BINDGEN_TARGET=x86_64-unknown-linux-gnu
 
       - name: Upload NuGet package
         uses: actions/upload-artifact@v4
         with:
           name: dotnet-bindings-nuget
-          path: ./data-plane/bindings/dotnet/artifacts/*.nupkg
+          path: ./data-plane/bindings/dotnet/nupkg/*.nupkg
+          if-no-files-found: error

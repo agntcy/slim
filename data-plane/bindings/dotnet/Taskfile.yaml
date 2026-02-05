@@ -44,6 +44,8 @@ vars:
   
   # Supported platforms for NuGet packaging
   # Format: TARGET|RID|LIB_EXT
+  # Note: x86_64-pc-windows-gnu is excluded due to RID collision with MSVC.
+  # .NET RIDs cannot differentiate between GNU and MSVC toolchains for win-x64.
   PLATFORMS: |
     x86_64-unknown-linux-gnu|linux-x64|so
     aarch64-unknown-linux-gnu|linux-arm64|so
@@ -51,7 +53,6 @@ vars:
     aarch64-unknown-linux-musl|linux-musl-arm64|so
     x86_64-apple-darwin|osx-x64|dylib
     aarch64-apple-darwin|osx-arm64|dylib
-    x86_64-pc-windows-gnu|win-x64|dll
     x86_64-pc-windows-msvc|win-x64|dll
     aarch64-pc-windows-msvc|win-arm64|dll
 
@@ -64,29 +65,6 @@ tasks:
     cmds:
       - task -l
 
-  _get-lib-info:
-    desc: "Internal: Get library path, RID, and name for current platform"
-    internal: true
-    vars:
-      PROFILE_VAR: '{{.PROFILE | default "release"}}'
-    cmds:
-      - |
-        TARGET="{{.CURRENT_TARGET}}"
-        echo "{{.PLATFORMS}}" | while IFS='|' read -r target rid ext; do
-          if [[ "$target" == "$TARGET" ]]; then
-            case "$ext" in
-              so|dylib) lib_name="lib{{.LIB_NAME}}.$ext" ;;
-              dll) lib_name="{{.LIB_NAME}}.$ext" ;;
-            esac
-            lib_path="{{.TARGET_DIR}}/$target/{{.PROFILE_VAR}}/$lib_name"
-            echo "$lib_path|$rid|$lib_name"
-            exit 0
-          fi
-        done
-        echo "ERROR: Target $TARGET not found in PLATFORMS" >&2
-        exit 1
-    silent: true
-
   install-uniffi-bindgen-cs:
     desc: "Install uniffi-bindgen-cs for C# bindings generation"
     status:
@@ -95,31 +73,39 @@ tasks:
       - cargo install uniffi-bindgen-cs --git https://github.com/NordSecurity/uniffi-bindgen-cs.git --tag v0.9.0+v0.28.3
     silent: true
 
-  build:rust:all:
-    desc: "Build Rust libraries for all target platforms"
-    cmds:
-      - |
-        echo "{{.PLATFORMS}}" | while IFS='|' read -r target rid ext; do
-          [[ -n "$target" ]] && task adapter:bindings:build:all TARGET="$target" PROFILE={{.PROFILE}}
-        done
-    silent: true
 
   generate:
-    desc: "Generate C# bindings using uniffi-bindgen-cs"
+    desc: "Generate C# bindings from artifacts (expects ARTIFACTS_DIR to be set)"
     deps:
       - install-uniffi-bindgen-cs
+    vars:
+      ARTIFACTS_DIR: '{{.ARTIFACTS_DIR | default "./artifacts"}}'
+      # Use Linux x86_64 static library for binding generation (most compatible)
+      BINDGEN_TARGET: '{{.BINDGEN_TARGET | default "x86_64-unknown-linux-gnu"}}'
     cmds:
       - |
-        # Determine library file to use for binding generation
-        if [[ -n "{{.BINDGEN_LIB}}" ]]; then
-          lib_file="{{.BINDGEN_LIB}}"
-        else
-          task adapter:bindings:build:all TARGET={{.CURRENT_TARGET}} PROFILE=release
-          # uniffi-bindgen-cs requires .a (static library) to extract UniFFI metadata
-          lib_file="{{.TARGET_DIR}}/{{.CURRENT_TARGET}}/release/lib{{.LIB_NAME}}.a"
+        ARTIFACTS_DIR="{{.ARTIFACTS_DIR}}"
+        BINDGEN_TARGET="{{.BINDGEN_TARGET}}"
+        
+        # Find any .a file in the bindings directory (naming varies)
+        artifact_dir="$ARTIFACTS_DIR/bindings-${BINDGEN_TARGET}"
+        
+        if [[ ! -d "$artifact_dir" ]]; then
+          echo "ERROR: Artifacts directory not found: $artifact_dir"
+          echo "Expected: $ARTIFACTS_DIR/bindings-{target}/"
+          exit 1
         fi
         
-        [[ ! -f "$lib_file" ]] && echo "ERROR: Library not found: $lib_file" && exit 1
+        lib_file=$(find "$artifact_dir" -maxdepth 1 -name "lib{{.LIB_NAME}}*.a" -type f | head -1)
+        
+        if [[ -z "$lib_file" || ! -f "$lib_file" ]]; then
+          echo "ERROR: Static library (.a) not found in: $artifact_dir"
+          echo "Expected pattern: lib{{.LIB_NAME}}*.a"
+          ls -la "$artifact_dir"
+          exit 1
+        fi
+        
+        echo "Generating C# bindings from: $lib_file"
         
         rm -rf {{.GENERATED_DIR}}
         mkdir -p {{.GENERATED_DIR}}
@@ -129,65 +115,38 @@ tasks:
           echo "ERROR: Failed to generate slim_bindings.cs"
           exit 1
         fi
-        echo "Bindings generated successfully"
+        
+        echo "✅ C# bindings generated successfully"
     silent: true
 
-  copy:runtimes:from-artifacts:
-    desc: "Copy native libraries from artifacts to runtimes directory (unified for CI and local dev)"
+  copy:runtimes:
+    desc: "Copy all available runtime libraries from artifacts to runtimes directory"
+    vars:
+      ARTIFACTS_DIR: '{{.ARTIFACTS_DIR | default "./artifacts"}}'
     cmds:
       - rm -rf {{.RUNTIMES_DIR}}
       - mkdir -p {{.RUNTIMES_DIR}}
       - |
-        # Determine source directory: ARTIFACTS_DIR (CI) or TARGET_DIR (local)
-        if [[ -n "{{.ARTIFACTS_DIR}}" && -d "{{.ARTIFACTS_DIR}}" ]]; then
-          SOURCE_DIR="{{.ARTIFACTS_DIR}}"
-          SOURCE_TYPE="artifacts"
-        elif [[ -d "{{.TARGET_DIR}}" ]]; then
-          SOURCE_DIR="{{.TARGET_DIR}}"
-          SOURCE_TYPE="local"
-        else
-          echo "ERROR: Neither ARTIFACTS_DIR nor TARGET_DIR exists"
+        ARTIFACTS_DIR="{{.ARTIFACTS_DIR}}"
+        
+        if [[ ! -d "$ARTIFACTS_DIR" ]]; then
+          echo "ERROR: Artifacts directory not found: $ARTIFACTS_DIR"
+          echo "Expected structure: $ARTIFACTS_DIR/bindings-{target}/*.{so,dll,dylib}"
           exit 1
         fi
         
-        # Determine if we're filtering to a single target
-        FILTER_TARGET="{{.TARGET}}"
-        if [[ -n "$FILTER_TARGET" ]]; then
-          echo "Copying runtime library for $FILTER_TARGET from $SOURCE_TYPE..."
-        else
-          echo "Copying runtime libraries for all platforms from $SOURCE_TYPE..."
-        fi
+        echo "Copying runtime libraries from: $ARTIFACTS_DIR"
         
-        # Iterate through target directories
-        # For artifacts: bindings-* directories
-        # For local: target triple directories under TARGET_DIR
-        if [[ "$SOURCE_TYPE" == "artifacts" ]]; then
-          SEARCH_PATTERN="$SOURCE_DIR/bindings-*"
-        else
-          SEARCH_PATTERN="$SOURCE_DIR/*"
-        fi
+        runtime_count=0
         
-        for target_dir in $SEARCH_PATTERN; do
+        # Iterate through all bindings-* artifact directories
+        for target_dir in "$ARTIFACTS_DIR"/bindings-*; do
           if [[ ! -d "$target_dir" ]]; then
             continue
           fi
           
           # Extract target triple from directory name
-          if [[ "$SOURCE_TYPE" == "artifacts" ]]; then
-            target=$(basename "$target_dir" | sed 's/^bindings-//')
-            artifact_dir="$target_dir"
-          else
-            target=$(basename "$target_dir")
-            artifact_dir="$target_dir/{{.PROFILE}}"
-            if [[ ! -d "$artifact_dir" ]]; then
-              continue
-            fi
-          fi
-          
-          # Skip if filtering and this isn't the target we want
-          if [[ -n "$FILTER_TARGET" && "$target" != "$FILTER_TARGET" ]]; then
-            continue
-          fi
+          target=$(basename "$target_dir" | sed 's/^bindings-//')
           
           # Look up the target in PLATFORMS to get RID and extension
           rid=""
@@ -200,11 +159,13 @@ tasks:
             fi
           done <<< "{{.PLATFORMS}}"
           
+          # Skip if target not in our supported platforms list
           if [[ -z "$rid" || -z "$ext" ]]; then
+            echo "  Skipping $target (not in PLATFORMS list)"
             continue
           fi
           
-          echo "Processing $target..."
+          echo "  Processing $target → $rid..."
           
           # Determine library name patterns
           case "$ext" in
@@ -219,10 +180,10 @@ tasks:
           esac
           
           # Find the runtime library
-          src=$(find "$artifact_dir" -maxdepth 1 -name "$lib_pattern" -type f | head -1)
+          src=$(find "$target_dir" -maxdepth 1 -name "$lib_pattern" -type f | head -1)
           
           if [[ -z "$src" || ! -f "$src" ]]; then
-            echo "  WARNING: Runtime library not found (pattern: $lib_pattern)"
+            echo "    ⚠️  Runtime library not found (pattern: $lib_pattern)"
             continue
           fi
           
@@ -230,160 +191,111 @@ tasks:
           runtime_dir="{{.RUNTIMES_DIR}}/$rid/native"
           mkdir -p "$runtime_dir"
           cp "$src" "$runtime_dir/$lib_name"
-          echo "  ✓ Copied to $rid/native/$lib_name"
+          echo "    ✅ Copied to $rid/native/$lib_name"
+          runtime_count=$((runtime_count + 1))
         done
         
         echo ""
-        echo "Runtime libraries copied:"
-        find {{.RUNTIMES_DIR}} -type f -ls || true
+        if [[ $runtime_count -eq 0 ]]; then
+          echo "⚠️  WARNING: No runtime libraries were copied!"
+          exit 1
+        fi
+        
+        echo "✅ Successfully copied $runtime_count runtime libraries:"
+        find {{.RUNTIMES_DIR}} -type f -exec ls -lh {} \;
     silent: true
-
-  copy:runtime:current:
-    desc: "Copy native library for current platform to runtimes directory (for local development)"
-    deps:
-      - generate
-    cmds:
-      - task copy:runtimes:from-artifacts TARGET={{.TARGET}}
 
   build:
-    desc: "Build the .NET solution"
-    deps:
-      - generate
-      - copy:runtime:current
+    desc: "Build the .NET solution (expects bindings already generated)"
     cmds:
-      - dotnet build Slim.sln --configuration Release
+      - |
+        if [[ ! -f "{{.GENERATED_DIR}}/slim_bindings.cs" ]]; then
+          echo "ERROR: C# bindings not found. Run 'task generate' first."
+          exit 1
+        fi
+        echo "Building .NET solution..."
+        dotnet build Slim.sln --configuration Release
+        echo "✅ Build completed successfully"
     silent: true
 
-  test:smoke:
-    desc: "Run smoke tests only (no server required)"
-    deps:
-      - build
+  test:
+    desc: "Run smoke tests (no server required)"
     cmds:
-      - dotnet test Slim.Tests/Slim.Tests.csproj --configuration Release --filter "FullyQualifiedName~SmokeTests" --verbosity normal
-    silent: true
-
-  test:integration:
-    desc: "Run integration tests (requires running SLIM server)"
-    deps:
-      - build
-    cmds:
-      - echo "WARNING - Make sure SLIM server is running"
-      - dotnet test Slim.Tests/Slim.Tests.csproj --configuration Release --filter "FullyQualifiedName~IntegrationTests" --verbosity normal
-    silent: true
-
-  test:all:
-    desc: "Run all tests (smoke + integration, requires running SLIM server)"
-    deps:
-      - build
-    cmds:
-      - echo "WARNING - Make sure SLIM server is running for integration tests"
-      - dotnet test Slim.Tests/Slim.Tests.csproj --configuration Release --verbosity normal
+      - |
+        echo "Running smoke tests..."
+        dotnet test Slim.Tests/Slim.Tests.csproj --configuration Release --filter "FullyQualifiedName~SmokeTests" --verbosity normal
+        echo "✅ Tests completed successfully"
     silent: true
 
   pack:
-    desc: "Create NuGet package with all runtime libraries (every major OS and platform)"
-    deps:
-      - task: build:rust:all
-        vars:
-          PROFILE: "release"
-      - task: generate
+    desc: "Create NuGet package (expects runtimes already copied)"
     vars:
       VERSION:
         sh: grep '^version = ' ../rust/Cargo.toml | sed 's/version = "\(.*\)"/\1/'
-    cmds:
-      - task copy:runtimes:from-artifacts
-      - dotnet pack Slim/Slim.csproj --configuration Release --output ./nupkg -p:Version={{.VERSION}}
-      - echo "Built NuGet package version {{.VERSION}}"
-      - ls -lh nupkg/*.nupkg
-    silent: true
-
-  publish:
-    desc: "Publish NuGet package to NuGet.org"
-    deps:
-      - pack
-    env:
-      NUGET_AUTH_TOKEN: "{{.NUGET_API_TOKEN}}"
+      OUTPUT_DIR: '{{.OUTPUT_DIR | default "./nupkg"}}'
     cmds:
       - |
-        PACKAGE=$(ls nupkg/*.nupkg | head -1)
-        echo "Publishing package: $PACKAGE"
-        dotnet nuget push "$PACKAGE" \
-          --source https://api.nuget.org/v3/index.json \
-          --skip-duplicate
-        echo "Successfully published to NuGet.org"
-    silent: true
-
-  test:verify-package:
-    desc: "Verify NuGet package can be installed and works locally"
-    deps:
-      - pack
-    cmds:
-      - |
-        echo "Verifying NuGet package installation..."
-        TEST_DIR=$(mktemp -d)
-        trap "rm -rf $TEST_DIR" EXIT
+        if [[ ! -d "{{.RUNTIMES_DIR}}" ]] || [[ -z "$(ls -A {{.RUNTIMES_DIR}})" ]]; then
+          echo "ERROR: No runtime libraries found. Run 'task copy:runtimes' first."
+          exit 1
+        fi
         
-        cd "$TEST_DIR"
-        echo "Testing in: $TEST_DIR"
+        VERSION="{{.VERSION}}"
+        OUTPUT_DIR="{{.OUTPUT_DIR}}"
         
-        # Create a test console application
-        dotnet new console -n SlimBindingsTest
-        cd SlimBindingsTest
+        echo "Creating NuGet package version $VERSION..."
+        echo "Runtime libraries included:"
+        ls -1 {{.RUNTIMES_DIR}}
         
-        # Add local NuGet source
-        NUPKG_PATH="{{.TASKFILE_DIR}}/nupkg"
-        dotnet nuget add source "$NUPKG_PATH" --name "LocalPackages"
-        
-        # Find the package
-        PACKAGE=$(ls "$NUPKG_PATH"/*.nupkg | head -1)
-        PACKAGE_NAME=$(basename "$PACKAGE" | sed 's/\.[0-9].*//')
-        VERSION=$(basename "$PACKAGE" | sed -n 's/.*\.\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*.*\)\.nupkg/\1/p')
-        
-        echo "Package: $PACKAGE_NAME"
-        echo "Version: $VERSION"
-        
-        # Install the package
-        dotnet add package "$PACKAGE_NAME" --version "$VERSION" --source "LocalPackages"
-        echo "Package installed successfully"
-        
-        # Copy test program
-        cp "{{.TASKFILE_DIR}}/../../.github/tests/dotnet/test_installation.cs" ./Program.cs
-        
-        # Build and run
-        dotnet build
-        dotnet run
+        mkdir -p "$OUTPUT_DIR"
+        dotnet pack Slim/Slim.csproj --configuration Release --output "$OUTPUT_DIR" -p:Version="$VERSION"
         
         echo ""
-        echo "Package verification complete!"
+        echo "✅ Successfully created NuGet package:"
+        ls -lh "$OUTPUT_DIR"/*.nupkg
     silent: true
 
   ci:
-    desc: "Run CI pipeline: generate, build, test, and pack"
-    deps:
-      - generate
+    desc: "Run complete CI pipeline: generate bindings, copy runtimes, build, test, and pack"
     vars:
+      ARTIFACTS_DIR: '{{.ARTIFACTS_DIR | default "./artifacts"}}'
+      OUTPUT_DIR: '{{.OUTPUT_DIR | default "./nupkg"}}'
       VERSION:
-        sh: |
-          if [[ -n "{{.VERSION}}" ]]; then
-            echo "{{.VERSION}}"
-          else
-            grep '^version = ' ../rust/Cargo.toml | sed 's/version = "\(.*\)"/\1/'
-          fi
+        sh: grep '^version = ' ../rust/Cargo.toml | sed 's/version = "\(.*\)"/\1/'
     cmds:
-      - dotnet build Slim.sln --configuration Release
-      - dotnet test Slim.Tests/Slim.Tests.csproj --configuration Release --filter "FullyQualifiedName~SmokeTests" --verbosity normal
       - |
-        if [[ -n "{{.ARTIFACTS_DIR}}" ]]; then
-          # Copy all runtime libraries from artifacts before packing
-          task copy:runtimes:from-artifacts ARTIFACTS_DIR={{.ARTIFACTS_DIR}}
-          mkdir -p {{.ARTIFACTS_DIR}}
-          dotnet pack Slim/Slim.csproj --configuration Release --output {{.ARTIFACTS_DIR}} -p:Version={{.VERSION}}
-          echo "Built NuGet package version {{.VERSION}}"
-        fi
+        echo "=================================================="
+        echo "  .NET Bindings CI Pipeline"
+        echo "=================================================="
+        echo "Artifacts: {{.ARTIFACTS_DIR}}"
+        echo "Output:    {{.OUTPUT_DIR}}"
+        echo "Version:   {{.VERSION}}"
+        echo ""
+      - task: generate
+        vars:
+          ARTIFACTS_DIR: "{{.ARTIFACTS_DIR}}"
+      - task: copy:runtimes
+        vars:
+          ARTIFACTS_DIR: "{{.ARTIFACTS_DIR}}"
+      - task: build
+      - task: test
+      - task: pack
+        vars:
+          VERSION: "{{.VERSION}}"
+          OUTPUT_DIR: "{{.OUTPUT_DIR}}"
+      - |
+        echo ""
+        echo "=================================================="
+        echo "  ✅ CI Pipeline completed successfully"
+        echo "=================================================="
+    silent: true
 
   clean:
     desc: "Clean all build artifacts"
     cmds:
-      - dotnet clean Slim.sln
-      - rm -rf {{.TARGET_DIR}} {{.RUNTIMES_DIR}} {{.GENERATED_DIR}} nupkg/ Slim/bin/ Slim/obj/ Slim.Tests/bin/ Slim.Tests/obj/
+      - |
+        echo "Cleaning build artifacts..."
+        dotnet clean Slim.sln 2>/dev/null || true
+        rm -rf {{.RUNTIMES_DIR}} {{.GENERATED_DIR}} nupkg/ Slim/bin/ Slim/obj/ Slim.Tests/bin/ Slim.Tests/obj/
+        echo "✅ Clean completed"
     silent: true

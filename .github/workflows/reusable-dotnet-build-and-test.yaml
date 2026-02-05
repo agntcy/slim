@@ -133,45 +133,26 @@ jobs:
           version: latest
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Download library artifacts
+      # Download library artifacts from previous job
       - name: Download library artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: bindings-*
-          path: ./artifacts/
+          path: ${{ inputs.dotnet-bindings-dir }}/artifacts/
 
       - name: List downloaded artifacts
         run: |
-          echo "Downloaded artifacts:"
-          find ./artifacts -type f -ls
+          echo "📦 Downloaded artifacts:"
+          find ./artifacts -type f -name "*.so" -o -name "*.dll" -o -name "*.dylib" -o -name "*.a" | sort
 
-      - name: Generate bindings and build
+      # Run complete CI pipeline using task command
+      # This generates bindings, copies runtimes, builds, tests, and packs
+      - name: Run CI pipeline
         run: |
-          # Construct library name from rust-target
-          TARGET="${{ inputs.rust-target }}"
-          ARCH=$(echo "$TARGET" | cut -d'-' -f1)
-          OS=$(echo "$TARGET" | cut -d'-' -f3)
-          ABI=$(echo "$TARGET" | cut -d'-' -f4)
-          
-          if [ -n "$ABI" ] && [ "$ABI" != "" ]; then
-            LIB_NAME="slim_bindings_${ARCH}_${OS}_${ABI}"
-          else
-            LIB_NAME="slim_bindings_${ARCH}_${OS}"
-          fi
-          
-          BINDGEN_LIB="./artifacts/bindings-${{ inputs.rust-target }}/lib${LIB_NAME}.so"
-          echo "Using library: $BINDGEN_LIB"
-          
-          # Generate C# bindings using downloaded artifact
-          task generate BINDGEN_LIB="$BINDGEN_LIB" TARGET="${{ inputs.rust-target }}"
-          # Build the solution
-          task build TARGET="${{ inputs.rust-target }}"
-
-      - name: Run smoke tests
-        run: task test
-
-      - name: Create NuGet package
-        run: task pack
+          task ci \
+            ARTIFACTS_DIR=./artifacts \
+            OUTPUT_DIR=./nupkg \
+            BINDGEN_TARGET=${{ inputs.rust-target }}
 
       - name: Upload NuGet package
         uses: actions/upload-artifact@v4
