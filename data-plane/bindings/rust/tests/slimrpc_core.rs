@@ -2117,7 +2117,10 @@ async fn test_server_restart() {
                 drop(counter);
 
                 Ok(TestResponse {
-                    result: format!("Call count: {}, Message: {}", current_count, request.message),
+                    result: format!(
+                        "Call count: {}, Message: {}",
+                        current_count, request.message
+                    ),
                     count: current_count as i32,
                 })
             }
@@ -2202,5 +2205,86 @@ async fn test_server_restart() {
     assert!(response4.result.contains("Call count: 4"));
 
     // Final shutdown
+    env.shutdown().await;
+}
+
+/// Test that verifies shutting down the server while a handler is executing
+/// The handler is cancelled and the client receives an error
+#[tokio::test]
+async fn test_server_shutdown_during_handler_execution() {
+    let mut env = TestEnv::new("test-shutdown-during-handler").await;
+
+    let handler_started = Arc::new(Mutex::new(false));
+    let started_clone = handler_started.clone();
+
+    // Register a handler that takes some time to execute
+    env.server.register_unary_unary_internal(
+        "TestService",
+        "SlowHandler",
+        move |request: TestRequest, _ctx: RpcContext| {
+            let started = started_clone.clone();
+            async move {
+                *started.lock().await = true;
+
+                // Simulate a long-running handler (5 seconds)
+                tokio::time::sleep(Duration::from_secs(5)).await;
+
+                Ok(TestResponse {
+                    result: format!("Processed: {}", request.message),
+                    count: request.value,
+                })
+            }
+        },
+    );
+
+    env.start_server().await;
+
+    let request = TestRequest {
+        message: "Test".to_string(),
+        value: 42,
+    };
+
+    // Start the RPC call in a separate task
+    let channel = env.channel.clone();
+    let call_handle = tokio::spawn(async move {
+        channel
+            .unary::<TestRequest, TestResponse>("TestService", "SlowHandler", request, None, None)
+            .await
+    });
+
+    // Wait for handler to start
+    for _ in 0..100 {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        if *handler_started.lock().await {
+            break;
+        }
+    }
+
+    assert!(*handler_started.lock().await, "Handler should have started");
+
+    // Give the handler more time to be deep in execution
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Now shut down the server while the handler is still executing
+    env.server.shutdown_async().await;
+
+    // The RPC call should return an error since the handler was cancelled
+    let result = call_handle.await.expect("Task should not panic");
+
+    assert!(
+        result.is_err(),
+        "Expected an error when server shuts down during handler execution"
+    );
+
+    let error = result.unwrap_err();
+
+    // The error should be Cancelled since the handler was cancelled during shutdown
+    assert_eq!(
+        error.code(),
+        Code::Cancelled,
+        "Expected Cancelled error when server shuts down during handler execution, got: {:?}",
+        error.code()
+    );
+
     env.shutdown().await;
 }

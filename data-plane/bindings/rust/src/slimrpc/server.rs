@@ -929,6 +929,8 @@ impl Server {
                         tokio::select! {
                             _ = watch => {
                                 tracing::debug!(%subscription_name, "Session task terminated due to server shutdown");
+                                // Send Cancelled error to client before closing
+                                let _ = send_error(&session_tx, Status::cancelled("Server shutting down")).await;
                                 let _ = session_tx.close(app_clone.as_ref()).await;
                             }
                             _ = async {
