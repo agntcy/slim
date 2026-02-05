@@ -23,10 +23,10 @@ use slim_session::{SessionConfig, session_controller::SessionController};
 // Local crate
 use crate::ServiceError;
 use slim_session::SlimChannelSender;
+use slim_session::interceptor::{IdentityInterceptor, SessionInterceptorProvider};
 use slim_session::notification::Notification;
 use slim_session::transmitter::AppTransmitter;
 use slim_session::{SessionError, SessionLayer, context::SessionContext};
-use slim_session::interceptor::{IdentityInterceptor, SessionInterceptorProvider};
 
 pub struct App<P, V>
 where

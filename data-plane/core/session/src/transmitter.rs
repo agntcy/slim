@@ -167,11 +167,11 @@ impl Transmitter for AppTransmitter {
 mod tests {
     use super::*;
     use crate::{SessionError, notification::Notification};
+    use async_trait::async_trait;
     use slim_datapath::Status;
     use slim_datapath::api::ProtoMessage as Message;
     use slim_datapath::messages::encoder::Name;
     use tokio::sync::mpsc;
-    use async_trait::async_trait;
 
     #[derive(Clone, Default)]
     struct RecordingInterceptor {

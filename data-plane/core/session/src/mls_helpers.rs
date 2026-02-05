@@ -28,7 +28,10 @@ fn should_process_message(msg: &Message) -> bool {
         }
         _ => {
             // Skip all other message types (control messages, ACKs, etc.)
-            debug!("Skipping non-data message type: {:?}", msg.get_session_header().session_message_type());
+            debug!(
+                "Skipping non-data message type: {:?}",
+                msg.get_session_header().session_message_type()
+            );
             false
         }
     }
@@ -182,9 +185,7 @@ mod tests {
         );
 
         let mut bob_msg = alice_msg.clone();
-        decrypt_message(&mut bob_mls, &mut bob_msg)
-            .await
-            .unwrap();
+        decrypt_message(&mut bob_mls, &mut bob_msg).await.unwrap();
 
         assert_eq!(
             bob_msg
