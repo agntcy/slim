@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.1](https://github.com/agntcy/slim/compare/slimctl-v1.0.0...slimctl-v1.0.1) (2026-02-06)
+
+
+### Bug Fixes
+
+* close grpc connections ([#1159](https://github.com/agntcy/slim/issues/1159)) ([81f7e29](https://github.com/agntcy/slim/commit/81f7e2983f4c20729366c2d7c0893a740bd46d43))
+* **slimctl:** remove misleading prints ([#1170](https://github.com/agntcy/slim/issues/1170)) ([8ad3e96](https://github.com/agntcy/slim/commit/8ad3e96ef4f3058eb72f3fe02d1fc7e59cb7522f))
+
 ## [1.0.0](https://github.com/agntcy/slim/compare/slimctl-v0.7.0...slimctl-v1.0.0) (2026-01-30)
 
 
