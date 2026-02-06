@@ -150,6 +150,77 @@ tasks:
       - echo "✅ Clean complete"
 
   # ==========================================================================
+  # Testing Tasks
+  # ==========================================================================
+
+  test:
+    desc: Run all tests
+    deps:
+      - generate
+    cmds:
+      - echo "Running all tests..."
+      - ./gradlew test
+      - echo "Tests complete"
+      - echo "View test report at build/reports/tests/test/index.html"
+
+  test:verbose:
+    desc: Run all tests with verbose output
+    deps:
+      - generate
+    cmds:
+      - echo "Running all tests (verbose)..."
+      - ./gradlew testVerbose
+      - echo "Tests complete"
+      - echo "View test report at build/reports/tests/test/index.html"
+
+  test:class:
+    desc: Run a specific test class (use TEST_CLASS variable)
+    deps:
+      - generate
+    cmds:
+      - echo "Running {{.TEST_CLASS}}..."
+      - ./gradlew testClass -PtestClass={{.TEST_CLASS}}
+      - echo "Tests complete"
+      - echo "View test report at build/reports/tests/test/index.html"
+    vars:
+      TEST_CLASS: '{{.TEST_CLASS | default "BindingsTest"}}'
+
+  test:pattern:
+    desc: Run tests matching a pattern (use TEST_PATTERN variable)
+    deps:
+      - generate
+    cmds:
+      - echo "Running tests matching '{{.TEST_PATTERN}}'..."
+      - ./gradlew testPattern -PtestPattern={{.TEST_PATTERN}}
+      - echo "Tests complete"
+      - echo "View test report at build/reports/tests/test/index.html"
+    vars:
+      TEST_PATTERN: '{{.TEST_PATTERN | default "*"}}'
+
+  test:report:
+    desc: Open the test report in browser
+    cmds:
+      - |
+        if [ -f "build/reports/tests/test/index.html" ]; then
+          echo "Opening test report..."
+          case "$(uname -s)" in
+            Darwin*)
+              open build/reports/tests/test/index.html
+              ;;
+            Linux*)
+              xdg-open build/reports/tests/test/index.html 2>/dev/null || \
+              sensible-browser build/reports/tests/test/index.html 2>/dev/null || \
+              echo "Please open: build/reports/tests/test/index.html"
+              ;;
+            *)
+              echo "Please open: build/reports/tests/test/index.html"
+              ;;
+          esac
+        else
+          echo "No test report found. Run tests first: task test"
+        fi
+
+  # ==========================================================================
   # Examples Tasks
   # ==========================================================================
 
