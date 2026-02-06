@@ -35,6 +35,7 @@ dependencies {
     // Testing
     testImplementation(kotlin("test"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    testImplementation("org.junit.jupiter:junit-jupiter-params:5.10.1")
 }
 
 // Configure source sets to include generated code
@@ -47,6 +48,16 @@ sourceSets {
             srcDirs("generated/jniLibs")
         }
     }
+    test {
+        resources {
+            srcDirs("src/test/resources")
+        }
+    }
+}
+
+// Configure test resource processing
+tasks.processTestResources {
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
 }
 
 // Compile for Java 17 bytecode (works with Java 17, 21, 23, 25+)
@@ -63,6 +74,77 @@ tasks.withType<JavaCompile> {
 
 tasks.test {
     useJUnitPlatform()
+    
+    // Show test output
+    testLogging {
+        events("passed", "skipped", "failed", "standardOut", "standardError")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showExceptions = true
+        showCauses = true
+        showStackTraces = true
+    }
+}
+
+// Task to run all tests with verbose output
+tasks.register<Test>("testVerbose") {
+    group = "verification"
+    description = "Run all tests with verbose output"
+    useJUnitPlatform()
+    
+    testLogging {
+        events("passed", "skipped", "failed", "standardOut", "standardError")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showExceptions = true
+        showCauses = true
+        showStackTraces = true
+        showStandardStreams = true
+    }
+}
+
+// Task to run a specific test class
+tasks.register<Test>("testClass") {
+    group = "verification"
+    description = "Run a specific test class (use -PtestClass=ClassName)"
+    useJUnitPlatform()
+    
+    if (project.hasProperty("testClass")) {
+        val testClassName = project.property("testClass").toString()
+        filter {
+            includeTestsMatching("io.agntcy.slim.bindings.$testClassName")
+        }
+    }
+    
+    testLogging {
+        events("passed", "skipped", "failed", "standardOut", "standardError")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showExceptions = true
+        showCauses = true
+        showStackTraces = true
+        showStandardStreams = true
+    }
+}
+
+// Task to run tests matching a pattern
+tasks.register<Test>("testPattern") {
+    group = "verification"
+    description = "Run tests matching a pattern (use -PtestPattern=*pattern*)"
+    useJUnitPlatform()
+    
+    if (project.hasProperty("testPattern")) {
+        val pattern = project.property("testPattern").toString()
+        filter {
+            includeTestsMatching(pattern)
+        }
+    }
+    
+    testLogging {
+        events("passed", "skipped", "failed", "standardOut", "standardError")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showExceptions = true
+        showCauses = true
+        showStackTraces = true
+        showStandardStreams = true
+    }
 }
 
 // Task to run the Server example
