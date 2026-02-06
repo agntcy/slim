@@ -3,6 +3,5 @@
   "control-plane/slimctl": "1.0.0",
   "data-plane/testing": "0.7.1",
   "control-plane/control-plane": "1.0.0",
-  "charts/slim-control-plane": "1.0.0",
-  "data-plane/python/integrations/slimrpc": "0.2.1"
+  "charts/slim-control-plane": "1.0.0"
 }
