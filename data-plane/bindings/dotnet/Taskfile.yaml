@@ -195,14 +195,14 @@ tasks:
 
           echo "  Processing $target → $rid..."
 
-          # Determine library name patterns (source without uniffi_ prefix, destination with it)
+          # Determine library name patterns (source with wildcard for arch/platform, destination with uniffi_ prefix)
           case "$ext" in
             so|dylib)
-              lib_pattern="lib{{.LIB_NAME}}.$ext"
+              lib_pattern="lib{{.LIB_NAME}}*.$ext"
               lib_name="libuniffi_{{.LIB_NAME}}.$ext"
               ;;
             dll)
-              lib_pattern="{{.LIB_NAME}}.$ext"
+              lib_pattern="{{.LIB_NAME}}*.$ext"
               lib_name="uniffi_{{.LIB_NAME}}.$ext"
               ;;
           esac
