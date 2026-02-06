@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.6](https://github.com/agntcy/slim/compare/slim-controller-v0.4.5...slim-controller-v0.4.6) - 2026-02-06
+
+### Other
+
+- updated the following local packages: agntcy-slim-config, agntcy-slim-datapath, agntcy-slim-session, agntcy-slim-tracing
+
 ## [0.4.5](https://github.com/agntcy/slim/compare/slim-controller-v0.4.4...slim-controller-v0.4.5) - 2026-01-30
 
 ### Other

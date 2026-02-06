@@ -54,10 +54,11 @@ func newListSubscriptionsCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
+			cpClient, conn, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
+			defer conn.Close()
 
 			subscriptionListResponse, err := cpClient.ListSubscriptions(ctx, &controlplaneApi.Node{
 				Id: nodeID,
@@ -131,10 +132,11 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
+			cpClient, conn, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
+			defer conn.Close()
 
 			subscription := &grpcapi.Subscription{
 				Component_0: organization,
@@ -221,10 +223,11 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
+			cpClient, conn, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
+			defer conn.Close()
 
 			returnedMessage, err := cpClient.DeleteRoute(ctx, deleteRouteRequest)
 			if err != nil {
@@ -255,10 +258,11 @@ func newOutlineRoutesCmd(opts *options.CommonOptions) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
+			cpClient, conn, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
+			defer conn.Close()
 
 			outlineRoutesResponse, err := cpClient.ListRoutes(ctx, &controlplaneApi.RouteListRequest{
 				SrcNodeId:  srcNodeID,

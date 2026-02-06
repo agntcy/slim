@@ -20,6 +20,7 @@ use slim_datapath::messages::Name;
 
 use crate::common::SessionMessage;
 use crate::completion_handle::CompletionHandle;
+use crate::interceptor::IdentityInterceptor;
 use crate::notification::Notification;
 use crate::session_config::SessionConfig;
 use crate::session_controller::SessionController;
@@ -28,7 +29,7 @@ use crate::transmitter::{AppTransmitter, SessionTransmitter};
 
 // Local crate
 use super::context::SessionContext;
-use super::interceptor::IdentityInterceptor;
+
 use super::{SESSION_RANGE, SlimChannelSender};
 use super::{SessionError, session_controller::handle_channel_discovery_message};
 use crate::interceptor::SessionInterceptorProvider;
@@ -468,16 +469,16 @@ where
     /// Handle a message from the message processor, and pass it to the
     /// corresponding session
     pub async fn handle_message_from_slim(&self, mut message: Message) -> Result<(), SessionError> {
-        // Pass message to interceptors in the transmitter
-        self.transmitter
-            .on_msg_from_slim_interceptors(&mut message)
-            .await?;
-
         tracing::trace!(
             msg_type = %message.get_session_message_type().as_str_name(),
             session_id = %message.get_id(),
             "received message from SLIM",
         );
+
+        // Pass message to interceptors in the transmitter
+        self.transmitter
+            .on_msg_from_slim_interceptors(&mut message)
+            .await?;
 
         let (id, session_type, session_message_type) = {
             // get the session type and the session id from the message

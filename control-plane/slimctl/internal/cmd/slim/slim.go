@@ -41,10 +41,10 @@ Configuration is loaded using the SLIM bindings' native InitializeFromConfig,
 which handles all validation and processing.
 
 The --endpoint flag can optionally override the server endpoint by setting the
-SLIM_ENDPOINT environment variable, which can be referenced in config files 
+SLIM_ENDPOINT environment variable, which can be referenced in config files
 using ${env:SLIM_ENDPOINT} syntax.
 
-For example configurations, see the data-plane/config/ directory in the 
+For example configurations, see the data-plane/config/ directory in the
 repository, which contains production-ready SLIM configurations.
 
 Log level can be controlled via the RUST_LOG environment variable.

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5](https://github.com/agntcy/slim/compare/slim-session-v0.1.4...slim-session-v0.1.5) - 2026-02-06
+
+### Added
+
+- remove lock from mls state ([#1203](https://github.com/agntcy/slim/pull/1203))
+
+### Other
+
+- *(data-plane)* upgrade to rust 1.93 ([#1190](https://github.com/agntcy/slim/pull/1190))
+
 ## [0.1.4](https://github.com/agntcy/slim/compare/slim-session-v0.1.3...slim-session-v0.1.4) - 2026-01-30
 
 ### Other
