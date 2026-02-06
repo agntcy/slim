@@ -18,30 +18,30 @@ includes:
 vars:
   # Rust bindings directory
   BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
-  
+
   # Rust library name
   LIB_NAME: slim_bindings
-  
+
   # Build profile (debug or release)
   PROFILE: '{{.PROFILE | default "release"}}'
   RELEASE:
     sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
-  
+
   # Current target
   CURRENT_TARGET:
     sh: 'rustc -vV | sed -n "s|host: ||p"'
   TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
-  
+
   # Target directory for built libraries
   TARGET_DIR: "{{.BINDINGS_DIR}}/../../target"
   LIB_PATH: "{{.TARGET_DIR}}/{{.TARGET}}/{{.PROFILE}}"
-  
+
   # Runtimes directory for NuGet packaging
   RUNTIMES_DIR: "{{.TASKFILE_DIR}}/runtimes"
-  
+
   # Generated bindings directory
   GENERATED_DIR: "{{.TASKFILE_DIR}}/Slim/generated"
-  
+
   # Supported platforms for NuGet packaging
   # Format: TARGET|RID|LIB_EXT
   # Note: x86_64-pc-windows-gnu is excluded due to RID collision with MSVC.
@@ -77,7 +77,7 @@ tasks:
           echo "{{.VERSION_PARAM}}"
           exit 0
         fi
-        
+
         # Priority 2: Extract from TAG_NAME parameter
         if [[ -n "{{.TAG_NAME_PARAM}}" ]]; then
           TAG="{{.TAG_NAME_PARAM}}"
@@ -88,7 +88,7 @@ tasks:
           echo "$VERSION"
           exit 0
         fi
-        
+
         # Priority 3: Fallback to Cargo.toml
         grep '^version = ' ../rust/Cargo.toml | sed 's/version = "\(.*\)"/\1/'
     silent: true
@@ -114,36 +114,36 @@ tasks:
       - |
         ARTIFACTS_DIR="{{.ARTIFACTS_DIR}}"
         BINDGEN_TARGET="{{.BINDGEN_TARGET}}"
-        
+
         # Find any .a file in the bindings directory (naming varies)
         artifact_dir="$ARTIFACTS_DIR/bindings-${BINDGEN_TARGET}"
-        
+
         if [[ ! -d "$artifact_dir" ]]; then
           echo "ERROR: Artifacts directory not found: $artifact_dir"
           echo "Expected: $ARTIFACTS_DIR/bindings-{target}/"
           exit 1
         fi
-        
+
         lib_file=$(find "$artifact_dir" -maxdepth 1 -name "lib{{.LIB_NAME}}*.a" -type f | head -1)
-        
+
         if [[ -z "$lib_file" || ! -f "$lib_file" ]]; then
           echo "ERROR: Static library (.a) not found in: $artifact_dir"
           echo "Expected pattern: lib{{.LIB_NAME}}*.a"
           ls -la "$artifact_dir"
           exit 1
         fi
-        
+
         echo "Generating C# bindings from: $lib_file"
-        
+
         rm -rf {{.GENERATED_DIR}}
         mkdir -p {{.GENERATED_DIR}}
         uniffi-bindgen-cs --library --out-dir {{.GENERATED_DIR}} "$lib_file"
-        
+
         if [[ ! -f "{{.GENERATED_DIR}}/slim_bindings.cs" ]]; then
           echo "ERROR: Failed to generate slim_bindings.cs"
           exit 1
         fi
-        
+
         echo "✅ C# bindings generated successfully"
     silent: true
 
@@ -156,26 +156,26 @@ tasks:
       - mkdir -p {{.RUNTIMES_DIR}}
       - |
         ARTIFACTS_DIR="{{.ARTIFACTS_DIR}}"
-        
+
         if [[ ! -d "$ARTIFACTS_DIR" ]]; then
           echo "ERROR: Artifacts directory not found: $ARTIFACTS_DIR"
           echo "Expected structure: $ARTIFACTS_DIR/bindings-{target}/*.{so,dll,dylib}"
           exit 1
         fi
-        
+
         echo "Copying runtime libraries from: $ARTIFACTS_DIR"
-        
+
         runtime_count=0
-        
+
         # Iterate through all bindings-* artifact directories
         for target_dir in "$ARTIFACTS_DIR"/bindings-*; do
           if [[ ! -d "$target_dir" ]]; then
             continue
           fi
-          
+
           # Extract target triple from directory name
           target=$(basename "$target_dir" | sed 's/^bindings-//')
-          
+
           # Look up the target in PLATFORMS to get RID and extension
           rid=""
           ext=""
@@ -186,35 +186,35 @@ tasks:
               break
             fi
           done <<< "{{.PLATFORMS}}"
-          
+
           # Skip if target not in our supported platforms list
           if [[ -z "$rid" || -z "$ext" ]]; then
             echo "  Skipping $target (not in PLATFORMS list)"
             continue
           fi
-          
+
           echo "  Processing $target → $rid..."
-          
-          # Determine library name patterns
+
+          # Determine library name patterns (source without uniffi_ prefix, destination with it)
           case "$ext" in
-            so|dylib) 
-              lib_pattern="lib{{.LIB_NAME}}*.$ext"
-              lib_name="lib{{.LIB_NAME}}.$ext"
+            so|dylib)
+              lib_pattern="lib{{.LIB_NAME}}.$ext"
+              lib_name="libuniffi_{{.LIB_NAME}}.$ext"
               ;;
-            dll) 
-              lib_pattern="{{.LIB_NAME}}*.$ext"
-              lib_name="{{.LIB_NAME}}.$ext"
+            dll)
+              lib_pattern="{{.LIB_NAME}}.$ext"
+              lib_name="uniffi_{{.LIB_NAME}}.$ext"
               ;;
           esac
-          
+
           # Find the runtime library
           src=$(find "$target_dir" -maxdepth 1 -name "$lib_pattern" -type f | head -1)
-          
+
           if [[ -z "$src" || ! -f "$src" ]]; then
             echo "    ⚠️  Runtime library not found (pattern: $lib_pattern)"
             continue
           fi
-          
+
           # Copy to runtimes directory
           runtime_dir="{{.RUNTIMES_DIR}}/$rid/native"
           mkdir -p "$runtime_dir"
@@ -222,13 +222,13 @@ tasks:
           echo "    ✅ Copied to $rid/native/$lib_name"
           runtime_count=$((runtime_count + 1))
         done
-        
+
         echo ""
         if [[ $runtime_count -eq 0 ]]; then
           echo "⚠️  WARNING: No runtime libraries were copied!"
           exit 1
         fi
-        
+
         echo "✅ Successfully copied $runtime_count runtime libraries:"
         find {{.RUNTIMES_DIR}} -type f -exec ls -lh {} \;
     silent: true
@@ -267,17 +267,17 @@ tasks:
           echo "ERROR: No runtime libraries found. Run 'task copy:runtimes' first."
           exit 1
         fi
-        
+
         VERSION="{{.VERSION_RESOLVED}}"
         OUTPUT_DIR="{{.OUTPUT_DIR}}"
-        
+
         echo "Creating NuGet package version $VERSION..."
         echo "Runtime libraries included:"
         ls -1 {{.RUNTIMES_DIR}}
-        
+
         mkdir -p "$OUTPUT_DIR"
         dotnet pack Slim/Slim.csproj --configuration Release --output "$OUTPUT_DIR" -p:Version="$VERSION"
-        
+
         echo ""
         echo "✅ Successfully created NuGet package:"
         ls -lh "$OUTPUT_DIR"/*.nupkg
