@@ -17,6 +17,7 @@ package {{PACKAGE}}
 import (
 	"context"
 	"fmt"
+	"time"
 	
 	slim_bindings "github.com/agntcy/slim-bindings-go"
 	"github.com/agntcy/slim-bindings-go/slimrpc"
@@ -58,8 +59,21 @@ func (c *{{SERVICE_NAME}}ClientImpl) {{METHOD_NAME}}(ctx context.Context, req *{
 		return nil, err
 	}
 	
+	// Extract timeout from context
+	var timeout *time.Duration
+	if deadline, ok := ctx.Deadline(); ok {
+		t := time.Until(deadline)
+		timeout = &t
+	}
+	
+	// Extract metadata from context
+	var metadata *map[string]string
+	if md, ok := slimrpc.MetadataFromContext(ctx); ok {
+		metadata = &md
+	}
+	
 	// Make RPC call
-	respBytes, err := c.channel.CallUnaryAsync("{{PACKAGE_NAME}}.{{SERVICE_NAME}}", "{{METHOD_NAME}}", reqBytes, nil)
+	respBytes, err := c.channel.CallUnaryAsync("{{PACKAGE_NAME}}.{{SERVICE_NAME}}", "{{METHOD_NAME}}", reqBytes, timeout, metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -85,8 +99,21 @@ func (c *{{SERVICE_NAME}}ClientImpl) {{METHOD_NAME}}(ctx context.Context, req *{
 		return nil, err
 	}
 	
+	// Extract timeout from context
+	var timeout *time.Duration
+	if deadline, ok := ctx.Deadline(); ok {
+		t := time.Until(deadline)
+		timeout = &t
+	}
+	
+	// Extract metadata from context
+	var metadata *map[string]string
+	if md, ok := slimrpc.MetadataFromContext(ctx); ok {
+		metadata = &md
+	}
+	
 	// Make RPC call
-	stream, err := c.channel.CallUnaryStreamAsync("{{PACKAGE_NAME}}.{{SERVICE_NAME}}", "{{METHOD_NAME}}", reqBytes, nil)
+	stream, err := c.channel.CallUnaryStreamAsync("{{PACKAGE_NAME}}.{{SERVICE_NAME}}", "{{METHOD_NAME}}", reqBytes, timeout, metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +127,20 @@ const STREAM_UNARY_CLIENT_METHOD: &str = r#"	{{METHOD_NAME}}(ctx context.Context
 
 const STREAM_UNARY_CLIENT_IMPL: &str = r#"
 func (c *{{SERVICE_NAME}}ClientImpl) {{METHOD_NAME}}(ctx context.Context) (slimrpc.ClientRequestStream[*{{INPUT_TYPE}}, *{{OUTPUT_TYPE}}], error) {
-	stream := c.channel.CallStreamUnary("{{PACKAGE_NAME}}.{{SERVICE_NAME}}", "{{METHOD_NAME}}", nil)
+	// Extract timeout from context
+	var timeout *time.Duration
+	if deadline, ok := ctx.Deadline(); ok {
+		t := time.Until(deadline)
+		timeout = &t
+	}
+	
+	// Extract metadata from context
+	var metadata *map[string]string
+	if md, ok := slimrpc.MetadataFromContext(ctx); ok {
+		metadata = &md
+	}
+	
+	stream := c.channel.CallStreamUnary("{{PACKAGE_NAME}}.{{SERVICE_NAME}}", "{{METHOD_NAME}}", timeout, metadata)
 	return slimrpc.NewClientRequestStream[*{{INPUT_TYPE}}, *{{OUTPUT_TYPE}}](stream), nil
 }
 "#;
@@ -110,7 +150,20 @@ const STREAM_STREAM_CLIENT_METHOD: &str = r#"	{{METHOD_NAME}}(ctx context.Contex
 
 const STREAM_STREAM_CLIENT_IMPL: &str = r#"
 func (c *{{SERVICE_NAME}}ClientImpl) {{METHOD_NAME}}(ctx context.Context) (slimrpc.ClientBidiStream[*{{INPUT_TYPE}}, *{{OUTPUT_TYPE}}], error) {
-	stream := c.channel.CallStreamStream("{{PACKAGE_NAME}}.{{SERVICE_NAME}}", "{{METHOD_NAME}}", nil)
+	// Extract timeout from context
+	var timeout *time.Duration
+	if deadline, ok := ctx.Deadline(); ok {
+		t := time.Until(deadline)
+		timeout = &t
+	}
+	
+	// Extract metadata from context
+	var metadata *map[string]string
+	if md, ok := slimrpc.MetadataFromContext(ctx); ok {
+		metadata = &md
+	}
+	
+	stream := c.channel.CallStreamStream("{{PACKAGE_NAME}}.{{SERVICE_NAME}}", "{{METHOD_NAME}}", timeout, metadata)
 	return slimrpc.NewClientBidiStream[*{{INPUT_TYPE}}, *{{OUTPUT_TYPE}}](stream), nil
 }
 "#;

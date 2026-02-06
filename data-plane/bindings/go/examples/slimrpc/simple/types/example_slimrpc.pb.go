@@ -6,6 +6,7 @@ package types
 import (
 	"context"
 	"fmt"
+	"time"
 
 	slim_bindings "github.com/agntcy/slim-bindings-go"
 	"github.com/agntcy/slim-bindings-go/slimrpc"
@@ -39,8 +40,21 @@ func (c *TestClientImpl) ExampleUnaryUnary(ctx context.Context, req *ExampleRequ
 		return nil, err
 	}
 
+	// Extract timeout from context
+	var timeout *time.Duration
+	if deadline, ok := ctx.Deadline(); ok {
+		t := time.Until(deadline)
+		timeout = &t
+	}
+
+	// Extract metadata from context
+	var metadata *map[string]string
+	if md, ok := slimrpc.MetadataFromContext(ctx); ok {
+		metadata = &md
+	}
+
 	// Make RPC call
-	respBytes, err := c.channel.CallUnaryAsync("example_service.Test", "ExampleUnaryUnary", reqBytes, nil)
+	respBytes, err := c.channel.CallUnaryAsync("example_service.Test", "ExampleUnaryUnary", reqBytes, timeout, metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -61,8 +75,21 @@ func (c *TestClientImpl) ExampleUnaryStream(ctx context.Context, req *ExampleReq
 		return nil, err
 	}
 
+	// Extract timeout from context
+	var timeout *time.Duration
+	if deadline, ok := ctx.Deadline(); ok {
+		t := time.Until(deadline)
+		timeout = &t
+	}
+
+	// Extract metadata from context
+	var metadata *map[string]string
+	if md, ok := slimrpc.MetadataFromContext(ctx); ok {
+		metadata = &md
+	}
+
 	// Make RPC call
-	stream, err := c.channel.CallUnaryStreamAsync("example_service.Test", "ExampleUnaryStream", reqBytes, nil)
+	stream, err := c.channel.CallUnaryStreamAsync("example_service.Test", "ExampleUnaryStream", reqBytes, timeout, metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -77,8 +104,21 @@ func (c *TestClientImpl) ExampleUnaryStreamTwo(ctx context.Context, req *Example
 		return nil, err
 	}
 
+	// Extract timeout from context
+	var timeout *time.Duration
+	if deadline, ok := ctx.Deadline(); ok {
+		t := time.Until(deadline)
+		timeout = &t
+	}
+
+	// Extract metadata from context
+	var metadata *map[string]string
+	if md, ok := slimrpc.MetadataFromContext(ctx); ok {
+		metadata = &md
+	}
+
 	// Make RPC call
-	stream, err := c.channel.CallUnaryStreamAsync("example_service.Test", "ExampleUnaryStreamTwo", reqBytes, nil)
+	stream, err := c.channel.CallUnaryStreamAsync("example_service.Test", "ExampleUnaryStreamTwo", reqBytes, timeout, metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -87,12 +127,38 @@ func (c *TestClientImpl) ExampleUnaryStreamTwo(ctx context.Context, req *Example
 }
 
 func (c *TestClientImpl) ExampleStreamUnary(ctx context.Context) (slimrpc.ClientRequestStream[*ExampleRequest, *ExampleResponse], error) {
-	stream := c.channel.CallStreamUnary("example_service.Test", "ExampleStreamUnary", nil)
+	// Extract timeout from context
+	var timeout *time.Duration
+	if deadline, ok := ctx.Deadline(); ok {
+		t := time.Until(deadline)
+		timeout = &t
+	}
+
+	// Extract metadata from context
+	var metadata *map[string]string
+	if md, ok := slimrpc.MetadataFromContext(ctx); ok {
+		metadata = &md
+	}
+
+	stream := c.channel.CallStreamUnary("example_service.Test", "ExampleStreamUnary", timeout, metadata)
 	return slimrpc.NewClientRequestStream[*ExampleRequest, *ExampleResponse](stream), nil
 }
 
 func (c *TestClientImpl) ExampleStreamStream(ctx context.Context) (slimrpc.ClientBidiStream[*ExampleRequest, *ExampleResponse], error) {
-	stream := c.channel.CallStreamStream("example_service.Test", "ExampleStreamStream", nil)
+	// Extract timeout from context
+	var timeout *time.Duration
+	if deadline, ok := ctx.Deadline(); ok {
+		t := time.Until(deadline)
+		timeout = &t
+	}
+
+	// Extract metadata from context
+	var metadata *map[string]string
+	if md, ok := slimrpc.MetadataFromContext(ctx); ok {
+		metadata = &md
+	}
+
+	stream := c.channel.CallStreamStream("example_service.Test", "ExampleStreamStream", timeout, metadata)
 	return slimrpc.NewClientBidiStream[*ExampleRequest, *ExampleResponse](stream), nil
 }
 
