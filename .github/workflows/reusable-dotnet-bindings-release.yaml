@@ -1,0 +1,101 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+name: Reusable .NET Bindings Release
+
+on:
+  workflow_call:
+    inputs:
+      library-name:
+        description: Name of the library
+        required: false
+        type: string
+        default: slim_bindings
+      dotnet-version:
+        description: .NET SDK version
+        required: false
+        type: string
+        default: "8.0.x"
+      dotnet-bindings-working-directory:
+        description: Working directory for .NET bindings
+        required: false
+        type: string
+        default: ./data-plane/bindings/dotnet
+      nuget-package-name:
+        description: NuGet package name
+        required: false
+        type: string
+        default: Agntcy.Slim
+    secrets:
+      nuget-api-token:
+        description: NuGet API token for publishing
+        required: true
+
+env:
+  LIBRARY_NAME: ${{ inputs.library-name }}
+  NUGET_PACKAGE_NAME: ${{ inputs.nuget-package-name }}
+
+jobs:
+  release-dotnet-bindings:
+    name: Release .NET Bindings
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.dotnet-bindings-working-directory }}
+    steps:
+      - name: Checkout source repo
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      # Download NuGet package artifact
+      - name: Download NuGet Package Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dotnet-bindings-nuget
+          path: ${{ inputs.dotnet-bindings-working-directory }}/nupkg
+
+      - name: List downloaded artifacts
+        run: |
+          echo "Downloaded NuGet package:"
+          ls -lah ./nupkg/
+
+      - name: Extract version from package name
+        id: extract-version
+        run: |
+          # Extract version from the .nupkg filename
+          PACKAGE=$(ls ./nupkg/*.nupkg | head -1)
+          FILENAME=$(basename "$PACKAGE")
+          # Extract version from Agntcy.Slim.X.Y.Z.nupkg
+          VERSION=$(echo "$FILENAME" | sed -n 's/Agntcy\.Slim\.\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*.*\)\.nupkg/\1/p')
+          echo "Extracted version: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Determine if pre-release
+        id: prerelease
+        run: |
+          VERSION="${{ steps.extract-version.outputs.version }}"
+          if [[ "$VERSION" =~ (alpha|beta|rc) ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+            echo "This is a pre-release version"
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+            echo "This is a stable release"
+          fi
+
+      - name: Publish to NuGet.org
+        run: |
+          PACKAGE=$(ls ./nupkg/*.nupkg | head -1)
+          echo "Publishing package: $PACKAGE"
+          
+          dotnet nuget push "$PACKAGE" \
+            --api-key "${{ secrets.nuget-api-token }}" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+          
+          echo "Successfully published to NuGet.org"
