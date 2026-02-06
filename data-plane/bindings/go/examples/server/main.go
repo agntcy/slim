@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	slim "github.com/agntcy/slim/bindings/generated/slim_bindings"
+	slim "github.com/agntcy/slim-bindings-go"
 )
 
 func main() {

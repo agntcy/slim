@@ -1,0 +1,3 @@
+slim_bindings/slim_bindings.go
+slim_bindings/slim_bindings.h
+slim_bindings/*.a

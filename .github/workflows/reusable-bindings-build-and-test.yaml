@@ -249,8 +249,8 @@ jobs:
         run: |
           task generate LIB_PATH=./artifacts/lib${{ env.LIBRARY_NAME }}_x86_64_linux_gnu.a
 
-          echo "📁 Generated files:"
-          find ./generated -type f
+          echo "📁 slim-bindings-go files:"
+          find ./slim_bindings -type f
 
       - name: Make sure generation did not modify source files
         run: |
@@ -273,8 +273,8 @@ jobs:
         with:
           name: go-bindings-generated-code
           path: |
-            ./data-plane/bindings/go/generated/**/*.go
-            ./data-plane/bindings/go/generated/**/*.h
+            ./data-plane/bindings/go/slim_bindings
+            !./data-plane/bindings/go/slim_bindings/*.a
           if-no-files-found: error
 
   python-bindings-test:
