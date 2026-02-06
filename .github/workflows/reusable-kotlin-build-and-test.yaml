@@ -1,0 +1,134 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+name: kotlin-build-and-test
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: Github hosted runner or Self hosted runner
+        required: false
+        type: string
+        default: ubuntu-latest
+      continue-on-error:
+        description: Whether to skip the status update for this job
+        required: false
+        type: boolean
+        default: false
+      java-version:
+        description: Java version to use
+        required: false
+        type: string
+        default: '21'
+      kotlin-test:
+        description: Whether to run "task test"
+        required: false
+        type: boolean
+        default: true
+      upload-artifacts:
+        description: Whether to upload build artifacts
+        required: false
+        type: boolean
+        default: false
+      working-directory:
+        description: The working directory to run the task
+        required: false
+        type: string
+        default: ./data-plane/bindings/kotlin
+
+jobs:
+  setup-environment:
+    runs-on: ${{ inputs.runner }}
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        id: setup-java
+        uses: ./.github/actions/setup-java
+        with:
+          java-version: ${{ inputs.java-version }}
+
+      - name: Verify Java and Gradle versions
+        run: |
+          which java
+          java -version
+          ./gradlew --version
+
+  test:
+    runs-on: ${{ inputs.runner }}
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+
+    if: ${{ inputs.kotlin-test }}
+
+    needs: [setup-environment]
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: ./.github/actions/setup-java
+        with:
+          java-version: ${{ inputs.java-version }}
+
+      - name: Cache Gradle Build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ${{ inputs.working-directory }}/build
+          key: kotlin-test-${{ runner.os }}-gradle-build-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+
+      - name: Run Kotlin Tests
+        run: |
+          which java
+          java -version
+          
+          task test
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kotlin-test-results
+          path: ${{ inputs.working-directory }}/build/reports/tests/test/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  upload-artifacts:
+    runs-on: ${{ inputs.runner }}
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+
+    if: ${{ inputs.upload-artifacts }}
+
+    needs: [setup-environment, test]
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Upload Generated Kotlin code
+        uses: actions/upload-artifact@v4
+        with:
+          name: kotlin-bindings-generated-code
+          path: |
+            ${{ inputs.working-directory }}/generated/**/*.kt
+            ${{ inputs.working-directory }}/generated/jniLibs/**/*
+          if-no-files-found: error
