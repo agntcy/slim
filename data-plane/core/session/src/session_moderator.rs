@@ -27,7 +27,6 @@ use tracing::debug;
 use crate::{
     common::{MessageDirection, SessionMessage},
     errors::SessionError,
-    mls_helpers,
     mls_state::{MlsModeratorState, MlsState},
     moderator_task::{
         AddParticipant, ModeratorTask, NotifyParticipants, RemoveParticipant, TaskUpdate,
@@ -152,17 +151,10 @@ where
 
                     // Apply MLS encryption/decryption if enabled
                     if let Some(mls_state) = &mut self.mls_state {
-                        let mls = &mut mls_state.common.mls;
-                        match direction {
-                            MessageDirection::South => {
-                                // Encrypting message going to SLIM
-                                mls_helpers::encrypt_message(mls, &mut message).await?;
-                            }
-                            MessageDirection::North => {
-                                // Decrypting message coming from SLIM
-                                mls_helpers::decrypt_message(mls, &mut message).await?;
-                            }
-                        }
+                        mls_state
+                            .common
+                            .process_message(&mut message, direction)
+                            .await?;
                     }
 
                     self.inner

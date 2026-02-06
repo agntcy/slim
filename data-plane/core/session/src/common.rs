@@ -36,7 +36,7 @@ pub enum State {
     Inactive,
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum MessageDirection {
     North,
     South,

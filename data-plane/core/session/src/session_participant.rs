@@ -118,17 +118,7 @@ where
                 } else {
                     // Apply MLS encryption/decryption if enabled
                     if let Some(mls_state) = &mut self.mls_state {
-                        let mls = &mut mls_state.mls;
-                        match direction {
-                            crate::common::MessageDirection::South => {
-                                // Encrypting message going to SLIM
-                                crate::mls_helpers::encrypt_message(mls, &mut message).await?;
-                            }
-                            crate::common::MessageDirection::North => {
-                                // Decrypting message coming from SLIM
-                                crate::mls_helpers::decrypt_message(mls, &mut message).await?;
-                            }
-                        }
+                        mls_state.process_message(&mut message, direction).await?;
                     }
 
                     self.inner
