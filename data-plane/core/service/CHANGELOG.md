@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.5](https://github.com/agntcy/slim/compare/slim-service-v0.8.4...slim-service-v0.8.5) - 2026-02-06
+
+### Added
+
+- remove lock from mls state ([#1203](https://github.com/agntcy/slim/pull/1203))
+
 ## [0.8.4](https://github.com/agntcy/slim/compare/slim-service-v0.8.3...slim-service-v0.8.4) - 2026-01-30
 
 ### Other

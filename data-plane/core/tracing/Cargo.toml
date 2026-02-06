@@ -2,7 +2,7 @@
 name = "agntcy-slim-tracing"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.3.1"
+version = "0.3.2"
 description = "Observability for SLIM data plane: logs, traces and metrics infrastructure."
 
 [lib]
