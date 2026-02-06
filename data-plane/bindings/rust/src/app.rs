@@ -98,7 +98,7 @@ pub struct App {
     notification_rx: Arc<RwLock<mpsc::Receiver<Result<Notification, SlimSessionError>>>>,
 
     /// Service instance for lifecycle management (Arc to inner SlimService)
-    _service: Arc<SlimService>,
+    service: Arc<SlimService>,
 }
 
 impl App {
@@ -113,8 +113,28 @@ impl App {
         Self {
             app,
             notification_rx,
-            _service: service,
+            service,
         }
+    }
+
+    /// Get a reference to the core SlimApp instance
+    ///
+    /// This allows direct access to the core SLIM API methods without going through
+    /// the bindings layer. Useful for advanced use cases that need core functionality.
+    ///
+    /// # Note
+    /// This is a public internal method that exposes the core app. Use with caution as it
+    /// bypasses the bindings layer abstractions.
+    pub fn core_app(&self) -> &Arc<SlimApp<AuthProvider, AuthVerifier>> {
+        &self.app
+    }
+
+    /// Get a clone of the inner core SlimApp instance
+    ///
+    /// This is used internally by other bindings modules (like slimrpc) that need
+    /// to interact with the core SLIM app.
+    pub fn inner(&self) -> Arc<SlimApp<AuthProvider, AuthVerifier>> {
+        self.app.clone()
     }
 
     /// Async constructor - Create a new App with complete creation logic
@@ -138,6 +158,17 @@ impl App {
             Direction::Bidirectional,
         )
         .await
+    }
+
+    /// Get a reference to the service instance
+    ///
+    /// This provides access to the underlying SLIM service that manages this app.
+    /// Useful for accessing service-level functionality and state.
+    ///
+    /// # Returns
+    /// A reference to the Arc-wrapped SlimService instance
+    pub fn service(&self) -> &Arc<SlimService> {
+        &self.service
     }
 
     /// Create a new App with traffic direction (async version)
@@ -536,6 +567,21 @@ impl App {
                 message: format!("failed to receive session notification: {}", e),
             }),
         }
+    }
+}
+
+// Non-UniFFI methods for internal use (slimrpc)
+impl App {
+    /// Get reference to internal app for advanced use cases (slimrpc)
+    pub fn inner_app(&self) -> &Arc<SlimApp<AuthProvider, AuthVerifier>> {
+        &self.app
+    }
+
+    /// Get notification receiver for server use (slimrpc)
+    pub fn notification_receiver(
+        &self,
+    ) -> Arc<RwLock<mpsc::Receiver<Result<Notification, SlimSessionError>>>> {
+        self.notification_rx.clone()
     }
 }
 

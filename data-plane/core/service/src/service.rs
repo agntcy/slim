@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use display_error_chain::ErrorChainExt;
@@ -38,6 +39,22 @@ use slim_session::{Direction, SessionError};
 
 // Define the kind of the component as static string
 pub const KIND: &str = "slim";
+
+/// Information about a connection
+#[derive(Debug, Clone)]
+pub struct ConnectionInfo {
+    /// Connection ID
+    pub id: u64,
+
+    /// Remote address and port (if available)
+    pub remote_addr: Option<SocketAddr>,
+
+    /// Local address and port (if available)
+    pub local_addr: Option<SocketAddr>,
+
+    /// Endpoint from client configuration (if available)
+    pub endpoint: Option<String>,
+}
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ServiceConfiguration {
@@ -433,6 +450,37 @@ impl Service {
 
     pub fn get_connection_id(&self, endpoint: &str) -> Option<u64> {
         self.clients.read().get(endpoint).cloned()
+    }
+
+    /// Get a list of all connections ordered by connection ID
+    ///
+    /// This method iterates through the client connections tracked by the service
+    /// and returns information about all active connections, sorted by their connection ID.
+    ///
+    /// # Returns
+    /// A vector of `ConnectionInfo` structs, ordered by connection ID (ascending)
+    pub fn get_all_connections(&self) -> Vec<ConnectionInfo> {
+        let clients = self.clients.read();
+        let mut connections: Vec<ConnectionInfo> = clients
+            .iter()
+            .filter_map(|(endpoint, &conn_id)| {
+                // Get connection details from the connection table
+                self.message_processor
+                    .connection_table()
+                    .get(conn_id as usize)
+                    .map(|conn| ConnectionInfo {
+                        id: conn_id,
+                        remote_addr: conn.remote_addr().copied(),
+                        local_addr: conn.local_addr().copied(),
+                        endpoint: Some(endpoint.clone()),
+                    })
+            })
+            .collect();
+
+        // Sort by connection ID
+        connections.sort_by_key(|c| c.id);
+
+        connections
     }
 
     #[cfg(test)]

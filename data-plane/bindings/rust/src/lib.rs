@@ -59,8 +59,11 @@ mod server_config;
 mod service;
 mod session;
 
+// SlimRPC module (unified core + UniFFI bindings)
+pub mod slimrpc;
+
 // Public re-exports
-pub use app::{App, SessionWithCompletion};
+pub use app::{App, Direction, SessionWithCompletion};
 pub use build_info::{BuildInfo, get_build_info, get_version};
 pub use client_config::{
     BackoffConfig, ClientConfig, ExponentialBackoff, KeepaliveConfig, ProxyConfig,
@@ -96,6 +99,16 @@ pub use service::{
     new_dataplane_config, new_service_configuration,
 };
 pub use session::{Session, SessionConfig, SessionType};
+
+// SLIMRpc re-exports
+pub use slimrpc::{
+    BidiStreamHandler, Channel, Code, Codec, Context, DEADLINE_KEY, Decoder, Encoder,
+    HandlerResponse, HandlerType, MAX_TIMEOUT, RequestStreamWriter, ResponseSink, ResponseStream,
+    ResponseStreamReader, RpcError, STATUS_CODE_KEY, Server, SessionContext as RpcSessionContext,
+    Status, StatusError, StreamMessage, StreamStreamHandler, StreamUnaryHandler,
+    UnaryStreamHandler, UnaryUnaryHandler, UniffiRequestStream as RequestStream,
+    build_method_subscription_name,
+};
 
 // UniFFI scaffolding setup (must be at crate root)
 uniffi::setup_scaffolding!();

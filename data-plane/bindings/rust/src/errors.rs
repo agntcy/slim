@@ -22,6 +22,8 @@ pub enum SlimError {
     AuthError { message: String },
     #[error("Configuration error: {message}")]
     ConfigError { message: String },
+    #[error("RPC error: {message}")]
+    RpcError { message: String },
     #[error("Operation timed out")]
     Timeout,
     #[error("Invalid argument: {message}")]
@@ -72,6 +74,9 @@ mod tests {
             },
             SlimError::ConfigError {
                 message: "config".to_string(),
+            },
+            SlimError::RpcError {
+                message: "rpc".to_string(),
             },
             SlimError::Timeout,
             SlimError::InvalidArgument {

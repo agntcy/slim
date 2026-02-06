@@ -83,6 +83,16 @@ impl Name {
     pub fn components_ref(&self) -> &[String; 3] {
         self.inner.components_strings()
     }
+
+    /// Convert to SlimName (for internal Rust use only, not exposed to FFI)
+    pub fn as_slim_name(&self) -> SlimName {
+        self.inner.clone()
+    }
+
+    /// Create from SlimName (for internal Rust use only, not exposed to FFI)
+    pub fn from_slim_name(slim_name: SlimName) -> Self {
+        Name { inner: slim_name }
+    }
 }
 
 #[cfg(test)]
