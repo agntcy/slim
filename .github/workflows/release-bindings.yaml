@@ -95,44 +95,44 @@ jobs:
           files: ./release-artifacts/*.zip
           draft: false
 
-  # ==========================================================================
-  # Job 3: Generate and publish Go bindings
-  # ==========================================================================
-  release-go-bindings:
-    name: "Release Go Bindings"
-    needs: build-and-test-bindings
-    uses: ./.github/workflows/reusable-go-bindings-release.yaml
-    secrets:
-      gh-token: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
+  # # ==========================================================================
+  # # Job 3: Generate and publish Go bindings
+  # # ==========================================================================
+  # release-go-bindings:
+  #   name: "Release Go Bindings"
+  #   needs: build-and-test-bindings
+  #   uses: ./.github/workflows/reusable-go-bindings-release.yaml
+  #   secrets:
+  #     gh-token: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
 
-  # ==========================================================================
-  # Job 4: Release Python bindings to PyPI
-  # ==========================================================================
-  release-python-bindings:
-    name: Upload release to PyPI
-    runs-on: ubuntu-latest
-    needs:
-      - build-and-test-bindings
-    permissions:
-      # IMPORTANT: this permission is mandatory for Trusted Publishing
-      id-token: write
-      contents: read
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          merge-multiple: true
-          path: dist
-          pattern: wheels-*
+  # # ==========================================================================
+  # # Job 4: Release Python bindings to PyPI
+  # # ==========================================================================
+  # release-python-bindings:
+  #   name: Upload release to PyPI
+  #   runs-on: ubuntu-latest
+  #   needs:
+  #     - build-and-test-bindings
+  #   permissions:
+  #     # IMPORTANT: this permission is mandatory for Trusted Publishing
+  #     id-token: write
+  #     contents: read
+  #   steps:
+  #     - name: Download artifacts
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         merge-multiple: true
+  #         path: dist
+  #         pattern: wheels-*
 
-      - name: Show files
-        run: ls -l dist
+  #     - name: Show files
+  #       run: ls -l dist
 
-      - name: Publish package distributions to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
-          packages-dir: dist
+  #     - name: Publish package distributions to PyPI
+  #       uses: pypa/gh-action-pypi-publish@release/v1
+  #       with:
+  #         password: ${{ secrets.PYPI_API_TOKEN }}
+  #         packages-dir: dist
 
   # ==========================================================================
   # Job 5: Release .NET bindings to NuGet
