@@ -25,6 +25,8 @@ tasks:
 
   bindings:install-cargo-components:
     desc: Install required cargo components
+    status:
+      - which cargo-zigbuild
     cmds:
       - echo "🦀 Installing required cargo components..."
       - cargo install cargo-zigbuild
@@ -48,14 +50,16 @@ tasks:
         ARGS=()
 
         # Determine whether to use cargo build or cargo zigbuild
-        # - Native builds: use regular cargo build
+        # - Native builds: use regular cargo build with --target for consistent paths
         # - Apple targets (iOS, macOS): use regular cargo build (zigbuild not compatible)
         # - Linux/gnu targets: use zigbuild with libc version for gnu ABI
         # - Other cross-compilation targets: use zigbuild
         if [[ "{{.TARGET}}" == "" || "{{.TARGET}}" == "$(rustc -vV | sed -n 's|host: ||p')" ]]; then
-          # Native build
+          # Native build - explicitly specify target for consistent output paths
           ARGS=(
             "build"
+            "--target"
+            "{{.TARGET}}"
             {{.RELEASE}}
           )
         elif [[ "{{.TARGET}}" == *"apple-ios"* || "{{.TARGET}}" == *"apple-darwin"* ]]; then
