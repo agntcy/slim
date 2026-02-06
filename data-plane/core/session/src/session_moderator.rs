@@ -3,7 +3,6 @@
 
 use std::{
     collections::{HashMap, VecDeque},
-    sync::Arc,
     time::Duration,
 };
 
@@ -20,7 +19,7 @@ use slim_datapath::{
         utils::{DELETE_GROUP, DISCONNECTION_DETECTED, LEAVING_SESSION, TRUE_VAL},
     },
 };
-use tokio::sync::{Mutex, oneshot};
+use tokio::sync::oneshot;
 
 use slim_mls::mls::Mls;
 use tracing::debug;
@@ -107,11 +106,11 @@ where
     async fn init(&mut self) -> Result<(), SessionError> {
         // Initialize MLS
         self.mls_state = if self.common.settings.config.mls_enabled {
-            let mls_state = MlsState::new(Arc::new(Mutex::new(Mls::new(
+            let mls_state = MlsState::new(Mls::new(
                 self.common.settings.identity_provider.clone(),
                 self.common.settings.identity_verifier.clone(),
                 self.common.settings.storage_path.clone(),
-            ))))
+            ))
             .await
             .expect("failed to create MLS state");
 
@@ -149,6 +148,15 @@ where
                             .get_slim_header_mut()
                             .set_destination(&self.common.settings.destination);
                     }
+
+                    // Apply MLS encryption/decryption if enabled
+                    if let Some(mls_state) = &mut self.mls_state {
+                        mls_state
+                            .common
+                            .process_message(&mut message, direction)
+                            .await?;
+                    }
+
                     self.inner
                         .on_message(SessionMessage::OnMessage {
                             message,
