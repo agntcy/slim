@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.2](https://github.com/agntcy/slim/compare/slim-datapath-v0.11.1...slim-datapath-v0.11.2) - 2026-02-06
+
+### Other
+
+- *(data-plane)* upgrade to rust 1.93 ([#1190](https://github.com/agntcy/slim/pull/1190))
+
 ## [0.11.1](https://github.com/agntcy/slim/compare/slim-datapath-v0.11.0...slim-datapath-v0.11.1) - 2026-01-30
 
 ### Other
