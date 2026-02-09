@@ -104,12 +104,16 @@ tasks:
           --out-dir generated \
           "${DYLIB_PATH}"
       - |
-        # Copy the dynamic library to the generated directory
+        # Copy the dynamic library to the generated directory as libslim_bindings.so
+        # (generated code expects this name; source may be renamed e.g. libslim_bindings_x86_64_linux_gnu.so)
         DYLIB_PATH=$(cat /tmp/slim-node-dylib-path.txt)
-        echo "📦 Copying dynamic library..."
-        LIB_NAME=$(basename "${DYLIB_PATH}")
-        cp "${DYLIB_PATH}" generated/$LIB_NAME
-        echo "✅ Copied $LIB_NAME to generated/"
+        DYLIB_PREFIX="{{.DYLIB_PREFIX}}"
+        LIB_NAME="{{.LIB_NAME}}"
+        DYLIB_EXT="{{.DYLIB_EXT}}"
+        CANONICAL_NAME="${DYLIB_PREFIX}${LIB_NAME}.${DYLIB_EXT}"
+        echo "📦 Copying dynamic library to generated/${CANONICAL_NAME}..."
+        cp "${DYLIB_PATH}" "generated/${CANONICAL_NAME}"
+        echo "✅ Copied to generated/${CANONICAL_NAME}"
         rm -f /tmp/slim-node-dylib-path.txt
       - |
         # Apply FFI compatibility patches using TypeScript script
