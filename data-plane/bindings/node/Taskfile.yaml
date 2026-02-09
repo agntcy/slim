@@ -59,24 +59,40 @@ tasks:
     cmds:
       - echo "🔧 Generating Node.js bindings..."
       - |
-        # Compute library path with release profile
+        # Compute library path with release profile.
+        # CI renames the library to libslim_bindings_${ARCH}_${OS}_${ABI}.so; try that first, then the default name.
         PROFILE="release"
         TARGET="{{.TARGET}}"
         DYLIB_EXT="{{.DYLIB_EXT}}"
         DYLIB_PREFIX="{{.DYLIB_PREFIX}}"
-        DYLIB_PATH="{{.TASKFILE_DIR}}/../../target/${TARGET}/${PROFILE}/${DYLIB_PREFIX}{{.LIB_NAME}}.${DYLIB_EXT}"
-        echo "   Library path: ${DYLIB_PATH}"
-        
-        # Check if library exists
-        if [ ! -f "${DYLIB_PATH}" ]; then
-          echo "❌ Error: Library not found at ${DYLIB_PATH}"
-          echo "   Checking alternative locations..."
-          ls -la "{{.TASKFILE_DIR}}/../../target/${TARGET}/${PROFILE}/" | grep slim || true
-          ls -la "{{.TASKFILE_DIR}}/../../target/${PROFILE}/" | grep slim || true
+        TASKFILE_DIR="{{.TASKFILE_DIR}}"
+        LIB_NAME="{{.LIB_NAME}}"
+        RELEASE_DIR="${TASKFILE_DIR}/../../target/${TARGET}/${PROFILE}"
+
+        ARCH=$(echo "$TARGET" | cut -d'-' -f1)
+        OS=$(echo "$TARGET" | cut -d'-' -f3)
+        ABI=$(echo "$TARGET" | cut -d'-' -f4)
+
+        if [ -n "$ABI" ] && [ "$ABI" != "" ]; then
+          RENAMED_LIB="${DYLIB_PREFIX}${LIB_NAME}_${ARCH}_${OS}_${ABI}.${DYLIB_EXT}"
+        else
+          RENAMED_LIB="${DYLIB_PREFIX}${LIB_NAME}_${ARCH}_${OS}.${DYLIB_EXT}"
+        fi
+        DEFAULT_LIB="${DYLIB_PREFIX}${LIB_NAME}.${DYLIB_EXT}"
+
+        if [ -f "${RELEASE_DIR}/${RENAMED_LIB}" ]; then
+          DYLIB_PATH="${RELEASE_DIR}/${RENAMED_LIB}"
+        elif [ -f "${RELEASE_DIR}/${DEFAULT_LIB}" ]; then
+          DYLIB_PATH="${RELEASE_DIR}/${DEFAULT_LIB}"
+        else
+          echo "❌ Error: Library not found in ${RELEASE_DIR}"
+          echo "   Tried: ${RENAMED_LIB}, ${DEFAULT_LIB}"
+          ls -la "${RELEASE_DIR}/" | grep slim || true
+          ls -la "${TASKFILE_DIR}/../../target/${PROFILE}/" 2>/dev/null | grep slim || true
           exit 1
         fi
-        
-        # Store path for next steps
+
+        echo "   Library path: ${DYLIB_PATH}"
         echo "${DYLIB_PATH}" > /tmp/slim-node-dylib-path.txt
       - mkdir -p generated
       - |
