@@ -477,10 +477,17 @@ jobs:
         run: |
           task install:tests
 
+      - name: Install catchsegv (for backtrace on SIGSEGV)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq glibc-tools
+
       - name: Run Node.js integration tests
+        env:
+          RUST_BACKTRACE: full
         run: |
           echo "🧪 Running Node.js integration tests..."
-          task test:integration
+          catchsegv task test:integration
 
       - name: Test result summary
         if: success()

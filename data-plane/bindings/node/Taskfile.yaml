@@ -60,7 +60,8 @@ tasks:
       - echo "🔧 Generating Node.js bindings..."
       - |
         # Compute library path with release profile.
-        # CI renames the library to libslim_bindings_${ARCH}_${OS}_${ABI}.so; try that first, then the default name.
+        # Prefer default name (libslim_bindings.so) when present so we use the library built in this job
+        # (avoids ABI mismatch; CI also downloads renamed libslim_bindings_arch_os_abi.so from artifacts).
         PROFILE="release"
         TARGET="{{.TARGET}}"
         DYLIB_EXT="{{.DYLIB_EXT}}"
@@ -80,10 +81,10 @@ tasks:
         fi
         DEFAULT_LIB="${DYLIB_PREFIX}${LIB_NAME}.${DYLIB_EXT}"
 
-        if [ -f "${RELEASE_DIR}/${RENAMED_LIB}" ]; then
-          DYLIB_PATH="${RELEASE_DIR}/${RENAMED_LIB}"
-        elif [ -f "${RELEASE_DIR}/${DEFAULT_LIB}" ]; then
+        if [ -f "${RELEASE_DIR}/${DEFAULT_LIB}" ]; then
           DYLIB_PATH="${RELEASE_DIR}/${DEFAULT_LIB}"
+        elif [ -f "${RELEASE_DIR}/${RENAMED_LIB}" ]; then
+          DYLIB_PATH="${RELEASE_DIR}/${RENAMED_LIB}"
         else
           echo "❌ Error: Library not found in ${RELEASE_DIR}"
           echo "   Tried: ${RENAMED_LIB}, ${DEFAULT_LIB}"
