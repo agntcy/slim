@@ -1,0 +1,64 @@
+{
+  "name": "@agntcy/slim-bindings",
+  "version": "0.7.0",
+  "description": "JavaScript/TypeScript bindings for SLIM data plane - React Native support",
+  "main": "./src/index.ts",
+  "types": "./src/index.d.ts",
+  "react-native": "./src/index.ts",
+  "files": [
+    "src/",
+    "generated/",
+    "ios/",
+    "AgntcySlimBindings.podspec",
+    "react-native.config.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "task generate",
+    "clean": "task clean",
+    "example:rn:simple": "task example:react-native:simple",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit.test.ts",
+    "test:integration": "vitest run tests/integration.test.ts",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "keywords": [
+    "slim",
+    "messaging",
+    "mls",
+    "uniffi",
+    "react-native",
+    "typescript",
+    "bindings",
+    "ffi"
+  ],
+  "author": "AGNTCY Contributors",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agntcy/slim.git",
+    "directory": "data-plane/bindings/react-native"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.3",
+    "vitest": "^2.0.0",
+    "@vitest/coverage-v8": "^2.0.0"
+  },
+  "peerDependencies": {
+    "react-native": ">=0.72.0"
+  },
+  "peerDependenciesMeta": {
+    "react-native": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "uniffi-bindgen-react-native": "^0.29.3-1"
+  }
+}

@@ -1,0 +1,210 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: '3'
+
+includes:
+  adapter:
+    taskfile: "../rust/Taskfile.yaml"
+    internal: false
+  rust:
+    taskfile: ../../../tasks/rust.yaml
+    internal: true
+
+vars:
+  BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
+  PROFILE: 'release'
+  CURRENT_TARGET:
+    sh: 'rustc -vV | sed -n "s|host: ||p"'
+  TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
+  LIB_NAME: slim_bindings
+  DYLIB_PREFIX:
+    sh: |
+      case "$(uname -s)" in
+        Darwin|Linux) echo "lib" ;;
+        MINGW*|MSYS*|CYGWIN*) echo "" ;;
+        *) echo "lib" ;;
+      esac
+  DYLIB_EXT:
+    sh: |
+      case "$(uname -s)" in
+        Darwin) echo "dylib" ;;
+        Linux) echo "so" ;;
+        MINGW*|MSYS*|CYGWIN*) echo "dll" ;;
+        *) echo "so" ;;
+      esac
+
+tasks:
+  default:
+    cmds:
+      - task -l
+
+  install-uniffi-bindgen-node:
+    desc: Install uniffi-bindgen-node
+    status:
+      - which uniffi-bindgen-node
+    cmds:
+      - echo "📦 Installing uniffi-bindgen-node..."
+      - cargo install --git https://github.com/livekit/uniffi-bindgen-node.git --tag uniffi-bindgen-node@0.1.3
+
+  generate:
+    desc: Generate Node.js bindings using uniffi-bindgen-node
+    dir: "{{.TASKFILE_DIR}}"
+    deps:
+      - task: adapter:bindings:build:all
+        vars:
+          TARGET: "{{.TARGET}}"
+          PROFILE: release
+      - task: install-uniffi-bindgen-node
+    cmds:
+      - echo "🔧 Generating Node.js bindings..."
+      - |
+        # Compute library path with release profile.
+        # Prefer default name (libslim_bindings.so) when present so we use the library built in this job
+        # (avoids ABI mismatch; CI also downloads renamed libslim_bindings_arch_os_abi.so from artifacts).
+        PROFILE="release"
+        TARGET="{{.TARGET}}"
+        DYLIB_EXT="{{.DYLIB_EXT}}"
+        DYLIB_PREFIX="{{.DYLIB_PREFIX}}"
+        TASKFILE_DIR="{{.TASKFILE_DIR}}"
+        LIB_NAME="{{.LIB_NAME}}"
+        RELEASE_DIR="${TASKFILE_DIR}/../../target/${TARGET}/${PROFILE}"
+
+        ARCH=$(echo "$TARGET" | cut -d'-' -f1)
+        OS=$(echo "$TARGET" | cut -d'-' -f3)
+        ABI=$(echo "$TARGET" | cut -d'-' -f4)
+
+        if [ -n "$ABI" ] && [ "$ABI" != "" ]; then
+          RENAMED_LIB="${DYLIB_PREFIX}${LIB_NAME}_${ARCH}_${OS}_${ABI}.${DYLIB_EXT}"
+        else
+          RENAMED_LIB="${DYLIB_PREFIX}${LIB_NAME}_${ARCH}_${OS}.${DYLIB_EXT}"
+        fi
+        DEFAULT_LIB="${DYLIB_PREFIX}${LIB_NAME}.${DYLIB_EXT}"
+
+        if [ -f "${RELEASE_DIR}/${DEFAULT_LIB}" ]; then
+          DYLIB_PATH="${RELEASE_DIR}/${DEFAULT_LIB}"
+        elif [ -f "${RELEASE_DIR}/${RENAMED_LIB}" ]; then
+          DYLIB_PATH="${RELEASE_DIR}/${RENAMED_LIB}"
+        else
+          echo "❌ Error: Library not found in ${RELEASE_DIR}"
+          echo "   Tried: ${RENAMED_LIB}, ${DEFAULT_LIB}"
+          ls -la "${RELEASE_DIR}/" | grep slim || true
+          ls -la "${TASKFILE_DIR}/../../target/${PROFILE}/" 2>/dev/null | grep slim || true
+          exit 1
+        fi
+
+        echo "   Library path: ${DYLIB_PATH}"
+        echo "${DYLIB_PATH}" > /tmp/slim-node-dylib-path.txt
+      - mkdir -p generated
+      - |
+        # Generate Node.js bindings with uniffi-bindgen-node
+        DYLIB_PATH=$(cat /tmp/slim-node-dylib-path.txt)
+        cd {{.TASKFILE_DIR}}
+        uniffi-bindgen-node \
+          --crate-name {{.LIB_NAME}} \
+          --out-dir generated \
+          "${DYLIB_PATH}"
+      - |
+        # Copy the dynamic library to the generated directory as libslim_bindings.so
+        # (generated code expects this name; source may be renamed e.g. libslim_bindings_x86_64_linux_gnu.so)
+        DYLIB_PATH=$(cat /tmp/slim-node-dylib-path.txt)
+        DYLIB_PREFIX="{{.DYLIB_PREFIX}}"
+        LIB_NAME="{{.LIB_NAME}}"
+        DYLIB_EXT="{{.DYLIB_EXT}}"
+        CANONICAL_NAME="${DYLIB_PREFIX}${LIB_NAME}.${DYLIB_EXT}"
+        echo "📦 Copying dynamic library to generated/${CANONICAL_NAME}..."
+        cp "${DYLIB_PATH}" "generated/${CANONICAL_NAME}"
+        echo "✅ Copied to generated/${CANONICAL_NAME}"
+        rm -f /tmp/slim-node-dylib-path.txt
+      - |
+        # Apply FFI compatibility patches using TypeScript script
+        cd {{.TASKFILE_DIR}}/generated
+        npx tsx {{.TASKFILE_DIR}}/scripts/patch-generated.ts {{.TASKFILE_DIR}}/generated
+      - echo "✅ Node.js bindings generated and patched in generated/"
+    silent: false
+
+  install:
+    desc: Install dependencies for generated bindings
+    deps:
+      - task: generate
+    dir: "{{.TASKFILE_DIR}}/generated"
+    cmds:
+      - echo "📦 Installing generated bindings dependencies..."
+      - npm install
+      - echo "✅ Generated bindings dependencies installed"
+    silent: true
+
+  install:examples:
+    desc: Install dependencies for examples
+    deps:
+      - task: install
+    dir: "{{.TASKFILE_DIR}}/examples"
+    cmds:
+      - echo "📦 Installing examples dependencies..."
+      - npm install
+      - echo "✅ Examples dependencies installed"
+    silent: true
+
+  clean:
+    desc: Clean build artifacts and node_modules
+    cmds:
+      - echo "🧹 Cleaning build artifacts..."
+      - rm -rf generated/
+      - rm -rf examples/node_modules/
+      - echo "✅ Clean complete"
+    silent: true
+
+  # Examples
+  example:server:
+    desc: Run the SLIM Node.js server
+    deps:
+      - task: install:examples
+    dir: "{{.TASKFILE_DIR}}/examples"
+    cmds:
+      - echo "🚀 Starting SLIM Node.js server..."
+      - npm run server -- {{.CLI_ARGS}}
+    silent: false
+
+  example:alice:
+    desc: Run Alice (receiver) for point-to-point example
+    aliases: [example:p2p:alice]
+    deps:
+      ## - task: install:examples
+    dir: "{{.TASKFILE_DIR}}/examples"
+    cmds:
+      - echo "👩 Starting Alice (receiver)..."
+      - npm run alice -- {{.CLI_ARGS}}
+    silent: false
+
+  example:bob:
+    desc: Run Bob (sender) for point-to-point example
+    aliases: [example:p2p:bob]
+    deps:
+      ## - task: install:examples
+    dir: "{{.TASKFILE_DIR}}/examples"
+    cmds:
+      - echo "👨 Starting Bob (sender)..."
+      - npm run bob -- {{.CLI_ARGS}}
+    silent: false
+
+  # Tests
+  install:tests:
+    desc: Install dependencies for tests
+    deps:
+      - task: install
+    dir: "{{.TASKFILE_DIR}}/tests"
+    cmds:
+      - echo "📦 Installing test dependencies..."
+      - npm install
+      - echo "✅ Test dependencies installed"
+    silent: true
+
+  test:integration:
+    desc: Run integration tests for Node.js bindings
+    deps:
+      - task: install:tests
+    dir: "{{.TASKFILE_DIR}}/tests"
+    cmds:
+      - echo "🧪 Running integration tests..."
+      - npm test
+    silent: false
