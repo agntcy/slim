@@ -17,6 +17,8 @@ jobs:
   ensure-release:
     name: ensure-slimrpc-compiler-release
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
