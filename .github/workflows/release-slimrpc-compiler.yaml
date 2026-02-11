@@ -74,7 +74,14 @@ jobs:
           task crossbuild TARGET=${{ matrix.platform.target }} PROFILE=release
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
-          bin: protoc-gen-slimrpc-python,protoc-gen-slimrpc-go
+          bin: protoc-gen-slimrpc-python
+          target: ${{ matrix.target }}
+          tar: unix
+          zip: windows
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: protoc-gen-slimrpc-go
           target: ${{ matrix.target }}
           tar: unix
           zip: windows
