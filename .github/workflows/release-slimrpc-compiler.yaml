@@ -15,12 +15,8 @@ concurrency:
 
 jobs:
   ensure-release:
-    name: "${{ matrix.platform.target }}"
-    runs-on: ${{ matrix.platform.runner }}
-    defaults:
-      run:
-        shell: bash
-        working-directory: ./data-plane/slimrpc-compiler
+    name: ensure-slimrpc-compiler-release
+    runs-on: ubuntu-24.04
     steps:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
