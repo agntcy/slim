@@ -5,7 +5,7 @@ version: '3'
 
 includes:
   rust:
-    taskfile: ../../../tasks/rust.yaml
+    taskfile: ../../tasks/rust.yaml
     internal: true
 
 tasks:
@@ -13,11 +13,11 @@ tasks:
     cmds:
       - task -l
 
-  bindings:build:all:
-    desc: Build the Rust library with cross-compilation support
+  crossbuild:
+    desc: Cross-compile the slimrpc-compiler
     dir: "{{.TASKFILE_DIR}}"
     silent: true
     cmds:
-      - echo "🦀 Building Rust bindings library... {{.TARGET}}"
+      - echo "🦀 Building slimrpc-compiler... {{.TARGET}}"
       - task: rust:crossbuild
-      - echo "🦀 Rust bindings library built successfully."
+      - echo "🦀 slimrpc-compiler built successfully."

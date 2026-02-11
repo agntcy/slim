@@ -6,12 +6,12 @@ use rustls_pki_types::ServerName;
 use tokio_retry::RetryIf;
 
 use display_error_chain::ErrorChainExt;
-use std::{collections::HashMap, error::Error as StdErrorTrait, str::FromStr, time::Duration};
+use std::{collections::HashMap, str::FromStr, time::Duration};
 use tower::ServiceExt;
 #[cfg(target_family = "unix")]
 use {
     hyper_util::rt::TokioIo,
-    std::{path::PathBuf, sync::Arc},
+    std::{error::Error as StdErrorTrait, path::PathBuf, sync::Arc},
     tokio::net::UnixStream,
     tower::service_fn,
 };
@@ -679,6 +679,7 @@ impl ClientConfig {
         Ok(header_map)
     }
 
+    #[cfg(target_family = "unix")]
     fn map_transport_error(err: tonic::transport::Error) -> ConfigError {
         #[cfg(target_family = "unix")]
         {

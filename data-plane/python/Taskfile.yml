@@ -16,7 +16,6 @@ includes:
   tools:
     taskfile: ../../tasks/tools.yaml
     internal: true
-    flatten: true
   slimrpc:
     taskfile: ./integrations/slimrpc/Taskfile.yaml
 
@@ -35,7 +34,7 @@ tasks:
   python:generate-proto:
     desc: "Generate proto files for the Python bindings"
     deps:
-      - task: rust:toolchain:run-command
+      - task: rust:run-command
         vars:
           COMMAND: |
             cargo build --package agntcy-protoc-slimrpc-plugin --bin protoc-slimrpc-plugin

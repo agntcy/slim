@@ -19,7 +19,6 @@ includes:
   tools:
     taskfile: ../../../tasks/tools.yaml
     internal: true
-    flatten: true
 
 env:
   SHARED_SECRET: "demo-secret-key-for-examples012345"
@@ -52,7 +51,7 @@ tasks:
         sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
     cmds:
       - echo "🔨 Building Python bindings..."
-      - task: rust:toolchain:run-command
+      - task: rust:run-command
         vars:
           COMMAND: |
             uv run maturin develop --uv {{.RELEASE}}
