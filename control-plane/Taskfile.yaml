@@ -70,7 +70,7 @@ tasks:
   control-plane:impi:
     desc: Run go impi
     deps:
-      - tools
+      - tools:all
     cmds:
       - task: control-plane:gogen
       - task: control-plane:foreach-module
@@ -85,7 +85,7 @@ tasks:
   control-plane:vuln:
     desc: Run go govulncheck
     deps:
-      - tools
+      - tools:all
     cmds:
       - task: control-plane:gogen
       - task: control-plane:foreach-module
@@ -95,7 +95,7 @@ tasks:
   control-plane:coverage-reports:
     desc: Check test coverage
     deps:
-      - tools
+      - tools:all
     cmds:
       - task: control-plane:gogen
       - task: control-plane:foreach-module
@@ -113,7 +113,7 @@ tasks:
   control-plane:test:
     desc: Run go tests
     deps:
-      - tools
+      - tools:all
     cmds:
       - task: control-plane:gogen
       - task: control-plane:foreach-module
@@ -123,7 +123,7 @@ tasks:
   control-plane:fetch:
     desc: Download go modules
     deps:
-      - tools
+      - tools:all
     cmds:
       - task: control-plane:gogen
       - task: control-plane:foreach-module
@@ -133,7 +133,7 @@ tasks:
   control-plane:proto:generate:
     desc: Generate Go protobuf and gRPC code
     deps:
-      - tools
+      - tools:all
     cmds:
       - >
         {{.REPO_ROOT}}/.tools/protoc --proto_path=../proto \
