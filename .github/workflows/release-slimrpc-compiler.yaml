@@ -65,13 +65,12 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
           workspace: ./data-plane
-      - name: Build library
-        run: |
-          task crossbuild TARGET=${{ matrix.platform.target }} PROFILE=release
+
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: protoc-gen-slimrpc-python
@@ -79,6 +78,8 @@ jobs:
           tar: unix
           zip: windows
           token: ${{ secrets.GITHUB_TOKEN }}
+          manifest-path: ./data-plane/slimrpc-compiler/Cargo.toml
+
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: protoc-gen-slimrpc-go
@@ -86,3 +87,4 @@ jobs:
           tar: unix
           zip: windows
           token: ${{ secrets.GITHUB_TOKEN }}
+          manifest-path: ./data-plane/slimrpc-compiler/Cargo.toml
