@@ -43,24 +43,31 @@ jobs:
           - runner: ubuntu-24.04
             os: linux
             target: x86_64-unknown-linux-musl
+            archive: linux-x86_64
           - runner: ubuntu-24.04
             os: linux
             target: aarch64-unknown-linux-musl
+            archive: linux-arm64
           - runner: windows-latest
             os: windows
             target: x86_64-pc-windows-msvc
+            archive: windows-x86_64
           - runner: ubuntu-24.04
             os: linux
             target: x86_64-pc-windows-gnu
+            archive: windows-x86_64
           - runner: windows-11-arm
             os: windows
             target: aarch64-pc-windows-msvc
+            archive: windows-arm64
           - runner: macos-15-intel
             os: macos
             target: x86_64-apple-darwin
+            archive: macos-x86_64
           - runner: macos-15
             os: macos
             target: aarch64-apple-darwin
+            archive: macos-arm64
         exclude:
           - platform:
               exclude: true
@@ -77,6 +84,7 @@ jobs:
         with:
           bin: protoc-gen-slimrpc-python
           target: ${{ matrix.platform.target }}
+          archive: protoc-gen-slimrpc-python-${{ matrix.platform.archive }}
           tar: unix
           zip: windows
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -86,6 +94,7 @@ jobs:
         with:
           bin: protoc-gen-slimrpc-go
           target: ${{ matrix.platform.target }}
+          archive: protoc-gen-slimrpc-go-${{ matrix.platform.archive }}
           tar: unix
           zip: windows
           token: ${{ secrets.GITHUB_TOKEN }}
