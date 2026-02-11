@@ -30,6 +30,8 @@ jobs:
     needs:
       - ensure-release
     runs-on: ${{ matrix.platform.runner }}
+    permissions:
+      contents: write
     defaults:
       run:
         shell: bash
