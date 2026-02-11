@@ -60,7 +60,7 @@ tasks:
   control-plane:lint:
     desc: Run go linter
     deps:
-      - tools
+      - tools:all
     cmds:
       - task: control-plane:gogen
       - task: control-plane:foreach-module
@@ -167,22 +167,22 @@ tasks:
 
   control-plane:slimctl:build:
     desc: Cross-compile slimctl using Zig (accepts TARGETOS and TARGETARCH, defaults to current platform)
-    
+
     vars:
       CURRENT_OS:
         sh: go env GOHOSTOS
       CURRENT_ARCH:
         sh: go env GOHOSTARCH
 
-      DETECTED_TARGETOS: 
+      DETECTED_TARGETOS:
         sh: go env GOOS
-      
-      DETECTED_TARGETARCH: 
+
+      DETECTED_TARGETARCH:
         sh: go env GOARCH
 
       TARGETOS: '{{.TARGETOS | default .DETECTED_TARGETOS}}'
       TARGETARCH: '{{.TARGETARCH | default .DETECTED_TARGETARCH}}'
-      
+
       TARGETABI: '{{.TARGETABI | default "gnu"}}'
 
       TOOLS_DIR: "{{.REPO_ROOT}}/.tools"
@@ -204,7 +204,7 @@ tasks:
           TARGETARCH: "{{.TARGETARCH}}"
           TARGETABI: "{{.TARGETABI | default \"gnu\"}}"
       - task: tools:zig
-      
+
     dir: slimctl/cmd
     cmds:
       - task: control-plane:gogen
@@ -218,7 +218,7 @@ tasks:
         # Determine output binary name
         BINARY="slimctl"
         [ "{{.TARGETOS}}" = "windows" ] && BINARY="slimctl.exe"
-        
+
         # Setup build context based on native vs cross-compilation
         if [ "{{.TARGETOS}}" = "{{.CURRENT_OS}}" ] && [ "{{.TARGETARCH}}" = "{{.CURRENT_ARCH}}" ]; then
           # Native build
@@ -232,7 +232,7 @@ tasks:
         else
           # Cross-compilation - setup Zig compiler
           echo "🔨 Cross-compiling slimctl from {{.CURRENT_OS}}/{{.CURRENT_ARCH}} to {{.TARGETOS}}/{{.TARGETARCH}}"
-          BUILD_MODE="cross"         
+          BUILD_MODE="cross"
           # Map GOOS/GOARCH to Zig target triple
           case "{{.TARGETOS}}" in
             linux)
