@@ -76,7 +76,7 @@ jobs:
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: protoc-gen-slimrpc-python
-          target: ${{ matrix.target }}
+          target: ${{ matrix.platform.target }}
           tar: unix
           zip: windows
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -85,7 +85,7 @@ jobs:
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: protoc-gen-slimrpc-go
-          target: ${{ matrix.target }}
+          target: ${{ matrix.platform.target }}
           tar: unix
           zip: windows
           token: ${{ secrets.GITHUB_TOKEN }}
