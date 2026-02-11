@@ -51,7 +51,7 @@ tasks:
         sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
     cmds:
       - echo "🔨 Building Python bindings..."
-      - task: rust:toolchain:run-command
+      - task: rust:run-command
         vars:
           COMMAND: |
             uv run maturin develop --uv {{.RELEASE}}
