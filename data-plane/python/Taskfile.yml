@@ -16,7 +16,6 @@ includes:
   tools:
     taskfile: ../../tasks/tools.yaml
     internal: true
-    flatten: true
   slimrpc:
     taskfile: ./integrations/slimrpc/Taskfile.yaml
 

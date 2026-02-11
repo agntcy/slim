@@ -9,7 +9,7 @@ silent: true
 includes:
   tools:
     taskfile: ../tasks/tools.yaml
-    flatten: true
+    internal: true
 
 vars:
   REPO_ROOT:

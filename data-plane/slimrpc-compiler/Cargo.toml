@@ -1,13 +1,21 @@
 [package]
-name = "agntcy-protoc-slimrpc-plugin"
+name = "agntcy-protoc-gen-slimrpc"
 description = "A protoc plugin for generating SRPC (Slim RPC) code"
-version = "0.1.3"
+version = "0.2.0"
 license.workspace = true
 edition.workspace = true
 
+[lib]
+name = "agntcy_protoc_slimrpc_plugin"
+path = "src/lib.rs"
+
 [[bin]]
-name = "protoc-slimrpc-plugin"
-path = "src/bin/main.rs"
+name = "protoc-gen-slimrpc-python"
+path = "src/bin/protoc-gen-slimrpc.rs"
+
+[[bin]]
+name = "protoc-gen-slimrpc-go"
+path = "src/bin/protoc-gen-slimrpc.rs"
 
 [dependencies]
 anyhow = { workspace = true }

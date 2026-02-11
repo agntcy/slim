@@ -19,7 +19,6 @@ includes:
   tools:
     taskfile: ../../../tasks/tools.yaml
     internal: true
-    flatten: true
 
 env:
   SHARED_SECRET: "demo-secret-key-for-examples012345"
