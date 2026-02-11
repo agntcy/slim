@@ -1,12 +1,12 @@
 # SLIM RPC (SLIM Remote Procedure Call)
 
-SLIMRCP, or SLIM Remote Procedure Call, is a library designed to enable
+SLIMRPC, or SLIM Remote Procedure Call, is a library designed to enable
 Protocol Buffers (protobuf) RPC over SLIM (Secure Low-latency Inter-process
 Messaging). This is analogous to gRPC, which leverages HTTP/2 as its underlying
 transport layer for protobuf RPC.
 
-To use SLIM RPC you can compile you protobuf file using the [SLIM RPC compiler](https://github.com/agntcy/slim/tree/slim-v0.5.0/data-plane/slimrpc-compiler) and
-use the generated code to create you application.
+To use SLIM RPC you can compile your protobuf file using the [SLIM RPC compiler](/data-plane/slimrpc-compiler/README.md) and
+use the generated code to create your application.
 
 ## Protobuf example
 
