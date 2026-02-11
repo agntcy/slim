@@ -11,7 +11,7 @@ use tower::ServiceExt;
 #[cfg(target_family = "unix")]
 use {
     hyper_util::rt::TokioIo,
-    std::{path::PathBuf, sync::Arc, error::Error as StdErrorTrait},
+    std::{error::Error as StdErrorTrait, path::PathBuf, sync::Arc},
     tokio::net::UnixStream,
     tower::service_fn,
 };

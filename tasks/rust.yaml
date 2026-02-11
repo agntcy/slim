@@ -92,9 +92,9 @@ tasks:
     deps:
       - task: install-target
     cmds:
-      - cargo check {{.RELEASE}} {{.TARGET_ARGS}} {{.ARGS}}
+      - cargo check {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
     vars:
-      ARGS: '{{.ARGS | default "{{.GLOBAL_ARGS}} --all-targets --locked"}}'
+      ARGS: '{{.ARGS | default "--all-targets --locked"}}'
 
   clean:
     desc: "Clean the project"
@@ -108,16 +108,16 @@ tasks:
     deps:
       - task: install-target
     cmds:
-      - cargo clippy {{.RELEASE}} {{.TARGET_ARGS}} {{.ARGS}} -- -D warnings
+      - cargo clippy {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}} -- -D warnings
     vars:
-      ARGS: '{{.ARGS | default "{{.GLOBAL_ARGS}} --all-targets --locked --all-features"}}'
+      ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
 
   sort:check:
     desc: "Check the dependencies are sorted"
     cmds:
       - task: sort
         vars:
-          ARGS: "{{.GLOBAL_ARGS}} --check"
+          ARGS: "--check"
 
   unused:check:
     desc: "Check for unused dependencies"
@@ -159,16 +159,16 @@ tasks:
         vars:
           COMPONENTS: "cargo-sort"
     cmds:
-      - cargo sort {{.ARGS}}
+      - cargo sort {{.GLOBAL_ARGS}} {{.ARGS}}
     vars:
-      ARGS: '{{.ARGS | default "{{.GLOBAL_ARGS}}"}}'
+      ARGS: '{{.ARGS | default ""}}'
 
   doc:
     desc: "Generate the documentation"
     cmds:
-      - cargo doc {{.RELEASE}} {{.TARGET_ARGS}} {{.ARGS}}
+      - cargo doc {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
     vars:
-      ARGS: '{{.ARGS | default "{{.GLOBAL_ARGS}} --no-deps --locked --all-features"}}'
+      ARGS: '{{.ARGS | default "--no-deps --locked --all-features"}}'
 
   lintall:
     desc: "Run the linter"
@@ -186,18 +186,18 @@ tasks:
     deps:
       - task: install-target
     cmds:
-      - cargo test --no-run {{.RELEASE}} {{.TARGET_ARGS}} {{.ARGS}}
+      - cargo test --no-run {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
     vars:
-      ARGS: '{{.ARGS | default "{{.GLOBAL_ARGS}} --all-targets --locked --all-features"}}'
+      ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
 
   test:
     desc: "Run the tests"
     cmds:
-      - cargo test {{.RELEASE}} {{.TARGET_ARGS}} {{.ARGS}}
+      - cargo test {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
       - task: bindings:test
       - task: core:test
     vars:
-      ARGS: '{{.ARGS | default "{{.GLOBAL_ARGS}} --all-targets --locked --all-features"}}'
+      ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
 
   test:coverage:
     desc: "Run tests coverage"
@@ -206,9 +206,9 @@ tasks:
         vars:
           COMPONENTS: "cargo-llvm-cov"
     cmds:
-      - cargo llvm-cov --lcov --output-path lcov.info {{.ARGS}}
+      - cargo llvm-cov --lcov --output-path lcov.info {{.GLOBAL_ARGS}} {{.ARGS}}
     vars:
-      ARGS: '{{.ARGS | default "{{.GLOBAL_ARGS}} --all-targets --locked --all-features"}}'
+      ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
 
   build:
     desc: "Build the project"
