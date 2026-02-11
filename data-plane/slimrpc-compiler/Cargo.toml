@@ -11,11 +11,11 @@ path = "src/lib.rs"
 
 [[bin]]
 name = "protoc-gen-slimrpc-python"
-path = "src/bin/protoc-gen-slimrpc.rs"
+path = "src/bin/protoc-gen-slimrpc-python.rs"
 
 [[bin]]
 name = "protoc-gen-slimrpc-go"
-path = "src/bin/protoc-gen-slimrpc.rs"
+path = "src/bin/protoc-gen-slimrpc-go.rs"
 
 [dependencies]
 anyhow = { workspace = true }
