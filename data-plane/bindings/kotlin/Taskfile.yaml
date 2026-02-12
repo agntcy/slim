@@ -77,6 +77,16 @@ tasks:
           --no-format \
           --out-dir generated
       - task: copy-library
+      - echo "📁 Listing generated files before patching..."
+      - |
+        if [ -d "generated" ]; then
+          find generated -type f -name "*.kt" | head -20
+          echo "---"
+          ls -la generated/io/agntcy/slim/bindings/ 2>/dev/null || echo "⚠️ Bindings directory not found"
+        else
+          echo "❌ Error: generated directory not found!"
+          exit 1
+        fi
       - task: patch-bindings
       - echo "✅ Bindings generated in generated/"
 
