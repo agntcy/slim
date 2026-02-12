@@ -75,13 +75,27 @@ tasks:
       - pwd
       - echo "🔍 Verifying uniffi-bindgen..."
       - uniffi-bindgen --version
+      - echo "🔍 Checking library file exists:"
+      - ls -lah '{{.LIB_PATH}}'
+      - echo "🔍 Checking config file exists:"
+      - ls -lah uniffi.toml
+      - echo "🚀 Running uniffi-bindgen with verbose output..."
       - |
+        set -x
         uniffi-bindgen generate \
           --library '{{.LIB_PATH}}' \
           --language kotlin \
           --config uniffi.toml \
           --no-format \
-          --out-dir ./generated
+          --out-dir generated
+        BINDGEN_EXIT=$?
+        set +x
+        echo "uniffi-bindgen exit code: $BINDGEN_EXIT"
+        if [ $BINDGEN_EXIT -ne 0 ]; then
+          echo "❌ uniffi-bindgen failed with exit code $BINDGEN_EXIT"
+          exit $BINDGEN_EXIT
+        fi
+        echo "✅ uniffi-bindgen completed successfully"
       - task: copy-library
       - echo "🔍 Debug information:"
       - echo "LIB_PATH={{.LIB_PATH}}"
