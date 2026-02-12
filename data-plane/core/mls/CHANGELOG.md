@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9](https://github.com/agntcy/slim/compare/slim-mls-v0.1.8...slim-mls-v0.1.9) - 2026-02-12
+
+### Added
+
+- slimrpc-compiler for golang + example ([#1163](https://github.com/agntcy/slim/pull/1163))
+
 ## [0.1.8](https://github.com/agntcy/slim/compare/slim-mls-v0.1.7...slim-mls-v0.1.8) - 2026-02-06
 
 ### Other
