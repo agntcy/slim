@@ -27,24 +27,19 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # data-plane-build-and-test:
-  #   name: Data plane - build & test
-  #   uses: ./.github/workflows/reusable-rust-build-and-test.yaml
-  #   with:
-  #     working-directory: ./data-plane
+  data-plane-build-and-test:
+    name: Data plane - build & test
+    uses: ./.github/workflows/reusable-rust-build-and-test.yaml
+    with:
+      working-directory: ./data-plane
 
-  # data-plane-docker-build:
-  #   name: Build SLIM docker image
-  #   uses: ./.github/workflows/reusable-docker-build-push.yaml
-  #   with:
-  #     bake-targets: slim
-  #     image-tag: ${{ github.sha }}
+  data-plane-docker-build:
+    name: Build SLIM docker image
+    uses: ./.github/workflows/reusable-docker-build-push.yaml
+    with:
+      bake-targets: slim
+      image-tag: ${{ github.sha }}
 
-  # data-plane-bindings-test:
-  #   name: Data plane - Bindings test
-  #   uses: ./.github/workflows/reusable-bindings-build-and-test.yaml
-  release-go-bindings:
-    name: "Release Go Bindings"
-    uses: ./.github/workflows/reusable-go-bindings-release.yaml
-    secrets:
-      gh-token: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
+  data-plane-bindings-test:
+    name: Data plane - Bindings test
+    uses: ./.github/workflows/reusable-bindings-build-and-test.yaml
