@@ -7,10 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.0.1](https://github.com/agntcy/slim/releases/tag/slim-bindings-v1.0.1) - 2026-02-06
+## [1.1.0](https://github.com/agntcy/slim/releases/tag/slim-bindings-v1.0.1) - 2026-02-06
 
 ### Added
 
+- *(bindings)* implement slimrpc in bindings ([#1202](https://github.com/agntcy/slim/pull/1202))
 - *(bindings)* set release candidate 1.0.0-rc.0 ([#1135](https://github.com/agntcy/slim/pull/1135))
 - *(bindings)* move to new python bindings ([#1116](https://github.com/agntcy/slim/pull/1116))
 - *(session)* Add direction to slim app to control message flow ([#1121](https://github.com/agntcy/slim/pull/1121))

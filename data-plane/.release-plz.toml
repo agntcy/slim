@@ -51,7 +51,7 @@ changelog_update = true
 
 [[package]]
 name = "agntcy-slim-bindings"
-publish = false
+publish = true
 release = true
 changelog_update = true
 

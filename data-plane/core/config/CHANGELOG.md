@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2](https://github.com/agntcy/slim/compare/slim-config-v0.6.1...slim-config-v0.6.2) - 2026-02-12
+
+### Added
+
+- update slimrpc compiler to use slimrpc in latest slim-bindings
+
 ## [0.6.1](https://github.com/agntcy/slim/compare/slim-config-v0.6.0...slim-config-v0.6.1) - 2026-02-06
 
 ### Other
