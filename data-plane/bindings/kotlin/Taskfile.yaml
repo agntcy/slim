@@ -83,12 +83,20 @@ tasks:
           --no-format \
           --out-dir ./generated
       - task: copy-library
+      - echo "🔍 Debug information:"
+      - echo "LIB_PATH={{.LIB_PATH}}"
+      - echo "PWD=$(pwd)"
       - echo "📁 Listing generated files before patching..."
       - |
-        if [ -d "./generated" ]; then
-          find generated -type f -name "*.kt" | head -20
+        if [ -d "generated" ]; then
+          echo "Contents of generated:"
+          ls -la generated/
           echo "---"
-          ls -la ./generated/io/agntcy/slim/bindings/ 2>/dev/null || echo "⚠️ Bindings directory not found"
+          echo "Contents of generated/io/agntcy/slim/bindings/:"
+          ls -la generated/io/agntcy/slim/bindings/ 2>/dev/null || echo "⚠️ Bindings directory not found"
+          echo "---"
+          echo "First 20 .kt files:"
+          find generated -type f -name "*.kt" | head -20
         else
           echo "❌ Error: generated directory not found!"
           exit 1
