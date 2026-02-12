@@ -4,7 +4,7 @@
 // Standard library imports
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -342,11 +342,6 @@ impl Service {
         // Create storage path for the app
         let mut hasher = DefaultHasher::new();
         app_name.to_string().hash(&mut hasher);
-        let hashed_name = hasher.finish();
-
-        let home_dir = dirs::home_dir().ok_or(ServiceError::HomeDirUnavailable)?;
-        let storage_path = home_dir.join(".slim").join(hashed_name.to_string());
-        std::fs::create_dir_all(&storage_path)?;
 
         // Channels to communicate with SLIM
         let (conn_id, tx_slim, rx_slim) =
@@ -366,7 +361,6 @@ impl Service {
             conn_id,
             tx_slim,
             tx_app,
-            storage_path,
             direction,
         );
 

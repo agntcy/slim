@@ -53,9 +53,6 @@ where
     /// Identity token verifier
     pub(crate) identity_verifier: V,
 
-    /// Storage path for session data
-    pub(crate) storage_path: std::path::PathBuf,
-
     /// Graceful shutdown timeout - time to drain pending messages during shutdown
     pub(crate) graceful_shutdown_timeout: Option<std::time::Duration>,
 }

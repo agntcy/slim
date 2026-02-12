@@ -437,7 +437,7 @@ mod tests {
         let mut mls = Mls::new(
             SharedSecret::new("test", TEST_VALID_SECRET).unwrap(),
             SharedSecret::new("test", TEST_VALID_SECRET).unwrap(),
-            std::path::PathBuf::from("/tmp/mls_helpers_test_encrypt_without_group"),
+            None,
         );
         mls.initialize().await.unwrap();
 
@@ -472,12 +472,12 @@ mod tests {
         let mut alice_mls = Mls::new(
             SharedSecret::new("alice", TEST_VALID_SECRET).unwrap(),
             SharedSecret::new("alice", TEST_VALID_SECRET).unwrap(),
-            std::path::PathBuf::from("/tmp/mls_helpers_test_alice"),
+            None,
         );
         let mut bob_mls = Mls::new(
             SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
             SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
-            std::path::PathBuf::from("/tmp/mls_helpers_test_bob"),
+            None,
         );
 
         alice_mls.initialize().await.unwrap();
@@ -550,7 +550,7 @@ mod tests {
         let mut mls = Mls::new(
             SharedSecret::new("test", TEST_VALID_SECRET).unwrap(),
             SharedSecret::new("test", TEST_VALID_SECRET).unwrap(),
-            std::path::PathBuf::from("/tmp/mls_helpers_test_skip_non_publish"),
+            None,
         );
         mls.initialize().await.unwrap();
         let _group_id = mls.create_group().await.unwrap();

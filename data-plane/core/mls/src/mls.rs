@@ -134,9 +134,9 @@ where
     pub fn new(
         identity_provider: P,
         identity_verifier: V,
-        storage_path: std::path::PathBuf,
+        storage_path: Option<std::path::PathBuf>,
     ) -> Self {
-        let mls_storage_path = Some(storage_path.join("mls"));
+        let mls_storage_path = storage_path.map(|p| p.join("mls"));
 
         Self {
             identity: None,
@@ -154,16 +154,14 @@ where
         self
     }
 
-    fn get_storage_path(&self) -> std::path::PathBuf {
-        self.storage_path
-            .clone()
-            .expect("Storage path should always be set in constructor")
+    fn get_storage_path(&self) -> Option<std::path::PathBuf> {
+        self.storage_path.clone()
     }
 
-    /// Helper method to create a signing identity from key pair and update storage
-    /// Generates a token with the public key in the claims, creates a BasicCredential,
-    /// and updates the stored identity with the new keys and token
-    async fn create_signing_identity_and_update_storage(
+    /// Helper method to create a signing identity from key pair
+    /// Generates a token with the public key in the claims, creates a BasicCredential
+    /// If storage_path is set, persists the identity to disk
+    async fn create_signing_identity(
         &mut self,
         private_key: &SignatureSecretKey,
         public_key: &SignaturePublicKey,
@@ -183,9 +181,10 @@ where
         let signing_identity =
             SigningIdentity::new(basic_cred.into_credential(), public_key.clone());
 
-        // Update storage
-        let storage_path = self.get_storage_path();
-        if let Some(stored) = self.stored_identity.as_mut() {
+        // Update storage if path is set
+        if let Some(storage_path) = self.get_storage_path()
+            && let Some(stored) = self.stored_identity.as_mut()
+        {
             stored.last_credential = Some(token);
             stored.public_key_bytes = public_key.as_bytes().to_vec();
             stored.private_key_bytes = private_key.as_bytes().to_vec();
@@ -213,44 +212,71 @@ where
     }
 
     pub async fn initialize(&mut self) -> Result<(), MlsError> {
-        let storage_path = self.get_storage_path();
-        debug!(storage_path = ?storage_path, "Using storage path");
-        std::fs::create_dir_all(&storage_path)?;
+        let storage_path_opt = self.get_storage_path();
 
-        let stored_identity = if StoredIdentity::exists(&storage_path) {
-            debug!("Loading existing identity from file");
-            StoredIdentity::load_from_storage(&storage_path)?
+        if let Some(ref storage_path) = storage_path_opt {
+            debug!(storage_path = ?storage_path, "Initializing MLS with storage");
+            std::fs::create_dir_all(storage_path)?;
         } else {
-            debug!("Creating new identity");
-            let (private_key, public_key) = Self::generate_key_pair().await?;
+            debug!("Initializing MLS without storage (ephemeral keys)");
+        }
 
-            self.identity = Some(self.identity_provider.get_id()?);
+        let (private_key, public_key, stored_identity) =
+            if let Some(ref storage_path) = storage_path_opt {
+                // Try to load from storage
+                if StoredIdentity::exists(storage_path) {
+                    debug!("Loading existing identity from file");
+                    let stored = StoredIdentity::load_from_storage(storage_path)?;
+                    let public_key = SignaturePublicKey::new(stored.public_key_bytes.clone());
+                    let private_key = SignatureSecretKey::new(stored.private_key_bytes.clone());
+                    (private_key, public_key, stored)
+                } else {
+                    debug!("Creating new identity and saving to storage");
+                    let (private_key, public_key) = Self::generate_key_pair().await?;
 
-            let stored = StoredIdentity {
-                identifier: self
-                    .identity
-                    .clone()
-                    .map(|id| id.to_string())
-                    .expect("MLS identity could not be determined from identity provider"),
-                public_key_bytes: public_key.as_bytes().to_vec(),
-                private_key_bytes: private_key.as_bytes().to_vec(),
-                last_credential: None,
-                credential_version: 1,
+                    self.identity = Some(self.identity_provider.get_id()?);
+
+                    let stored =
+                        StoredIdentity {
+                            identifier: self.identity.clone().map(|id| id.to_string()).expect(
+                                "MLS identity could not be determined from identity provider",
+                            ),
+                            public_key_bytes: public_key.as_bytes().to_vec(),
+                            private_key_bytes: private_key.as_bytes().to_vec(),
+                            last_credential: None,
+                            credential_version: 1,
+                        };
+
+                    stored.save_to_storage(storage_path)?;
+                    (private_key, public_key, stored)
+                }
+            } else {
+                // No storage - generate ephemeral keys
+                debug!("Generating ephemeral keys (no storage)");
+                let (private_key, public_key) = Self::generate_key_pair().await?;
+
+                self.identity = Some(self.identity_provider.get_id()?);
+
+                let stored = StoredIdentity {
+                    identifier: self
+                        .identity
+                        .clone()
+                        .map(|id| id.to_string())
+                        .expect("MLS identity could not be determined from identity provider"),
+                    public_key_bytes: public_key.as_bytes().to_vec(),
+                    private_key_bytes: private_key.as_bytes().to_vec(),
+                    last_credential: None,
+                    credential_version: 1,
+                };
+
+                (private_key, public_key, stored)
             };
-
-            stored.save_to_storage(&storage_path)?;
-
-            stored
-        };
-
-        let public_key = SignaturePublicKey::new(stored_identity.public_key_bytes.clone());
-        let private_key = SignatureSecretKey::new(stored_identity.private_key_bytes.clone());
 
         self.stored_identity = Some(stored_identity);
 
-        // Always generate a fresh token and update storage (not a rotation)
+        // Generate signing identity (will save to storage if path is set)
         let signing_identity = self
-            .create_signing_identity_and_update_storage(&private_key, &public_key, false)
+            .create_signing_identity(&private_key, &public_key, false)
             .await?;
 
         let crypto_provider = AwsLcCryptoProvider::default();
@@ -485,9 +511,9 @@ where
         // Generate new key pair
         let (new_private_key, new_public_key) = Self::generate_key_pair().await?;
 
-        // Create signing identity with token containing the new public key and update storage
+        // Create signing identity with token containing the new public key (will save to storage if path is set)
         let new_signing_identity = self
-            .create_signing_identity_and_update_storage(&new_private_key, &new_public_key, true)
+            .create_signing_identity(&new_private_key, &new_public_key, true)
             .await?;
 
         // Now get mutable reference to group after creating signing identity
@@ -534,7 +560,7 @@ mod tests {
         let mut mls = Mls::new(
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
-            std::path::PathBuf::from("/tmp/mls_test_creation"),
+            Some(std::path::PathBuf::from("/tmp/mls_test_creation")),
         );
 
         mls.initialize().await?;
@@ -548,7 +574,7 @@ mod tests {
         let mut mls = Mls::new(
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
-            std::path::PathBuf::from("/tmp/mls_test_group_creation"),
+            Some(std::path::PathBuf::from("/tmp/mls_test_group_creation")),
         );
 
         mls.initialize().await?;
@@ -563,7 +589,7 @@ mod tests {
         let mut mls = Mls::new(
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
-            std::path::PathBuf::from("/tmp/mls_test_key_package"),
+            Some(std::path::PathBuf::from("/tmp/mls_test_key_package")),
         );
 
         mls.initialize().await?;
@@ -578,22 +604,22 @@ mod tests {
         let mut alice = Mls::new(
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
-            std::path::PathBuf::from("/tmp/mls_test_messaging_alice"),
+            Some(std::path::PathBuf::from("/tmp/mls_test_messaging_alice")),
         );
         let mut bob = Mls::new(
             SharedSecret::new("bob", SHARED_SECRET).unwrap(),
             SharedSecret::new("bob", SHARED_SECRET).unwrap(),
-            std::path::PathBuf::from("/tmp/mls_test_messaging_bob"),
+            Some(std::path::PathBuf::from("/tmp/mls_test_messaging_bob")),
         );
         let mut charlie = Mls::new(
             SharedSecret::new("charlie", SHARED_SECRET).unwrap(),
             SharedSecret::new("charlie", SHARED_SECRET).unwrap(),
-            std::path::PathBuf::from("/tmp/mls_test_messaging_charlie"),
+            Some(std::path::PathBuf::from("/tmp/mls_test_messaging_charlie")),
         );
         let mut daniel = Mls::new(
             SharedSecret::new("daniel", SHARED_SECRET).unwrap(),
             SharedSecret::new("daniel", SHARED_SECRET).unwrap(),
-            std::path::PathBuf::from("/tmp/mls_test_messaging_daniel"),
+            Some(std::path::PathBuf::from("/tmp/mls_test_messaging_daniel")),
         );
 
         alice.initialize().await?;
@@ -726,12 +752,12 @@ mod tests {
         let mut alice = Mls::new(
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
-            std::path::PathBuf::from("/tmp/mls_test_decrypt_alice"),
+            Some(std::path::PathBuf::from("/tmp/mls_test_decrypt_alice")),
         );
         let mut bob = Mls::new(
             SharedSecret::new("bob", SHARED_SECRET).unwrap(),
             SharedSecret::new("bob", SHARED_SECRET).unwrap(),
-            std::path::PathBuf::from("/tmp/mls_test_decrypt_bob"),
+            Some(std::path::PathBuf::from("/tmp/mls_test_decrypt_bob")),
         );
 
         alice.initialize().await?;
@@ -763,14 +789,14 @@ mod tests {
         let mut alice = Mls::new(
             identity_a.clone(),
             identity_a.clone(),
-            std::path::PathBuf::from("/tmp/mls_test_rotation_alice"),
+            Some(std::path::PathBuf::from("/tmp/mls_test_rotation_alice")),
         );
 
         let identity_b = SharedSecret::new("bob", SHARED_SECRET).unwrap();
         let mut bob = Mls::new(
             identity_b.clone(),
             identity_b.clone(),
-            std::path::PathBuf::from("/tmp/mls_test_rotation_bob"),
+            Some(std::path::PathBuf::from("/tmp/mls_test_rotation_bob")),
         );
 
         alice.initialize().await?;
@@ -798,7 +824,7 @@ mod tests {
                 "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas123",
             )
             .unwrap(),
-            std::path::PathBuf::from("/tmp/mls_test_rotation_alice_v2"),
+            Some(std::path::PathBuf::from("/tmp/mls_test_rotation_alice_v2")),
         );
         alice_rotated_secret.initialize().await?;
 
@@ -827,7 +853,7 @@ mod tests {
         let mut moderator = Mls::new(
             secret_m.clone(),
             secret_m.clone(),
-            std::path::PathBuf::from("/tmp/mls_test_moderator"),
+            Some(std::path::PathBuf::from("/tmp/mls_test_moderator")),
         );
         moderator.initialize().await?;
 
@@ -835,11 +861,11 @@ mod tests {
         let _group_id = moderator.create_group().await?;
 
         let secret_a = SharedSecret::new("alice", SHARED_SECRET).unwrap();
-        let mut alice = Mls::new(secret_a.clone(), secret_a.clone(), alice_path.into());
+        let mut alice = Mls::new(secret_a.clone(), secret_a.clone(), Some(alice_path.into()));
         alice.initialize().await?;
 
         let secret_b = SharedSecret::new("bob", SHARED_SECRET).unwrap();
-        let mut bob = Mls::new(secret_b.clone(), secret_b.clone(), bob_path.into());
+        let mut bob = Mls::new(secret_b.clone(), secret_b.clone(), Some(bob_path.into()));
         bob.initialize().await?;
 
         // Moderator adds Alice to the group
@@ -915,7 +941,7 @@ mod tests {
         let mut mls = Mls::new(
             SharedSecret::new(name, SHARED_SECRET).unwrap(),
             SharedSecret::new(name, SHARED_SECRET).unwrap(),
-            path.into(),
+            Some(path.into()),
         );
         mls.initialize().await?;
         Ok(mls)

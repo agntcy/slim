@@ -21,7 +21,6 @@ agntcy-slim-datapath = { workspace = true }
 agntcy-slim-mls = { workspace = true }
 agntcy-slim-session = { workspace = true, optional = true }
 async-trait = { workspace = true }
-dirs = "5.0"
 display-error-chain = { workspace = true }
 futures = { workspace = true }
 parking_lot = { workspace = true }

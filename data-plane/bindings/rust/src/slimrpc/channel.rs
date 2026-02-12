@@ -657,7 +657,7 @@ impl Channel {
             let slim_config = slim_session::session_config::SessionConfig {
                 session_type: ProtoSessionType::PointToPoint,
                 mls_enabled: true,
-                max_retries: Some(3),
+                max_retries: Some(10),
                 interval: Some(Duration::from_secs(1)),
                 initiator: true,
                 metadata: ctx.metadata(),
