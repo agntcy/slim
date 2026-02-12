@@ -77,8 +77,13 @@ tasks:
       - uniffi-bindgen --version
       - echo "🔍 Checking library file exists:"
       - ls -lah '{{.LIB_PATH}}'
+      - echo "🔍 Inspecting library symbols:"
+      - nm '{{.LIB_PATH}}' | grep -i uniffi | head -20 || echo "⚠️ No uniffi symbols found"
+      - echo "🔍 Checking if library is valid:"
+      - file '{{.LIB_PATH}}'
       - echo "🔍 Checking config file exists:"
       - ls -lah uniffi.toml
+      - cat uniffi.toml
       - echo "🚀 Running uniffi-bindgen with verbose output..."
       - |
         set -x
