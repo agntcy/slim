@@ -96,7 +96,7 @@ impl TestEnv {
         let service = Arc::new(Service::new(id));
 
         let server_name = Name::from_strings(["org", "ns", "server"]);
-        let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
+        let secret = SharedSecret::new("server", TEST_VALID_SECRET).unwrap();
 
         let (server_app, server_notifications) = service
             .create_app(
@@ -115,6 +115,7 @@ impl TestEnv {
 
         // Create client
         let client_name = Name::from_strings(["org", "ns", "client"]);
+        let secret = SharedSecret::new("client", TEST_VALID_SECRET).unwrap();
         let (client_app, _) = service
             .create_app(
                 &client_name,

@@ -88,9 +88,6 @@ where
     // Transmitter to bypass sessions
     transmitter: T,
 
-    /// Storage path for app data
-    storage_path: std::path::PathBuf,
-
     /// Channel to clone on session creation
     tx_session: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
 
@@ -119,7 +116,6 @@ where
         tx_slim: SlimChannelSender,
         tx_app: Sender<Result<Notification, SessionError>>,
         transmitter: T,
-        storage_path: std::path::PathBuf,
         direction: Direction,
     ) -> Self {
         let (tx_session, rx_session) = tokio::sync::mpsc::channel(16);
@@ -134,7 +130,6 @@ where
             tx_slim,
             tx_app,
             transmitter,
-            storage_path,
             tx_session,
             to_notify: SyncRwLock::new(HashMap::new()),
             direction,
@@ -301,7 +296,6 @@ where
                 .with_config(session_config.clone())
                 .with_identity_provider(self.identity_provider.clone())
                 .with_identity_verifier(self.identity_verifier.clone())
-                .with_storage_path(self.storage_path.clone())
                 .with_tx(tx)
                 .with_tx_to_session_layer(self.tx_session.clone())
                 .with_direction(self.direction)
@@ -735,8 +729,6 @@ mod tests {
             interceptors: Arc::new(parking_lot::Mutex::new(vec![])),
         };
 
-        let storage_path = std::path::PathBuf::from("/tmp/test");
-
         let session_layer = SessionLayer::new(
             app_name,
             identity_provider,
@@ -745,7 +737,6 @@ mod tests {
             tx_slim,
             tx_app,
             transmitter,
-            storage_path,
             Direction::Bidirectional,
         );
 

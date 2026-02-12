@@ -66,12 +66,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           merge-multiple: true
-          path: ${{ inputs.go-bindings-working-directory }}/generated
+          path: ${{ inputs.go-bindings-working-directory }}/downloaded_slim_bindings
 
       - name: List downloaded go binding artifacts
         run: |
           echo "📦 Downloaded artifacts:"
-          find ./generated -type f -ls
+          find ./downloaded_slim_bindings -type f -ls
 
       - name: Clone target repository
         run: |
@@ -81,23 +81,8 @@ jobs:
         run: |
           pushd ./target-repo
 
-          # Preserve .git directory and manual files like LICENSE, README
-          # Remove only the generated files (*.go, *.h, *.a) and cmd directory
-          rm -f ./*.go ./*.h ./*.a
-          rm -rf ./cmd
-
-          # Copy generated Go bindings (excluding .a files)
-          cp ../generated/${{ env.LIBRARY_NAME }}/*.{go,h} ./
-
-          # Copy CLI tool (self-contained, includes download logic)
-          mkdir -p ./cmd/slim-bindings-setup
-          cp ../release-files/cmd/slim-bindings-setup/main.go ./cmd/slim-bindings-setup/
-
-          # Create go.mod if it doesn't exist
-          if [ ! -f go.mod ]; then
-            echo "📦 Creating go.mod for target repository..."
-            go mod init github.com/${{ env.GO_BINDINGS_REPO }}
-          fi
+          # Copy Go bindings
+          cp -r ../downloaded_slim_bindings/* ./
 
           # Show what will be committed
           echo "📋 Files to be committed:"

@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	slim "github.com/agntcy/slim/bindings/generated/slim_bindings"
+	slim "github.com/agntcy/slim-bindings-go"
 )
 
 // setupTestApp creates a test app for integration tests

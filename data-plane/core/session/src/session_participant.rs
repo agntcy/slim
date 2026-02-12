@@ -88,7 +88,6 @@ where
             let mls_state = MlsState::new(Mls::new(
                 self.common.settings.identity_provider.clone(),
                 self.common.settings.identity_verifier.clone(),
-                self.common.settings.storage_path.clone(),
             ))
             .await
             .expect("failed to create MLS state");
@@ -645,8 +644,6 @@ mod tests {
             metadata: Default::default(),
         };
 
-        let storage_path = std::path::PathBuf::from("/tmp/test");
-
         let settings = SessionSettings {
             id: 1,
             source,
@@ -657,7 +654,6 @@ mod tests {
             tx_to_session_layer: tx_session_layer,
             identity_provider,
             identity_verifier,
-            storage_path,
             graceful_shutdown_timeout: None,
         };
 

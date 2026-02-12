@@ -78,7 +78,6 @@ where
         conn_id: u64,
         tx_slim: SlimChannelSender,
         tx_app: mpsc::Sender<Result<Notification, SessionError>>,
-        storage_path: std::path::PathBuf,
     ) -> Self {
         Self::new_with_direction(
             app_name,
@@ -87,7 +86,6 @@ where
             conn_id,
             tx_slim,
             tx_app,
-            storage_path,
             Direction::Bidirectional,
         )
     }
@@ -101,7 +99,6 @@ where
         conn_id: u64,
         tx_slim: SlimChannelSender,
         tx_app: mpsc::Sender<Result<Notification, SessionError>>,
-        storage_path: std::path::PathBuf,
         direction: Direction,
     ) -> Self {
         // Create identity interceptor
@@ -128,7 +125,6 @@ where
             tx_slim,
             tx_app,
             transmitter,
-            storage_path,
             direction,
         ));
 
@@ -486,7 +482,6 @@ mod tests {
             0,
             tx_slim,
             tx_app,
-            std::path::PathBuf::from("/tmp/test_storage"),
         )
     }
 

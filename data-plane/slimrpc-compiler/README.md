@@ -95,6 +95,8 @@ plugins:
 ```
 
 #### Generate Code
+
+```bash
 buf generate
 ```
 
@@ -259,3 +261,13 @@ If the plugin fails to build:
 - Ensure you have Rust and Cargo installed (latest stable version)
 - Check that all dependencies are available
 - Try cleaning and rebuilding: `cargo clean && cargo build --release`
+
+## Contributing
+
+Please see the main repository's contributing guidelines at
+[CONTRIBUTING.md](../../CONTRIBUTING.md).
+
+## License
+
+This project is licensed under the Apache 2.0 License - see the
+[LICENSE.md](../../LICENSE.md) file for details.
