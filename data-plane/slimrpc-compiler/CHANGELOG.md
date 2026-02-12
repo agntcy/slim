@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/agntcy/slim/compare/protoc-slimrpc-plugin-v0.1.3...protoc-slimrpc-plugin-v0.2.0) - 2026-02-12
+
+### Added
+
+- update slimrpc compiler to use slimrpc in latest slim-bindings
+
+### Fixed
+
+- *(ci)* revert package name for slimrpc compiler ([#1215](https://github.com/agntcy/slim/pull/1215))
+
 ## [0.1.3](https://github.com/agntcy/slim/compare/protoc-slimrpc-plugin-v0.1.2...protoc-slimrpc-plugin-v0.1.3) - 2026-02-06
 
 ### Other

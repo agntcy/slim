@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.6](https://github.com/agntcy/slim/compare/slim-service-v0.8.5...slim-service-v0.8.6) - 2026-02-12
+
+### Added
+
+- implement slimrpc in bindings  ([#1202](https://github.com/agntcy/slim/pull/1202))
+
 ## [0.8.5](https://github.com/agntcy/slim/compare/slim-service-v0.8.4...slim-service-v0.8.5) - 2026-02-06
 
 ### Added

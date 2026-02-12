@@ -34,18 +34,18 @@ resolver = "2"
 
 [workspace.dependencies]
 # Local dependencies
-agntcy-slim = { path = "core/slim", version = "1.0.1" }
+agntcy-slim = { path = "core/slim", version = "1.0.2" }
 agntcy-slim-auth = { path = "core/auth", version = "0.5.0" }
 agntcy-slim-bindings = { path = "bindings/rust", version = "1.0.1" }
-agntcy-slim-config = { path = "core/config", version = "0.6.1" }
-agntcy-slim-controller = { path = "core/controller", version = "0.4.6" }
-agntcy-slim-datapath = { path = "core/datapath", version = "0.11.2" }
-agntcy-slim-mls = { path = "core/mls", version = "0.1.8" }
-agntcy-slim-service = { path = "core/service", version = "0.8.5", default-features = false }
-agntcy-slim-session = { path = "core/session", version = "0.1.5" }
+agntcy-slim-config = { path = "core/config", version = "0.6.2" }
+agntcy-slim-controller = { path = "core/controller", version = "0.4.7" }
+agntcy-slim-datapath = { path = "core/datapath", version = "0.11.3" }
+agntcy-slim-mls = { path = "core/mls", version = "0.1.9" }
+agntcy-slim-service = { path = "core/service", version = "0.8.6", default-features = false }
+agntcy-slim-session = { path = "core/session", version = "0.1.6" }
 agntcy-slim-signal = { path = "core/signal", version = "0.1.4" }
 agntcy-slim-testing = { path = "testing" }
-agntcy-slim-tracing = { path = "core/tracing", version = "0.3.2" }
+agntcy-slim-tracing = { path = "core/tracing", version = "0.3.3" }
 
 anyhow = "1.0.98"
 
