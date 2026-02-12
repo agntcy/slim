@@ -8,7 +8,6 @@ from examples.slimrpc.simple.types.example_pb2_slimrpc import (
     TestServicer,
     add_TestServicer_to_server,
 )
-from slim_bindings._slim_bindings.slim_bindings import uniffi_set_event_loop
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +67,7 @@ class TestService(TestServicer):
 
 
 async def amain() -> None:
-    uniffi_set_event_loop(asyncio.get_running_loop())  # type: ignore[arg-type]
+    slim_bindings.uniffi_set_event_loop(asyncio.get_running_loop())  # type: ignore[arg-type]
 
     # Initialize service
     tracing_config = slim_bindings.new_tracing_config()
