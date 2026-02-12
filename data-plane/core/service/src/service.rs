@@ -482,6 +482,11 @@ impl Service {
 
         connections
     }
+
+    #[cfg(test)]
+    pub(crate) fn message_processor(&self) -> &Arc<MessageProcessor> {
+        &self.message_processor
+    }
 }
 
 #[async_trait::async_trait]

@@ -3,14 +3,12 @@
 
 use anyhow::{Context, Result};
 use heck::ToSnakeCase;
-use prost::Message;
 use prost_types::compiler::{
     CodeGeneratorRequest, CodeGeneratorResponse, code_generator_response::File,
 };
 use std::collections::{HashMap, HashSet};
-use std::io::{self, Read, Write};
 
-/// Supported parameters for the code generator plugin.
+/// Supported parameters for the Python code generator plugin.
 const TYPES_IMPORT: &str = "types_import";
 
 // --- TEMPLATE DEFINITIONS ---
@@ -102,12 +100,12 @@ const STREAM_STREAM_STUB_METHOD_TEMPLATE: &str = r#"    async def {{METHOD_NAME}
             timeout,
             metadata,
         )
-        
+
         async def send_requests():
             async for request in request_iterator:
                 await bidi_stream.send_async({{INPUT_TYPE_FULL_PATH}}.SerializeToString(request))
             await bidi_stream.close_send_async()
-        
+
         async def receive_responses():
             while True:
                 stream_msg = await bidi_stream.recv_async()
@@ -117,11 +115,11 @@ const STREAM_STREAM_STUB_METHOD_TEMPLATE: &str = r#"    async def {{METHOD_NAME}
                     raise stream_msg[0]
                 if stream_msg.is_data():
                     yield {{OUTPUT_TYPE_FULL_PATH}}.FromString(stream_msg[0])
-        
+
         # Start sending in background
         import asyncio
         send_task = asyncio.create_task(send_requests())
-        
+
         try:
             async for response in receive_responses():
                 yield response
@@ -233,27 +231,8 @@ const REGISTER_METHOD_TEMPLATE: &str = r#"    server.register_{{RPC_TYPE}}(
 
 // --- END TEMPLATE DEFINITIONS ---
 
-/// Main entry point for the protoc plugin.
-/// Reads CodeGeneratorRequest from stdin, generates Python code,
-/// and writes CodeGeneratorResponse to stdout.
-fn main() -> Result<()> {
-    // Read the CodeGeneratorRequest from stdin
-    let mut input_bytes = vec![];
-    io::stdin().read_to_end(&mut input_bytes)?;
-
-    let request = CodeGeneratorRequest::decode(input_bytes.as_ref())
-        .context("Failed to decode CodeGeneratorRequest")?;
-
-    let response = handle_code_generation(request)?;
-
-    // Write the CodeGeneratorResponse to stdout
-    let output_bytes = response.encode_to_vec();
-    io::stdout().write_all(&output_bytes)?;
-
-    Ok(())
-}
-
-fn handle_code_generation(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> {
+/// Generate Python slimrpc code from a CodeGeneratorRequest
+pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> {
     let mut types_module_import = String::new();
 
     // Parse parameters, if any
@@ -565,7 +544,7 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_code_generation_no_services() {
+    fn test_generate_no_services() {
         // Test with a proto file that has no services
         let request = CodeGeneratorRequest {
             file_to_generate: vec!["test.proto".to_string()],
@@ -578,14 +557,14 @@ mod tests {
             compiler_version: None,
         };
 
-        let response = handle_code_generation(request).unwrap();
+        let response = generate(request).unwrap();
 
         // Should not generate any files since there are no services
         assert_eq!(response.file.len(), 0);
     }
 
     #[test]
-    fn test_handle_code_generation_with_unary_unary_method() {
+    fn test_generate_with_unary_unary_method() {
         // Test with a simple unary-unary RPC method
         let method = create_test_method(
             "GetUser",
@@ -605,7 +584,7 @@ mod tests {
             compiler_version: None,
         };
 
-        let response = handle_code_generation(request).unwrap();
+        let response = generate(request).unwrap();
 
         assert_eq!(response.file.len(), 1);
         let generated_file = &response.file[0];
@@ -627,7 +606,7 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_code_generation_with_streaming_methods() {
+    fn test_generate_with_streaming_methods() {
         // Test with all streaming combinations
         let methods = vec![
             create_test_method(
@@ -662,7 +641,7 @@ mod tests {
             compiler_version: None,
         };
 
-        let response = handle_code_generation(request).unwrap();
+        let response = generate(request).unwrap();
 
         assert_eq!(response.file.len(), 1);
         let content = response.file[0].content.as_ref().unwrap();
@@ -670,12 +649,10 @@ mod tests {
         assert!(content.contains("unary_stream"));
         assert!(content.contains("stream_unary"));
         assert!(content.contains("stream_stream"));
-        assert!(
-            content.contains("def UnaryToStream(self, request, context):")
-        );
+        assert!(content.contains("def UnaryToStream(self, request, context):"));
         assert!(content.contains("def StreamToUnary(self, request_iterator, context):"));
         assert!(content.contains("def StreamToStream(self, request_iterator, context):"));
-        
+
         // Verify metadata parameter is included in all stub method signatures with type annotations
         assert!(content.contains("async def UnaryToStream(self, request: pb2.Request, timeout: Optional[timedelta] = None, metadata: Optional[dict[str, str]] = None):"));
         assert!(content.contains("async def StreamToUnary(self, request_iterator, timeout: Optional[timedelta] = None, metadata: Optional[dict[str, str]] = None)"));
@@ -686,7 +663,7 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_code_generation_with_types_import_parameter() {
+    fn test_generate_with_types_import_parameter() {
         // Test with custom types_import parameter
         let method = create_test_method("Echo", ".test.Echo", ".test.Echo", false, false);
         let service = create_test_service("TestService", vec![method]);
@@ -699,7 +676,7 @@ mod tests {
             compiler_version: None,
         };
 
-        let response = handle_code_generation(request).unwrap();
+        let response = generate(request).unwrap();
 
         assert_eq!(response.file.len(), 1);
         let content = response.file[0].content.as_ref().unwrap();
@@ -707,7 +684,7 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_code_generation_with_invalid_parameter() {
+    fn test_generate_with_invalid_parameter() {
         // Test with an unknown parameter
         let method = create_test_method("Test", ".test.Req", ".test.Res", false, false);
         let service = create_test_service("TestService", vec![method]);
@@ -720,7 +697,7 @@ mod tests {
             compiler_version: None,
         };
 
-        let result = handle_code_generation(request);
+        let result = generate(request);
         assert!(result.is_err());
         assert!(
             result
@@ -731,7 +708,7 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_code_generation_with_invalid_parameter_format() {
+    fn test_generate_with_invalid_parameter_format() {
         // Test with invalid parameter format (no equals sign)
         let method = create_test_method("Test", ".test.Req", ".test.Res", false, false);
         let service = create_test_service("TestService", vec![method]);
@@ -744,7 +721,7 @@ mod tests {
             compiler_version: None,
         };
 
-        let result = handle_code_generation(request);
+        let result = generate(request);
         assert!(result.is_err());
         assert!(
             result
@@ -755,7 +732,7 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_code_generation_multiple_services() {
+    fn test_generate_multiple_services() {
         // Test with multiple services in the same file
         let method1 = create_test_method("Method1", ".pkg.Req1", ".pkg.Res1", false, false);
         let method2 = create_test_method("Method2", ".pkg.Req2", ".pkg.Res2", false, false);
@@ -773,7 +750,7 @@ mod tests {
             compiler_version: None,
         };
 
-        let response = handle_code_generation(request).unwrap();
+        let response = generate(request).unwrap();
 
         assert_eq!(response.file.len(), 1);
         let content = response.file[0].content.as_ref().unwrap();
@@ -787,7 +764,7 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_code_generation_not_in_files_to_generate() {
+    fn test_generate_not_in_files_to_generate() {
         // Test that files not in file_to_generate are skipped
         let method = create_test_method("Test", ".pkg.Req", ".pkg.Res", false, false);
         let service = create_test_service("TestService", vec![method]);
@@ -800,14 +777,14 @@ mod tests {
             compiler_version: None,
         };
 
-        let response = handle_code_generation(request).unwrap();
+        let response = generate(request).unwrap();
 
         // Should not generate any files since test.proto is not in file_to_generate
         assert_eq!(response.file.len(), 0);
     }
 
     #[test]
-    fn test_handle_code_generation_snake_case_file_name() {
+    fn test_generate_snake_case_file_name() {
         // Test that file names are converted to snake_case
         let method = create_test_method("Test", ".pkg.Req", ".pkg.Res", false, false);
         let service = create_test_service("TestService", vec![method]);
@@ -821,7 +798,7 @@ mod tests {
             compiler_version: None,
         };
 
-        let response = handle_code_generation(request).unwrap();
+        let response = generate(request).unwrap();
 
         assert_eq!(response.file.len(), 1);
         assert_eq!(
@@ -831,7 +808,7 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_code_generation_empty_package_name() {
+    fn test_generate_empty_package_name() {
         // Test with empty package name
         let method = create_test_method("Test", ".Req", ".Res", false, false);
         let service = create_test_service("TestService", vec![method]);
@@ -844,7 +821,7 @@ mod tests {
             compiler_version: None,
         };
 
-        let response = handle_code_generation(request).unwrap();
+        let response = generate(request).unwrap();
 
         assert_eq!(response.file.len(), 1);
         // Should still generate valid code
@@ -853,7 +830,7 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_code_generation_multiple_parameters() {
+    fn test_generate_multiple_parameters() {
         // Test with multiple comma-separated parameters
         let method = create_test_method("Test", ".test.Req", ".test.Res", false, false);
         let service = create_test_service("TestService", vec![method]);
@@ -866,7 +843,7 @@ mod tests {
             compiler_version: None,
         };
 
-        let response = handle_code_generation(request).unwrap();
+        let response = generate(request).unwrap();
 
         assert_eq!(response.file.len(), 1);
         let content = response.file[0].content.as_ref().unwrap();
@@ -874,7 +851,7 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_code_generation_google_protobuf_types() {
+    fn test_generate_google_protobuf_types() {
         // Test with google.protobuf types (like Empty)
         let method = create_test_method(
             "TestEmpty",
@@ -893,7 +870,7 @@ mod tests {
             compiler_version: None,
         };
 
-        let response = handle_code_generation(request).unwrap();
+        let response = generate(request).unwrap();
 
         assert_eq!(response.file.len(), 1);
         let content = response.file[0].content.as_ref().unwrap();
@@ -902,7 +879,7 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_code_generation_service_with_multiple_methods() {
+    fn test_generate_service_with_multiple_methods() {
         // Test service with multiple methods
         let methods = vec![
             create_test_method("Create", ".pkg.CreateReq", ".pkg.CreateRes", false, false),
@@ -920,7 +897,7 @@ mod tests {
             compiler_version: None,
         };
 
-        let response = handle_code_generation(request).unwrap();
+        let response = generate(request).unwrap();
 
         assert_eq!(response.file.len(), 1);
         let content = response.file[0].content.as_ref().unwrap();
@@ -933,7 +910,7 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_code_generation_cross_package_dependency() {
+    fn test_generate_cross_package_dependency() {
         // Test the else branch where package_path != current_file_package (line 214)
         // This tests types from a different package that IS found in file_to_package
 
@@ -963,7 +940,7 @@ mod tests {
             compiler_version: None,
         };
 
-        let response = handle_code_generation(request).unwrap();
+        let response = generate(request).unwrap();
 
         assert_eq!(response.file.len(), 1);
         let content = response.file[0].content.as_ref().unwrap();
@@ -977,7 +954,7 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_code_generation_cross_package_type_not_found() {
+    fn test_generate_cross_package_type_not_found() {
         // Test the fallback else case when package is not found (lines 234-237)
         // This happens when a type references a package not in file_to_package map
         let method = create_test_method(
@@ -998,7 +975,7 @@ mod tests {
             compiler_version: None,
         };
 
-        let response = handle_code_generation(request).unwrap();
+        let response = generate(request).unwrap();
 
         assert_eq!(response.file.len(), 1);
         let content = response.file[0].content.as_ref().unwrap();

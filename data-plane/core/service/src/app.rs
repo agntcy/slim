@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 // Third-party crates
 use display_error_chain::ErrorChainExt;
-use parking_lot::RwLock as SyncRwLock;
 use slim_datapath::errors::ErrorPayload;
 use slim_session::Direction;
 use tokio::sync::mpsc;
@@ -115,7 +114,7 @@ where
         let transmitter = AppTransmitter {
             slim_tx: tx_slim.clone(),
             app_tx: tx_app.clone(),
-            interceptors: Arc::new(SyncRwLock::new(Vec::new())),
+            interceptors: Arc::new(parking_lot::RwLock::new(vec![])),
         };
 
         transmitter.add_interceptor(identity_interceptor);
@@ -399,6 +398,81 @@ mod tests {
     };
     use slim_testing::utils::TEST_VALID_SECRET;
 
+    // ============================================================================
+    // Test Helpers
+    // ============================================================================
+
+    /// Helper: Create a test service with a unique name
+    fn create_test_service(test_name: &str) -> crate::service::Service {
+        use crate::service::Service;
+        use slim_config::component::id::{ID, Kind};
+
+        let service_name = format!("test-service-{}", test_name);
+        let id = ID::new_with_name(Kind::new("slim").unwrap(), &service_name).unwrap();
+        Service::new(id)
+    }
+
+    /// Helper: Create a test app name
+    fn create_test_name(suffix: &str) -> Name {
+        Name::from_strings(["org", "ns", suffix]).with_id(0)
+    }
+
+    /// Helper: Create a test app with SharedSecret auth
+    fn create_test_app(
+        service: &crate::service::Service,
+        name: &Name,
+        secret: &str,
+    ) -> (
+        App<SharedSecret, SharedSecret>,
+        tokio::sync::mpsc::Receiver<Result<slim_session::notification::Notification, SessionError>>,
+    ) {
+        service
+            .create_app(
+                name,
+                SharedSecret::new(secret, TEST_VALID_SECRET).unwrap(),
+                SharedSecret::new(secret, TEST_VALID_SECRET).unwrap(),
+            )
+            .unwrap()
+    }
+
+    /// Helper: Create a session and wait for completion
+    async fn create_and_complete_session(
+        app: &App<SharedSecret, SharedSecret>,
+        config: SessionConfig,
+        destination: Name,
+    ) -> slim_session::context::SessionContext {
+        let (session_ctx, completion_handle) =
+            app.create_session(config, destination, None).await.unwrap();
+        completion_handle.await.unwrap();
+        session_ctx
+    }
+
+    /// Helper: Wait for a session notification
+    async fn wait_for_session(
+        notifications: &mut tokio::sync::mpsc::Receiver<
+            Result<slim_session::notification::Notification, SessionError>,
+        >,
+    ) -> slim_session::context::SessionContext {
+        match tokio::time::timeout(std::time::Duration::from_secs(2), notifications.recv())
+            .await
+            .expect("timeout waiting for session")
+            .expect("channel closed")
+            .expect("error receiving session")
+        {
+            slim_session::notification::Notification::NewSession(ctx) => ctx,
+            _ => panic!("unexpected notification"),
+        }
+    }
+
+    /// Helper: Receive a message from a session context
+    async fn receive_message(ctx: &mut slim_session::context::SessionContext) -> ProtoMessage {
+        tokio::time::timeout(std::time::Duration::from_secs(2), ctx.rx.recv())
+            .await
+            .expect("timeout waiting for message")
+            .expect("channel closed")
+            .expect("error receiving message")
+    }
+
     #[allow(dead_code)]
     fn create_app() -> App<SharedSecret, SharedSecret> {
         let (tx_slim, _) = tokio::sync::mpsc::channel(128);
@@ -418,57 +492,39 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_session() {
-        let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(1);
-        let (tx_app, _rx_app) = tokio::sync::mpsc::channel(1);
-        let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
-
-        let app = App::new(
-            &name,
-            SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-            SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-            0,
-            tx_slim.clone(),
-            tx_app.clone(),
-            std::path::PathBuf::from("/tmp/test_storage"),
-        );
+        let service = create_test_service("create-session");
+        let name = create_test_name("type");
+        let (app, _) = create_test_app(&service, &name, "a");
 
         let config = SessionConfig {
             session_type: ProtoSessionType::PointToPoint,
             initiator: true,
+            max_retries: Some(2),
+            interval: Some(std::time::Duration::from_millis(50)),
             ..Default::default()
         };
-        let dst = Name::from_strings(["org", "ns", "dst"]);
+        let dst = create_test_name("dst");
 
-        // Session creation should hang as there is no peer side to respond
+        // Session creation should succeed (context returned) but completion should fail
         let (_session, completion_handle) = app
             .create_session(config.clone(), dst.clone(), None)
             .await
             .unwrap();
 
-        // Session is created but completion should hangs (times out)
-        let timeout_result =
-            tokio::time::timeout(std::time::Duration::from_millis(100), completion_handle).await;
+        // Completion should fail since there's no peer to respond
+        let result =
+            tokio::time::timeout(std::time::Duration::from_millis(500), completion_handle).await;
         assert!(
-            timeout_result.is_err(),
-            "Session creation should have timed out"
+            result.is_ok() && result.unwrap().is_err(),
+            "Session completion should have failed due to no peer"
         );
     }
 
     #[tokio::test]
     async fn test_delete_session() {
-        let (tx_slim, _) = tokio::sync::mpsc::channel(1);
-        let (tx_app, _) = tokio::sync::mpsc::channel(1);
-        let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
-
-        let app = App::new(
-            &name,
-            SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-            SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-            0,
-            tx_slim.clone(),
-            tx_app.clone(),
-            std::path::PathBuf::from("/tmp/test_storage"),
-        );
+        let service = create_test_service("delete-session");
+        let name = create_test_name("type");
+        let (app, _) = create_test_app(&service, &name, "a");
 
         let config = SessionConfig {
             session_type: ProtoSessionType::PointToPoint,
@@ -477,7 +533,7 @@ mod tests {
             max_retries: Some(5),
             ..Default::default()
         };
-        let dst = Name::from_strings(["org", "ns", "dst"]);
+        let dst = create_test_name("dst");
         let (res, completion_handle) = app.create_session(config, dst, None).await.unwrap();
 
         // The completion handle should fail, as the channel with SLIM is closed
@@ -497,26 +553,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_weak_after_delete() {
-        let (tx_slim, _) = tokio::sync::mpsc::channel(1);
-        let (tx_app, _) = tokio::sync::mpsc::channel(1);
-        let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
-
-        let app = App::new(
-            &name,
-            SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-            SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-            0,
-            tx_slim.clone(),
-            tx_app.clone(),
-            std::path::PathBuf::from("/tmp/test_storage"),
-        );
+        let service = create_test_service("weak-after-delete");
+        let name = create_test_name("type");
+        let (app, _) = create_test_app(&service, &name, "a");
 
         let config = SessionConfig {
             session_type: ProtoSessionType::PointToPoint,
             initiator: true,
             ..Default::default()
         };
-        let dst = Name::from_strings(["org", "ns", "dst"]);
+        let dst = create_test_name("dst");
         let (session_ctx, _completion_error) = app
             .create_session(config, dst, Some(42))
             .await
@@ -548,22 +594,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_message_from_slim() {
-        let (tx_slim, _) = tokio::sync::mpsc::channel(1);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
-        let source = Name::from_strings(["org", "ns", "source"]).with_id(0);
-        let dest = Name::from_strings(["org", "ns", "dest"]).with_id(0);
+        let service = create_test_service("handle-message-from-slim");
+        let source = create_test_name("source");
+        let dest = create_test_name("dest");
+        let (app, mut rx_app) = create_test_app(&service, &dest, "a");
 
         let identity = SharedSecret::new("a", TEST_VALID_SECRET).unwrap();
-
-        let app = App::new(
-            &dest,
-            identity.clone(),
-            identity.clone(),
-            0,
-            tx_slim,
-            tx_app,
-            std::path::PathBuf::from("/tmp/test_storage"),
-        );
 
         // send join_request message to create the session
         let payload = CommandPayload::builder()
@@ -578,7 +614,7 @@ mod tests {
             .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
             .session_message_type(slim_datapath::api::ProtoSessionMessageType::JoinRequest)
             .session_id(1)
-            .message_id(1) // this id will be changed by the session controller
+            .message_id(1)
             .payload(payload)
             .build_publish()
             .unwrap();
@@ -588,10 +624,7 @@ mod tests {
             .await
             .expect_err("should fail as identity is not verified");
 
-        // sleep to allow the message to be processed
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-        // As there is no identity, we should not get any message in the app
         assert!(rx_app.try_recv().is_err());
 
         // Set the right identity
@@ -599,14 +632,11 @@ mod tests {
             .get_slim_header_mut()
             .set_identity(identity.get_token().unwrap());
 
-        // Try again
         app.session_layer
             .handle_message_from_slim(join_request.clone())
             .await
             .unwrap();
 
-        // Session is created but not yet notified - waiting for GroupWelcome
-        // Give some time for processing
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         assert!(
             rx_app.try_recv().is_err(),
@@ -637,21 +667,12 @@ mod tests {
             .unwrap();
 
         // Now we should get the new session notification
-        let new_session = rx_app
-            .recv()
-            .await
-            .expect("no message received")
-            .expect("error");
-
-        let mut session_ctx = match new_session {
-            Notification::NewSession(ctx) => ctx,
-            _ => panic!("unexpected notification"),
-        };
+        let mut session_ctx = wait_for_session(&mut rx_app).await;
         assert_eq!(session_ctx.session().upgrade().unwrap().id(), 1);
 
         let mut message = ProtoMessage::builder()
             .source(source.clone())
-            .destination(Name::from_strings(["org", "ns", "type"]).with_id(0))
+            .destination(create_test_name("type"))
             .identity(identity.get_token().unwrap())
             .flags(SlimHeaderFlags::default().with_incoming_conn(0))
             .application_payload("msg", vec![0x1, 0x2, 0x3, 0x4])
@@ -670,189 +691,59 @@ mod tests {
             .unwrap();
 
         // Receive message from the session
-        let msg = session_ctx
-            .rx
-            .recv()
-            .await
-            .expect("no message received")
-            .expect("error");
+        let msg = receive_message(&mut session_ctx).await;
         assert_eq!(msg, message);
         assert_eq!(msg.get_session_header().get_session_id(), 1);
     }
 
     #[tokio::test]
     async fn test_handle_message_from_app() {
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(16);
-        let (tx_app, _) = tokio::sync::mpsc::channel(10);
-        let dst = Name::from_strings(["cisco", "default", "remote"]).with_id(0);
-        let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
+        let service = create_test_service("handle-message-from-app");
+        let dst = create_test_name("remote");
+        let source = create_test_name("local");
 
-        let identity = SharedSecret::new("a", TEST_VALID_SECRET).unwrap();
+        let (sender_app, _) = create_test_app(&service, &source, "a");
+        let (receiver_app, mut receiver_notifications) = create_test_app(&service, &dst, "a");
 
-        let app = App::new(
-            &source,
-            identity.clone(),
-            identity.clone(),
-            0,
-            tx_slim,
-            tx_app,
-            std::path::PathBuf::from("/tmp/test_storage"),
-        );
+        // Receiver subscribes to its own name to receive messages
+        receiver_app.subscribe(&dst, None).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-        let mut session_config =
-            SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
-        session_config.initiator = true;
+        // Create sender session
+        let session_config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            initiator: true,
+            max_retries: Some(5),
+            interval: Some(std::time::Duration::from_millis(1000)),
+            mls_enabled: false,
+            metadata: HashMap::new(),
+        };
 
-        // create a new session
-        let (res, _completion_handle) = app
-            .create_session(session_config, dst.clone(), Some(1))
-            .await
-            .unwrap();
+        let sender_session =
+            create_and_complete_session(&sender_app, session_config, dst.clone()).await;
+        let mut receiver_session = wait_for_session(&mut receiver_notifications).await;
 
-        // Do not await on the completion error as there is no peer to complete the handshake
-
-        // a discovery request should be generated by the session just created
-        // try to read it on slim
-        let discovery_req = rx_slim
-            .recv()
-            .await
-            .expect("no message received")
-            .expect("error");
-
-        assert_eq!(
-            discovery_req.get_session_message_type(),
-            ProtoSessionMessageType::DiscoveryRequest
-        );
-
-        // create a discovery reply with the right id
-        let payload = CommandPayload::builder().discovery_reply().as_content();
-
-        let discovery_reply = Message::builder()
-            .source(dst.clone())
-            .destination(source.clone())
-            .identity(identity.get_token().unwrap())
-            .incoming_conn(0)
-            .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
-            .session_message_type(slim_datapath::api::ProtoSessionMessageType::DiscoveryReply)
-            .session_id(1)
-            .message_id(discovery_req.get_id())
-            .payload(payload)
-            .build_publish()
-            .unwrap();
-
-        // process the discovery reply
-        app.session_layer
-            .handle_message_from_slim(discovery_reply.clone())
-            .await
-            .expect("error receiving discovery reply");
-
-        // the local node sets the route to the remote endpoint
-        let route = rx_slim
-            .recv()
-            .await
-            .expect("no message received")
-            .expect("error");
-
-        assert!(route.is_subscribe(), "route should be a subscribe message");
-
-        // a join request should be generated by the session
-        let join_req = rx_slim
-            .recv()
-            .await
-            .expect("no message received")
-            .expect("error");
-
-        assert_eq!(
-            join_req.get_session_message_type(),
-            ProtoSessionMessageType::JoinRequest
-        );
-
-        // reply with the right id
-        let payload = CommandPayload::builder().join_reply(None).as_content();
-
-        let join_replay = Message::builder()
-            .source(dst.clone())
-            .destination(source.clone())
-            .identity(identity.get_token().unwrap())
-            .incoming_conn(0)
-            .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
-            .session_message_type(slim_datapath::api::ProtoSessionMessageType::JoinReply)
-            .session_id(1)
-            .message_id(join_req.get_id())
-            .payload(payload)
-            .build_publish()
-            .unwrap();
-
-        app.session_layer
-            .handle_message_from_slim(join_replay.clone())
-            .await
-            .expect("error receiving join reply");
-
-        // now the local node should send a welcome message
-        let welcome = rx_slim
-            .recv()
-            .await
-            .expect("no message received")
-            .expect("error");
-
-        assert_eq!(
-            welcome.get_session_message_type(),
-            ProtoSessionMessageType::GroupWelcome
-        );
-
-        let payload = CommandPayload::builder().group_ack().as_content();
-
-        let ack = Message::builder()
-            .source(dst.clone())
-            .destination(source.clone())
-            .identity(identity.get_token().unwrap())
-            .incoming_conn(0)
-            .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
-            .session_message_type(slim_datapath::api::ProtoSessionMessageType::GroupAck)
-            .session_id(1)
-            .message_id(welcome.get_id())
-            .payload(payload)
-            .build_publish()
-            .unwrap();
-
-        app.session_layer
-            .handle_message_from_slim(ack.clone())
-            .await
-            .expect("error receiving join reply");
-
-        // now we can finally send a message
-        let mut message = ProtoMessage::builder()
-            .source(source.clone())
-            .destination(dst.clone())
-            .application_payload("msg", vec![0x1, 0x2, 0x3, 0x4])
-            .build_publish()
-            .unwrap();
-
-        // set the session id in the message
-        let header = message.get_session_header_mut();
-        header.session_id = 1;
-        header.set_session_type(ProtoSessionType::PointToPoint);
-        header.set_session_message_type(ProtoSessionMessageType::Msg);
-
-        let res = res
-            .session()
-            .upgrade()
-            .unwrap()
-            .on_message_from_app(message.clone())
+        // Send a message from sender to receiver
+        let test_data = vec![0x1, 0x2, 0x3, 0x4];
+        let sender_arc = sender_session.session_arc().unwrap();
+        let res = sender_arc
+            .publish(&dst, test_data.clone(), None, None)
             .await;
-
         assert!(res.is_ok());
 
-        // message should have been delivered to the app
-        let msg = rx_slim
-            .recv()
-            .await
-            .expect("no message received")
-            .expect("error");
-
+        // Verify receiver gets the message
+        let msg = receive_message(&mut receiver_session).await;
         assert_eq!(msg.get_session_message_type(), ProtoSessionMessageType::Msg);
         assert_eq!(msg.get_source(), source);
         assert_eq!(msg.get_dst(), dst);
+        assert_eq!(
+            msg.get_payload()
+                .unwrap()
+                .as_application_payload()
+                .unwrap()
+                .blob,
+            test_data
+        );
     }
 
     /// Test configuration for parameterized P2P session tests
@@ -884,34 +775,16 @@ mod tests {
     ///    - Session type is PointToPoint
     ///    - Correct number of sessions (matching subscription count) are received
     async fn run_p2p_subscription_test(config: P2PTestConfig) {
-        use crate::service::Service;
-        use slim_config::component::id::{ID, Kind};
+        let service = create_test_service(config.test_name);
 
-        // Create a service instance with unique name
-        let service_name = format!("test-service-{}", config.test_name);
-        let id = ID::new_with_name(Kind::new("slim").unwrap(), &service_name).unwrap();
-        let service = Service::new(id);
-
-        // Create two apps from the same service
         let subscriber_name =
             Name::from_strings(["org", "ns", config.subscriber_suffix]).with_id(0);
         let publisher_name = Name::from_strings(["org", "ns", config.publisher_suffix]).with_id(0);
 
-        let (subscriber_app, mut subscriber_notifications) = service
-            .create_app(
-                &subscriber_name,
-                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-            )
-            .unwrap();
-
-        let (publisher_app, _publisher_notifications) = service
-            .create_app(
-                &publisher_name,
-                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-            )
-            .unwrap();
+        let (subscriber_app, mut subscriber_notifications) =
+            create_test_app(&service, &subscriber_name, "a");
+        let (publisher_app, _publisher_notifications) =
+            create_test_app(&service, &publisher_name, "a");
 
         // Generate subscription names based on configuration
         let subscription_names: Vec<Name> = if config.subscription_names.len() == 1
@@ -939,17 +812,14 @@ mod tests {
         // Create point-to-point sessions from publisher app to each subscription name
         let mut sessions = Vec::new();
         for name in &subscription_names {
-            // Create session with the subscription name as peer
-            let mut session_config =
-                SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
-            session_config.initiator = true;
-            let (session_ctx, completion_error) = publisher_app
-                .create_session(session_config, name.clone(), None)
-                .await
-                .unwrap();
+            let session_config = SessionConfig {
+                session_type: ProtoSessionType::PointToPoint,
+                initiator: true,
+                ..Default::default()
+            };
 
-            // Wait for session establishment
-            completion_error.await.unwrap();
+            let session_ctx =
+                create_and_complete_session(&publisher_app, session_config, name.clone()).await;
 
             // Send a message through the session to initiate the connection
             let session_arc = session_ctx.session_arc().unwrap();
@@ -1042,23 +912,12 @@ mod tests {
     ///    - Session type is Multicast
     ///    - Correct number of sessions are received
     async fn run_multicast_test(config: MulticastTestConfig) {
-        use crate::service::Service;
-        use slim_config::component::id::{ID, Kind};
-
-        // Create a service instance with unique name
-        let service_name = format!("test-service-{}", config.test_name);
-        let id = ID::new_with_name(Kind::new("slim").unwrap(), &service_name).unwrap();
-        let service = Service::new(id);
+        let service = create_test_service(config.test_name);
 
         // Create moderator app
         let moderator_name = Name::from_strings(["org", "ns", config.moderator_suffix]).with_id(0);
-        let (moderator_app, mut _moderator_notifications) = service
-            .create_app(
-                &moderator_name,
-                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-            )
-            .unwrap();
+        let (moderator_app, mut _moderator_notifications) =
+            create_test_app(&service, &moderator_name, "a");
 
         // Create participant apps and collect their notification channels
         let mut participant_apps = Vec::new();
@@ -1067,13 +926,7 @@ mod tests {
 
         for suffix in &config.participant_suffixes {
             let participant_name = Name::from_strings(["org", "ns", suffix]).with_id(0);
-            let (app, notifications) = service
-                .create_app(
-                    &participant_name,
-                    SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-                    SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-                )
-                .unwrap();
+            let (app, notifications) = create_test_app(&service, &participant_name, "a");
 
             participant_apps.push(app);
             participant_notifications.push(notifications);
@@ -1101,14 +954,8 @@ mod tests {
             metadata: HashMap::new(),
         };
 
-        let (session_ctx, completion_handle) = moderator_app
-            .create_session(session_config, channel_name.clone(), None)
-            .await
-            .unwrap();
-
-        // Wait for session establishment
-        completion_handle.await.unwrap();
-
+        let session_ctx =
+            create_and_complete_session(&moderator_app, session_config, channel_name.clone()).await;
         let session_arc = session_ctx.session_arc().unwrap();
 
         // Invite all participants to the multicast session
@@ -1187,75 +1034,35 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_message_acknowledgment_e2e() {
-        use crate::service::Service;
-        use slim_config::component::id::{ID, Kind};
-
         tracing::info!("SETUP: Creating service and apps");
-        // Create a service instance
-        let service_name = "test-service-ack-e2e";
-        let id = ID::new_with_name(Kind::new("slim").unwrap(), service_name).unwrap();
-        let service = Service::new(id);
+        let service = create_test_service("ack-e2e");
 
-        // Create two apps
-        let sender_name = Name::from_strings(["org", "ns", "sender"]).with_id(0);
-        let receiver_name = Name::from_strings(["org", "ns", "receiver"]).with_id(0);
+        let sender_name = create_test_name("sender");
+        let receiver_name = create_test_name("receiver");
 
-        let (sender_app, _sender_notifications) = service
-            .create_app(
-                &sender_name,
-                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-            )
-            .unwrap();
-
-        let (receiver_app, mut receiver_notifications) = service
-            .create_app(
-                &receiver_name,
-                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-            )
-            .unwrap();
+        let (sender_app, _sender_notifications) = create_test_app(&service, &sender_name, "a");
+        let (receiver_app, mut receiver_notifications) =
+            create_test_app(&service, &receiver_name, "a");
 
         // Wait for subscription to be established
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         tracing::info!("SETUP: Creating sender and receiver sessions");
-        // Create sessions
-        let (sender_session, sender_completion_handle) = sender_app
-            .create_session(
-                SessionConfig {
-                    session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
-                    max_retries: Some(5),
-                    interval: Some(std::time::Duration::from_millis(1000)),
-                    mls_enabled: true,
-                    initiator: true,
-                    metadata: HashMap::new(),
-                },
-                receiver_name.clone(),
-                None,
-            )
-            .await
-            .expect("failed to create sender session");
-
-        // Wait for session on receiver side
-        let receiver_session = tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            receiver_notifications.recv(),
+        let sender_session = create_and_complete_session(
+            &sender_app,
+            SessionConfig {
+                session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
+                max_retries: Some(5),
+                interval: Some(std::time::Duration::from_millis(1000)),
+                mls_enabled: true,
+                initiator: true,
+                metadata: HashMap::new(),
+            },
+            receiver_name.clone(),
         )
-        .await
-        .expect("timeout waiting for session at receiver")
-        .expect("receiver channel closed")
-        .expect("error receiving session notification");
+        .await;
 
-        // The sender session should complete successfully
-        sender_completion_handle
-            .await
-            .expect("sender session failed to establish");
-
-        let mut receiver_session = match receiver_session {
-            slim_session::notification::Notification::NewSession(ctx) => ctx,
-            _ => panic!("unexpected notification"),
-        };
+        let mut receiver_session = wait_for_session(&mut receiver_notifications).await;
 
         tracing::info!("SETUP: Sessions established successfully");
 
@@ -1274,14 +1081,7 @@ mod tests {
         tracing::info!("Sender: Message sent, waiting for acknowledgment...");
 
         // Receiver should receive the message
-        let received = tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            receiver_session.rx.recv(),
-        )
-        .await
-        .expect("timeout waiting for message at subscriber")
-        .expect("subscriber channel closed")
-        .expect("error receiving message");
+        let received = receive_message(&mut receiver_session).await;
 
         tracing::info!("Receiver: Message received");
         assert_eq!(
@@ -1322,13 +1122,7 @@ mod tests {
             ack_receivers.push(ack_rx);
 
             // Receive at receiver
-            let _received = tokio::time::timeout(
-                std::time::Duration::from_secs(1),
-                receiver_session.rx.recv(),
-            )
-            .await
-            .expect("timeout waiting for message")
-            .expect("channel closed");
+            let _received = receive_message(&mut receiver_session).await;
         }
 
         tracing::info!("Publisher: Sent 3 messages, waiting for all acknowledgments...");
@@ -1355,72 +1149,39 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_invite_participant_with_ack_e2e() {
-        use crate::service::Service;
-        use slim_config::component::id::{ID, Kind};
-
         tracing::info!("SETUP: Creating service and apps");
-        // Create a service instance
-        let service_name = "test-service-invite-ack-e2e";
-        let id = ID::new_with_name(Kind::new("slim").unwrap(), service_name).unwrap();
-        let service = Service::new(id);
+        let service = create_test_service("invite-ack-e2e");
 
-        // Create moderator and participant apps
-        let moderator_name = Name::from_strings(["org", "ns", "moderator"]).with_id(0);
-        let participant1_name = Name::from_strings(["org", "ns", "participant1"]).with_id(0);
-        let participant2_name = Name::from_strings(["org", "ns", "participant2"]).with_id(0);
-        let channel_name = Name::from_strings(["org", "ns", "channel"]).with_id(0);
+        let moderator_name = create_test_name("moderator");
+        let participant1_name = create_test_name("participant1");
+        let participant2_name = create_test_name("participant2");
+        let channel_name = create_test_name("channel");
 
-        let (moderator_app, _moderator_notifications) = service
-            .create_app(
-                &moderator_name,
-                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-            )
-            .unwrap();
-
-        let (_participant1_app, mut participant1_notifications) = service
-            .create_app(
-                &participant1_name,
-                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-            )
-            .unwrap();
-
-        let (_participant2_app, mut participant2_notifications) = service
-            .create_app(
-                &participant2_name,
-                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-            )
-            .unwrap();
+        let (moderator_app, _moderator_notifications) =
+            create_test_app(&service, &moderator_name, "a");
+        let (_participant1_app, mut participant1_notifications) =
+            create_test_app(&service, &participant1_name, "a");
+        let (_participant2_app, mut participant2_notifications) =
+            create_test_app(&service, &participant2_name, "a");
 
         // Wait for subscriptions to be established
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         tracing::info!("SETUP: Creating moderator session");
-        // Create moderator session (multicast)
-        let (moderator_session, completion_handle) = moderator_app
-            .create_session(
-                SessionConfig {
-                    session_type: slim_datapath::api::ProtoSessionType::Multicast,
-                    max_retries: Some(5),
-                    interval: Some(std::time::Duration::from_millis(100)),
-                    mls_enabled: false,
-                    initiator: true,
-                    metadata: HashMap::new(),
-                },
-                channel_name.clone(),
-                None,
-            )
-            .await
-            .expect("failed to create moderator session");
+        let moderator_session = create_and_complete_session(
+            &moderator_app,
+            SessionConfig {
+                session_type: slim_datapath::api::ProtoSessionType::Multicast,
+                max_retries: Some(5),
+                interval: Some(std::time::Duration::from_millis(100)),
+                mls_enabled: false,
+                initiator: true,
+                metadata: HashMap::new(),
+            },
+            channel_name.clone(),
+        )
+        .await;
 
-        // Wait for session establishment
-        completion_handle
-            .await
-            .expect("moderator session failed to establish");
-
-        // Extract the session controller
         let moderator_controller = moderator_session.session().upgrade().unwrap();
 
         tracing::info!("SETUP: Inviting participant1 (should succeed)");
@@ -1431,13 +1192,7 @@ mod tests {
             .expect("failed to invite participant1");
 
         // Wait for participant1 to receive session notification
-        let _participant1_session = tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            participant1_notifications.recv(),
-        )
-        .await
-        .expect("timeout waiting for session at participant1")
-        .expect("participant1 channel closed");
+        let _participant1_session = wait_for_session(&mut participant1_notifications).await;
 
         // Wait for invite ack to complete (after JoinReply)
         let invite_result1 =
@@ -1460,13 +1215,7 @@ mod tests {
             .expect("failed to invite participant2");
 
         // Wait for participant2 to receive session notification
-        let _participant2_session = tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            participant2_notifications.recv(),
-        )
-        .await
-        .expect("timeout waiting for session at participant2")
-        .expect("participant2 channel closed");
+        let _participant2_session = wait_for_session(&mut participant2_notifications).await;
 
         // Wait for invite ack to complete (after JoinReply)
         let invite_result2 =
@@ -1544,5 +1293,196 @@ mod tests {
         // NOTE: Remove tests are flaky in test environment and have been moved to separate test
         // The invite mechanism is verified above
         tracing::info!("All invite tests passed!");
+    }
+
+    /// E2E test to verify MLS encryption is working correctly
+    /// Creates a "spy" as a raw local connection that intercepts messages
+    /// Verifies that:
+    /// 1. When MLS is ENABLED: messages are encrypted and spy cannot read plaintext
+    /// 2. When MLS is DISABLED: messages are plaintext and spy can read them
+    /// 3. Legitimate participants can always read messages (decrypt if needed)
+    #[tokio::test]
+    async fn test_mls_encryption_with_spy_enabled() {
+        test_mls_with_spy(true).await;
+    }
+
+    #[tokio::test]
+    async fn test_mls_encryption_with_spy_disabled() {
+        test_mls_with_spy(false).await;
+    }
+
+    // Helper: Create a spy connection that intercepts raw messages
+    async fn create_spy(
+        service: &crate::service::Service,
+        channel_name: &Name,
+    ) -> (
+        tokio::sync::mpsc::Sender<Result<ProtoMessage, slim_datapath::Status>>,
+        tokio::sync::mpsc::Receiver<Result<ProtoMessage, slim_datapath::Status>>,
+    ) {
+        let (spy_conn_id, spy_tx, spy_rx) = service
+            .message_processor()
+            .register_local_connection(false)
+            .unwrap();
+
+        let spy_subscribe_msg = ProtoMessage::builder()
+            .source(Name::from_strings(["org", "ns", "spy"]).with_id(0))
+            .destination(channel_name.clone())
+            .identity("")
+            .incoming_conn(spy_conn_id)
+            .build_subscribe()
+            .unwrap();
+
+        spy_tx
+            .send(Ok::<_, slim_datapath::Status>(spy_subscribe_msg))
+            .await
+            .unwrap();
+
+        (spy_tx, spy_rx)
+    }
+
+    // Helper: Receive next Msg type message from spy, skipping control messages
+    async fn receive_spy_msg(
+        spy_rx: &mut tokio::sync::mpsc::Receiver<Result<ProtoMessage, slim_datapath::Status>>,
+    ) -> Vec<u8> {
+        loop {
+            let msg = tokio::time::timeout(std::time::Duration::from_secs(2), spy_rx.recv())
+                .await
+                .expect("timeout waiting for spy message")
+                .expect("spy channel closed")
+                .expect("error receiving spy message");
+
+            if msg.get_session_header().session_message_type() == ProtoSessionMessageType::Msg {
+                return msg
+                    .get_payload()
+                    .unwrap()
+                    .as_application_payload()
+                    .unwrap()
+                    .blob
+                    .clone();
+            } else {
+                println!("Ignoring control message");
+            }
+        }
+    }
+
+    async fn test_mls_with_spy(mls_enabled: bool) {
+        let service = create_test_service(&format!(
+            "mls-spy-{}",
+            if mls_enabled { "enabled" } else { "disabled" }
+        ));
+
+        let channel_name = create_test_name("secure-channel");
+        let moderator_name = create_test_name("moderator");
+        let participant_name = create_test_name("participant");
+
+        let (moderator_app, _) = create_test_app(&service, &moderator_name, "moderator");
+        let (participant_app, mut participant_notifications) =
+            create_test_app(&service, &participant_name, "participant");
+
+        let (_spy_tx, mut spy_rx) = create_spy(&service, &channel_name).await;
+
+        participant_app
+            .subscribe(&channel_name, None)
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let session_ctx = create_and_complete_session(
+            &moderator_app,
+            SessionConfig {
+                session_type: ProtoSessionType::Multicast,
+                max_retries: Some(5),
+                interval: Some(std::time::Duration::from_millis(1000)),
+                mls_enabled,
+                initiator: true,
+                metadata: HashMap::new(),
+            },
+            channel_name.clone(),
+        )
+        .await;
+
+        let session_arc = session_ctx.session_arc().unwrap();
+        session_arc
+            .invite_participant(&participant_name)
+            .await
+            .unwrap()
+            .await
+            .unwrap();
+
+        let mut participant_ctx = wait_for_session(&mut participant_notifications).await;
+
+        let msg1: &[u8] = if mls_enabled {
+            b"Secret message - should be encrypted!"
+        } else {
+            b"Secret message - unencrypted!"
+        };
+        let _ = session_arc
+            .publish(&channel_name, msg1.to_vec(), None, None)
+            .await;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        let received_msg = receive_message(&mut participant_ctx).await;
+        assert_eq!(
+            received_msg
+                .get_payload()
+                .unwrap()
+                .as_application_payload()
+                .unwrap()
+                .blob,
+            msg1
+        );
+
+        let spy_payload1 = receive_spy_msg(&mut spy_rx).await;
+
+        if mls_enabled {
+            assert_ne!(
+                spy_payload1, msg1,
+                "MLS ENABLED: Spy MUST NOT receive plaintext"
+            );
+            assert!(!spy_payload1.is_empty());
+        } else {
+            assert_eq!(
+                spy_payload1, msg1,
+                "MLS DISABLED: Spy MUST receive plaintext"
+            );
+        }
+
+        let msg2 = b"Another secret message";
+        let _ = session_arc
+            .publish(&channel_name, msg2.to_vec(), None, None)
+            .await;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        let received_msg2 = receive_message(&mut participant_ctx).await;
+        assert_eq!(
+            received_msg2
+                .get_payload()
+                .unwrap()
+                .as_application_payload()
+                .unwrap()
+                .blob,
+            msg2
+        );
+
+        let spy_payload2 = receive_spy_msg(&mut spy_rx).await;
+
+        if mls_enabled {
+            assert_ne!(
+                spy_payload2, msg2,
+                "MLS ENABLED: Spy should still see encrypted data"
+            );
+        } else {
+            assert_eq!(
+                spy_payload2, msg2,
+                "MLS DISABLED: Spy should still see plaintext"
+            );
+        }
+
+        moderator_app
+            .delete_session(session_ctx.session().upgrade().unwrap().as_ref())
+            .unwrap();
+        participant_app
+            .delete_session(participant_ctx.session().upgrade().unwrap().as_ref())
+            .unwrap();
     }
 }

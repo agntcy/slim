@@ -91,11 +91,10 @@ If everything goes well you should see an output similar to:
 
 ## Run SLIM
 
-SLIM can be run in 3 main ways:
+SLIM can be run in 2 main ways:
 
 - directly as binary (preferred way when deployed as workload in k8s)
-- via the rust APIs (check the [sdk-mock example](./examples/src/sdk-mock))
-- via the [python bindings](./python/bindings)
+- via the [bindings APIs](./bindings)
 
 SLIM can run in server mode, in client mode or both (i.e. spawning a
 server and connecting to another SLIM instance at the same time).
@@ -122,7 +121,8 @@ To run SLIM as server:
 ```bash
 MODE=base
 # MODE=tls
-# MODE=basic-auth; export PASSWORD=12345
+# MODE=basic-auth; export PASSWORD=12345  # Unix/Linux/macOS
+# MODE=basic-auth; $env:PASSWORD = "12345"  # Windows PowerShell
 # MODE=mtls
 
 cargo run --bin slim -- --config ./config/${MODE}/server-config.yaml
@@ -137,44 +137,6 @@ docker run -it \
     -v ./config/base/server-config.yaml:/config.yaml \
     slim /slim --config /config.yaml
 ```
-
----
-
-### Docker on Windows
-
-The instructions below assume [Powershell 7](<https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-windows?view=powershell-7.5>) environment.
-
-#### **1. Set the Password as an Environment Variable**
-
-```powershell
-$env:PASSWORD = "your_secure_password"
-```
-
-This sets the environment variable `PASSWORD` for the current session.
-
-#### **2. Run the `docker run` Command**
-
-Since PowerShell doesn’t support `${PASSWORD}`, replace it with `$env:PASSWORD`:
-
-:bomb: **Notice we are exposing port `46357` to the host and it matches the one inside `${PWD}/config/base/server-config.yaml`**
-
-```powershell
-docker run -it `
-    -e PASSWORD=$env:PASSWORD `
-    -v ${PWD}/config/base/server-config.yaml:/config.yaml `
-    -p 46357:46357 `
-    slim:latest /slim --config /config.yaml
-```
-
-#### **Persistent Configuration (Optional)**
-
-If you want the password to persist across sessions:
-
-```powershell
-[System.Environment]::SetEnvironmentVariable("PASSWORD", "your_secure_password", "User")
-```
-
-This makes `PASSWORD` available across all PowerShell sessions.
 
 ---
 
@@ -201,7 +163,8 @@ To run SLIM as client:
 ```bash
 MODE=base
 # MODE=tls
-# MODE=basic-auth; export PASSWORD=12345
+# MODE=basic-auth; export PASSWORD=12345  # Unix/Linux/macOS
+# MODE=basic-auth; $env:PASSWORD = "12345"  # Windows PowerShell
 # MODE=mtls
 
 cargo run --bin slim -- --config ./config/${MODE}/client-config.yaml
@@ -216,3 +179,23 @@ docker run -it \
     -v ./config/base/client-config.yaml:/config.yaml \
     slim /slim --config /config.yaml
 ```
+
+## Testing
+
+### Run Tests
+
+Run the core Rust tests:
+
+```bash
+task data-plane:test
+```
+
+## Linting
+
+Run the linter for Rust code:
+
+```bash
+task data-plane:lint
+```
+
+This will run linting on both the Rust workspace and language bindings.

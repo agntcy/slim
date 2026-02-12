@@ -1,0 +1,97 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+name: ci-release-slimrpc-compiler
+
+on:
+  push:
+    tags:
+      - 'protoc-slimrpc-plugin-v*'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ensure-release:
+    name: ensure-slimrpc-compiler-release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        with:
+          name: "${{ github.ref_name }}"
+
+  build-binaries:
+    name: "${{ matrix.platform.target }}"
+    needs:
+      - ensure-release
+    runs-on: ${{ matrix.platform.runner }}
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./data-plane/slimrpc-compiler
+    strategy:
+      fail-fast: true
+      matrix:
+        platform:
+          - runner: ubuntu-24.04
+            os: linux
+            target: x86_64-unknown-linux-musl
+            archive: linux-x86_64
+          - runner: ubuntu-24.04
+            os: linux
+            target: aarch64-unknown-linux-musl
+            archive: linux-arm64
+          - runner: windows-latest
+            os: windows
+            target: x86_64-pc-windows-msvc
+            archive: windows-x86_64
+          - runner: windows-11-arm
+            os: windows
+            target: aarch64-pc-windows-msvc
+            archive: windows-arm64
+          - runner: macos-15-intel
+            os: macos
+            target: x86_64-apple-darwin
+            archive: macos-x86_64
+          - runner: macos-15
+            os: macos
+            target: aarch64-apple-darwin
+            archive: macos-arm64
+        exclude:
+          - platform:
+              exclude: true
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          workspace: ./data-plane
+
+      - uses: taiki-e/upload-rust-binary-action@f391289bcff6a7f36b6301c0a74199657bbb4561 # v1.28.0
+        with:
+          bin: protoc-gen-slimrpc-python
+          target: ${{ matrix.platform.target }}
+          archive: protoc-gen-slimrpc-python-${{ matrix.platform.archive }}
+          tar: unix
+          zip: windows
+          token: ${{ secrets.GITHUB_TOKEN }}
+          manifest-path: ./data-plane/slimrpc-compiler/Cargo.toml
+
+      - uses: taiki-e/upload-rust-binary-action@f391289bcff6a7f36b6301c0a74199657bbb4561 # v1.28.0
+        with:
+          bin: protoc-gen-slimrpc-go
+          target: ${{ matrix.platform.target }}
+          archive: protoc-gen-slimrpc-go-${{ matrix.platform.archive }}
+          tar: unix
+          zip: windows
+          token: ${{ secrets.GITHUB_TOKEN }}
+          manifest-path: ./data-plane/slimrpc-compiler/Cargo.toml

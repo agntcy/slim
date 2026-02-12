@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{collections::HashSet, time::Duration};
 
 use async_trait::async_trait;
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -14,7 +14,6 @@ use slim_datapath::{
 };
 
 use slim_mls::mls::Mls;
-use tokio::sync::Mutex;
 use tracing::debug;
 
 use crate::{
@@ -86,11 +85,11 @@ where
     async fn init(&mut self) -> Result<(), SessionError> {
         // Initialize MLS
         self.mls_state = if self.common.settings.config.mls_enabled {
-            let mls_state = MlsState::new(Arc::new(Mutex::new(Mls::new(
+            let mls_state = MlsState::new(Mls::new(
                 self.common.settings.identity_provider.clone(),
                 self.common.settings.identity_verifier.clone(),
                 self.common.settings.storage_path.clone(),
-            ))))
+            ))
             .await
             .expect("failed to create MLS state");
 
@@ -105,7 +104,7 @@ where
     async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
         match message {
             SessionMessage::OnMessage {
-                message,
+                mut message,
                 direction,
                 ack_tx,
             } => {
@@ -117,6 +116,11 @@ where
                     );
                     self.process_control_message(message).await
                 } else {
+                    // Apply MLS encryption/decryption if enabled
+                    if let Some(mls_state) = &mut self.mls_state {
+                        mls_state.process_message(&mut message, direction).await?;
+                    }
+
                     self.inner
                         .on_message(SessionMessage::OnMessage {
                             message,

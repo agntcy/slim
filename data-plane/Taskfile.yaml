@@ -36,7 +36,7 @@ tasks:
     desc: "Build the project and strip the debug symbols"
     cmds:
       - task: data-plane:build
-      - task: data-plane:toolchain:strip
+      - task: data-plane:strip
         vars:
           TARGET_BIN: "target/{{.TARGET}}/{{.PROFILE}}/slim"
 
@@ -44,7 +44,7 @@ tasks:
     desc: "Run the server"
     cmds:
       - task: data-plane:build
-      - task: data-plane:toolchain:run
+      - task: data-plane:run
         vars:
           ARGS: ""
           BIN: "slim"
@@ -54,7 +54,7 @@ tasks:
     desc: "Run the server with OpenTelemetry enabled"
     cmds:
       - task: data-plane:build
-      - task: data-plane:toolchain:run
+      - task: data-plane:run
         vars:
           ARGS: ""
           BIN: "slim"
