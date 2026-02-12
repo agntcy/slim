@@ -437,7 +437,6 @@ mod tests {
         let mut mls = Mls::new(
             SharedSecret::new("test", TEST_VALID_SECRET).unwrap(),
             SharedSecret::new("test", TEST_VALID_SECRET).unwrap(),
-            None,
         );
         mls.initialize().await.unwrap();
 
@@ -472,12 +471,10 @@ mod tests {
         let mut alice_mls = Mls::new(
             SharedSecret::new("alice", TEST_VALID_SECRET).unwrap(),
             SharedSecret::new("alice", TEST_VALID_SECRET).unwrap(),
-            None,
         );
         let mut bob_mls = Mls::new(
             SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
             SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
-            None,
         );
 
         alice_mls.initialize().await.unwrap();
@@ -550,7 +547,6 @@ mod tests {
         let mut mls = Mls::new(
             SharedSecret::new("test", TEST_VALID_SECRET).unwrap(),
             SharedSecret::new("test", TEST_VALID_SECRET).unwrap(),
-            None,
         );
         mls.initialize().await.unwrap();
         let _group_id = mls.create_group().await.unwrap();

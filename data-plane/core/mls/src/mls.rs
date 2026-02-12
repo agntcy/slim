@@ -10,10 +10,7 @@ use mls_rs::{
 };
 
 use mls_rs_crypto_awslc::AwsLcCryptoProvider;
-use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::fs::File;
-use std::io::Write;
 use tracing::debug;
 
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -23,7 +20,6 @@ use crate::identity_claims::IdentityClaims;
 use crate::identity_provider::SlimIdentityProvider;
 
 const CIPHERSUITE: CipherSuite = CipherSuite::CURVE25519_AES128;
-const IDENTITY_FILENAME: &str = "identity.json";
 
 pub type CommitMsg = Vec<u8>;
 pub type WelcomeMsg = Vec<u8>;
@@ -36,38 +32,14 @@ pub struct MlsAddMemberResult {
     pub member_identity: MlsIdentity,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct StoredIdentity {
+#[derive(Clone, Debug)]
+struct InMemoryIdentity {
+    #[allow(dead_code)]
     identifier: String,
     public_key_bytes: Vec<u8>,
     private_key_bytes: Vec<u8>,
     last_credential: Option<String>,
-    #[serde(default)]
     credential_version: u64,
-}
-
-impl StoredIdentity {
-    fn exists(storage_path: &std::path::Path) -> bool {
-        storage_path.join(IDENTITY_FILENAME).exists()
-    }
-
-    fn load_from_storage(storage_path: &std::path::Path) -> Result<Self, MlsError> {
-        let identity_file = storage_path.join(IDENTITY_FILENAME);
-        let data = std::fs::read(&identity_file)?;
-        let ret = serde_json::from_slice(&data)?;
-
-        Ok(ret)
-    }
-
-    fn save_to_storage(&self, storage_path: &std::path::Path) -> Result<(), MlsError> {
-        let identity_file = storage_path.join(IDENTITY_FILENAME);
-        let json = serde_json::to_vec_pretty(self)?;
-        let mut file = File::create(&identity_file)?;
-        file.write_all(&json)?;
-        file.sync_all()?;
-
-        Ok(())
-    }
 }
 
 pub struct Mls<P, V>
@@ -76,8 +48,7 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     identity: Option<String>,
-    storage_path: Option<std::path::PathBuf>,
-    stored_identity: Option<StoredIdentity>,
+    stored_identity: Option<InMemoryIdentity>,
     client: Option<
         Client<
             mls_rs::client_builder::WithIdentityProvider<
@@ -131,16 +102,9 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    pub fn new(
-        identity_provider: P,
-        identity_verifier: V,
-        storage_path: Option<std::path::PathBuf>,
-    ) -> Self {
-        let mls_storage_path = storage_path.map(|p| p.join("mls"));
-
+    pub fn new(identity_provider: P, identity_verifier: V) -> Self {
         Self {
             identity: None,
-            storage_path: mls_storage_path,
             stored_identity: None,
             client: None,
             group: None,
@@ -149,18 +113,8 @@ where
         }
     }
 
-    pub fn set_storage_path<T: Into<std::path::PathBuf>>(&mut self, path: T) -> &mut Self {
-        self.storage_path = Some(path.into());
-        self
-    }
-
-    fn get_storage_path(&self) -> Option<std::path::PathBuf> {
-        self.storage_path.clone()
-    }
-
     /// Helper method to create a signing identity from key pair
     /// Generates a token with the public key in the claims, creates a BasicCredential
-    /// If storage_path is set, persists the identity to disk
     async fn create_signing_identity(
         &mut self,
         private_key: &SignatureSecretKey,
@@ -181,10 +135,8 @@ where
         let signing_identity =
             SigningIdentity::new(basic_cred.into_credential(), public_key.clone());
 
-        // Update storage if path is set
-        if let Some(storage_path) = self.get_storage_path()
-            && let Some(stored) = self.stored_identity.as_mut()
-        {
+        // Update in-memory identity
+        if let Some(stored) = self.stored_identity.as_mut() {
             stored.last_credential = Some(token);
             stored.public_key_bytes = public_key.as_bytes().to_vec();
             stored.private_key_bytes = private_key.as_bytes().to_vec();
@@ -192,8 +144,6 @@ where
             if is_rotation {
                 stored.credential_version = stored.credential_version.saturating_add(1);
             }
-
-            stored.save_to_storage(&storage_path)?;
         }
 
         Ok(signing_identity)
@@ -212,69 +162,28 @@ where
     }
 
     pub async fn initialize(&mut self) -> Result<(), MlsError> {
-        let storage_path_opt = self.get_storage_path();
+        debug!("Initializing MLS with ephemeral keys (in-memory only)");
 
-        if let Some(ref storage_path) = storage_path_opt {
-            debug!(storage_path = ?storage_path, "Initializing MLS with storage");
-            std::fs::create_dir_all(storage_path)?;
-        } else {
-            debug!("Initializing MLS without storage (ephemeral keys)");
-        }
+        // Generate ephemeral keys
+        let (private_key, public_key) = Self::generate_key_pair().await?;
 
-        let (private_key, public_key, stored_identity) =
-            if let Some(ref storage_path) = storage_path_opt {
-                // Try to load from storage
-                if StoredIdentity::exists(storage_path) {
-                    debug!("Loading existing identity from file");
-                    let stored = StoredIdentity::load_from_storage(storage_path)?;
-                    let public_key = SignaturePublicKey::new(stored.public_key_bytes.clone());
-                    let private_key = SignatureSecretKey::new(stored.private_key_bytes.clone());
-                    (private_key, public_key, stored)
-                } else {
-                    debug!("Creating new identity and saving to storage");
-                    let (private_key, public_key) = Self::generate_key_pair().await?;
+        self.identity = Some(self.identity_provider.get_id()?);
 
-                    self.identity = Some(self.identity_provider.get_id()?);
-
-                    let stored =
-                        StoredIdentity {
-                            identifier: self.identity.clone().map(|id| id.to_string()).expect(
-                                "MLS identity could not be determined from identity provider",
-                            ),
-                            public_key_bytes: public_key.as_bytes().to_vec(),
-                            private_key_bytes: private_key.as_bytes().to_vec(),
-                            last_credential: None,
-                            credential_version: 1,
-                        };
-
-                    stored.save_to_storage(storage_path)?;
-                    (private_key, public_key, stored)
-                }
-            } else {
-                // No storage - generate ephemeral keys
-                debug!("Generating ephemeral keys (no storage)");
-                let (private_key, public_key) = Self::generate_key_pair().await?;
-
-                self.identity = Some(self.identity_provider.get_id()?);
-
-                let stored = StoredIdentity {
-                    identifier: self
-                        .identity
-                        .clone()
-                        .map(|id| id.to_string())
-                        .expect("MLS identity could not be determined from identity provider"),
-                    public_key_bytes: public_key.as_bytes().to_vec(),
-                    private_key_bytes: private_key.as_bytes().to_vec(),
-                    last_credential: None,
-                    credential_version: 1,
-                };
-
-                (private_key, public_key, stored)
-            };
+        let stored_identity = InMemoryIdentity {
+            identifier: self
+                .identity
+                .clone()
+                .map(|id| id.to_string())
+                .expect("MLS identity could not be determined from identity provider"),
+            public_key_bytes: public_key.as_bytes().to_vec(),
+            private_key_bytes: private_key.as_bytes().to_vec(),
+            last_credential: None,
+            credential_version: 1,
+        };
 
         self.stored_identity = Some(stored_identity);
 
-        // Generate signing identity (will save to storage if path is set)
+        // Generate signing identity
         let signing_identity = self
             .create_signing_identity(&private_key, &public_key, false)
             .await?;
@@ -560,7 +469,6 @@ mod tests {
         let mut mls = Mls::new(
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
-            Some(std::path::PathBuf::from("/tmp/mls_test_creation")),
         );
 
         mls.initialize().await?;
@@ -574,7 +482,6 @@ mod tests {
         let mut mls = Mls::new(
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
-            Some(std::path::PathBuf::from("/tmp/mls_test_group_creation")),
         );
 
         mls.initialize().await?;
@@ -589,7 +496,6 @@ mod tests {
         let mut mls = Mls::new(
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
-            Some(std::path::PathBuf::from("/tmp/mls_test_key_package")),
         );
 
         mls.initialize().await?;
@@ -604,22 +510,18 @@ mod tests {
         let mut alice = Mls::new(
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
-            Some(std::path::PathBuf::from("/tmp/mls_test_messaging_alice")),
         );
         let mut bob = Mls::new(
             SharedSecret::new("bob", SHARED_SECRET).unwrap(),
             SharedSecret::new("bob", SHARED_SECRET).unwrap(),
-            Some(std::path::PathBuf::from("/tmp/mls_test_messaging_bob")),
         );
         let mut charlie = Mls::new(
             SharedSecret::new("charlie", SHARED_SECRET).unwrap(),
             SharedSecret::new("charlie", SHARED_SECRET).unwrap(),
-            Some(std::path::PathBuf::from("/tmp/mls_test_messaging_charlie")),
         );
         let mut daniel = Mls::new(
             SharedSecret::new("daniel", SHARED_SECRET).unwrap(),
             SharedSecret::new("daniel", SHARED_SECRET).unwrap(),
-            Some(std::path::PathBuf::from("/tmp/mls_test_messaging_daniel")),
         );
 
         alice.initialize().await?;
@@ -752,12 +654,10 @@ mod tests {
         let mut alice = Mls::new(
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
-            Some(std::path::PathBuf::from("/tmp/mls_test_decrypt_alice")),
         );
         let mut bob = Mls::new(
             SharedSecret::new("bob", SHARED_SECRET).unwrap(),
             SharedSecret::new("bob", SHARED_SECRET).unwrap(),
-            Some(std::path::PathBuf::from("/tmp/mls_test_decrypt_bob")),
         );
 
         alice.initialize().await?;
@@ -786,18 +686,10 @@ mod tests {
         let token_b = identity_a.get_token().unwrap();
         assert!(token_a != token_b);
 
-        let mut alice = Mls::new(
-            identity_a.clone(),
-            identity_a.clone(),
-            Some(std::path::PathBuf::from("/tmp/mls_test_rotation_alice")),
-        );
+        let mut alice = Mls::new(identity_a.clone(), identity_a.clone());
 
         let identity_b = SharedSecret::new("bob", SHARED_SECRET).unwrap();
-        let mut bob = Mls::new(
-            identity_b.clone(),
-            identity_b.clone(),
-            Some(std::path::PathBuf::from("/tmp/mls_test_rotation_bob")),
-        );
+        let mut bob = Mls::new(identity_b.clone(), identity_b.clone());
 
         alice.initialize().await?;
         bob.initialize().await?;
@@ -824,7 +716,6 @@ mod tests {
                 "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas123",
             )
             .unwrap(),
-            Some(std::path::PathBuf::from("/tmp/mls_test_rotation_alice_v2")),
         );
         alice_rotated_secret.initialize().await?;
 
@@ -842,30 +733,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_full_credential_rotation_flow() -> Result<(), Box<dyn std::error::Error>> {
-        let alice_path = "/tmp/mls_test_full_rotation_alice";
-        let bob_path = "/tmp/mls_test_full_rotation_bob";
-        let moderator_path = "/tmp/mls_test_full_rotation_moderator";
-        let _ = std::fs::remove_dir_all(alice_path);
-        let _ = std::fs::remove_dir_all(bob_path);
-        let _ = std::fs::remove_dir_all(moderator_path);
-
         let secret_m = SharedSecret::new("moderator", SHARED_SECRET).unwrap();
-        let mut moderator = Mls::new(
-            secret_m.clone(),
-            secret_m.clone(),
-            Some(std::path::PathBuf::from("/tmp/mls_test_moderator")),
-        );
+        let mut moderator = Mls::new(secret_m.clone(), secret_m.clone());
         moderator.initialize().await?;
-
-        // Moderator creates the group
         let _group_id = moderator.create_group().await?;
 
         let secret_a = SharedSecret::new("alice", SHARED_SECRET).unwrap();
-        let mut alice = Mls::new(secret_a.clone(), secret_a.clone(), Some(alice_path.into()));
+        let mut alice = Mls::new(secret_a.clone(), secret_a.clone());
         alice.initialize().await?;
 
         let secret_b = SharedSecret::new("bob", SHARED_SECRET).unwrap();
-        let mut bob = Mls::new(secret_b.clone(), secret_b.clone(), Some(bob_path.into()));
+        let mut bob = Mls::new(secret_b.clone(), secret_b.clone());
         bob.initialize().await?;
 
         // Moderator adds Alice to the group
@@ -935,13 +813,11 @@ mod tests {
     // -------------------------------------------------------------------------
     async fn init_identity(
         name: &str,
-        path: &str,
+        _path: &str,
     ) -> Result<Mls<SharedSecret, SharedSecret>, Box<dyn std::error::Error>> {
-        let _ = std::fs::remove_dir_all(path);
         let mut mls = Mls::new(
             SharedSecret::new(name, SHARED_SECRET).unwrap(),
             SharedSecret::new(name, SHARED_SECRET).unwrap(),
-            Some(path.into()),
         );
         mls.initialize().await?;
         Ok(mls)

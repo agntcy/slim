@@ -109,7 +109,6 @@ where
             let mls_state = MlsState::new(Mls::new(
                 self.common.settings.identity_provider.clone(),
                 self.common.settings.identity_verifier.clone(),
-                None,
             ))
             .await
             .expect("failed to create MLS state");
