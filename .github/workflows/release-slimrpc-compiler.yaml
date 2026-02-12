@@ -52,10 +52,6 @@ jobs:
             os: windows
             target: x86_64-pc-windows-msvc
             archive: windows-x86_64
-          - runner: ubuntu-24.04
-            os: linux
-            target: x86_64-pc-windows-gnu
-            archive: windows-x86_64
           - runner: windows-11-arm
             os: windows
             target: aarch64-pc-windows-msvc
