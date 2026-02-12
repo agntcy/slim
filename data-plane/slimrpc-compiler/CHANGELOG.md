@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1](https://github.com/agntcy/slim/compare/protoc-slimrpc-plugin-v1.0.0...protoc-slimrpc-plugin-v1.0.1) - 2026-02-12
+
+### Fixed
+
+- typos in python slimrpc compiler generated code ([#1226](https://github.com/agntcy/slim/pull/1226))
+
 ## [1.0.0](https://github.com/agntcy/slim/compare/protoc-slimrpc-plugin-v0.2.0...protoc-slimrpc-plugin-v1.0.0) - 2026-02-12
 
 ### Added
