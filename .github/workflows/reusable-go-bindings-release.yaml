@@ -116,7 +116,7 @@ jobs:
 
           git commit -m "Release $VERSION
 
-          Generated from https://github.com/${{ github.repository }}/tree/${{ github.sha }}
+          Generated from https://github.com/${{ github.repository }}/commit/${{ github.sha }}
 
           Platforms:
           - linux/amd64 (x86_64-unknown-linux-gnu)
