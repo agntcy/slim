@@ -408,7 +408,7 @@ jobs:
         run: |
           echo "✅ Python wheel verification completed successfully on ${{ matrix.platform.target }}"
           echo "The wheel can be safely published."
-          
+
   kotlin-bindings-build-and-test:
     runs-on: ${{ inputs.runner }}
     needs:
@@ -443,11 +443,11 @@ jobs:
       - name: List downloaded artifacts
         run: |
           echo "📦 Downloaded artifacts:"
-          find ./data-plane/bindings/kotlin/artifacts -type f -ls
+          find ./artifacts -type f -ls
 
       - name: Generate Kotlin bindings
         run: |
-          task generate LIB_PATH=./data-plane/bindings/kotlin/artifacts/lib${{ env.LIBRARY_NAME }}_x86_64_linux_gnu.so SKIP_BUILD=true
+          task generate LIB_PATH=./artifacts/lib${{ env.LIBRARY_NAME }}_x86_64_linux_gnu.so SKIP_BUILD=true
 
           echo "📁 Generated files:"
           find ./data-plane/bindings/kotlin/generated -type f -ls
