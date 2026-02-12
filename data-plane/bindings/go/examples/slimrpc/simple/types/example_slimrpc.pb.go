@@ -11,7 +11,9 @@ import (
 	slim_bindings "github.com/agntcy/slim-bindings-go"
 	"github.com/agntcy/slim-bindings-go/slimrpc"
 	"google.golang.org/protobuf/proto"
+
 )
+
 
 // TestClient is the client API for Test service.
 type TestClient interface {
@@ -32,6 +34,7 @@ func NewTestClient(channel *slim_bindings.Channel) TestClient {
 		channel: channel,
 	}
 }
+
 
 func (c *TestClientImpl) ExampleUnaryUnary(ctx context.Context, req *ExampleRequest) (*ExampleResponse, error) {
 	// Serialize request
@@ -162,6 +165,7 @@ func (c *TestClientImpl) ExampleStreamStream(ctx context.Context) (slimrpc.Clien
 	return slimrpc.NewClientBidiStream[*ExampleRequest, *ExampleResponse](stream), nil
 }
 
+
 // TestServer is the server API for Test service.
 // All implementations must embed UnimplementedTestServer
 // for forward compatibility
@@ -176,6 +180,7 @@ type TestServer interface {
 // UnimplementedTestServer must be embedded to have forward compatible implementations.
 type UnimplementedTestServer struct {
 }
+
 
 func (UnimplementedTestServer) ExampleUnaryUnary(ctx context.Context, req *ExampleRequest) (*ExampleResponse, error) {
 	return nil, fmt.Errorf("method ExampleUnaryUnary not implemented")
@@ -197,6 +202,7 @@ func (UnimplementedTestServer) ExampleStreamStream(ctx context.Context, stream s
 	return fmt.Errorf("method ExampleStreamStream not implemented")
 }
 
+
 // RegisterTestServer registers the server with slim_bindings.
 func RegisterTestServer(server *slim_bindings.Server, impl TestServer) {
 	server.RegisterUnaryUnary("example_service.Test", "ExampleUnaryUnary", &Test_ExampleUnaryUnary_Handler{impl: impl})
@@ -205,6 +211,7 @@ func RegisterTestServer(server *slim_bindings.Server, impl TestServer) {
 	server.RegisterStreamUnary("example_service.Test", "ExampleStreamUnary", &Test_ExampleStreamUnary_Handler{impl: impl})
 	server.RegisterStreamStream("example_service.Test", "ExampleStreamStream", &Test_ExampleStreamStream_Handler{impl: impl})
 }
+
 
 type Test_ExampleUnaryUnary_Handler struct {
 	impl TestServer
@@ -320,3 +327,5 @@ func (h *Test_ExampleStreamStream_Handler) Handle(stream *slim_bindings.RequestS
 
 	return err
 }
+
+
