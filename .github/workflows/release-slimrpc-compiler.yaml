@@ -7,7 +7,7 @@ name: ci-release-slimrpc-compiler
 on:
   push:
     tags:
-      - 'protoc-gen-slimrpc-v*'
+      - 'protoc-slimrpc-plugin-v*'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
