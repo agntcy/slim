@@ -656,7 +656,7 @@ impl Channel {
             // Create session configuration with deadline metadata
             let slim_config = slim_session::session_config::SessionConfig {
                 session_type: ProtoSessionType::PointToPoint,
-                mls_enabled: false,
+                mls_enabled: true,
                 max_retries: Some(3),
                 interval: Some(Duration::from_secs(1)),
                 initiator: true,
