@@ -134,13 +134,13 @@ def jwt_identity(
     encoding_key_config = slim_bindings.JwtKeyConfig(
         algorithm=slim_bindings.JwtAlgorithm.RS256,
         format=slim_bindings.JwtKeyFormat.PEM,
-        key=slim_bindings.JwtKeyData.DATA(value=jwt_content),
+        key=slim_bindings.JwtKeyData.DATA(value=jwt_content),  # type: ignore
     )
 
     # Create provider config for JWT authentication
     provider_config = slim_bindings.IdentityProviderConfig.JWT(
         config=slim_bindings.ClientJwtAuth(
-            key=slim_bindings.JwtKeyType.ENCODING(key=encoding_key_config),
+            key=slim_bindings.JwtKeyType.ENCODING(key=encoding_key_config),  # type: ignore
             audience=aud or ["default-audience"],
             issuer=iss or "default-issuer",
             subject=sub or local_name,
@@ -152,13 +152,13 @@ def jwt_identity(
     decoding_key_config = slim_bindings.JwtKeyConfig(
         algorithm=slim_bindings.JwtAlgorithm.RS256,
         format=slim_bindings.JwtKeyFormat.JWKS,
-        key=slim_bindings.JwtKeyData.DATA(value=spire_jwks),
+        key=slim_bindings.JwtKeyData.DATA(value=spire_jwks),  # type: ignore
     )
 
     # Create verifier config
     verifier_config = slim_bindings.IdentityVerifierConfig.JWT(
         config=slim_bindings.JwtAuth(
-            key=slim_bindings.JwtKeyType.DECODING(key=decoding_key_config),
+            key=slim_bindings.JwtKeyType.DECODING(key=decoding_key_config),  # type: ignore
             audience=aud or ["default-audience"],
             issuer=iss or "default-issuer",
             subject=sub,
