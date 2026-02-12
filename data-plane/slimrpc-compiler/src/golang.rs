@@ -18,7 +18,7 @@ import (
 	"context"
 	"fmt"
 	"time"
-	
+
 	slim_bindings "github.com/agntcy/slim-bindings-go"
 	"github.com/agntcy/slim-bindings-go/slimrpc"
 	"google.golang.org/protobuf/proto"
@@ -58,32 +58,32 @@ func (c *{{SERVICE_NAME}}ClientImpl) {{METHOD_NAME}}(ctx context.Context, req *{
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Extract timeout from context
 	var timeout *time.Duration
 	if deadline, ok := ctx.Deadline(); ok {
 		t := time.Until(deadline)
 		timeout = &t
 	}
-	
+
 	// Extract metadata from context
 	var metadata *map[string]string
 	if md, ok := slimrpc.MetadataFromContext(ctx); ok {
 		metadata = &md
 	}
-	
+
 	// Make RPC call
 	respBytes, err := c.channel.CallUnaryAsync("{{PACKAGE_NAME}}.{{SERVICE_NAME}}", "{{METHOD_NAME}}", reqBytes, timeout, metadata)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Deserialize response
 	resp := &{{OUTPUT_TYPE}}{}
 	if err := proto.Unmarshal(respBytes, resp); err != nil {
 		return nil, err
 	}
-	
+
 	return resp, nil
 }
 "#;
@@ -98,26 +98,26 @@ func (c *{{SERVICE_NAME}}ClientImpl) {{METHOD_NAME}}(ctx context.Context, req *{
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Extract timeout from context
 	var timeout *time.Duration
 	if deadline, ok := ctx.Deadline(); ok {
 		t := time.Until(deadline)
 		timeout = &t
 	}
-	
+
 	// Extract metadata from context
 	var metadata *map[string]string
 	if md, ok := slimrpc.MetadataFromContext(ctx); ok {
 		metadata = &md
 	}
-	
+
 	// Make RPC call
 	stream, err := c.channel.CallUnaryStreamAsync("{{PACKAGE_NAME}}.{{SERVICE_NAME}}", "{{METHOD_NAME}}", reqBytes, timeout, metadata)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return slimrpc.NewClientResponseStream[*{{OUTPUT_TYPE}}](stream), nil
 }
 "#;
@@ -133,13 +133,13 @@ func (c *{{SERVICE_NAME}}ClientImpl) {{METHOD_NAME}}(ctx context.Context) (slimr
 		t := time.Until(deadline)
 		timeout = &t
 	}
-	
+
 	// Extract metadata from context
 	var metadata *map[string]string
 	if md, ok := slimrpc.MetadataFromContext(ctx); ok {
 		metadata = &md
 	}
-	
+
 	stream := c.channel.CallStreamUnary("{{PACKAGE_NAME}}.{{SERVICE_NAME}}", "{{METHOD_NAME}}", timeout, metadata)
 	return slimrpc.NewClientRequestStream[*{{INPUT_TYPE}}, *{{OUTPUT_TYPE}}](stream), nil
 }
@@ -156,13 +156,13 @@ func (c *{{SERVICE_NAME}}ClientImpl) {{METHOD_NAME}}(ctx context.Context) (slimr
 		t := time.Until(deadline)
 		timeout = &t
 	}
-	
+
 	// Extract metadata from context
 	var metadata *map[string]string
 	if md, ok := slimrpc.MetadataFromContext(ctx); ok {
 		metadata = &md
 	}
-	
+
 	stream := c.channel.CallStreamStream("{{PACKAGE_NAME}}.{{SERVICE_NAME}}", "{{METHOD_NAME}}", timeout, metadata)
 	return slimrpc.NewClientBidiStream[*{{INPUT_TYPE}}, *{{OUTPUT_TYPE}}](stream), nil
 }
@@ -206,16 +206,16 @@ func (h *{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler) Handle(request []byte, rpcCon
 	if err := proto.Unmarshal(request, req); err != nil {
 		return nil, err
 	}
-	
+
 	// Convert slim_bindings.Context to context.Context
 	ctx, cancel := slimrpc.ContextFromRpcContext(rpcContext)
 	defer cancel()
-	
+
 	resp, err := h.impl.{{METHOD_NAME}}(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return proto.Marshal(resp)
 }
 "#;
@@ -263,20 +263,20 @@ func (h *{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler) Handle(request []byte, rpcCon
 	if err := proto.Unmarshal(request, req); err != nil {
 		return err
 	}
-	
+
 	// Convert slim_bindings.Context to context.Context
 	ctx, cancel := slimrpc.ContextFromRpcContext(rpcContext)
 	defer cancel()
-	
+
 	stream := slimrpc.NewServerRequestStream[*{{OUTPUT_TYPE}}](sink)
 	err := h.impl.{{METHOD_NAME}}(ctx, req, stream)
-	
+
 	// Close the stream after handler returns
 	closeErr := sink.CloseAsync()
 	if err == nil {
 		err = closeErr
 	}
-	
+
 	return err
 }
 "#;
@@ -290,14 +290,14 @@ func (h *{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler) Handle(stream *slim_bindings.
 	// Convert slim_bindings.Context to context.Context
 	ctx, cancel := slimrpc.ContextFromRpcContext(rpcContext)
 	defer cancel()
-	
+
 	serverStream := slimrpc.NewServerResponseStream[*{{INPUT_TYPE}}](stream)
-	
+
 	resp, err := h.impl.{{METHOD_NAME}}(ctx, serverStream)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return proto.Marshal(resp)
 }
 "#;
@@ -311,17 +311,17 @@ func (h *{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler) Handle(stream *slim_bindings.
 	// Convert slim_bindings.Context to context.Context
 	ctx, cancel := slimrpc.ContextFromRpcContext(rpcContext)
 	defer cancel()
-	
+
 	serverStream := slimrpc.NewServerBidiStream[*{{INPUT_TYPE}}, *{{OUTPUT_TYPE}}](stream, sink)
-	
+
 	err := h.impl.{{METHOD_NAME}}(ctx, serverStream)
-	
+
 	// Close the stream after handler returns
 	closeErr := sink.CloseAsync()
 	if err == nil {
 		err = closeErr
 	}
-	
+
 	return err
 }
 "#;

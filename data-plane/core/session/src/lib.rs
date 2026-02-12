@@ -7,7 +7,7 @@ pub mod context;
 pub mod controller_sender;
 pub mod errors;
 pub mod interceptor;
-pub mod interceptor_mls;
+
 mod mls_state;
 mod moderator_task;
 pub mod notification;

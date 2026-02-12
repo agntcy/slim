@@ -100,12 +100,20 @@ const STREAM_STREAM_STUB_METHOD_TEMPLATE: &str = r#"    async def {{METHOD_NAME}
             timeout,
             metadata,
         )
-        
+<<<<<<<< HEAD:data-plane/slimrpc-compiler/src/python/mod.rs
+
+========
+
+>>>>>>>> origin/main:data-plane/slimrpc-compiler/src/python.rs
         async def send_requests():
             async for request in request_iterator:
                 await bidi_stream.send_async({{INPUT_TYPE_FULL_PATH}}.SerializeToString(request))
             await bidi_stream.close_send_async()
-        
+<<<<<<<< HEAD:data-plane/slimrpc-compiler/src/python/mod.rs
+
+========
+
+>>>>>>>> origin/main:data-plane/slimrpc-compiler/src/python.rs
         async def receive_responses():
             while True:
                 stream_msg = await bidi_stream.recv_async()
@@ -115,11 +123,19 @@ const STREAM_STREAM_STUB_METHOD_TEMPLATE: &str = r#"    async def {{METHOD_NAME}
                     raise stream_msg[0]
                 if stream_msg.is_data():
                     yield {{OUTPUT_TYPE_FULL_PATH}}.FromString(stream_msg[0])
-        
+<<<<<<<< HEAD:data-plane/slimrpc-compiler/src/python/mod.rs
+
         # Start sending in background
         import asyncio
         send_task = asyncio.create_task(send_requests())
-        
+
+========
+
+        # Start sending in background
+        import asyncio
+        send_task = asyncio.create_task(send_requests())
+
+>>>>>>>> origin/main:data-plane/slimrpc-compiler/src/python.rs
         try:
             async for response in receive_responses():
                 yield response
@@ -652,7 +668,7 @@ mod tests {
         assert!(content.contains("def UnaryToStream(self, request, context):"));
         assert!(content.contains("def StreamToUnary(self, request_iterator, context):"));
         assert!(content.contains("def StreamToStream(self, request_iterator, context):"));
-        
+
         // Verify metadata parameter is included in all stub method signatures with type annotations
         assert!(content.contains("async def UnaryToStream(self, request: pb2.Request, timeout: Optional[timedelta] = None, metadata: Optional[dict[str, str]] = None):"));
         assert!(content.contains("async def StreamToUnary(self, request_iterator, timeout: Optional[timedelta] = None, metadata: Optional[dict[str, str]] = None)"));

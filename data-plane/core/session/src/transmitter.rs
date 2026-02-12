@@ -19,7 +19,7 @@ use crate::{
     notification::Notification,
 };
 
-/// Transmitter used to intercept messages sent from sessions and apply interceptors on them
+/// Transmitter used to send messages between session and application/network
 #[derive(Clone)]
 pub struct SessionTransmitter {
     /// SLIM tx (bounded channel)
@@ -58,8 +58,6 @@ impl Transmitter for SessionTransmitter {
         &self,
         mut message: Result<Message, SessionError>,
     ) -> Result<(), SessionError> {
-        let tx = self.app_tx.clone();
-
         // Interceptors only run on successful messages
         let interceptors = match &message {
             Ok(_) => self.interceptors.read().clone(),
@@ -72,7 +70,8 @@ impl Transmitter for SessionTransmitter {
             }
         }
 
-        let ret = tx
+        let ret = self
+            .app_tx
             .send(message)
             .map_err(|_e| SessionError::ApplicationMessageSendFailed)?;
 
@@ -80,8 +79,6 @@ impl Transmitter for SessionTransmitter {
     }
 
     async fn send_to_slim(&self, mut message: Result<Message, Status>) -> Result<(), SessionError> {
-        let tx = self.slim_tx.clone();
-
         // Interceptors only run on successful messages
         let interceptors = match &message {
             Ok(_) => self.interceptors.read().clone(),
@@ -94,12 +91,13 @@ impl Transmitter for SessionTransmitter {
             }
         }
 
-        tx.try_send(message)
+        self.slim_tx
+            .try_send(message)
             .map_err(|_e| SessionError::SlimMessageSendFailed)
     }
 }
 
-/// Transmitter used to intercept messages sent from the application side and apply interceptors
+/// Transmitter used to send messages from the application side
 #[derive(Clone)]
 pub struct AppTransmitter {
     /// SLIM tx (bounded channel)
@@ -108,7 +106,7 @@ pub struct AppTransmitter {
     /// App tx (bounded channel here; notifications)
     pub app_tx: Sender<Result<Notification, SessionError>>,
 
-    // Interceptors to be called on message reception/send
+    /// Interceptors to be called on message reception/send
     pub interceptors: Arc<RwLock<Vec<Arc<dyn SessionInterceptor + Send + Sync>>>>,
 }
 
@@ -128,8 +126,7 @@ impl Transmitter for AppTransmitter {
         &self,
         mut message: Result<Message, SessionError>,
     ) -> Result<(), SessionError> {
-        let tx = self.app_tx.clone();
-
+        // Apply interceptors only on successful messages
         let interceptors = match &message {
             Ok(_) => self.interceptors.read().clone(),
             Err(_) => Vec::new(),
@@ -141,15 +138,14 @@ impl Transmitter for AppTransmitter {
             }
         }
 
-        tx.send(message.map(|msg| Notification::NewMessage(Box::new(msg))))
+        self.app_tx
+            .send(message.map(|msg| Notification::NewMessage(Box::new(msg))))
             .await
             .map_err(|_e| SessionError::ApplicationMessageSendFailed)
     }
 
     async fn send_to_slim(&self, mut message: Result<Message, Status>) -> Result<(), SessionError> {
-        let tx = self.slim_tx.clone();
-
-        // Interceptors only run on successful messages
+        // Apply interceptors only on successful messages
         let interceptors = match &message {
             Ok(_) => self.interceptors.read().clone(),
             Err(_) => Vec::new(),
@@ -161,7 +157,8 @@ impl Transmitter for AppTransmitter {
             }
         }
 
-        tx.try_send(message)
+        self.slim_tx
+            .try_send(message)
             .map_err(|_e| SessionError::SlimMessageSendFailed)
     }
 }
@@ -169,7 +166,6 @@ impl Transmitter for AppTransmitter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interceptor::{SessionInterceptor, SessionInterceptorProvider};
     use crate::{SessionError, notification::Notification};
     use async_trait::async_trait;
     use slim_datapath::Status;
