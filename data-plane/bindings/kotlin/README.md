@@ -1,6 +1,6 @@
 # SLIM Kotlin Bindings
 
-Kotlin/JVM bindings for the SLIM (Secure Lightweight Identity Messaging) data plane, generated using [UniFFI](https://mozilla.github.io/uniffi-rs/).
+Kotlin/JVM bindings for the SLIM data plane, generated using [UniFFI](https://mozilla.github.io/uniffi-rs/).
 
 ## Overview
 
