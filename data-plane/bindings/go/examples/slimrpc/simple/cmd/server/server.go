@@ -121,7 +121,7 @@ func main() {
 	}
 
 	// Connect to SLIM
-	clientConfig := slim_bindings.NewInsecureClientConfig("http://localhost:46358")
+	clientConfig := slim_bindings.NewInsecureClientConfig("http://localhost:46357")
 	connId, err := service.Connect(clientConfig)
 	if err != nil {
 		log.Fatalf("Failed to connect: %v", err)
