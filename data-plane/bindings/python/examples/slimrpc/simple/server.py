@@ -18,9 +18,21 @@ class TestService(TestServicer):
         request: ExampleRequest,
         context: slim_bindings.Context,
     ) -> ExampleResponse:
-        logger.info(f"Received unary-unary request: {request}")
+        raise RuntimeError("the error")
+        # logger.info(f"Received unary-unary request: {request}")
 
-        return ExampleResponse(example_integer=1, example_string="Hello, World!")
+        # return ExampleResponse(example_integer=1, example_string="Hello, World!")
+
+        # If you need to return a specific error
+        # raise slim_bindings.RpcError.Rpc(
+        #     code=slim_bindings.RpcCode.UNIMPLEMENTED,
+        #     message="not implemented (yet)",
+        #     details=None
+        # )
+        #
+        # If you need to return a simple error
+        # raise RuntimeError("the error")
+        # This will be trated with an "INTERNAL" error code
 
     async def ExampleUnaryStream(
         self,

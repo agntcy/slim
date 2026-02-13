@@ -58,7 +58,7 @@ func main() {
 
 	response, err := client.ExampleUnaryUnary(ctx, request)
 	if err != nil {
-		log.Fatalf("ExampleUnaryUnary3 failed: %#v", err)
+		log.Fatalf("ExampleUnaryUnary3 failed: %v", err)
 	}
 	log.Printf("Response: %+v", response)
 

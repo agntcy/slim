@@ -136,16 +136,20 @@ class {{SERVICE_NAME}}Servicer:
 
 const STREAM_METHOD_SERVICER_TEMPLATE: &str = r#"    def {{METHOD_NAME}}(self, request_iterator, context):
         """Method for {{METHOD_NAME}}. Implement your service logic here."""
-        raise slim_bindings.SRPCResponseError(
-            code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
+        raise slim_bindings.RpcError.Rpc(
+            code=slim_bindings.RpcCode.UNIMPLEMENTED,
+            message="Method not implemented!",
+            details=None
         )
 
 "#;
 
 const UNARY_METHOD_SERVICER_TEMPLATE: &str = r#"    def {{METHOD_NAME}}(self, request, context):
         """Method for {{METHOD_NAME}}. Implement your service logic here."""
-        raise slim_bindings.SRPCResponseError(
-            code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
+        raise slim_bindings.RpcError.Rpc(
+            code=slim_bindings.RpcCode.UNIMPLEMENTED,
+            message="Method not implemented!",
+            details=None
         )
 
 "#;
@@ -163,9 +167,18 @@ class _{{SERVICE_NAME}}Servicer_{{METHOD_NAME}}_Handler:
         self.servicer = servicer
 
     async def handle(self, request: bytes, context: slim_bindings.Context) -> bytes:
-        request_msg = {{INPUT_TYPE_FULL_PATH}}.FromString(request)
-        response = await self.servicer.{{METHOD_NAME}}(request_msg, context)
-        return {{OUTPUT_TYPE_FULL_PATH}}.SerializeToString(response)"#;
+        try:
+            request_msg = {{INPUT_TYPE_FULL_PATH}}.FromString(request)
+            response = await self.servicer.{{METHOD_NAME}}(request_msg, context)
+            return {{OUTPUT_TYPE_FULL_PATH}}.SerializeToString(response)
+        except slim_bindings.RpcError:
+            raise
+        except Exception as e:
+            raise slim_bindings.RpcError.Rpc(
+                code=slim_bindings.RpcCode.INTERNAL,
+                message=str(e),
+                details=None
+            )"#;
 
 const UNARY_STREAM_HANDLER_CLASS_TEMPLATE: &str = r#"
 
@@ -174,11 +187,21 @@ class _{{SERVICE_NAME}}Servicer_{{METHOD_NAME}}_Handler:
         self.servicer = servicer
 
     async def handle(self, request: bytes, context: slim_bindings.Context, sink: slim_bindings.ResponseSink):
-        request_msg = {{INPUT_TYPE_FULL_PATH}}.FromString(request)
-        response_iter = self.servicer.{{METHOD_NAME}}(request_msg, context)
-        async for response in response_iter:
-            sink.send({{OUTPUT_TYPE_FULL_PATH}}.SerializeToString(response))
-        sink.close()"#;
+        try:
+            request_msg = {{INPUT_TYPE_FULL_PATH}}.FromString(request)
+            response_iter = self.servicer.{{METHOD_NAME}}(request_msg, context)
+            async for response in response_iter:
+                await sink.send_async({{OUTPUT_TYPE_FULL_PATH}}.SerializeToString(response))
+            await sink.close_async()
+        except slim_bindings.RpcError as e:
+            await sink.send_error_async(e)
+        except Exception as e:
+            rpc_error = slim_bindings.RpcError.Rpc(
+                code=slim_bindings.RpcCode.INTERNAL,
+                message=str(e),
+                details=None
+            )
+            await sink.send_error_async(rpc_error)"#;
 
 const STREAM_UNARY_HANDLER_CLASS_TEMPLATE: &str = r#"
 
@@ -187,18 +210,27 @@ class _{{SERVICE_NAME}}Servicer_{{METHOD_NAME}}_Handler:
         self.servicer = servicer
 
     async def handle(self, stream: slim_bindings.RequestStream, context: slim_bindings.Context) -> bytes:
-        async def request_iterator():
-            while True:
-                stream_msg = await stream.next_async()
-                if stream_msg.is_end():
-                    break
-                if stream_msg.is_error():
-                    raise stream_msg[0]
-                if stream_msg.is_data():
-                    yield {{INPUT_TYPE_FULL_PATH}}.FromString(stream_msg[0])
+        try:
+            async def request_iterator():
+                while True:
+                    stream_msg = await stream.next_async()
+                    if stream_msg.is_end():
+                        break
+                    if stream_msg.is_error():
+                        raise stream_msg[0]
+                    if stream_msg.is_data():
+                        yield {{INPUT_TYPE_FULL_PATH}}.FromString(stream_msg[0])
 
-        response = await self.servicer.{{METHOD_NAME}}(request_iterator(), context)
-        return {{OUTPUT_TYPE_FULL_PATH}}.SerializeToString(response)"#;
+            response = await self.servicer.{{METHOD_NAME}}(request_iterator(), context)
+            return {{OUTPUT_TYPE_FULL_PATH}}.SerializeToString(response)
+        except slim_bindings.RpcError:
+            raise
+        except Exception as e:
+            raise slim_bindings.RpcError.Rpc(
+                code=slim_bindings.RpcCode.INTERNAL,
+                message=str(e),
+                details=None
+            )"#;
 
 const STREAM_STREAM_HANDLER_CLASS_TEMPLATE: &str = r#"
 
@@ -207,20 +239,30 @@ class _{{SERVICE_NAME}}Servicer_{{METHOD_NAME}}_Handler:
         self.servicer = servicer
 
     async def handle(self, stream: slim_bindings.RequestStream, context: slim_bindings.Context, sink: slim_bindings.ResponseSink):
-        async def request_iterator():
-            while True:
-                stream_msg = await stream.next_async()
-                if stream_msg.is_end():
-                    break
-                if stream_msg.is_error():
-                    raise stream_msg[0]
-                if stream_msg.is_data():
-                    yield {{INPUT_TYPE_FULL_PATH}}.FromString(stream_msg[0])
+        try:
+            async def request_iterator():
+                while True:
+                    stream_msg = await stream.next_async()
+                    if stream_msg.is_end():
+                        break
+                    if stream_msg.is_error():
+                        raise stream_msg[0]
+                    if stream_msg.is_data():
+                        yield {{INPUT_TYPE_FULL_PATH}}.FromString(stream_msg[0])
 
-        response_iter = self.servicer.{{METHOD_NAME}}(request_iterator(), context)
-        async for response in response_iter:
-            sink.send({{OUTPUT_TYPE_FULL_PATH}}.SerializeToString(response))
-        sink.close()"#;
+            response_iter = self.servicer.{{METHOD_NAME}}(request_iterator(), context)
+            async for response in response_iter:
+                await sink.send_async({{OUTPUT_TYPE_FULL_PATH}}.SerializeToString(response))
+            await sink.close_async()
+        except slim_bindings.RpcError as e:
+            await sink.send_error_async(e)
+        except Exception as e:
+            rpc_error = slim_bindings.RpcError.Rpc(
+                code=slim_bindings.RpcCode.INTERNAL,
+                message=str(e),
+                details=None
+            )
+            await sink.send_error_async(rpc_error)"#;
 
 const REGISTER_METHOD_TEMPLATE: &str = r#"    server.register_{{RPC_TYPE}}(
         service_name="{{PACKAGE_NAME}}.{{SERVICE_NAME}}",

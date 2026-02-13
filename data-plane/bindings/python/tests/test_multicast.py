@@ -159,7 +159,7 @@ async def _wait_for_session_close(recv_session, part_name):
     indirect=True,
 )
 @pytest.mark.parametrize("mls_enabled", [False])
-async def test_group(server, mls_enabled):
+async def test_group(server, mls_enabled) -> None:
     """Exercise group session behavior with N participants relaying a message in a ring.
 
     Steps:
@@ -290,6 +290,8 @@ async def test_group(server, mls_enabled):
                 print(f"{part_name} -> Unexpected error: {e}")
                 raise
 
+        return None
+
     # start participants in background
     for i in range(participants_count):
         task = asyncio.create_task(background_task(i))
@@ -298,6 +300,6 @@ async def test_group(server, mls_enabled):
 
     # Wait for all participants to complete
     for task in participants:
-        _ = await task
+        await task
 
     print("All participants completed successfully!")
