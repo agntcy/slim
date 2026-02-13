@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-
 name: Setup Environment
 description: setup environment to build/test/lint rust applications
 inputs:
@@ -15,18 +14,18 @@ inputs:
     required: false
     default: '.'
 runs:
-  using: "composite"
+  using: 'composite'
   steps:
     - name: Setup Rust
       id: setup-rust
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
         components: rustc, clippy, rustfmt
-        rustflags: ""
+        rustflags: ''
         cache-workspaces: ${{ inputs.workspace }}
-        cache-on-failure: false
+        cache-on-failure: true
         cache-shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
-        cache-all-crates: trus
+        cache-all-crates: true
 
     - name: Setup Taskfile
       uses: ./.github/actions/setup-task
