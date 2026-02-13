@@ -106,7 +106,7 @@ tasks:
   clippy:
     desc: 'Run clippy'
     deps:
-      - task: install-target
+      - task: check
     cmds:
       - cargo clippy {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}} -- -D warnings
     vars:
