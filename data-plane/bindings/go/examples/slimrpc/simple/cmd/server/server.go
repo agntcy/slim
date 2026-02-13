@@ -26,6 +26,13 @@ func (s *TestServiceImpl) ExampleUnaryUnary(ctx context.Context, req *pb.Example
 		ExampleInteger: 1,
 		ExampleString:  "Hello, World!",
 	}, nil
+
+	// Or, if you need to return an error
+	// 	return nil, slim_bindings.NewRpcErrorRpc(
+	// 	slim_bindings.CodeInvalidArgument,
+	// 	"Invalid argument..",
+	// 	nil,
+	// )
 }
 
 func (s *TestServiceImpl) ExampleUnaryStream(ctx context.Context, req *pb.ExampleRequest, stream slimrpc.RequestStream[*pb.ExampleResponse]) error {

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package example_service;
 
-option go_package = "github.com/agntcy/slim/bindings/go/examples/slimrpc/simple/types";
+option go_package = "github.com/agntcy/slim/bindings/go/examples/slimrpc/simple/typessasasa";
 
 service Test {
   rpc ExampleUnaryUnary(ExampleRequest) returns (ExampleResponse);

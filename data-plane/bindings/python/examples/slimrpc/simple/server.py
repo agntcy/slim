@@ -13,15 +13,6 @@ logger = logging.getLogger(__name__)
 
 
 class TestService(TestServicer):
-    async def ExampleUnaryUnary(
-        self,
-        request: ExampleRequest,
-        context: slim_bindings.Context,
-    ) -> ExampleResponse:
-        logger.info(f"Received unary-unary request: {request}")
-
-        return ExampleResponse(example_integer=1, example_string="Hello, World!")
-
     async def ExampleUnaryStream(
         self,
         request: ExampleRequest,

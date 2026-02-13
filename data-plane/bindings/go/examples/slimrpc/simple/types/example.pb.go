@@ -4,7 +4,7 @@
 // 	protoc        (unknown)
 // source: example.proto
 
-package types
+package typessasasa
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -141,8 +141,8 @@ const file_example_proto_rawDesc = "" +
 	"\x12ExampleUnaryStream\x12\x1f.example_service.ExampleRequest\x1a .example_service.ExampleResponse0\x01\x12\\\n" +
 	"\x15ExampleUnaryStreamTwo\x12\x1f.example_service.ExampleRequest\x1a .example_service.ExampleResponse0\x01\x12Y\n" +
 	"\x12ExampleStreamUnary\x12\x1f.example_service.ExampleRequest\x1a .example_service.ExampleResponse(\x01\x12\\\n" +
-	"\x13ExampleStreamStream\x12\x1f.example_service.ExampleRequest\x1a .example_service.ExampleResponse(\x010\x01B\xbd\x01\n" +
-	"\x13com.example_serviceB\fExampleProtoP\x01Z@github.com/agntcy/slim/bindings/go/examples/slimrpc/simple/types\xa2\x02\x03EXX\xaa\x02\x0eExampleService\xca\x02\x0eExampleService\xe2\x02\x1aExampleService\\GPBMetadata\xea\x02\x0eExampleServiceb\x06proto3"
+	"\x13ExampleStreamStream\x12\x1f.example_service.ExampleRequest\x1a .example_service.ExampleResponse(\x010\x01B\xc3\x01\n" +
+	"\x13com.example_serviceB\fExampleProtoP\x01ZFgithub.com/agntcy/slim/bindings/go/examples/slimrpc/simple/typessasasa\xa2\x02\x03EXX\xaa\x02\x0eExampleService\xca\x02\x0eExampleService\xe2\x02\x1aExampleService\\GPBMetadata\xea\x02\x0eExampleServiceb\x06proto3"
 
 var (
 	file_example_proto_rawDescOnce sync.Once

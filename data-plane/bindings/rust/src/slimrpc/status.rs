@@ -324,7 +324,6 @@ pub enum StatusError {
 /// This wraps Status to make it compatible with UniFFI foreign language bindings.
 /// UniFFI requires errors to be represented as enums with associated data.
 #[derive(Debug, Clone, uniffi::Error, thiserror::Error)]
-#[uniffi(flat_error)]
 pub enum RpcError {
     #[error("{message}")]
     Rpc {

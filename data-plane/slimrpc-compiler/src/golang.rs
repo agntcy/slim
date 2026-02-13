@@ -204,7 +204,11 @@ type {{SERVICE_NAME}}_{{METHOD_NAME}}_Handler struct {
 func (h *{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler) Handle(request []byte, rpcContext *slim_bindings.Context) ([]byte, error) {
 	req := &{{INPUT_TYPE}}{}
 	if err := proto.Unmarshal(request, req); err != nil {
-		return nil, err
+		return nil, slim_bindings.NewRpcErrorRpc(
+			slim_bindings.CodeInvalidArgument,
+			err.Error(),
+			nil,
+		)
 	}
 
 	// Convert slim_bindings.Context to context.Context
@@ -213,10 +217,27 @@ func (h *{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler) Handle(request []byte, rpcCon
 
 	resp, err := h.impl.{{METHOD_NAME}}(ctx, req)
 	if err != nil {
-		return nil, err
+		// Check if it's already an RpcError
+		if rpcErr, ok := err.(*slim_bindings.RpcError); ok {
+			return nil, rpcErr
+		}
+		// Convert generic errors to RpcError
+		return nil, slim_bindings.NewRpcErrorRpc(
+			slim_bindings.CodeInternal,
+			err.Error(),
+			nil,
+		)
 	}
 
-	return proto.Marshal(resp)
+	respBytes, err := proto.Marshal(resp)
+	if err != nil {
+		return nil, slim_bindings.NewRpcErrorRpc(
+			slim_bindings.CodeInternal,
+			err.Error(),
+			nil,
+		)
+	}
+	return respBytes, nil
 }
 "#;
 
@@ -261,7 +282,13 @@ type {{SERVICE_NAME}}_{{METHOD_NAME}}_Handler struct {
 func (h *{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler) Handle(request []byte, rpcContext *slim_bindings.Context, sink *slim_bindings.ResponseSink) error {
 	req := &{{INPUT_TYPE}}{}
 	if err := proto.Unmarshal(request, req); err != nil {
-		return err
+		rpcErr := slim_bindings.NewRpcErrorRpc(
+			slim_bindings.CodeInvalidArgument,
+			err.Error(),
+			nil,
+		)
+		sink.SendErrorAsync(rpcErr)
+		return rpcErr
 	}
 
 	// Convert slim_bindings.Context to context.Context
@@ -277,7 +304,23 @@ func (h *{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler) Handle(request []byte, rpcCon
 		err = closeErr
 	}
 
-	return err
+	if err != nil {
+		// Check if it's already an RpcError
+		if rpcErr, ok := err.(*slim_bindings.RpcError); ok {
+			sink.SendErrorAsync(rpcErr)
+			return rpcErr
+		}
+		// Convert generic errors to RpcError
+		rpcErr := slim_bindings.NewRpcErrorRpc(
+			slim_bindings.CodeInternal,
+			err.Error(),
+			nil,
+		)
+		sink.SendErrorAsync(rpcErr)
+		return rpcErr
+	}
+
+	return nil
 }
 "#;
 
@@ -291,14 +334,29 @@ func (h *{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler) Handle(stream *slim_bindings.
 	ctx, cancel := slimrpc.ContextFromRpcContext(rpcContext)
 	defer cancel()
 
-	serverStream := slimrpc.NewServerResponseStream[*{{INPUT_TYPE}}](stream)
+	responseStream := slimrpc.NewServerResponseStream[*{{INPUT_TYPE}}](stream)
 
-	resp, err := h.impl.{{METHOD_NAME}}(ctx, serverStream)
+	resp, err := h.impl.{{METHOD_NAME}}(ctx, responseStream)
 	if err != nil {
-		return nil, err
+		if rpcErr, ok := err.(*slim_bindings.RpcError); ok {
+			return nil, rpcErr
+		}
+		return nil, slim_bindings.NewRpcErrorRpc(
+			slim_bindings.CodeInternal,
+			err.Error(),
+			nil,
+		)
 	}
 
-	return proto.Marshal(resp)
+	respBytes, err := proto.Marshal(resp)
+	if err != nil {
+		return nil, slim_bindings.NewRpcErrorRpc(
+			slim_bindings.CodeInternal,
+			err.Error(),
+			nil,
+		)
+	}
+	return respBytes, nil
 }
 "#;
 
@@ -313,7 +371,6 @@ func (h *{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler) Handle(stream *slim_bindings.
 	defer cancel()
 
 	serverStream := slimrpc.NewServerBidiStream[*{{INPUT_TYPE}}, *{{OUTPUT_TYPE}}](stream, sink)
-
 	err := h.impl.{{METHOD_NAME}}(ctx, serverStream)
 
 	// Close the stream after handler returns
@@ -322,7 +379,23 @@ func (h *{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler) Handle(stream *slim_bindings.
 		err = closeErr
 	}
 
-	return err
+	if err != nil {
+		// Check if it's already an RpcError
+		if rpcErr, ok := err.(*slim_bindings.RpcError); ok {
+			sink.SendErrorAsync(rpcErr)
+			return rpcErr
+		}
+		// Convert generic errors to RpcError
+		rpcErr := slim_bindings.NewRpcErrorRpc(
+			slim_bindings.CodeInternal,
+			err.Error(),
+			nil,
+		)
+		sink.SendErrorAsync(rpcErr)
+		return rpcErr
+	}
+
+	return nil
 }
 "#;
 

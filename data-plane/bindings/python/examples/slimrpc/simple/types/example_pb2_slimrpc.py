@@ -72,12 +72,12 @@ class TestStub:
             timeout,
             metadata,
         )
-        
+
         async def send_requests():
             async for request in request_iterator:
                 await bidi_stream.send_async(pb2.ExampleRequest.SerializeToString(request))
             await bidi_stream.close_send_async()
-        
+
         async def receive_responses():
             while True:
                 stream_msg = await bidi_stream.recv_async()
@@ -87,11 +87,11 @@ class TestStub:
                     raise stream_msg[0]
                 if stream_msg.is_data():
                     yield pb2.ExampleResponse.FromString(stream_msg[0])
-        
+
         # Start sending in background
         import asyncio
         send_task = asyncio.create_task(send_requests())
-        
+
         try:
             async for response in receive_responses():
                 yield response
@@ -105,26 +105,34 @@ class TestServicer:
 
     def ExampleUnaryUnary(self, request, context):
         """Method for ExampleUnaryUnary. Implement your service logic here."""
-        raise slim_bindings.SRPCResponseError(
-            code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
+        raise slim_bindings.RpcError.Rpc(
+            code=slim_bindings.Code.UNIMPLEMENTED,
+            message="Method not implemented!",
+            details=None
         )
 
     def ExampleUnaryStream(self, request, context):
         """Method for ExampleUnaryStream. Implement your service logic here."""
-        raise slim_bindings.SRPCResponseError(
-            code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
+        raise slim_bindings.RpcError.Rpc(
+            code=slim_bindings.Code.UNIMPLEMENTED,
+            message="Method not implemented!",
+            details=None
         )
 
     def ExampleStreamUnary(self, request_iterator, context):
         """Method for ExampleStreamUnary. Implement your service logic here."""
-        raise slim_bindings.SRPCResponseError(
-            code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
+        raise slim_bindings.RpcError.Rpc(
+            code=slim_bindings.Code.UNIMPLEMENTED,
+            message="Method not implemented!",
+            details=None
         )
 
     def ExampleStreamStream(self, request_iterator, context):
         """Method for ExampleStreamStream. Implement your service logic here."""
-        raise slim_bindings.SRPCResponseError(
-            code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
+        raise slim_bindings.RpcError.Rpc(
+            code=slim_bindings.Code.UNIMPLEMENTED,
+            message="Method not implemented!",
+            details=None
         )
 
 
@@ -135,58 +143,96 @@ class _TestServicer_ExampleUnaryUnary_Handler:
         self.servicer = servicer
 
     async def handle(self, request: bytes, context: slim_bindings.Context) -> bytes:
-        request_msg = pb2.ExampleRequest.FromString(request)
-        response = await self.servicer.ExampleUnaryUnary(request_msg, context)
-        return pb2.ExampleResponse.SerializeToString(response)
+        try:
+            request_msg = pb2.ExampleRequest.FromString(request)
+            response = await self.servicer.ExampleUnaryUnary(request_msg, context)
+            return pb2.ExampleResponse.SerializeToString(response)
+        except slim_bindings.RpcError:
+            raise
+        except Exception as e:
+            raise slim_bindings.RpcError.Rpc(
+                code=slim_bindings.Code.INTERNAL,
+                message=str(e),
+                details=None
+            )
 
 class _TestServicer_ExampleUnaryStream_Handler:
     def __init__(self, servicer):
         self.servicer = servicer
 
     async def handle(self, request: bytes, context: slim_bindings.Context, sink: slim_bindings.ResponseSink):
-        request_msg = pb2.ExampleRequest.FromString(request)
-        response_iter = self.servicer.ExampleUnaryStream(request_msg, context)
-        async for response in response_iter:
-            sink.send(pb2.ExampleResponse.SerializeToString(response))
-        sink.close()
+        try:
+            request_msg = pb2.ExampleRequest.FromString(request)
+            response_iter = self.servicer.ExampleUnaryStream(request_msg, context)
+            async for response in response_iter:
+                await sink.send_async(pb2.ExampleResponse.SerializeToString(response))
+            await sink.close_async()
+        except slim_bindings.RpcError as e:
+            await sink.send_error_async(e)
+        except Exception as e:
+            rpc_error = slim_bindings.RpcError.Rpc(
+                code=slim_bindings.Code.INTERNAL,
+                message=str(e),
+                details=None
+            )
+            await sink.send_error_async(rpc_error)
 
 class _TestServicer_ExampleStreamUnary_Handler:
     def __init__(self, servicer):
         self.servicer = servicer
 
     async def handle(self, stream: slim_bindings.RequestStream, context: slim_bindings.Context) -> bytes:
-        async def request_iterator():
-            while True:
-                stream_msg = await stream.next_async()
-                if stream_msg.is_end():
-                    break
-                if stream_msg.is_error():
-                    raise stream_msg[0]
-                if stream_msg.is_data():
-                    yield pb2.ExampleRequest.FromString(stream_msg[0])
+        try:
+            async def request_iterator():
+                while True:
+                    stream_msg = await stream.next_async()
+                    if stream_msg.is_end():
+                        break
+                    if stream_msg.is_error():
+                        raise stream_msg[0]
+                    if stream_msg.is_data():
+                        yield pb2.ExampleRequest.FromString(stream_msg[0])
 
-        response = await self.servicer.ExampleStreamUnary(request_iterator(), context)
-        return pb2.ExampleResponse.SerializeToString(response)
+            response = await self.servicer.ExampleStreamUnary(request_iterator(), context)
+            return pb2.ExampleResponse.SerializeToString(response)
+        except slim_bindings.RpcError:
+            raise
+        except Exception as e:
+            raise slim_bindings.RpcError.Rpc(
+                code=slim_bindings.Code.INTERNAL,
+                message=str(e),
+                details=None
+            )
 
 class _TestServicer_ExampleStreamStream_Handler:
     def __init__(self, servicer):
         self.servicer = servicer
 
     async def handle(self, stream: slim_bindings.RequestStream, context: slim_bindings.Context, sink: slim_bindings.ResponseSink):
-        async def request_iterator():
-            while True:
-                stream_msg = await stream.next_async()
-                if stream_msg.is_end():
-                    break
-                if stream_msg.is_error():
-                    raise stream_msg[0]
-                if stream_msg.is_data():
-                    yield pb2.ExampleRequest.FromString(stream_msg[0])
+        try:
+            async def request_iterator():
+                while True:
+                    stream_msg = await stream.next_async()
+                    if stream_msg.is_end():
+                        break
+                    if stream_msg.is_error():
+                        raise stream_msg[0]
+                    if stream_msg.is_data():
+                        yield pb2.ExampleRequest.FromString(stream_msg[0])
 
-        response_iter = self.servicer.ExampleStreamStream(request_iterator(), context)
-        async for response in response_iter:
-            sink.send(pb2.ExampleResponse.SerializeToString(response))
-        sink.close()
+            response_iter = self.servicer.ExampleStreamStream(request_iterator(), context)
+            async for response in response_iter:
+                await sink.send_async(pb2.ExampleResponse.SerializeToString(response))
+            await sink.close_async()
+        except slim_bindings.RpcError as e:
+            await sink.send_error_async(e)
+        except Exception as e:
+            rpc_error = slim_bindings.RpcError.Rpc(
+                code=slim_bindings.Code.INTERNAL,
+                message=str(e),
+                details=None
+            )
+            await sink.send_error_async(rpc_error)
 
 
 def add_TestServicer_to_server(servicer, server: slim_bindings.Server):
