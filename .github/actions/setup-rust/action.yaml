@@ -6,22 +6,22 @@ name: Setup Environment
 description: setup environment to build/test/lint rust applications
 inputs:
   toolchain:
-    description: "Rust toolchain to use"
+    description: 'Rust toolchain to use'
     required: false
-    default: "stable"
+    default: 'stable'
   workspace:
-    description: "Cargo workspace to cache"
+    description: 'Cargo workspace to cache'
     required: false
-    default: "."
+    default: '.'
 runs:
-  using: "composite"
+  using: 'composite'
   steps:
     - name: Setup Rust
       id: setup-rust
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
         components: rustc, clippy, rustfmt
-        rustflags: ""
+        rustflags: ''
         cache-workspaces: ${{ inputs.workspace }}
         cache-on-failure: false
         cache-shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
