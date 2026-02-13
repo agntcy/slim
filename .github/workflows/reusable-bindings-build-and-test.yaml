@@ -275,6 +275,10 @@ jobs:
           path: |
             ./data-plane/bindings/go/slim_bindings
             !./data-plane/bindings/go/slim_bindings/*.a
+            !./data-plane/bindings/go/slim_bindings/*.so
+            !./data-plane/bindings/go/slim_bindings/*.dylib
+            !./data-plane/bindings/go/slim_bindings/*.dll
+            !./data-plane/bindings/go/slim_bindings/*.lib
           if-no-files-found: error
 
   python-bindings-test:
