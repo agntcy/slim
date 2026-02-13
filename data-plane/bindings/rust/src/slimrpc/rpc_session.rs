@@ -194,7 +194,8 @@ impl<'a> RpcSession<'a> {
     /// Create status code metadata
     fn create_status_metadata(code: RpcCode) -> HashMap<String, String> {
         let mut metadata = HashMap::new();
-        metadata.insert(STATUS_CODE_KEY.to_string(), code.as_i32().to_string());
+        let code_i32: i32 = code.into();
+        metadata.insert(STATUS_CODE_KEY.to_string(), code_i32.to_string());
         metadata
     }
 }
@@ -295,7 +296,7 @@ impl<'a> StreamRpcSession<'a> {
                 // Check for end-of-stream marker
                 let code = received.metadata.get(STATUS_CODE_KEY)
                     .and_then(|s| s.parse::<i32>().ok())
-                    .and_then(RpcCode::from_i32)
+                    .and_then(|code| RpcCode::try_from(code).ok())
                     .unwrap_or(RpcCode::Ok);
 
                 if code == RpcCode::Ok && received.payload.is_empty() {
@@ -396,7 +397,8 @@ impl<'a> StreamRpcSession<'a> {
     /// Create status code metadata
     fn create_status_metadata(code: RpcCode) -> HashMap<String, String> {
         let mut metadata = HashMap::new();
-        metadata.insert(STATUS_CODE_KEY.to_string(), code.as_i32().to_string());
+        let code_i32: i32 = code.into();
+        metadata.insert(STATUS_CODE_KEY.to_string(), code_i32.to_string());
         metadata
     }
 }
@@ -422,6 +424,7 @@ pub async fn send_error(session: &SessionTx, error: RpcError) -> Result<(), RpcE
 /// Helper function to create status code metadata
 fn create_status_metadata(code: RpcCode) -> HashMap<String, String> {
     let mut metadata = HashMap::new();
-    metadata.insert(STATUS_CODE_KEY.to_string(), code.as_i32().to_string());
+    let code_i32: i32 = code.into();
+    metadata.insert(STATUS_CODE_KEY.to_string(), code_i32.to_string());
     metadata
 }

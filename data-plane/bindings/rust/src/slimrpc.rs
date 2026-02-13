@@ -142,7 +142,7 @@ mod stream_types;
 pub use channel::Channel;
 pub use codec::{Codec, Decoder, Encoder};
 pub use context::{Context, Metadata, SessionContext};
-pub use error::{RpcCode, RpcError, StatusError};
+pub use error::{InvalidRpcCode, RpcCode, RpcError};
 pub use rpc_session::{HandlerInfo, RpcSession, StreamRpcSession, send_error};
 pub use server::{HandlerResponse, HandlerType, ItemStream, RpcHandler, Server, StreamRpcHandler};
 pub use session_wrapper::{ReceivedMessage, SessionRx, SessionTx, new_session};

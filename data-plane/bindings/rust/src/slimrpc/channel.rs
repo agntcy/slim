@@ -713,7 +713,7 @@ impl Channel {
             Some(s) => s
                 .parse::<i32>()
                 .ok()
-                .and_then(RpcCode::from_i32)
+                .and_then(|code| RpcCode::try_from(code).ok())
                 .ok_or_else(|| RpcError::internal(format!("Invalid status code: {}", s))),
             None => Ok(RpcCode::Ok), // Default to OK if not present
         }
@@ -820,10 +820,8 @@ impl Channel {
 
         // Send end-of-stream marker
         let mut end_metadata = HashMap::new();
-        end_metadata.insert(
-            STATUS_CODE_KEY.to_string(),
-            RpcCode::Ok.as_i32().to_string(),
-        );
+        let code: i32 = RpcCode::Ok.into();
+        end_metadata.insert(STATUS_CODE_KEY.to_string(), code.to_string());
         let handle = session
             .publish(Vec::new(), Some("msg".to_string()), Some(end_metadata))
             .await?;
@@ -1121,8 +1119,8 @@ mod tests {
     #[test]
     fn test_parse_status_code() {
         // Test status code parsing
-        assert_eq!(RpcCode::from_i32(0), Some(RpcCode::Ok));
-        assert_eq!(RpcCode::from_i32(13), Some(RpcCode::Internal));
-        assert_eq!(RpcCode::from_i32(999), None);
+        assert_eq!(RpcCode::try_from(0), Ok(RpcCode::Ok));
+        assert_eq!(RpcCode::try_from(13), Ok(RpcCode::Internal));
+        assert!(RpcCode::try_from(999).is_err());
     }
 }
