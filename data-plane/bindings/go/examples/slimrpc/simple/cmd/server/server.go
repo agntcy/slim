@@ -28,10 +28,10 @@ func (s *TestServiceImpl) ExampleUnaryUnary(ctx context.Context, req *pb.Example
 	}, nil
 
 	// If you need to return a specific error
-	// 	return nil, slim_bindings.NewRpcErrorRpc(
-	// 	slim_bindings.RpcCodeInvalidArgument,
-	// 	"Invalid argument..",
-	// 	nil,
+	// return nil, slim_bindings.NewRpcErrorRpc(
+	// 	   slim_bindings.RpcCodeInvalidArgument,
+	// 	   "Invalid argument..",
+	// 	   nil,
 	// )
 	//
 	// If you need to return a simple error
