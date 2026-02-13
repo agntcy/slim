@@ -69,7 +69,7 @@ jobs:
       - name: Download Generated Go Binding Artifacts
         uses: actions/download-artifact@v4
         with:
-          run-id: "21987890035"
+          run-id: "21953177353"
           github-token: ${{ secrets.gh-token }}
           merge-multiple: true
           path: ${{ inputs.go-bindings-working-directory }}/downloaded_slim_bindings
