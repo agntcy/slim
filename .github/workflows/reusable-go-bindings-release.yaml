@@ -36,7 +36,7 @@ env:
   LIBRARY_NAME: ${{ inputs.library-name }}
   GO_BINDINGS_REPO: ${{ inputs.go-bindings-repo }}
   FILES_TO_RELEASE: cmd slimrpc go.mod go.sum LICENSE README.md SLIMRPC.md slim_bindings.go slim_bindings.h
-  TAG: slim-bindings-v1.1.1
+  TAG: slim-bindings-v1.1.0
 
 jobs:
   # ==========================================================================
