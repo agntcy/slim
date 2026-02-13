@@ -1,6 +1,6 @@
 [package]
 name = "agntcy-slim-bindings"
-version = "1.1.0"
+version = "1.1.1"
 edition = { workspace = true }
 license = { workspace = true }
 description = "UniFFI bindings and FFI adapter for SLIM data plane - enables language integrations (Go, Swift, Kotlin, etc.)"

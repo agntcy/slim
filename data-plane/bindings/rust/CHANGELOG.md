@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1](https://github.com/agntcy/slim/compare/slim-bindings-v1.1.0...slim-bindings-v1.1.1) - 2026-02-13
+
+### Fixed
+
+- *(slimrpc-compiler)* correctly process errors from handlers ([#1229](https://github.com/agntcy/slim/pull/1229))
+
 ## [1.1.0](https://github.com/agntcy/slim/releases/tag/slim-bindings-v1.0.1) - 2026-02-06
 
 ### Added
