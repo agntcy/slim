@@ -20,7 +20,7 @@ use slim_session::context::SessionContext;
 use slim_session::errors::SessionError;
 use slim_session::{AppChannelReceiver, CompletionHandle};
 
-use super::Status;
+use super::RpcError;
 
 /// Received message from a session
 #[derive(Debug, Clone)]
@@ -70,7 +70,7 @@ impl SessionTx {
         data: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<std::collections::HashMap<String, String>>,
-    ) -> Result<CompletionHandle, Status> {
+    ) -> Result<CompletionHandle, RpcError> {
         // Use the Message builder to create a proper protocol message
         let ct = payload_type.unwrap_or_else(|| "msg".to_string());
 
@@ -87,7 +87,7 @@ impl SessionTx {
             .message_id(rand::random::<u32>())
             .application_payload(&ct, data)
             .build_publish()
-            .map_err(|e| Status::internal(e.chain().to_string()))?;
+            .map_err(|e| RpcError::internal(e.chain().to_string()))?;
 
         if let Some(map) = metadata
             && !map.is_empty()
@@ -99,7 +99,7 @@ impl SessionTx {
             .controller
             .publish_message(msg)
             .await
-            .map_err(|e| Status::internal(e.chain().to_string()))?;
+            .map_err(|e| RpcError::internal(e.chain().to_string()))?;
 
         Ok(handle)
     }
@@ -116,12 +116,12 @@ impl SessionTx {
     ///
     /// # Arguments
     /// * `app` - The SLIM app instance to delete the session from
-    pub async fn close(&self, app: &SlimApp<AuthProvider, AuthVerifier>) -> Result<(), Status> {
+    pub async fn close(&self, app: &SlimApp<AuthProvider, AuthVerifier>) -> Result<(), RpcError> {
         tracing::debug!(session_id = %self.controller.id(), "Closing session");
 
         if let Ok(handle) = app.delete_session(self.controller.as_ref()) {
             handle.await.map_err(|e| {
-                Status::internal(format!("Failed to delete session: {}", e.chain()))
+                RpcError::internal(format!("Failed to delete session: {}", e.chain()))
             })?;
             tracing::debug!(session_id = %self.controller.id(), "Successfully deleted session");
         } else {
@@ -137,15 +137,15 @@ impl SessionRx {
     pub async fn get_message(
         &mut self,
         timeout: Option<Duration>,
-    ) -> Result<ReceivedMessage, Status> {
+    ) -> Result<ReceivedMessage, RpcError> {
         let recv_future = async {
             let msg = self
                 .rx
                 .recv()
                 .await
-                .ok_or_else(|| Status::internal("Session closed"))?
+                .ok_or_else(|| RpcError::internal("Session closed"))?
                 .map_err(|e: SessionError| {
-                    Status::internal(format!("Receive error: {}", e.chain()))
+                    RpcError::internal(format!("Receive error: {}", e.chain()))
                 })?;
 
             // Extract payload from the proto message
@@ -176,7 +176,7 @@ impl SessionRx {
             match futures::future::select(recv_future, delay).await {
                 futures::future::Either::Left((result, _)) => result,
                 futures::future::Either::Right(_) => {
-                    Err(Status::deadline_exceeded("Receive timeout"))
+                    Err(RpcError::deadline_exceeded("Receive timeout"))
                 }
             }
         } else {

@@ -221,7 +221,7 @@ func (h *Test_ExampleUnaryUnary_Handler) Handle(request []byte, rpcContext *slim
 	req := &ExampleRequest{}
 	if err := proto.Unmarshal(request, req); err != nil {
 		return nil, slim_bindings.NewRpcErrorRpc(
-			slim_bindings.CodeInvalidArgument,
+			slim_bindings.RpcCodeInvalidArgument,
 			err.Error(),
 			nil,
 		)
@@ -239,7 +239,7 @@ func (h *Test_ExampleUnaryUnary_Handler) Handle(request []byte, rpcContext *slim
 		}
 		// Convert generic errors to RpcError
 		return nil, slim_bindings.NewRpcErrorRpc(
-			slim_bindings.CodeInternal,
+			slim_bindings.RpcCodeInternal,
 			err.Error(),
 			nil,
 		)
@@ -248,7 +248,7 @@ func (h *Test_ExampleUnaryUnary_Handler) Handle(request []byte, rpcContext *slim
 	respBytes, err := proto.Marshal(resp)
 	if err != nil {
 		return nil, slim_bindings.NewRpcErrorRpc(
-			slim_bindings.CodeInternal,
+			slim_bindings.RpcCodeInternal,
 			err.Error(),
 			nil,
 		)
@@ -264,7 +264,7 @@ func (h *Test_ExampleUnaryStream_Handler) Handle(request []byte, rpcContext *sli
 	req := &ExampleRequest{}
 	if err := proto.Unmarshal(request, req); err != nil {
 		rpcErr := slim_bindings.NewRpcErrorRpc(
-			slim_bindings.CodeInvalidArgument,
+			slim_bindings.RpcCodeInvalidArgument,
 			err.Error(),
 			nil,
 		)
@@ -293,7 +293,7 @@ func (h *Test_ExampleUnaryStream_Handler) Handle(request []byte, rpcContext *sli
 		}
 		// Convert generic errors to RpcError
 		rpcErr := slim_bindings.NewRpcErrorRpc(
-			slim_bindings.CodeInternal,
+			slim_bindings.RpcCodeInternal,
 			err.Error(),
 			nil,
 		)
@@ -312,7 +312,7 @@ func (h *Test_ExampleUnaryStreamTwo_Handler) Handle(request []byte, rpcContext *
 	req := &ExampleRequest{}
 	if err := proto.Unmarshal(request, req); err != nil {
 		rpcErr := slim_bindings.NewRpcErrorRpc(
-			slim_bindings.CodeInvalidArgument,
+			slim_bindings.RpcCodeInvalidArgument,
 			err.Error(),
 			nil,
 		)
@@ -341,7 +341,7 @@ func (h *Test_ExampleUnaryStreamTwo_Handler) Handle(request []byte, rpcContext *
 		}
 		// Convert generic errors to RpcError
 		rpcErr := slim_bindings.NewRpcErrorRpc(
-			slim_bindings.CodeInternal,
+			slim_bindings.RpcCodeInternal,
 			err.Error(),
 			nil,
 		)
@@ -369,7 +369,7 @@ func (h *Test_ExampleStreamUnary_Handler) Handle(stream *slim_bindings.RequestSt
 			return nil, rpcErr
 		}
 		return nil, slim_bindings.NewRpcErrorRpc(
-			slim_bindings.CodeInternal,
+			slim_bindings.RpcCodeInternal,
 			err.Error(),
 			nil,
 		)
@@ -378,7 +378,7 @@ func (h *Test_ExampleStreamUnary_Handler) Handle(stream *slim_bindings.RequestSt
 	respBytes, err := proto.Marshal(resp)
 	if err != nil {
 		return nil, slim_bindings.NewRpcErrorRpc(
-			slim_bindings.CodeInternal,
+			slim_bindings.RpcCodeInternal,
 			err.Error(),
 			nil,
 		)
@@ -412,7 +412,7 @@ func (h *Test_ExampleStreamStream_Handler) Handle(stream *slim_bindings.RequestS
 		}
 		// Convert generic errors to RpcError
 		rpcErr := slim_bindings.NewRpcErrorRpc(
-			slim_bindings.CodeInternal,
+			slim_bindings.RpcCodeInternal,
 			err.Error(),
 			nil,
 		)

@@ -137,7 +137,7 @@ class {{SERVICE_NAME}}Servicer:
 const STREAM_METHOD_SERVICER_TEMPLATE: &str = r#"    def {{METHOD_NAME}}(self, request_iterator, context):
         """Method for {{METHOD_NAME}}. Implement your service logic here."""
         raise slim_bindings.RpcError.Rpc(
-            code=slim_bindings.Code.UNIMPLEMENTED,
+            code=slim_bindings.RpcCode.UNIMPLEMENTED,
             message="Method not implemented!",
             details=None
         )
@@ -147,7 +147,7 @@ const STREAM_METHOD_SERVICER_TEMPLATE: &str = r#"    def {{METHOD_NAME}}(self, r
 const UNARY_METHOD_SERVICER_TEMPLATE: &str = r#"    def {{METHOD_NAME}}(self, request, context):
         """Method for {{METHOD_NAME}}. Implement your service logic here."""
         raise slim_bindings.RpcError.Rpc(
-            code=slim_bindings.Code.UNIMPLEMENTED,
+            code=slim_bindings.RpcCode.UNIMPLEMENTED,
             message="Method not implemented!",
             details=None
         )
@@ -175,7 +175,7 @@ class _{{SERVICE_NAME}}Servicer_{{METHOD_NAME}}_Handler:
             raise
         except Exception as e:
             raise slim_bindings.RpcError.Rpc(
-                code=slim_bindings.Code.INTERNAL,
+                code=slim_bindings.RpcCode.INTERNAL,
                 message=str(e),
                 details=None
             )"#;
@@ -197,7 +197,7 @@ class _{{SERVICE_NAME}}Servicer_{{METHOD_NAME}}_Handler:
             await sink.send_error_async(e)
         except Exception as e:
             rpc_error = slim_bindings.RpcError.Rpc(
-                code=slim_bindings.Code.INTERNAL,
+                code=slim_bindings.RpcCode.INTERNAL,
                 message=str(e),
                 details=None
             )
@@ -227,7 +227,7 @@ class _{{SERVICE_NAME}}Servicer_{{METHOD_NAME}}_Handler:
             raise
         except Exception as e:
             raise slim_bindings.RpcError.Rpc(
-                code=slim_bindings.Code.INTERNAL,
+                code=slim_bindings.RpcCode.INTERNAL,
                 message=str(e),
                 details=None
             )"#;
@@ -258,7 +258,7 @@ class _{{SERVICE_NAME}}Servicer_{{METHOD_NAME}}_Handler:
             await sink.send_error_async(e)
         except Exception as e:
             rpc_error = slim_bindings.RpcError.Rpc(
-                code=slim_bindings.Code.INTERNAL,
+                code=slim_bindings.RpcCode.INTERNAL,
                 message=str(e),
                 details=None
             )

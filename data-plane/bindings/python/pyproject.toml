@@ -105,3 +105,11 @@ default-groups = ["building"]
 [[tool.mypy.overrides]]
 module = ["google.rpc.*"]
 follow_untyped_imports = true
+
+[[tool.mypy.overrides]]
+module = ["slim_bindings._slim_bindings.*"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["examples.slimrpc.*.types.*"]
+ignore_errors = true

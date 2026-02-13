@@ -106,7 +106,7 @@ class TestServicer:
     def ExampleUnaryUnary(self, request, context):
         """Method for ExampleUnaryUnary. Implement your service logic here."""
         raise slim_bindings.RpcError.Rpc(
-            code=slim_bindings.Code.UNIMPLEMENTED,
+            code=slim_bindings.RpcCode.UNIMPLEMENTED,
             message="Method not implemented!",
             details=None
         )
@@ -114,7 +114,7 @@ class TestServicer:
     def ExampleUnaryStream(self, request, context):
         """Method for ExampleUnaryStream. Implement your service logic here."""
         raise slim_bindings.RpcError.Rpc(
-            code=slim_bindings.Code.UNIMPLEMENTED,
+            code=slim_bindings.RpcCode.UNIMPLEMENTED,
             message="Method not implemented!",
             details=None
         )
@@ -122,7 +122,7 @@ class TestServicer:
     def ExampleStreamUnary(self, request_iterator, context):
         """Method for ExampleStreamUnary. Implement your service logic here."""
         raise slim_bindings.RpcError.Rpc(
-            code=slim_bindings.Code.UNIMPLEMENTED,
+            code=slim_bindings.RpcCode.UNIMPLEMENTED,
             message="Method not implemented!",
             details=None
         )
@@ -130,7 +130,7 @@ class TestServicer:
     def ExampleStreamStream(self, request_iterator, context):
         """Method for ExampleStreamStream. Implement your service logic here."""
         raise slim_bindings.RpcError.Rpc(
-            code=slim_bindings.Code.UNIMPLEMENTED,
+            code=slim_bindings.RpcCode.UNIMPLEMENTED,
             message="Method not implemented!",
             details=None
         )
@@ -151,7 +151,7 @@ class _TestServicer_ExampleUnaryUnary_Handler:
             raise
         except Exception as e:
             raise slim_bindings.RpcError.Rpc(
-                code=slim_bindings.Code.INTERNAL,
+                code=slim_bindings.RpcCode.INTERNAL,
                 message=str(e),
                 details=None
             )
@@ -171,7 +171,7 @@ class _TestServicer_ExampleUnaryStream_Handler:
             await sink.send_error_async(e)
         except Exception as e:
             rpc_error = slim_bindings.RpcError.Rpc(
-                code=slim_bindings.Code.INTERNAL,
+                code=slim_bindings.RpcCode.INTERNAL,
                 message=str(e),
                 details=None
             )
@@ -199,7 +199,7 @@ class _TestServicer_ExampleStreamUnary_Handler:
             raise
         except Exception as e:
             raise slim_bindings.RpcError.Rpc(
-                code=slim_bindings.Code.INTERNAL,
+                code=slim_bindings.RpcCode.INTERNAL,
                 message=str(e),
                 details=None
             )
@@ -228,7 +228,7 @@ class _TestServicer_ExampleStreamStream_Handler:
             await sink.send_error_async(e)
         except Exception as e:
             rpc_error = slim_bindings.RpcError.Rpc(
-                code=slim_bindings.Code.INTERNAL,
+                code=slim_bindings.RpcCode.INTERNAL,
                 message=str(e),
                 details=None
             )

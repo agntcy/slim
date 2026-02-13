@@ -23,7 +23,7 @@ use slim_session::errors::SessionError;
 use slim_session::notification::Notification;
 
 use super::{
-    Code, Context, HandlerInfo, RequestStream, ResponseSink, RpcError, RpcSession, Status,
+    Context, HandlerInfo, RequestStream, ResponseSink, RpcCode, RpcError, RpcSession,
     StreamRpcSession, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler,
     UnaryUnaryHandler, UniffiRequestStream, build_method_subscription_name,
     codec::{Decoder, Encoder},
@@ -32,8 +32,8 @@ use super::{
 };
 
 pub type Item = Vec<u8>;
-pub type ItemStream = BoxStream<'static, Result<Vec<u8>, Status>>;
-pub type ResponseStream = BoxFuture<'static, Result<HandlerResponse, Status>>;
+pub type ItemStream = BoxStream<'static, Result<Vec<u8>, RpcError>>;
+pub type ResponseStream = BoxFuture<'static, Result<HandlerResponse, RpcError>>;
 
 /// Handler function type for RPC methods (unary input)
 pub type RpcHandler = Arc<dyn Fn(Item, Context) -> ResponseStream + Send + Sync>;
@@ -104,7 +104,7 @@ impl ServiceRegistry {
         handler: F,
     ) where
         F: Fn(Req, Context) -> Fut + Send + Sync + 'static,
-        Fut: futures::Future<Output = Result<Res, Status>> + Send + 'static,
+        Fut: futures::Future<Output = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
     {
@@ -133,8 +133,8 @@ impl ServiceRegistry {
         handler: F,
     ) where
         F: Fn(Req, Context) -> Fut + Send + Sync + 'static,
-        Fut: futures::Future<Output = Result<S, Status>> + Send + 'static,
-        S: Stream<Item = Result<Res, Status>> + Send + 'static,
+        Fut: futures::Future<Output = Result<S, RpcError>> + Send + 'static,
+        S: Stream<Item = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
     {
@@ -165,7 +165,7 @@ impl ServiceRegistry {
         handler: F,
     ) where
         F: Fn(RequestStream<Req>, Context) -> Fut + Send + Sync + 'static,
-        Fut: futures::Future<Output = Result<Res, Status>> + Send + 'static,
+        Fut: futures::Future<Output = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
     {
@@ -195,8 +195,8 @@ impl ServiceRegistry {
         handler: F,
     ) where
         F: Fn(RequestStream<Req>, Context) -> Fut + Send + Sync + 'static,
-        Fut: futures::Future<Output = Result<S, Status>> + Send + 'static,
-        S: Stream<Item = Result<Res, Status>> + Send + 'static,
+        Fut: futures::Future<Output = Result<S, RpcError>> + Send + 'static,
+        S: Stream<Item = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
     {
@@ -258,7 +258,7 @@ enum NotificationReceiver {
 /// # Example
 ///
 /// ```no_run
-/// # use slim_bindings::{Server, Context, Status, Decoder, Encoder, App, Name};
+/// # use slim_bindings::{Server, Context, RpcError, Decoder, Encoder, App, Name};
 /// # use std::sync::Arc;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # use slim_bindings::{IdentityProviderConfig, IdentityVerifierConfig};
@@ -271,12 +271,12 @@ enum NotificationReceiver {
 /// # #[derive(Default)]
 /// # struct Request {}
 /// # impl Decoder for Request {
-/// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(Request::default()) }
+/// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, RpcError> { Ok(Request::default()) }
 /// # }
 /// # #[derive(Default)]
 /// # struct Response {}
 /// # impl Encoder for Response {
-/// #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
+/// #     fn encode(self) -> Result<Vec<u8>, RpcError> { Ok(vec![]) }
 /// # }
 /// let base_name = Name::new("org".to_string(), "namespace".to_string(), "service".to_string());
 /// let server = Server::new_with_shared_rx_and_connection(core_app, base_name.as_slim_name(), None, notification_rx, None);
@@ -475,7 +475,7 @@ impl Server {
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_bindings::{Server, Context, Status, Decoder, Encoder, App, Name, IdentityProviderConfig, IdentityVerifierConfig};
+    /// # use slim_bindings::{Server, Context, RpcError, Decoder, Encoder, App, Name, IdentityProviderConfig, IdentityVerifierConfig};
     /// # use std::sync::Arc;
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let app_name = Arc::new(Name::new("test".to_string(), "app".to_string(), "v1".to_string()));
@@ -489,12 +489,12 @@ impl Server {
     /// # #[derive(Default)]
     /// # struct Request { name: String }
     /// # impl Decoder for Request {
-    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(Request::default()) }
+    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, RpcError> { Ok(Request::default()) }
     /// # }
     /// # #[derive(Default)]
     /// # struct Response { greeting: String }
     /// # impl Encoder for Response {
-    /// #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
+    /// #     fn encode(self) -> Result<Vec<u8>, RpcError> { Ok(vec![]) }
     /// # }
     /// server.register_unary_unary_internal(
     ///     "GreeterService",
@@ -515,7 +515,7 @@ impl Server {
         handler: F,
     ) where
         F: Fn(Req, Context) -> Fut + Send + Sync + 'static,
-        Fut: futures::Future<Output = Result<Res, Status>> + Send + 'static,
+        Fut: futures::Future<Output = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
     {
@@ -538,7 +538,7 @@ impl Server {
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_bindings::{Server, Context, Status, Decoder, Encoder, App, Name, IdentityProviderConfig, IdentityVerifierConfig};
+    /// # use slim_bindings::{Server, Context, RpcError, Decoder, Encoder, App, Name, IdentityProviderConfig, IdentityVerifierConfig};
     /// # use std::sync::Arc;
     /// # use futures::stream;
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -553,18 +553,18 @@ impl Server {
     /// # #[derive(Default)]
     /// # struct Request { count: i32 }
     /// # impl Decoder for Request {
-    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(Request::default()) }
+    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, RpcError> { Ok(Request::default()) }
     /// # }
     /// # #[derive(Default)]
     /// # struct Response { value: i32 }
     /// # impl Encoder for Response {
-    /// #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
+    /// #     fn encode(self) -> Result<Vec<u8>, RpcError> { Ok(vec![]) }
     /// # }
     /// server.register_unary_stream_internal(
     ///     "NumberService",
     ///     "GenerateNumbers",
     ///     |request: Request, _ctx: Context| async move {
-    ///         let numbers: Vec<Result<Response, Status>> = (0..request.count)
+    ///         let numbers: Vec<Result<Response, RpcError>> = (0..request.count)
     ///             .map(|i| Ok(Response { value: i }))
     ///             .collect();
     ///         Ok(stream::iter(numbers))
@@ -580,8 +580,8 @@ impl Server {
         handler: F,
     ) where
         F: Fn(Req, Context) -> Fut + Send + Sync + 'static,
-        Fut: futures::Future<Output = Result<S, Status>> + Send + 'static,
-        S: Stream<Item = Result<Res, Status>> + Send + 'static,
+        Fut: futures::Future<Output = Result<S, RpcError>> + Send + 'static,
+        S: Stream<Item = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
     {
@@ -604,7 +604,7 @@ impl Server {
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_bindings::{Server, Context, Status, Decoder, Encoder, App, Name, IdentityProviderConfig, IdentityVerifierConfig};
+    /// # use slim_bindings::{Server, Context, RpcError, Decoder, Encoder, App, Name, IdentityProviderConfig, IdentityVerifierConfig};
     /// # use std::sync::Arc;
     /// # use futures::StreamExt;
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -619,18 +619,18 @@ impl Server {
     /// # #[derive(Default)]
     /// # struct Request { value: i32 }
     /// # impl Decoder for Request {
-    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(Request::default()) }
+    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, RpcError> { Ok(Request::default()) }
     /// # }
     /// # #[derive(Default)]
     /// # struct Response { sum: i32 }
     /// # impl Encoder for Response {
-    /// #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
+    /// #     fn encode(self) -> Result<Vec<u8>, RpcError> { Ok(vec![]) }
     /// # }
     /// # use futures::stream::BoxStream;
     /// server.register_stream_unary_internal(
     ///     "AggregateService",
     ///     "SumNumbers",
-    ///     |mut request_stream: BoxStream<'static, Result<Request, Status>>, _ctx: Context| async move {
+    ///     |mut request_stream: BoxStream<'static, Result<Request, RpcError>>, _ctx: Context| async move {
     ///         let mut sum = 0;
     ///         while let Some(result) = request_stream.next().await {
     ///             let request = result?;
@@ -649,7 +649,7 @@ impl Server {
         handler: F,
     ) where
         F: Fn(RequestStream<Req>, Context) -> Fut + Send + Sync + 'static,
-        Fut: futures::Future<Output = Result<Res, Status>> + Send + 'static,
+        Fut: futures::Future<Output = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
     {
@@ -672,7 +672,7 @@ impl Server {
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_bindings::{Server, Context, Status, Decoder, Encoder, App, Name, IdentityProviderConfig, IdentityVerifierConfig};
+    /// # use slim_bindings::{Server, Context, RpcError, Decoder, Encoder, App, Name, IdentityProviderConfig, IdentityVerifierConfig};
     /// # use std::sync::Arc;
     /// # use futures::StreamExt;
     /// # use async_stream::stream;
@@ -688,18 +688,18 @@ impl Server {
     /// # #[derive(Default)]
     /// # struct Request { message: String }
     /// # impl Decoder for Request {
-    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(Request::default()) }
+    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, RpcError> { Ok(Request::default()) }
     /// # }
     /// # #[derive(Default)]
     /// # struct Response { reply: String }
     /// # impl Encoder for Response {
-    /// #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
+    /// #     fn encode(self) -> Result<Vec<u8>, RpcError> { Ok(vec![]) }
     /// # }
     /// # use futures::stream::BoxStream;
     /// server.register_stream_stream_internal(
     ///     "EchoService",
     ///     "Echo",
-    ///     |mut request_stream: BoxStream<'static, Result<Request, Status>>, _ctx: Context| async move {
+    ///     |mut request_stream: BoxStream<'static, Result<Request, RpcError>>, _ctx: Context| async move {
     ///         let responses = stream! {
     ///             while let Some(result) = request_stream.next().await {
     ///                 match result {
@@ -728,8 +728,8 @@ impl Server {
         handler: F,
     ) where
         F: Fn(RequestStream<Req>, Context) -> Fut + Send + Sync + 'static,
-        Fut: futures::Future<Output = Result<S, Status>> + Send + 'static,
-        S: Stream<Item = Result<Res, Status>> + Send + 'static,
+        Fut: futures::Future<Output = Result<S, RpcError>> + Send + 'static,
+        S: Stream<Item = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
     {
@@ -780,7 +780,7 @@ impl Server {
     ///
     /// # Returns
     ///
-    /// Returns a `JoinHandle` for the spawned server task. The task result is `Result<(), Status>`.
+    /// Returns a `JoinHandle` for the spawned server task. The task result is `Result<(), RpcError>`.
     ///
     /// # Example
     ///
@@ -810,12 +810,12 @@ impl Server {
     /// ```
     fn serve_handle(
         &self,
-    ) -> Result<JoinHandle<(NotificationReceiver, Result<(), Status>)>, RpcError> {
+    ) -> Result<JoinHandle<(NotificationReceiver, Result<(), RpcError>)>, RpcError> {
         let notification = self
             .notification_rx
             .lock()
             .take()
-            .ok_or(Status::internal("server already running"))?;
+            .ok_or(RpcError::internal("server already running"))?;
 
         let registry = self.registry.read().clone();
         let base_name = self.base_name.clone();
@@ -825,7 +825,7 @@ impl Server {
             .drain_watch
             .read()
             .clone()
-            .ok_or_else(|| Status::internal("drain watch not available"))?;
+            .ok_or_else(|| RpcError::internal("drain_watch not available"))?;
 
         let ret = self.runtime.spawn(Server::serve_internal(
             notification,
@@ -850,7 +850,7 @@ impl Server {
         base_name: Name,
         app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
         drain_watch: drain::Watch,
-    ) -> (NotificationReceiver, Result<(), Status>) {
+    ) -> (NotificationReceiver, Result<(), RpcError>) {
         tracing::info!(
             %base_name,
             "SlimRPC server starting"
@@ -863,7 +863,7 @@ impl Server {
         for subscription_name in subscription_names {
             tracing::info!(%subscription_name, "Subscribing");
             if let Err(e) = app.subscribe(&subscription_name, connection_id).await {
-                let status = Status::internal(format!(
+                let status = RpcError::internal(format!(
                     "Failed to subscribe to {}: {}",
                     subscription_name, e
                 ));
@@ -901,7 +901,7 @@ impl Server {
                     let mut subscription_name = match session_ctx.session_arc() {
                         Some(session) => session.source().clone(),
                         None => {
-                            let status = Status::internal("Session controller not available");
+                            let status = RpcError::internal("Session controller not available");
                             return (rx, Err(status));
                         }
                     };
@@ -927,7 +927,7 @@ impl Server {
                             _ = watch => {
                                 tracing::debug!(%subscription_name, "Session task terminated due to server shutdown");
                                 // Send Cancelled error to client before closing
-                                let _ = send_error(&session_tx, Status::cancelled("Server shutting down")).await;
+                                let _ = send_error(&session_tx, RpcError::cancelled("Server shutting down")).await;
                                 let _ = session_tx.close(app_clone.as_ref()).await;
                             }
                             _ = async {
@@ -935,7 +935,7 @@ impl Server {
                                 let Some((method_path, handler_info)) = lookup_result else {
                                     tracing::error!(%subscription_name, "No method registered for subscription");
                                     // Send error and wait for acknowledgment
-                                    let _ = send_error(&session_tx, Status::internal("No method registered for subscription")).await;
+                                    let _ = send_error(&session_tx, RpcError::internal("No method registered for subscription")).await;
 
                                     // Delete the session when done
                                     let _ = session_tx.close(app_clone.as_ref()).await;
@@ -1051,7 +1051,7 @@ impl Server {
     /// Listen for an incoming session from the notification receiver
     async fn listen_for_session(
         notification_rx: &mut NotificationReceiver,
-    ) -> Result<slim_session::context::SessionContext, Status> {
+    ) -> Result<slim_session::context::SessionContext, RpcError> {
         tracing::debug!("Waiting for incoming session notification");
         let notification_opt = match notification_rx {
             NotificationReceiver::Owned(rx) => rx.recv().await,
@@ -1067,16 +1067,16 @@ impl Server {
         };
 
         if notification_opt.is_none() {
-            return Err(Status::internal("notification channel closed"));
+            return Err(RpcError::internal("notification channel closed"));
         }
 
         let notification = notification_opt
             .unwrap()
-            .map_err(|e| Status::internal(format!("Session error: {}", e)))?;
+            .map_err(|e| RpcError::internal(format!("Session error: {}", e)))?;
 
         match notification {
             Notification::NewSession(session_ctx) => Ok(session_ctx),
-            _ => Err(Status::internal("Unexpected notification type")),
+            _ => Err(RpcError::internal("Unexpected notification type")),
         }
     }
 }
@@ -1159,7 +1159,7 @@ impl Server {
                 tracing::debug!(service = %service_clone, method = %method_clone, "Handling unary-unary request");
 
                 Box::pin(async move {
-                    handler.handle(request, Arc::new(context)).await.map_err(|e| e.into())
+                    handler.handle(request, Arc::new(context)).await
                 })
             },
         );
@@ -1230,12 +1230,7 @@ impl Server {
                 let handler = handler.clone();
                 let request_stream = Arc::new(UniffiRequestStream::new(stream));
 
-                Box::pin(async move {
-                    handler
-                        .handle(request_stream, Arc::new(context))
-                        .await
-                        .map_err(|e| e.into())
-                })
+                Box::pin(async move { handler.handle(request_stream, Arc::new(context)).await })
             },
         );
     }
@@ -1303,15 +1298,15 @@ impl Server {
         let handle = self.serve_handle()?;
 
         // Wait for the server task to complete and restore the NotificationReceiver
-        let (notification_rx, result) = handle
-            .await
-            .map_err(|e| RpcError::new(Code::Internal, format!("Server task panicked: {}", e)))?;
+        let (notification_rx, result) = handle.await.map_err(|e| {
+            RpcError::new(RpcCode::Internal, format!("Server task panicked: {}", e))
+        })?;
 
         // Restore the NotificationReceiver back to the server
         *self.notification_rx.lock() = Some(notification_rx);
 
         // Return the result from the server task
-        result.map_err(|e| RpcError::new(Code::Internal, e.to_string()))
+        result.map_err(|e| RpcError::new(RpcCode::Internal, e.to_string()))
     }
 
     /// Shutdown the server gracefully (blocking version)

@@ -29,7 +29,7 @@ func (s *TestServiceImpl) ExampleUnaryUnary(ctx context.Context, req *pb.Example
 
 	// If you need to return a specific error
 	// 	return nil, slim_bindings.NewRpcErrorRpc(
-	// 	slim_bindings.CodeInvalidArgument,
+	// 	slim_bindings.RpcCodeInvalidArgument,
 	// 	"Invalid argument..",
 	// 	nil,
 	// )
@@ -121,7 +121,7 @@ func main() {
 	}
 
 	// Connect to SLIM
-	clientConfig := slim_bindings.NewInsecureClientConfig("http://localhost:46357")
+	clientConfig := slim_bindings.NewInsecureClientConfig("http://localhost:46358")
 	connId, err := service.Connect(clientConfig)
 	if err != nil {
 		log.Fatalf("Failed to connect: %v", err)

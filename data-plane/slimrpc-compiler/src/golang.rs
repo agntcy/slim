@@ -205,7 +205,7 @@ func (h *{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler) Handle(request []byte, rpcCon
 	req := &{{INPUT_TYPE}}{}
 	if err := proto.Unmarshal(request, req); err != nil {
 		return nil, slim_bindings.NewRpcErrorRpc(
-			slim_bindings.CodeInvalidArgument,
+			slim_bindings.RpcCodeInvalidArgument,
 			err.Error(),
 			nil,
 		)
@@ -223,7 +223,7 @@ func (h *{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler) Handle(request []byte, rpcCon
 		}
 		// Convert generic errors to RpcError
 		return nil, slim_bindings.NewRpcErrorRpc(
-			slim_bindings.CodeInternal,
+			slim_bindings.RpcCodeInternal,
 			err.Error(),
 			nil,
 		)
@@ -232,7 +232,7 @@ func (h *{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler) Handle(request []byte, rpcCon
 	respBytes, err := proto.Marshal(resp)
 	if err != nil {
 		return nil, slim_bindings.NewRpcErrorRpc(
-			slim_bindings.CodeInternal,
+			slim_bindings.RpcCodeInternal,
 			err.Error(),
 			nil,
 		)
@@ -283,7 +283,7 @@ func (h *{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler) Handle(request []byte, rpcCon
 	req := &{{INPUT_TYPE}}{}
 	if err := proto.Unmarshal(request, req); err != nil {
 		rpcErr := slim_bindings.NewRpcErrorRpc(
-			slim_bindings.CodeInvalidArgument,
+			slim_bindings.RpcCodeInvalidArgument,
 			err.Error(),
 			nil,
 		)
@@ -312,7 +312,7 @@ func (h *{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler) Handle(request []byte, rpcCon
 		}
 		// Convert generic errors to RpcError
 		rpcErr := slim_bindings.NewRpcErrorRpc(
-			slim_bindings.CodeInternal,
+			slim_bindings.RpcCodeInternal,
 			err.Error(),
 			nil,
 		)
@@ -342,7 +342,7 @@ func (h *{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler) Handle(stream *slim_bindings.
 			return nil, rpcErr
 		}
 		return nil, slim_bindings.NewRpcErrorRpc(
-			slim_bindings.CodeInternal,
+			slim_bindings.RpcCodeInternal,
 			err.Error(),
 			nil,
 		)
@@ -351,7 +351,7 @@ func (h *{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler) Handle(stream *slim_bindings.
 	respBytes, err := proto.Marshal(resp)
 	if err != nil {
 		return nil, slim_bindings.NewRpcErrorRpc(
-			slim_bindings.CodeInternal,
+			slim_bindings.RpcCodeInternal,
 			err.Error(),
 			nil,
 		)
@@ -387,7 +387,7 @@ func (h *{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler) Handle(stream *slim_bindings.
 		}
 		// Convert generic errors to RpcError
 		rpcErr := slim_bindings.NewRpcErrorRpc(
-			slim_bindings.CodeInternal,
+			slim_bindings.RpcCodeInternal,
 			err.Error(),
 			nil,
 		)
