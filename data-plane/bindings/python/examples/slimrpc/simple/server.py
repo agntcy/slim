@@ -22,6 +22,17 @@ class TestService(TestServicer):
 
         return ExampleResponse(example_integer=1, example_string="Hello, World!")
 
+        # If you need to return a specific error
+        # raise slim_bindings.RpcError.Rpc(
+        #   code=slim_bindings.Code.UNIMPLEMENTED,
+        #   message="not implmented (yet)",
+        #   details=None
+        # )
+        #
+        # If you need to return a simple error
+        # raise RuntimeError("the error")
+        # This will be trated with an "INTERNAL" error code
+
     async def ExampleUnaryStream(
         self,
         request: ExampleRequest,
