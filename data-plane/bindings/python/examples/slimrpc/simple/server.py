@@ -25,9 +25,9 @@ class TestService(TestServicer):
 
         # If you need to return a specific error
         # raise slim_bindings.RpcError.Rpc(
-        #   code=slim_bindings.RpcCode.UNIMPLEMENTED,
-        #   message="not implemented (yet)",
-        #   details=None
+        #     code=slim_bindings.RpcCode.UNIMPLEMENTED,
+        #     message="not implemented (yet)",
+        #     details=None
         # )
         #
         # If you need to return a simple error
