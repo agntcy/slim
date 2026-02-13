@@ -12,7 +12,10 @@ on:
 env:
   LIBRARY_NAME: slim_bindings
   GO_BINDINGS_REPO: agntcy/slim-bindings-go
+  NUGET_PACKAGE_NAME: Agntcy.Slim
   UNIFFI_BINDGEN_GO_VERSION: v0.4.0+v0.28.3
+  UNIFFI_BINDGEN_CS_VERSION: v0.9.0+v0.28.3
+  DOTNET_VERSION: "8.0.x"
 
 jobs:
   # ==========================================================================
@@ -21,6 +24,8 @@ jobs:
   build-and-test-bindings:
     name: "Build and Test Bindings"
     uses: ./.github/workflows/reusable-bindings-build-and-test.yaml
+    with:
+      tag-name: ${{ github.ref_name }}
 
   # ==========================================================================
   # Job 2: Create GitHub release with library artifacts (for test tags)
@@ -90,41 +95,51 @@ jobs:
           files: ./release-artifacts/*.zip
           draft: false
 
+  # # ==========================================================================
+  # # Job 3: Generate and publish Go bindings
+  # # ==========================================================================
+  # release-go-bindings:
+  #   name: "Release Go Bindings"
+  #   needs: build-and-test-bindings
+  #   uses: ./.github/workflows/reusable-go-bindings-release.yaml
+  #   secrets:
+  #     gh-token: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
+
+  # # ==========================================================================
+  # # Job 4: Release Python bindings to PyPI
+  # # ==========================================================================
+  # release-python-bindings:
+  #   name: Upload release to PyPI
+  #   runs-on: ubuntu-latest
+  #   needs:
+  #     - build-and-test-bindings
+  #   permissions:
+  #     # IMPORTANT: this permission is mandatory for Trusted Publishing
+  #     id-token: write
+  #     contents: read
+  #   steps:
+  #     - name: Download artifacts
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         merge-multiple: true
+  #         path: dist
+  #         pattern: wheels-*
+
+  #     - name: Show files
+  #       run: ls -l dist
+
+  #     - name: Publish package distributions to PyPI
+  #       uses: pypa/gh-action-pypi-publish@release/v1
+  #       with:
+  #         password: ${{ secrets.PYPI_API_TOKEN }}
+  #         packages-dir: dist
+
   # ==========================================================================
-  # Job 3: Generate and publish Go bindings
+  # Job 5: Release .NET bindings to NuGet
   # ==========================================================================
-  release-go-bindings:
-    name: "Release Go Bindings"
+  release-dotnet-bindings:
+    name: "Release .NET Bindings"
     needs: build-and-test-bindings
-    uses: ./.github/workflows/reusable-go-bindings-release.yaml
+    uses: ./.github/workflows/reusable-dotnet-bindings-release.yaml
     secrets:
-      gh-token: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
-
-  # ==========================================================================
-  # Job 4: Release Python bindings to PyPI
-  # ==========================================================================
-  release-python-bindings:
-    name: Upload release to PyPI
-    runs-on: ubuntu-latest
-    needs:
-      - build-and-test-bindings
-    permissions:
-      # IMPORTANT: this permission is mandatory for Trusted Publishing
-      id-token: write
-      contents: read
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          merge-multiple: true
-          path: dist
-          pattern: wheels-*
-
-      - name: Show files
-        run: ls -l dist
-
-      - name: Publish package distributions to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
-          packages-dir: dist
+      nuget-api-token: ${{ secrets.NUGET_API_TOKEN }}
