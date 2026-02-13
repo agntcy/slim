@@ -12,7 +12,9 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
 import { setTimeout as sleep } from 'node:timers/promises';
 
-import slimBindings from '@agntcy/slim-bindings-node';
+// @ts-expect-error - tsx resolves .js imports to .ts files at runtime; generated module has default export at runtime
+import slimBindings from '../generated/slim-bindings-node.js';
+
 
 // Test configuration - use random high port to avoid conflicts
 const TEST_SERVER_PORT = 50000 + Math.floor(Math.random() * 10000); // Random port 50000-60000

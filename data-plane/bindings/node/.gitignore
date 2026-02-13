@@ -9,6 +9,7 @@ generated/
 
 # TypeScript
 dist/
+.platform-pkg/
 *.tsbuildinfo
 
 # IDE

@@ -10,6 +10,7 @@ generated/
 # Build outputs
 dist/
 build/
+ios/static/
 *.wasm
 *.wasm.d.ts
 

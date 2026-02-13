@@ -150,9 +150,35 @@ tasks:
     cmds:
       - echo "🧹 Cleaning build artifacts..."
       - rm -rf generated/
+      - rm -rf .platform-pkg/
+      - rm -rf dist/
       - rm -rf examples/node_modules/
       - echo "✅ Clean complete"
     silent: true
+
+  # Emit TypeScript declarations from generated/ to types/ (for main package publish).
+  emit-types:
+    desc: Emit .d.ts from generated/ to types/ (run after generate)
+    cmds:
+      - test -d {{.TASKFILE_DIR}}/generated || (echo "Run task generate first"; exit 1)
+      - npx tsc -p {{.TASKFILE_DIR}}/tsconfig.emit-types.json
+      - echo "✅ Types emitted to types/"
+    silent: true
+
+  # Pack a platform-specific npm package (for CI publish).
+  # Requires: Rust lib built for TARGET. Produces dist/node-<platform>.tgz.
+  pack:platform:
+    desc: Pack platform-specific npm package (TARGET=, VERSION= optional)
+    vars:
+      VERSION: '{{.VERSION | default "0.7.0"}}'
+    deps:
+      - task: generate
+        vars:
+          TARGET: "{{.TARGET}}"
+    cmds:
+      - mkdir -p dist
+      - npx tsx {{.TASKFILE_DIR}}/scripts/pack-platform.ts "{{.TARGET}}" "{{.VERSION}}"
+    silent: false
 
   # Examples
   example:server:

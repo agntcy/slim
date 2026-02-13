@@ -3,7 +3,19 @@
 Node.js bindings for SLIM using UniFFI.
 Bindings generated with [uniffi-bindgen-node](https://github.com/livekit/uniffi-bindgen-node).
 
-## Prerequisites
+## Installation
+
+For released versions, install from npm (no Rust or build required):
+
+```bash
+npm install @agntcy/slim-bindings-node
+```
+
+This installs the main package and the matching platform-specific native addon for your OS/arch.
+
+To build from source (e.g. for development or unsupported platforms), see [Build from source](#build-from-source) below.
+
+## Prerequisites (build from source)
 
 - Rust toolchain
 - Node.js >= 18
@@ -11,7 +23,7 @@ Bindings generated with [uniffi-bindgen-node](https://github.com/livekit/uniffi-
 
 ## Usage
 
-### 1. Generate Bindings
+### 1. Generate Bindings (build from source)
 
 ```bash
 task generate
@@ -70,6 +82,19 @@ app.setRoute(name, Number(connId));
 
 This explicit conversion at API boundaries ensures type safety and makes FFI requirements visible.
 
+## Build from source
+
+If you need to build from source (development or a platform not yet published):
+
+1. Ensure Rust and Task are installed.
+2. Run `task generate` (builds the Rust lib and generates Node bindings).
+3. Use the bindings from `generated/` or run the examples with `task example:server`, etc.
+
+## Publishing (maintainers)
+
+- **Dry run**: From `data-plane/bindings/node`, run `npm pack` to produce a tarball and inspect contents (main package: no `generated/`; platform packages: `task pack:platform TARGET=<target>` then check `dist/node-<platform>.tgz`).
+- **Version**: Set in package.json; CI derives version from tag `slim-bindings-v*` via `.github/scripts/get-binding-version.sh`.
+- **Secrets**: `NPM_TOKEN` must be set in the repo for `npm publish`.
 
 ## Resources
 

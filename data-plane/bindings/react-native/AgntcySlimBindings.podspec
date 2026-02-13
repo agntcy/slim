@@ -20,28 +20,28 @@ Pod::Spec.new do |s|
   # Public headers for Objective-C
   s.public_header_files = "ios/*.h"
   
-  # Link against the Rust library
-  s.vendored_libraries = "../../target/aarch64-apple-ios-sim/debug/libslim_bindings.a"
-  
+  # Link against the Rust library (vendored in package for npm publish)
+  s.vendored_libraries = "$(PODS_TARGET_SRCROOT)/ios/static/aarch64-apple-ios-sim/libslim_bindings.a"
+
   # System frameworks required by the Rust library
   s.frameworks = 'Security', 'CoreFoundation'
   s.libraries = 'c++', 'resolv'
-  
+
   # Required for JSI
   s.dependency "React-Core"
   s.dependency "React-callinvoker"
   s.dependency "React-jsi"
-  
+
   s.pod_target_xcconfig = {
     "USE_HEADERMAP" => "YES",
     "HEADER_SEARCH_PATHS" => "\"$(PODS_ROOT)/Headers/Public/React-Codegen/react/renderer/components\" \"$(PODS_TARGET_SRCROOT)/generated/cpp\" \"$(PODS_TARGET_SRCROOT)/node_modules/uniffi-bindgen-react-native/cpp/includes\" \"$(PODS_ROOT)/Headers/Private/React-Core\" \"$(PODS_ROOT)/Headers/Public/React-jsi\"",
     "EXCLUDED_ARCHS[sdk=iphonesimulator*]" => "x86_64",
     "CLANG_CXX_LANGUAGE_STANDARD" => "c++20"
   }
-  
+
   # Force load the Rust library to ensure all UniFFI symbols are included
   s.xcconfig = {
-    "OTHER_LDFLAGS" => "-force_load \"$(PODS_ROOT)/../../../../../../../target/aarch64-apple-ios-sim/debug/libslim_bindings.a\""
+    "OTHER_LDFLAGS" => "-force_load \"$(PODS_TARGET_SRCROOT)/ios/static/aarch64-apple-ios-sim/libslim_bindings.a\""
   }
 
   install_modules_dependencies(s)

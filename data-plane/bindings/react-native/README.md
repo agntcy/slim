@@ -421,6 +421,10 @@ This is expected - see [WASM Support Status](#wasm-support-status).
 
 Integration tests expect failures without a running SLIM server. This is normal.
 
+## Publishing (maintainers)
+
+Releases are published to npm on tag `slim-bindings-*`. CI builds the iOS static lib, runs `task generate` and `task vendor:ios`, then `npm publish`. Ensure `NPM_TOKEN` is set in the repo. Dry run: run `task generate`, `task vendor:ios`, then `npm pack` and inspect the tarball.
+
 ## Contributing
 
 Contributions are welcome! Please see [CONTRIBUTING.md](../../../CONTRIBUTING.md) for guidelines.

@@ -48,6 +48,8 @@ vars:
           ;;
       esac
   LIB_PATH: "{{.LIB_PATH | default ._DEFAULT_LIB_PATH}}"
+  # iOS targets to vendor static libs for (for npm publish; podspec uses aarch64-apple-ios-sim)
+  IOS_VENDOR_TARGETS: "aarch64-apple-ios-sim"
 
 tasks:
   default:
@@ -109,8 +111,8 @@ tasks:
       - mkdir -p generated/typescript generated/cpp
       - |
         cd {{.BINDINGS_DIR}} && ubrn generate jsi bindings \
-          --ts-dir ../javascript/generated/typescript \
-          --cpp-dir ../javascript/generated/cpp \
+          --ts-dir ../react-native/generated/typescript \
+          --cpp-dir ../react-native/generated/cpp \
           --library \
           '{{.LIB_PATH}}'
       - echo "🔧 Fixing generator bug (async public → public async)... {{.TASKFILE_DIR}}"
@@ -318,12 +320,36 @@ tasks:
     cmds:
       - echo "🧹 Cleaning build artifacts..."
       - rm -rf generated/
+      - rm -rf ios/static/
       - rm -rf node_modules/
       - rm -rf dist/
       - rm -rf coverage/
       - cd {{.BINDINGS_DIR}} && cargo clean
       - echo "✅ Clean complete"
     silent: true
+
+  # Copy built iOS static libs into ios/static/<target>/ for npm publish (podspec uses vendored path).
+  # Requires: Rust libs built for each IOS_VENDOR_TARGETS (e.g. task adapter:bindings:build:all TARGET=aarch64-apple-ios-sim).
+  vendor:ios:
+    desc: Vendor iOS static libs into ios/static/ for publish
+    cmds:
+      - echo "📦 Vendoring iOS static libs..."
+      - |
+        TASKFILE_DIR="{{.TASKFILE_DIR}}"
+        TARGETS="{{.IOS_VENDOR_TARGETS}}"
+        for TARGET in $TARGETS; do
+          SRC="$TASKFILE_DIR/../../target/$TARGET/release/libslim_bindings.a"
+          DEST_DIR="$TASKFILE_DIR/ios/static/$TARGET"
+          if [ -f "$SRC" ]; then
+            mkdir -p "$DEST_DIR"
+            cp -v "$SRC" "$DEST_DIR/"
+            echo "  ✅ $TARGET"
+          else
+            echo "  ⚠️  Not found: $SRC"
+          fi
+        done
+      - echo "✅ Vendored to ios/static/"
+    silent: false
 
   # Development helpers
   watch:
