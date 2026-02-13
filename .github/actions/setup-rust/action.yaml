@@ -2,18 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-
 name: Setup Environment
 description: setup environment to build/test/lint rust applications
 inputs:
   toolchain:
-    description: 'Rust toolchain to use'
+    description: "Rust toolchain to use"
     required: false
-    default: 'stable'
+    default: "stable"
   workspace:
-    description: 'Cargo workspace to cache'
+    description: "Cargo workspace to cache"
     required: false
-    default: '.'
+    default: "."
 runs:
   using: "composite"
   steps:
