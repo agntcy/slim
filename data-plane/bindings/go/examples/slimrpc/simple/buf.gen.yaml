@@ -9,7 +9,7 @@ plugins:
       - paths=source_relative
 
   # Generates _slimrpc.pb.go files
-  - local: ../../../../../target/debug/protoc-gen-slimrpc-go
+  - local: ../../../../../target/release/protoc-gen-slimrpc-go
     out: types
     opt:
       - paths=source_relative

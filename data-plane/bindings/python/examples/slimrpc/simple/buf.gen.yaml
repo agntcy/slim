@@ -10,7 +10,7 @@ inputs:
   - proto_file: example.proto
 plugins:
   # Generates _pb2_slimrpc.py files
-  - local: ../../../../../target/debug/protoc-gen-slimrpc-python
+  - local: ../../../../../target/release/protoc-gen-slimrpc-python
     out: types
   # Generate python protobuf related code
   # Generates *_pb2.py files, one for each .proto
