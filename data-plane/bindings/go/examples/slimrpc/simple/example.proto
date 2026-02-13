@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package example_service;
 
+option go_package = "github.com/agntcy/slim/bindings/go/examples/slimrpc/simple/types";
+
 service Test {
   rpc ExampleUnaryUnary(ExampleRequest) returns (ExampleResponse);
   rpc ExampleUnaryStream(ExampleRequest) returns (stream ExampleResponse);
