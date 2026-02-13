@@ -92,7 +92,7 @@ tasks:
           --language kotlin \
           --config uniffi.toml \
           --no-format \
-          --out-dir generated
+          --out-dir ./generated
         BINDGEN_EXIT=$?
         set +x
         echo "uniffi-bindgen exit code: $BINDGEN_EXIT"
