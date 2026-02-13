@@ -447,7 +447,7 @@ jobs:
 
       - name: Generate Kotlin bindings
         run: |
-          task generate LIB_PATH=./artifacts/lib${{ env.LIBRARY_NAME }}_x86_64_linux_gnu.so SKIP_BUILD=true
+          task generate LIB_PATH=./artifacts/lib${{ env.LIBRARY_NAME }}_x86_64_linux_gnu.a SKIP_BUILD=true
 
           echo "📁 Generated files:"
           find ./data-plane/bindings/kotlin/generated -type f -ls
