@@ -262,6 +262,8 @@ tasks:
             {{.RELEASE}}
             {{.ARGS}}
           )
+          # Add environment variable for linker flags
+          export RUSTFLAGS="-C link-arg=-Wl,--export-dynamic"          
         else
           # For Windows MSVC/macOS, use regular cargo build without libc version
           ARGS=(
