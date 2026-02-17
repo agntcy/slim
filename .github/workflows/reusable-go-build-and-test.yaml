@@ -189,6 +189,7 @@ jobs:
 
     env:
       USE_LOCAL_BINDINGS: ${{ inputs.use-local-bindings && 'true' || 'false' }}
+      CGO_ENABLED: ${{ inputs.use-local-bindings && '1' || inputs.cgo-enabled }}
 
     steps:
       - name: Checkout Repo
@@ -213,8 +214,6 @@ jobs:
           path: /tmp
 
       - name: Build
-        env:
-          CGO_ENABLED: ${{ inputs.cgo-enabled }}
         run: |
           which go
           go env
