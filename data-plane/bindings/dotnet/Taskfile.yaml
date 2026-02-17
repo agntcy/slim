@@ -313,7 +313,7 @@ tasks:
     desc: "Create NuGet package (expects runtimes already copied)"
     vars:
       VERSION_RESOLVED:
-        sh: task _resolve-version VERSION="{{.VERSION}}" TAG_NAME="{{.TAG_NAME}}"
+        sh: task resolve-version VERSION="{{.VERSION}}" TAG_NAME="{{.TAG_NAME}}"
     cmds:
       - |
         if [[ ! -d "{{.RUNTIMES_DIR}}" ]] || [[ -z "$(ls -A {{.RUNTIMES_DIR}})" ]]; then
@@ -340,7 +340,7 @@ tasks:
     desc: "Run complete CI pipeline: generate bindings, copy runtimes, build, test, and pack"
     vars:
       VERSION_RESOLVED:
-        sh: task _resolve-version VERSION="{{.VERSION}}" TAG_NAME="{{.TAG_NAME}}"
+        sh: task resolve-version VERSION="{{.VERSION}}" TAG_NAME="{{.TAG_NAME}}"
     cmds:
       - |
         echo "=================================================="

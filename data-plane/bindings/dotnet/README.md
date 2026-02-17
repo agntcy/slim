@@ -35,18 +35,14 @@ To build the complete SDK, you need artifacts from the Rust bindings build:
 
 ```bash
 # From the root of the repository
-cd data-plane/bindings/rust
-task bindings:build:all TARGET=x86_64-unknown-linux-gnu PROFILE=release
-
-# Copy artifacts and build .NET bindings
-cd ../dotnet
-task ci ARTIFACTS_DIR=../../target/x86_64-unknown-linux-gnu/release BINDGEN_TARGET=x86_64-unknown-linux-gnu
+cd data-plane/bindings/dotnet
+task ci BINDGEN_TARGET=x86_64-unknown-linux-gnu PROFILE=release
 ```
 
 For development on a single platform:
 
 ```bash
-task generate ARTIFACTS_DIR=./artifacts BINDGEN_TARGET=x86_64-unknown-linux-gnu
+task generate
 task build
 task test
 ```
@@ -55,15 +51,15 @@ task test
 
 ### Main Classes
 
-| Class | Description |
-|-------|-------------|
-| `Slim` | Static entry point for initialization, shutdown, and global access |
-| `SlimService` | Service for managing connections and creating apps |
-| `SlimApp` | Application for managing sessions, subscriptions, and routing |
-| `SlimSession` | Session for sending and receiving messages |
-| `SlimName` | Identity in `org/namespace/app` format |
-| `SlimMessage` | Received message with `Payload` (bytes) and `Text` (string) |
-| `SlimSessionConfig` | Session configuration (type, MLS, retries) |
+| Class               | Description                                                        |
+| ------------------- | ------------------------------------------------------------------ |
+| `Slim`              | Static entry point for initialization, shutdown, and global access |
+| `SlimService`       | Service for managing connections and creating apps                 |
+| `SlimApp`           | Application for managing sessions, subscriptions, and routing      |
+| `SlimSession`       | Session for sending and receiving messages                         |
+| `SlimName`          | Identity in `org/namespace/app` format                             |
+| `SlimMessage`       | Received message with `Payload` (bytes) and `Text` (string)        |
+| `SlimSessionConfig` | Session configuration (type, MLS, retries)                         |
 
 ## Examples
 
@@ -73,6 +69,7 @@ The SDK includes complete working examples demonstrating real-world usage:
 - **Group Messaging** (`Slim.Examples.Group`): Group sessions with moderator/participant roles
 
 **Quick Start:**
+
 ```bash
 # Run receiver
 dotnet run --project Slim.Examples.PointToPoint -- --local org/alice/v1
@@ -93,6 +90,7 @@ task test
 ```
 
 For full integration testing with a SLIM server, you would need to:
+
 1. Start a SLIM server instance
 2. Run the example applications to verify functionality
 
@@ -118,27 +116,21 @@ task clean            # Clean all build artifacts
 If the Rust bindings change, you need to rebuild the Rust library first, then regenerate C# bindings:
 
 ```bash
-# Build Rust library for your platform
-cd ../rust
-task bindings:build:all TARGET=x86_64-unknown-linux-gnu PROFILE=release
-
-# Generate new C# bindings
-cd ../dotnet
-task generate ARTIFACTS_DIR=../../target/x86_64-unknown-linux-gnu/release BINDGEN_TARGET=x86_64-unknown-linux-gnu
+task generate
 ```
 
 ## Platform Support
 
-| Platform | Architecture | .NET RID | Status |
-|----------|--------------|----------|--------|
-| Linux (GNU) | x86_64 | linux-x64 | Supported |
-| Linux (GNU) | aarch64 | linux-arm64 | Supported |
-| Linux (musl) | x86_64 | linux-musl-x64 | Supported |
-| Linux (musl) | aarch64 | linux-musl-arm64 | Supported |
-| macOS | x86_64 | osx-x64 | Supported |
-| macOS | aarch64 | osx-arm64 | Supported |
-| Windows | x86_64 | win-x64 | Supported |
-| Windows | aarch64 | win-arm64 | Supported |
+| Platform     | Architecture | .NET RID         | Status    |
+| ------------ | ------------ | ---------------- | --------- |
+| Linux (GNU)  | x86_64       | linux-x64        | Supported |
+| Linux (GNU)  | aarch64      | linux-arm64      | Supported |
+| Linux (musl) | x86_64       | linux-musl-x64   | Supported |
+| Linux (musl) | aarch64      | linux-musl-arm64 | Supported |
+| macOS        | x86_64       | osx-x64          | Supported |
+| macOS        | aarch64      | osx-arm64        | Supported |
+| Windows      | x86_64       | win-x64          | Supported |
+| Windows      | aarch64      | win-arm64        | Supported |
 
 ## NuGet Package
 
@@ -160,8 +152,6 @@ The NuGet package is automatically published when a release tag is pushed (e.g.,
 2. Tests bindings locally with all platform libraries
 3. Creates a NuGet package with native libraries for all platforms
 4. Publishes to NuGet.org
-
-
 
 ## License
 
