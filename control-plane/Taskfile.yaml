@@ -88,7 +88,7 @@ tasks:
       - task: control-plane:gogen
       - task: control-plane:foreach-module
         vars:
-          CMD: "echo ${PWD} && {{.TOOLS_INSTALL_DIR}}/golangci-lint run"
+          CMD: "echo ${PWD} && CGO_ENABLED=1 {{.TOOLS_INSTALL_DIR}}/golangci-lint run"
 
   control-plane:impi:
     desc: Run go impi
