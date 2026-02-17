@@ -299,6 +299,20 @@ jobs:
           name: slim-bindings-go-src
           path: /tmp
 
+      - name: Restore bindings cache
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-cache
+          path: /tmp
+
+      - name: Restore Go bindings
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-go-src
+          path: /tmp
+
       - name: Build
         env:
           CGO_ENABLED: ${{ inputs.use-local-bindings && '1' || inputs.cgo-enabled }}
@@ -669,6 +683,20 @@ jobs:
 
       - name: Setup Go
         uses: ./.github/actions/setup-go
+
+      - name: Restore bindings cache
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-cache
+          path: /tmp
+
+      - name: Restore Go bindings
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-go-src
+          path: /tmp
 
       - name: Setup Rust
         if: ${{ inputs.use-local-bindings }}
