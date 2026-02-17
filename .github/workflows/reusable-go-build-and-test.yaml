@@ -220,7 +220,7 @@ jobs:
             tar -xzf /tmp/slim-bindings-cache.tgz -C "$CACHE_DIR"
           fi
 
-          task control-plane:build USE_LOCAL_BINDINGS=$USE_LOCAL_BINDINGS
+          CGO_ENABLED="$CGO_ENABLED" task control-plane:build USE_LOCAL_BINDINGS=$USE_LOCAL_BINDINGS
 
   lint:
     runs-on: ${{ inputs.runner }}
@@ -265,12 +265,12 @@ jobs:
             tar -xzf /tmp/slim-bindings-cache.tgz -C "$CACHE_DIR"
           fi
 
-          task control-plane:go-bindings:setup \
+          CGO_ENABLED="$CGO_ENABLED" task control-plane:go-bindings:setup \
             TARGETOS=$(go env GOOS) \
             TARGETARCH=$(go env GOARCH) \
             USE_LOCAL_BINDINGS=$USE_LOCAL_BINDINGS
 
-          task control-plane:lint control-plane:impi
+          CGO_ENABLED="$CGO_ENABLED" task control-plane:lint control-plane:impi
 
   govulncheck:
     runs-on: ${{ inputs.runner }}
@@ -318,12 +318,12 @@ jobs:
             tar -xzf /tmp/slim-bindings-cache.tgz -C "$CACHE_DIR"
           fi
 
-          task control-plane:go-bindings:setup \
+          CGO_ENABLED="$CGO_ENABLED" task control-plane:go-bindings:setup \
             TARGETOS=$(go env GOOS) \
             TARGETARCH=$(go env GOARCH) \
             USE_LOCAL_BINDINGS=$USE_LOCAL_BINDINGS
 
-          task control-plane:vuln
+          CGO_ENABLED="$CGO_ENABLED" task control-plane:vuln
 
   unittest-matrix:
     runs-on: ${{ inputs.runner }}
