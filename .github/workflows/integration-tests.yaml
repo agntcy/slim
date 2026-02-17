@@ -57,7 +57,6 @@ jobs:
             mkdir -p "$REPO_CACHE"
             cp -a "$CACHE_DIR/slim-bindings" "$REPO_CACHE/"
           fi
-
       - name: Generate Go bindings from cache
         run: |
           task -d ./data-plane/bindings/go generate-from-cache \
