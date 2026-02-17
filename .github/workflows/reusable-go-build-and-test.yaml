@@ -285,6 +285,20 @@ jobs:
           name: slim-bindings-go-src
           path: /tmp
 
+      - name: Restore bindings cache
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-cache
+          path: /tmp
+
+      - name: Restore Go bindings
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-go-src
+          path: /tmp
+
       - name: Build
         env:
           CGO_ENABLED: ${{ inputs.use-local-bindings && '1' || inputs.cgo-enabled }}
@@ -474,6 +488,20 @@ jobs:
       - name: Setup Go
         uses: ./.github/actions/setup-go
 
+      - name: Restore bindings cache
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-cache
+          path: /tmp
+
+      - name: Restore Go bindings
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-go-src
+          path: /tmp
+
       - name: Cache Build
         uses: actions/cache@v4
         with:
@@ -490,11 +518,17 @@ jobs:
             tar -xzf /tmp/slim-bindings-cache.tgz -C "$CACHE_DIR"
 
             REPO_ROOT="$(git rev-parse --show-toplevel)"
-            REPO_CACHE="$REPO_ROOT/.cgo-cache"
+            REPO_CACHE="$REPO_ROOT/../.cgo-cache"
             if [ -d "$CACHE_DIR/slim-bindings" ]; then
               mkdir -p "$REPO_CACHE"
               cp -a "$CACHE_DIR/slim-bindings" "$REPO_CACHE/"
             fi
+          fi
+
+          if [ "$USE_LOCAL_BINDINGS" = "true" ] && [ -f /tmp/slim-bindings-go-src.tgz ]; then
+            tar -xzf /tmp/slim-bindings-go-src.tgz \
+              -C ../data-plane/bindings/go/slim_bindings
+            export CGO_ENABLED=1
           fi
 
           task control-plane:test
@@ -549,6 +583,13 @@ jobs:
           name: slim-bindings-cache
           path: /tmp
 
+      - name: Restore Go bindings
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-go-src
+          path: /tmp
+
       - name: Cache Build
         uses: actions/cache@v4
         with:
@@ -564,6 +605,19 @@ jobs:
             CACHE_DIR="$(go env GOPATH)/.cgo-cache"
             mkdir -p "$CACHE_DIR"
             tar -xzf /tmp/slim-bindings-cache.tgz -C "$CACHE_DIR"
+
+            REPO_ROOT="$(git rev-parse --show-toplevel)"
+            REPO_CACHE="$REPO_ROOT/../.cgo-cache"
+            if [ -d "$CACHE_DIR/slim-bindings" ]; then
+              mkdir -p "$REPO_CACHE"
+              cp -a "$CACHE_DIR/slim-bindings" "$REPO_CACHE/"
+            fi
+          fi
+
+          if [ "$USE_LOCAL_BINDINGS" = "true" ] && [ -f /tmp/slim-bindings-go-src.tgz ]; then
+            tar -xzf /tmp/slim-bindings-go-src.tgz \
+              -C ../data-plane/bindings/go/slim_bindings
+            export CGO_ENABLED=1
           fi
 
           task control-plane:coverage
@@ -629,7 +683,7 @@ jobs:
         env:
           GOOS: ${{matrix.os}}
           GOARCH: ${{matrix.arch}}
-          CGO_ENABLED: ${{ inputs.cgo-enabled }}
+          CGO_ENABLED: ${{ inputs.use-local-bindings && '1' || inputs.cgo-enabled }}
         run: |
           which go
           go env
@@ -638,6 +692,18 @@ jobs:
             CACHE_DIR="$(go env GOPATH)/.cgo-cache"
             mkdir -p "$CACHE_DIR"
             tar -xzf /tmp/slim-bindings-cache.tgz -C "$CACHE_DIR"
+
+            REPO_ROOT="$(git rev-parse --show-toplevel)"
+            REPO_CACHE="$REPO_ROOT/../.cgo-cache"
+            if [ -d "$CACHE_DIR/slim-bindings" ]; then
+              mkdir -p "$REPO_CACHE"
+              cp -a "$CACHE_DIR/slim-bindings" "$REPO_CACHE/"
+            fi
+          fi
+
+          if [ "$USE_LOCAL_BINDINGS" = "true" ] && [ -f /tmp/slim-bindings-go-src.tgz ]; then
+            tar -xzf /tmp/slim-bindings-go-src.tgz \
+              -C ../data-plane/bindings/go/slim_bindings
           fi
 
           task control-plane:build USE_LOCAL_BINDINGS=$USE_LOCAL_BINDINGS
