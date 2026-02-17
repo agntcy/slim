@@ -214,6 +214,8 @@ jobs:
           path: /tmp
 
       - name: Build
+        env:
+          CGO_ENABLED: ${{ inputs.use-local-bindings && '1' || inputs.cgo-enabled }}
         run: |
           which go
           go env
@@ -263,6 +265,8 @@ jobs:
           path: /tmp
 
       - name: golint
+        env:
+          CGO_ENABLED: ${{ inputs.use-local-bindings && '1' || inputs.cgo-enabled }}
         run: |
           which go
           go env
@@ -294,6 +298,7 @@ jobs:
 
     env:
       USE_LOCAL_BINDINGS: ${{ inputs.use-local-bindings && 'true' || 'false' }}
+      CGO_ENABLED: ${{ inputs.use-local-bindings && '1' || inputs.cgo-enabled }}
 
     timeout-minutes: 30
     steps:
@@ -319,6 +324,8 @@ jobs:
           path: /tmp
 
       - name: Run `govuln`
+        env:
+          CGO_ENABLED: ${{ inputs.use-local-bindings && '1' || inputs.cgo-enabled }}
         run: |
           which go
           go env
