@@ -188,19 +188,26 @@ tasks:
             TARGETOS={{.TARGETOS}} \
             TARGETARCH={{.TARGETARCH}} \
             TARGETABI={{.TARGETABI}}
-          exit 0
+        else
+          echo "📦 Downloading bindings for {{.TARGETOS}}/{{.TARGETARCH}}/{{.TARGETABI}}"
+          # Unset GOOS/GOARCH so the tool is built for the current platform
+          unset GOOS
+          unset GOARCH
+          # But download bindings for the target platform
+          go run \
+            github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup \
+            -os={{.TARGETOS}} \
+            -arch={{.TARGETARCH}} \
+            -abi={{.TARGETABI}}
         fi
 
-        echo "📦 Downloading bindings for {{.TARGETOS}}/{{.TARGETARCH}}/{{.TARGETABI}}"
-        # Unset GOOS/GOARCH so the tool is built for the current platform
-        unset GOOS
-        unset GOARCH
-        # But download bindings for the target platform
-        go run \
-          github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup \
-          -os={{.TARGETOS}} \
-          -arch={{.TARGETARCH}} \
-          -abi={{.TARGETABI}}
+        GOPATH_DIR=$(go env GOPATH)
+        CACHE_DIR="$GOPATH_DIR/.cgo-cache/slim-bindings"
+        if [ -d "$CACHE_DIR" ]; then
+          REPO_CACHE="{{.REPO_ROOT}}/.cgo-cache"
+          mkdir -p "$REPO_CACHE"
+          cp -a "$CACHE_DIR" "$REPO_CACHE/"
+        fi
 
   control-plane:go-bindings:install-local:
     desc: Build bindings locally and install into the CGO cache
