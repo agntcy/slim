@@ -199,6 +199,43 @@ tasks:
       - npx tsx {{.TASKFILE_DIR}}/scripts/pack-platform.ts "{{.TARGET}}" "{{.VERSION}}"
     silent: false
 
+  # Pack using pre-generated bindings (CI: generate once, then pack per target).
+  # Requires: generated/ exists (from generate-node-bindings-once job); library in ../../target/TARGET/release.
+  pack:platform:from-artifacts:
+    desc: Pack platform package using existing generated/ and target library (no generate)
+    dir: "{{.TASKFILE_DIR}}"
+    vars:
+      VERSION: '{{.VERSION | default "0.7.0"}}'
+    cmds:
+      - |
+        TARGET="{{.TARGET}}"
+        TASKFILE_DIR="{{.TASKFILE_DIR}}"
+        LIB_NAME="{{.LIB_NAME}}"
+        RELEASE_DIR="${TASKFILE_DIR}/../../target/${TARGET}/release"
+        GEN_DIR="${TASKFILE_DIR}/generated"
+        test -d "$GEN_DIR" || { echo "generated/ not found. Run generate-node-bindings-once job first."; exit 1; }
+        case "$TARGET" in
+          *-apple-darwin)  DYLIB_EXT="dylib"; DYLIB_PREFIX="lib" ;;
+          *-linux-*)       DYLIB_EXT="so";    DYLIB_PREFIX="lib" ;;
+          *-windows-*|*-msvc) DYLIB_EXT="dll"; DYLIB_PREFIX="" ;;
+          *)               DYLIB_EXT="so";    DYLIB_PREFIX="lib" ;;
+        esac
+        CANONICAL="${DYLIB_PREFIX}${LIB_NAME}.${DYLIB_EXT}"
+        # Copy dynamic lib only (.so / .dylib / .dll); artifact may also contain .a, .rlib
+        for f in "$RELEASE_DIR"/*.so "$RELEASE_DIR"/*.dylib "$RELEASE_DIR"/*.dll; do
+          [ -f "$f" ] || continue
+          cp -v "$f" "$GEN_DIR/$CANONICAL"
+          break
+        done
+        if [ ! -f "$GEN_DIR/$CANONICAL" ]; then
+          echo "No dynamic library (*.so, *.dylib, *.dll) found in $RELEASE_DIR"
+          ls -la "$RELEASE_DIR/" 2>/dev/null || true
+          exit 1
+        fi
+      - mkdir -p dist
+      - npx tsx {{.TASKFILE_DIR}}/scripts/pack-platform.ts "{{.TARGET}}" "{{.VERSION}}"
+    silent: false
+
   # Examples
   example:server:
     desc: Run the SLIM Node.js server
