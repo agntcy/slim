@@ -50,6 +50,8 @@ repository, which contains production-ready SLIM configurations.
 Log level can be controlled via the RUST_LOG environment variable.
 
 All configuration validation is performed by the bindings library.`,
+		SilenceErrors: true,
+		SilenceUsage:  true,
 		RunE: func(c *cobra.Command, _ []string) error {
 			// Create config manager - just manages paths, no validation
 			configMgr := config.New(configFile)

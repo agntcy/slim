@@ -8,6 +8,7 @@
 
 use std::sync::{Arc, OnceLock};
 
+use display_error_chain::ErrorChainExt;
 use futures_timer::Delay;
 use tracing::{debug, info};
 
@@ -76,27 +77,8 @@ struct GlobalState {
 pub fn initialize_from_config(config_path: String) {
     // Use get_or_init for atomic initialization
     GLOBAL_STATE.get_or_init(|| {
-        // Load configuration
-        let mut config = ConfigLoader::new(&config_path).expect("Failed to create config loader");
-
-        // Get configurations
-        let runtime_config = config.runtime().clone();
-        let tracing_conf = config.tracing().clone();
-        let service_configs: Vec<CoreServiceConfiguration> = match config.services_config() {
-            Ok(services) => {
-                if !services.is_empty() {
-                    debug!("Using service configuration from config file");
-                    services.values().cloned().collect()
-                } else {
-                    debug!("No services in config, using default");
-                    vec![CoreServiceConfiguration::default()]
-                }
-            }
-            Err(_) => {
-                debug!("No services section in config, using default");
-                vec![CoreServiceConfiguration::default()]
-            }
-        };
+        let (runtime_config, tracing_conf, service_configs) =
+            load_configs(&config_path).unwrap_or_else(|e| panic!("Initialization failed: {}", e));
 
         // Perform initialization and return config
         initialize_internal(
@@ -106,6 +88,26 @@ pub fn initialize_from_config(config_path: String) {
         )
         .unwrap_or_else(|e| panic!("Initialization failed: {}", e))
     });
+}
+
+/// Initialize SLIM bindings from a configuration file and return errors
+/// instead of panicking.
+#[uniffi::export]
+pub fn initialize_from_config_with_error(config_path: String) -> Result<(), SlimError> {
+    if GLOBAL_STATE.get().is_some() {
+        return Ok(());
+    }
+
+    let (runtime_config, tracing_conf, service_configs) = load_configs(&config_path)?;
+    let global_state = initialize_internal(runtime_config, tracing_conf, &service_configs)?;
+
+    GLOBAL_STATE
+        .set(global_state)
+        .map_err(|_| SlimError::InternalError {
+            message: "Global state already initialized".to_string(),
+        })?;
+
+    Ok(())
 }
 
 /// Initialize SLIM bindings with custom configuration structs
@@ -153,6 +155,41 @@ pub fn initialize_with_configs(
         .unwrap_or_else(|e| panic!("Initialization failed: {}", e))
     });
     Ok(())
+}
+
+fn load_configs(
+    config_path: &str,
+) -> Result<
+    (
+        CoreRuntimeConfiguration,
+        CoreTracingConfiguration,
+        Vec<CoreServiceConfiguration>,
+    ),
+    SlimError,
+> {
+    let mut config = ConfigLoader::new(config_path).map_err(|e| SlimError::ConfigError {
+        message: e.chain().to_string(),
+    })?;
+
+    let runtime_config = config.runtime().clone();
+    let tracing_conf = config.tracing().clone();
+    let service_configs: Vec<CoreServiceConfiguration> = match config.services_config() {
+        Ok(services) => {
+            if !services.is_empty() {
+                debug!("Using service configuration from config file");
+                services.values().cloned().collect()
+            } else {
+                debug!("No services in config, using default");
+                vec![CoreServiceConfiguration::default()]
+            }
+        }
+        Err(_) => {
+            debug!("No services section in config, using default");
+            vec![CoreServiceConfiguration::default()]
+        }
+    };
+
+    Ok((runtime_config, tracing_conf, service_configs))
 }
 
 /// Initialize SLIM bindings with default configuration
@@ -385,7 +422,7 @@ async fn initialize_and_start_global_services(
                     );
                 } else {
                     return Err(SlimError::ServiceError {
-                        message: format!("Failed to start service {}: {}", idx, e),
+                        message: format!("Failed to start service {}: {}", idx, e.chain()),
                     });
                 }
             }
