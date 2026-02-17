@@ -381,6 +381,13 @@ tasks:
             ;;
         esac
 
+        GOPATH_DIR=$(go env GOPATH)
+        CACHE_DIR="$GOPATH_DIR/.cgo-cache/slim-bindings"
+        if [ -f "$CACHE_DIR/$LIB_NAME" ]; then
+          echo "✅ Bindings already cached at $CACHE_DIR/$LIB_NAME"
+          exit 0
+        fi
+
         echo "🦀 Building bindings for $RUST_TARGET"
         task -d {{.REPO_ROOT}}/data-plane/bindings/rust bindings:build:all \
           TARGET="$RUST_TARGET" \
@@ -392,8 +399,6 @@ tasks:
           exit 1
         fi
 
-        GOPATH_DIR=$(go env GOPATH)
-        CACHE_DIR="$GOPATH_DIR/.cgo-cache/slim-bindings"
         mkdir -p "$CACHE_DIR"
 
         cp "$SRC_LIB" "$CACHE_DIR/$LIB_NAME"

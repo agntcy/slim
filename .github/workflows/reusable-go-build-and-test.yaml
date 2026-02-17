@@ -118,11 +118,9 @@ jobs:
 
   bindings-cache:
     runs-on: ${{ inputs.runner }}
-
     permissions:
       contents: read
       actions: write
-
     defaults:
       run:
         shell: bash
@@ -138,7 +136,6 @@ jobs:
       - name: Setup Go
         if: ${{ inputs.use-local-bindings }}
         uses: ./.github/actions/setup-go
-
       - name: Set GOPATH
         if: ${{ inputs.use-local-bindings }}
         run: |
@@ -153,13 +150,11 @@ jobs:
           key: bindings-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('data-plane/**/Cargo.lock') }}
           restore-keys: |
             bindings-${{ runner.os }}-${{ runner.arch }}-
-
       - name: Setup Rust
         if: ${{ inputs.use-local-bindings }}
         uses: ./.github/actions/setup-rust
         with:
           workspace: ./data-plane
-
       - name: Ensure bindings cache
         if: ${{ inputs.use-local-bindings }}
         run: |
@@ -239,14 +234,12 @@ jobs:
           tar -czf /tmp/slim-bindings-go-src.tgz \
             -C ../data-plane/bindings/go/slim_bindings \
             slim_bindings.go slim_bindings.h
-
       - name: Upload bindings cache
         if: ${{ inputs.use-local-bindings }}
         uses: actions/upload-artifact@v4
         with:
           name: slim-bindings-cache
           path: /tmp/slim-bindings-cache.tgz
-
       - name: Upload Go bindings
         if: ${{ inputs.use-local-bindings }}
         uses: actions/upload-artifact@v4
@@ -279,33 +272,11 @@ jobs:
       - name: Setup Go
         uses: ./.github/actions/setup-go
 
-      - name: Restore bindings cache
+      - name: Setup Rust
         if: ${{ inputs.use-local-bindings }}
-        uses: actions/download-artifact@v4
+        uses: ./.github/actions/setup-rust
         with:
-          name: slim-bindings-cache
-          path: /tmp
-
-      - name: Restore Go bindings
-        if: ${{ inputs.use-local-bindings }}
-        uses: actions/download-artifact@v4
-        with:
-          name: slim-bindings-go-src
-          path: /tmp
-
-      - name: Restore bindings cache
-        if: ${{ inputs.use-local-bindings }}
-        uses: actions/download-artifact@v4
-        with:
-          name: slim-bindings-cache
-          path: /tmp
-
-      - name: Restore Go bindings
-        if: ${{ inputs.use-local-bindings }}
-        uses: actions/download-artifact@v4
-        with:
-          name: slim-bindings-go-src
-          path: /tmp
+          workspace: ./data-plane
 
       - name: Restore bindings cache
         if: ${{ inputs.use-local-bindings }}
@@ -349,7 +320,6 @@ jobs:
           fi
 
           CGO_ENABLED="$CGO_ENABLED" task control-plane:build USE_LOCAL_BINDINGS=$USE_LOCAL_BINDINGS
-
   lint:
     runs-on: ${{ inputs.runner }}
 
@@ -391,6 +361,13 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           workspace: ./data-plane
+
+      - name: Restore bindings cache
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-cache
+          path: /tmp
 
       - name: golint
         env:
@@ -470,6 +447,13 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           workspace: ./data-plane
+
+      - name: Restore bindings cache
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-cache
+          path: /tmp
 
       - name: Run `govuln`
         env:
@@ -601,11 +585,7 @@ jobs:
         working-directory: ${{ inputs.working-directory }}
 
     if: ${{ inputs.go-test-coverage }}
-
     needs: [setup-environment, bindings-cache, build]
-
-    env:
-      USE_LOCAL_BINDINGS: ${{ inputs.use-local-bindings && 'true' || 'false' }}
 
     env:
       USE_LOCAL_BINDINGS: ${{ inputs.use-local-bindings && 'true' || 'false' }}
@@ -625,14 +605,12 @@ jobs:
         with:
           name: slim-bindings-cache
           path: /tmp
-
       - name: Restore Go bindings
         if: ${{ inputs.use-local-bindings }}
         uses: actions/download-artifact@v4
         with:
           name: slim-bindings-go-src
           path: /tmp
-
       - name: Cache Build
         uses: actions/cache@v4
         with:
@@ -678,9 +656,6 @@ jobs:
     if: ${{ inputs.go-cross-build }}
 
     needs: [setup-environment, bindings-cache, build]
-
-    env:
-      USE_LOCAL_BINDINGS: ${{ inputs.use-local-bindings && 'true' || 'false' }}
 
     env:
       USE_LOCAL_BINDINGS: ${{ inputs.use-local-bindings && 'true' || 'false' }}
