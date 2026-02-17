@@ -127,12 +127,6 @@ jobs:
         with:
           dotnet-version: ${{ inputs.dotnet-version }}
 
-      - name: Setup Task
-        uses: ./.github/actions/setup-task
-        with:
-          version: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
       # Download library artifacts from previous job
       - name: Download library artifacts
         uses: actions/download-artifact@v4
