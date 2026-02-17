@@ -177,13 +177,32 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: bindings-${{ matrix.target }}
+          # Default path is workspace; download-by-name extracts artifact contents
+          # directly into path (no artifact-named subdir). Upload path was
+          # data-plane/target/<target>/release/*, so files land in that path.
+          path: .
 
       - name: Place library for Node generate
         run: |
-          ARTIFACT_DIR="bindings-${{ matrix.target }}"
-          mkdir -p "data-plane/target/${{ matrix.target }}/release"
-          cp -v "$ARTIFACT_DIR"/* "data-plane/target/${{ matrix.target }}/release/"
-          ls -la "data-plane/target/${{ matrix.target }}/release/"
+          RELEASE_DIR="data-plane/target/${{ matrix.target }}/release"
+          mkdir -p "$RELEASE_DIR"
+          # download-artifact by name extracts contents directly into path (no subdir).
+          # Upload path was data-plane/target/<target>/release/*; if structure preserved, files are already there.
+          if [ -n "$(ls -A "$RELEASE_DIR" 2>/dev/null)" ]; then
+            echo "Library files (from artifact path):"
+            ls -la "$RELEASE_DIR/"
+            exit 0
+          fi
+          # Fallback: find *slim_bindings* anywhere (flattened or under artifact-named subdir) and copy
+          find . -name '*slim_bindings*' -type f -exec cp -v {} "$RELEASE_DIR/" \; 2>/dev/null
+          if [ -n "$(ls -A "$RELEASE_DIR" 2>/dev/null)" ]; then
+            echo "Library files (copied):"
+            ls -la "$RELEASE_DIR/"
+            exit 0
+          fi
+          echo "No library files found after download."
+          ls -laR . 2>/dev/null | head -80
+          exit 1
 
       - name: Build and pack Node platform package
         working-directory: ./data-plane/bindings/node

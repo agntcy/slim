@@ -47,28 +47,43 @@ tasks:
       - echo "📦 Installing uniffi-bindgen-node..."
       - cargo install --git https://github.com/livekit/uniffi-bindgen-node.git --tag uniffi-bindgen-node@0.1.3
 
-  generate:
-    desc: Generate Node.js bindings using uniffi-bindgen-node
+  # Only builds when library is missing (CI places it from artifact; local dev builds).
+  ensure-bindings-lib:
+    desc: Build Rust bindings lib if not already in target release dir
     dir: "{{.TASKFILE_DIR}}"
-    deps:
+    status:
+      - sh -c 'find "{{.TASKFILE_DIR}}/../../target/{{.TARGET}}/release" -maxdepth 1 -name "*slim_bindings*" -type f 2>/dev/null | grep -q .'
+    cmds:
       - task: adapter:bindings:build:all
         vars:
           TARGET: "{{.TARGET}}"
           PROFILE: release
+
+  generate:
+    desc: Generate Node.js bindings using uniffi-bindgen-node
+    dir: "{{.TASKFILE_DIR}}"
+    deps:
+      - task: ensure-bindings-lib
+        vars:
+          TARGET: "{{.TARGET}}"
       - task: install-uniffi-bindgen-node
     cmds:
       - echo "🔧 Generating Node.js bindings..."
       - |
         # Compute library path with release profile.
-        # Prefer default name (libslim_bindings.so) when present so we use the library built in this job
-        # (avoids ABI mismatch; CI also downloads renamed libslim_bindings_arch_os_abi.so from artifacts).
+        # DYLIB_EXT/DYLIB_PREFIX must be derived from TARGET (not host) so CI on Linux finds .dylib for darwin artifacts.
         PROFILE="release"
         TARGET="{{.TARGET}}"
-        DYLIB_EXT="{{.DYLIB_EXT}}"
-        DYLIB_PREFIX="{{.DYLIB_PREFIX}}"
         TASKFILE_DIR="{{.TASKFILE_DIR}}"
         LIB_NAME="{{.LIB_NAME}}"
         RELEASE_DIR="${TASKFILE_DIR}/../../target/${TARGET}/${PROFILE}"
+
+        case "$TARGET" in
+          *-apple-darwin)  DYLIB_EXT="dylib"; DYLIB_PREFIX="lib" ;;
+          *-linux-*)       DYLIB_EXT="so";    DYLIB_PREFIX="lib" ;;
+          *-windows-*|*-msvc) DYLIB_EXT="dll"; DYLIB_PREFIX="" ;;
+          *)               DYLIB_EXT="so";    DYLIB_PREFIX="lib" ;;
+        esac
 
         ARCH=$(echo "$TARGET" | cut -d'-' -f1)
         OS=$(echo "$TARGET" | cut -d'-' -f3)
@@ -105,12 +120,16 @@ tasks:
           --out-dir generated \
           "${DYLIB_PATH}"
       - |
-        # Copy the dynamic library to the generated directory as libslim_bindings.so
-        # (generated code expects this name; source may be renamed e.g. libslim_bindings_x86_64_linux_gnu.so)
+        # Copy the dynamic library to the generated directory (generated code expects libslim_bindings.<ext>).
         DYLIB_PATH=$(cat /tmp/slim-node-dylib-path.txt)
-        DYLIB_PREFIX="{{.DYLIB_PREFIX}}"
         LIB_NAME="{{.LIB_NAME}}"
-        DYLIB_EXT="{{.DYLIB_EXT}}"
+        TARGET="{{.TARGET}}"
+        case "$TARGET" in
+          *-apple-darwin)  DYLIB_EXT="dylib"; DYLIB_PREFIX="lib" ;;
+          *-linux-*)       DYLIB_EXT="so";    DYLIB_PREFIX="lib" ;;
+          *-windows-*|*-msvc) DYLIB_EXT="dll"; DYLIB_PREFIX="" ;;
+          *)               DYLIB_EXT="so";    DYLIB_PREFIX="lib" ;;
+        esac
         CANONICAL_NAME="${DYLIB_PREFIX}${LIB_NAME}.${DYLIB_EXT}"
         echo "📦 Copying dynamic library to generated/${CANONICAL_NAME}..."
         cp "${DYLIB_PATH}" "generated/${CANONICAL_NAME}"
