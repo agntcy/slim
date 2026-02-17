@@ -445,12 +445,6 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
-      - name: Setup Task
-        uses: ./.github/actions/setup-task
-        with:
-          version: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
       # Download all library artifacts from the build-libraries job
       - name: Download library artifacts
         uses: actions/download-artifact@v4
@@ -471,7 +465,7 @@ jobs:
           if [[ -n "${{ inputs.tag-name }}" ]]; then
             TAG_NAME_PARAM="TAG_NAME=${{ inputs.tag-name }}"
           fi
-          
+
           task ci \
             ARTIFACTS_DIR=./artifacts \
             OUTPUT_DIR=./nupkg \
