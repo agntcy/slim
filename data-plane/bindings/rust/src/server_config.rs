@@ -75,30 +75,39 @@ pub struct ServerConfig {
     pub tls: TlsServerConfig,
 
     /// Use HTTP/2 only (default: true)
-    pub http2_only: bool,
+    #[uniffi(default = None)]
+    pub http2_only: Option<bool>,
 
     /// Maximum size (in MiB) of messages accepted by the server
+    #[uniffi(default = None)]
     pub max_frame_size: Option<u32>,
 
     /// Maximum number of concurrent streams per connection
+    #[uniffi(default = None)]
     pub max_concurrent_streams: Option<u32>,
 
     /// Maximum header list size in bytes
+    #[uniffi(default = None)]
     pub max_header_list_size: Option<u32>,
 
     /// Read buffer size in bytes
+    #[uniffi(default = None)]
     pub read_buffer_size: Option<u64>,
 
     /// Write buffer size in bytes
+    #[uniffi(default = None)]
     pub write_buffer_size: Option<u64>,
 
     /// Keepalive parameters
-    pub keepalive: KeepaliveServerParameters,
+    #[uniffi(default = None)]
+    pub keepalive: Option<KeepaliveServerParameters>,
 
     /// Authentication configuration for incoming requests
-    pub auth: ServerAuthenticationConfig,
+    #[uniffi(default = None)]
+    pub auth: Option<ServerAuthenticationConfig>,
 
     /// Arbitrary user-provided metadata as JSON string
+    #[uniffi(default = None)]
     pub metadata: Option<String>,
 }
 
@@ -108,34 +117,46 @@ impl Default for ServerConfig {
         ServerConfig {
             endpoint: core_defaults.endpoint,
             tls: core_defaults.tls_setting.into(),
-            http2_only: core_defaults.http2_only,
-            max_frame_size: core_defaults.max_frame_size,
-            max_concurrent_streams: core_defaults.max_concurrent_streams,
-            max_header_list_size: core_defaults.max_header_list_size,
-            read_buffer_size: core_defaults.read_buffer_size.map(|s| s as u64),
-            write_buffer_size: core_defaults.write_buffer_size.map(|s| s as u64),
-            keepalive: core_defaults.keepalive.into(),
-            auth: core_defaults.auth.into(),
-            metadata: core_defaults
-                .metadata
-                .and_then(|m| serde_json::to_string(&m).ok()),
+            http2_only: None,
+            max_frame_size: None,
+            max_concurrent_streams: None,
+            max_header_list_size: None,
+            read_buffer_size: None,
+            write_buffer_size: None,
+            keepalive: None,
+            auth: None,
+            metadata: None,
         }
     }
 }
 
 impl From<ServerConfig> for CoreServerConfig {
     fn from(config: ServerConfig) -> Self {
+        let core_defaults = CoreServerConfig::default();
         CoreServerConfig {
             endpoint: config.endpoint,
             tls_setting: config.tls.into(),
-            http2_only: config.http2_only,
-            max_frame_size: config.max_frame_size,
-            max_concurrent_streams: config.max_concurrent_streams,
-            max_header_list_size: config.max_header_list_size,
-            read_buffer_size: config.read_buffer_size.map(|s| s as usize),
-            write_buffer_size: config.write_buffer_size.map(|s| s as usize),
-            keepalive: config.keepalive.into(),
-            auth: config.auth.into(),
+            http2_only: config.http2_only.unwrap_or(core_defaults.http2_only),
+            max_frame_size: config.max_frame_size.or(core_defaults.max_frame_size),
+            max_concurrent_streams: config
+                .max_concurrent_streams
+                .or(core_defaults.max_concurrent_streams),
+            max_header_list_size: config
+                .max_header_list_size
+                .or(core_defaults.max_header_list_size),
+            read_buffer_size: config
+                .read_buffer_size
+                .map(|s| s as usize)
+                .or(core_defaults.read_buffer_size),
+            write_buffer_size: config
+                .write_buffer_size
+                .map(|s| s as usize)
+                .or(core_defaults.write_buffer_size),
+            keepalive: config
+                .keepalive
+                .map(Into::into)
+                .unwrap_or(core_defaults.keepalive),
+            auth: config.auth.map(Into::into).unwrap_or(core_defaults.auth),
             metadata: config
                 .metadata
                 .and_then(|json| serde_json::from_str::<MetadataMap>(&json).ok()),
@@ -148,14 +169,14 @@ impl From<CoreServerConfig> for ServerConfig {
         ServerConfig {
             endpoint: config.endpoint,
             tls: config.tls_setting.into(),
-            http2_only: config.http2_only,
+            http2_only: Some(config.http2_only),
             max_frame_size: config.max_frame_size,
             max_concurrent_streams: config.max_concurrent_streams,
             max_header_list_size: config.max_header_list_size,
             read_buffer_size: config.read_buffer_size.map(|s| s as u64),
             write_buffer_size: config.write_buffer_size.map(|s| s as u64),
-            keepalive: config.keepalive.into(),
-            auth: config.auth.into(),
+            keepalive: Some(config.keepalive.into()),
+            auth: Some(config.auth.into()),
             metadata: config.metadata.and_then(|m| serde_json::to_string(&m).ok()),
         }
     }
@@ -199,41 +220,47 @@ mod tests {
                     key: "/key.pem".to_string(),
                 },
                 client_ca: CaSource::None,
-                include_system_ca_certs_pool: true,
-                tls_version: "tls1.3".to_string(),
-                reload_client_ca_file: false,
+                include_system_ca_certs_pool: Some(true),
+                tls_version: Some("tls1.3".to_string()),
+                reload_client_ca_file: Some(false),
             },
-            http2_only: true,
-            max_frame_size: None,
-            max_concurrent_streams: None,
-            max_header_list_size: None,
-            read_buffer_size: None,
-            write_buffer_size: None,
-            keepalive: KeepaliveServerParameters::default(),
-            auth: ServerAuthenticationConfig::None,
-            metadata: None,
+            http2_only: Some(true),
+            ..Default::default()
         };
 
         assert_eq!(config.endpoint, "127.0.0.1:8080");
         assert!(!config.tls.insecure);
-        assert_eq!(config.tls.tls_version, "tls1.3");
-        assert!(config.http2_only);
+        assert_eq!(config.tls.tls_version, Some("tls1.3".to_string()));
+        assert_eq!(config.http2_only, Some(true));
     }
 
     #[test]
     fn test_server_config_default() {
         let config = ServerConfig::default();
 
-        // Verify defaults match core defaults
+        // Verify defaults are all None (core defaults applied during conversion)
         assert_eq!(config.endpoint, "");
-        assert!(config.http2_only);
-        assert_eq!(config.max_frame_size, Some(4));
-        assert_eq!(config.max_concurrent_streams, Some(100));
+        assert_eq!(config.http2_only, None);
+        assert_eq!(config.max_frame_size, None);
+        assert_eq!(config.max_concurrent_streams, None);
         assert_eq!(config.max_header_list_size, None);
-        assert_eq!(config.read_buffer_size, Some(1024 * 1024));
-        assert_eq!(config.write_buffer_size, Some(1024 * 1024));
-        assert!(matches!(config.auth, ServerAuthenticationConfig::None));
+        assert_eq!(config.read_buffer_size, None);
+        assert_eq!(config.write_buffer_size, None);
+        assert_eq!(config.keepalive, None);
+        assert_eq!(config.auth, None);
         assert_eq!(config.metadata, None);
+
+        // Verify core defaults are applied when converting to CoreServerConfig
+        let core: CoreServerConfig = config.into();
+        assert!(core.http2_only);
+        assert_eq!(core.max_frame_size, Some(4));
+        assert_eq!(core.max_concurrent_streams, Some(100));
+        assert_eq!(core.read_buffer_size, Some(1024 * 1024));
+        assert_eq!(core.write_buffer_size, Some(1024 * 1024));
+        assert_eq!(
+            core.auth,
+            slim_config::grpc::server::AuthenticationConfig::None
+        );
     }
 
     #[test]
@@ -241,9 +268,9 @@ mod tests {
         let config = new_server_config("0.0.0.0:50051".to_string());
 
         assert_eq!(config.endpoint, "0.0.0.0:50051");
-        // Other fields should be defaults
-        assert!(config.http2_only);
-        assert!(matches!(config.auth, ServerAuthenticationConfig::None));
+        // Other fields should be None defaults
+        assert_eq!(config.http2_only, None);
+        assert_eq!(config.auth, None);
     }
 
     #[test]
@@ -252,7 +279,7 @@ mod tests {
 
         assert_eq!(config.endpoint, "[::]:50051");
         assert!(config.tls.insecure);
-        assert!(config.http2_only);
+        assert_eq!(config.http2_only, None);
     }
 
     #[test]
@@ -260,14 +287,14 @@ mod tests {
         let ffi_config = ServerConfig {
             endpoint: "127.0.0.1:8080".to_string(),
             tls: TlsServerConfig::default(),
-            http2_only: false,
+            http2_only: Some(false),
             max_frame_size: Some(8),
             max_concurrent_streams: Some(200),
             max_header_list_size: Some(8192),
             read_buffer_size: Some(2048),
             write_buffer_size: Some(2048),
-            keepalive: KeepaliveServerParameters::default(),
-            auth: ServerAuthenticationConfig::None,
+            keepalive: Some(KeepaliveServerParameters::default()),
+            auth: Some(ServerAuthenticationConfig::None),
             metadata: Some(r#"{"key":"value"}"#.to_string()),
         };
 
@@ -292,7 +319,7 @@ mod tests {
         let ffi_config: ServerConfig = core_config.clone().into();
 
         assert_eq!(ffi_config.endpoint, core_config.endpoint);
-        assert_eq!(ffi_config.http2_only, core_config.http2_only);
+        assert_eq!(ffi_config.http2_only, Some(core_config.http2_only));
         assert_eq!(ffi_config.max_frame_size, core_config.max_frame_size);
         assert_eq!(
             ffi_config.max_concurrent_streams,
@@ -309,14 +336,14 @@ mod tests {
         let original = ServerConfig {
             endpoint: "localhost:9090".to_string(),
             tls: TlsServerConfig::default(),
-            http2_only: true,
+            http2_only: Some(true),
             max_frame_size: Some(16),
             max_concurrent_streams: Some(500),
             max_header_list_size: Some(16384),
             read_buffer_size: Some(4096),
             write_buffer_size: Some(4096),
-            keepalive: KeepaliveServerParameters::default(),
-            auth: ServerAuthenticationConfig::None,
+            keepalive: Some(KeepaliveServerParameters::default()),
+            auth: Some(ServerAuthenticationConfig::None),
             metadata: None,
         };
 
@@ -383,15 +410,8 @@ mod tests {
         let config = ServerConfig {
             endpoint: "test:8080".to_string(),
             tls: TlsServerConfig::default(),
-            http2_only: true,
-            max_frame_size: None,
-            max_concurrent_streams: None,
-            max_header_list_size: None,
-            read_buffer_size: None,
-            write_buffer_size: None,
-            keepalive: KeepaliveServerParameters::default(),
-            auth: ServerAuthenticationConfig::None,
             metadata: Some(r#"{"env":"test","version":1}"#.to_string()),
+            ..Default::default()
         };
 
         let core: CoreServerConfig = config.into();
@@ -407,15 +427,8 @@ mod tests {
         let config = ServerConfig {
             endpoint: "test:8080".to_string(),
             tls: TlsServerConfig::default(),
-            http2_only: true,
-            max_frame_size: None,
-            max_concurrent_streams: None,
-            max_header_list_size: None,
-            read_buffer_size: None,
-            write_buffer_size: None,
-            keepalive: KeepaliveServerParameters::default(),
-            auth: ServerAuthenticationConfig::None,
             metadata: Some("invalid json".to_string()),
+            ..Default::default()
         };
 
         let core: CoreServerConfig = config.into();
@@ -518,7 +531,7 @@ mod tests {
 
         // Verify all fields are correctly converted
         assert_eq!(ffi_config.endpoint, "0.0.0.0:8443");
-        assert!(!ffi_config.http2_only);
+        assert_eq!(ffi_config.http2_only, Some(false));
         assert_eq!(ffi_config.max_frame_size, Some(32));
         assert_eq!(ffi_config.max_concurrent_streams, Some(1000));
         assert_eq!(ffi_config.max_header_list_size, Some(32768));
@@ -549,20 +562,12 @@ mod tests {
 
         let ffi_config: ServerConfig = core_config.into();
 
-        assert_eq!(
-            ffi_config.keepalive.max_connection_idle,
-            Duration::from_secs(300)
-        );
-        assert_eq!(
-            ffi_config.keepalive.max_connection_age,
-            Duration::from_secs(900)
-        );
-        assert_eq!(
-            ffi_config.keepalive.max_connection_age_grace,
-            Duration::from_secs(30)
-        );
-        assert_eq!(ffi_config.keepalive.time, Duration::from_secs(150));
-        assert_eq!(ffi_config.keepalive.timeout, Duration::from_secs(15));
+        let keepalive = ffi_config.keepalive.unwrap();
+        assert_eq!(keepalive.max_connection_idle, Duration::from_secs(300));
+        assert_eq!(keepalive.max_connection_age, Duration::from_secs(900));
+        assert_eq!(keepalive.max_connection_age_grace, Duration::from_secs(30));
+        assert_eq!(keepalive.time, Duration::from_secs(150));
+        assert_eq!(keepalive.timeout, Duration::from_secs(15));
     }
 
     #[test]
@@ -604,7 +609,7 @@ mod tests {
         };
 
         let ffi_config_true: ServerConfig = core_config_true.into();
-        assert!(ffi_config_true.http2_only);
+        assert_eq!(ffi_config_true.http2_only, Some(true));
 
         let core_config_false = CoreServerConfig {
             http2_only: false,
@@ -612,7 +617,7 @@ mod tests {
         };
 
         let ffi_config_false: ServerConfig = core_config_false.into();
-        assert!(!ffi_config_false.http2_only);
+        assert_eq!(ffi_config_false.http2_only, Some(false));
     }
 
     #[test]
@@ -658,7 +663,7 @@ mod tests {
 
         let ffi_config: ServerConfig = core_config.into();
 
-        match ffi_config.auth {
+        match ffi_config.auth.unwrap() {
             ServerAuthenticationConfig::Basic { config } => {
                 assert_eq!(config.username, "server_user");
                 assert_eq!(config.password, "server_pass");
@@ -679,7 +684,7 @@ mod tests {
 
         let ffi_config: ServerConfig = core_config.into();
 
-        match ffi_config.auth {
+        match ffi_config.auth.unwrap() {
             ServerAuthenticationConfig::None => {
                 // Success
             }
