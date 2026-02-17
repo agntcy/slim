@@ -61,6 +61,11 @@ on:
         required: false
         type: boolean
         default: true
+      use-local-bindings:
+        description: Build bindings locally instead of downloading releases
+        required: false
+        type: boolean
+        default: false
       cgo-enabled:
         description: Whether to enable CGO
         required: false
@@ -119,6 +124,9 @@ jobs:
 
     needs: [setup-environment]
 
+    env:
+      USE_LOCAL_BINDINGS: ${{ inputs.use-local-bindings && 'true' || 'false' }}
+
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
@@ -126,10 +134,21 @@ jobs:
       - name: Setup Go
         uses: ./.github/actions/setup-go
 
+      - name: Setup Rust
+        if: ${{ inputs.use-local-bindings }}
+        uses: ./.github/actions/setup-rust
+        with:
+          workspace: ./data-plane
+
       - name: golint
         run: |
           which go
           go env
+
+          task control-plane:go-bindings:setup \
+            TARGETOS=$(go env GOOS) \
+            TARGETARCH=$(go env GOARCH) \
+            USE_LOCAL_BINDINGS=$USE_LOCAL_BINDINGS
 
           task control-plane:lint control-plane:impi
 
@@ -145,6 +164,9 @@ jobs:
 
     needs: [setup-environment]
 
+    env:
+      USE_LOCAL_BINDINGS: ${{ inputs.use-local-bindings && 'true' || 'false' }}
+
     timeout-minutes: 30
     steps:
       - name: Checkout Repo
@@ -155,10 +177,21 @@ jobs:
       - name: Setup Go
         uses: ./.github/actions/setup-go
 
+      - name: Setup Rust
+        if: ${{ inputs.use-local-bindings }}
+        uses: ./.github/actions/setup-rust
+        with:
+          workspace: ./data-plane
+
       - name: Run `govuln`
         run: |
           which go
           go env
+
+          task control-plane:go-bindings:setup \
+            TARGETOS=$(go env GOOS) \
+            TARGETARCH=$(go env GOARCH) \
+            USE_LOCAL_BINDINGS=$USE_LOCAL_BINDINGS
 
           task control-plane:vuln
 
@@ -172,6 +205,8 @@ jobs:
 
     if: ${{ inputs.go-test }}
     needs: [setup-environment]
+    env:
+      USE_LOCAL_BINDINGS: ${{ inputs.use-local-bindings && 'true' || 'false' }}
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
@@ -224,6 +259,9 @@ jobs:
 
     needs: [setup-environment]
 
+    env:
+      USE_LOCAL_BINDINGS: ${{ inputs.use-local-bindings && 'true' || 'false' }}
+
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
@@ -258,6 +296,9 @@ jobs:
 
     needs: [setup-environment]
 
+    env:
+      USE_LOCAL_BINDINGS: ${{ inputs.use-local-bindings && 'true' || 'false' }}
+
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -291,6 +332,12 @@ jobs:
       - name: Setup Go
         uses: ./.github/actions/setup-go
 
+      - name: Setup Rust
+        if: ${{ inputs.use-local-bindings }}
+        uses: ./.github/actions/setup-rust
+        with:
+          workspace: ./data-plane
+
       - name: Check go executable
         run: |
           which go
@@ -303,7 +350,7 @@ jobs:
           which go
           go env
 
-          task control-plane:build
+          task control-plane:build USE_LOCAL_BINDINGS=$USE_LOCAL_BINDINGS
 
       - name: Upload slimctl artifact
         if: ${{ inputs.upload-artifacts }}
