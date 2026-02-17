@@ -152,15 +152,65 @@ jobs:
         with:
           workspace: ./data-plane
 
-      - name: Build bindings cache
-        if: ${{ inputs.use-local-bindings && steps.bindings-cache.outputs.cache-hit != 'true' }}
+      - name: Ensure bindings cache
+        if: ${{ inputs.use-local-bindings }}
         run: |
+          set -euo pipefail
+
           which go
           go env
 
-          task control-plane:go-bindings:install-local \
-            TARGETOS=$(go env GOOS) \
-            TARGETARCH=$(go env GOARCH)
+          TARGET_OS=$(go env GOOS)
+          TARGET_ARCH=$(go env GOARCH)
+          TARGET_ABI=""
+
+          case "$TARGET_OS" in
+            darwin)
+              if [ "$TARGET_ARCH" = "arm64" ]; then
+                LIB_ARCH="aarch64"
+              else
+                LIB_ARCH="x86_64"
+              fi
+              LIB_NAME="libslim_bindings_${LIB_ARCH}_darwin.a"
+              ;;
+            linux)
+              TARGET_ABI="gnu"
+              if [ "$TARGET_ARCH" = "arm64" ]; then
+                LIB_ARCH="aarch64"
+              else
+                LIB_ARCH="x86_64"
+              fi
+              LIB_NAME="libslim_bindings_${LIB_ARCH}_linux_${TARGET_ABI}.a"
+              ;;
+            windows)
+              TARGET_ABI="gnu"
+              if [ "$TARGET_ARCH" != "amd64" ] && [ "$TARGET_ARCH" != "x86_64" ]; then
+                echo "❌ Unsupported TARGETARCH for windows: $TARGET_ARCH"
+                exit 1
+              fi
+              LIB_NAME="libslim_bindings_x86_64_windows_${TARGET_ABI}.a"
+              ;;
+            *)
+              echo "❌ Unsupported TARGETOS: $TARGET_OS"
+              exit 1
+              ;;
+          esac
+
+          CACHE_DIR="$(go env GOPATH)/.cgo-cache/slim-bindings"
+          LIB_PATH="$CACHE_DIR/$LIB_NAME"
+
+          if [ ! -f "$LIB_PATH" ]; then
+            echo "ℹ️  Missing cached bindings ($LIB_NAME); building..."
+            task control-plane:go-bindings:install-local \
+              TARGETOS="$TARGET_OS" \
+              TARGETARCH="$TARGET_ARCH" \
+              TARGETABI="$TARGET_ABI"
+          fi
+
+          if [ ! -f "$LIB_PATH" ]; then
+            echo "❌ Expected cached bindings not found: $LIB_PATH"
+            exit 1
+          fi
 
       - name: Generate Go bindings
         if: ${{ inputs.use-local-bindings }}
