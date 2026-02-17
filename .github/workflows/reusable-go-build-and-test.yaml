@@ -131,6 +131,21 @@ jobs:
         if: ${{ inputs.use-local-bindings }}
         uses: ./.github/actions/setup-go
 
+      - name: Set GOPATH
+        if: ${{ inputs.use-local-bindings }}
+        run: |
+          echo "GOPATH=$(go env GOPATH)" >> "$GITHUB_ENV"
+
+      - name: Cache bindings build
+        if: ${{ inputs.use-local-bindings }}
+        id: bindings-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.GOPATH }}/.cgo-cache/slim-bindings
+          key: bindings-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('data-plane/**/Cargo.lock') }}
+          restore-keys: |
+            bindings-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Setup Rust
         if: ${{ inputs.use-local-bindings }}
         uses: ./.github/actions/setup-rust
@@ -138,7 +153,7 @@ jobs:
           workspace: ./data-plane
 
       - name: Build bindings cache
-        if: ${{ inputs.use-local-bindings }}
+        if: ${{ inputs.use-local-bindings && steps.bindings-cache.outputs.cache-hit != 'true' }}
         run: |
           which go
           go env
@@ -147,6 +162,9 @@ jobs:
             TARGETOS=$(go env GOOS) \
             TARGETARCH=$(go env GOARCH)
 
+      - name: Pack bindings cache
+        if: ${{ inputs.use-local-bindings }}
+        run: |
           CACHE_DIR="$(go env GOPATH)/.cgo-cache"
           tar -czf /tmp/slim-bindings-cache.tgz -C "$CACHE_DIR" slim-bindings
 
