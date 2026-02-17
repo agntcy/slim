@@ -112,6 +112,51 @@ jobs:
 
           task control-plane:fetch
 
+  bindings-cache:
+    runs-on: ${{ inputs.runner }}
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+
+    needs: [setup-environment]
+
+    steps:
+      - name: Checkout Repo
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        if: ${{ inputs.use-local-bindings }}
+        uses: ./.github/actions/setup-go
+
+      - name: Setup Rust
+        if: ${{ inputs.use-local-bindings }}
+        uses: ./.github/actions/setup-rust
+        with:
+          workspace: ./data-plane
+
+      - name: Build bindings cache
+        if: ${{ inputs.use-local-bindings }}
+        run: |
+          which go
+          go env
+
+          task control-plane:go-bindings:install-local \
+            TARGETOS=$(go env GOOS) \
+            TARGETARCH=$(go env GOARCH)
+
+          CACHE_DIR="$(go env GOPATH)/.cgo-cache"
+          tar -czf /tmp/slim-bindings-cache.tgz -C "$CACHE_DIR" slim-bindings
+
+      - name: Upload bindings cache
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: slim-bindings-cache
+          path: /tmp/slim-bindings-cache.tgz
+
   lint:
     runs-on: ${{ inputs.runner }}
 
@@ -122,7 +167,7 @@ jobs:
 
     if: ${{ inputs.go-lint }}
 
-    needs: [setup-environment]
+    needs: [setup-environment, bindings-cache]
 
     env:
       USE_LOCAL_BINDINGS: ${{ inputs.use-local-bindings && 'true' || 'false' }}
@@ -140,10 +185,23 @@ jobs:
         with:
           workspace: ./data-plane
 
+      - name: Restore bindings cache
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-cache
+          path: /tmp
+
       - name: golint
         run: |
           which go
           go env
+
+          if [ "$USE_LOCAL_BINDINGS" = "true" ] && [ -f /tmp/slim-bindings-cache.tgz ]; then
+            CACHE_DIR="$(go env GOPATH)/.cgo-cache"
+            mkdir -p "$CACHE_DIR"
+            tar -xzf /tmp/slim-bindings-cache.tgz -C "$CACHE_DIR"
+          fi
 
           task control-plane:go-bindings:setup \
             TARGETOS=$(go env GOOS) \
@@ -162,7 +220,7 @@ jobs:
 
     if: ${{ inputs.go-vuln }}
 
-    needs: [setup-environment]
+    needs: [setup-environment, bindings-cache]
 
     env:
       USE_LOCAL_BINDINGS: ${{ inputs.use-local-bindings && 'true' || 'false' }}
@@ -183,10 +241,23 @@ jobs:
         with:
           workspace: ./data-plane
 
+      - name: Restore bindings cache
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-cache
+          path: /tmp
+
       - name: Run `govuln`
         run: |
           which go
           go env
+
+          if [ "$USE_LOCAL_BINDINGS" = "true" ] && [ -f /tmp/slim-bindings-cache.tgz ]; then
+            CACHE_DIR="$(go env GOPATH)/.cgo-cache"
+            mkdir -p "$CACHE_DIR"
+            tar -xzf /tmp/slim-bindings-cache.tgz -C "$CACHE_DIR"
+          fi
 
           task control-plane:go-bindings:setup \
             TARGETOS=$(go env GOOS) \
@@ -204,7 +275,7 @@ jobs:
         working-directory: ${{ inputs.working-directory }}
 
     if: ${{ inputs.go-test }}
-    needs: [setup-environment]
+    needs: [setup-environment, bindings-cache]
     env:
       USE_LOCAL_BINDINGS: ${{ inputs.use-local-bindings && 'true' || 'false' }}
     steps:
@@ -225,6 +296,12 @@ jobs:
         run: |
           which go
           go env
+
+          if [ "$USE_LOCAL_BINDINGS" = "true" ] && [ -f /tmp/slim-bindings-cache.tgz ]; then
+            CACHE_DIR="$(go env GOPATH)/.cgo-cache"
+            mkdir -p "$CACHE_DIR"
+            tar -xzf /tmp/slim-bindings-cache.tgz -C "$CACHE_DIR"
+          fi
 
           task control-plane:test
 
@@ -257,7 +334,7 @@ jobs:
 
     if: ${{ inputs.go-test-coverage }}
 
-    needs: [setup-environment]
+    needs: [setup-environment, bindings-cache]
 
     env:
       USE_LOCAL_BINDINGS: ${{ inputs.use-local-bindings && 'true' || 'false' }}
@@ -271,6 +348,13 @@ jobs:
       - name: Setup Go
         uses: ./.github/actions/setup-go
 
+      - name: Restore bindings cache
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-cache
+          path: /tmp
+
       - name: Cache Build
         uses: actions/cache@v4
         with:
@@ -281,6 +365,12 @@ jobs:
         run: |
           which go
           go env
+
+          if [ "$USE_LOCAL_BINDINGS" = "true" ] && [ -f /tmp/slim-bindings-cache.tgz ]; then
+            CACHE_DIR="$(go env GOPATH)/.cgo-cache"
+            mkdir -p "$CACHE_DIR"
+            tar -xzf /tmp/slim-bindings-cache.tgz -C "$CACHE_DIR"
+          fi
 
           task control-plane:coverage
 
