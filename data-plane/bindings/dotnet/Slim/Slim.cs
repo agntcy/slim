@@ -743,7 +743,7 @@ public class SlimException : Exception
     /// Creates a SlimException from an FFI exception.
     /// </summary>
     internal static SlimException FromFfi(Exception ex) => new(ex.Message, ex);
-    
+
     /// <summary>
     /// Check if this is a timeout error.
     /// </summary>
@@ -757,7 +757,7 @@ public class SlimException : Exception
     /// <summary>
     /// Check if this is a transient error that may succeed on retry.
     /// </summary>
-    public bool IsTransient => IsTimeout || 
+    public bool IsTransient => IsTimeout ||
         Message.Contains("temporarily", StringComparison.OrdinalIgnoreCase) ||
         Message.Contains("retry", StringComparison.OrdinalIgnoreCase);
 }
@@ -856,7 +856,7 @@ public static class SlimExceptionExtensions
     /// </summary>
     public static bool IsTransientError(this Exception ex)
     {
-        return ex.IsTimeoutError() || 
+        return ex.IsTimeoutError() ||
                ex.Message.Contains("temporarily", StringComparison.OrdinalIgnoreCase) ||
                ex.Message.Contains("retry", StringComparison.OrdinalIgnoreCase);
     }
