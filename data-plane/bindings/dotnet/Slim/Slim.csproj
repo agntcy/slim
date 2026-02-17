@@ -34,28 +34,26 @@
 
   <!-- 
     Native library loading at build/runtime.
-    .NET automatically loads from runtimes/{rid}/native/ when using NuGet,
-    but for local development we copy to output directory.
-    
-    The DllImport("slim_bindings") will resolve to:
-    - Windows: slim_bindings.dll
-    - Linux:   libslim_bindings.so
-    - macOS:   libslim_bindings.dylib
+    .NET automatically loads from runtimes/{rid}/native/ when using NuGet.
+    uniffi-bindgen-cs generates DllImport("uniffi_slim_bindings"), which resolves to:
+    - Windows: uniffi_slim_bindings.dll
+    - Linux:   libuniffi_slim_bindings.so
+    - macOS:   libuniffi_slim_bindings.dylib
   -->
   
   <!-- Copy native libraries to output for local development -->
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
-    <None Include="..\runtimes\osx-arm64\native\libslim_bindings.dylib" Condition="Exists('..\runtimes\osx-arm64\native\libslim_bindings.dylib')" CopyToOutputDirectory="PreserveNewest" Link="libslim_bindings.dylib" />
-    <None Include="..\runtimes\osx-x64\native\libslim_bindings.dylib" Condition="Exists('..\runtimes\osx-x64\native\libslim_bindings.dylib')" CopyToOutputDirectory="PreserveNewest" Link="libslim_bindings.dylib" />
+    <None Include="..\runtimes\osx-arm64\native\libuniffi_slim_bindings.dylib" Condition="Exists('..\runtimes\osx-arm64\native\libuniffi_slim_bindings.dylib')" CopyToOutputDirectory="PreserveNewest" Link="libuniffi_slim_bindings.dylib" />
+    <None Include="..\runtimes\osx-x64\native\libuniffi_slim_bindings.dylib" Condition="Exists('..\runtimes\osx-x64\native\libuniffi_slim_bindings.dylib')" CopyToOutputDirectory="PreserveNewest" Link="libuniffi_slim_bindings.dylib" />
   </ItemGroup>
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
-    <None Include="..\runtimes\linux-x64\native\libslim_bindings.so" Condition="Exists('..\runtimes\linux-x64\native\libslim_bindings.so')" CopyToOutputDirectory="PreserveNewest" Link="libslim_bindings.so" />
-    <None Include="..\runtimes\linux-musl-x64\native\libslim_bindings.so" Condition="Exists('..\runtimes\linux-musl-x64\native\libslim_bindings.so')" CopyToOutputDirectory="PreserveNewest" Link="libslim_bindings.so" />
-    <None Include="..\runtimes\linux-arm64\native\libslim_bindings.so" Condition="Exists('..\runtimes\linux-arm64\native\libslim_bindings.so')" CopyToOutputDirectory="PreserveNewest" Link="libslim_bindings.so" />
-    <None Include="..\runtimes\linux-musl-arm64\native\libslim_bindings.so" Condition="Exists('..\runtimes\linux-musl-arm64\native\libslim_bindings.so')" CopyToOutputDirectory="PreserveNewest" Link="libslim_bindings.so" />
+    <None Include="..\runtimes\linux-x64\native\libuniffi_slim_bindings.so" Condition="Exists('..\runtimes\linux-x64\native\libuniffi_slim_bindings.so')" CopyToOutputDirectory="PreserveNewest" Link="libuniffi_slim_bindings.so" />
+    <None Include="..\runtimes\linux-musl-x64\native\libuniffi_slim_bindings.so" Condition="Exists('..\runtimes\linux-musl-x64\native\libuniffi_slim_bindings.so')" CopyToOutputDirectory="PreserveNewest" Link="libuniffi_slim_bindings.so" />
+    <None Include="..\runtimes\linux-arm64\native\libuniffi_slim_bindings.so" Condition="Exists('..\runtimes\linux-arm64\native\libuniffi_slim_bindings.so')" CopyToOutputDirectory="PreserveNewest" Link="libuniffi_slim_bindings.so" />
+    <None Include="..\runtimes\linux-musl-arm64\native\libuniffi_slim_bindings.so" Condition="Exists('..\runtimes\linux-musl-arm64\native\libuniffi_slim_bindings.so')" CopyToOutputDirectory="PreserveNewest" Link="libuniffi_slim_bindings.so" />
   </ItemGroup>
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
-    <None Include="..\runtimes\win-x64\native\slim_bindings.dll" Condition="Exists('..\runtimes\win-x64\native\slim_bindings.dll')" CopyToOutputDirectory="PreserveNewest" Link="slim_bindings.dll" />
+    <None Include="..\runtimes\win-x64\native\uniffi_slim_bindings.dll" Condition="Exists('..\runtimes\win-x64\native\uniffi_slim_bindings.dll')" CopyToOutputDirectory="PreserveNewest" Link="uniffi_slim_bindings.dll" />
   </ItemGroup>
 
 </Project>
