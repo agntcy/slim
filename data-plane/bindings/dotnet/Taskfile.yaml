@@ -107,9 +107,6 @@ tasks:
     desc: "Generate C# bindings from artifacts or local build"
     deps:
       - install-uniffi-bindgen-cs
-      - task: rust:bindings:build:all
-        vars:
-          PROFILE: "{{.PROFILE}}"
     cmds:
       - |
         ARTIFACTS_DIR="{{.ARTIFACTS_DIR}}"
@@ -124,8 +121,11 @@ tasks:
           lib_file=$(find "$artifact_dir" -maxdepth 1 -name "lib{{.LIB_NAME}}*.a" -type f | head -1)
         fi
 
-        # Fall back to local build output
+        # Fall back to local build: build Rust library, then use its output
         if [[ -z "$lib_file" || ! -f "$lib_file" ]]; then
+          echo "No CI artifacts found, building Rust library locally..."
+          task rust:bindings:build:all PROFILE="{{.PROFILE}}"
+
           local_lib="{{.LIB_PATH}}/lib{{.LIB_NAME}}.a"
           if [[ -f "$local_lib" ]]; then
             echo "Using local build output: $local_lib"
