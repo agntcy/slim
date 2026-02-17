@@ -137,13 +137,6 @@ jobs:
         with:
           workspace: ./data-plane
 
-      - name: Restore bindings cache
-        if: ${{ inputs.use-local-bindings }}
-        uses: actions/download-artifact@v4
-        with:
-          name: slim-bindings-cache
-          path: /tmp
-
       - name: Build bindings cache
         if: ${{ inputs.use-local-bindings }}
         run: |
@@ -172,7 +165,7 @@ jobs:
         shell: bash
         working-directory: ${{ inputs.working-directory }}
 
-    if: ${{ inputs.go-lint || inputs.go-vuln || inputs.go-test || inputs.go-test-coverage || inputs.go-cross-build }}
+    if: ${{ inputs.go-test || inputs.go-test-coverage || inputs.go-cross-build }}
 
     needs: [setup-environment, bindings-cache]
 
@@ -226,7 +219,7 @@ jobs:
 
     if: ${{ inputs.go-lint }}
 
-    needs: [setup-environment, bindings-cache, build]
+    needs: [setup-environment, bindings-cache]
 
     env:
       USE_LOCAL_BINDINGS: ${{ inputs.use-local-bindings && 'true' || 'false' }}
@@ -279,7 +272,7 @@ jobs:
 
     if: ${{ inputs.go-vuln }}
 
-    needs: [setup-environment, bindings-cache, build]
+    needs: [setup-environment, bindings-cache]
 
     env:
       USE_LOCAL_BINDINGS: ${{ inputs.use-local-bindings && 'true' || 'false' }}
