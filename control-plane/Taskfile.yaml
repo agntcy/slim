@@ -326,6 +326,79 @@ tasks:
         cp "$SRC_LIB" "$CACHE_DIR/$LIB_NAME"
         echo "✅ Installed bindings to $CACHE_DIR/$LIB_NAME"
 
+  control-plane:go-bindings:install-local:
+    desc: Build bindings locally and install into the CGO cache
+    requires:
+      vars: [TARGETOS, TARGETARCH]
+    vars:
+      TARGETABI: '{{.TARGETABI | default ""}}'
+    cmds:
+      - |
+        set -euo pipefail
+
+        TARGET_OS="{{.TARGETOS}}"
+        TARGET_ARCH="{{.TARGETARCH}}"
+        TARGET_ABI="{{.TARGETABI}}"
+
+        case "$TARGET_OS" in
+          darwin)
+            if [ "$TARGET_ARCH" = "arm64" ]; then
+              RUST_TARGET="aarch64-apple-darwin"
+              LIB_ARCH="aarch64"
+            else
+              RUST_TARGET="x86_64-apple-darwin"
+              LIB_ARCH="x86_64"
+            fi
+            LIB_NAME="libslim_bindings_${LIB_ARCH}_darwin.a"
+            ;;
+          linux)
+            if [ -z "$TARGET_ABI" ]; then
+              TARGET_ABI="gnu"
+            fi
+            if [ "$TARGET_ARCH" = "arm64" ]; then
+              RUST_TARGET="aarch64-unknown-linux-$TARGET_ABI"
+              LIB_ARCH="aarch64"
+            else
+              RUST_TARGET="x86_64-unknown-linux-$TARGET_ABI"
+              LIB_ARCH="x86_64"
+            fi
+            LIB_NAME="libslim_bindings_${LIB_ARCH}_linux_${TARGET_ABI}.a"
+            ;;
+          windows)
+            if [ "$TARGET_ARCH" != "amd64" ]; then
+              echo "❌ Unsupported TARGETARCH for windows: $TARGET_ARCH"
+              exit 1
+            fi
+            if [ -z "$TARGET_ABI" ]; then
+              TARGET_ABI="gnu"
+            fi
+            RUST_TARGET="x86_64-pc-windows-$TARGET_ABI"
+            LIB_NAME="libslim_bindings_x86_64_windows_${TARGET_ABI}.a"
+            ;;
+          *)
+            echo "❌ Unsupported TARGETOS: $TARGET_OS"
+            exit 1
+            ;;
+        esac
+
+        echo "🦀 Building bindings for $RUST_TARGET"
+        task -d {{.REPO_ROOT}}/data-plane/bindings/rust bindings:build:all \
+          TARGET="$RUST_TARGET" \
+          PROFILE=release
+
+        SRC_LIB="{{.REPO_ROOT}}/data-plane/target/$RUST_TARGET/release/libslim_bindings.a"
+        if [ ! -f "$SRC_LIB" ]; then
+          echo "❌ Expected library not found: $SRC_LIB"
+          exit 1
+        fi
+
+        GOPATH_DIR=$(go env GOPATH)
+        CACHE_DIR="$GOPATH_DIR/.cgo-cache/slim-bindings"
+        mkdir -p "$CACHE_DIR"
+
+        cp "$SRC_LIB" "$CACHE_DIR/$LIB_NAME"
+        echo "✅ Installed bindings to $CACHE_DIR/$LIB_NAME"
+
   control-plane:slimctl:build:
     desc: Cross-compile slimctl using Zig (accepts TARGETOS and TARGETARCH, defaults to current platform)
 
