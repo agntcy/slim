@@ -286,12 +286,12 @@ impl RequestStreamWriter {
     }
 
     /// Finalize the stream and get the response (blocking version)
-    pub fn finalize(&self) -> Result<Vec<u8>, RpcError> {
-        crate::get_runtime().block_on(self.finalize_async())
+    pub fn finalize_stream(&self) -> Result<Vec<u8>, RpcError> {
+        crate::get_runtime().block_on(self.finalize_stream_async())
     }
 
     /// Finalize the stream and get the response (async version)
-    pub async fn finalize_async(&self) -> Result<Vec<u8>, RpcError> {
+    pub async fn finalize_stream_async(&self) -> Result<Vec<u8>, RpcError> {
         // Drop the sender to signal end of stream
         {
             let mut sender = self.sender.lock().await;
@@ -310,6 +310,16 @@ impl RequestStreamWriter {
                 "Stream already finalized".to_string(),
             ))
         }
+    }
+}
+
+#[uniffi::export]
+impl RequestStreamWriter {
+    /// Finalize the stream and get the response (async version)
+    ///
+    /// **Deprecated**: Use [`finalize_stream_async`](Self::finalize_stream_async) instead.
+    pub async fn finalize_async(&self) -> Result<Vec<u8>, RpcError> {
+        self.finalize_stream_async().await
     }
 }
 
