@@ -200,12 +200,6 @@ jobs:
       - name: Setup Go
         uses: ./.github/actions/setup-go
 
-      - name: Setup Rust
-        if: ${{ inputs.use-local-bindings }}
-        uses: ./.github/actions/setup-rust
-        with:
-          workspace: ./data-plane
-
       - name: Restore bindings cache
         if: ${{ inputs.use-local-bindings }}
         uses: actions/download-artifact@v4
@@ -250,12 +244,6 @@ jobs:
 
       - name: Setup Go
         uses: ./.github/actions/setup-go
-
-      - name: Setup Rust
-        if: ${{ inputs.use-local-bindings }}
-        uses: ./.github/actions/setup-rust
-        with:
-          workspace: ./data-plane
 
       - name: Restore bindings cache
         if: ${{ inputs.use-local-bindings }}
@@ -309,12 +297,6 @@ jobs:
 
       - name: Setup Go
         uses: ./.github/actions/setup-go
-
-      - name: Setup Rust
-        if: ${{ inputs.use-local-bindings }}
-        uses: ./.github/actions/setup-rust
-        with:
-          workspace: ./data-plane
 
       - name: Restore bindings cache
         if: ${{ inputs.use-local-bindings }}
