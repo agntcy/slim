@@ -408,6 +408,16 @@ pub fn new_insecure_client_config(endpoint: String) -> ClientConfig {
     }
 }
 
+/// Create a new secure client config (TLS enabled with default settings)
+#[uniffi::export]
+pub fn new_secure_client_config(endpoint: String) -> ClientConfig {
+    ClientConfig {
+        endpoint,
+        tls: TlsClientConfig::default(),
+        ..Default::default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -486,6 +496,24 @@ mod tests {
 
         assert_eq!(config.endpoint, "localhost:50051");
         assert!(config.tls.insecure);
+    }
+
+    #[test]
+    fn test_client_config_new_secure() {
+        let config = new_secure_client_config("api.example.com:443".to_string());
+
+        assert_eq!(config.endpoint, "api.example.com:443");
+        assert!(!config.tls.insecure);
+        assert!(!config.tls.insecure_skip_verify);
+        assert_eq!(config.tls, TlsClientConfig::default());
+        // All optional fields should be None
+        assert_eq!(config.origin, None);
+        assert_eq!(config.keepalive, None);
+        assert_eq!(config.proxy, None);
+        assert_eq!(config.connect_timeout, None);
+        assert_eq!(config.request_timeout, None);
+        assert_eq!(config.auth, None);
+        assert_eq!(config.backoff, None);
     }
 
     #[test]

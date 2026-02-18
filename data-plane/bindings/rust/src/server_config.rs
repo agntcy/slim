@@ -7,7 +7,7 @@ use slim_auth::metadata::MetadataMap;
 use slim_config::grpc::server::KeepaliveServerParameters as CoreKeepaliveServerParameters;
 use slim_config::grpc::server::ServerConfig as CoreServerConfig;
 
-use crate::common_config::{ServerAuthenticationConfig, TlsServerConfig};
+use crate::common_config::{ServerAuthenticationConfig, TlsServerConfig, TlsSource};
 
 /// Keepalive configuration for the server
 #[derive(uniffi::Record, Clone, Debug, PartialEq)]
@@ -204,6 +204,20 @@ pub fn new_insecure_server_config(endpoint: String) -> ServerConfig {
     }
 }
 
+/// Create a new secure server config (TLS enabled with the given certificate source)
+#[uniffi::export]
+pub fn new_secure_server_config(endpoint: String, tls_source: TlsSource) -> ServerConfig {
+    ServerConfig {
+        endpoint,
+        tls: TlsServerConfig {
+            insecure: false,
+            source: tls_source,
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -280,6 +294,34 @@ mod tests {
         assert_eq!(config.endpoint, "[::]:50051");
         assert!(config.tls.insecure);
         assert_eq!(config.http2_only, None);
+    }
+
+    #[test]
+    fn test_server_config_new_secure() {
+        let config = new_secure_server_config(
+            "0.0.0.0:443".to_string(),
+            TlsSource::File {
+                cert: "/etc/tls/server.crt".to_string(),
+                key: "/etc/tls/server.key".to_string(),
+            },
+        );
+
+        assert_eq!(config.endpoint, "0.0.0.0:443");
+        assert!(!config.tls.insecure);
+        assert_eq!(
+            config.tls.source,
+            TlsSource::File {
+                cert: "/etc/tls/server.crt".to_string(),
+                key: "/etc/tls/server.key".to_string(),
+            }
+        );
+        // All optional fields should be None
+        assert_eq!(config.http2_only, None);
+        assert_eq!(config.max_frame_size, None);
+        assert_eq!(config.max_concurrent_streams, None);
+        assert_eq!(config.keepalive, None);
+        assert_eq!(config.auth, None);
+        assert_eq!(config.metadata, None);
     }
 
     #[test]
