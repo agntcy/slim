@@ -18,10 +18,8 @@ class TestService(TestServicer):
         request: ExampleRequest,
         context: slim_bindings.Context,
     ) -> ExampleResponse:
-        raise RuntimeError("the error")
-        # logger.info(f"Received unary-unary request: {request}")
-
-        # return ExampleResponse(example_integer=1, example_string="Hello, World!")
+        logger.info(f"Received unary-unary request: {request}")
+        return ExampleResponse(example_integer=1, example_string="Hello, World!")
 
         # If you need to return a specific error
         # raise slim_bindings.RpcError.Rpc(
