@@ -334,11 +334,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: bindings-x86_64-unknown-linux-gnu
+          path: ./downloaded-bindings
 
       - name: Place library for Node generate
         run: |
           mkdir -p data-plane/target/x86_64-unknown-linux-gnu/release
-          cp -v bindings-x86_64-unknown-linux-gnu/* data-plane/target/x86_64-unknown-linux-gnu/release/
+          cp -v downloaded-bindings/*slim_bindings* data-plane/target/x86_64-unknown-linux-gnu/release/
 
       - name: Generate bindings and emit types (one platform for types)
         working-directory: ./data-plane/bindings/node
