@@ -4,7 +4,7 @@ set -euo pipefail
 # patch-bindings.sh
 # Patches UniFFI-generated Kotlin bindings to fix compatibility issues
 
-BINDINGS_FILE="generated/io/agntcy/slim/bindings/slim_bindings.kt"
+BINDINGS_FILE="./generated/io/agntcy/slim/bindings/slim_bindings.kt"
 
 echo "🔧 Patching generated Kotlin bindings..."
 
