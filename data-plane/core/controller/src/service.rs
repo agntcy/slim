@@ -383,6 +383,9 @@ impl ControlPlane {
                                 match res {
                                     Ok(msg) => {
                                         debug!("Send sub/unsub/ack to control plane for message: {:?}", msg);
+                                        // These ACKs correspond to subscribe/unsubscribe operations initiated by
+                                        // the controller itself. They are consumed here and must not be forwarded
+                                        // back like subscribe/unsubscribe messages that originate from remote peers.
                                         if controller.handle_subscription_ack_message(&msg) {
                                             continue;
                                         }

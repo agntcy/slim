@@ -522,6 +522,62 @@ impl MessageProcessor {
         }
     }
 
+    async fn process_subscription_update_and_forward(
+        &self,
+        msg: Message,
+        conn: u64,
+        forward: Option<u64>,
+        add: bool,
+    ) -> Result<(), DataPathError> {
+        let dst = msg.get_dst();
+
+        // As connection is deleted only after processing, at this point it must exist.
+        let connection = if let Some(c) = self.forwarder().get_connection(conn) {
+            c
+        } else {
+            return Err(DataPathError::MessageProcessingError {
+                source: Box::new(DataPathError::ConnectionNotFound(conn)),
+                msg: Box::new(msg),
+            });
+        };
+
+        debug!(
+            %conn,
+            %dst,
+            is_local = connection.is_local_connection(),
+            "processing {}subscription",
+            if add { "" } else { "un" }
+        );
+
+        if let Err(e) = self.forwarder().on_subscription_msg(
+            dst.clone(),
+            conn,
+            connection.is_local_connection(),
+            add,
+        ) {
+            return Err(e);
+        }
+
+        match forward {
+            None => Ok(()),
+            Some(out_conn) => {
+                debug!(
+                    %out_conn,
+                    "forwarding {}subscription to connection",
+                    if add { "" } else { "un" }
+                );
+
+                let source = msg.get_source();
+                let identity = msg.get_identity();
+
+                self.send_msg(msg, out_conn).await.map(|_| {
+                    self.forwarder()
+                        .on_forwarded_subscription(source, dst, identity, out_conn, add);
+                })
+            }
+        }
+    }
+
     // Use a single function to process subscription and unsubscription packets.
     // The flag add = true is used to add a new subscription while add = false
     // is used to remove existing state
@@ -559,64 +615,15 @@ impl MessageProcessor {
             msg.remove_metadata(SUBSCRIPTION_ACK_ERROR);
         }
 
-        let dst = msg.get_dst();
-
         // get header
         let header = msg.get_slim_header();
 
         // get in and out connections
         let (conn, forward) = header.get_in_out_connections();
 
-        // get input connection. As connection is deleted only after the processing,
-        // it is safe to assume that at this point the connection must exist.
-        let maybe_connection = self.forwarder().get_connection(conn);
-
-        let result = async {
-            let connection = if let Some(c) = maybe_connection {
-                c
-            } else {
-                return Err(DataPathError::MessageProcessingError {
-                    source: Box::new(DataPathError::ConnectionNotFound(conn)),
-                    msg: Box::new(msg),
-                });
-            };
-
-            debug!(
-                %conn,
-                %dst,
-                is_local = connection.is_local_connection(),
-                "processing {}subscription",
-                if add { "" } else { "un" }
-            );
-
-            self.forwarder().on_subscription_msg(
-                dst.clone(),
-                conn,
-                connection.is_local_connection(),
-                add,
-            )?;
-
-            match forward {
-                None => {
-                    // if the subscription is not forwarded, we are done
-                    Ok(())
-                }
-                Some(out_conn) => {
-                    debug!(%out_conn, "forwarding {}subscription to connection", if add { "" } else { "un" });
-
-                    // get source name and identity
-                    let source = msg.get_source();
-                    let identity = msg.get_identity();
-
-                    // send message
-                    self.send_msg(msg, out_conn).await.map(|_| {
-                        self.forwarder()
-                            .on_forwarded_subscription(source, dst, identity, out_conn, add);
-                    })
-                }
-            }
-        }
-        .await;
+        let result = self
+            .process_subscription_update_and_forward(msg, conn, forward, add)
+            .await;
 
         if let (Some(ack_id), Some(source), Some(destination)) =
             (ack_id, ack_source, ack_destination)

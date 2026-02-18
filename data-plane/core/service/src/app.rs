@@ -25,7 +25,7 @@ use slim_datapath::messages::utils::{
 use slim_session::{SessionConfig, session_controller::SessionController};
 
 // Local crate
-use crate::ServiceError;
+use crate::{ServiceError, SubscriptionAckError};
 use slim_session::SlimChannelSender;
 use slim_session::interceptor::{IdentityInterceptor, SessionInterceptorProvider};
 use slim_session::notification::Notification;
@@ -47,7 +47,8 @@ where
     cancel_token: tokio_util::sync::CancellationToken,
 
     /// Pending subscription acknowledgments keyed by ack id.
-    pending_subscription_acks: Arc<Mutex<HashMap<String, oneshot::Sender<Result<(), String>>>>>,
+    pending_subscription_acks:
+        Arc<Mutex<HashMap<String, oneshot::Sender<Result<(), SubscriptionAckError>>>>>,
 
     /// Counter used to generate subscription acknowledgment ids.
     subscription_ack_counter: AtomicU64,
@@ -157,6 +158,70 @@ where
         format!("sub-{}", next)
     }
 
+    async fn handle_subscription_ack_message(
+        pending_subscription_acks: &Arc<
+            Mutex<HashMap<String, oneshot::Sender<Result<(), SubscriptionAckError>>>>,
+        >,
+        msg: &Message,
+    ) {
+        let Some(ack_id) = msg.get_metadata(SUBSCRIPTION_ACK_ID).cloned() else {
+            return;
+        };
+
+        let success = msg
+            .get_metadata(SUBSCRIPTION_ACK_SUCCESS)
+            .map(|val| val == TRUE_VAL)
+            .unwrap_or(false);
+        let error_msg = msg.get_metadata(SUBSCRIPTION_ACK_ERROR).cloned();
+
+        let sender = {
+            let mut pending = pending_subscription_acks.lock().await;
+            pending.remove(&ack_id)
+        };
+
+        if let Some(sender) = sender {
+            let _ = sender.send(if success {
+                Ok(())
+            } else {
+                Err(SubscriptionAckError::Rejected {
+                    message: error_msg.unwrap_or_else(|| "subscription ack failed".to_string()),
+                })
+            });
+        } else {
+            debug!(
+                ack_id = %ack_id,
+                "received subscription ack with no pending waiter"
+            );
+        }
+    }
+
+    async fn send_with_subscription_ack(
+        &self,
+        build_message: impl FnOnce(String) -> Message,
+        map_ack_error: fn(SubscriptionAckError) -> ServiceError,
+    ) -> Result<(), ServiceError> {
+        let ack_id = self.next_subscription_ack_id();
+        let (ack_tx, ack_rx) = oneshot::channel();
+        {
+            let mut pending = self.pending_subscription_acks.lock().await;
+            pending.insert(ack_id.clone(), ack_tx);
+        }
+
+        let msg = build_message(ack_id.clone());
+
+        if let Err(e) = self.send_message_without_context(msg).await {
+            let mut pending = self.pending_subscription_acks.lock().await;
+            pending.remove(&ack_id);
+            return Err(e);
+        }
+
+        match ack_rx.await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(err)) => Err(map_ack_error(err)),
+            Err(_) => Err(map_ack_error(SubscriptionAckError::ChannelClosed)),
+        }
+    }
+
     /// Create a new session with the given configuration
     pub async fn create_session(
         &self,
@@ -225,36 +290,20 @@ where
             builder = builder.flags(h);
         }
 
-        let ack_id = self.next_subscription_ack_id();
-        let (ack_tx, ack_rx) = oneshot::channel();
-        {
-            let mut pending = self.pending_subscription_acks.lock().await;
-            pending.insert(ack_id.clone(), ack_tx);
-        }
+        self.send_with_subscription_ack(
+            |ack_id| {
+                builder
+                    .metadata(SUBSCRIPTION_ACK_ID, ack_id)
+                    .build_subscribe()
+                    .unwrap()
+            },
+            ServiceError::SubscriptionError,
+        )
+        .await?;
 
-        let msg = builder
-            .metadata(SUBSCRIPTION_ACK_ID, ack_id.clone())
-            .build_subscribe()
-            .unwrap();
-
-        // Subscribe
-        if let Err(e) = self.send_message_without_context(msg).await {
-            let mut pending = self.pending_subscription_acks.lock().await;
-            pending.remove(&ack_id);
-            return Err(e);
-        }
-
-        match ack_rx.await {
-            Ok(Ok(())) => {
-                // Register the subscription after ack confirms the forwarding table update.
-                self.session_layer.add_app_name(name);
-                Ok(())
-            }
-            Ok(Err(err)) => Err(ServiceError::SubscriptionError(err)),
-            Err(_) => Err(ServiceError::SubscriptionError(
-                "subscription ack channel closed".to_string(),
-            )),
-        }
+        // Register the subscription after ack confirms the forwarding table update.
+        self.session_layer.add_app_name(name);
+        Ok(())
     }
 
     /// Unsubscribe the app
@@ -275,36 +324,20 @@ where
             builder = builder.flags(h);
         }
 
-        let ack_id = self.next_subscription_ack_id();
-        let (ack_tx, ack_rx) = oneshot::channel();
-        {
-            let mut pending = self.pending_subscription_acks.lock().await;
-            pending.insert(ack_id.clone(), ack_tx);
-        }
+        self.send_with_subscription_ack(
+            |ack_id| {
+                builder
+                    .metadata(SUBSCRIPTION_ACK_ID, ack_id)
+                    .build_unsubscribe()
+                    .unwrap()
+            },
+            ServiceError::UnsubscriptionError,
+        )
+        .await?;
 
-        let msg = builder
-            .metadata(SUBSCRIPTION_ACK_ID, ack_id.clone())
-            .build_unsubscribe()
-            .unwrap();
-
-        // Unsubscribe
-        if let Err(e) = self.send_message_without_context(msg).await {
-            let mut pending = self.pending_subscription_acks.lock().await;
-            pending.remove(&ack_id);
-            return Err(e);
-        }
-
-        match ack_rx.await {
-            Ok(Ok(())) => {
-                // Remove the subscription after ack confirms the forwarding table update.
-                self.session_layer.remove_app_name(name);
-                Ok(())
-            }
-            Ok(Err(err)) => Err(ServiceError::UnsubscriptionError(err)),
-            Err(_) => Err(ServiceError::UnsubscriptionError(
-                "unsubscription ack channel closed".to_string(),
-            )),
-        }
+        // Remove the subscription after ack confirms the forwarding table update.
+        self.session_layer.remove_app_name(name);
+        Ok(())
     }
 
     /// Set a route towards another app
@@ -390,45 +423,19 @@ where
                                     Ok(msg) => {
                                         debug!(?msg, "received message in service processing");
 
-                                        if let Some(ack_id) = msg.get_metadata(SUBSCRIPTION_ACK_ID).cloned() {
-                                            let success = msg
-                                                .get_metadata(SUBSCRIPTION_ACK_SUCCESS)
-                                                .map(|val| val == TRUE_VAL)
-                                                .unwrap_or(false);
-                                            let error_msg =
-                                                msg.get_metadata(SUBSCRIPTION_ACK_ERROR).cloned();
-
-                                            let sender = {
-                                                let mut pending =
-                                                    pending_subscription_acks.lock().await;
-                                                pending.remove(&ack_id)
-                                            };
-
-                                            if let Some(sender) = sender {
-                                                let _ = sender.send(if success {
-                                                    Ok(())
-                                                } else {
-                                                    Err(error_msg.unwrap_or_else(|| {
-                                                        "subscription ack failed".to_string()
-                                                    }))
-                                                });
-                                            } else {
-                                                debug!(
-                                                    ack_id = %ack_id,
-                                                    "received subscription ack with no pending waiter"
-                                                );
-                                            }
-
-                                            continue;
-                                        }
-
                                         // filter only the messages of type publish
                                         match msg.message_type.as_ref() {
                                             Some(MessageType::Publish(_)) => {},
-                                            None => {
+                                            Some(MessageType::Subscribe(_))
+                                            | Some(MessageType::Unsubscribe(_)) => {
+                                                Self::handle_subscription_ack_message(
+                                                    &pending_subscription_acks,
+                                                    &msg,
+                                                )
+                                                .await;
                                                 continue;
                                             }
-                                            _ => {
+                                            None => {
                                                 continue;
                                             }
                                         }
