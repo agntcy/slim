@@ -24,40 +24,10 @@ var _ = Describe("Group management through control plane", func() {
 		clientASession      *gexec.Session
 		clientCSession      *gexec.Session
 		controlPlaneDBPath  string
-
-		tempDir               string
-		serverAConfig         string
-		clientAConfig         string
-		clientCConfig         string
-		moderatorConfig       string
-		controlPlaneConfig    string
-		controlPlaneNorthPort int
-		controlPlaneSouthPort int
 	)
 
 	BeforeEach(func() {
 		fmt.Fprintf(GinkgoWriter, "[integration] Start: %s\n", CurrentSpecReport().FullText())
-
-		dataPlaneAPort := reservePort()
-		controlPlaneNorthPort = reservePort()
-		controlPlaneSouthPort = reservePort()
-
-		replacements := map[string]string{
-			"0.0.0.0:46357":          fmt.Sprintf("0.0.0.0:%d", dataPlaneAPort),
-			"http://localhost:46357": fmt.Sprintf("http://localhost:%d", dataPlaneAPort),
-			"http://127.0.0.1:46357": fmt.Sprintf("http://127.0.0.1:%d", dataPlaneAPort),
-			"http://127.0.0.1:50051": fmt.Sprintf("http://127.0.0.1:%d", controlPlaneNorthPort),
-			"http://127.0.0.1:50052": fmt.Sprintf("http://127.0.0.1:%d", controlPlaneSouthPort),
-			"httpPort: 50051":        fmt.Sprintf("httpPort: %d", controlPlaneNorthPort),
-			"httpPort: 50052":        fmt.Sprintf("httpPort: %d", controlPlaneSouthPort),
-		}
-
-		tempDir = newTempDir("slim-integration-gm-")
-		serverAConfig = writeTempConfig(tempDir, "./testdata/server-a-config-cp.yaml", "server-a-config-cp.yaml", replacements)
-		clientAConfig = writeTempConfig(tempDir, "./testdata/client-a-config.yaml", "client-a-config.yaml", replacements)
-		clientCConfig = writeTempConfig(tempDir, "./testdata/client-c-config.yaml", "client-c-config.yaml", replacements)
-		moderatorConfig = writeTempConfig(tempDir, "./testdata/moderator-config.yaml", "moderator-config.yaml", replacements)
-		controlPlaneConfig = writeTempConfig(tempDir, "./testdata/control-plane-config.yaml", "control-plane-config.yaml", replacements)
 
 		// start control plane
 		var errCP error
@@ -68,31 +38,29 @@ var _ = Describe("Group management through control plane", func() {
 		controlPlaneDBPath = controlPlaneDB.Name()
 		Expect(controlPlaneDB.Close()).To(Succeed())
 
-		controlPlaneCmd := exec.Command(controlPlanePath, "--config", controlPlaneConfig)
+		controlPlaneCmd := exec.Command(controlPlanePath, "--config", "./testdata/control-plane-config.yaml")
 		controlPlaneCmd.Env = append(os.Environ(), "DATABASE_FILEPATH="+controlPlaneDBPath)
 		controlPlaneSession, errCP = gexec.Start(
 			controlPlaneCmd,
 			GinkgoWriter, GinkgoWriter,
 		)
 		Expect(errCP).NotTo(HaveOccurred())
-		Eventually(controlPlaneSession.Out, 15*time.Second).Should(gbytes.Say("Northbound API Service is listening on"))
 
 		// start a SLIM node
 		var errNode error
 		slimNodeSession, errNode = gexec.Start(
-			exec.Command(slimPath, "--config", serverAConfig),
+			exec.Command(slimPath, "--config", "./testdata/server-a-config-cp.yaml"),
 			GinkgoWriter, GinkgoWriter,
 		)
 		Expect(errNode).NotTo(HaveOccurred())
 
 		// wait for services to start
 		time.Sleep(2000 * time.Millisecond)
-		Eventually(slimNodeSession.Out, 15*time.Second).Should(gbytes.Say("connected to control plane"))
 
 		// start moderator
 		var errModerator error
 		moderatorSession, errModerator = gexec.Start(
-			exec.Command(clientPath, "--config", moderatorConfig, "--local-name", "org/default/moderator1", "--secret", "group-abcdef-12345678901234567890"),
+			exec.Command(clientPath, "--config", "./testdata/moderator-config.yaml", "--local-name", "org/default/moderator1", "--secret", "group-abcdef-12345678901234567890"),
 			GinkgoWriter, GinkgoWriter,
 		)
 		Expect(errModerator).NotTo(HaveOccurred())
@@ -104,7 +72,7 @@ var _ = Describe("Group management through control plane", func() {
 		var errClientA, errClientC error
 		clientASession, errClientA = gexec.Start(
 			exec.Command(clientPath,
-				"--config", clientAConfig,
+				"--config", "./testdata/client-a-config.yaml",
 				"--local-name", "org/default/a", "--secret", "group-abcdef-12345678901234567890",
 			),
 			GinkgoWriter, GinkgoWriter,
@@ -113,7 +81,7 @@ var _ = Describe("Group management through control plane", func() {
 
 		clientCSession, errClientC = gexec.Start(
 			exec.Command(clientPath,
-				"--config", clientCConfig,
+				"--config", "./testdata/client-c-config.yaml",
 				"--local-name", "org/default/c",
 				"--secret", "group-abcdef-12345678901234567890",
 				"--message", "hey there, I am c!",
@@ -130,17 +98,27 @@ var _ = Describe("Group management through control plane", func() {
 		fmt.Fprintf(GinkgoWriter, "[integration] End: %s\n", CurrentSpecReport().FullText())
 
 		// terminate clients
-		terminateSession(clientASession, 2*time.Second)
-		terminateSession(clientCSession, 2*time.Second)
+		if clientASession != nil {
+			clientASession.Terminate().Wait(2 * time.Second)
+		}
+		if clientCSession != nil {
+			clientCSession.Terminate().Wait(2 * time.Second)
+		}
 
 		// terminate moderator
-		terminateSession(moderatorSession, 30*time.Second)
+		if moderatorSession != nil {
+			moderatorSession.Terminate().Wait(30 * time.Second)
+		}
 
 		// terminate SLIM node plane
-		terminateSession(slimNodeSession, 30*time.Second)
+		if slimNodeSession != nil {
+			slimNodeSession.Terminate().Wait(30 * time.Second)
+		}
 
 		// terminate control plane
-		terminateSession(controlPlaneSession, 30*time.Second)
+		if controlPlaneSession != nil {
+			controlPlaneSession.Terminate().Wait(30 * time.Second)
+		}
 
 		// delete control plane database file
 		if controlPlaneDBPath != "" {
@@ -148,24 +126,18 @@ var _ = Describe("Group management through control plane", func() {
 			Expect(err).NotTo(HaveOccurred())
 			controlPlaneDBPath = ""
 		}
-
-		if tempDir != "" {
-			_ = os.RemoveAll(tempDir)
-			tempDir = ""
-		}
 	})
 
 	Describe("group management with control plane", func() {
 		var channelName string
 		It("SLIM node creates channel, adds participant, removes participant and deletes channel", func() {
-			addChannelOutput := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
-				return exec.Command(
-					slimctlPath,
-					"c", "channel", "create",
-					"moderators=org/default/moderator1/0",
-					"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
-				)
-			})
+			addChannelOutput, err := exec.Command(
+				slimctlPath,
+				"c", "channel", "create",
+				"moderators=org/default/moderator1/0",
+				"-s", "127.0.0.1:50051",
+			).CombinedOutput()
+			Expect(err).NotTo(HaveOccurred())
 			Expect(addChannelOutput).NotTo(BeEmpty())
 
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say(MsgCreateChannelRequest))
@@ -185,15 +157,15 @@ var _ = Describe("Group management through control plane", func() {
 			participantC := "org/default/c"
 
 			// Invite clientA to the channel
-			addClientAOutput := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
-				return exec.Command(
-					slimctlPath,
-					"c", "participant", "add",
-					participantA,
-					"--channel-id", channelName,
-					"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
-				)
-			})
+			addClientAOutput, errA := exec.Command(
+				slimctlPath,
+				"c", "participant", "add",
+				participantA,
+				"--channel-id", channelName,
+				"-s", "127.0.0.1:50051",
+			).CombinedOutput()
+
+			Expect(errA).NotTo(HaveOccurred())
 			Expect(addClientAOutput).NotTo(BeEmpty())
 
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say(MsgParticipantAddRequest))
@@ -202,15 +174,15 @@ var _ = Describe("Group management through control plane", func() {
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgChannelUpdatedParticipantAdded))
 
 			// Invite clientC to the channel
-			addClientCOutput := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
-				return exec.Command(
-					slimctlPath,
-					"c", "participant", "add",
-					participantC,
-					"--channel-id", channelName,
-					"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
-				)
-			})
+			addClientCOutput, errB := exec.Command(
+				slimctlPath,
+				"c", "participant", "add",
+				participantC,
+				"--channel-id", channelName,
+				"-s", "127.0.0.1:50051",
+			).CombinedOutput()
+
+			Expect(errB).NotTo(HaveOccurred())
 			Expect(addClientCOutput).NotTo(BeEmpty())
 
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say(MsgParticipantAddRequest))
@@ -226,15 +198,15 @@ var _ = Describe("Group management through control plane", func() {
 				Should(gbytes.Say(MsgTestClientCMessage))
 
 			// Remove participant c from the channel
-			deleteParticipantOutput := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
-				return exec.Command(
-					slimctlPath,
-					"c", "participant", "delete",
-					participantC,
-					"--channel-id", channelName,
-					"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
-				)
-			})
+			deleteParticipantOutput, errP := exec.Command(
+				slimctlPath,
+				"c", "participant", "delete",
+				participantC,
+				"--channel-id", channelName,
+				"-s", "127.0.0.1:50051",
+			).CombinedOutput()
+
+			Expect(errP).NotTo(HaveOccurred())
 			Expect(deleteParticipantOutput).NotTo(BeEmpty())
 
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say(MsgParticipantDeleteRequest))
@@ -242,14 +214,14 @@ var _ = Describe("Group management through control plane", func() {
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgChannelUpdatedParticipantDeleted))
 			Eventually(clientCSession, 15*time.Second).Should(gbytes.Say(MsgSessionClosed))
 
-			deleteChannelOutput := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
-				return exec.Command(
-					slimctlPath,
-					"c", "channel", "delete",
-					channelName,
-					"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
-				)
-			})
+			deleteChannelOutput, errC := exec.Command(
+				slimctlPath,
+				"c", "channel", "delete",
+				channelName,
+				"-s", "127.0.0.1:50051",
+			).CombinedOutput()
+
+			Expect(errC).NotTo(HaveOccurred())
 			Expect(deleteChannelOutput).NotTo(BeEmpty())
 
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say(MsgChannelDeleteRequest))

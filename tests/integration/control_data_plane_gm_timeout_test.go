@@ -22,36 +22,10 @@ var _ = Describe("Group management through control plane with timeout", func() {
 		slimNodeSession     *gexec.Session
 		moderatorSession    *gexec.Session
 		controlPlaneDBPath  string
-
-		tempDir               string
-		serverAConfig         string
-		moderatorConfig       string
-		controlPlaneConfig    string
-		controlPlaneNorthPort int
-		controlPlaneSouthPort int
 	)
 
 	BeforeEach(func() {
 		fmt.Fprintf(GinkgoWriter, "[integration] Start: %s\n", CurrentSpecReport().FullText())
-
-		dataPlaneAPort := reservePort()
-		controlPlaneNorthPort = reservePort()
-		controlPlaneSouthPort = reservePort()
-
-		replacements := map[string]string{
-			"0.0.0.0:46357":          fmt.Sprintf("0.0.0.0:%d", dataPlaneAPort),
-			"http://localhost:46357": fmt.Sprintf("http://localhost:%d", dataPlaneAPort),
-			"http://127.0.0.1:46357": fmt.Sprintf("http://127.0.0.1:%d", dataPlaneAPort),
-			"http://127.0.0.1:50051": fmt.Sprintf("http://127.0.0.1:%d", controlPlaneNorthPort),
-			"http://127.0.0.1:50052": fmt.Sprintf("http://127.0.0.1:%d", controlPlaneSouthPort),
-			"httpPort: 50051":        fmt.Sprintf("httpPort: %d", controlPlaneNorthPort),
-			"httpPort: 50052":        fmt.Sprintf("httpPort: %d", controlPlaneSouthPort),
-		}
-
-		tempDir = newTempDir("slim-integration-gm-timeout-")
-		serverAConfig = writeTempConfig(tempDir, "./testdata/server-a-config-cp.yaml", "server-a-config-cp.yaml", replacements)
-		moderatorConfig = writeTempConfig(tempDir, "./testdata/moderator-config.yaml", "moderator-config.yaml", replacements)
-		controlPlaneConfig = writeTempConfig(tempDir, "./testdata/control-plane-config.yaml", "control-plane-config.yaml", replacements)
 
 		// start control plane
 		var errCP error
@@ -62,31 +36,29 @@ var _ = Describe("Group management through control plane with timeout", func() {
 		controlPlaneDBPath = controlPlaneDB.Name()
 		Expect(controlPlaneDB.Close()).To(Succeed())
 
-		controlPlaneCmd := exec.Command(controlPlanePath, "--config", controlPlaneConfig)
+		controlPlaneCmd := exec.Command(controlPlanePath, "--config", "./testdata/control-plane-config.yaml")
 		controlPlaneCmd.Env = append(os.Environ(), "DATABASE_FILEPATH="+controlPlaneDBPath)
 		controlPlaneSession, errCP = gexec.Start(
 			controlPlaneCmd,
 			GinkgoWriter, GinkgoWriter,
 		)
 		Expect(errCP).NotTo(HaveOccurred())
-		Eventually(controlPlaneSession.Out, 15*time.Second).Should(gbytes.Say("Northbound API Service is listening on"))
 
 		// start a SLIM node
 		var errNode error
 		slimNodeSession, errNode = gexec.Start(
-			exec.Command(slimPath, "--config", serverAConfig),
+			exec.Command(slimPath, "--config", "./testdata/server-a-config-cp.yaml"),
 			GinkgoWriter, GinkgoWriter,
 		)
 		Expect(errNode).NotTo(HaveOccurred())
 
 		// wait for services to start
 		time.Sleep(2000 * time.Millisecond)
-		Eventually(slimNodeSession.Out, 15*time.Second).Should(gbytes.Say("connected to control plane"))
 
 		// start moderator
 		var errModerator error
 		moderatorSession, errModerator = gexec.Start(
-			exec.Command(clientPath, "--config", moderatorConfig, "--local-name", "org/default/moderator1", "--secret", "group-abcdef-12345678901234567890"),
+			exec.Command(clientPath, "--config", "./testdata/moderator-config.yaml", "--local-name", "org/default/moderator1", "--secret", "group-abcdef-12345678901234567890"),
 			GinkgoWriter, GinkgoWriter,
 		)
 		Expect(errModerator).NotTo(HaveOccurred())
@@ -99,13 +71,19 @@ var _ = Describe("Group management through control plane with timeout", func() {
 		fmt.Fprintf(GinkgoWriter, "[integration] End: %s\n", CurrentSpecReport().FullText())
 
 		// terminate moderator
-		terminateSession(moderatorSession, 30*time.Second)
+		if moderatorSession != nil {
+			moderatorSession.Terminate().Wait(30 * time.Second)
+		}
 
 		// terminate SLIM node plane
-		terminateSession(slimNodeSession, 30*time.Second)
+		if slimNodeSession != nil {
+			slimNodeSession.Terminate().Wait(30 * time.Second)
+		}
 
 		// terminate control plane
-		terminateSession(controlPlaneSession, 30*time.Second)
+		if controlPlaneSession != nil {
+			controlPlaneSession.Terminate().Wait(30 * time.Second)
+		}
 
 		// delete control plane database file
 		if controlPlaneDBPath != "" {
@@ -113,24 +91,18 @@ var _ = Describe("Group management through control plane with timeout", func() {
 			Expect(err).NotTo(HaveOccurred())
 			controlPlaneDBPath = ""
 		}
-
-		if tempDir != "" {
-			_ = os.RemoveAll(tempDir)
-			tempDir = ""
-		}
 	})
 
 	Describe("group management with control plane with timeout", func() {
 		var channelName string
 		It("SLIM node creates channel, adds nonexistent participant", func() {
-			addChannelOutput := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
-				return exec.Command(
-					slimctlPath,
-					"c", "channel", "create",
-					"moderators=org/default/moderator1/0",
-					"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
-				)
-			})
+			addChannelOutput, err := exec.Command(
+				slimctlPath,
+				"c", "channel", "create",
+				"moderators=org/default/moderator1/0",
+				"-s", "127.0.0.1:50051",
+			).CombinedOutput()
+			Expect(err).NotTo(HaveOccurred())
 			Expect(addChannelOutput).NotTo(BeEmpty())
 
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say(MsgCreateChannelRequest))
@@ -154,7 +126,7 @@ var _ = Describe("Group management through control plane with timeout", func() {
 				"c", "participant", "add",
 				participantA,
 				"--channel-id", channelName,
-				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
+				"-s", "127.0.0.1:50051",
 			).CombinedOutput()
 
 			time.Sleep(2000 * time.Millisecond)

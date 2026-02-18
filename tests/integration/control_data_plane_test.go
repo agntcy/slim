@@ -4,8 +4,6 @@
 package integration
 
 import (
-	"fmt"
-	"os"
 	"os/exec"
 	"time"
 
@@ -21,53 +19,17 @@ var _ = Describe("Routing", func() {
 		clientBSession *gexec.Session
 		serverASession *gexec.Session
 		serverBSession *gexec.Session
-
-		tempDir          string
-		serverAConfig    string
-		serverBConfig    string
-		clientAConfig    string
-		clientBConfig    string
-		clientAConfigVia string
-		clientBConfigVia string
-
-		dataPlaneBPort  int
-		controllerAPort int
-		controllerBPort int
 	)
 
 	BeforeEach(func() {
-		dataPlaneAPort := reservePort()
-		dataPlaneBPort = reservePort()
-		controllerAPort = reservePort()
-		controllerBPort = reservePort()
-
-		replacements := map[string]string{
-			"0.0.0.0:46357":          fmt.Sprintf("0.0.0.0:%d", dataPlaneAPort),
-			"0.0.0.0:46358":          fmt.Sprintf("0.0.0.0:%d", controllerAPort),
-			"0.0.0.0:46367":          fmt.Sprintf("0.0.0.0:%d", dataPlaneBPort),
-			"0.0.0.0:46368":          fmt.Sprintf("0.0.0.0:%d", controllerBPort),
-			"http://localhost:46357": fmt.Sprintf("http://localhost:%d", dataPlaneAPort),
-			"http://localhost:46367": fmt.Sprintf("http://localhost:%d", dataPlaneBPort),
-			"http://127.0.0.1:46357": fmt.Sprintf("http://127.0.0.1:%d", dataPlaneAPort),
-			"http://127.0.0.1:46367": fmt.Sprintf("http://127.0.0.1:%d", dataPlaneBPort),
-		}
-
-		tempDir = newTempDir("slim-integration-routing-")
-		serverAConfig = writeTempConfig(tempDir, "./testdata/server-a-config.yaml", "server-a-config.yaml", replacements)
-		serverBConfig = writeTempConfig(tempDir, "./testdata/server-b-config.yaml", "server-b-config.yaml", replacements)
-		clientAConfig = writeTempConfig(tempDir, "./testdata/client-a-config.yaml", "client-a-config.yaml", replacements)
-		clientBConfig = writeTempConfig(tempDir, "./testdata/client-b-config.yaml", "client-b-config.yaml", replacements)
-		clientAConfigVia = writeTempConfig(tempDir, "./testdata/client-a-config-data.json", "client-a-config-data.json", replacements)
-		clientBConfigVia = writeTempConfig(tempDir, "./testdata/client-b-config-data.json", "client-b-config-data.json", replacements)
-
 		// start SLIMs
 		var errA, errB error
 		serverASession, errA = gexec.Start(
-			exec.Command(slimPath, "--config", serverAConfig),
+			exec.Command(slimPath, "--config", "./testdata/server-a-config.yaml"),
 			GinkgoWriter, GinkgoWriter,
 		)
 		serverBSession, errB = gexec.Start(
-			exec.Command(slimPath, "--config", serverBConfig),
+			exec.Command(slimPath, "--config", "./testdata/server-b-config.yaml"),
 			GinkgoWriter, GinkgoWriter,
 		)
 		Expect(errA).NotTo(HaveOccurred())
@@ -75,38 +37,35 @@ var _ = Describe("Routing", func() {
 
 		// wait for SLIM instances to start
 		time.Sleep(2000 * time.Millisecond)
-		Eventually(serverASession.Out, 15*time.Second).Should(gbytes.Say("started controlplane server"))
-		Eventually(serverBSession.Out, 15*time.Second).Should(gbytes.Say("started controlplane server"))
 
 		// add routes
-		runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
-			return exec.Command(slimctlPath, "n",
-				"route", "add", "org/default/b/0",
-				"via", clientBConfigVia,
-				"-s", fmt.Sprintf("127.0.0.1:%d", controllerAPort),
-			)
-		})
+		Expect(exec.Command(slimctlPath, "n",
+			"route", "add", "org/default/b/0",
+			"via", "./testdata/client-b-config-data.json",
+			"-s", "127.0.0.1:46358",
+		).Run()).To(Succeed())
 
-		runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
-			return exec.Command(slimctlPath, "n",
-				"route", "add", "org/default/a/0",
-				"via", clientAConfigVia,
-				"-s", fmt.Sprintf("127.0.0.1:%d", controllerBPort),
-			)
-		})
+		Expect(exec.Command(slimctlPath, "n",
+			"route", "add", "org/default/a/0",
+			"via", "./testdata/client-a-config-data.json",
+			"-s", "127.0.0.1:46368",
+		).Run()).To(Succeed())
 	})
 
 	AfterEach(func() {
 		// terminate apps
-		terminateSession(clientASession, 2*time.Second)
-		terminateSession(clientBSession, 2*time.Second)
+		if clientASession != nil {
+			clientASession.Terminate().Wait(2 * time.Second)
+		}
+		if clientBSession != nil {
+			clientBSession.Terminate().Wait(2 * time.Second)
+		}
 		// terminate SLIM instances
-		terminateSession(serverASession, 30*time.Second)
-		terminateSession(serverBSession, 30*time.Second)
-
-		if tempDir != "" {
-			_ = os.RemoveAll(tempDir)
-			tempDir = ""
+		if serverASession != nil {
+			serverASession.Terminate().Wait(30 * time.Second)
+		}
+		if serverBSession != nil {
+			serverBSession.Terminate().Wait(30 * time.Second)
 		}
 	})
 
@@ -116,7 +75,7 @@ var _ = Describe("Routing", func() {
 
 			clientBSession, err = gexec.Start(
 				exec.Command(sdkMockPath,
-					"--config", clientBConfig,
+					"--config", "./testdata/client-b-config.yaml",
 					"--local-name", "b",
 					"--remote-name", "a",
 				),
@@ -128,7 +87,7 @@ var _ = Describe("Routing", func() {
 
 			clientASession, err = gexec.Start(
 				exec.Command(sdkMockPath,
-					"--config", clientAConfig,
+					"--config", "./testdata/client-a-config.yaml",
 					"--local-name", "a",
 					"--remote-name", "b",
 					"--message", "hey",
@@ -149,7 +108,7 @@ var _ = Describe("Routing", func() {
 			routeListOut, err := exec.Command(
 				slimctlPath, "n",
 				"route", "list",
-				"-s", fmt.Sprintf("127.0.0.1:%d", controllerAPort),
+				"-s", "127.0.0.1:46358",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOut))
 
@@ -160,12 +119,12 @@ var _ = Describe("Routing", func() {
 			connectionListOut, err := exec.Command(
 				slimctlPath, "n",
 				"connection", "list",
-				"-s", fmt.Sprintf("127.0.0.1:%d", controllerAPort),
+				"-s", "127.0.0.1:46358",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred(), "slimctl connection list failed: %s", string(connectionListOut))
 
 			connectionOutput := string(connectionListOut)
-			Expect(connectionOutput).To(ContainSubstring(fmt.Sprintf(":%d", dataPlaneBPort)))
+			Expect(connectionOutput).To(ContainSubstring(":46367"))
 		})
 	})
 })
