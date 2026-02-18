@@ -119,7 +119,7 @@ tasks:
     desc: Patch generated bindings to fix Kotlin compatibility issues
     internal: true
     cmds:
-      - ./patch-bindings.sh
+      - python3 patch-bindings.py
 
   copy-library:
     desc: Copy native library to generated directory for JNA loading
@@ -191,7 +191,7 @@ tasks:
   test:
     desc: Run all tests
     deps:
-      - build
+      - generate
     cmds:
       - echo "Running all tests..."
       - ./gradlew test
@@ -261,8 +261,6 @@ tasks:
 
   examples:server:
     desc: Run the SLIM server example
-    deps:
-      - build
     cmds:
       - echo "🚀 Starting SLIM server..."
       - ./gradlew :runServer {{.CLI_ARGS}}
@@ -271,8 +269,6 @@ tasks:
 
   examples:p2p:alice:
     desc: "Point to Point example - Alice listens for messages and echoes them"
-    deps:
-      - build
     cmds:
       - |
         ./gradlew :runPointToPoint --args="--local agntcy/ns/alice --shared-secret $SHARED_SECRET {{.EXTRA_ARGS}}"
@@ -281,8 +277,6 @@ tasks:
 
   examples:p2p:no-mls:bob:
     desc: "Point to Point example - Bob sends unencrypted messages to Alice"
-    deps:
-      - build
     env:
       SLIM_INSTANCE_ID: bob
     cmds:
@@ -293,8 +287,6 @@ tasks:
 
   examples:p2p:mls:bob:
     desc: "Point to Point example - Bob sends encrypted messages to Alice"
-    deps:
-      - build
     env:
       SLIM_INSTANCE_ID: bob
     cmds:
@@ -305,8 +297,6 @@ tasks:
 
   examples:group:moderator:
     desc: "Group moderator - Creates channel, invites participants"
-    deps:
-      - build
     cmds:
       - |
         ./gradlew :runGroup --args="--local agntcy/ns/moderator --shared-secret $SHARED_SECRET --remote agntcy/ns/chat --invites agntcy/ns/client-1 --invites agntcy/ns/client-2 --enable-mls {{.EXTRA_ARGS}}"
@@ -315,8 +305,6 @@ tasks:
 
   examples:group:client-1:
     desc: "Group participant - Waits for invitation"
-    deps:
-      - build
     cmds:
       - |
         ./gradlew :runGroup --args="--local agntcy/ns/client-1 --shared-secret $SHARED_SECRET {{.EXTRA_ARGS}}"
@@ -325,8 +313,6 @@ tasks:
 
   examples:group:client-2:
     desc: "Group participant - Waits for invitation"
-    deps:
-      - build
     cmds:
       - |
         ./gradlew :runGroup --args="--local agntcy/ns/client-2 --shared-secret $SHARED_SECRET {{.EXTRA_ARGS}}"
