@@ -87,7 +87,7 @@ const STREAM_UNARY_STUB_METHOD_TEMPLATE: &str = r#"    async def {{METHOD_NAME}}
         )
         async for request in request_iterator:
             await request_stream.send_async({{INPUT_TYPE_FULL_PATH}}.SerializeToString(request))
-        response_bytes = await request_stream.finalize_async()
+        response_bytes = await request_stream.finalize_stream_async()
         return {{OUTPUT_TYPE_FULL_PATH}}.FromString(response_bytes)
 
 "#;

@@ -11,6 +11,11 @@ on:
         required: false
         type: string
         default: ubuntu-latest
+      tag-name:
+        description: Git tag name for version extraction (e.g., slim-bindings-1.2.3)
+        required: false
+        type: string
+        default: ""
       rust-workspace:
         description: Rust workspace directory for caching
         required: false
@@ -149,6 +154,7 @@ jobs:
         with:
           workspace: ./data-plane
       - name: Build library
+        working-directory: ./data-plane/bindings/rust
         run: |
           task bindings:build:all TARGET=${{ matrix.platform.target }} PROFILE=release
       - name: Strip and rename artifacts
@@ -275,6 +281,10 @@ jobs:
           path: |
             ./data-plane/bindings/go/slim_bindings
             !./data-plane/bindings/go/slim_bindings/*.a
+            !./data-plane/bindings/go/slim_bindings/*.so
+            !./data-plane/bindings/go/slim_bindings/*.dylib
+            !./data-plane/bindings/go/slim_bindings/*.dll
+            !./data-plane/bindings/go/slim_bindings/*.lib
           if-no-files-found: error
 
   python-bindings-test:
@@ -408,3 +418,63 @@ jobs:
         run: |
           echo "✅ Python wheel verification completed successfully on ${{ matrix.platform.target }}"
           echo "The wheel can be safely published."
+
+  dotnet-bindings-build-and-test:
+    name: Build .NET Bindings
+    runs-on: ${{ inputs.runner }}
+    needs:
+      - generate-matrix
+      - build-libraries
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./data-plane/bindings/dotnet
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          workspace: ${{ inputs.rust-workspace }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      # Download all library artifacts from the build-libraries job
+      - name: Download library artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bindings-*
+          path: ./data-plane/bindings/dotnet/artifacts/
+
+      - name: List downloaded artifacts
+        run: |
+          echo "📦 Downloaded artifacts:"
+          find ./artifacts -type f -name "*.so" -o -name "*.dll" -o -name "*.dylib" -o -name "*.a" | sort
+
+      # Run complete CI pipeline using task command
+      # This generates bindings, copies runtimes, builds, tests, and packs
+      - name: Run CI pipeline
+        run: |
+          TAG_NAME_PARAM=""
+          if [[ -n "${{ inputs.tag-name }}" ]]; then
+            TAG_NAME_PARAM="TAG_NAME=${{ inputs.tag-name }}"
+          fi
+
+          task ci \
+            ARTIFACTS_DIR=./artifacts \
+            OUTPUT_DIR=./nupkg \
+            BINDGEN_TARGET=x86_64-unknown-linux-gnu \
+            $TAG_NAME_PARAM
+
+      - name: Upload NuGet package
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotnet-bindings-nuget
+          path: ./data-plane/bindings/dotnet/nupkg/*.nupkg
+          if-no-files-found: error

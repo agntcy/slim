@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Assembly Info -->
+    <RootNamespace>Agntcy.Slim</RootNamespace>
+    <AssemblyName>Agntcy.Slim</AssemblyName>
+    
+    <!-- Package Info -->
+    <PackageId>Agntcy.Slim</PackageId>
+    <Authors>AGNTCY Contributors</Authors>
+    <Company>AGNTCY</Company>
+    <Description>C# SDK for SLIM (Secure Low-Latency Interactive Messaging)</Description>
+    <PackageTags>slim;messaging;secure;low-latency;sdk;agntcy</PackageTags>
+    <RepositoryUrl>https://github.com/agntcy/slim</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/agntcy/slim/tree/main/data-plane/bindings/dotnet</PackageProjectUrl>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    
+    <!-- Symbol package for debugging -->
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    
+    <!-- Suppress warnings from auto-generated uniffi bindings -->
+    <!-- CS0659: Type overrides Equals but not GetHashCode (common in generated FFI code) -->
+    <NoWarn>$(NoWarn);CS0659</NoWarn>
+  </PropertyGroup>
+
+  <!-- Include native libraries in the NuGet package using standard runtime structure -->
+  <ItemGroup>
+    <!-- NuGet runtime folder structure: runtimes/{rid}/native/{library} -->
+    <None Include="..\runtimes\**\*" Pack="true" PackagePath="runtimes" />
+    <None Include="..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <!-- 
+    Native library loading at build/runtime.
+    .NET automatically loads from runtimes/{rid}/native/ when using NuGet.
+    uniffi-bindgen-cs generates DllImport("uniffi_slim_bindings"), which resolves to:
+    - Windows: uniffi_slim_bindings.dll
+    - Linux:   libuniffi_slim_bindings.so
+    - macOS:   libuniffi_slim_bindings.dylib
+  -->
+  
+  <!-- Copy native libraries to output for local development -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+    <None Include="..\runtimes\osx-arm64\native\libuniffi_slim_bindings.dylib" Condition="Exists('..\runtimes\osx-arm64\native\libuniffi_slim_bindings.dylib')" CopyToOutputDirectory="PreserveNewest" Link="libuniffi_slim_bindings.dylib" />
+    <None Include="..\runtimes\osx-x64\native\libuniffi_slim_bindings.dylib" Condition="Exists('..\runtimes\osx-x64\native\libuniffi_slim_bindings.dylib')" CopyToOutputDirectory="PreserveNewest" Link="libuniffi_slim_bindings.dylib" />
+  </ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <None Include="..\runtimes\linux-x64\native\libuniffi_slim_bindings.so" Condition="Exists('..\runtimes\linux-x64\native\libuniffi_slim_bindings.so')" CopyToOutputDirectory="PreserveNewest" Link="libuniffi_slim_bindings.so" />
+    <None Include="..\runtimes\linux-musl-x64\native\libuniffi_slim_bindings.so" Condition="Exists('..\runtimes\linux-musl-x64\native\libuniffi_slim_bindings.so')" CopyToOutputDirectory="PreserveNewest" Link="libuniffi_slim_bindings.so" />
+    <None Include="..\runtimes\linux-arm64\native\libuniffi_slim_bindings.so" Condition="Exists('..\runtimes\linux-arm64\native\libuniffi_slim_bindings.so')" CopyToOutputDirectory="PreserveNewest" Link="libuniffi_slim_bindings.so" />
+    <None Include="..\runtimes\linux-musl-arm64\native\libuniffi_slim_bindings.so" Condition="Exists('..\runtimes\linux-musl-arm64\native\libuniffi_slim_bindings.so')" CopyToOutputDirectory="PreserveNewest" Link="libuniffi_slim_bindings.so" />
+  </ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <None Include="..\runtimes\win-x64\native\uniffi_slim_bindings.dll" Condition="Exists('..\runtimes\win-x64\native\uniffi_slim_bindings.dll')" CopyToOutputDirectory="PreserveNewest" Link="uniffi_slim_bindings.dll" />
+  </ItemGroup>
+
+</Project>
