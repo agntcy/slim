@@ -188,6 +188,10 @@ tasks:
             TARGETOS={{.TARGETOS}} \
             TARGETARCH={{.TARGETARCH}} \
             TARGETABI={{.TARGETABI}}
+          task -d {{.REPO_ROOT}}/data-plane/bindings/go generate-from-cache \
+            TARGETOS={{.TARGETOS}} \
+            TARGETARCH={{.TARGETARCH}} \
+            TARGETABI={{.TARGETABI}}
         else
           echo "📦 Downloading bindings for {{.TARGETOS}}/{{.TARGETARCH}}/{{.TARGETABI}}"
           # Unset GOOS/GOARCH so the tool is built for the current platform
