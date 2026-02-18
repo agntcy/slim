@@ -179,6 +179,7 @@ tasks:
       vars: [TARGETOS, TARGETARCH]
     vars:
       USE_LOCAL_BINDINGS: '{{.USE_LOCAL_BINDINGS | default "false"}}'
+      FORCE_LOCAL_BINDINGS: '{{.FORCE_LOCAL_BINDINGS | default "false"}}'
       TARGETABI: '{{.TARGETABI | default "gnu"}}'
     dir: slimctl
     cmds:
@@ -187,7 +188,8 @@ tasks:
           task -d {{.REPO_ROOT}}/control-plane control-plane:go-bindings:install-local \
             TARGETOS={{.TARGETOS}} \
             TARGETARCH={{.TARGETARCH}} \
-            TARGETABI={{.TARGETABI}}
+            TARGETABI={{.TARGETABI}} \
+            FORCE_LOCAL_BINDINGS={{.FORCE_LOCAL_BINDINGS}}
           task -d {{.REPO_ROOT}}/data-plane/bindings/go generate-from-cache \
             TARGETOS={{.TARGETOS}} \
             TARGETARCH={{.TARGETARCH}} \
@@ -247,6 +249,7 @@ tasks:
       vars: [TARGETOS, TARGETARCH]
     vars:
       TARGETABI: '{{.TARGETABI | default ""}}'
+      FORCE_LOCAL_BINDINGS: '{{.FORCE_LOCAL_BINDINGS | default "false"}}'
     cmds:
       - |
         set -euo pipefail
@@ -298,9 +301,13 @@ tasks:
 
         GOPATH_DIR=$(go env GOPATH)
         CACHE_DIR="$GOPATH_DIR/.cgo-cache/slim-bindings"
-        if [ -f "$CACHE_DIR/$LIB_NAME" ]; then
+        if [ -f "$CACHE_DIR/$LIB_NAME" ] && [ "{{.FORCE_LOCAL_BINDINGS}}" != "true" ]; then
           echo "✅ Bindings already cached at $CACHE_DIR/$LIB_NAME"
           exit 0
+        fi
+
+        if [ -f "$CACHE_DIR/$LIB_NAME" ] && [ "{{.FORCE_LOCAL_BINDINGS}}" = "true" ]; then
+          echo "♻️  Rebuilding bindings for $RUST_TARGET (cache refresh)"
         fi
 
         echo "🦀 Building bindings for $RUST_TARGET"
@@ -349,6 +356,8 @@ tasks:
       VERSION:
         sh: pushd {{.REPO_ROOT}} > /dev/null && task version && popd > /dev/null
       FLAGS: '{{.FLAGS | default ""}}'
+      USE_LOCAL_BINDINGS: '{{.USE_LOCAL_BINDINGS | default "false"}}'
+      FORCE_LOCAL_BINDINGS: '{{.FORCE_LOCAL_BINDINGS | default "false"}}'
 
     deps:
       - control-plane:proto:generate
@@ -357,6 +366,8 @@ tasks:
           TARGETOS: "{{.TARGETOS}}"
           TARGETARCH: "{{.TARGETARCH}}"
           TARGETABI: "{{.TARGETABI | default \"gnu\"}}"
+          USE_LOCAL_BINDINGS: "{{.USE_LOCAL_BINDINGS}}"
+          FORCE_LOCAL_BINDINGS: "{{.FORCE_LOCAL_BINDINGS}}"
       - task: tools:zig
 
     dir: slimctl/cmd
@@ -478,12 +489,20 @@ tasks:
 
   control-plane:build:
     desc: Build go binaries
+    vars:
+      USE_LOCAL_BINDINGS: '{{.USE_LOCAL_BINDINGS | default "false"}}'
+      FORCE_LOCAL_BINDINGS: '{{.FORCE_LOCAL_BINDINGS | default "false"}}'
     deps:
-      - control-plane:modtidy
+      - task: control-plane:modtidy
+        vars:
+          USE_LOCAL_BINDINGS: "{{.USE_LOCAL_BINDINGS}}"
     cmds:
       - task: control-plane:control-plane:build
       - task: control-plane:token-service:build
       - task: control-plane:slimctl:build
+        vars:
+          USE_LOCAL_BINDINGS: "{{.USE_LOCAL_BINDINGS}}"
+          FORCE_LOCAL_BINDINGS: "{{.FORCE_LOCAL_BINDINGS}}"
 
 
   #  control plane related tasks
