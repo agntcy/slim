@@ -1,0 +1,56 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+
+name: Setup Java Environment
+description: setup environment to build/test/lint Kotlin applications
+inputs:
+  java-version:
+    description: 'Java version to install'
+    required: false
+    default: '21'
+  distribution:
+    description: 'Java distribution to use'
+    required: false
+    default: 'temurin'
+  cache-enabled:
+    description: 'Enable Gradle caching'
+    required: false
+    default: 'true'
+outputs:
+  cache-hit:
+    description: "Whether we hit the cache"
+    value: ${{ steps.gradle-cache.outputs.cache-hit }}
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: ${{ inputs.distribution }}
+        java-version: ${{ inputs.java-version }}
+
+    - name: Setup Taskfile
+      uses: ./.github/actions/setup-task
+      with:
+        version: latest
+        cache-enabled: true
+
+    - name: Cache Gradle
+      if: ${{ inputs.cache-enabled == 'true' }}
+      id: gradle-cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: gradle-cache-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+
+    - id: set-cache-hit
+      run: echo "cache-hit=${{ steps.gradle-cache.outputs.cache-hit }}" >> $GITHUB_OUTPUT
+      shell: bash
+
+    - name: Update GITHUB_PATH
+      run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+      shell: bash

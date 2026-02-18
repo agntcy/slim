@@ -66,17 +66,52 @@ tasks:
       - task: adapter:bindings:build:all
         vars:
           PROFILE: release
+        status:
+          - test "{{.SKIP_BUILD | default "false"}}" = "true"
       - install-uniffi-bindgen
     cmds:
       - echo "🔧 Generating Kotlin bindings from compiled library..."
+      - echo "📂 Current working directory:"
+      - pwd
+      - echo "🔍 Verifying uniffi-bindgen..."
+      - uniffi-bindgen --version
+      - echo "🔍 Checking library file exists:"
+      - ls -lah '{{.LIB_PATH}}'
+      - echo "🔍 Checking if library is valid:"
+      - file '{{.LIB_PATH}}'
+      - echo "🚀 Running uniffi-bindgen with verbose output..."
       - |
+        set -x
         uniffi-bindgen generate \
           --library '{{.LIB_PATH}}' \
           --language kotlin \
           --config uniffi.toml \
-          --no-format \
           --out-dir generated
+        BINDGEN_EXIT=$?
+        set +x
+        echo "uniffi-bindgen exit code: $BINDGEN_EXIT"
+        if [ $BINDGEN_EXIT -ne 0 ]; then
+          echo "❌ uniffi-bindgen failed with exit code $BINDGEN_EXIT"
+          exit $BINDGEN_EXIT
+        fi
+        echo "✅ uniffi-bindgen completed successfully"
       - task: copy-library
+      - echo "🔍 Debug information:"
+      - echo "LIB_PATH={{.LIB_PATH}}"
+      - echo "PWD=$(pwd)"
+      - echo "📁 Listing generated files before patching..."
+      - |
+        if [ -d "generated" ]; then
+          echo "Contents of generated:"
+          ls -la generated/
+          echo "---"
+          echo "Contents of generated/io/agntcy/slim/bindings/:"
+          ls -la generated/io/agntcy/slim/bindings/ 2>/dev/null || echo "⚠️ Bindings directory not found"
+          echo "---"
+        else
+          echo "❌ Error: generated directory not found!"
+          exit 1
+        fi
       - task: patch-bindings
       - echo "✅ Bindings generated in generated/"
 
@@ -156,7 +191,7 @@ tasks:
   test:
     desc: Run all tests
     deps:
-      - generate
+      - build
     cmds:
       - echo "Running all tests..."
       - ./gradlew test
