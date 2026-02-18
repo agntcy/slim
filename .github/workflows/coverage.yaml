@@ -38,8 +38,9 @@ jobs:
         run: task data-plane:coverage-full
 
       - name: Setup SLIM Go bindings
+        working-directory: ${{ github.workspace }}
         run: |
-          CGO_ENABLED=1 task -d ./control-plane control-plane:go-bindings:setup \
+          CGO_ENABLED=1 task -d control-plane control-plane:go-bindings:setup \
             TARGETOS=$(go env GOOS) \
             TARGETARCH=$(go env GOARCH) \
             USE_LOCAL_BINDINGS=true
