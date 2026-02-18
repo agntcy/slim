@@ -209,6 +209,34 @@ tasks:
           cp -a "$CACHE_DIR" "$REPO_CACHE/"
         fi
 
+        case "{{.TARGETOS}}" in
+          darwin)
+            if [ "{{.TARGETARCH}}" = "arm64" ]; then
+              LIB_ARCH="aarch64"
+            else
+              LIB_ARCH="x86_64"
+            fi
+            LIB_NAME="libslim_bindings_${LIB_ARCH}_darwin.a"
+            ;;
+          linux)
+            if [ "{{.TARGETARCH}}" = "arm64" ]; then
+              LIB_ARCH="aarch64"
+            else
+              LIB_ARCH="x86_64"
+            fi
+            LIB_NAME="libslim_bindings_${LIB_ARCH}_linux_{{.TARGETABI}}.a"
+            ;;
+          windows)
+            LIB_NAME="libslim_bindings_x86_64_windows_{{.TARGETABI}}.a"
+            ;;
+        esac
+
+        if [ -n "${LIB_NAME:-}" ] && [ -f "$CACHE_DIR/$LIB_NAME" ]; then
+          DEST_DIR="{{.REPO_ROOT}}/data-plane/bindings/go/slim_bindings"
+          mkdir -p "$DEST_DIR"
+          cp -a "$CACHE_DIR/$LIB_NAME" "$DEST_DIR/"
+        fi
+
   control-plane:go-bindings:install-local:
     desc: Build bindings locally and install into the CGO cache
     requires:
