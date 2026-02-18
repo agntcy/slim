@@ -286,6 +286,11 @@ jobs:
           path: ./node-packages
           pattern: node-platform-*
 
+      - name: Configure npm auth
+        run: echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       - name: Publish to npm
         run: |
           for tgz in ./node-packages/node-platform-*/*.tgz; do
@@ -354,6 +359,11 @@ jobs:
             require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2));
           "
 
+      - name: Configure npm auth
+        run: echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       - name: Publish main package to npm
         working-directory: ./data-plane/bindings/node
         run: npm publish --access public
@@ -406,6 +416,11 @@ jobs:
       - name: Set version in package.json
         working-directory: ./data-plane/bindings/react-native
         run: npm pkg set version="${{ steps.version.outputs.version }}"
+
+      - name: Configure npm auth
+        run: echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish to npm
         working-directory: ./data-plane/bindings/react-native
