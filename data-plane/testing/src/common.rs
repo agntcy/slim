@@ -11,31 +11,20 @@ use slim_service::ServiceError;
 use slim_service::{Service, ServiceConfiguration, app::App};
 use slim_session::{Notification, SessionError};
 use slim_tracing::TracingConfiguration;
-use std::net::TcpListener;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
 pub const DEFAULT_DATAPLANE_PORT: u16 = 46357;
 pub const DEFAULT_SERVICE_ID: &str = "slim/0";
 
-/// Reserve a local TCP port for a test server.
-pub fn reserve_local_port() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind test port");
-    let port = listener
-        .local_addr()
-        .expect("failed to read test port")
-        .port();
-    drop(listener);
-    port
-}
-
-/// Runs a SLIM node server that listens on the provided dataplane port.
+/// Runs a SLIM node server that listens on the default dataplane port.
 /// The server will run until it receives a shutdown signal or times out after 5 minutes.
-pub async fn run_slim_node(port: u16) -> Result<(), ServiceError> {
+pub async fn run_slim_node() -> Result<(), ServiceError> {
     println!("Server task starting...");
 
-    let dataplane_server_config = GrpcServerConfig::with_endpoint(&format!("0.0.0.0:{}", port))
-        .with_tls_settings(TlsServerConfig::default().with_insecure(true));
+    let dataplane_server_config =
+        GrpcServerConfig::with_endpoint(&format!("0.0.0.0:{}", DEFAULT_DATAPLANE_PORT))
+            .with_tls_settings(TlsServerConfig::default().with_insecure(true));
 
     let service_config =
         ServiceConfiguration::new().with_dataplane_server(vec![dataplane_server_config]);

@@ -12,7 +12,7 @@ use slim_service::{ServiceError, SlimHeaderFlags};
 use slim_session::{Notification, SessionConfig};
 use slim_testing::build_client_service;
 use slim_testing::common::{
-    DEFAULT_SERVICE_ID, create_and_subscribe_app, reserve_local_port, run_slim_node,
+    DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID, create_and_subscribe_app, run_slim_node,
 };
 
 #[derive(Parser, Debug)]
@@ -34,10 +34,10 @@ impl Args {
     }
 }
 
-async fn run_participant_task(name: Name, port: u16) -> Result<(), ServiceError> {
+async fn run_participant_task(name: Name) -> Result<(), ServiceError> {
     println!("Participant {} task starting...", name);
 
-    let svc = build_client_service(port, DEFAULT_SERVICE_ID);
+    let svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID);
     let (_app, mut rx, _conn_id, _svc) = create_and_subscribe_app(svc, &name).await?;
 
     let moderator = Name::from_strings(["org", "ns", "moderator"]).with_id(1);
@@ -118,11 +118,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         println!("start test with msl disabled");
     }
-    let dataplane_port = reserve_local_port();
-
     // start slim node
     tokio::spawn(async move {
-        let _ = run_slim_node(dataplane_port).await;
+        let _ = run_slim_node().await;
     });
 
     // start clients
@@ -132,9 +130,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for i in 0..tot_participants {
         let p = Name::from_strings(["org", "ns", &format!("t{}", i)]);
         participants.push(p.clone());
-        let port = dataplane_port;
         tokio::spawn(async move {
-            let _ = run_participant_task(p.with_id(1), port).await;
+            let _ = run_participant_task(p.with_id(1)).await;
         });
     }
 
@@ -145,7 +142,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let name = Name::from_strings(["org", "ns", "moderator"]).with_id(1);
     let channel_name = Name::from_strings(["channel", "channel", "channel"]);
 
-    let svc = build_client_service(dataplane_port, DEFAULT_SERVICE_ID);
+    let svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID);
 
     let (app, _rx, conn_id, _svc) = create_and_subscribe_app(svc, &name).await?;
 

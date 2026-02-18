@@ -179,7 +179,7 @@ func main() {
 	rootCmd.AddCommand(slim.NewSlimCmd(rootCmd.Context(), conf.AppConfig))
 
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintf(os.Stderr, "CLI error: %v", err)
 		os.Exit(1)
 	}
 }
