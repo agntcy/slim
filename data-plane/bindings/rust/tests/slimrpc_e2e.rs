@@ -775,7 +775,10 @@ async fn test_stream_unary_rpc() {
     }
 
     // Finalize and get response
-    let response = writer.finalize_async().await.expect("Failed to finalize");
+    let response = writer
+        .finalize_stream_async()
+        .await
+        .expect("Failed to finalize");
 
     // Parse response: total (4 bytes) + count (4 bytes)
     assert_eq!(response.len(), 8);
@@ -825,7 +828,7 @@ async fn test_stream_unary_error_handling() {
         .expect("Failed to send");
 
     // Finalize - should get an error
-    let result = writer.finalize_async().await;
+    let result = writer.finalize_stream_async().await;
     assert!(result.is_err());
     let error = result.unwrap_err();
     assert_eq!(error.code(), RpcCode::InvalidArgument);
@@ -1399,7 +1402,10 @@ async fn test_stream_unary_with_metadata() {
     }
 
     // Finalize and get response
-    let response = writer.finalize_async().await.expect("Failed to finalize");
+    let response = writer
+        .finalize_stream_async()
+        .await
+        .expect("Failed to finalize");
     let sum = u32::from_le_bytes([response[0], response[1], response[2], response[3]]);
 
     let expected_sum: u32 = values.iter().sum();
@@ -1867,7 +1873,7 @@ async fn test_server_deadline_stream_unary() {
     }
 
     // Finalize and get response - should timeout on the server side
-    let result = writer.finalize_async().await;
+    let result = writer.finalize_stream_async().await;
 
     assert!(result.is_err(), "Expected timeout error");
     let err = result.unwrap_err();

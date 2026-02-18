@@ -61,7 +61,7 @@ class TestStub:
         )
         async for request in request_iterator:
             await request_stream.send_async(pb2.ExampleRequest.SerializeToString(request))
-        response_bytes = await request_stream.finalize_async()
+        response_bytes = await request_stream.finalize_stream_async()
         return pb2.ExampleResponse.FromString(response_bytes)
 
     async def ExampleStreamStream(self, request_iterator, timeout: Optional[timedelta] = None, metadata: Optional[dict[str, str]] = None):

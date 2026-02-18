@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Agntcy.Slim.Tests</RootNamespace>
+    <AssemblyName>Agntcy.Slim.Tests</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="xunit" Version="2.6.4" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.6">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector" Version="6.0.0">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Slim\Slim.csproj" />
+  </ItemGroup>
+
+  <!-- Copy native libraries to test output (uniffi uses uniffi_slim_bindings) -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+    <None Include="..\runtimes\osx-arm64\native\libuniffi_slim_bindings.dylib" Condition="Exists('..\runtimes\osx-arm64\native\libuniffi_slim_bindings.dylib')" CopyToOutputDirectory="PreserveNewest" Link="libuniffi_slim_bindings.dylib" />
+    <None Include="..\runtimes\osx-x64\native\libuniffi_slim_bindings.dylib" Condition="Exists('..\runtimes\osx-x64\native\libuniffi_slim_bindings.dylib')" CopyToOutputDirectory="PreserveNewest" Link="libuniffi_slim_bindings.dylib" />
+  </ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <None Include="..\runtimes\linux-x64\native\libuniffi_slim_bindings.so" Condition="Exists('..\runtimes\linux-x64\native\libuniffi_slim_bindings.so')" CopyToOutputDirectory="PreserveNewest" Link="libuniffi_slim_bindings.so" />
+    <None Include="..\runtimes\linux-musl-x64\native\libuniffi_slim_bindings.so" Condition="Exists('..\runtimes\linux-musl-x64\native\libuniffi_slim_bindings.so')" CopyToOutputDirectory="PreserveNewest" Link="libuniffi_slim_bindings.so" />
+    <None Include="..\runtimes\linux-arm64\native\libuniffi_slim_bindings.so" Condition="Exists('..\runtimes\linux-arm64\native\libuniffi_slim_bindings.so')" CopyToOutputDirectory="PreserveNewest" Link="libuniffi_slim_bindings.so" />
+    <None Include="..\runtimes\linux-musl-arm64\native\libuniffi_slim_bindings.so" Condition="Exists('..\runtimes\linux-musl-arm64\native\libuniffi_slim_bindings.so')" CopyToOutputDirectory="PreserveNewest" Link="libuniffi_slim_bindings.so" />
+  </ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <None Include="..\runtimes\win-x64\native\uniffi_slim_bindings.dll" Condition="Exists('..\runtimes\win-x64\native\uniffi_slim_bindings.dll')" CopyToOutputDirectory="PreserveNewest" Link="uniffi_slim_bindings.dll" />
+  </ItemGroup>
+
+</Project>
