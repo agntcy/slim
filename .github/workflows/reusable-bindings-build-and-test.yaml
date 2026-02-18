@@ -478,3 +478,60 @@ jobs:
           name: dotnet-bindings-nuget
           path: ./data-plane/bindings/dotnet/nupkg/*.nupkg
           if-no-files-found: error
+
+  kotlin-bindings-build-and-test:
+    runs-on: ${{ inputs.runner }}
+    needs:
+      - generate-matrix
+      - build-libraries
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./data-plane/bindings/kotlin
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          workspace: ${{ inputs.rust-workspace }}
+
+      - name: Setup Java
+        uses: ./.github/actions/setup-java
+
+      # Download all library artifacts
+      - name: Download libraries
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          pattern: bindings-*
+          path: ./data-plane/bindings/kotlin/artifacts/
+
+      - name: List downloaded artifacts
+        run: |
+          echo "📦 Downloaded artifacts:"
+          find ./artifacts -type f -ls
+
+      # - name: Generate Kotlin bindings
+      #   run: |
+      #     task generate LIB_PATH=./artifacts/lib${{ env.LIBRARY_NAME }}_x86_64_linux_gnu.so SKIP_BUILD=true
+
+      #     echo "📁 Generated files:"
+      #     find ./generated -type f -ls
+
+      - name: Run Kotlin bindings tests
+        run: |
+          echo "Running Kotlin bindings tests..."
+          task test LIB_PATH=./artifacts/lib${{ env.LIBRARY_NAME }}_x86_64_linux_gnu.so SKIP_BUILD=true
+
+      - name: Upload Generated Kotlin code
+        uses: actions/upload-artifact@v4
+        with:
+          name: kotlin-bindings-generated-code
+          path: |
+            ./data-plane/bindings/kotlin/generated/**/*.kt
+            ./data-plane/bindings/kotlin/generated/jniLibs/**/*
+          if-no-files-found: error
