@@ -194,17 +194,7 @@ tasks:
       - generate
     cmds:
       - echo "Running all tests..."
-      - ./gradlew test
-      - echo "Tests complete"
-      - echo "View test report at build/reports/tests/test/index.html"
-
-  test:verbose:
-    desc: Run all tests with verbose output
-    deps:
-      - generate
-    cmds:
-      - echo "Running all tests (verbose)..."
-      - ./gradlew testVerbose
+      - ./gradlew clean test --rerun-tasks
       - echo "Tests complete"
       - echo "View test report at build/reports/tests/test/index.html"
 
@@ -214,7 +204,7 @@ tasks:
       - generate
     cmds:
       - echo "Running {{.TEST_CLASS}}..."
-      - ./gradlew testClass -PtestClass={{.TEST_CLASS}}
+      - ./gradlew clean testClass -PtestClass={{.TEST_CLASS}} --rerun-tasks
       - echo "Tests complete"
       - echo "View test report at build/reports/tests/test/index.html"
     vars:
@@ -226,7 +216,7 @@ tasks:
       - generate
     cmds:
       - echo "Running tests matching '{{.TEST_PATTERN}}'..."
-      - ./gradlew testPattern -PtestPattern={{.TEST_PATTERN}}
+      - ./gradlew clean testPattern -PtestPattern={{.TEST_PATTERN}} --rerun-tasks
       - echo "Tests complete"
       - echo "View test report at build/reports/tests/test/index.html"
     vars:
