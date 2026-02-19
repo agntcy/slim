@@ -80,8 +80,14 @@ pub fn initialize_from_config(config_path: String) {
         let mut config = ConfigLoader::new(&config_path).expect("Failed to create config loader");
 
         // Get configurations
-        let runtime_config = config.runtime().clone();
-        let tracing_conf = config.tracing().clone();
+        let runtime_config = config
+            .runtime()
+            .expect("invalid runtime configuration")
+            .clone();
+        let tracing_conf = config
+            .tracing()
+            .expect("invalid tracing configuration")
+            .clone();
         let service_configs: Vec<CoreServiceConfiguration> = match config.services_config() {
             Ok(services) => {
                 if !services.is_empty() {

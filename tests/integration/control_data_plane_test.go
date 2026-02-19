@@ -39,17 +39,19 @@ var _ = Describe("Routing", func() {
 		time.Sleep(2000 * time.Millisecond)
 
 		// add routes
-		Expect(exec.Command(slimctlPath, "n",
+		outB, errB2 := exec.Command(slimctlPath, "n",
 			"route", "add", "org/default/b/0",
 			"via", "./testdata/client-b-config-data.json",
 			"-s", "127.0.0.1:46358",
-		).Run()).To(Succeed())
+		).CombinedOutput()
+		Expect(errB2).NotTo(HaveOccurred(), "slimctl route add b failed: %s", string(outB))
 
-		Expect(exec.Command(slimctlPath, "n",
+		outA, errA2 := exec.Command(slimctlPath, "n",
 			"route", "add", "org/default/a/0",
 			"via", "./testdata/client-a-config-data.json",
 			"-s", "127.0.0.1:46368",
-		).Run()).To(Succeed())
+		).CombinedOutput()
+		Expect(errA2).NotTo(HaveOccurred(), "slimctl route add a failed: %s", string(outA))
 	})
 
 	AfterEach(func() {

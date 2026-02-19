@@ -6,5 +6,8 @@ tracing:
 
 services:
   slim/0:
-    server:
-      endpoint: "1.2.3.4:54321"
+    dataplane:
+      servers:
+        - endpoint: "1.2.3.4:54321"
+          tls:
+            insecure: true

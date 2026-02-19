@@ -61,11 +61,6 @@ on:
         required: false
         type: boolean
         default: true
-      cgo-enabled:
-        description: Whether to enable CGO
-        required: false
-        type: string
-        default: '0'
       go-fips:
         description: Whether to install GoFIPS
         required: false
@@ -298,18 +293,8 @@ jobs:
         env:
           GOOS: ${{matrix.os}}
           GOARCH: ${{matrix.arch}}
-          CGO_ENABLED: ${{ inputs.cgo-enabled }}
         run: |
           which go
           go env
 
           task control-plane:build
-
-      - name: Upload slimctl artifact
-        if: ${{ inputs.upload-artifacts }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: slimctl-${{ matrix.os }}-${{ matrix.arch }}
-          path: .dist/bin/slimctl${{ matrix.os == 'windows' && '.exe' || '' }}
-          if-no-files-found: error
-          retention-days: 1

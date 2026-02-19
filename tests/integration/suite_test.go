@@ -39,9 +39,9 @@ func setBinaryPaths(target string) {
 	slimPath = mustAbs(filepath.Join(dataPlaneTarget, "slim"))
 	sdkMockPath = mustAbs(filepath.Join(dataPlaneTarget, "sdk-mock"))
 	clientPath = mustAbs(filepath.Join(dataPlaneTarget, "client"))
+	slimctlPath = mustAbs(filepath.Join(dataPlaneTarget, "slimctl"))
 
 	distBin := filepath.Join("..", "..", ".dist", "bin")
-	slimctlPath = mustAbs(filepath.Join(distBin, "slimctl"))
 	controlPlanePath = mustAbs(filepath.Join(distBin, "control-plane"))
 }
 

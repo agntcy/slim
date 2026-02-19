@@ -15,10 +15,6 @@
       "package-name": "helm-slim-control-plane",
       "release-type": "helm"
     },
-    "control-plane/slimctl": {
-      "package-name": "slimctl",
-      "release-type": "go"
-    },
     "control-plane/control-plane": {
       "package-name": "control-plane",
       "release-type": "go"

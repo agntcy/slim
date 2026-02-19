@@ -22,7 +22,6 @@ dependencies = [
  "agntcy-slim-tracing",
  "anyhow",
  "clap",
- "display-error-chain",
  "duration-string",
  "indexmap 2.13.0",
  "jemallocator",
@@ -337,6 +336,35 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "agntcy-slimctl"
+version = "1.0.0"
+dependencies = [
+ "agntcy-slim",
+ "agntcy-slim-config",
+ "agntcy-slim-service",
+ "agntcy-slim-signal",
+ "agntcy-slim-tracing",
+ "anyhow",
+ "base64",
+ "chrono",
+ "clap",
+ "prost",
+ "prost-types",
+ "protoc-bin-vendored",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
+ "url",
  "uuid",
 ]
 
@@ -4369,9 +4397,11 @@ dependencies = [
  "hyper-util",
  "percent-encoding",
  "pin-project",
+ "rustls-native-certs",
  "socket2",
  "sync_wrapper",
  "tokio",
+ "tokio-rustls",
  "tokio-stream",
  "tower",
  "tower-layer",
