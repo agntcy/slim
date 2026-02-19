@@ -1019,6 +1019,22 @@ services:
         let _ = result;
     }
 
+    #[test_fork::fork]
+    #[test]
+    fn test_initialize_from_config_with_error_invalid_path() {
+        // Test that we get a structured error instead of a panic
+        let result = initialize_from_config_with_error(
+            "/nonexistent/path/to/config.yaml".to_string(),
+        );
+
+        match result {
+            Err(SlimError::ConfigError { message }) => {
+                assert!(!message.is_empty());
+            }
+            other => panic!("Expected ConfigError, got: {:?}", other),
+        }
+    }
+
     #[test]
     fn test_get_services_count() {
         // Test that get_services returns services
@@ -1095,4 +1111,47 @@ services:
         // Clean up
         let _ = std::fs::remove_file(&config_path);
     }
+
+        #[test_fork::fork]
+        #[test]
+        fn test_initialize_from_config_with_error_valid_yaml() {
+                // Test the non-panicking initializer with a valid config file
+                use std::io::Write;
+
+                let config_content = r#"
+tracing:
+    log_level: info
+    display_thread_names: true
+
+runtime:
+    n_cores: 1
+    thread_name: "test-runtime-error"
+    drain_timeout: 3s
+
+services:
+    test-service:
+        node_id: "test-node"
+        group_name: "test-group"
+        dataplane:
+            servers: []
+            clients: []
+"#;
+
+                let temp_dir = std::env::temp_dir();
+                let config_path = temp_dir.join("test-valid-config-error.yaml");
+                let mut file = std::fs::File::create(&config_path).expect("Failed to create temp file");
+                file.write_all(config_content.as_bytes())
+                        .expect("Failed to write config");
+                drop(file);
+
+                let result = initialize_from_config_with_error(
+                        config_path.to_str().unwrap().to_string(),
+                );
+                assert!(result.is_ok(), "Expected Ok(()), got: {:?}", result);
+
+                let service_configs = get_service_config();
+                assert!(!service_configs.is_empty());
+
+                let _ = std::fs::remove_file(&config_path);
+        }
 }
