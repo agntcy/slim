@@ -13,6 +13,10 @@ inputs:
     description: 'Cargo workspace to cache'
     required: false
     default: '.'
+  cache-directories:
+    description: 'Additional cache directories (whitespace-separated)'
+    required: false
+    default: ''
 runs:
   using: 'composite'
   steps:
@@ -27,6 +31,7 @@ runs:
         cache-shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
         cache-all-crates: true
         cache-bin: false # cache-bin has a bug at the swatinem cache level, if it's enabled, it will cause the bin cache to be cleared
+        cache-directories: ${{ inputs.cache-directories }}
 
     - name: Setup Taskfile
       uses: ./.github/actions/setup-task
