@@ -586,6 +586,178 @@ mod tests {
         )
     }
 
+    fn create_isolated_test_app(
+        suffix: &str,
+    ) -> (
+        App<SharedSecret, SharedSecret>,
+        tokio::sync::mpsc::Receiver<Result<ProtoMessage, slim_datapath::Status>>,
+    ) {
+        let (tx_slim, rx_slim) = tokio::sync::mpsc::channel(16);
+        let (tx_app, _rx_app) = tokio::sync::mpsc::channel(16);
+        let name = create_test_name(&format!("isolated-{suffix}"));
+
+        let app = App::new(
+            &name,
+            SharedSecret::new("isolated-provider", TEST_VALID_SECRET).unwrap(),
+            SharedSecret::new("isolated-verifier", TEST_VALID_SECRET).unwrap(),
+            0,
+            tx_slim,
+            tx_app,
+        );
+
+        (app, rx_slim)
+    }
+
+    async fn recv_outbound_message(
+        rx_slim: &mut tokio::sync::mpsc::Receiver<Result<ProtoMessage, slim_datapath::Status>>,
+    ) -> ProtoMessage {
+        tokio::time::timeout(std::time::Duration::from_secs(1), rx_slim.recv())
+            .await
+            .expect("timeout waiting for outbound message")
+            .expect("outbound channel closed")
+            .expect("failed to send outbound message")
+    }
+
+    fn build_subscription_ack_message(
+        ack_id: &str,
+        success: bool,
+        error_msg: Option<&str>,
+        add: bool,
+    ) -> ProtoMessage {
+        let mut builder = ProtoMessage::builder()
+            .source(create_test_name("ack-src"))
+            .destination(create_test_name("ack-dst"))
+            .metadata(SUBSCRIPTION_ACK_ID, ack_id.to_string())
+            .metadata(
+                SUBSCRIPTION_ACK_SUCCESS,
+                if success {
+                    TRUE_VAL
+                } else {
+                    slim_datapath::messages::utils::FALSE_VAL
+                },
+            );
+
+        if let Some(err) = error_msg {
+            builder = builder.metadata(SUBSCRIPTION_ACK_ERROR, err.to_string());
+        }
+
+        if add {
+            builder.build_subscribe().unwrap()
+        } else {
+            builder.build_unsubscribe().unwrap()
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handle_subscription_ack_message_uses_default_rejection_message() {
+        let pending = Arc::new(Mutex::new(HashMap::new()));
+        let (tx, rx) = oneshot::channel();
+        pending.lock().await.insert("ack-default".to_string(), tx);
+
+        let ack_msg = build_subscription_ack_message("ack-default", false, None, true);
+        App::<SharedSecret, SharedSecret>::handle_subscription_ack_message(&pending, &ack_msg)
+            .await;
+
+        let ack_result = rx.await.expect("ack sender dropped unexpectedly");
+        match ack_result {
+            Ok(()) => panic!("expected rejected ack"),
+            Err(SubscriptionAckError::Rejected { message }) => {
+                assert_eq!(message, "subscription ack failed");
+            }
+            Err(other) => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_subscribe_succeeds_when_ack_is_successful() {
+        let (app, mut rx_slim) = create_isolated_test_app("subscribe-success");
+        let dst = create_test_name("channel");
+
+        let mut subscribe_fut = Box::pin(app.subscribe(&dst, None));
+        let outbound = tokio::select! {
+            res = &mut subscribe_fut => panic!("subscribe completed before ack handling: {:?}", res),
+            msg = recv_outbound_message(&mut rx_slim) => msg,
+        };
+
+        let ack_id = outbound
+            .get_metadata(SUBSCRIPTION_ACK_ID)
+            .cloned()
+            .expect("missing ack id in outbound subscribe message");
+
+        let ack_msg = build_subscription_ack_message(&ack_id, true, None, true);
+        App::<SharedSecret, SharedSecret>::handle_subscription_ack_message(
+            &app.pending_subscription_acks,
+            &ack_msg,
+        )
+        .await;
+
+        subscribe_fut.await.expect("subscribe should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_subscribe_returns_rejected_ack_error() {
+        let (app, mut rx_slim) = create_isolated_test_app("subscribe-rejected");
+        let dst = create_test_name("channel");
+
+        let mut subscribe_fut = Box::pin(app.subscribe(&dst, None));
+        let outbound = tokio::select! {
+            res = &mut subscribe_fut => panic!("subscribe completed before ack handling: {:?}", res),
+            msg = recv_outbound_message(&mut rx_slim) => msg,
+        };
+
+        let ack_id = outbound
+            .get_metadata(SUBSCRIPTION_ACK_ID)
+            .cloned()
+            .expect("missing ack id in outbound subscribe message");
+
+        let ack_msg =
+            build_subscription_ack_message(&ack_id, false, Some("forwarding update failed"), true);
+        App::<SharedSecret, SharedSecret>::handle_subscription_ack_message(
+            &app.pending_subscription_acks,
+            &ack_msg,
+        )
+        .await;
+
+        let err = subscribe_fut.await.expect_err("subscribe should fail");
+        match err {
+            ServiceError::SubscriptionError(SubscriptionAckError::Rejected { message }) => {
+                assert_eq!(message, "forwarding update failed");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_unsubscribe_returns_channel_closed_when_ack_sender_is_dropped() {
+        let (app, mut rx_slim) = create_isolated_test_app("unsubscribe-channel-closed");
+        let dst = create_test_name("channel");
+
+        let mut unsubscribe_fut = Box::pin(app.unsubscribe(&dst, None));
+        let outbound = tokio::select! {
+            res = &mut unsubscribe_fut => panic!("unsubscribe completed before ack handling: {:?}", res),
+            msg = recv_outbound_message(&mut rx_slim) => msg,
+        };
+
+        let ack_id = outbound
+            .get_metadata(SUBSCRIPTION_ACK_ID)
+            .cloned()
+            .expect("missing ack id in outbound unsubscribe message");
+
+        {
+            let mut pending = app.pending_subscription_acks.lock().await;
+            let sender = pending
+                .remove(&ack_id)
+                .expect("missing pending sender for ack id");
+            drop(sender);
+        }
+
+        let err = unsubscribe_fut.await.expect_err("unsubscribe should fail");
+        assert!(matches!(
+            err,
+            ServiceError::UnsubscriptionError(SubscriptionAckError::ChannelClosed)
+        ));
+    }
+
     #[tokio::test]
     async fn test_create_session() {
         let service = create_test_service("create-session");

@@ -1018,3 +1018,82 @@ impl DataPlaneService for MessageProcessor {
         ))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+
+    async fn assert_failed_subscription_ack_is_sent(add: bool) {
+        let processor = MessageProcessor::new();
+        let (in_connection, _tx, mut rx) = processor
+            .register_local_connection(false)
+            .expect("failed to create local connection");
+
+        let source = Name::from_strings(["org", "ns", "source"]).with_id(1);
+        let destination = Name::from_strings(["org", "ns", "destination"]).with_id(2);
+        let ack_id = if add { "ack-sub" } else { "ack-unsub" };
+        let invalid_connection = u64::MAX - 1;
+
+        let builder = Message::builder()
+            .source(source.clone())
+            .destination(destination.clone())
+            .incoming_conn(invalid_connection)
+            .metadata(SUBSCRIPTION_ACK_ID, ack_id.to_string());
+
+        let msg = if add {
+            builder.build_subscribe().unwrap()
+        } else {
+            builder.build_unsubscribe().unwrap()
+        };
+
+        let result = processor
+            .process_subscription(msg, in_connection, add)
+            .await;
+        assert!(matches!(
+            result,
+            Err(DataPathError::MessageProcessingError { .. })
+        ));
+
+        let ack_msg = tokio::time::timeout(Duration::from_secs(1), rx.recv())
+            .await
+            .expect("timeout waiting for ack")
+            .expect("ack channel closed")
+            .expect("failed to receive ack message");
+
+        if add {
+            assert!(matches!(ack_msg.get_type(), SubscribeType(_)));
+        } else {
+            assert!(matches!(ack_msg.get_type(), UnsubscribeType(_)));
+        }
+        assert_eq!(
+            ack_msg
+                .get_metadata(SUBSCRIPTION_ACK_ID)
+                .map(|value| value.as_str()),
+            Some(ack_id)
+        );
+        assert_eq!(
+            ack_msg
+                .get_metadata(SUBSCRIPTION_ACK_SUCCESS)
+                .map(|value| value.as_str()),
+            Some(FALSE_VAL)
+        );
+        assert!(
+            ack_msg.get_metadata(SUBSCRIPTION_ACK_ERROR).is_some(),
+            "failed ack should include an error message"
+        );
+        assert_eq!(ack_msg.get_source(), source);
+        assert_eq!(ack_msg.get_dst(), destination);
+    }
+
+    #[tokio::test]
+    async fn test_process_subscription_sends_failed_ack_on_subscribe_error() {
+        assert_failed_subscription_ack_is_sent(true).await;
+    }
+
+    #[tokio::test]
+    async fn test_process_subscription_sends_failed_ack_on_unsubscribe_error() {
+        assert_failed_subscription_ack_is_sent(false).await;
+    }
+}
