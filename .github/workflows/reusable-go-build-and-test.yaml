@@ -61,6 +61,11 @@ on:
         required: false
         type: boolean
         default: true
+      use-local-bindings:
+        description: Build bindings locally instead of downloading releases
+        required: false
+        type: boolean
+        default: false
       cgo-enabled:
         description: Whether to enable CGO
         required: false
@@ -107,6 +112,236 @@ jobs:
 
           task control-plane:fetch
 
+  bindings-cache:
+    runs-on: ${{ inputs.runner }}
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+
+    needs: [setup-environment]
+
+    steps:
+      - name: Checkout Repo
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        if: ${{ inputs.use-local-bindings }}
+        uses: ./.github/actions/setup-go
+
+      - name: Set GOPATH
+        if: ${{ inputs.use-local-bindings }}
+        run: |
+          echo "GOPATH=$(go env GOPATH)" >> "$GITHUB_ENV"
+
+      - name: Cache bindings build
+        if: ${{ inputs.use-local-bindings }}
+        id: bindings-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.GOPATH }}/.cgo-cache/slim-bindings
+          key: bindings-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('data-plane/**/Cargo.lock') }}
+          restore-keys: |
+            bindings-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Setup Rust
+        if: ${{ inputs.use-local-bindings }}
+        uses: ./.github/actions/setup-rust
+        with:
+          workspace: ./data-plane
+
+      - name: Ensure bindings cache
+        if: ${{ inputs.use-local-bindings }}
+        run: |
+          set -euo pipefail
+
+          which go
+          go env
+
+          TARGET_OS=$(go env GOOS)
+          TARGET_ARCH=$(go env GOARCH)
+          TARGET_ABI=""
+
+          case "$TARGET_OS" in
+            darwin)
+              if [ "$TARGET_ARCH" = "arm64" ]; then
+                LIB_ARCH="aarch64"
+              else
+                LIB_ARCH="x86_64"
+              fi
+              LIB_NAME="libslim_bindings_${LIB_ARCH}_darwin.a"
+              ;;
+            linux)
+              TARGET_ABI="gnu"
+              if [ "$TARGET_ARCH" = "arm64" ]; then
+                LIB_ARCH="aarch64"
+              else
+                LIB_ARCH="x86_64"
+              fi
+              LIB_NAME="libslim_bindings_${LIB_ARCH}_linux_${TARGET_ABI}.a"
+              ;;
+            windows)
+              TARGET_ABI="gnu"
+              if [ "$TARGET_ARCH" != "amd64" ] && [ "$TARGET_ARCH" != "x86_64" ]; then
+                echo "❌ Unsupported TARGETARCH for windows: $TARGET_ARCH"
+                exit 1
+              fi
+              LIB_NAME="libslim_bindings_x86_64_windows_${TARGET_ABI}.a"
+              ;;
+            *)
+              echo "❌ Unsupported TARGETOS: $TARGET_OS"
+              exit 1
+              ;;
+          esac
+
+          CACHE_DIR="$(go env GOPATH)/.cgo-cache/slim-bindings"
+          LIB_PATH="$CACHE_DIR/$LIB_NAME"
+
+          if [ ! -f "$LIB_PATH" ]; then
+            echo "ℹ️  Missing cached bindings ($LIB_NAME); building..."
+            task control-plane:go-bindings:install-local \
+              TARGETOS="$TARGET_OS" \
+              TARGETARCH="$TARGET_ARCH" \
+              TARGETABI="$TARGET_ABI"
+          fi
+
+          if [ ! -f "$LIB_PATH" ]; then
+            echo "❌ Expected cached bindings not found: $LIB_PATH"
+            exit 1
+          fi
+
+      - name: Generate Go bindings
+        if: ${{ inputs.use-local-bindings }}
+        run: |
+          task -d ../data-plane/bindings/go generate-from-cache \
+            TARGETOS=$(go env GOOS) \
+            TARGETARCH=$(go env GOARCH)
+
+      - name: Pack bindings cache
+        if: ${{ inputs.use-local-bindings }}
+        run: |
+          CACHE_DIR="$(go env GOPATH)/.cgo-cache"
+          tar -czf /tmp/slim-bindings-cache.tgz -C "$CACHE_DIR" slim-bindings
+
+      - name: Pack Go bindings
+        if: ${{ inputs.use-local-bindings }}
+        run: |
+          tar -czf /tmp/slim-bindings-go-src.tgz \
+            -C ../data-plane/bindings/go/slim_bindings \
+            slim_bindings.go slim_bindings.h
+
+      - name: Upload bindings cache
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: slim-bindings-cache
+          path: /tmp/slim-bindings-cache.tgz
+
+      - name: Upload Go bindings
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: slim-bindings-go-src
+          path: /tmp/slim-bindings-go-src.tgz
+
+  build:
+    runs-on: ${{ inputs.runner }}
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+
+    if: ${{ inputs.go-test || inputs.go-test-coverage || inputs.go-cross-build }}
+
+    needs: [setup-environment, bindings-cache]
+
+    env:
+      USE_LOCAL_BINDINGS: ${{ inputs.use-local-bindings && 'true' || 'false' }}
+      CGO_ENABLED: ${{ inputs.use-local-bindings && '1' || inputs.cgo-enabled }}
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: ./.github/actions/setup-go
+
+      - name: Restore bindings cache
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-cache
+          path: /tmp
+
+      - name: Restore Go bindings
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-go-src
+          path: /tmp
+
+      - name: Restore bindings cache
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-cache
+          path: /tmp
+
+      - name: Restore Go bindings
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-go-src
+          path: /tmp
+
+      - name: Restore bindings cache
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-cache
+          path: /tmp
+
+      - name: Restore Go bindings
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-go-src
+          path: /tmp
+
+      - name: Build
+        env:
+          CGO_ENABLED: ${{ inputs.use-local-bindings && '1' || inputs.cgo-enabled }}
+        run: |
+          which go
+          go env
+
+          if [ "$USE_LOCAL_BINDINGS" = "true" ] && [ -f /tmp/slim-bindings-cache.tgz ]; then
+            CACHE_DIR="$(go env GOPATH)/.cgo-cache"
+            mkdir -p "$CACHE_DIR"
+            tar -xzf /tmp/slim-bindings-cache.tgz -C "$CACHE_DIR"
+
+            REPO_ROOT="$(git rev-parse --show-toplevel)"
+            REPO_CACHE_PARENT="$REPO_ROOT/../.cgo-cache"
+            REPO_CACHE_LOCAL="$REPO_ROOT/.cgo-cache"
+            if [ -d "$CACHE_DIR/slim-bindings" ]; then
+              mkdir -p "$REPO_CACHE_PARENT" "$REPO_CACHE_LOCAL"
+              cp -a "$CACHE_DIR/slim-bindings" "$REPO_CACHE_PARENT/"
+              cp -a "$CACHE_DIR/slim-bindings" "$REPO_CACHE_LOCAL/"
+            fi
+          fi
+
+          if [ "$USE_LOCAL_BINDINGS" = "true" ] && [ -f /tmp/slim-bindings-go-src.tgz ]; then
+            tar -xzf /tmp/slim-bindings-go-src.tgz \
+              -C ../data-plane/bindings/go/slim_bindings
+          fi
+
+          CGO_ENABLED="$CGO_ENABLED" task control-plane:build USE_LOCAL_BINDINGS=$USE_LOCAL_BINDINGS
+
   lint:
     runs-on: ${{ inputs.runner }}
 
@@ -117,7 +352,11 @@ jobs:
 
     if: ${{ inputs.go-lint }}
 
-    needs: [setup-environment]
+    needs: [setup-environment, bindings-cache]
+
+    env:
+      USE_LOCAL_BINDINGS: ${{ inputs.use-local-bindings && 'true' || 'false' }}
+      CGO_ENABLED: ${{ inputs.use-local-bindings && '1' || inputs.cgo-enabled }}
 
     steps:
       - name: Checkout Repo
@@ -126,12 +365,53 @@ jobs:
       - name: Setup Go
         uses: ./.github/actions/setup-go
 
+      - name: Restore bindings cache
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-cache
+          path: /tmp
+
+      - name: Restore Go bindings
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-go-src
+          path: /tmp
+
       - name: golint
+        env:
+          CGO_ENABLED: ${{ inputs.use-local-bindings && '1' || inputs.cgo-enabled }}
         run: |
           which go
           go env
 
-          task control-plane:lint control-plane:impi
+          if [ "$USE_LOCAL_BINDINGS" = "true" ] && [ -f /tmp/slim-bindings-cache.tgz ]; then
+            CACHE_DIR="$(go env GOPATH)/.cgo-cache"
+            mkdir -p "$CACHE_DIR"
+            tar -xzf /tmp/slim-bindings-cache.tgz -C "$CACHE_DIR"
+
+            REPO_ROOT="$(git rev-parse --show-toplevel)"
+            REPO_CACHE_PARENT="$REPO_ROOT/../.cgo-cache"
+            REPO_CACHE_LOCAL="$REPO_ROOT/.cgo-cache"
+            if [ -d "$CACHE_DIR/slim-bindings" ]; then
+              mkdir -p "$REPO_CACHE_PARENT" "$REPO_CACHE_LOCAL"
+              cp -a "$CACHE_DIR/slim-bindings" "$REPO_CACHE_PARENT/"
+              cp -a "$CACHE_DIR/slim-bindings" "$REPO_CACHE_LOCAL/"
+            fi
+          fi
+
+          if [ "$USE_LOCAL_BINDINGS" = "true" ] && [ -f /tmp/slim-bindings-go-src.tgz ]; then
+            tar -xzf /tmp/slim-bindings-go-src.tgz \
+              -C ../data-plane/bindings/go/slim_bindings
+          fi
+
+          CGO_ENABLED="$CGO_ENABLED" task control-plane:go-bindings:setup \
+            TARGETOS=$(go env GOOS) \
+            TARGETARCH=$(go env GOARCH) \
+            USE_LOCAL_BINDINGS=$USE_LOCAL_BINDINGS
+
+          CGO_ENABLED="$CGO_ENABLED" task control-plane:lint control-plane:impi
 
   govulncheck:
     runs-on: ${{ inputs.runner }}
@@ -143,7 +423,11 @@ jobs:
 
     if: ${{ inputs.go-vuln }}
 
-    needs: [setup-environment]
+    needs: [setup-environment, bindings-cache]
+
+    env:
+      USE_LOCAL_BINDINGS: ${{ inputs.use-local-bindings && 'true' || 'false' }}
+      CGO_ENABLED: ${{ inputs.use-local-bindings && '1' || inputs.cgo-enabled }}
 
     timeout-minutes: 30
     steps:
@@ -155,12 +439,53 @@ jobs:
       - name: Setup Go
         uses: ./.github/actions/setup-go
 
+      - name: Restore bindings cache
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-cache
+          path: /tmp
+
+      - name: Restore Go bindings
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-go-src
+          path: /tmp
+
       - name: Run `govuln`
+        env:
+          CGO_ENABLED: ${{ inputs.use-local-bindings && '1' || inputs.cgo-enabled }}
         run: |
           which go
           go env
 
-          task control-plane:vuln
+          if [ "$USE_LOCAL_BINDINGS" = "true" ] && [ -f /tmp/slim-bindings-cache.tgz ]; then
+            CACHE_DIR="$(go env GOPATH)/.cgo-cache"
+            mkdir -p "$CACHE_DIR"
+            tar -xzf /tmp/slim-bindings-cache.tgz -C "$CACHE_DIR"
+
+            REPO_ROOT="$(git rev-parse --show-toplevel)"
+            REPO_CACHE_PARENT="$REPO_ROOT/../.cgo-cache"
+            REPO_CACHE_LOCAL="$REPO_ROOT/.cgo-cache"
+            if [ -d "$CACHE_DIR/slim-bindings" ]; then
+              mkdir -p "$REPO_CACHE_PARENT" "$REPO_CACHE_LOCAL"
+              cp -a "$CACHE_DIR/slim-bindings" "$REPO_CACHE_PARENT/"
+              cp -a "$CACHE_DIR/slim-bindings" "$REPO_CACHE_LOCAL/"
+            fi
+          fi
+
+          if [ "$USE_LOCAL_BINDINGS" = "true" ] && [ -f /tmp/slim-bindings-go-src.tgz ]; then
+            tar -xzf /tmp/slim-bindings-go-src.tgz \
+              -C ../data-plane/bindings/go/slim_bindings
+          fi
+
+          CGO_ENABLED="$CGO_ENABLED" task control-plane:go-bindings:setup \
+            TARGETOS=$(go env GOOS) \
+            TARGETARCH=$(go env GOARCH) \
+            USE_LOCAL_BINDINGS=$USE_LOCAL_BINDINGS
+
+          CGO_ENABLED="$CGO_ENABLED" task control-plane:vuln
 
   unittest-matrix:
     runs-on: ${{ inputs.runner }}
@@ -171,7 +496,9 @@ jobs:
         working-directory: ${{ inputs.working-directory }}
 
     if: ${{ inputs.go-test }}
-    needs: [setup-environment]
+    needs: [setup-environment, bindings-cache, build]
+    env:
+      USE_LOCAL_BINDINGS: ${{ inputs.use-local-bindings && 'true' || 'false' }}
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
@@ -180,6 +507,20 @@ jobs:
 
       - name: Setup Go
         uses: ./.github/actions/setup-go
+
+      - name: Restore bindings cache
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-cache
+          path: /tmp
+
+      - name: Restore Go bindings
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-go-src
+          path: /tmp
 
       - name: Cache Build
         uses: actions/cache@v4
@@ -190,6 +531,27 @@ jobs:
         run: |
           which go
           go env
+
+          if [ "$USE_LOCAL_BINDINGS" = "true" ] && [ -f /tmp/slim-bindings-cache.tgz ]; then
+            CACHE_DIR="$(go env GOPATH)/.cgo-cache"
+            mkdir -p "$CACHE_DIR"
+            tar -xzf /tmp/slim-bindings-cache.tgz -C "$CACHE_DIR"
+
+            REPO_ROOT="$(git rev-parse --show-toplevel)"
+            REPO_CACHE_PARENT="$REPO_ROOT/../.cgo-cache"
+            REPO_CACHE_LOCAL="$REPO_ROOT/.cgo-cache"
+            if [ -d "$CACHE_DIR/slim-bindings" ]; then
+              mkdir -p "$REPO_CACHE_PARENT" "$REPO_CACHE_LOCAL"
+              cp -a "$CACHE_DIR/slim-bindings" "$REPO_CACHE_PARENT/"
+              cp -a "$CACHE_DIR/slim-bindings" "$REPO_CACHE_LOCAL/"
+            fi
+          fi
+
+          if [ "$USE_LOCAL_BINDINGS" = "true" ] && [ -f /tmp/slim-bindings-go-src.tgz ]; then
+            tar -xzf /tmp/slim-bindings-go-src.tgz \
+              -C ../data-plane/bindings/go/slim_bindings
+            export CGO_ENABLED=1
+          fi
 
           task control-plane:test
 
@@ -222,7 +584,10 @@ jobs:
 
     if: ${{ inputs.go-test-coverage }}
 
-    needs: [setup-environment]
+    needs: [setup-environment, bindings-cache, build]
+
+    env:
+      USE_LOCAL_BINDINGS: ${{ inputs.use-local-bindings && 'true' || 'false' }}
 
     steps:
       - name: Checkout Repo
@@ -232,6 +597,20 @@ jobs:
 
       - name: Setup Go
         uses: ./.github/actions/setup-go
+
+      - name: Restore bindings cache
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-cache
+          path: /tmp
+
+      - name: Restore Go bindings
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-go-src
+          path: /tmp
 
       - name: Cache Build
         uses: actions/cache@v4
@@ -243,6 +622,27 @@ jobs:
         run: |
           which go
           go env
+
+          if [ "$USE_LOCAL_BINDINGS" = "true" ] && [ -f /tmp/slim-bindings-cache.tgz ]; then
+            CACHE_DIR="$(go env GOPATH)/.cgo-cache"
+            mkdir -p "$CACHE_DIR"
+            tar -xzf /tmp/slim-bindings-cache.tgz -C "$CACHE_DIR"
+
+            REPO_ROOT="$(git rev-parse --show-toplevel)"
+            REPO_CACHE_PARENT="$REPO_ROOT/../.cgo-cache"
+            REPO_CACHE_LOCAL="$REPO_ROOT/.cgo-cache"
+            if [ -d "$CACHE_DIR/slim-bindings" ]; then
+              mkdir -p "$REPO_CACHE_PARENT" "$REPO_CACHE_LOCAL"
+              cp -a "$CACHE_DIR/slim-bindings" "$REPO_CACHE_PARENT/"
+              cp -a "$CACHE_DIR/slim-bindings" "$REPO_CACHE_LOCAL/"
+            fi
+          fi
+
+          if [ "$USE_LOCAL_BINDINGS" = "true" ] && [ -f /tmp/slim-bindings-go-src.tgz ]; then
+            tar -xzf /tmp/slim-bindings-go-src.tgz \
+              -C ../data-plane/bindings/go/slim_bindings
+            export CGO_ENABLED=1
+          fi
 
           task control-plane:coverage
 
@@ -256,7 +656,10 @@ jobs:
 
     if: ${{ inputs.go-cross-build }}
 
-    needs: [setup-environment]
+    needs: [setup-environment, bindings-cache, build]
+
+    env:
+      USE_LOCAL_BINDINGS: ${{ inputs.use-local-bindings && 'true' || 'false' }}
 
     timeout-minutes: 10
     strategy:
@@ -291,6 +694,26 @@ jobs:
       - name: Setup Go
         uses: ./.github/actions/setup-go
 
+      - name: Restore bindings cache
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-cache
+          path: /tmp
+
+      - name: Restore Go bindings
+        if: ${{ inputs.use-local-bindings }}
+        uses: actions/download-artifact@v4
+        with:
+          name: slim-bindings-go-src
+          path: /tmp
+
+      - name: Setup Rust
+        if: ${{ inputs.use-local-bindings }}
+        uses: ./.github/actions/setup-rust
+        with:
+          workspace: ./data-plane
+
       - name: Check go executable
         run: |
           which go
@@ -298,12 +721,32 @@ jobs:
         env:
           GOOS: ${{matrix.os}}
           GOARCH: ${{matrix.arch}}
-          CGO_ENABLED: ${{ inputs.cgo-enabled }}
+          CGO_ENABLED: ${{ inputs.use-local-bindings && '1' || inputs.cgo-enabled }}
         run: |
           which go
           go env
 
-          task control-plane:build
+          if [ "$USE_LOCAL_BINDINGS" = "true" ] && [ -f /tmp/slim-bindings-cache.tgz ]; then
+            CACHE_DIR="$(go env GOPATH)/.cgo-cache"
+            mkdir -p "$CACHE_DIR"
+            tar -xzf /tmp/slim-bindings-cache.tgz -C "$CACHE_DIR"
+
+            REPO_ROOT="$(git rev-parse --show-toplevel)"
+            REPO_CACHE_PARENT="$REPO_ROOT/../.cgo-cache"
+            REPO_CACHE_LOCAL="$REPO_ROOT/.cgo-cache"
+            if [ -d "$CACHE_DIR/slim-bindings" ]; then
+              mkdir -p "$REPO_CACHE_PARENT" "$REPO_CACHE_LOCAL"
+              cp -a "$CACHE_DIR/slim-bindings" "$REPO_CACHE_PARENT/"
+              cp -a "$CACHE_DIR/slim-bindings" "$REPO_CACHE_LOCAL/"
+            fi
+          fi
+
+          if [ "$USE_LOCAL_BINDINGS" = "true" ] && [ -f /tmp/slim-bindings-go-src.tgz ]; then
+            tar -xzf /tmp/slim-bindings-go-src.tgz \
+              -C ../data-plane/bindings/go/slim_bindings
+          fi
+
+          task control-plane:build USE_LOCAL_BINDINGS=$USE_LOCAL_BINDINGS
 
       - name: Upload slimctl artifact
         if: ${{ inputs.upload-artifacts }}
