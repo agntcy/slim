@@ -174,18 +174,11 @@ public sealed class SlimName : IDisposable
     /// <summary>
     /// Parse a name from "org/namespace/app" format.
     /// </summary>
-    /// <exception cref="ArgumentException">Thrown when the format is invalid or contains empty parts.</exception>
+    /// <exception cref="ArgumentException">Thrown when the format is invalid.</exception>
     public static SlimName Parse(string id)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
-        var parts = id.Split('/');
-        if (parts.Length != 3 || parts.Any(string.IsNullOrWhiteSpace))
-        {
-            throw new ArgumentException(
-                $"Name must be in 'organization/namespace/app' format with non-empty parts, got: '{id}'",
-                nameof(id));
-        }
-        return new SlimName(parts[0].Trim(), parts[1].Trim(), parts[2].Trim());
+        return SlimHelper.Try(() => new SlimName(Internal.Name.FromString(id)));
     }
 
     /// <summary>

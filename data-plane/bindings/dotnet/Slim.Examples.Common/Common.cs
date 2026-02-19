@@ -29,13 +29,7 @@ public static class CommonHelpers
     /// <exception cref="ArgumentException">If the id cannot be split into exactly three segments.</exception>
     public static SlimName SplitId(string id)
     {
-        var parts = id.Split('/');
-        if (parts.Length != 3)
-        {
-            throw new ArgumentException(
-                $"IDs must be in the format organization/namespace/app-or-stream, got: {id}");
-        }
-        return new SlimName(parts[0], parts[1], parts[2]);
+        return SlimName.Parse(id);
     }
 
     /// <summary>
