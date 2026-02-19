@@ -10,9 +10,6 @@
 package common
 
 import (
-	"fmt"
-	"strings"
-
 	slim "github.com/agntcy/slim-bindings-go"
 )
 
@@ -33,11 +30,7 @@ const (
 //	Name: Constructed identity object.
 //	error: If the id cannot be split into exactly three segments.
 func SplitID(id string) (*slim.Name, error) {
-	parts := strings.Split(id, "/")
-	if len(parts) != 3 {
-		return nil, fmt.Errorf("IDs must be in the format organization/namespace/app-or-stream, got: %s", id)
-	}
-	return slim.NewName(parts[0], parts[1], parts[2]), nil
+	return slim.NewNameFromString(id)
 }
 
 // CreateAndConnectApp creates a SLIM app with shared secret authentication
