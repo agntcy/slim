@@ -13,7 +13,7 @@ use slim_service::ServiceError;
 use slim_session::{Notification, SessionConfig};
 use slim_testing::build_client_service;
 use slim_testing::common::{
-    DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID, create_and_subscribe_app, run_slim_node,
+    DEFAULT_SERVICE_ID, create_and_subscribe_app, reserve_local_port, run_slim_node,
 };
 
 #[derive(Parser, Debug)]
@@ -77,11 +77,11 @@ impl Args {
     }
 }
 
-async fn run_client_task(name: Name, moderator_name: Name) -> Result<(), ServiceError> {
+async fn run_client_task(name: Name, moderator_name: Name, port: u16) -> Result<(), ServiceError> {
     /* this is the same */
     println!("client {} task starting...", name);
 
-    let svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID);
+    let svc = build_client_service(port, DEFAULT_SERVICE_ID);
 
     let (_app, mut rx, conn_id, _svc) = create_and_subscribe_app(svc, &name).await?;
 
@@ -173,10 +173,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // moderator name
     let moderator_name = Name::from_strings(["org", "ns", "moderator"]).with_id(1);
 
+    let dataplane_port = reserve_local_port();
+
     // start slim node
     if !without_slim {
         tokio::spawn(async move {
-            let _ = run_slim_node().await;
+            let _ = run_slim_node(dataplane_port).await;
         });
     }
 
@@ -197,8 +199,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let c = clients[0].clone().with_id(i.into());
         clients.push(c.clone());
         let moderator = moderator_name.clone();
+        let port = dataplane_port;
         tokio::spawn(async move {
-            let _ = run_client_task(c, moderator).await;
+            let _ = run_client_task(c, moderator, port).await;
         });
     }
 
@@ -207,14 +210,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let c = clients[1].clone().with_id(i.into());
         clients.push(c.clone());
         let moderator = moderator_name.clone();
+        let port = dataplane_port;
         tokio::spawn(async move {
-            let _ = run_client_task(c, moderator).await;
+            let _ = run_client_task(c, moderator, port).await;
         });
     }
 
     // start moderator
 
-    let svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID);
+    let svc = build_client_service(dataplane_port, DEFAULT_SERVICE_ID);
 
     let (app, _rx, conn_id, _svc) = create_and_subscribe_app(svc, &moderator_name.clone()).await?;
 

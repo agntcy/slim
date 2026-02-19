@@ -25,8 +25,14 @@ tasks:
 
   tests:integration:
     desc: "Run integration tests"
+    vars:
+      USE_LOCAL_BINDINGS: '{{.USE_LOCAL_BINDINGS | default "false"}}'
+      FORCE_LOCAL_BINDINGS: '{{.FORCE_LOCAL_BINDINGS | default "false"}}'
     deps:
       - data-plane:build
-      - control-plane:build
+      - task: control-plane:build
+        vars:
+          USE_LOCAL_BINDINGS: "{{.USE_LOCAL_BINDINGS}}"
+          FORCE_LOCAL_BINDINGS: "{{.FORCE_LOCAL_BINDINGS}}"
     cmds:
       - go -C ./integration test -v -failfast -test.v -test.paniconexit0 -ginkgo.timeout 5m -timeout 5m -ginkgo.v .
