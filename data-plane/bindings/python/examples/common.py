@@ -58,27 +58,6 @@ def format_message_print(message1: str, message2: str = "") -> None:
     print(format_message(message1, message2))
 
 
-def split_id(id: str) -> slim_bindings.Name:
-    """
-    Split an ID of form organization/namespace/application (or channel).
-
-    Args:
-        id: String in the canonical 'org/namespace/app-or-stream' format.
-
-    Raises:
-        ValueError: If the id cannot be split into exactly three segments.
-
-    Returns:
-        Name: Constructed identity object.
-    """
-    try:
-        organization, namespace, app = id.split("/")
-    except ValueError as e:
-        print("Error: IDs must be in the format organization/namespace/app-or-stream.")
-        raise e
-    return slim_bindings.Name(organization, namespace, app)
-
-
 def jwt_identity(
     jwt_path: str,
     spire_bundle_path: str,
@@ -239,7 +218,7 @@ async def create_local_app(config: BaseConfig) -> tuple[slim_bindings.App, int]:
     service = setup_service()
 
     # Convert local identifier to a strongly typed Name.
-    local_name = split_id(config.local)
+    local_name = slim_bindings.Name.from_string(config.local)
 
     client_config = slim_bindings.new_insecure_client_config(config.slim)
     conn_id = await service.connect_async(client_config)

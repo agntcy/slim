@@ -44,7 +44,6 @@ from .common import (
     create_local_app,
     format_message_print,
     parse_args_to_dict,
-    split_id,
 )
 from .config import GroupConfig, load_config_with_cli_override
 
@@ -69,7 +68,7 @@ async def handle_invite(session, invite_id):
         return
 
     print(f"Inviting participant: {invite_id}")
-    invite_name = split_id(invite_id)
+    invite_name = slim_bindings.Name.from_string(invite_id)
     try:
         handle = await session.invite_async(invite_name)
         await handle.wait_async()
@@ -100,7 +99,7 @@ async def handle_remove(session: slim_bindings.Session, remove_id: str):
         return
 
     print(f"Removing participant: {remove_id}")
-    remove_name = split_id(remove_id)
+    remove_name = slim_bindings.Name.from_string(remove_id)
     try:
         handle = await session.remove_async(remove_name)
         await handle.wait_async()
@@ -271,7 +270,9 @@ async def run_client(config: GroupConfig):
     local_app, conn_id = await create_local_app(config)
 
     # Parse the remote channel/topic if provided; else None triggers passive mode.
-    chat_channel = split_id(config.remote) if config.remote else None
+    chat_channel = (
+        slim_bindings.Name.from_string(config.remote) if config.remote else None
+    )
 
     # Track background tasks (receiver loop + optional keyboard loop).
     tasks: list[asyncio.Task] = []
@@ -287,7 +288,7 @@ async def run_client(config: GroupConfig):
     if chat_channel and config.invites:
         # We are the moderator; create the group session now.
         format_message_print(
-            f"Creating new group session (moderator)... {split_id(config.local)}"
+            f"Creating new group session (moderator)... {slim_bindings.Name.from_string(config.local)}"
         )
 
         # Create group session configuration
@@ -307,7 +308,7 @@ async def run_client(config: GroupConfig):
 
         # Invite each provided participant.
         for invite in config.invites:
-            invite_name = split_id(invite)
+            invite_name = slim_bindings.Name.from_string(invite)
             await local_app.set_route_async(invite_name, conn_id)
             handle = await created_session.invite_async(invite_name)
             await handle.wait_async()

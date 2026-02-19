@@ -37,7 +37,6 @@ from .common import (
     create_local_app,
     format_message_print,
     parse_args_to_dict,
-    split_id,
 )
 from .config import PointToPointConfig, load_config_with_cli_override
 
@@ -67,7 +66,7 @@ async def run_client(config: PointToPointConfig):
     # ACTIVE MODE (publishing + expecting replies)
     if config.message and config.remote:
         # Convert the remote ID string into a Name.
-        remote_name = split_id(config.remote)
+        remote_name = slim_bindings.Name.from_string(config.remote)
 
         # Create local route to enable forwarding towards remote name
         await local_app.set_route_async(remote_name, conn_id)

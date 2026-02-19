@@ -11,7 +11,6 @@ package common
 
 import (
 	"fmt"
-	"strings"
 
 	slim "github.com/agntcy/slim-bindings-go"
 )
@@ -21,24 +20,6 @@ const (
 	DefaultServerEndpoint = "http://localhost:46357"
 	DefaultSharedSecret   = "demo-shared-secret-min-32-chars!!"
 )
-
-// SplitID splits an ID of form organization/namespace/application (or channel).
-//
-// Args:
-//
-//	id: String in the canonical 'org/namespace/app-or-stream' format.
-//
-// Returns:
-//
-//	Name: Constructed identity object.
-//	error: If the id cannot be split into exactly three segments.
-func SplitID(id string) (*slim.Name, error) {
-	parts := strings.Split(id, "/")
-	if len(parts) != 3 {
-		return nil, fmt.Errorf("IDs must be in the format organization/namespace/app-or-stream, got: %s", id)
-	}
-	return slim.NewName(parts[0], parts[1], parts[2]), nil
-}
 
 // CreateAndConnectApp creates a SLIM app with shared secret authentication
 // and connects it to a SLIM server.
@@ -64,7 +45,7 @@ func CreateAndConnectApp(localID, serverAddr, secret string) (*slim.App, uint64,
 	slim.InitializeWithDefaults()
 
 	// Parse the local identity string
-	appName, err := SplitID(localID)
+	appName, err := slim.NameFromString(localID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("invalid local ID: %w", err)
 	}
