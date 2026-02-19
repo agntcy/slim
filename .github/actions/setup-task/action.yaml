@@ -9,7 +9,7 @@ inputs:
   version:
     description: 'Task version to install (e.g., "3.39.2", "latest")'
     required: false
-    default: 'latest'
+    default: 'v3.48.0'
   cache-enabled:
     description: 'Enable caching of the Task binary'
     required: false
@@ -25,32 +25,11 @@ outputs:
     value: ${{ steps.cache.outputs.cache-hit }}
   version:
     description: 'The actual version of Task that was installed'
-    value: ${{ steps.get-version.outputs.version }}
+    value: ${{ inputs.version }}
 
 runs:
   using: "composite"
   steps:
-    - name: Determine Task version
-      id: get-version
-      shell: bash
-      run: |
-        if [ "${{ inputs.version }}" == "latest" ]; then
-          echo "Fetching latest Task version (authenticated request)..."
-          VERSION=$(curl -s -H "Authorization: Bearer ${{ inputs.github-token }}" -H "Accept: application/vnd.github+json" https://api.github.com/repos/go-task/task/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
-          if [[ -z "$VERSION" ]]; then
-            echo "Failed to fetch latest version via authenticated request, using fallback"
-            VERSION="v3.39.2"
-          fi
-        else
-          VERSION="${{ inputs.version }}"
-          # Ensure version starts with 'v'
-          if [[ ! "$VERSION" =~ ^v ]]; then
-            VERSION="v$VERSION"
-          fi
-        fi
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
-        echo "Using Task version: $VERSION"
-
     - name: Determine platform
       id: platform
       shell: bash
@@ -105,19 +84,19 @@ runs:
       with:
         # If windows, we need to cache task.exe
         path: ~/.local/bin/${{ steps.platform.outputs.binary_name }}
-        key: task-${{ steps.get-version.outputs.version }}-${{ steps.platform.outputs.os }}-${{ steps.platform.outputs.arch }}
+        key: task-${{ inputs.version }}-${{ steps.platform.outputs.os }}-${{ steps.platform.outputs.arch }}
 
     - name: Download and install Task
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       env:
-        VERSION: ${{ steps.get-version.outputs.version }}
+        VERSION: ${{ inputs.version }}
         OS: ${{ steps.platform.outputs.os }}
         ARCH: ${{ steps.platform.outputs.arch }}
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
         echo "Task not found in cache, downloading..."
-        sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -b ~/.local/bin -d ${{ steps.get-version.outputs.version }}
+        sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -b ~/.local/bin -d ${{ inputs.version }}
 
     - name: Verify installation
       shell: bash

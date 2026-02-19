@@ -36,7 +36,6 @@ runs:
     - name: Setup Taskfile
       uses: ./.github/actions/setup-task
       with:
-        version: latest
         cache-enabled: true
 
     - name: Cache Go
