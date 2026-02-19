@@ -45,27 +45,10 @@ tasks:
 
   control-plane:modtidy:
     desc: Install go modules
-    vars:
-      HOSTOS:
-        sh: go env GOHOSTOS
-      HOSTARCH:
-        sh: go env GOHOSTARCH
-      USE_LOCAL_BINDINGS: '{{.USE_LOCAL_BINDINGS | default "false"}}'
     cmds:
-      - |
-        if [ "{{.USE_LOCAL_BINDINGS}}" = "true" ]; then
-          TARGETABI=""
-          if [ "{{.HOSTOS}}" = "linux" ] || [ "{{.HOSTOS}}" = "windows" ]; then
-            TARGETABI="gnu"
-          fi
-          task -d {{.REPO_ROOT}}/control-plane control-plane:go-bindings:install-local \
-            TARGETOS={{.HOSTOS}} \
-            TARGETARCH={{.HOSTARCH}} \
-            TARGETABI="$TARGETABI"
-        fi
       - task: control-plane:foreach-module
         vars:
-          CMD: CGO_ENABLED=1 GOOS={{.HOSTOS}} GOARCH={{.HOSTARCH}} go mod tidy
+          CMD: go mod tidy
 
   control-plane:gogen:
     desc: Run go generate
@@ -78,17 +61,11 @@ tasks:
     desc: Run go linter
     deps:
       - tools:all
-      - task: control-plane:go-bindings:setup
-        vars:
-          TARGETOS:
-            sh: go env GOOS
-          TARGETARCH:
-            sh: go env GOARCH
     cmds:
       - task: control-plane:gogen
       - task: control-plane:foreach-module
         vars:
-          CMD: "echo ${PWD} && CGO_ENABLED=1 {{.TOOLS_INSTALL_DIR}}/golangci-lint run"
+          CMD: "echo ${PWD} && {{.TOOLS_INSTALL_DIR}}/golangci-lint run"
 
   control-plane:impi:
     desc: Run go impi
@@ -109,12 +86,6 @@ tasks:
     desc: Run go govulncheck
     deps:
       - tools:all
-      - task: control-plane:go-bindings:setup
-        vars:
-          TARGETOS:
-            sh: go env GOOS
-          TARGETARCH:
-            sh: go env GOARCH
     cmds:
       - task: control-plane:gogen
       - task: control-plane:foreach-module
@@ -178,153 +149,21 @@ tasks:
     requires:
       vars: [TARGETOS, TARGETARCH]
     vars:
-      USE_LOCAL_BINDINGS: '{{.USE_LOCAL_BINDINGS | default "false"}}'
-      FORCE_LOCAL_BINDINGS: '{{.FORCE_LOCAL_BINDINGS | default "false"}}'
       TARGETABI: '{{.TARGETABI | default "gnu"}}'
     dir: slimctl
     cmds:
+      - task: control-plane:modtidy
       - |
-        if [ "{{.USE_LOCAL_BINDINGS}}" = "true" ]; then
-          task -d {{.REPO_ROOT}}/control-plane control-plane:go-bindings:install-local \
-            TARGETOS={{.TARGETOS}} \
-            TARGETARCH={{.TARGETARCH}} \
-            TARGETABI={{.TARGETABI}} \
-            FORCE_LOCAL_BINDINGS={{.FORCE_LOCAL_BINDINGS}}
-          task -d {{.REPO_ROOT}}/data-plane/bindings/go generate-from-cache \
-            TARGETOS={{.TARGETOS}} \
-            TARGETARCH={{.TARGETARCH}} \
-            TARGETABI={{.TARGETABI}}
-        else
-          echo "📦 Downloading bindings for {{.TARGETOS}}/{{.TARGETARCH}}/{{.TARGETABI}}"
-          # Unset GOOS/GOARCH so the tool is built for the current platform
-          unset GOOS
-          unset GOARCH
-          # But download bindings for the target platform
-          go run \
-            github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup \
-            -os={{.TARGETOS}} \
-            -arch={{.TARGETARCH}} \
-            -abi={{.TARGETABI}}
-        fi
-
-        GOPATH_DIR=$(go env GOPATH)
-        CACHE_DIR="$GOPATH_DIR/.cgo-cache/slim-bindings"
-        if [ -d "$CACHE_DIR" ]; then
-          REPO_CACHE="{{.REPO_ROOT}}/.cgo-cache"
-          mkdir -p "$REPO_CACHE"
-          cp -a "$CACHE_DIR" "$REPO_CACHE/"
-        fi
-
-        case "{{.TARGETOS}}" in
-          darwin)
-            if [ "{{.TARGETARCH}}" = "arm64" ]; then
-              LIB_ARCH="aarch64"
-            else
-              LIB_ARCH="x86_64"
-            fi
-            LIB_NAME="libslim_bindings_${LIB_ARCH}_darwin.a"
-            ;;
-          linux)
-            if [ "{{.TARGETARCH}}" = "arm64" ]; then
-              LIB_ARCH="aarch64"
-            else
-              LIB_ARCH="x86_64"
-            fi
-            LIB_NAME="libslim_bindings_${LIB_ARCH}_linux_{{.TARGETABI}}.a"
-            ;;
-          windows)
-            LIB_NAME="libslim_bindings_x86_64_windows_{{.TARGETABI}}.a"
-            ;;
-        esac
-
-        if [ -n "${LIB_NAME:-}" ] && [ -f "$CACHE_DIR/$LIB_NAME" ]; then
-          DEST_DIR="{{.REPO_ROOT}}/data-plane/bindings/go/slim_bindings"
-          mkdir -p "$DEST_DIR"
-          cp -a "$CACHE_DIR/$LIB_NAME" "$DEST_DIR/"
-        fi
-
-  control-plane:go-bindings:install-local:
-    desc: Build bindings locally and install into the CGO cache
-    requires:
-      vars: [TARGETOS, TARGETARCH]
-    vars:
-      TARGETABI: '{{.TARGETABI | default ""}}'
-      FORCE_LOCAL_BINDINGS: '{{.FORCE_LOCAL_BINDINGS | default "false"}}'
-    cmds:
-      - |
-        set -euo pipefail
-
-        TARGET_OS="{{.TARGETOS}}"
-        TARGET_ARCH="{{.TARGETARCH}}"
-        TARGET_ABI="{{.TARGETABI}}"
-
-        case "$TARGET_OS" in
-          darwin)
-            if [ "$TARGET_ARCH" = "arm64" ]; then
-              RUST_TARGET="aarch64-apple-darwin"
-              LIB_ARCH="aarch64"
-            else
-              RUST_TARGET="x86_64-apple-darwin"
-              LIB_ARCH="x86_64"
-            fi
-            LIB_NAME="libslim_bindings_${LIB_ARCH}_darwin.a"
-            ;;
-          linux)
-            if [ -z "$TARGET_ABI" ]; then
-              TARGET_ABI="gnu"
-            fi
-            if [ "$TARGET_ARCH" = "arm64" ]; then
-              RUST_TARGET="aarch64-unknown-linux-$TARGET_ABI"
-              LIB_ARCH="aarch64"
-            else
-              RUST_TARGET="x86_64-unknown-linux-$TARGET_ABI"
-              LIB_ARCH="x86_64"
-            fi
-            LIB_NAME="libslim_bindings_${LIB_ARCH}_linux_${TARGET_ABI}.a"
-            ;;
-          windows)
-            if [ "$TARGET_ARCH" != "amd64" ]; then
-              echo "❌ Unsupported TARGETARCH for windows: $TARGET_ARCH"
-              exit 1
-            fi
-            if [ -z "$TARGET_ABI" ]; then
-              TARGET_ABI="gnu"
-            fi
-            RUST_TARGET="x86_64-pc-windows-$TARGET_ABI"
-            LIB_NAME="libslim_bindings_x86_64_windows_${TARGET_ABI}.a"
-            ;;
-          *)
-            echo "❌ Unsupported TARGETOS: $TARGET_OS"
-            exit 1
-            ;;
-        esac
-
-        GOPATH_DIR=$(go env GOPATH)
-        CACHE_DIR="$GOPATH_DIR/.cgo-cache/slim-bindings"
-        if [ -f "$CACHE_DIR/$LIB_NAME" ] && [ "{{.FORCE_LOCAL_BINDINGS}}" != "true" ]; then
-          echo "✅ Bindings already cached at $CACHE_DIR/$LIB_NAME"
-          exit 0
-        fi
-
-        if [ -f "$CACHE_DIR/$LIB_NAME" ] && [ "{{.FORCE_LOCAL_BINDINGS}}" = "true" ]; then
-          echo "♻️  Rebuilding bindings for $RUST_TARGET (cache refresh)"
-        fi
-
-        echo "🦀 Building bindings for $RUST_TARGET"
-        task -d {{.REPO_ROOT}}/data-plane/bindings/rust bindings:build:all \
-          TARGET="$RUST_TARGET" \
-          PROFILE=release
-
-        SRC_LIB="{{.REPO_ROOT}}/data-plane/target/$RUST_TARGET/release/libslim_bindings.a"
-        if [ ! -f "$SRC_LIB" ]; then
-          echo "❌ Expected library not found: $SRC_LIB"
-          exit 1
-        fi
-
-        mkdir -p "$CACHE_DIR"
-
-        cp "$SRC_LIB" "$CACHE_DIR/$LIB_NAME"
-        echo "✅ Installed bindings to $CACHE_DIR/$LIB_NAME"
+        echo "📦 Downloading bindings for {{.TARGETOS}}/{{.TARGETARCH}}/{{.TARGETABI}}"
+        # Unset GOOS/GOARCH so the tool is built for the current platform
+        unset GOOS
+        unset GOARCH
+        # But download bindings for the target platform
+        go run \
+          github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup \
+          -os={{.TARGETOS}} \
+          -arch={{.TARGETARCH}} \
+          -abi={{.TARGETABI}}
 
   control-plane:slimctl:build:
     desc: Cross-compile slimctl using Zig (accepts TARGETOS and TARGETARCH, defaults to current platform)
@@ -356,8 +195,6 @@ tasks:
       VERSION:
         sh: pushd {{.REPO_ROOT}} > /dev/null && task version && popd > /dev/null
       FLAGS: '{{.FLAGS | default ""}}'
-      USE_LOCAL_BINDINGS: '{{.USE_LOCAL_BINDINGS | default "false"}}'
-      FORCE_LOCAL_BINDINGS: '{{.FORCE_LOCAL_BINDINGS | default "false"}}'
 
     deps:
       - control-plane:proto:generate
@@ -366,8 +203,6 @@ tasks:
           TARGETOS: "{{.TARGETOS}}"
           TARGETARCH: "{{.TARGETARCH}}"
           TARGETABI: "{{.TARGETABI | default \"gnu\"}}"
-          USE_LOCAL_BINDINGS: "{{.USE_LOCAL_BINDINGS}}"
-          FORCE_LOCAL_BINDINGS: "{{.FORCE_LOCAL_BINDINGS}}"
       - task: tools:zig
 
     dir: slimctl/cmd
@@ -489,20 +324,12 @@ tasks:
 
   control-plane:build:
     desc: Build go binaries
-    vars:
-      USE_LOCAL_BINDINGS: '{{.USE_LOCAL_BINDINGS | default "false"}}'
-      FORCE_LOCAL_BINDINGS: '{{.FORCE_LOCAL_BINDINGS | default "false"}}'
     deps:
-      - task: control-plane:modtidy
-        vars:
-          USE_LOCAL_BINDINGS: "{{.USE_LOCAL_BINDINGS}}"
+      - control-plane:modtidy
     cmds:
       - task: control-plane:control-plane:build
       - task: control-plane:token-service:build
       - task: control-plane:slimctl:build
-        vars:
-          USE_LOCAL_BINDINGS: "{{.USE_LOCAL_BINDINGS}}"
-          FORCE_LOCAL_BINDINGS: "{{.FORCE_LOCAL_BINDINGS}}"
 
 
   #  control plane related tasks
