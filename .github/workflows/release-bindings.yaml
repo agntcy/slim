@@ -374,7 +374,6 @@ jobs:
     runs-on: macos-15
     needs:
       - build-and-test-bindings
-      - release-python-bindings
     permissions:
       contents: read
     steps:
