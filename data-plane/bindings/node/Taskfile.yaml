@@ -169,6 +169,7 @@ tasks:
     cmds:
       - echo "🧹 Cleaning build artifacts..."
       - rm -rf generated/
+      - rm -rf types/
       - rm -rf .platform-pkg/
       - rm -rf dist/
       - rm -rf examples/node_modules/
