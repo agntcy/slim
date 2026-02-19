@@ -549,14 +549,12 @@ impl MessageProcessor {
             if add { "" } else { "un" }
         );
 
-        if let Err(e) = self.forwarder().on_subscription_msg(
+        self.forwarder().on_subscription_msg(
             dst.clone(),
             conn,
             connection.is_local_connection(),
             add,
-        ) {
-            return Err(e);
-        }
+        )?;
 
         match forward {
             None => Ok(()),
