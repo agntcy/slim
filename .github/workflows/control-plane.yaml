@@ -26,8 +26,6 @@ jobs:
     with:
       go-version: 1.25.5
       working-directory: ./control-plane
-      use-local-bindings: true
-      cgo-enabled: '1'
 
   control-plane-docker-build:
     name: Build control plane docker image

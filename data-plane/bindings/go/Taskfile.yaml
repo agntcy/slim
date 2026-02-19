@@ -135,80 +135,6 @@ tasks:
       - echo "✅ Bindings generated in slim_bindings/"
     silent: true
 
-  generate-from-cache:
-    desc: Generate Go bindings using a cached native library
-    deps:
-      - task: install-uniffi-bindgen-go
-    cmds:
-      - echo "🔧 Generating Go bindings from cached library..."
-      - |
-        set -euo pipefail
-
-        TARGET_OS="{{.TARGETOS}}"
-        TARGET_ARCH="{{.TARGETARCH}}"
-        TARGET_ABI="{{.TARGETABI}}"
-
-        if [ -z "$TARGET_OS" ]; then
-          TARGET_OS="$(go env GOOS)"
-        fi
-        if [ -z "$TARGET_ARCH" ]; then
-          TARGET_ARCH="$(go env GOARCH)"
-        fi
-
-        case "$TARGET_OS" in
-          darwin)
-            if [ "$TARGET_ARCH" = "arm64" ]; then
-              LIB_ARCH="aarch64"
-            else
-              LIB_ARCH="x86_64"
-            fi
-            LIB_NAME="lib{{.LIB_NAME}}_${LIB_ARCH}_darwin.a"
-            ;;
-          linux)
-            if [ -z "$TARGET_ABI" ]; then
-              TARGET_ABI="gnu"
-            fi
-            if [ "$TARGET_ARCH" = "arm64" ]; then
-              LIB_ARCH="aarch64"
-            else
-              LIB_ARCH="x86_64"
-            fi
-            LIB_NAME="lib{{.LIB_NAME}}_${LIB_ARCH}_linux_${TARGET_ABI}.a"
-            ;;
-          windows)
-            if [ -z "$TARGET_ABI" ]; then
-              TARGET_ABI="gnu"
-            fi
-            if [ "$TARGET_ARCH" != "amd64" ] && [ "$TARGET_ARCH" != "x86_64" ]; then
-              echo "❌ Unsupported TARGETARCH for windows: $TARGET_ARCH"
-              exit 1
-            fi
-            LIB_NAME="lib{{.LIB_NAME}}_x86_64_windows_${TARGET_ABI}.a"
-            ;;
-          *)
-            echo "❌ Unsupported TARGETOS: $TARGET_OS"
-            exit 1
-            ;;
-        esac
-
-        GOPATH_DIR=$(go env GOPATH)
-        CACHE_DIR="$GOPATH_DIR/.cgo-cache/slim-bindings"
-        LIB_PATH="$CACHE_DIR/$LIB_NAME"
-
-        if [ ! -f "$LIB_PATH" ]; then
-          echo "❌ Cached bindings library not found: $LIB_PATH"
-          exit 1
-        fi
-
-        uniffi-bindgen-go \
-          --library "$LIB_PATH" \
-          --out-dir '.' \
-
-      - task: patch-header
-      - task: patch-cgo-directives
-      - echo "✅ Bindings generated in slim_bindings/"
-    silent: true
-
   install-uniffi-bindgen-go:
     desc: Install uniffi-bindgen-go
     status:
@@ -380,7 +306,7 @@ tasks:
     cmds:
       - echo "👨 Starting Bob (sender)..."
       - go run . --enable-mls --local="org/bob/app" --remote="org/alice/app" --message="Hello SLIM" --iterations=5 --server="http://localhost:46357" {{.CLI_ARGS}}
-    silent: true
+    silent: true    
 
   example:group:moderator:
     desc: Run group moderator (creates session and invites participants)
