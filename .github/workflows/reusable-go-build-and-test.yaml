@@ -87,6 +87,10 @@ on:
         type: string
         default: .
 
+permissions:
+  contents: read
+  actions: read
+
 jobs:
   setup-environment:
     runs-on: ${{ inputs.runner }}
@@ -114,6 +118,10 @@ jobs:
 
   bindings-cache:
     runs-on: ${{ inputs.runner }}
+
+    permissions:
+      contents: read
+      actions: write
 
     defaults:
       run:
