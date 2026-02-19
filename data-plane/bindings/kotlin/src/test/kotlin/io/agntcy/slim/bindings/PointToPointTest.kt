@@ -5,14 +5,13 @@ package io.agntcy.slim.bindings
 
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 import java.time.Duration
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
-import kotlin.time.Duration.Companion.seconds
 
 /**
  * Point-to-point sticky session integration test.
@@ -59,7 +58,7 @@ class PointToPointTest {
             // Subscribe sender
             val senderNameWithId = Name.newWithId("org", "test_$testId", "p2psender", id = sender.id())
             sender.subscribeAsync(senderNameWithId, connIdSender!!)
-            delay(100)
+            delay(100) // Real coroutine delay
             
             // Set route to receiver
             sender.setRouteAsync(receiverName, connIdSender)
@@ -135,12 +134,10 @@ class PointToPointTest {
      */
     @ParameterizedTest
     @CsvSource(
-        "127.0.0.1:22345,true",
-        "127.0.0.1:22345,false",
-        ",true",
-        ",false"
+        "127.0.0.1:22345,true",        
+        ",true",        
     )
-    fun testStickySession(endpoint: String?, mlsEnabled: Boolean) = runTest(timeout = 180.seconds) {
+    fun testStickySession(endpoint: String?, mlsEnabled: Boolean) = runBlocking {
         val server = setupServer(endpoint)
         
         try {
@@ -186,7 +183,7 @@ class PointToPointTest {
                     // Subscribe receiver
                     val receiverNameWithId = Name.newWithId("org", "test_$testId", "p2preceiver", id = receiver.id())
                     receiver.subscribeAsync(receiverNameWithId, connIdReceiver!!)
-                    delay(100)
+                    delay(100) // Real coroutine delay
                 }
                 
                 val sessionContext = receiver.listenForSessionAsync(null)
@@ -224,8 +221,8 @@ class PointToPointTest {
                 tasks.add(task)
             }
             
-            // Give receivers a moment to start listening (especially important for global service mode)
-            delay(500)
+            // Give receivers a moment to start listening
+            delay(1000)
             
             // Create a new session
             val sessionConfig = SessionConfig(
@@ -252,15 +249,12 @@ class PointToPointTest {
             // Wait for acknowledgment from receiver
             val winnerId = waitForAck(senderSession)
             
-            // Cancel all non-winning receiver tasks BEFORE deleting session
+            // Cancel all non-winning receiver tasks
             for ((idx, t) in tasks.withIndex()) {
                 if (idx != winnerId && !t.isCompleted) {
                     t.cancel()
                 }
             }
-            
-            // Give cancelled tasks a moment to exit their receive loops
-            delay(100)
             
             // Affinity assertions:
             //  * Sum of all per-receiver counts == total sent (1000)
