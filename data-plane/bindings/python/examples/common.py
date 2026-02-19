@@ -66,17 +66,12 @@ def split_id(id: str) -> slim_bindings.Name:
         id: String in the canonical 'org/namespace/app-or-stream' format.
 
     Raises:
-        ValueError: If the id cannot be split into exactly three segments.
+        SlimError: If the id cannot be split into exactly three segments.
 
     Returns:
         Name: Constructed identity object.
     """
-    try:
-        organization, namespace, app = id.split("/")
-    except ValueError as e:
-        print("Error: IDs must be in the format organization/namespace/app-or-stream.")
-        raise e
-    return slim_bindings.Name(organization, namespace, app)
+    return slim_bindings.Name.from_string(id)
 
 
 def jwt_identity(
