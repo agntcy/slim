@@ -354,6 +354,7 @@ jobs:
           "
 
       - name: Configure npm auth
+        working-directory: ./data-plane/bindings/node
         run: echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
