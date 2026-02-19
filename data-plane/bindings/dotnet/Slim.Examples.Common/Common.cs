@@ -22,23 +22,6 @@ public static class CommonHelpers
     public const string DefaultSharedSecret = "demo-shared-secret-min-32-chars!!";
 
     /// <summary>
-    /// Splits an ID of form organization/namespace/application (or channel).
-    /// </summary>
-    /// <param name="id">String in the canonical 'org/namespace/app-or-stream' format.</param>
-    /// <returns>Constructed identity object.</returns>
-    /// <exception cref="ArgumentException">If the id cannot be split into exactly three segments.</exception>
-    public static SlimName SplitId(string id)
-    {
-        var parts = id.Split('/');
-        if (parts.Length != 3)
-        {
-            throw new ArgumentException(
-                $"IDs must be in the format organization/namespace/app-or-stream, got: {id}");
-        }
-        return new SlimName(parts[0], parts[1], parts[2]);
-    }
-
-    /// <summary>
     /// Creates a SLIM app with shared secret authentication and connects it to a SLIM server.
     /// 
     /// This is a convenience function that combines:
@@ -59,7 +42,7 @@ public static class CommonHelpers
         Slim.Initialize();
 
         // Parse the local identity string
-        using var appName = SplitId(localId);
+        using var appName = SlimName.Parse(localId);
 
         // Get global service
         using var service = Slim.GetGlobalService();

@@ -5,6 +5,8 @@ use std::fmt::Display;
 
 use slim_datapath::messages::Name as SlimName;
 
+use crate::errors::SlimError;
+
 /// Name type for SLIM (Secure Low-Latency Interactive Messaging)
 #[derive(Debug, Clone, PartialEq, uniffi::Object)]
 #[uniffi::export(Display, Debug, Eq)]
@@ -51,6 +53,23 @@ impl Name {
     pub fn new(component0: String, component1: String, component2: String) -> Self {
         let inner = SlimName::from_strings([component0, component1, component2]);
         Name { inner }
+    }
+
+    /// Parse a Name from a `"org/namespace/agent"` string
+    ///
+    /// The string must contain exactly three `/`-separated components.
+    /// Returns an error if the format is invalid.
+    #[uniffi::constructor]
+    pub fn from_string(s: String) -> Result<Self, SlimError> {
+        let parts: Vec<&str> = s.splitn(4, '/').collect();
+        if parts.len() != 3 {
+            return Err(SlimError::InvalidArgument {
+                message: format!("expected \"org/namespace/agent\", got {:?}", s),
+            });
+        }
+        Ok(Name {
+            inner: SlimName::from_strings([parts[0], parts[1], parts[2]]),
+        })
     }
 
     /// Create a new Name from components with an ID
@@ -224,6 +243,42 @@ mod tests {
         let name_without_id = Name::new("org".to_string(), "ns".to_string(), "app".to_string());
         // SlimName generates a default ID, so it should be non-zero
         assert!(name_without_id.id() > 0);
+    }
+
+    /// Test Name::from_string with a valid input
+    #[test]
+    fn test_from_string_valid() {
+        let name = Name::from_string("org/namespace/agent".to_string()).unwrap();
+        let components = name.components();
+        assert_eq!(components[0], "org");
+        assert_eq!(components[1], "namespace");
+        assert_eq!(components[2], "agent");
+    }
+
+    /// Test Name::from_string roundtrips through Display
+    #[test]
+    fn test_from_string_roundtrip() {
+        let original = Name::new(
+            "org".to_string(),
+            "namespace".to_string(),
+            "agent".to_string(),
+        );
+        let parsed = Name::from_string("org/namespace/agent".to_string()).unwrap();
+        assert_eq!(original.components(), parsed.components());
+    }
+
+    /// Test Name::from_string rejects too few components
+    #[test]
+    fn test_from_string_too_few_components() {
+        assert!(Name::from_string("org/namespace".to_string()).is_err());
+        assert!(Name::from_string("org".to_string()).is_err());
+        assert!(Name::from_string("".to_string()).is_err());
+    }
+
+    /// Test Name::from_string rejects too many components
+    #[test]
+    fn test_from_string_too_many_components() {
+        assert!(Name::from_string("org/namespace/agent/extra".to_string()).is_err());
     }
 
     /// Test Name components getter
