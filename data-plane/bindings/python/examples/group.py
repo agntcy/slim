@@ -270,7 +270,9 @@ async def run_client(config: GroupConfig):
     local_app, conn_id = await create_local_app(config)
 
     # Parse the remote channel/topic if provided; else None triggers passive mode.
-    chat_channel = slim_bindings.Name.from_string(config.remote) if config.remote else None
+    chat_channel = (
+        slim_bindings.Name.from_string(config.remote) if config.remote else None
+    )
 
     # Track background tasks (receiver loop + optional keyboard loop).
     tasks: list[asyncio.Task] = []

@@ -10,6 +10,8 @@
 package common
 
 import (
+	"fmt"
+
 	slim "github.com/agntcy/slim-bindings-go"
 )
 
@@ -43,7 +45,7 @@ func CreateAndConnectApp(localID, serverAddr, secret string) (*slim.App, uint64,
 	slim.InitializeWithDefaults()
 
 	// Parse the local identity string
-	appName, err := slim.NewNameFromString(localID)
+	appName, err := slim.NameFromString(localID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("invalid local ID: %w", err)
 	}

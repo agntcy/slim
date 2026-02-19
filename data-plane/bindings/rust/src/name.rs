@@ -64,10 +64,7 @@ impl Name {
         let parts: Vec<&str> = s.splitn(4, '/').collect();
         if parts.len() != 3 {
             return Err(SlimError::InvalidArgument {
-                message: format!(
-                    "expected \"org/namespace/agent\", got {:?}",
-                    s
-                ),
+                message: format!("expected \"org/namespace/agent\", got {:?}", s),
             });
         }
         Ok(Name {
