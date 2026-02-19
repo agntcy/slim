@@ -223,6 +223,10 @@ class GroupTest {
             val participantsCount = 10
             val participants = mutableListOf<kotlinx.coroutines.Job>()
             
+            // Synchronization: ensure all participants are ready before inviting
+            val readyCount = java.util.concurrent.atomic.AtomicInteger(0)
+            val allReady = kotlinx.coroutines.CompletableDeferred<Unit>()
+            
             val chatName = Name("org", "test_$testId", "chat")
             
             println("Test ID: $testId")
@@ -246,9 +250,18 @@ class GroupTest {
                 val session: Session? = if (index == 0) {
                     println("$partName -> Creating new group sessions...")
                     val s = createGroupSession(participant, chatName, mlsEnabled)
+                    
+                    // Wait for all other participants to be ready before inviting
+                    println("$partName -> Waiting for all participants to be ready...")
+                    allReady.await()
+                    
                     inviteParticipants(participant, s, server, testId, participantsCount, connId, partName)
                     s
                 } else {
+                    // Signal that this participant is ready to listen
+                    if (readyCount.incrementAndGet() == participantsCount - 1) {
+                        allReady.complete(Unit)
+                    }
                     // Will be set later when session is received
                     null
                 }
@@ -257,16 +270,6 @@ class GroupTest {
                 var called = false
                 var firstMessage = true
                 var recvSession: Session? = session
-                
-                // If this is the first participant, publish the message to start the chain
-                if (index == 0) {
-                    val nextParticipant = (index + 1) % participantsCount
-                    val nextParticipantName = "participant_$nextParticipant"
-                    val msg = "$message - $nextParticipantName"
-                    println("$partName -> Publishing message as first participant: $msg")
-                    called = true
-                    session!!.publishAsync(msg.toByteArray(), null, null)
-                }
                 
                 while (true) {
                     try {
@@ -283,6 +286,16 @@ class GroupTest {
                         }
                         
                         requireNotNull(recvSession) { "recvSession should not be null" }
+                        
+                        // If this is the first participant and first iteration, publish the message to start the chain
+                        if (index == 0 && !called) {
+                            val nextParticipant = (index + 1) % participantsCount
+                            val nextParticipantName = "participant_$nextParticipant"
+                            val msg = "$message - $nextParticipantName"
+                            println("$partName -> Publishing message as first participant: $msg")
+                            called = true
+                            recvSession.publishAsync(msg.toByteArray(), null, null)
+                        }
                         
                         // Receive message from session
                         val receivedMsg = recvSession.getMessageAsync(timeout = Duration.ofSeconds(30))

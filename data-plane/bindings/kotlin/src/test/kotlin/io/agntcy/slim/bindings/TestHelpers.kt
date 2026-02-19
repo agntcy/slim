@@ -76,7 +76,7 @@ suspend fun setupServer(endpoint: String?): ServerFixture {
 suspend fun teardownServer(fixture: ServerFixture) {
     if (fixture.endpoint != null) {
         try {
-            fixture.service.stopServer(fixture.endpoint)
+            fixture.service.shutdown()
         } catch (e: Exception) {
             println("Warning: error stopping server ${fixture.endpoint}: ${e.message}")
         }
