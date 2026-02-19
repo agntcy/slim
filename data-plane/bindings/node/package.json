@@ -45,6 +45,9 @@
     "@agntcy/slim-bindings-node-win32-x64-msvc": "0.7.0"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "ffi-rs": "^1.3.0",
+    "typescript": "^5.0.0",
+    "uniffi-bindgen-react-native": "^0.29.3-1"
   }
 }

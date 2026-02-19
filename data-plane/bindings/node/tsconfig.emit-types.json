@@ -9,7 +9,9 @@
     "outDir": "./types",
     "rootDir": "./generated",
     "skipLibCheck": true,
-    "strict": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "noEmitOnError": false,
     "resolveJsonModule": true,
     "types": ["node"]
   },
