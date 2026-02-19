@@ -19,20 +19,6 @@ const (
 	DefaultSharedSecret   = "demo-shared-secret-min-32-chars!!"
 )
 
-// SplitID splits an ID of form organization/namespace/application (or channel).
-//
-// Args:
-//
-//	id: String in the canonical 'org/namespace/app-or-stream' format.
-//
-// Returns:
-//
-//	Name: Constructed identity object.
-//	error: If the id cannot be split into exactly three segments.
-func SplitID(id string) (*slim.Name, error) {
-	return slim.NewNameFromString(id)
-}
-
 // CreateAndConnectApp creates a SLIM app with shared secret authentication
 // and connects it to a SLIM server.
 //
@@ -57,7 +43,7 @@ func CreateAndConnectApp(localID, serverAddr, secret string) (*slim.App, uint64,
 	slim.InitializeWithDefaults()
 
 	// Parse the local identity string
-	appName, err := SplitID(localID)
+	appName, err := slim.NewNameFromString(localID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("invalid local ID: %w", err)
 	}

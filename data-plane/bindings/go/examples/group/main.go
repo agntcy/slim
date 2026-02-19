@@ -73,7 +73,7 @@ func main() {
 
 func runModerator(app *slim.App, connID uint64, remote string, invites []string, enableMLS bool, instance uint64) {
 	// Parse remote channel name
-	channelName, err := common.SplitID(remote)
+	channelName, err := slim.NewNameFromString(remote)
 	if err != nil {
 		log.Fatalf("Failed to parse remote channel: %v", err)
 	}
@@ -102,7 +102,7 @@ func runModerator(app *slim.App, connID uint64, remote string, invites []string,
 
 	// Invite each participant
 	for _, inviteID := range invites {
-		inviteName, err := common.SplitID(inviteID)
+		inviteName, err := slim.NewNameFromString(inviteID)
 		if err != nil {
 			log.Printf("Failed to parse invite ID %s: %v", inviteID, err)
 			continue
