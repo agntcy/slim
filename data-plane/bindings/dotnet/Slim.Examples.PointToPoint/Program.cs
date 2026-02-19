@@ -96,7 +96,7 @@ class Program
     static async Task RunSender(SlimApp app, ulong connId, string remote, string message, 
         int iterations, bool enableMls, ulong instance)
     {
-        using var remoteName = CommonHelpers.SplitId(remote);
+        using var remoteName = SlimName.Parse(remote);
 
         // Set route to remote via the server connection
         app.SetRoute(remoteName, connId);

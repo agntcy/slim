@@ -104,7 +104,7 @@ class Program
         List<string> invites, bool enableMls, ulong instance)
     {
         // Parse remote channel name
-        using var channelName = CommonHelpers.SplitId(remote);
+        using var channelName = SlimName.Parse(remote);
 
         Console.WriteLine($"{ColorCyan}[{instance}]{ColorReset} Creating group session as moderator for channel: {remote}");
 
@@ -129,7 +129,7 @@ class Program
         {
             try
             {
-                using var inviteName = CommonHelpers.SplitId(inviteId);
+                using var inviteName = SlimName.Parse(inviteId);
 
                 // Set route for invitee
                 app.SetRoute(inviteName, connId);
