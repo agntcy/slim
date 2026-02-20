@@ -67,8 +67,9 @@ jobs:
       - name: Generate bindings and run tests
         run: |
           echo "Generate bindings and run tests..."
-          # Find the Linux x86_64 .so library for uniffi-bindgen
-          LIB_FILE=$(find ./artifacts/bindings-x86_64-unknown-linux-gnu -name "*.so" | head -1)
+          # First, copy-libraries will run (inside generate task) and create jniLibs structure
+          # Then point LIB_PATH to the correctly-named library in jniLibs
+          LIB_FILE="generated/jniLibs/linux-x86-64/libslim_bindings.so"
           echo "Using library: $LIB_FILE"
           task test SKIP_BUILD=true ARTIFACTS_DIR=./artifacts LIB_PATH="$LIB_FILE"
 
