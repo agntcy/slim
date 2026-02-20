@@ -86,6 +86,7 @@ tasks:
       - pwd
       - echo "🔍 Verifying uniffi-bindgen..."
       - uniffi-bindgen --version
+      - task: copy-libraries
       - echo "🔍 Checking library file exists:"
       - ls -lah '{{.LIB_PATH}}'
       - echo "🔍 Checking if library is valid:"
@@ -106,10 +107,6 @@ tasks:
           exit $BINDGEN_EXIT
         fi
         echo "✅ uniffi-bindgen completed successfully"
-      - task: copy-libraries
-      - echo "🔍 Debug information:"
-      - echo "LIB_PATH={{.LIB_PATH}}"
-      - echo "PWD=$(pwd)"
       - echo "📁 Listing generated files before patching..."
       - |
         if [ -d "generated" ]; then
