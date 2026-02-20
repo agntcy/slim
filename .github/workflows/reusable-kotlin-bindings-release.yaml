@@ -1,0 +1,105 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+name: Reusable Kotlin Bindings Release
+
+on:
+  workflow_call:
+    inputs:
+      library-name:
+        description: Name of the library
+        required: false
+        type: string
+        default: slim_bindings
+      java-version:
+        description: Java version to use
+        required: false
+        type: string
+        default: '21'
+      kotlin-bindings-working-directory:
+        description: Working directory for Kotlin bindings
+        required: false
+        type: string
+        default: ./data-plane/bindings/kotlin
+      maven-group-id:
+        description: Maven groupId
+        required: false
+        type: string
+        default: io.agntcy.slim
+      maven-artifact-id:
+        description: Maven artifactId
+        required: false
+        type: string
+        default: slim-bindings
+
+env:
+  LIBRARY_NAME: ${{ inputs.library-name }}
+  MAVEN_GROUP_ID: ${{ inputs.maven-group-id }}
+  MAVEN_ARTIFACT_ID: ${{ inputs.maven-artifact-id }}
+
+jobs:
+  release-kotlin-bindings:
+    name: Release Kotlin Bindings
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.kotlin-bindings-working-directory }}
+    steps:
+      - name: Checkout source repo
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: ./.github/actions/setup-java
+        with:
+          java-version: ${{ inputs.java-version }}
+
+      # Download generated Kotlin code
+      - name: Download generated Kotlin code
+        uses: actions/download-artifact@v4
+        with:
+          name: kotlin-bindings-generated-code
+          path: ${{ inputs.kotlin-bindings-working-directory }}/generated/
+
+      - name: List downloaded generated code
+        run: |
+          echo "📦 Downloaded generated code:"
+          find ./generated -type f -name "*.kt" | head -20
+          echo "📦 Downloaded JNI libraries:"
+          find ./generated/jniLibs -type f 2>/dev/null | sort || echo "No JNI libs in artifact"
+
+      # Extract version from tag name (e.g., slim-bindings-v0.7.0 -> 0.7.0)
+      - name: Extract version from tag
+        id: extract-version
+        run: |
+          TAG_NAME="${{ github.ref_name }}"
+          # Remove 'slim-bindings-' prefix if present
+          VERSION="${TAG_NAME#slim-bindings-}"
+          # Remove leading 'v' if present (e.g., v1.0.0 -> 1.0.0)
+          VERSION="${VERSION#v}"
+          echo "Extracted version: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      # Build and publish to GitHub Packages
+      - name: Publish to GitHub Packages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Building and publishing Kotlin bindings to GitHub Packages..."
+          
+          VERSION="${{ steps.extract-version.outputs.version }}"
+          echo "Publishing version: $VERSION"
+          
+          # Build and publish using Gradle
+          ./gradlew publish \
+            -Pversion="$VERSION" \
+            --no-daemon \
+            --stacktrace
+          
+          echo "✅ Successfully published to GitHub Packages"
+          echo "Package: ${{ env.MAVEN_GROUP_ID }}:${{ env.MAVEN_ARTIFACT_ID }}:$VERSION"
+          echo "📦 View at: https://github.com/${{ github.repository }}/packages"

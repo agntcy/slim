@@ -45,6 +45,17 @@ vars:
           ;;
       esac
   LIB_PATH: "{{.LIB_PATH | default ._DEFAULT_LIB_PATH}}"
+  ARTIFACTS_DIR: '{{.ARTIFACTS_DIR | default "./artifacts"}}'
+  # Platform mapping: rust-target|jni-path|extension
+  PLATFORMS: |
+    x86_64-unknown-linux-gnu|linux-x86-64|so
+    x86_64-unknown-linux-musl|linux-x86-64|so
+    aarch64-unknown-linux-gnu|linux-aarch64|so
+    aarch64-unknown-linux-musl|linux-aarch64|so
+    x86_64-apple-darwin|darwin-x86-64|dylib
+    aarch64-apple-darwin|darwin-aarch64|dylib
+    x86_64-pc-windows-msvc|win32-x86-64|dll
+    aarch64-pc-windows-msvc|win32-aarch64|dll
 
 tasks:
   default:
@@ -95,7 +106,7 @@ tasks:
           exit $BINDGEN_EXIT
         fi
         echo "✅ uniffi-bindgen completed successfully"
-      - task: copy-library
+      - task: copy-libraries
       - echo "🔍 Debug information:"
       - echo "LIB_PATH={{.LIB_PATH}}"
       - echo "PWD=$(pwd)"
@@ -121,47 +132,132 @@ tasks:
     cmds:
       - python3 patch-bindings.py
 
-  copy-library:
-    desc: Copy native library to generated directory for JNA loading
+  copy-libraries:
+    desc: Copy native libraries from artifacts or local build to JNI structure
     internal: true
     cmds:
-      - echo "📦 Copying native library..."
+      - rm -rf generated/jniLibs
+      - mkdir -p generated/jniLibs
       - |
-        mkdir -p generated/jniLibs
-        LIB_DIR=$(dirname "{{.LIB_PATH}}")
-        
-        # Detect OS and architecture
-        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-        ARCH=$(uname -m)
-        
-        case "$OS" in
-          darwin*)
-            OS_DIR="darwin"
-            LIB_EXT="dylib"
-            ;;
-          linux*)
-            OS_DIR="linux"
-            LIB_EXT="so"
-            ;;
-          mingw*|msys*|cygwin*)
-            OS_DIR="win32"
-            LIB_EXT="dll"
-            ;;
-        esac
-        
-        case "$ARCH" in
-          x86_64|amd64) ARCH_DIR="x86-64" ;;
-          arm64|aarch64) ARCH_DIR="aarch64" ;;
-        esac
-        
-        DEST_DIR="generated/jniLibs/${OS_DIR}-${ARCH_DIR}"
-        mkdir -p "$DEST_DIR"
-        
-        if [ -f "{{.LIB_PATH}}" ]; then
-          cp "{{.LIB_PATH}}" "$DEST_DIR/"
-          echo "✅ Copied library to $DEST_DIR/"
-        else
-          echo "⚠️  Library not found: {{.LIB_PATH}}"
+        ARTIFACTS_DIR="{{.ARTIFACTS_DIR}}"
+        library_count=0
+
+        # Try CI artifacts directory first
+        if [[ -d "$ARTIFACTS_DIR" ]] && ls "$ARTIFACTS_DIR"/bindings-* &>/dev/null; then
+          echo "Copying libraries from artifacts: $ARTIFACTS_DIR"
+
+          # Iterate through all bindings-* artifact directories
+          for target_dir in "$ARTIFACTS_DIR"/bindings-*; do
+            if [[ ! -d "$target_dir" ]]; then
+              continue
+            fi
+
+            # Extract target triple from directory name
+            target=$(basename "$target_dir" | sed 's/^bindings-//')
+
+            # Look up the target in PLATFORMS to get JNI path and extension
+            jni_path=""
+            ext=""
+            while IFS='|' read -r platform_target platform_jni platform_ext; do
+              if [[ "$platform_target" == "$target" ]]; then
+                jni_path="$platform_jni"
+                ext="$platform_ext"
+                break
+              fi
+            done <<< "{{.PLATFORMS}}"
+
+            # Skip if target not in our supported platforms list
+            if [[ -z "$jni_path" || -z "$ext" ]]; then
+              echo "  Skipping $target (not in PLATFORMS list)"
+              continue
+            fi
+
+            echo "  Processing $target → $jni_path..."
+
+            # Determine library name patterns
+            case "$ext" in
+              so|dylib)
+                lib_pattern="lib{{.LIB_NAME}}*.$ext"
+                lib_name="lib{{.LIB_NAME}}.$ext"
+                ;;
+              dll)
+                lib_pattern="{{.LIB_NAME}}*.$ext"
+                lib_name="{{.LIB_NAME}}.$ext"
+                ;;
+            esac
+
+            # Find the library
+            src=$(find "$target_dir" -maxdepth 1 -name "$lib_pattern" -type f | head -1)
+
+            if [[ -z "$src" || ! -f "$src" ]]; then
+              echo "    ⚠️  Library not found (pattern: $lib_pattern)"
+              continue
+            fi
+
+            # Copy to JNI structure
+            jni_dir="generated/jniLibs/$jni_path"
+            mkdir -p "$jni_dir"
+            cp "$src" "$jni_dir/$lib_name"
+            echo "    ✅ Copied to $jni_path/$lib_name"
+            library_count=$((library_count + 1))
+          done
+        fi
+
+        # Fall back to local build output
+        if [[ $library_count -eq 0 ]]; then
+          echo "No CI artifacts found, copying from local build..."
+
+          # Detect OS and architecture
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          ARCH=$(uname -m)
+
+          case "$OS" in
+            darwin*)
+              case "$ARCH" in
+                x86_64|amd64) JNI_PATH="darwin-x86-64" ;;
+                arm64|aarch64) JNI_PATH="darwin-aarch64" ;;
+              esac
+              LIB_EXT="dylib"
+              LIB_PREFIX="lib"
+              ;;
+            linux*)
+              case "$ARCH" in
+                x86_64|amd64) JNI_PATH="linux-x86-64" ;;
+                arm64|aarch64) JNI_PATH="linux-aarch64" ;;
+              esac
+              LIB_EXT="so"
+              LIB_PREFIX="lib"
+              ;;
+            mingw*|msys*|cygwin*)
+              case "$ARCH" in
+                x86_64|amd64) JNI_PATH="win32-x86-64" ;;
+                arm64|aarch64) JNI_PATH="win32-aarch64" ;;
+              esac
+              LIB_EXT="dll"
+              LIB_PREFIX=""
+              ;;
+          esac
+
+          SRC="{{.LIB_PATH}}"
+
+          if [[ ! -f "$SRC" ]]; then
+            echo "⚠️  Library not found: $SRC"
+            exit 1
+          fi
+
+          DEST_DIR="generated/jniLibs/$JNI_PATH"
+          mkdir -p "$DEST_DIR"
+          
+          # Get just the library filename
+          LIB_FILENAME="${LIB_PREFIX}{{.LIB_NAME}}.${LIB_EXT}"
+          cp "$SRC" "$DEST_DIR/$LIB_FILENAME"
+          echo "✅ Copied local library to $DEST_DIR/$LIB_FILENAME"
+          library_count=1
+        fi
+
+        echo "📊 Total libraries copied: $library_count"
+        if [[ $library_count -eq 0 ]]; then
+          echo "❌ No libraries were copied!"
           exit 1
         fi
 
