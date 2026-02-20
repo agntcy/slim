@@ -10,7 +10,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use display_error_chain::ErrorChainExt;
 use slim_datapath::errors::ErrorPayload;
 use slim_session::Direction;
-use tokio::sync::{Mutex, mpsc, oneshot};
+use parking_lot::Mutex;
+use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error};
 
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -47,8 +48,8 @@ where
     cancel_token: tokio_util::sync::CancellationToken,
 
     /// Pending subscription acknowledgments keyed by ack id.
-    pending_subscription_acks:
-        Arc<Mutex<HashMap<String, oneshot::Sender<Result<(), SubscriptionAckError>>>>>,
+        pending_subscription_acks:
+            Arc<Mutex<HashMap<String, oneshot::Sender<Result<(), SubscriptionAckError>>>>>,
 
     /// Counter used to generate subscription acknowledgment ids.
     subscription_ack_counter: AtomicU64,
@@ -175,7 +176,7 @@ where
         let error_msg = msg.get_metadata(SUBSCRIPTION_ACK_ERROR).cloned();
 
         let sender = {
-            let mut pending = pending_subscription_acks.lock().await;
+            let mut pending = pending_subscription_acks.lock();
             pending.remove(&ack_id)
         };
 
@@ -203,14 +204,14 @@ where
         let ack_id = self.next_subscription_ack_id();
         let (ack_tx, ack_rx) = oneshot::channel();
         {
-            let mut pending = self.pending_subscription_acks.lock().await;
+            let mut pending = self.pending_subscription_acks.lock();
             pending.insert(ack_id.clone(), ack_tx);
         }
 
         let msg = build_message(ack_id.clone());
 
         if let Err(e) = self.send_message_without_context(msg).await {
-            let mut pending = self.pending_subscription_acks.lock().await;
+            let mut pending = self.pending_subscription_acks.lock();
             pending.remove(&ack_id);
             return Err(e);
         }
@@ -652,7 +653,7 @@ mod tests {
     async fn test_handle_subscription_ack_message_uses_default_rejection_message() {
         let pending = Arc::new(Mutex::new(HashMap::new()));
         let (tx, rx) = oneshot::channel();
-        pending.lock().await.insert("ack-default".to_string(), tx);
+        pending.lock().insert("ack-default".to_string(), tx);
 
         let ack_msg = build_subscription_ack_message("ack-default", false, None, true);
         App::<SharedSecret, SharedSecret>::handle_subscription_ack_message(&pending, &ack_msg)
@@ -744,7 +745,7 @@ mod tests {
             .expect("missing ack id in outbound unsubscribe message");
 
         {
-            let mut pending = app.pending_subscription_acks.lock().await;
+            let mut pending = app.pending_subscription_acks.lock();
             let sender = pending
                 .remove(&ack_id)
                 .expect("missing pending sender for ack id");
