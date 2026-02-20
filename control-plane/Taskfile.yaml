@@ -190,10 +190,15 @@ tasks:
             TARGETARCH={{.TARGETARCH}} \
             TARGETABI={{.TARGETABI}} \
             FORCE_LOCAL_BINDINGS={{.FORCE_LOCAL_BINDINGS}}
-          task -d {{.REPO_ROOT}}/data-plane/bindings/go generate-from-cache \
-            TARGETOS={{.TARGETOS}} \
-            TARGETARCH={{.TARGETARCH}} \
-            TARGETABI={{.TARGETABI}}
+
+          if [ "{{.TARGETOS}}" = "windows" ]; then
+            echo "ℹ️  Skipping generate-from-cache for windows target; using restored Go bindings sources"
+          else
+            task -d {{.REPO_ROOT}}/data-plane/bindings/go generate-from-cache \
+              TARGETOS={{.TARGETOS}} \
+              TARGETARCH={{.TARGETARCH}} \
+              TARGETABI={{.TARGETABI}}
+          fi
         else
           echo "📦 Downloading bindings for {{.TARGETOS}}/{{.TARGETARCH}}/{{.TARGETABI}}"
           # Unset GOOS/GOARCH so the tool is built for the current platform

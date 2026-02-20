@@ -48,7 +48,6 @@ jobs:
             TARGETOS=$(go env GOOS) \
             TARGETARCH=$(go env GOARCH) \
             USE_LOCAL_BINDINGS=true
-
       - name: Mirror bindings cache for CGO
         run: |
           CACHE_DIR="$(go env GOPATH)/.cgo-cache"
@@ -58,13 +57,11 @@ jobs:
             mkdir -p "$REPO_CACHE"
             cp -a "$CACHE_DIR/slim-bindings" "$REPO_CACHE/"
           fi
-
       - name: Generate Go bindings from cache
         run: |
           task -d ./data-plane/bindings/go generate-from-cache \
             TARGETOS=$(go env GOOS) \
             TARGETARCH=$(go env GOARCH)
-
       - name: Run integration test suite
         working-directory: ./tests
         run: task tests:integration
