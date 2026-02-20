@@ -210,6 +210,19 @@ jobs:
               TARGETABI="$TARGET_ABI"
           fi
 
+          if [ "$TARGET_OS" = "linux" ] && { [ "$TARGET_ARCH" = "amd64" ] || [ "$TARGET_ARCH" = "x86_64" ]; }; then
+            WIN_LIB_NAME="libslim_bindings_x86_64_windows_gnu.a"
+            WIN_LIB_PATH="$CACHE_DIR/$WIN_LIB_NAME"
+
+            if [ ! -f "$WIN_LIB_PATH" ]; then
+              echo "ℹ️  Missing cached bindings ($WIN_LIB_NAME); building once for reuse in windows cross-build..."
+              task control-plane:go-bindings:install-local \
+                TARGETOS="windows" \
+                TARGETARCH="amd64" \
+                TARGETABI="gnu"
+            fi
+          fi
+
           if [ ! -f "$LIB_PATH" ]; then
             echo "❌ Expected cached bindings not found: $LIB_PATH"
             exit 1
