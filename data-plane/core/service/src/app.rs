@@ -8,9 +8,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 // Third-party crates
 use display_error_chain::ErrorChainExt;
+use parking_lot::Mutex;
 use slim_datapath::errors::ErrorPayload;
 use slim_session::Direction;
-use parking_lot::Mutex;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error};
 
@@ -48,8 +48,8 @@ where
     cancel_token: tokio_util::sync::CancellationToken,
 
     /// Pending subscription acknowledgments keyed by ack id.
-        pending_subscription_acks:
-            Arc<Mutex<HashMap<String, oneshot::Sender<Result<(), SubscriptionAckError>>>>>,
+    pending_subscription_acks:
+        Arc<Mutex<HashMap<String, oneshot::Sender<Result<(), SubscriptionAckError>>>>>,
 
     /// Counter used to generate subscription acknowledgment ids.
     subscription_ack_counter: AtomicU64,
