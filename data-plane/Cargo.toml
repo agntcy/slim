@@ -76,6 +76,7 @@ hyper-util = "0.1.10"
 indexmap = "2"
 indicatif = "0.17.11"
 jemallocator = { version = "0.5" }
+tikv-jemallocator = { version = "0.6" }
 jsonwebtoken-aws-lc = "9.3.0"
 
 lazy_static = "1.5.0"
