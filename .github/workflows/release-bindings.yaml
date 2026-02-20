@@ -143,3 +143,11 @@ jobs:
     uses: ./.github/workflows/reusable-dotnet-bindings-release.yaml
     secrets:
       nuget-api-token: ${{ secrets.NUGET_API_TOKEN }}
+
+  # ==========================================================================
+  # Job 6: Release Kotlin bindings to GitHub Packages
+  # ==========================================================================
+  release-kotlin-bindings:
+    name: "Release Kotlin Bindings"
+    needs: build-and-test-bindings
+    uses: ./.github/workflows/reusable-kotlin-bindings-release.yaml
