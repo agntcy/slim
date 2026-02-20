@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 const DEFAULT_SERVER: &str = "localhost:50051";
 const DEFAULT_TIMEOUT: &str = "15s";
-const DEFAULT_TLS_INSECURE: bool = true;
+const DEFAULT_TLS_INSECURE: bool = false;
 
 /// Persistent configuration stored in ~/.config/slimctl/config.yaml
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -84,8 +84,8 @@ impl ResolvedOpts {
         config: &SlimctlConfig,
         server: Option<&str>,
         timeout: Option<&str>,
-        tls_insecure: Option<bool>,
-        tls_insecure_skip_verify: Option<bool>,
+        tls_insecure: bool,
+        tls_insecure_skip_verify: bool,
         tls_ca_file: Option<&str>,
         tls_cert_file: Option<&str>,
         tls_key_file: Option<&str>,
@@ -97,9 +97,6 @@ impl ResolvedOpts {
         let timeout_str = timeout.unwrap_or(&config.common_opts.timeout);
         let timeout = parse_duration(timeout_str)
             .with_context(|| format!("invalid timeout value: '{}'", timeout_str))?;
-        let tls_insecure = tls_insecure.unwrap_or(config.common_opts.tls_insecure);
-        let tls_insecure_skip_verify =
-            tls_insecure_skip_verify.unwrap_or(config.common_opts.tls_insecure_skip_verify);
         let tls_ca_file = tls_ca_file
             .map(str::to_string)
             .unwrap_or_else(|| config.common_opts.tls_ca_file.clone());

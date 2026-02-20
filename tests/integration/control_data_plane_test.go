@@ -42,14 +42,14 @@ var _ = Describe("Routing", func() {
 		outB, errB2 := exec.Command(slimctlPath, "n",
 			"route", "add", "org/default/b/0",
 			"via", "./testdata/client-b-config-data.json",
-			"-s", "127.0.0.1:46358",
+			"-s", "127.0.0.1:46358", "--tls-insecure",
 		).CombinedOutput()
 		Expect(errB2).NotTo(HaveOccurred(), "slimctl route add b failed: %s", string(outB))
 
 		outA, errA2 := exec.Command(slimctlPath, "n",
 			"route", "add", "org/default/a/0",
 			"via", "./testdata/client-a-config-data.json",
-			"-s", "127.0.0.1:46368",
+			"-s", "127.0.0.1:46368", "--tls-insecure",
 		).CombinedOutput()
 		Expect(errA2).NotTo(HaveOccurred(), "slimctl route add a failed: %s", string(outA))
 	})
@@ -110,7 +110,7 @@ var _ = Describe("Routing", func() {
 			routeListOut, err := exec.Command(
 				slimctlPath, "n",
 				"route", "list",
-				"-s", "127.0.0.1:46358",
+				"-s", "127.0.0.1:46358", "--tls-insecure",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOut))
 
@@ -121,7 +121,7 @@ var _ = Describe("Routing", func() {
 			connectionListOut, err := exec.Command(
 				slimctlPath, "n",
 				"connection", "list",
-				"-s", "127.0.0.1:46358",
+				"-s", "127.0.0.1:46358", "--tls-insecure",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred(), "slimctl connection list failed: %s", string(connectionListOut))
 

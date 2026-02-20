@@ -100,7 +100,7 @@ var _ = Describe("Group management through control plane with timeout", func() {
 				slimctlPath,
 				"c", "channel", "create",
 				"moderators=org/default/moderator1/0",
-				"-s", "127.0.0.1:50051",
+				"-s", "127.0.0.1:50051", "--tls-insecure",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(addChannelOutput).NotTo(BeEmpty())
@@ -126,7 +126,7 @@ var _ = Describe("Group management through control plane with timeout", func() {
 				"c", "participant", "add",
 				participantA,
 				"--channel-id", channelName,
-				"-s", "127.0.0.1:50051",
+				"-s", "127.0.0.1:50051", "--tls-insecure",
 			).CombinedOutput()
 
 			time.Sleep(2000 * time.Millisecond)

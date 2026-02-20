@@ -53,7 +53,7 @@ struct GlobalOpts {
 
     /// Disable TLS (plain HTTP/2)
     #[arg(long, global = true, env = "SLIMCTL_COMMON_OPTS_TLS_INSECURE")]
-    tls_insecure: Option<bool>,
+    tls_insecure: bool,
 
     /// Use TLS but skip server certificate verification
     #[arg(
@@ -61,7 +61,7 @@ struct GlobalOpts {
         global = true,
         env = "SLIMCTL_COMMON_OPTS_TLS_INSECURE_SKIP_VERIFY"
     )]
-    tls_insecure_skip_verify: Option<bool>,
+    tls_insecure_skip_verify: bool,
 
     /// Path to TLS CA certificate
     #[arg(long, global = true, env = "SLIMCTL_COMMON_OPTS_TLS_CA_FILE")]
@@ -98,13 +98,9 @@ enum Commands {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-
-    if let Err(e) = run(cli).await {
-        eprintln!("Error: {:#}", e);
-        std::process::exit(1);
-    }
+    run(cli).await
 }
 
 async fn run(cli: Cli) -> Result<()> {

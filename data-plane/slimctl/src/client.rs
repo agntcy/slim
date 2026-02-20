@@ -5,7 +5,7 @@ use anyhow::{Context, Result, bail};
 use tonic::codegen::{Body, Bytes, StdError};
 
 use slim_config::auth::basic::Config as BasicAuthConfig;
-use slim_config::grpc::client::{AuthenticationConfig, ClientConfig};
+use slim_config::grpc::client::{AuthenticationConfig, BackoffConfig, ClientConfig};
 use slim_config::tls::client::TlsClientConfig;
 
 use crate::config::ResolvedOpts;
@@ -65,6 +65,11 @@ fn build_client_config(opts: &ResolvedOpts) -> Result<ClientConfig> {
     Ok(ClientConfig::with_endpoint(&endpoint)
         .with_tls_setting(tls)
         .with_connect_timeout(opts.timeout)
+        .with_request_timeout(opts.timeout)
+        .with_backoff(BackoffConfig::new_fixed_interval(
+            std::time::Duration::from_millis(0),
+            0,
+        ))
         .with_auth(auth))
 }
 

@@ -152,6 +152,7 @@ var _ = Describe("Routing", func() {
 				"controller", "route", "list",
 				"-s", "127.0.0.1:50051",
 				"-n", "slim/a",
+				"--tls-insecure",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOutA))
 
@@ -164,7 +165,7 @@ var _ = Describe("Routing", func() {
 				slimctlPath,
 				"controller", "connection", "list",
 				"-s", "127.0.0.1:50051",
-				"-n", "slim/a",
+				"-n", "slim/a", "--tls-insecure",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred(), "slimctl connection list failed: %s", string(connectionListOutA))
 
@@ -176,7 +177,7 @@ var _ = Describe("Routing", func() {
 				slimctlPath,
 				"controller", "route", "list",
 				"-s", "127.0.0.1:50051",
-				"-n", "slim/b",
+				"-n", "slim/b", "--tls-insecure",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOutB))
 
@@ -188,7 +189,7 @@ var _ = Describe("Routing", func() {
 				slimctlPath,
 				"controller", "connection", "list",
 				"-s", "127.0.0.1:50051",
-				"-n", "slim/b",
+				"-n", "slim/b", "--tls-insecure",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred(), "slimctl connection list failed: %s", string(connectionListOutB))
 
@@ -207,7 +208,7 @@ var _ = Describe("Routing", func() {
 				slimctlPath,
 				"controller", "route", "list",
 				"-s", "127.0.0.1:50051",
-				"-n", "slim/a",
+				"-n", "slim/a", "--tls-insecure",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOutA))
 
@@ -218,7 +219,7 @@ var _ = Describe("Routing", func() {
 				slimctlPath,
 				"controller", "route", "list",
 				"-s", "127.0.0.1:50051",
-				"-n", "slim/b",
+				"-n", "slim/b", "--tls-insecure",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOutB))
 

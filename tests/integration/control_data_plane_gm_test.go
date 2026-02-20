@@ -135,7 +135,7 @@ var _ = Describe("Group management through control plane", func() {
 				slimctlPath,
 				"c", "channel", "create",
 				"moderators=org/default/moderator1/0",
-				"-s", "127.0.0.1:50051",
+				"-s", "127.0.0.1:50051", "--tls-insecure",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(addChannelOutput).NotTo(BeEmpty())
@@ -162,7 +162,7 @@ var _ = Describe("Group management through control plane", func() {
 				"c", "participant", "add",
 				participantA,
 				"--channel-id", channelName,
-				"-s", "127.0.0.1:50051",
+				"-s", "127.0.0.1:50051", "--tls-insecure",
 			).CombinedOutput()
 
 			Expect(errA).NotTo(HaveOccurred())
@@ -179,7 +179,7 @@ var _ = Describe("Group management through control plane", func() {
 				"c", "participant", "add",
 				participantC,
 				"--channel-id", channelName,
-				"-s", "127.0.0.1:50051",
+				"-s", "127.0.0.1:50051", "--tls-insecure",
 			).CombinedOutput()
 
 			Expect(errB).NotTo(HaveOccurred())
@@ -203,7 +203,7 @@ var _ = Describe("Group management through control plane", func() {
 				"c", "participant", "delete",
 				participantC,
 				"--channel-id", channelName,
-				"-s", "127.0.0.1:50051",
+				"-s", "127.0.0.1:50051", "--tls-insecure",
 			).CombinedOutput()
 
 			Expect(errP).NotTo(HaveOccurred())
