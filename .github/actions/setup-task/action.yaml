@@ -9,7 +9,7 @@ inputs:
   version:
     description: 'Task version to install (e.g., "3.39.2", "latest")'
     required: false
-    default: 'v3.39.2'
+    default: 'v3.48.0'
   cache-enabled:
     description: 'Enable caching of the Task binary'
     required: false

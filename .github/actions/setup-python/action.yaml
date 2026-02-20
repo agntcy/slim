@@ -40,7 +40,6 @@ runs:
     - name: Setup Taskfile
       uses: ./.github/actions/setup-task
       with:
-        version: v3.39.2
         cache-enabled: true
 
     - name: Load cached Poetry Binary
