@@ -10,6 +10,7 @@ plugins {
     kotlin("jvm") version "2.1.0"
     kotlin("plugin.serialization") version "2.1.0"
     application
+    `maven-publish`
 }
 
 group = "io.agntcy.slim"
@@ -239,4 +240,74 @@ tasks.register<Jar>("groupJar") {
     from({
         configurations.runtimeClasspath.get().filter { it.name.endsWith("jar") }.map { zipTree(it) }
     })
+}
+
+// ==========================================================================
+// Maven Central Publishing Configuration
+// ==========================================================================
+
+// Extract version from project property or tag (set via -Pversion=x.y.z in CI)
+val publishVersion = project.findProperty("version") as String? ?: version.toString()
+
+// Sources JAR (required by Maven Central)
+val sourcesJar by tasks.registering(Jar::class) {
+    archiveClassifier.set("sources")
+    from(sourceSets.main.get().allSource)
+}
+
+// Javadoc JAR (required by Maven Central, can be minimal for Kotlin)
+val javadocJar by tasks.registering(Jar::class) {
+    archiveClassifier.set("javadoc")
+    from("$projectDir/README.md")
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("maven") {
+            groupId = "io.agntcy.slim"
+            artifactId = "slim-bindings"
+            version = publishVersion
+            
+            from(components["java"])
+            artifact(sourcesJar)
+            artifact(javadocJar)
+            
+            pom {
+                name.set("SLIM Kotlin Bindings")
+                description.set("Kotlin bindings for SLIM (Secure Low-Latency Interactive Messaging)")
+                url.set("https://github.com/agntcy/slim")
+                
+                licenses {
+                    license {
+                        name.set("Apache-2.0")
+                        url.set("https://www.apache.org/licenses/LICENSE-2.0")
+                    }
+                }
+                
+                developers {
+                    developer {
+                        name.set("AGNTCY Contributors")
+                        url.set("https://github.com/agntcy")
+                    }
+                }
+                
+                scm {
+                    url.set("https://github.com/agntcy/slim")
+                    connection.set("scm:git:git://github.com/agntcy/slim.git")
+                    developerConnection.set("scm:git:ssh://git@github.com/agntcy/slim.git")
+                }
+            }
+        }
+    }
+    
+    repositories {
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/agntcy/slim")
+            credentials {
+                username = System.getenv("GITHUB_ACTOR")
+                password = System.getenv("GITHUB_TOKEN")
+            }
+        }
+    }
 }
