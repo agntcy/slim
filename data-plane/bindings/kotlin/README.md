@@ -137,7 +137,7 @@ suspend fun main() = coroutineScope {
     )
     
     val (app, connId) = createLocalApp(config)
-    val remoteName = splitId(config.remote!!)
+    val remoteName = Name.fromString(config.remote!!)
     
     app.setRouteAsync(remoteName, connId)
     
@@ -195,7 +195,7 @@ suspend fun main() = coroutineScope {
     )
     
     val (app, connId) = createLocalApp(config)
-    val channelName = splitId(config.remote!!)
+    val channelName = Name.fromString(config.remote!!)
     
     val sessionConfig = SessionConfig(
         sessionType = SessionType.GROUP,
@@ -210,7 +210,7 @@ suspend fun main() = coroutineScope {
     val session = sessionContext.session
     
     config.invites!!.forEach { invite ->
-        val inviteName = splitId(invite)
+        val inviteName = Name.fromString(invite)
         app.setRouteAsync(inviteName, connId)
         session.inviteAsync(inviteName).waitAsync()
     }

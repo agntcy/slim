@@ -20,21 +20,6 @@ import kotlinx.serialization.json.*
  */
 
 /**
- * Split an ID of form organization/namespace/application (or channel).
- * 
- * @param id String in the canonical 'org/namespace/app-or-stream' format
- * @return Name: Constructed identity object
- * @throws IllegalArgumentException if the id cannot be split into exactly three segments
- */
-fun splitId(id: String): Name {
-    val parts = id.split("/")
-    require(parts.size == 3) { 
-        "Error: IDs must be in the format organization/namespace/app-or-stream. Got: $id" 
-    }
-    return Name(parts[0], parts[1], parts[2])
-}
-
-/**
  * Construct a JWT provider and verifier from file inputs.
  * 
  * Process:
@@ -152,6 +137,7 @@ fun spireIdentity(
  * @param enableOpentelemetry Enable OpenTelemetry tracing
  * @return Service instance
  */
+@Suppress("UNUSED_PARAMETER")
 fun setupService(enableOpentelemetry: Boolean = false): Service {
     // Initialize tracing and global state
     val tracingConfig = newTracingConfig()
@@ -159,12 +145,6 @@ fun setupService(enableOpentelemetry: Boolean = false): Service {
     val serviceConfig = newServiceConfig()
     
     tracingConfig.logLevel = "info"
-    
-    if (enableOpentelemetry) {
-        // Note: OpenTelemetry configuration through config objects is complex
-        // For now, we'll just initialize with default tracing
-        // Users can set OTEL environment variables for full OTEL support
-    }
     
     initializeWithConfigs(
         tracingConfig = tracingConfig,
@@ -192,7 +172,7 @@ suspend fun createLocalApp(config: BaseConfig): Pair<App, ULong> = coroutineScop
     val service = setupService(config.enableOpentelemetry)
     
     // Convert local identifier to a strongly typed Name
-    val localName = splitId(config.local)
+    val localName = Name.fromString(config.local)
     
     val clientConfig = newInsecureClientConfig(config.slim)
     val connId = service.connectAsync(clientConfig)
@@ -212,12 +192,15 @@ suspend fun createLocalApp(config: BaseConfig): Pair<App, ULong> = coroutineScop
         }
         AuthMode.JWT -> {
             println("Using JWT + JWKS authentication.")
-            require(config.jwt != null && config.spireTrustBundle != null) {
-                "JWT and SPIRE trust bundle are required for JWT auth mode"
+            val jwtPath = requireNotNull(config.jwt) {
+                "JWT is required for JWT auth mode"
+            }
+            val spireTrustBundlePath = requireNotNull(config.spireTrustBundle) {
+                "SPIRE trust bundle is required for JWT auth mode"
             }
             val (providerConfig, verifierConfig) = jwtIdentity(
-                config.jwt!!,
-                config.spireTrustBundle!!,
+                jwtPath,
+                spireTrustBundlePath,
                 localName.toString(),
                 aud = config.audience
             )
