@@ -62,15 +62,6 @@ tasks:
     cmds:
       - task -l
 
-  install-uniffi-bindgen:
-    desc: Install uniffi-bindgen CLI tool
-    status:
-      - which uniffi-bindgen
-    cmds:
-      - echo "📦 Installing uniffi-bindgen..."
-      - cargo install uniffi-bindgen-cli --git https://github.com/mozilla/uniffi-rs.git --tag v0.28.3
-      - echo "✅ uniffi-bindgen installed"
-
   generate:
     desc: Generate Kotlin bindings from compiled Rust library
     deps:
@@ -79,12 +70,10 @@ tasks:
           PROFILE: release
         status:
           - test "{{.SKIP_BUILD | default "false"}}" = "true"
-      - install-uniffi-bindgen
+      - task: rust:install-uniffi-bindgen
     cmds:
       - echo "🔧 Generating Kotlin bindings from compiled library..."
-      - echo "📂 Current working directory:"
-      - pwd
-      - echo "🔍 Verifying uniffi-bindgen..."
+      - echo "🔍 Check uniffi-bindgen version..."
       - uniffi-bindgen --version
       - task: copy-libraries
       - echo "🔍 Checking library file exists:"
