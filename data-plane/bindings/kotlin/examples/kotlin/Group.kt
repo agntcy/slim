@@ -48,7 +48,7 @@ suspend fun handleInvite(session: Session, inviteId: String) {
     }
     
     println("Inviting participant: $inviteId")
-    val inviteName = splitId(inviteId)
+    val inviteName = Name.fromString(inviteId)
     try {
         val handle = session.inviteAsync(inviteName)
         handle.waitAsync()
@@ -78,7 +78,7 @@ suspend fun handleRemove(session: Session, removeId: String) {
     }
     
     println("Removing participant: $removeId")
-    val removeName = splitId(removeId)
+    val removeName = Name.fromString(removeId)
     try {
         val handle = session.removeAsync(removeName)
         handle.waitAsync()
@@ -164,7 +164,6 @@ suspend fun keyboardLoop(
     try {
         // Wait for the session to be established
         val session = sessionReady.await()
-        val sourceName = session.source()
         val destName = session.destination()
         
         if (createdSession != null) {
@@ -234,7 +233,7 @@ suspend fun runClient(config: GroupConfig) = coroutineScope {
     val (localApp, connId) = createLocalApp(config)
     
     // Parse the remote channel/topic if provided; else None triggers passive mode
-    val chatChannel = config.remote?.let { splitId(it) }
+    val chatChannel = config.remote?.let { Name.fromString(it) }
     
     // Session sharing between tasks
     val sessionReady = CompletableDeferred<Session>()
@@ -244,7 +243,7 @@ suspend fun runClient(config: GroupConfig) = coroutineScope {
     if (chatChannel != null && config.invites != null) {
         // We are the moderator; create the group session now
         Colors.printFormatted(
-            "Creating new group session (moderator)... ${splitId(config.local).toIdString()}"
+            "Creating new group session (moderator)... ${Name.fromString(config.local).toIdString()}"
         )
         
         // Create group session configuration
@@ -264,7 +263,7 @@ suspend fun runClient(config: GroupConfig) = coroutineScope {
         
         // Invite each provided participant
         config.invites.forEach { invite ->
-            val inviteName = splitId(invite)
+            val inviteName = Name.fromString(invite)
             localApp.setRouteAsync(inviteName, connId)
             val handle = createdSession.inviteAsync(inviteName)
             handle.waitAsync()
