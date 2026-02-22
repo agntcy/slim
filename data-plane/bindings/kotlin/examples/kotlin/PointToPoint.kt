@@ -57,7 +57,7 @@ suspend fun runClient(config: PointToPointConfig) = coroutineScope {
     // ACTIVE MODE (publishing + expecting replies)
     if (config.message != null && config.remote != null) {
         // Convert the remote ID string into a Name
-        val remoteName = splitId(config.remote)
+        val remoteName = Name.fromString(config.remote)
         
         // Create local route to enable forwarding towards remote name
         localApp.setRouteAsync(remoteName, connId)
