@@ -17,6 +17,10 @@ inputs:
     description: 'Additional cache directories (whitespace-separated)'
     required: false
     default: ''
+  cache-enabled:
+    description: 'Enable rust cache'
+    required: false
+    default: 'true'
 runs:
   using: 'composite'
   steps:
@@ -26,6 +30,7 @@ runs:
       with:
         components: rustc, clippy, rustfmt
         rustflags: ''
+        cache: ${{ inputs.cache-enabled }}
         cache-workspaces: ${{ inputs.workspace }}
         cache-on-failure: false
         cache-shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
