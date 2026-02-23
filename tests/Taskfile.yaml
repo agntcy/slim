@@ -30,6 +30,7 @@ tasks:
       FORCE_LOCAL_BINDINGS: '{{.FORCE_LOCAL_BINDINGS | default "false"}}'
     deps:
       - data-plane:build
+      - data-plane:slimctl:build
       - task: control-plane:build
         vars:
           USE_LOCAL_BINDINGS: "{{.USE_LOCAL_BINDINGS}}"

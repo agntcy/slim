@@ -13,6 +13,7 @@ members = [
     "core/slim",
     "core/tracing",
     "examples",
+    "slimctl",
     "slimrpc-compiler",
     "testing",
 ]
