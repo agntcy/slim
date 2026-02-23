@@ -66,6 +66,7 @@ tasks:
       - task: data-plane:run
         vars:
           BIN: "slimctl"
+          ARGS: "--package agntcy-slimctl"
           BIN_ARGS: "{{.BIN_ARGS}}"
     vars:
       BIN_ARGS: '{{.BIN_ARGS | default "--help"}}'
