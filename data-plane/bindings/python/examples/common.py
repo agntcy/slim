@@ -58,13 +58,6 @@ def format_message_print(message1: str, message2: str = "") -> None:
     print(format_message(message1, message2))
 
 
-def parse_name(value: str) -> slim_bindings.Name:
-    """Parse a "org/namespace/agent" string into a Name."""
-    parts = value.split("/")
-    if len(parts) != 3:
-        raise ValueError(f"expected 'org/namespace/agent', got '{value}'")
-    return slim_bindings.Name(parts[0], parts[1], parts[2])
-
 
 def jwt_identity(
     jwt_path: str,
@@ -226,7 +219,7 @@ async def create_local_app(config: BaseConfig) -> tuple[slim_bindings.App, int]:
     service = setup_service()
 
     # Convert local identifier to a strongly typed Name.
-    local_name = parse_name(config.local)
+    local_name = slim_bindings.Name.from_string(config.local)
 
     client_config = slim_bindings.new_insecure_client_config(config.slim)
     conn_id = await service.connect_async(client_config)
