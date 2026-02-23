@@ -446,7 +446,8 @@ jobs:
 
           task ci \
             OUTPUT_DIR=./nupkg \
-            BINDGEN_TARGET=x86_64-unknown-linux-gnu \
+            TARGET=x86_64-unknown-linux-gnu \
+            PROFILE=release \
             $TAG_NAME_PARAM
 
       - name: Upload NuGet package

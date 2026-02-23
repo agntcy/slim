@@ -22,7 +22,7 @@ tasks:
   bindings:build:all:
     desc: Build the Rust library with cross-compilation support
     dir: "{{.TASKFILE_DIR}}"
-    silent: true
+    silent: false
     vars:
       LIB_FILENAME:
         sh: |
@@ -47,7 +47,11 @@ tasks:
     generates:
       - "../../target/{{.TARGET}}/{{.PROFILE}}/{{.LIB_FILENAME}}"
       - "../../target/{{.TARGET}}/{{.PROFILE}}/{{.LIB_STATIC_FILENAME}}"
+    method: timestamp
     cmds:
       - echo "🦀 Building Rust bindings library... {{.TARGET}}"
       - task: rust:crossbuild
+        vars:
+          TARGET: "{{.TARGET}}"
+          PROFILE: "{{.PROFILE}}"
       - echo "🦀 Rust bindings library built successfully."

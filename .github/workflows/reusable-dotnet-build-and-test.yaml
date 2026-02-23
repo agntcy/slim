@@ -115,7 +115,8 @@ jobs:
         run: |
           task ci \
             OUTPUT_DIR=./nupkg \
-            BINDGEN_TARGET=${{ inputs.rust-target }}
+            TARGET=${{ inputs.rust-target }} \
+            PROFILE=release
 
       - name: Upload NuGet package
         uses: actions/upload-artifact@v4
