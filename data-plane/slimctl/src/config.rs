@@ -47,16 +47,7 @@ impl Default for EffectiveCommonOpts {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct CliCommonOverrides {
-    pub basic_auth_creds: Option<String>,
-    pub server: Option<String>,
-    pub timeout: Option<String>,
-    pub tls_insecure: Option<bool>,
-    pub tls_ca_file: Option<String>,
-    pub tls_cert_file: Option<String>,
-    pub tls_key_file: Option<String>,
-}
+pub type CliCommonOverrides = CommonOpts;
 
 fn home_config_file() -> Option<PathBuf> {
     env::var_os("HOME").map(|home| {
@@ -153,28 +144,6 @@ pub fn resolve_effective_opts(
         effective.tls_key_file = value.clone();
     }
 
-    if let Some(value) = &cli.basic_auth_creds {
-        effective.basic_auth_creds = value.clone();
-    }
-    if let Some(value) = &cli.server {
-        effective.server = value.clone();
-    }
-    if let Some(value) = &cli.timeout {
-        effective.timeout = value.clone();
-    }
-    if let Some(value) = cli.tls_insecure {
-        effective.tls_insecure = value;
-    }
-    if let Some(value) = &cli.tls_ca_file {
-        effective.tls_ca_file = value.clone();
-    }
-    if let Some(value) = &cli.tls_cert_file {
-        effective.tls_cert_file = value.clone();
-    }
-    if let Some(value) = &cli.tls_key_file {
-        effective.tls_key_file = value.clone();
-    }
-
     if let Ok(value) = env::var("SLIMCTL_BASIC_AUTH_CREDS") {
         effective.basic_auth_creds = value;
     }
@@ -197,6 +166,28 @@ pub fn resolve_effective_opts(
     }
     if let Ok(value) = env::var("SLIMCTL_TLS_KEY_FILE") {
         effective.tls_key_file = value;
+    }
+
+    if let Some(value) = &cli.basic_auth_creds {
+        effective.basic_auth_creds = value.clone();
+    }
+    if let Some(value) = &cli.server {
+        effective.server = value.clone();
+    }
+    if let Some(value) = &cli.timeout {
+        effective.timeout = value.clone();
+    }
+    if let Some(value) = cli.tls_insecure {
+        effective.tls_insecure = value;
+    }
+    if let Some(value) = &cli.tls_ca_file {
+        effective.tls_ca_file = value.clone();
+    }
+    if let Some(value) = &cli.tls_cert_file {
+        effective.tls_cert_file = value.clone();
+    }
+    if let Some(value) = &cli.tls_key_file {
+        effective.tls_key_file = value.clone();
     }
 
     effective

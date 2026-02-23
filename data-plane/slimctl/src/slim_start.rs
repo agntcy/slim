@@ -6,7 +6,7 @@ use anyhow::bail;
 use anyhow::{Context, Result};
 
 #[cfg(not(test))]
-const DEFAULT_ENDPOINT: &str = "127.0.0.1:8080";
+const DEFAULT_ENDPOINT: &str = "127.0.0.1:46357";
 
 #[cfg(not(test))]
 pub fn start(config: String, endpoint: String) -> Result<()> {

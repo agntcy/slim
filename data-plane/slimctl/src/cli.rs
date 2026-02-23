@@ -3,25 +3,25 @@ use clap::{Args, Parser, Subcommand};
 #[derive(Debug, Parser)]
 #[command(name = "slimctl", about = "SLIM control CLI", long_about = None)]
 pub struct Cli {
-    #[arg(short = 'b', long = "basic_auth_creds", global = true)]
+    #[arg(short = 'b', long = "basic_auth_creds")]
     pub basic_auth_creds: Option<String>,
 
-    #[arg(short = 's', long = "server", global = true)]
+    #[arg(short = 's', long = "server")]
     pub server: Option<String>,
 
-    #[arg(long = "timeout", global = true)]
+    #[arg(long = "timeout")]
     pub timeout: Option<String>,
 
-    #[arg(long = "tls.insecure", global = true)]
+    #[arg(long = "tls.insecure")]
     pub tls_insecure: Option<bool>,
 
-    #[arg(long = "tls.ca_file", global = true)]
+    #[arg(long = "tls.ca_file")]
     pub tls_ca_file: Option<String>,
 
-    #[arg(long = "tls.cert_file", global = true)]
+    #[arg(long = "tls.cert_file")]
     pub tls_cert_file: Option<String>,
 
-    #[arg(long = "tls.key_file", global = true)]
+    #[arg(long = "tls.key_file")]
     pub tls_key_file: Option<String>,
 
     #[command(subcommand)]
@@ -261,7 +261,7 @@ pub enum SlimSubcommand {
     Start {
         #[arg(short = 'c', long = "config", default_value = "")]
         config: String,
-        #[arg(long = "endpoint", default_value = "")]
+        #[arg(long = "endpoint", default_value = "127.0.0.1:46357")]
         endpoint: String,
     },
 }

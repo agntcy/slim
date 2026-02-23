@@ -123,7 +123,11 @@ pub fn del_route(
             .context("failed to delete route")?
             .into_inner();
 
-        println!("ACK received success={}", response.success);
+        if !response.success {
+            bail!("failed to delete route");
+        }
+
+        println!("Route deleted successfully for {route}");
         Ok(())
     })
 }
@@ -166,7 +170,7 @@ pub fn create_channel(server: &str, moderators_assignment: &str) -> Result<()> {
             .context("failed to create channel")?
             .into_inner();
 
-        println!("Received response: {}", response.channel_name);
+        println!("Channel created successfully with Name: {}", response.channel_name);
         Ok(())
     })
 }
