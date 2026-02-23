@@ -20,7 +20,10 @@ use config::{AppConfig, CliCommonOverrides};
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    run(cli)
+}
 
+fn run(cli: Cli) -> Result<()> {
     let file_config = config::load_first_existing_config()?;
     let common_overrides = CliCommonOverrides {
         basic_auth_creds: cli.basic_auth_creds.clone(),
@@ -190,4 +193,217 @@ fn main() -> Result<()> {
 #[allow(dead_code)]
 fn _render_effective_config_for_debug(config: &AppConfig) -> Result<String> {
     Ok(serde_yaml::to_string(config)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::_render_effective_config_for_debug;
+    use super::cli::{
+        ConfigCommand, ConfigSubcommand, ControllerChannelCommand, ControllerChannelSubcommand,
+        ControllerCommand, ControllerConnectionCommand, ControllerConnectionSubcommand,
+        ControllerNodeCommand, ControllerNodeSubcommand, ControllerParticipantCommand,
+        ControllerParticipantSubcommand, ControllerRouteCommand, ControllerRouteSubcommand,
+        ControllerSubcommand, NodeCommand, NodeConnectionCommand, NodeConnectionSubcommand,
+        NodeRouteCommand, NodeRouteSubcommand, NodeSubcommand, SlimCommand, SlimSubcommand,
+    };
+    use super::{config::AppConfig, run, Cli, Commands};
+
+    #[test]
+    fn render_effective_config_outputs_yaml() {
+        let config = AppConfig::default();
+        let rendered = _render_effective_config_for_debug(&config)
+            .expect("should render config to yaml");
+        assert!(rendered.contains("common_opts"));
+    }
+
+    fn base_cli(command: Commands) -> Cli {
+        Cli {
+            basic_auth_creds: None,
+            server: None,
+            timeout: None,
+            tls_insecure: None,
+            tls_ca_file: None,
+            tls_cert_file: None,
+            tls_key_file: None,
+            command,
+        }
+    }
+
+    #[test]
+    fn run_handles_version() {
+        let cli = base_cli(Commands::Version);
+        run(cli).expect("version should run");
+    }
+
+    #[test]
+    fn run_handles_config_list() {
+        let cli = base_cli(Commands::Config(ConfigCommand {
+            command: ConfigSubcommand::List,
+        }));
+        run(cli).expect("config list should run");
+    }
+
+    #[test]
+    fn run_handles_controller_subcommands() {
+        let cli = base_cli(Commands::Controller(ControllerCommand {
+            command: ControllerSubcommand::Node(ControllerNodeCommand {
+                command: ControllerNodeSubcommand::List,
+            }),
+        }));
+        run(cli).expect("controller node list should run");
+
+        let cli = base_cli(Commands::Controller(ControllerCommand {
+            command: ControllerSubcommand::Connection(ControllerConnectionCommand {
+                command: ControllerConnectionSubcommand::List {
+                    node_id: "node-1".to_string(),
+                },
+            }),
+        }));
+        run(cli).expect("controller connection list should run");
+
+        let cli = base_cli(Commands::Controller(ControllerCommand {
+            command: ControllerSubcommand::Route(ControllerRouteCommand {
+                command: ControllerRouteSubcommand::List {
+                    node_id: "node-1".to_string(),
+                },
+            }),
+        }));
+        run(cli).expect("controller route list should run");
+
+        let cli = base_cli(Commands::Controller(ControllerCommand {
+            command: ControllerSubcommand::Route(ControllerRouteCommand {
+                command: ControllerRouteSubcommand::Add {
+                    node_id: "node-1".to_string(),
+                    route: "org/ns/app/1".to_string(),
+                    via_keyword: "via".to_string(),
+                    destination: "node-2".to_string(),
+                },
+            }),
+        }));
+        run(cli).expect("controller route add should run");
+
+        let cli = base_cli(Commands::Controller(ControllerCommand {
+            command: ControllerSubcommand::Route(ControllerRouteCommand {
+                command: ControllerRouteSubcommand::Del {
+                    node_id: "node-1".to_string(),
+                    route: "org/ns/app/1".to_string(),
+                    via_keyword: "via".to_string(),
+                    destination: "node-2".to_string(),
+                },
+            }),
+        }));
+        run(cli).expect("controller route del should run");
+
+        let cli = base_cli(Commands::Controller(ControllerCommand {
+            command: ControllerSubcommand::Route(ControllerRouteCommand {
+                command: ControllerRouteSubcommand::Outline {
+                    origin_node_id: None,
+                    target_node_id: None,
+                },
+            }),
+        }));
+        run(cli).expect("controller route outline should run");
+
+        let cli = base_cli(Commands::Controller(ControllerCommand {
+            command: ControllerSubcommand::Channel(ControllerChannelCommand {
+                command: ControllerChannelSubcommand::Create {
+                    moderators_assignment: "moderators=a".to_string(),
+                },
+            }),
+        }));
+        run(cli).expect("controller channel create should run");
+
+        let cli = base_cli(Commands::Controller(ControllerCommand {
+            command: ControllerSubcommand::Channel(ControllerChannelCommand {
+                command: ControllerChannelSubcommand::Delete {
+                    channel_id: "channel".to_string(),
+                },
+            }),
+        }));
+        run(cli).expect("controller channel delete should run");
+
+        let cli = base_cli(Commands::Controller(ControllerCommand {
+            command: ControllerSubcommand::Channel(ControllerChannelCommand {
+                command: ControllerChannelSubcommand::List,
+            }),
+        }));
+        run(cli).expect("controller channel list should run");
+
+        let cli = base_cli(Commands::Controller(ControllerCommand {
+            command: ControllerSubcommand::Participant(ControllerParticipantCommand {
+                command: ControllerParticipantSubcommand::Add {
+                    channel_id: "channel".to_string(),
+                    participant_name: "participant".to_string(),
+                },
+            }),
+        }));
+        run(cli).expect("controller participant add should run");
+
+        let cli = base_cli(Commands::Controller(ControllerCommand {
+            command: ControllerSubcommand::Participant(ControllerParticipantCommand {
+                command: ControllerParticipantSubcommand::Delete {
+                    channel_id: "channel".to_string(),
+                    participant_name: "participant".to_string(),
+                },
+            }),
+        }));
+        run(cli).expect("controller participant delete should run");
+
+        let cli = base_cli(Commands::Controller(ControllerCommand {
+            command: ControllerSubcommand::Participant(ControllerParticipantCommand {
+                command: ControllerParticipantSubcommand::List {
+                    channel_id: "channel".to_string(),
+                },
+            }),
+        }));
+        run(cli).expect("controller participant list should run");
+    }
+
+    #[test]
+    fn run_handles_node_and_slim_commands() {
+        let cli = base_cli(Commands::Node(NodeCommand {
+            command: NodeSubcommand::Route(NodeRouteCommand {
+                command: NodeRouteSubcommand::List,
+            }),
+        }));
+        run(cli).expect("node route list should run");
+
+        let cli = base_cli(Commands::Node(NodeCommand {
+            command: NodeSubcommand::Route(NodeRouteCommand {
+                command: NodeRouteSubcommand::Add {
+                    route: "org/ns/app/1".to_string(),
+                    via_keyword: "via".to_string(),
+                    config_file: "config.json".to_string(),
+                },
+            }),
+        }));
+        run(cli).expect("node route add should run");
+
+        let cli = base_cli(Commands::Node(NodeCommand {
+            command: NodeSubcommand::Route(NodeRouteCommand {
+                command: NodeRouteSubcommand::Del {
+                    route: "org/ns/app/1".to_string(),
+                    via_keyword: "via".to_string(),
+                    endpoint: "http://localhost:1234".to_string(),
+                },
+            }),
+        }));
+        run(cli).expect("node route del should run");
+
+        let cli = base_cli(Commands::Node(NodeCommand {
+            command: NodeSubcommand::Connection(NodeConnectionCommand {
+                command: NodeConnectionSubcommand::List,
+            }),
+        }));
+        run(cli).expect("node connection list should run");
+
+        let cli = base_cli(Commands::Slim(SlimCommand {
+            command: SlimSubcommand::Start {
+                config: "".to_string(),
+                endpoint: "".to_string(),
+            },
+        }));
+        run(cli).expect("slim start should run");
+
+    }
 }

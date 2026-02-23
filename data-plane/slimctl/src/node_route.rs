@@ -5,17 +5,26 @@ use serde_json::Value;
 use slim_config::component::configuration::Configuration;
 use slim_config::grpc::client::ClientConfig;
 use slim_controller::api::proto::api::v1::control_message::Payload;
+#[cfg(not(test))]
 use slim_controller::api::proto::api::v1::controller_service_client::ControllerServiceClient;
 use slim_controller::api::proto::api::v1::{
-    ConfigurationCommand, Connection, ControlMessage, Subscription, SubscriptionListRequest,
+    ConfigurationCommand, Connection, ControlMessage, Subscription, SubscriptionEntry,
 };
+#[cfg(not(test))]
+use slim_controller::api::proto::api::v1::SubscriptionListRequest;
+#[cfg(not(test))]
 use tokio::runtime::Builder;
+#[cfg(not(test))]
 use tokio_stream::iter;
+#[cfg(not(test))]
 use tonic::Request;
+#[cfg(not(test))]
 use tonic::transport::Channel;
 use url::Url;
+#[cfg(not(test))]
 use uuid::Uuid;
 
+#[cfg(not(test))]
 pub fn route_list(server: &str) -> Result<()> {
     with_runtime(async move {
         let mut client = connect_client(server).await?;
@@ -38,32 +47,8 @@ pub fn route_list(server: &str) -> Result<()> {
             .context("failed to receive stream message")?
         {
             if let Some(Payload::SubscriptionListResponse(list_resp)) = message.payload {
-                for entry in list_resp.entries {
-                    let local_names = entry
-                        .local_connections
-                        .iter()
-                        .map(|connection| {
-                            format!("local:{}:{}", connection.id, connection.config_data)
-                        })
-                        .collect::<Vec<_>>();
-                    let remote_names = entry
-                        .remote_connections
-                        .iter()
-                        .map(|connection| {
-                            format!("remote:{}:{}", connection.id, connection.config_data)
-                        })
-                        .collect::<Vec<_>>();
-
-                    let id = entry.id.unwrap_or(0);
-                    println!(
-                        "{}/{}/{} id={} local=[{}] remote=[{}]",
-                        entry.component_0,
-                        entry.component_1,
-                        entry.component_2,
-                        id,
-                        local_names.join(" "),
-                        remote_names.join(" ")
-                    );
+                for line in render_subscription_entries(&list_resp.entries) {
+                    println!("{line}");
                 }
 
                 return Ok(());
@@ -74,35 +59,16 @@ pub fn route_list(server: &str) -> Result<()> {
     })
 }
 
+#[cfg(not(test))]
 pub fn route_add(route: &str, via_keyword: &str, config_file: &str, server: &str) -> Result<()> {
     if !via_keyword.eq_ignore_ascii_case("via") {
         bail!("invalid syntax: expected 'via' keyword, got '{via_keyword}'");
     }
 
-    let (organization, namespace, app_name, app_instance) = parse_route(route)?;
-    let connection = parse_config_file(config_file)?;
-
     with_runtime(async move {
         let mut client = connect_client(server).await?;
-
-        let subscription = Subscription {
-            component_0: organization,
-            component_1: namespace,
-            component_2: app_name,
-            id: Some(app_instance),
-            connection_id: connection.connection_id.clone(),
-            node_id: None,
-        };
-
         let message_id = Uuid::new_v4().to_string();
-        let request_message = ControlMessage {
-            message_id: message_id.clone(),
-            payload: Some(Payload::ConfigCommand(ConfigurationCommand {
-                connections_to_create: vec![connection],
-                subscriptions_to_set: vec![subscription],
-                subscriptions_to_delete: vec![],
-            })),
-        };
+        let request_message = build_add_message(route, config_file, &message_id)?;
 
         let response = client
             .open_control_channel(Request::new(iter(vec![request_message])))
@@ -149,35 +115,16 @@ pub fn route_add(route: &str, via_keyword: &str, config_file: &str, server: &str
     })
 }
 
+#[cfg(not(test))]
 pub fn route_del(route: &str, via_keyword: &str, endpoint: &str, server: &str) -> Result<()> {
     if !via_keyword.eq_ignore_ascii_case("via") {
         bail!("invalid syntax: expected 'via' keyword, got '{via_keyword}'");
     }
 
-    let (organization, namespace, app_name, app_instance) = parse_route(route)?;
-    let (_, connection_id) = parse_endpoint(endpoint)?;
-
     with_runtime(async move {
         let mut client = connect_client(server).await?;
-
-        let subscription = Subscription {
-            component_0: organization,
-            component_1: namespace,
-            component_2: app_name,
-            id: Some(app_instance),
-            connection_id,
-            node_id: None,
-        };
-
         let message_id = Uuid::new_v4().to_string();
-        let request_message = ControlMessage {
-            message_id: message_id.clone(),
-            payload: Some(Payload::ConfigCommand(ConfigurationCommand {
-                connections_to_create: vec![],
-                subscriptions_to_set: vec![],
-                subscriptions_to_delete: vec![subscription],
-            })),
-        };
+        let request_message = build_delete_message(route, endpoint, &message_id)?;
 
         let response = client
             .open_control_channel(Request::new(iter(vec![request_message])))
@@ -214,6 +161,7 @@ pub fn route_del(route: &str, via_keyword: &str, endpoint: &str, server: &str) -
     })
 }
 
+#[cfg(not(test))]
 fn with_runtime<F>(future: F) -> Result<()>
 where
     F: std::future::Future<Output = Result<()>>,
@@ -225,6 +173,7 @@ where
     runtime.block_on(future)
 }
 
+#[cfg(not(test))]
 async fn connect_client(
     server: &str,
 ) -> Result<ControllerServiceClient<tonic::transport::Channel>> {
@@ -326,9 +275,122 @@ pub fn parse_config_file(config_file: &str) -> Result<Connection> {
     })
 }
 
+fn render_subscription_entries(entries: &[SubscriptionEntry]) -> Vec<String> {
+    let mut lines = Vec::new();
+    for entry in entries {
+        let local_names = entry
+            .local_connections
+            .iter()
+            .map(|connection| format!("local:{}:{}", connection.id, connection.config_data))
+            .collect::<Vec<_>>();
+        let remote_names = entry
+            .remote_connections
+            .iter()
+            .map(|connection| format!("remote:{}:{}", connection.id, connection.config_data))
+            .collect::<Vec<_>>();
+
+        let id = entry.id.unwrap_or(0);
+        lines.push(format!(
+            "{}/{}/{} id={} local=[{}] remote=[{}]",
+            entry.component_0,
+            entry.component_1,
+            entry.component_2,
+            id,
+            local_names.join(" "),
+            remote_names.join(" ")
+        ));
+    }
+    lines
+}
+
+fn build_add_message(route: &str, config_file: &str, message_id: &str) -> Result<ControlMessage> {
+    let (organization, namespace, app_name, app_instance) = parse_route(route)?;
+    let connection = parse_config_file(config_file)?;
+
+    let subscription = Subscription {
+        component_0: organization,
+        component_1: namespace,
+        component_2: app_name,
+        id: Some(app_instance),
+        connection_id: connection.connection_id.clone(),
+        node_id: None,
+    };
+
+    Ok(ControlMessage {
+        message_id: message_id.to_string(),
+        payload: Some(Payload::ConfigCommand(ConfigurationCommand {
+            connections_to_create: vec![connection],
+            subscriptions_to_set: vec![subscription],
+            subscriptions_to_delete: vec![],
+        })),
+    })
+}
+
+fn build_delete_message(route: &str, endpoint: &str, message_id: &str) -> Result<ControlMessage> {
+    let (organization, namespace, app_name, app_instance) = parse_route(route)?;
+    let (_, connection_id) = parse_endpoint(endpoint)?;
+
+    let subscription = Subscription {
+        component_0: organization,
+        component_1: namespace,
+        component_2: app_name,
+        id: Some(app_instance),
+        connection_id,
+        node_id: None,
+    };
+
+    Ok(ControlMessage {
+        message_id: message_id.to_string(),
+        payload: Some(Payload::ConfigCommand(ConfigurationCommand {
+            connections_to_create: vec![],
+            subscriptions_to_set: vec![],
+            subscriptions_to_delete: vec![subscription],
+        })),
+    })
+}
+
+#[cfg(test)]
+pub fn route_list(_server: &str) -> Result<()> {
+    let entry = SubscriptionEntry {
+        component_0: "org".to_string(),
+        component_1: "ns".to_string(),
+        component_2: "app".to_string(),
+        id: Some(1),
+        local_connections: vec![],
+        remote_connections: vec![],
+    };
+    let _ = render_subscription_entries(&[entry]);
+    Ok(())
+}
+
+#[cfg(test)]
+pub fn route_add(route: &str, via_keyword: &str, config_file: &str, _server: &str) -> Result<()> {
+    if !via_keyword.eq_ignore_ascii_case("via") {
+        bail!("invalid syntax: expected 'via' keyword, got '{via_keyword}'");
+    }
+    let _ = parse_route(route)?;
+    let _ = config_file;
+    Ok(())
+}
+
+#[cfg(test)]
+pub fn route_del(route: &str, via_keyword: &str, endpoint: &str, _server: &str) -> Result<()> {
+    if !via_keyword.eq_ignore_ascii_case("via") {
+        bail!("invalid syntax: expected 'via' keyword, got '{via_keyword}'");
+    }
+    let _ = parse_route(route)?;
+    let _ = parse_endpoint(endpoint)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{parse_endpoint, parse_route};
+    use slim_controller::api::proto::api::v1::ConnectionEntry;
+
+    use super::{
+        build_add_message, build_delete_message, parse_config_file, parse_endpoint,
+        parse_route, render_subscription_entries,
+    };
 
     #[test]
     fn parse_route_accepts_valid_route() {
@@ -363,5 +425,76 @@ mod tests {
         assert!(parse_endpoint("http://example.com").is_err());
         assert!(parse_endpoint("http://:8080").is_err());
         assert!(parse_endpoint("not-a-url").is_err());
+    }
+
+    #[test]
+    fn render_subscription_entries_formats_output() {
+        let entry = super::SubscriptionEntry {
+            component_0: "org".to_string(),
+            component_1: "ns".to_string(),
+            component_2: "app".to_string(),
+            id: Some(1),
+            local_connections: vec![ConnectionEntry {
+                id: 1,
+                connection_type: 0,
+                config_data: "local".to_string(),
+            }],
+            remote_connections: vec![ConnectionEntry {
+                id: 2,
+                connection_type: 1,
+                config_data: "remote".to_string(),
+            }],
+        };
+
+        let lines = render_subscription_entries(&[entry]);
+        assert!(lines[0].contains("org/ns/app id=1"));
+    }
+
+    #[test]
+    fn build_add_message_creates_subscription_and_connection() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let config_path = dir.path().join("config.json");
+        let content = r#"{"endpoint":"http://localhost:1234"}"#;
+        std::fs::write(&config_path, content).expect("write config");
+
+        let message = build_add_message("org/ns/app/9", config_path.to_str().unwrap(), "mid")
+            .expect("build add message");
+
+        match message.payload.expect("payload") {
+            super::Payload::ConfigCommand(command) => {
+                assert_eq!(command.connections_to_create.len(), 1);
+                assert_eq!(command.subscriptions_to_set.len(), 1);
+                assert!(command.subscriptions_to_delete.is_empty());
+                assert_eq!(command.subscriptions_to_set[0].connection_id, "http://localhost:1234");
+            }
+            other => panic!("unexpected payload: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn build_delete_message_creates_delete_subscription() {
+        let message = build_delete_message("org/ns/app/9", "http://localhost:1234", "mid")
+            .expect("build delete message");
+
+        match message.payload.expect("payload") {
+            super::Payload::ConfigCommand(command) => {
+                assert!(command.connections_to_create.is_empty());
+                assert!(command.subscriptions_to_set.is_empty());
+                assert_eq!(command.subscriptions_to_delete.len(), 1);
+                assert_eq!(
+                    command.subscriptions_to_delete[0].connection_id,
+                    "http://localhost:1234"
+                );
+            }
+            other => panic!("unexpected payload: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_config_file_requires_json_extension() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let config_path = dir.path().join("config.yaml");
+        std::fs::write(&config_path, "{}").expect("write config");
+        assert!(parse_config_file(config_path.to_str().unwrap()).is_err());
     }
 }

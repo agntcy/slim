@@ -33,3 +33,6 @@ uuid = { workspace = true, features = ["v4"] }
 [build-dependencies]
 protoc-bin-vendored = { workspace = true }
 tonic-prost-build = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

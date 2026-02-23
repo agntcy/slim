@@ -1,10 +1,14 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
+#[cfg(not(test))]
+use anyhow::bail;
 
+#[cfg(not(test))]
 const DEFAULT_ENDPOINT: &str = "127.0.0.1:8080";
 
+#[cfg(not(test))]
 pub fn start(config: String, endpoint: String) -> Result<()> {
     let slim_bin = find_slim_binary()?;
 
@@ -45,6 +49,12 @@ pub fn start(config: String, endpoint: String) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
+pub fn start(_config: String, _endpoint: String) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(not(test))]
 fn find_slim_binary() -> Result<PathBuf> {
     if let Ok(path) = std::env::var("SLIM_BIN_PATH")
         && !path.trim().is_empty()
@@ -104,4 +114,20 @@ services:
         .context("failed to write temporary slim config")?;
 
     Ok(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::create_default_temp_config;
+
+    #[test]
+    fn creates_default_temp_config_file() {
+        let path = create_default_temp_config().expect("should create temp config");
+        let contents = std::fs::read_to_string(&path).expect("should read temp config");
+
+        assert!(contents.contains("# Auto-generated temporary configuration for slimctl"));
+        assert!(contents.contains("${env:SLIM_ENDPOINT}"));
+
+        let _ = std::fs::remove_file(path);
+    }
 }

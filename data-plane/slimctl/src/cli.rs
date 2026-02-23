@@ -265,3 +265,144 @@ pub enum SlimSubcommand {
         endpoint: String,
     },
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_version_command_with_globals() {
+        let cli = Cli::try_parse_from([
+            "slimctl",
+            "--server",
+            "host:1234",
+            "--timeout",
+            "10s",
+            "version",
+        ])
+        .expect("should parse version command");
+
+        assert_eq!(cli.server.as_deref(), Some("host:1234"));
+        assert_eq!(cli.timeout.as_deref(), Some("10s"));
+        matches!(cli.command, Commands::Version);
+    }
+
+    #[test]
+    fn parses_config_set_basic_auth_creds() {
+        let cli = Cli::try_parse_from([
+            "slimctl",
+            "config",
+            "set",
+            "basic-auth-creds",
+            "user:pass",
+        ])
+        .expect("should parse config set command");
+
+        match cli.command {
+            Commands::Config(config) => match config.command {
+                ConfigSubcommand::Set(set_cmd) => match set_cmd.key {
+                    ConfigSetKey::BasicAuthCreds { value } => {
+                        assert_eq!(value, "user:pass");
+                    }
+                    other => panic!("unexpected key: {other:?}"),
+                },
+                other => panic!("unexpected config command: {other:?}"),
+            },
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_controller_route_add() {
+        let cli = Cli::try_parse_from([
+            "slimctl",
+            "controller",
+            "route",
+            "add",
+            "-n",
+            "node-1",
+            "org/ns/app/1",
+            "via",
+            "dest-node",
+        ])
+        .expect("should parse controller route add");
+
+        match cli.command {
+            Commands::Controller(controller) => match controller.command {
+                ControllerSubcommand::Route(route) => match route.command {
+                    ControllerRouteSubcommand::Add {
+                        node_id,
+                        route,
+                        via_keyword,
+                        destination,
+                    } => {
+                        assert_eq!(node_id, "node-1");
+                        assert_eq!(route, "org/ns/app/1");
+                        assert_eq!(via_keyword, "via");
+                        assert_eq!(destination, "dest-node");
+                    }
+                    other => panic!("unexpected route command: {other:?}"),
+                },
+                other => panic!("unexpected controller command: {other:?}"),
+            },
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_node_route_add() {
+        let cli = Cli::try_parse_from([
+            "slimctl",
+            "node",
+            "route",
+            "add",
+            "org/ns/app/1",
+            "via",
+            "config.json",
+        ])
+        .expect("should parse node route add");
+
+        match cli.command {
+            Commands::Node(node) => match node.command {
+                NodeSubcommand::Route(route) => match route.command {
+                    NodeRouteSubcommand::Add {
+                        route,
+                        via_keyword,
+                        config_file,
+                    } => {
+                        assert_eq!(route, "org/ns/app/1");
+                        assert_eq!(via_keyword, "via");
+                        assert_eq!(config_file, "config.json");
+                    }
+                    other => panic!("unexpected route command: {other:?}"),
+                },
+                other => panic!("unexpected node command: {other:?}"),
+            },
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_slim_start() {
+        let cli = Cli::try_parse_from([
+            "slimctl",
+            "slim",
+            "start",
+            "--config",
+            "config.yaml",
+            "--endpoint",
+            "1.2.3.4:5",
+        ])
+        .expect("should parse slim start");
+
+        match cli.command {
+            Commands::Slim(slim) => match slim.command {
+                SlimSubcommand::Start { config, endpoint } => {
+                    assert_eq!(config, "config.yaml");
+                    assert_eq!(endpoint, "1.2.3.4:5");
+                }
+            },
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+}
