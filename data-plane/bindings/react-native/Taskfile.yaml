@@ -48,8 +48,8 @@ vars:
           ;;
       esac
   LIB_PATH: "{{.LIB_PATH | default ._DEFAULT_LIB_PATH}}"
-  # iOS targets to vendor static libs for (for npm publish; podspec uses aarch64-apple-ios-sim)
-  IOS_VENDOR_TARGETS: "aarch64-apple-ios-sim"
+  # iOS targets to vendor static libs for (for npm publish; XCFramework uses device + sim)
+  IOS_VENDOR_TARGETS: "aarch64-apple-ios-sim aarch64-apple-ios"
 
 tasks:
   default:
@@ -93,10 +93,8 @@ tasks:
   build:ios-simulator:
     desc: Build Rust library for iOS simulator
     cmds:
-      - task: adapter:bindings:build:all
-        vars:
-          TARGET: aarch64-apple-ios-sim
-          PROFILE: debug
+      # aws-lc-sys bindgen needs iOS Simulator SDK and a valid clang triple (arm64-apple-iosN-simulator)
+      - BINDGEN_EXTRA_CLANG_ARGS="-isysroot $(xcrun --sdk iphonesimulator --show-sdk-path) -target arm64-apple-ios15.0-simulator" task adapter:bindings:build:all TARGET=aarch64-apple-ios-sim PROFILE=debug
 
   generate:react-native:
     desc: Generate React Native JSI bindings from compiled library
@@ -321,6 +319,7 @@ tasks:
       - echo "🧹 Cleaning build artifacts..."
       - rm -rf generated/
       - rm -rf ios/static/
+      - rm -rf ios/SlimBindings.xcframework
       - rm -rf node_modules/
       - rm -rf dist/
       - rm -rf coverage/
@@ -328,8 +327,8 @@ tasks:
       - echo "✅ Clean complete"
     silent: true
 
-  # Copy built iOS static libs into ios/static/<target>/ for npm publish (podspec uses vendored path).
-  # Requires: Rust libs built for each IOS_VENDOR_TARGETS (e.g. task adapter:bindings:build:all TARGET=aarch64-apple-ios-sim).
+  # Copy built iOS static libs into ios/static/<target>/ for npm publish. Run xcframework:ios after to create XCFramework.
+  # Requires: Rust libs built for each IOS_VENDOR_TARGETS (e.g. adapter:bindings:build:all TARGET=aarch64-apple-ios-sim and TARGET=aarch64-apple-ios).
   vendor:ios:
     desc: Vendor iOS static libs into ios/static/ for publish
     cmds:
@@ -349,6 +348,30 @@ tasks:
           fi
         done
       - echo "✅ Vendored to ios/static/"
+    silent: false
+
+  # Create XCFramework from vendored iOS static libs (device + simulator). Requires vendor:ios first.
+  xcframework:ios:
+    desc: Create SlimBindings.xcframework from ios/static/ libs for device and simulator
+    deps:
+      - task: vendor:ios
+    cmds:
+      - echo "📦 Creating SlimBindings.xcframework..."
+      - |
+        TASKFILE_DIR="{{.TASKFILE_DIR}}"
+        DEVICE_LIB="$TASKFILE_DIR/ios/static/aarch64-apple-ios/libslim_bindings.a"
+        SIM_LIB="$TASKFILE_DIR/ios/static/aarch64-apple-ios-sim/libslim_bindings.a"
+        OUT="$TASKFILE_DIR/ios/SlimBindings.xcframework"
+        if [ ! -f "$DEVICE_LIB" ] || [ ! -f "$SIM_LIB" ]; then
+          echo "❌ Missing static libs. Build both targets and run vendor:ios first."
+          exit 1
+        fi
+        rm -rf "$OUT"
+        xcodebuild -create-xcframework \
+          -library "$DEVICE_LIB" \
+          -library "$SIM_LIB" \
+          -output "$OUT"
+        echo "✅ Created $OUT"
     silent: false
 
   # Development helpers

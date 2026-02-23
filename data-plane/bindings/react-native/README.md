@@ -423,7 +423,9 @@ Integration tests expect failures without a running SLIM server. This is normal.
 
 ## Publishing (maintainers)
 
-Releases are published to npm on tag `slim-bindings-*`. CI builds the iOS static lib, runs `task generate` and `task vendor:ios`, then `npm publish`. Ensure `NPM_TOKEN` is set in the repo. Dry run: run `task generate`, `task vendor:ios`, then `npm pack` and inspect the tarball.
+Releases are published to npm on tag `slim-bindings-*`. CI builds the iOS static lib for both device (`aarch64-apple-ios`) and simulator (`aarch64-apple-ios-sim`), runs `task vendor:ios`, `task xcframework:ios`, and `task generate`, then `npm publish`. Ensure `NPM_TOKEN` is set in the repo. Dry run: build both targets, run `task xcframework:ios` (which runs `vendor:ios`), `task generate TARGET=aarch64-apple-ios-sim`, then `npm pack` and inspect the tarball.
+
+**Running on a real device locally:** Build the device target (`task adapter:bindings:build:all TARGET=aarch64-apple-ios PROFILE=debug`), then run `task xcframework:ios` so the pod gets an XCFramework with both device and simulator slices. The published npm package already includes the XCFramework for both.
 
 ## Contributing
 

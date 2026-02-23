@@ -397,15 +397,23 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Build iOS static lib and generate bindings
+      - name: Build iOS static libs (device + simulator)
         working-directory: ./data-plane/bindings/react-native
         run: |
+          export BINDGEN_EXTRA_CLANG_ARGS="-isysroot $(xcrun --sdk iphonesimulator --show-sdk-path) -target arm64-apple-ios15.0-simulator"
           task adapter:bindings:build:all TARGET=aarch64-apple-ios-sim PROFILE=release
-          task generate TARGET=aarch64-apple-ios-sim
+          export BINDGEN_EXTRA_CLANG_ARGS="-isysroot $(xcrun --sdk iphoneos --show-sdk-path) -target arm64-apple-ios15.0"
+          task adapter:bindings:build:all TARGET=aarch64-apple-ios PROFILE=release
 
-      - name: Vendor iOS static lib
+      - name: Vendor iOS libs and create XCFramework
         working-directory: ./data-plane/bindings/react-native
-        run: task vendor:ios
+        run: |
+          task vendor:ios
+          task xcframework:ios
+
+      - name: Generate bindings
+        working-directory: ./data-plane/bindings/react-native
+        run: task generate TARGET=aarch64-apple-ios-sim
 
       - name: Set version in package.json
         working-directory: ./data-plane/bindings/react-native

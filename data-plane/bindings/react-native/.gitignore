@@ -11,6 +11,7 @@ generated/
 dist/
 build/
 ios/static/
+ios/*.xcframework
 *.wasm
 *.wasm.d.ts
 
