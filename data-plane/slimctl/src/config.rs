@@ -201,3 +201,136 @@ pub fn resolve_effective_opts(
 
     effective
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{AppConfig, CliCommonOverrides, CommonOpts, resolve_effective_opts};
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn clear_test_env() {
+        for key in [
+            "SLIMCTL_BASIC_AUTH_CREDS",
+            "SLIMCTL_SERVER",
+            "SLIMCTL_TIMEOUT",
+            "SLIMCTL_TLS_INSECURE",
+            "SLIMCTL_TLS_CA_FILE",
+            "SLIMCTL_TLS_CERT_FILE",
+            "SLIMCTL_TLS_KEY_FILE",
+        ] {
+            unsafe {
+                std::env::remove_var(key);
+            }
+        }
+    }
+
+    #[test]
+    fn defaults_used_when_no_overrides_exist() {
+        let _guard = env_lock().lock().expect("env lock poisoned");
+        clear_test_env();
+
+        let file_cfg = AppConfig::default();
+        let cli = CliCommonOverrides::default();
+        let effective = resolve_effective_opts(&file_cfg, &cli);
+
+        assert_eq!(effective.basic_auth_creds, "");
+        assert_eq!(effective.server, "localhost:50051");
+        assert_eq!(effective.timeout, "15s");
+        assert!(effective.tls_insecure);
+        assert_eq!(effective.tls_ca_file, "");
+        assert_eq!(effective.tls_cert_file, "");
+        assert_eq!(effective.tls_key_file, "");
+    }
+
+    #[test]
+    fn cli_overrides_file_values() {
+        let _guard = env_lock().lock().expect("env lock poisoned");
+        clear_test_env();
+
+        let file_cfg = AppConfig {
+            common_opts: CommonOpts {
+                basic_auth_creds: Some("file-user:file-pass".to_string()),
+                server: Some("file-host:50051".to_string()),
+                timeout: Some("12s".to_string()),
+                tls_insecure: Some(false),
+                tls_ca_file: Some("/tmp/file-ca.pem".to_string()),
+                tls_cert_file: Some("/tmp/file-cert.pem".to_string()),
+                tls_key_file: Some("/tmp/file-key.pem".to_string()),
+            },
+        };
+
+        let cli = CliCommonOverrides {
+            basic_auth_creds: Some("cli-user:cli-pass".to_string()),
+            server: Some("cli-host:50052".to_string()),
+            timeout: Some("5s".to_string()),
+            tls_insecure: Some(true),
+            tls_ca_file: Some("/tmp/cli-ca.pem".to_string()),
+            tls_cert_file: Some("/tmp/cli-cert.pem".to_string()),
+            tls_key_file: Some("/tmp/cli-key.pem".to_string()),
+        };
+
+        let effective = resolve_effective_opts(&file_cfg, &cli);
+
+        assert_eq!(effective.basic_auth_creds, "cli-user:cli-pass");
+        assert_eq!(effective.server, "cli-host:50052");
+        assert_eq!(effective.timeout, "5s");
+        assert!(effective.tls_insecure);
+        assert_eq!(effective.tls_ca_file, "/tmp/cli-ca.pem");
+        assert_eq!(effective.tls_cert_file, "/tmp/cli-cert.pem");
+        assert_eq!(effective.tls_key_file, "/tmp/cli-key.pem");
+    }
+
+    #[test]
+    fn env_overrides_cli_and_file_values() {
+        let _guard = env_lock().lock().expect("env lock poisoned");
+        clear_test_env();
+
+        unsafe {
+            std::env::set_var("SLIMCTL_BASIC_AUTH_CREDS", "env-user:env-pass");
+            std::env::set_var("SLIMCTL_SERVER", "env-host:60000");
+            std::env::set_var("SLIMCTL_TIMEOUT", "3s");
+            std::env::set_var("SLIMCTL_TLS_INSECURE", "false");
+            std::env::set_var("SLIMCTL_TLS_CA_FILE", "/tmp/env-ca.pem");
+            std::env::set_var("SLIMCTL_TLS_CERT_FILE", "/tmp/env-cert.pem");
+            std::env::set_var("SLIMCTL_TLS_KEY_FILE", "/tmp/env-key.pem");
+        }
+
+        let file_cfg = AppConfig {
+            common_opts: CommonOpts {
+                basic_auth_creds: Some("file-user:file-pass".to_string()),
+                server: Some("file-host:50051".to_string()),
+                timeout: Some("12s".to_string()),
+                tls_insecure: Some(true),
+                tls_ca_file: Some("/tmp/file-ca.pem".to_string()),
+                tls_cert_file: Some("/tmp/file-cert.pem".to_string()),
+                tls_key_file: Some("/tmp/file-key.pem".to_string()),
+            },
+        };
+
+        let cli = CliCommonOverrides {
+            basic_auth_creds: Some("cli-user:cli-pass".to_string()),
+            server: Some("cli-host:50052".to_string()),
+            timeout: Some("5s".to_string()),
+            tls_insecure: Some(true),
+            tls_ca_file: Some("/tmp/cli-ca.pem".to_string()),
+            tls_cert_file: Some("/tmp/cli-cert.pem".to_string()),
+            tls_key_file: Some("/tmp/cli-key.pem".to_string()),
+        };
+
+        let effective = resolve_effective_opts(&file_cfg, &cli);
+
+        assert_eq!(effective.basic_auth_creds, "env-user:env-pass");
+        assert_eq!(effective.server, "env-host:60000");
+        assert_eq!(effective.timeout, "3s");
+        assert!(!effective.tls_insecure);
+        assert_eq!(effective.tls_ca_file, "/tmp/env-ca.pem");
+        assert_eq!(effective.tls_cert_file, "/tmp/env-cert.pem");
+        assert_eq!(effective.tls_key_file, "/tmp/env-key.pem");
+
+        clear_test_env();
+    }
+}

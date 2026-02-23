@@ -325,3 +325,43 @@ pub fn parse_config_file(config_file: &str) -> Result<Connection> {
         config_data: data,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_endpoint, parse_route};
+
+    #[test]
+    fn parse_route_accepts_valid_route() {
+        let parsed = parse_route("org/default/app/42").expect("valid route should parse");
+
+        assert_eq!(parsed.0, "org");
+        assert_eq!(parsed.1, "default");
+        assert_eq!(parsed.2, "app");
+        assert_eq!(parsed.3, 42);
+    }
+
+    #[test]
+    fn parse_route_rejects_bad_formats() {
+        assert!(parse_route("org/default/app").is_err());
+        assert!(parse_route("org/default/app/not-a-number").is_err());
+        assert!(parse_route("org/default//1").is_err());
+    }
+
+    #[test]
+    fn parse_endpoint_accepts_http_and_https_with_port() {
+        let (connection, id) =
+            parse_endpoint("https://example.com:8443").expect("https endpoint should parse");
+
+        assert_eq!(id, "https://example.com:8443");
+        assert_eq!(connection.connection_id, "https://example.com:8443");
+        assert_eq!(connection.config_data, "");
+    }
+
+    #[test]
+    fn parse_endpoint_rejects_invalid_endpoints() {
+        assert!(parse_endpoint("ftp://example.com:21").is_err());
+        assert!(parse_endpoint("http://example.com").is_err());
+        assert!(parse_endpoint("http://:8080").is_err());
+        assert!(parse_endpoint("not-a-url").is_err());
+    }
+}
