@@ -14,42 +14,32 @@ inputs:
     description: 'Java distribution to use'
     required: false
     default: 'temurin'
-  cache-enabled:
-    description: 'Enable Gradle caching'
-    required: false
-    default: 'true'
 outputs:
   cache-hit:
     description: "Whether we hit the cache"
-    value: ${{ steps.gradle-cache.outputs.cache-hit }}
+    value: ${{ steps.setup-java.outputs.cache-hit }}
 runs:
   using: "composite"
   steps:
-    - name: Setup Java
+    - name: Setup Java (with Gradle cache)
+      id: setup-java
       uses: actions/setup-java@v4
       with:
         distribution: ${{ inputs.distribution }}
         java-version: ${{ inputs.java-version }}
+        cache: gradle
+        cache-dependency-path: |
+          **/*.gradle*
+          **/gradle-wrapper.properties
+          **/settings.gradle*
+          **/gradle.properties
+          **/gradle/libs.versions.toml
 
     - name: Setup Taskfile
       uses: ./.github/actions/setup-task
       with:
         version: latest
         cache-enabled: true
-
-    - name: Cache Gradle
-      if: ${{ inputs.cache-enabled == 'true' }}
-      id: gradle-cache
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.gradle/caches
-          ~/.gradle/wrapper
-        key: gradle-cache-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-
-    - id: set-cache-hit
-      run: echo "cache-hit=${{ steps.gradle-cache.outputs.cache-hit }}" >> $GITHUB_OUTPUT
-      shell: bash
 
     - name: Update GITHUB_PATH
       run: echo "$HOME/.local/bin" >> $GITHUB_PATH
