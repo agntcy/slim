@@ -400,6 +400,7 @@ jobs:
       - name: Build iOS static libs (device + simulator)
         working-directory: ./data-plane/bindings/react-native
         run: |
+          chmod +x "${{ github.workspace }}/data-plane/.cargo/clang-ios-linker-wrapper.sh"
           export BINDGEN_EXTRA_CLANG_ARGS="-isysroot $(xcrun --sdk iphonesimulator --show-sdk-path) -target arm64-apple-ios15.0-simulator"
           task adapter:bindings:build:all TARGET=aarch64-apple-ios-sim PROFILE=release
           export BINDGEN_EXTRA_CLANG_ARGS="-isysroot $(xcrun --sdk iphoneos --show-sdk-path) -target arm64-apple-ios15.0"
