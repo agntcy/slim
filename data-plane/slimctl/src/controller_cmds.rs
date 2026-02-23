@@ -170,7 +170,10 @@ pub fn create_channel(server: &str, moderators_assignment: &str) -> Result<()> {
             .context("failed to create channel")?
             .into_inner();
 
-        println!("Channel created successfully with Name: {}", response.channel_name);
+        println!(
+            "Channel created successfully with Name: {}",
+            response.channel_name
+        );
         Ok(())
     })
 }
