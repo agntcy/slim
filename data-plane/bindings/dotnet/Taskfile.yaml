@@ -141,7 +141,7 @@ tasks:
         runtime_count=0
 
         # Scan all target/*/release/ directories for dynamic libraries
-        for target_release_dir in "{{.TARGET_DIR}}"/*/release; do
+        for target_release_dir in "{{.TARGET_DIR}}"/*/{{.PROFILE}}; do
           [[ -d "$target_release_dir" ]] || continue
 
           target=$(basename "$(dirname "$target_release_dir")")
