@@ -35,9 +35,6 @@ vars:
   # Generated bindings directory
   GENERATED_DIR: "{{.TASKFILE_DIR}}/Slim/generated"
 
-  # Artifacts directory (CI mode)
-  ARTIFACTS_DIR: '{{.ARTIFACTS_DIR | default "./artifacts"}}'
-
   # Target used for binding generation (most compatible)
   BINDGEN_TARGET: '{{.BINDGEN_TARGET | default "x86_64-unknown-linux-gnu"}}'
 
@@ -104,39 +101,19 @@ tasks:
 
 
   generate:
-    desc: "Generate C# bindings from artifacts or local build"
+    desc: "Generate C# bindings from the target folder"
     deps:
       - install-uniffi-bindgen-cs
+      - task: rust:bindings:build:all
+        vars:
+          PROFILE: "{{.PROFILE}}"
+          TARGET: "{{.BINDGEN_TARGET}}"
     cmds:
       - |
-        ARTIFACTS_DIR="{{.ARTIFACTS_DIR}}"
-        BINDGEN_TARGET="{{.BINDGEN_TARGET}}"
+        lib_file="{{.TARGET_DIR}}/{{.BINDGEN_TARGET}}/{{.PROFILE}}/lib{{.LIB_NAME}}.a"
 
-        lib_file=""
-
-        # Try CI artifacts directory first
-        artifact_dir="$ARTIFACTS_DIR/bindings-${BINDGEN_TARGET}"
-
-        if [[ -d "$artifact_dir" ]]; then
-          lib_file=$(find "$artifact_dir" -maxdepth 1 -name "lib{{.LIB_NAME}}*.a" -type f | head -1)
-        fi
-
-        # Fall back to local build: build Rust library, then use its output
-        if [[ -z "$lib_file" || ! -f "$lib_file" ]]; then
-          echo "No CI artifacts found, building Rust library locally..."
-          task rust:bindings:build:all PROFILE="{{.PROFILE}}"
-
-          local_lib="{{.LIB_PATH}}/lib{{.LIB_NAME}}.a"
-          if [[ -f "$local_lib" ]]; then
-            echo "Using local build output: $local_lib"
-            lib_file="$local_lib"
-          fi
-        fi
-
-        if [[ -z "$lib_file" || ! -f "$lib_file" ]]; then
-          echo "ERROR: Static library (.a) not found."
-          echo "Checked CI artifacts dir: $artifact_dir"
-          echo "Checked local build path: {{.LIB_PATH}}/lib{{.LIB_NAME}}.a"
+        if [[ ! -f "$lib_file" ]]; then
+          echo "ERROR: Static library (.a) not found at $lib_file"
           exit 1
         fi
 
@@ -156,130 +133,63 @@ tasks:
     silent: true
 
   copy:runtimes:
-    desc: "Copy runtime libraries from artifacts or local build to runtimes directory"
+    desc: "Copy runtime libraries from target folder to runtimes directory"
     cmds:
       - rm -rf {{.RUNTIMES_DIR}}
       - mkdir -p {{.RUNTIMES_DIR}}
       - |
-        ARTIFACTS_DIR="{{.ARTIFACTS_DIR}}"
         runtime_count=0
 
-        # Try CI artifacts directory first
-        if [[ -d "$ARTIFACTS_DIR" ]] && ls "$ARTIFACTS_DIR"/bindings-* &>/dev/null; then
-          echo "Copying runtime libraries from: $ARTIFACTS_DIR"
+        # Scan all target/*/release/ directories for dynamic libraries
+        for target_release_dir in "{{.TARGET_DIR}}"/*/release; do
+          [[ -d "$target_release_dir" ]] || continue
 
-          # Iterate through all bindings-* artifact directories
-          for target_dir in "$ARTIFACTS_DIR"/bindings-*; do
-            if [[ ! -d "$target_dir" ]]; then
-              continue
+          target=$(basename "$(dirname "$target_release_dir")")
+
+          # Look up the target in PLATFORMS to get RID and extension
+          rid=""
+          ext=""
+          while IFS='|' read -r platform_target platform_rid platform_ext; do
+            if [[ "$platform_target" == "$target" ]]; then
+              rid="$platform_rid"
+              ext="$platform_ext"
+              break
             fi
+          done <<< "{{.PLATFORMS}}"
 
-            # Extract target triple from directory name
-            target=$(basename "$target_dir" | sed 's/^bindings-//')
-
-            # Look up the target in PLATFORMS to get RID and extension
-            rid=""
-            ext=""
-            while IFS='|' read -r platform_target platform_rid platform_ext; do
-              if [[ "$platform_target" == "$target" ]]; then
-                rid="$platform_rid"
-                ext="$platform_ext"
-                break
-              fi
-            done <<< "{{.PLATFORMS}}"
-
-            # Skip if target not in our supported platforms list
-            if [[ -z "$rid" || -z "$ext" ]]; then
-              echo "  Skipping $target (not in PLATFORMS list)"
-              continue
-            fi
-
-            echo "  Processing $target → $rid..."
-
-            # Determine library name patterns (source with wildcard for arch/platform, destination with uniffi_ prefix)
-            case "$ext" in
-              so|dylib)
-                lib_pattern="lib{{.LIB_NAME}}*.$ext"
-                lib_name="libuniffi_{{.LIB_NAME}}.$ext"
-                ;;
-              dll)
-                lib_pattern="{{.LIB_NAME}}*.$ext"
-                lib_name="uniffi_{{.LIB_NAME}}.$ext"
-                ;;
-            esac
-
-            # Find the runtime library
-            src=$(find "$target_dir" -maxdepth 1 -name "$lib_pattern" -type f | head -1)
-
-            if [[ -z "$src" || ! -f "$src" ]]; then
-              echo "    ⚠️  Runtime library not found (pattern: $lib_pattern)"
-              continue
-            fi
-
-            # Copy to runtimes directory
-            runtime_dir="{{.RUNTIMES_DIR}}/$rid/native"
-            mkdir -p "$runtime_dir"
-            cp "$src" "$runtime_dir/$lib_name"
-            echo "    ✅ Copied to $rid/native/$lib_name"
-            runtime_count=$((runtime_count + 1))
-          done
-        fi
-
-        # Fall back to local build output
-        if [[ $runtime_count -eq 0 ]]; then
-          echo "No CI artifacts found, copying from local build..."
-
-          # Detect architecture
-          ARCH=$(uname -m)
-          case "$ARCH" in
-            x86_64|amd64) ARCH_NAME="x86_64" ;;
-            arm64|aarch64) ARCH_NAME="aarch64" ;;
-          esac
-
-          # Detect OS and set RID, extension, and library name
-          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-          case "$OS" in
-            darwin)
-              case "$ARCH_NAME" in
-                x86_64)  RID="osx-x64" ;;
-                aarch64) RID="osx-arm64" ;;
-              esac
-              LIB_EXT="dylib"
-              LIB_PREFIX="lib"
-              DEST_NAME="libuniffi_{{.LIB_NAME}}.dylib"
-              ;;
-            linux)
-              case "$ARCH_NAME" in
-                x86_64)  RID="linux-x64" ;;
-                aarch64) RID="linux-arm64" ;;
-              esac
-              LIB_EXT="so"
-              LIB_PREFIX="lib"
-              DEST_NAME="libuniffi_{{.LIB_NAME}}.so"
-              ;;
-            mingw*|msys*|cygwin*)
-              case "$ARCH_NAME" in
-                x86_64)  RID="win-x64" ;;
-                aarch64) RID="win-arm64" ;;
-              esac
-              LIB_EXT="dll"
-              LIB_PREFIX=""
-              DEST_NAME="uniffi_{{.LIB_NAME}}.dll"
-              ;;
-          esac
-
-          SRC="{{.LIB_PATH}}/${LIB_PREFIX}{{.LIB_NAME}}.${LIB_EXT}"
-
-          if [[ ! -f "$SRC" ]]; then
-            echo "⚠️  Shared library not found: $SRC"
-            exit 1
+          # Skip if target not in our supported platforms list
+          if [[ -z "$rid" || -z "$ext" ]]; then
+            echo "  Skipping $target (not in PLATFORMS list)"
+            continue
           fi
 
-          DEST_DIR="{{.RUNTIMES_DIR}}/$RID/native"
-          mkdir -p "$DEST_DIR"
-          cp "$SRC" "$DEST_DIR/$DEST_NAME"
-          echo "  ✅ Copied $SRC → $DEST_DIR/$DEST_NAME"
-          runtime_count=1
+          # Determine source file and destination name
+          case "$ext" in
+            so|dylib)
+              src="$target_release_dir/lib{{.LIB_NAME}}.$ext"
+              lib_name="libuniffi_{{.LIB_NAME}}.$ext"
+              ;;
+            dll)
+              src="$target_release_dir/{{.LIB_NAME}}.$ext"
+              lib_name="uniffi_{{.LIB_NAME}}.$ext"
+              ;;
+          esac
+
+          if [[ ! -f "$src" ]]; then
+            echo "  ⚠️  $target: library not found ($src)"
+            continue
+          fi
+
+          runtime_dir="{{.RUNTIMES_DIR}}/$rid/native"
+          mkdir -p "$runtime_dir"
+          cp "$src" "$runtime_dir/$lib_name"
+          echo "  ✅ $target → $rid/native/$lib_name"
+          runtime_count=$((runtime_count + 1))
+        done
+
+        if [[ $runtime_count -eq 0 ]]; then
+          echo "⚠️  No runtime libraries found under {{.TARGET_DIR}}"
+          exit 1
         fi
 
         echo ""
@@ -351,11 +261,7 @@ tasks:
         echo "Version:   {{.VERSION_RESOLVED}}"
         echo ""
       - task: generate
-        vars:
-          ARTIFACTS_DIR: "{{.ARTIFACTS_DIR}}"
       - task: copy:runtimes
-        vars:
-          ARTIFACTS_DIR: "{{.ARTIFACTS_DIR}}"
       - task: build
       - task: test
       - task: pack

@@ -73,12 +73,20 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: bindings-*
-          path: ${{ inputs.dotnet-bindings-dir }}/artifacts/
+          path: ${{ github.workspace }}/target-artifacts/
 
-      - name: List downloaded artifacts
+      - name: Restore libraries to target folder
         run: |
-          echo "📦 Downloaded artifacts:"
-          find ./artifacts -type f -name "*.so" -o -name "*.dll" -o -name "*.dylib" -o -name "*.a" | sort
+          echo "📦 Restoring artifacts to target folder..."
+          for artifact_dir in "$GITHUB_WORKSPACE/target-artifacts/bindings-"*; do
+            [ -d "$artifact_dir" ] || continue
+            target=$(basename "$artifact_dir" | sed 's/^bindings-//')
+            mkdir -p "$GITHUB_WORKSPACE/data-plane/target/$target/release/"
+            find "$artifact_dir" -maxdepth 1 -type f -exec cp {} "$GITHUB_WORKSPACE/data-plane/target/$target/release/" \;
+            echo "  Restored $target"
+          done
+          echo "📁 Restored libraries:"
+          find "$GITHUB_WORKSPACE/data-plane/target" -name "*slim_bindings*" -type f | sort
 
       - name: Generate C# bindings
         run: |
