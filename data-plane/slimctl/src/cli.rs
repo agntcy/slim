@@ -1,5 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 
+use crate::defaults::{DEFAULT_EMPTY_CONFIG, DEFAULT_ENDPOINT};
+
 #[derive(Debug, Parser)]
 #[command(name = "slimctl", about = "SLIM control CLI", long_about = None)]
 pub struct Cli {
@@ -259,9 +261,9 @@ pub struct SlimCommand {
 #[derive(Debug, Subcommand)]
 pub enum SlimSubcommand {
     Start {
-        #[arg(short = 'c', long = "config", default_value = "")]
+        #[arg(short = 'c', long = "config", default_value = DEFAULT_EMPTY_CONFIG)]
         config: String,
-        #[arg(long = "endpoint", default_value = "127.0.0.1:46357")]
+        #[arg(long = "endpoint", default_value = DEFAULT_ENDPOINT)]
         endpoint: String,
     },
 }

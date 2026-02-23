@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::defaults::{DEFAULT_SERVER, DEFAULT_TIMEOUT, DEFAULT_TLS_INSECURE};
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
     #[serde(default)]
@@ -37,9 +38,9 @@ impl Default for EffectiveCommonOpts {
     fn default() -> Self {
         Self {
             basic_auth_creds: String::new(),
-            server: "localhost:50051".to_string(),
-            timeout: "15s".to_string(),
-            tls_insecure: true,
+            server: DEFAULT_SERVER.to_string(),
+            timeout: DEFAULT_TIMEOUT.to_string(),
+            tls_insecure: DEFAULT_TLS_INSECURE,
             tls_ca_file: String::new(),
             tls_cert_file: String::new(),
             tls_key_file: String::new(),

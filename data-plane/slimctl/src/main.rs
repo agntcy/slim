@@ -4,6 +4,7 @@ use clap::Parser;
 mod cli;
 mod config;
 mod controller_cmds;
+mod defaults;
 mod node_connection;
 mod node_route;
 mod proto_gen;
