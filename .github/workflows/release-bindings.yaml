@@ -151,3 +151,6 @@ jobs:
     name: "Release Kotlin Bindings"
     needs: build-and-test-bindings
     uses: ./.github/workflows/reusable-kotlin-bindings-release.yaml
+    permissions:
+      contents: read    
+      packages: write
