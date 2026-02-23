@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use anyhow::bail;
 use anyhow::{Context, Result};
 
+#[cfg(not(test))]
 use crate::defaults::DEFAULT_ENDPOINT;
 
 #[cfg(not(test))]
