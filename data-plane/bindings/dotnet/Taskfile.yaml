@@ -14,11 +14,7 @@ vars:
 
   # Rust library name
   LIB_NAME: slim_bindings
-
-  # Build profile (debug or release)
-  PROFILE: '{{.PROFILE | default "release"}}'
-  RELEASE:
-    sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
+  PROFILE: '{{.PROFILE | default "debug"}}'
 
   # Current target
   CURRENT_TARGET:
@@ -27,16 +23,15 @@ vars:
 
   # Target directory for built libraries
   TARGET_DIR: "{{.BINDINGS_DIR}}/../../target"
-  LIB_PATH: "{{.TARGET_DIR}}/{{.TARGET}}/{{.PROFILE}}"
+  _DEFAULT_LIB_PATH:
+    sh: echo "{{.TARGET_DIR}}/{{.TARGET}}/{{.PROFILE}}/lib{{.LIB_NAME}}.a"
+  LIB_PATH: "{{.LIB_PATH | default ._DEFAULT_LIB_PATH}}"
 
   # Runtimes directory for NuGet packaging
   RUNTIMES_DIR: "{{.TASKFILE_DIR}}/runtimes"
 
   # Generated bindings directory
   GENERATED_DIR: "{{.TASKFILE_DIR}}/Slim/generated"
-
-  # Target used for binding generation (most compatible)
-  BINDGEN_TARGET: '{{.BINDGEN_TARGET | default "x86_64-unknown-linux-gnu"}}'
 
   # Output directory for NuGet packages
   OUTPUT_DIR: '{{.OUTPUT_DIR | default "./nupkg"}}'
@@ -102,19 +97,17 @@ tasks:
 
   generate:
     desc: "Generate C# bindings from the target folder"
-    vars:
-      LIB_FILE: "{{.TARGET_DIR}}/{{.BINDGEN_TARGET}}/{{.PROFILE}}/lib{{.LIB_NAME}}.a"
     deps:
-      - install-uniffi-bindgen-cs
       - task: rust:bindings:build:all
         vars:
           PROFILE: "{{.PROFILE}}"
-          TARGET: "{{.BINDGEN_TARGET}}"
+          TARGET: "{{.TARGET}}"
+      - install-uniffi-bindgen-cs
     cmds:
-      - echo "Generating C# bindings from: {{.LIB_FILE}}"
+      - 'echo "Generating C# bindings from: {{.LIB_PATH}}"'
       - rm -rf {{.GENERATED_DIR}}
       - mkdir -p {{.GENERATED_DIR}}
-      - uniffi-bindgen-cs --library --out-dir {{.GENERATED_DIR}} "{{.LIB_FILE}}"
+      - uniffi-bindgen-cs --library --out-dir {{.GENERATED_DIR}} "{{.LIB_PATH}}"
       - task: copy:runtimes
     silent: true
 
@@ -242,7 +235,6 @@ tasks:
         echo "=================================================="
         echo "  .NET Bindings CI Pipeline"
         echo "=================================================="
-        echo "Artifacts: {{.ARTIFACTS_DIR}}"
         echo "Output:    {{.OUTPUT_DIR}}"
         echo "Version:   {{.VERSION_RESOLVED}}"
         echo ""
