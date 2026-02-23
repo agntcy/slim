@@ -45,6 +45,7 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           workspace: ${{ inputs.rust-workspace }}
+          cache-enabled: false
 
       - name: Setup Java
         uses: ./.github/actions/setup-java
