@@ -223,7 +223,7 @@ jobs:
 
       - name: Generate Go bindings
         run: |
-          task generate
+          task generate PROFILE=release
 
           echo "📁 slim-bindings-go files:"
           find ./slim_bindings -type f
