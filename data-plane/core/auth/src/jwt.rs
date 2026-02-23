@@ -674,6 +674,9 @@ pub(crate) fn extract_sub_claim_unsafe(token: &str) -> Result<String, AuthError>
 mod tests {
     use std::fs::{File, OpenOptions};
     use std::io::{Seek, SeekFrom, Write};
+    use std::path::Path;
+    use std::path::PathBuf;
+    use std::process;
     use std::{env, fs, vec};
 
     use super::*;
@@ -686,33 +689,41 @@ mod tests {
     use crate::builder::JwtBuilder;
     use slim_testing::utils::setup_test_jwt_resolver;
 
-    fn create_file(file_path: &str, content: &str) -> std::io::Result<()> {
+    fn temp_file_path(prefix: &str) -> PathBuf {
+        let mut path = env::temp_dir();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time went backwards")
+            .as_nanos();
+        path.push(format!("{prefix}_{}_{}.txt", process::id(), unique));
+        path
+    }
+
+    fn create_file(file_path: &Path, content: &str) -> std::io::Result<()> {
         let mut file = File::create(file_path)?;
         file.write_all(content.as_bytes())?;
         Ok(())
     }
 
-    fn modify_file(file_path: &str, new_content: &str) -> std::io::Result<()> {
+    fn modify_file(file_path: &Path, new_content: &str) -> std::io::Result<()> {
         let mut file = OpenOptions::new().write(true).open(file_path)?;
         file.seek(SeekFrom::Start(0))?;
         file.write_all(new_content.as_bytes())?;
         Ok(())
     }
 
-    fn delete_file(file_path: &str) -> std::io::Result<()> {
-        fs::remove_file(file_path)?;
-        Ok(())
+    fn delete_file(file_path: &Path) {
+        let _ = fs::remove_file(file_path);
     }
 
     #[tokio::test]
     #[traced_test]
     async fn test_jwt_singer_update_key_from_file() {
         // crate file
-        let path = env::current_dir().expect("error reading local path");
-        let full_path = path.join("key_file_signer.txt");
-        let file_name = full_path.to_str().unwrap();
+        let file_path = temp_file_path("key_file_signer");
+        let file_name = file_path.to_string_lossy().to_string();
         let first_key = "test-key";
-        create_file(file_name, first_key).expect("failed to create file");
+        create_file(&file_path, first_key).expect("failed to create file");
 
         // create jwt builder
         let mut jwt = JwtBuilder::new()
@@ -757,7 +768,7 @@ mod tests {
         }
 
         let second_key = "another-test-key";
-        modify_file(file_name, second_key).expect("failed to create file");
+        modify_file(&file_path, second_key).expect("failed to create file");
         time::sleep(Duration::from_millis(100)).await;
 
         assert!(jwt.decoding_key.is_none());
@@ -782,7 +793,7 @@ mod tests {
             assert_eq!(token_1, token_2);
         }
 
-        delete_file(file_name).expect("error deleting file");
+        delete_file(&file_path);
     }
 
     #[test]
@@ -814,11 +825,10 @@ mod tests {
     #[traced_test]
     async fn test_jwt_verifier_update_key_from_file() {
         // crate file
-        let path = env::current_dir().expect("error reading local path");
-        let full_path = path.join("key_file_verifier.txt");
-        let file_name = full_path.to_str().unwrap();
+        let file_path = temp_file_path("key_file_verifier");
+        let file_name = file_path.to_string_lossy().to_string();
         let first_key = "test-key";
-        create_file(file_name, first_key).expect("failed to create file");
+        create_file(&file_path, first_key).expect("failed to create file");
 
         // create jwt builder
         let jwt = JwtBuilder::new()
@@ -859,7 +869,7 @@ mod tests {
         assert_eq!(verified_claims.sub.unwrap(), "test-subject");
 
         let second_key = "another-test-key";
-        modify_file(file_name, second_key).expect("failed to create file");
+        modify_file(&file_path, second_key).expect("failed to create file");
         time::sleep(Duration::from_millis(100)).await;
 
         assert!(jwt.decoding_key.is_some());
@@ -887,7 +897,7 @@ mod tests {
         assert_eq!(verified_claims.aud.unwrap(), &["test-audience"]);
         assert_eq!(verified_claims.sub.unwrap(), "test-subject");
 
-        delete_file(file_name).expect("error deleting file");
+        delete_file(&file_path);
     }
 
     #[tokio::test]
