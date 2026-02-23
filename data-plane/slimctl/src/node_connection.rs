@@ -57,7 +57,9 @@ pub fn connection_list(server: &str) -> Result<()> {
     })
 }
 
-fn render_connection_entries(entries: &[slim_controller::api::proto::api::v1::ConnectionEntry]) -> Vec<String> {
+fn render_connection_entries(
+    entries: &[slim_controller::api::proto::api::v1::ConnectionEntry],
+) -> Vec<String> {
     entries
         .iter()
         .map(|entry| format!("id={} {}", entry.id, entry.config_data))

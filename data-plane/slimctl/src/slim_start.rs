@@ -1,9 +1,9 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
 #[cfg(not(test))]
 use anyhow::bail;
+use anyhow::{Context, Result};
 
 #[cfg(not(test))]
 const DEFAULT_ENDPOINT: &str = "127.0.0.1:8080";

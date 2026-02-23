@@ -206,13 +206,13 @@ mod tests {
         ControllerSubcommand, NodeCommand, NodeConnectionCommand, NodeConnectionSubcommand,
         NodeRouteCommand, NodeRouteSubcommand, NodeSubcommand, SlimCommand, SlimSubcommand,
     };
-    use super::{config::AppConfig, run, Cli, Commands};
+    use super::{Cli, Commands, config::AppConfig, run};
 
     #[test]
     fn render_effective_config_outputs_yaml() {
         let config = AppConfig::default();
-        let rendered = _render_effective_config_for_debug(&config)
-            .expect("should render config to yaml");
+        let rendered =
+            _render_effective_config_for_debug(&config).expect("should render config to yaml");
         assert!(rendered.contains("common_opts"));
     }
 
@@ -404,6 +404,5 @@ mod tests {
             },
         }));
         run(cli).expect("slim start should run");
-
     }
 }

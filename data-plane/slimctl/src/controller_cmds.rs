@@ -1,6 +1,6 @@
-use anyhow::{Result, bail};
 #[cfg(not(test))]
 use anyhow::Context;
+use anyhow::{Result, bail};
 #[cfg(not(test))]
 use tokio::runtime::Builder;
 #[cfg(not(test))]
@@ -115,8 +115,7 @@ pub fn del_route(
 ) -> Result<()> {
     with_runtime(async move {
         let mut client = connect_client(server).await?;
-        let request =
-            build_delete_route_request(node_id, route, via_keyword, endpoint_or_node)?;
+        let request = build_delete_route_request(node_id, route, via_keyword, endpoint_or_node)?;
 
         let response = client
             .delete_route(request)
@@ -236,11 +235,7 @@ pub fn add_participant(server: &str, channel_id: &str, participant_name: &str) -
 }
 
 #[cfg(not(test))]
-pub fn delete_participant(
-    server: &str,
-    channel_id: &str,
-    participant_name: &str,
-) -> Result<()> {
+pub fn delete_participant(server: &str, channel_id: &str, participant_name: &str) -> Result<()> {
     with_runtime(async move {
         let mut client = connect_client(server).await?;
         let response = client
@@ -582,11 +577,7 @@ pub fn add_participant(_server: &str, _channel_id: &str, _participant_name: &str
 }
 
 #[cfg(test)]
-pub fn delete_participant(
-    _server: &str,
-    _channel_id: &str,
-    _participant_name: &str,
-) -> Result<()> {
+pub fn delete_participant(_server: &str, _channel_id: &str, _participant_name: &str) -> Result<()> {
     Ok(())
 }
 
@@ -743,13 +734,9 @@ mod tests {
 
     #[test]
     fn build_delete_route_request_with_endpoint() {
-        let request = build_delete_route_request(
-            "node-1",
-            "org/ns/app/9",
-            "via",
-            "http://localhost:1234",
-        )
-        .expect("build delete request");
+        let request =
+            build_delete_route_request("node-1", "org/ns/app/9", "via", "http://localhost:1234")
+                .expect("build delete request");
 
         let subscription = request.subscription.expect("subscription");
         assert_eq!(subscription.connection_id, "http://localhost:1234");
@@ -759,7 +746,10 @@ mod tests {
     fn build_create_channel_request_accepts_moderators() {
         let request = build_create_channel_request("moderators=mod1,mod2")
             .expect("build create channel request");
-        assert_eq!(request.moderators, vec!["mod1".to_string(), "mod2".to_string()]);
+        assert_eq!(
+            request.moderators,
+            vec!["mod1".to_string(), "mod2".to_string()]
+        );
     }
 }
 

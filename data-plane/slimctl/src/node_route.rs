@@ -4,14 +4,14 @@ use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use slim_config::component::configuration::Configuration;
 use slim_config::grpc::client::ClientConfig;
+#[cfg(not(test))]
+use slim_controller::api::proto::api::v1::SubscriptionListRequest;
 use slim_controller::api::proto::api::v1::control_message::Payload;
 #[cfg(not(test))]
 use slim_controller::api::proto::api::v1::controller_service_client::ControllerServiceClient;
 use slim_controller::api::proto::api::v1::{
     ConfigurationCommand, Connection, ControlMessage, Subscription, SubscriptionEntry,
 };
-#[cfg(not(test))]
-use slim_controller::api::proto::api::v1::SubscriptionListRequest;
 #[cfg(not(test))]
 use tokio::runtime::Builder;
 #[cfg(not(test))]
@@ -388,8 +388,8 @@ mod tests {
     use slim_controller::api::proto::api::v1::ConnectionEntry;
 
     use super::{
-        build_add_message, build_delete_message, parse_config_file, parse_endpoint,
-        parse_route, render_subscription_entries,
+        build_add_message, build_delete_message, parse_config_file, parse_endpoint, parse_route,
+        render_subscription_entries,
     };
 
     #[test]
@@ -465,7 +465,10 @@ mod tests {
                 assert_eq!(command.connections_to_create.len(), 1);
                 assert_eq!(command.subscriptions_to_set.len(), 1);
                 assert!(command.subscriptions_to_delete.is_empty());
-                assert_eq!(command.subscriptions_to_set[0].connection_id, "http://localhost:1234");
+                assert_eq!(
+                    command.subscriptions_to_set[0].connection_id,
+                    "http://localhost:1234"
+                );
             }
             other => panic!("unexpected payload: {other:?}"),
         }

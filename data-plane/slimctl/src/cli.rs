@@ -289,14 +289,9 @@ mod tests {
 
     #[test]
     fn parses_config_set_basic_auth_creds() {
-        let cli = Cli::try_parse_from([
-            "slimctl",
-            "config",
-            "set",
-            "basic-auth-creds",
-            "user:pass",
-        ])
-        .expect("should parse config set command");
+        let cli =
+            Cli::try_parse_from(["slimctl", "config", "set", "basic-auth-creds", "user:pass"])
+                .expect("should parse config set command");
 
         match cli.command {
             Commands::Config(config) => match config.command {
