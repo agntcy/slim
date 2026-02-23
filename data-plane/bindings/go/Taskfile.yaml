@@ -120,8 +120,6 @@ tasks:
       # bindings:build:all is skipped automatically when the library already
       # exists and sources have not changed (sources/generates fingerprinting).
       - task: adapter:bindings:build:all
-        vars:
-          PROFILE: release
       - task: install-uniffi-bindgen-go
     cmds:
       - echo "🔧 Generating Go bindings from compiled library..."
@@ -228,8 +226,8 @@ tasks:
         DEST_DIR="slim_bindings"
         found_any=false
 
-        # Scan all target/*/release/ directories for static libraries
-        for target_release_dir in "$TARGET_BASE"/*/release; do
+        # Scan all target/*/{PROFILE}/ directories for static libraries
+        for target_release_dir in "$TARGET_BASE"/*/{{.PROFILE}}; do
           [ -d "$target_release_dir" ] || continue
 
           # Find the static library (Unix: .a, Windows: .lib)
