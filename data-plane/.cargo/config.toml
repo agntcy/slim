@@ -12,13 +12,13 @@ linker="x86_64-linux-gnu-gcc"
 
 # iOS: use linker wrapper to replace rustc's -target arm64-apple-ios10.0.0 with 13.4
 # (needed for ___chkstk_darwin and to match podspec platforms :ios => "13.4")
-# Path relative to the package being built (bindings/rust) so CI and local find the script.
+# Wrapper must be on PATH when building; bindings/rust Taskfile prepends workspace .cargo to PATH.
 [target.aarch64-apple-ios]
-linker = "../../.cargo/clang-ios-linker-wrapper.sh"
+linker = "clang-ios-linker-wrapper.sh"
 rustflags = ["-C", "link-arg=-mios-version-min=13.4"]
 
 [target.aarch64-apple-ios-sim]
-linker = "../../.cargo/clang-ios-linker-wrapper.sh"
+linker = "clang-ios-linker-wrapper.sh"
 rustflags = ["-C", "link-arg=-mios-simulator-version-min=13.4"]
 
 [env]

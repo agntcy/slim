@@ -94,5 +94,6 @@ tasks:
         fi
 
         echo cargo ${ARGS[*]}
-        PATH="{{.TOOLS_INSTALL_DIR}}:$PATH" cargo "${ARGS[@]}"
+        # Prepend workspace .cargo so Cargo finds clang-ios-linker-wrapper.sh for iOS targets
+        PATH="{{.TASKFILE_DIR}}/../../.cargo:{{.TOOLS_INSTALL_DIR}}:$PATH" cargo "${ARGS[@]}"
       - echo "🦀 Rust bindings library built successfully."
