@@ -102,6 +102,8 @@ tasks:
 
   generate:
     desc: "Generate C# bindings from the target folder"
+    vars:
+      LIB_FILE: "{{.TARGET_DIR}}/{{.BINDGEN_TARGET}}/{{.PROFILE}}/lib{{.LIB_NAME}}.a"
     deps:
       - install-uniffi-bindgen-cs
       - task: rust:bindings:build:all
@@ -109,26 +111,10 @@ tasks:
           PROFILE: "{{.PROFILE}}"
           TARGET: "{{.BINDGEN_TARGET}}"
     cmds:
-      - |
-        lib_file="{{.TARGET_DIR}}/{{.BINDGEN_TARGET}}/{{.PROFILE}}/lib{{.LIB_NAME}}.a"
-
-        if [[ ! -f "$lib_file" ]]; then
-          echo "ERROR: Static library (.a) not found at $lib_file"
-          exit 1
-        fi
-
-        echo "Generating C# bindings from: $lib_file"
-
-        rm -rf {{.GENERATED_DIR}}
-        mkdir -p {{.GENERATED_DIR}}
-        uniffi-bindgen-cs --library --out-dir {{.GENERATED_DIR}} "$lib_file"
-
-        if [[ ! -f "{{.GENERATED_DIR}}/slim_bindings.cs" ]]; then
-          echo "ERROR: Failed to generate slim_bindings.cs"
-          exit 1
-        fi
-
-        echo "✅ C# bindings generated successfully"
+      - echo "Generating C# bindings from: {{.LIB_FILE}}"
+      - rm -rf {{.GENERATED_DIR}}
+      - mkdir -p {{.GENERATED_DIR}}
+      - uniffi-bindgen-cs --library --out-dir {{.GENERATED_DIR}} "{{.LIB_FILE}}"
       - task: copy:runtimes
     silent: true
 
