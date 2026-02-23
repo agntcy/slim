@@ -60,7 +60,7 @@ tasks:
           BIN: "slim"
           BIN_ARGS: "--config ./config/telemetry/server-config.yaml"
 
-  data-plane:run:slimctl:
+  data-plane:slimctl:run:
     desc: "Run the Rust slimctl binary"
     cmds:
       - task: data-plane:run
