@@ -1,0 +1,40 @@
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
+// SPDX-License-Identifier: Apache-2.0
+
+// Functional-test fixture: extends the standard example service to include a
+// method whose return type comes from an imported proto file.  This exercises
+// the cross-package import detection logic in protoc-gen-slimrpc-go.
+
+syntax = "proto3";
+
+package example_service;
+
+option go_package = "github.com/agntcy/slim/data-plane/slimrpc-compiler/tests/testdata/types";
+
+import "google/protobuf/empty.proto";
+
+service Test {
+  // Standard methods whose types live in this package.
+  rpc ExampleUnaryUnary(ExampleRequest) returns (ExampleResponse);
+  rpc ExampleUnaryStream(ExampleRequest) returns (stream ExampleResponse);
+  rpc ExampleStreamUnary(stream ExampleRequest) returns (ExampleResponse);
+  rpc ExampleStreamStream(stream ExampleRequest) returns (stream ExampleResponse);
+
+  // Delete returns google.protobuf.Empty — a type from an imported proto file.
+  // This is the scenario the functional test is designed to verify.
+  rpc Delete(DeleteRequest) returns (google.protobuf.Empty);
+}
+
+message ExampleRequest {
+  string example_string = 1;
+  int64  example_integer = 2;
+}
+
+message ExampleResponse {
+  string example_string = 1;
+  int64  example_integer = 2;
+}
+
+message DeleteRequest {
+  string id = 1;
+}
