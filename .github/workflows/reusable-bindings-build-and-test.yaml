@@ -220,6 +220,7 @@ jobs:
           done
           echo "📁 Restored libraries:"
           find "$GITHUB_WORKSPACE/data-plane/target" -name "*slim_bindings*" -type f | sort
+          rm -rf "$GITHUB_WORKSPACE/target-artifacts"
 
       - name: Generate Go bindings
         run: |

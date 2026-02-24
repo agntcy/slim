@@ -108,6 +108,7 @@ jobs:
           done
           echo "📁 Restored libraries:"
           find "$GITHUB_WORKSPACE/data-plane/target" -name "*slim_bindings*" -type f | sort
+          rm -rf "$GITHUB_WORKSPACE/target-artifacts"
 
       # Run complete CI pipeline using task command
       # This generates bindings, copies runtimes, builds, tests, and packs
