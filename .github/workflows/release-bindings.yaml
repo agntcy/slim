@@ -56,6 +56,11 @@ jobs:
         run: |
           mkdir -p ./release-artifacts
 
+          # Strip symbols from Unix dynamic (.so) libraries to reduce size
+          echo "Stripping Unix dynamic libraries..."
+          find ./artifacts -type f -name "*.so" -exec strip --strip-unneeded {} \;
+          echo "Stripped .so files"
+
           # The download-artifact action already organizes files by artifact name
           # Each platform's libraries are in ./artifacts/bindings-<target>/
           # We'll zip each platform's libraries separately
@@ -98,51 +103,51 @@ jobs:
   # ==========================================================================
   # Job 3: Generate and publish Go bindings
   # ==========================================================================
-  release-go-bindings:
-    name: "Release Go Bindings"
-    needs: build-and-test-bindings
-    uses: ./.github/workflows/reusable-go-bindings-release.yaml
-    secrets:
-      gh-token: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
+  # release-go-bindings:
+  #   name: "Release Go Bindings"
+  #   needs: build-and-test-bindings
+  #   uses: ./.github/workflows/reusable-go-bindings-release.yaml
+  #   secrets:
+  #     gh-token: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
 
   # ==========================================================================
   # Job 4: Release Python bindings to PyPI
   # ==========================================================================
-  release-python-bindings:
-    name: Upload release to PyPI
-    runs-on: ubuntu-latest
-    needs:
-      - build-and-test-bindings
-    permissions:
-      # IMPORTANT: this permission is mandatory for Trusted Publishing
-      id-token: write
-      contents: read
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          merge-multiple: true
-          path: dist
-          pattern: wheels-*
+  # release-python-bindings:
+  #   name: Upload release to PyPI
+  #   runs-on: ubuntu-latest
+  #   needs:
+  #     - build-and-test-bindings
+  #   permissions:
+  #     # IMPORTANT: this permission is mandatory for Trusted Publishing
+  #     id-token: write
+  #     contents: read
+  #   steps:
+  #     - name: Download artifacts
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         merge-multiple: true
+  #         path: dist
+  #         pattern: wheels-*
 
-      - name: Show files
-        run: ls -l dist
+  #     - name: Show files
+  #       run: ls -l dist
 
-      - name: Publish package distributions to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
-          packages-dir: dist
+  #     - name: Publish package distributions to PyPI
+  #       uses: pypa/gh-action-pypi-publish@release/v1
+  #       with:
+  #         password: ${{ secrets.PYPI_API_TOKEN }}
+  #         packages-dir: dist
 
   # ==========================================================================
   # Job 5: Release .NET bindings to NuGet
   # ==========================================================================
-  release-dotnet-bindings:
-    name: "Release .NET Bindings"
-    needs: build-and-test-bindings
-    uses: ./.github/workflows/reusable-dotnet-bindings-release.yaml
-    secrets:
-      nuget-api-token: ${{ secrets.NUGET_API_TOKEN }}
+  # release-dotnet-bindings:
+  #   name: "Release .NET Bindings"
+  #   needs: build-and-test-bindings
+  #   uses: ./.github/workflows/reusable-dotnet-bindings-release.yaml
+  #   secrets:
+  #     nuget-api-token: ${{ secrets.NUGET_API_TOKEN }}
 
   # ==========================================================================
   # Job 6: Release Kotlin bindings to GitHub Packages
@@ -151,3 +156,6 @@ jobs:
     name: "Release Kotlin Bindings"
     needs: build-and-test-bindings
     uses: ./.github/workflows/reusable-kotlin-bindings-release.yaml
+    permissions:
+      contents: read    
+      packages: write
