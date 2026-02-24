@@ -416,6 +416,68 @@ const REGISTER_STREAM_STREAM_METHOD: &str = r#"	server.RegisterStreamStream("{{P
 
 // --- END TEMPLATE DEFINITIONS ---
 
+/// Parse a `go_package` option value into an (import_path, package_alias) pair.
+///
+/// Handles two forms:
+/// - `"github.com/org/repo/pkg"` → alias derived from last path component (`"pkg"`)
+/// - `"github.com/org/repo/pkg;alias"` → explicit alias after the semicolon
+fn parse_go_package(go_pkg: &str) -> (String, String) {
+    if let Some(semi) = go_pkg.find(';') {
+        let import_path = go_pkg[..semi].to_string();
+        let alias = go_pkg[semi + 1..].to_string();
+        return (import_path, alias);
+    }
+    let alias = go_pkg.split('/').next_back().unwrap_or("pb").to_string();
+    (go_pkg.to_string(), alias)
+}
+
+/// Resolve a fully-qualified protobuf type (e.g. `.google.protobuf.Empty`) into:
+/// - the Go expression used in generated code (e.g. `emptypb.Empty`)
+/// - an optional `(alias, formatted_import_line)` for packages that need a new import
+///
+/// Types that belong to `current_proto_pkg` are handled via `types_alias` (the
+/// `types_import` parameter); all other packages are looked up in `proto_pkg_to_go`.
+fn resolve_proto_type(
+    qualified_type: &str,
+    current_proto_pkg: &str,
+    types_alias: &Option<String>,
+    proto_pkg_to_go: &HashMap<String, (String, String)>,
+) -> (String, Option<(String, String)>) {
+    let trimmed = qualified_type.trim_start_matches('.');
+    let bare = trimmed
+        .split('.')
+        .next_back()
+        .unwrap_or(trimmed)
+        .to_string();
+
+    // The proto package is everything before the last dot-component.
+    let type_proto_pkg = trimmed.rfind('.').map(|pos| &trimmed[..pos]).unwrap_or("");
+
+    if type_proto_pkg == current_proto_pkg || type_proto_pkg.is_empty() {
+        // Same package as the file being compiled — apply types_alias if set.
+        let qualified = match types_alias {
+            Some(alias) => format!("{}.{}", alias, bare),
+            None => bare,
+        };
+        (qualified, None)
+    } else if let Some((import_path, go_alias)) = proto_pkg_to_go.get(type_proto_pkg) {
+        // External proto package — add its Go import and qualify the type name.
+        let last_component = import_path.split('/').next_back().unwrap_or("");
+        let import_line = if go_alias == last_component {
+            format!("\"{}\"", import_path)
+        } else {
+            format!("{} \"{}\"", go_alias, import_path)
+        };
+        (
+            format!("{}.{}", go_alias, bare),
+            Some((go_alias.clone(), import_line)),
+        )
+    } else {
+        // No Go package info available — fall back to bare name.
+        (bare, None)
+    }
+}
+
 /// Generate Go slimrpc code from a CodeGeneratorRequest
 pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> {
     let params = common::parse_parameters(request.parameter.as_deref().unwrap_or(""));
@@ -438,6 +500,27 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
     } else {
         None
     };
+
+    // Build map: proto package name → (Go import path, Go package alias)
+    // Used to auto-detect imports for types that come from other proto files.
+    let mut proto_pkg_to_go: HashMap<String, (String, String)> = HashMap::new();
+    for file_desc in &request.proto_file {
+        let Some(proto_pkg) = &file_desc.package else {
+            continue;
+        };
+        let Some(go_pkg) = file_desc
+            .options
+            .as_ref()
+            .and_then(|o| o.go_package.as_ref())
+        else {
+            continue;
+        };
+        let (import_path, alias) = parse_go_package(go_pkg);
+        // First entry wins when multiple files share the same proto package.
+        proto_pkg_to_go
+            .entry(proto_pkg.clone())
+            .or_insert((import_path, alias));
+    }
 
     let mut response = CodeGeneratorResponse {
         supported_features: Some(1), // FEATURE_PROTO3_OPTIONAL
@@ -483,6 +566,21 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
                 .to_string()
         };
 
+        // Collect Go imports required by this file beyond the fixed set.
+        // Key = Go package alias, value = formatted import line (without leading tab/newline).
+        let mut extra_imports: HashMap<String, String> = HashMap::new();
+
+        // Seed with types_import if provided by the user.
+        if let (Some(path), Some(alias)) = (&types_import_path, &types_alias) {
+            let last_component = path.split('/').next_back().unwrap_or("");
+            let line = if alias.as_str() == last_component {
+                format!("\"{}\"", path)
+            } else {
+                format!("{} \"{}\"", alias, path)
+            };
+            extra_imports.insert(alias.clone(), line);
+        }
+
         let mut services_found = false;
         let mut service_definitions = String::new();
 
@@ -501,33 +599,19 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
             // Generate methods
             for method in &service.method {
                 let method_name = method.name.clone().context("Method name missing")?;
-                let input_type_bare = method
-                    .input_type
-                    .clone()
-                    .context("Input type missing")?
-                    .trim_start_matches('.')
-                    .split('.')
-                    .next_back()
-                    .unwrap_or("")
-                    .to_string();
-                let input_type = match &types_alias {
-                    Some(alias) => format!("{}.{}", alias, input_type_bare),
-                    None => input_type_bare,
-                };
+                let raw_input = method.input_type.clone().context("Input type missing")?;
+                let (input_type, input_import) =
+                    resolve_proto_type(&raw_input, &package_name, &types_alias, &proto_pkg_to_go);
+                if let Some((alias, line)) = input_import {
+                    extra_imports.insert(alias, line);
+                }
 
-                let output_type_bare = method
-                    .output_type
-                    .clone()
-                    .context("Output type missing")?
-                    .trim_start_matches('.')
-                    .split('.')
-                    .next_back()
-                    .unwrap_or("")
-                    .to_string();
-                let output_type = match &types_alias {
-                    Some(alias) => format!("{}.{}", alias, output_type_bare),
-                    None => output_type_bare,
-                };
+                let raw_output = method.output_type.clone().context("Output type missing")?;
+                let (output_type, output_import) =
+                    resolve_proto_type(&raw_output, &package_name, &types_alias, &proto_pkg_to_go);
+                if let Some((alias, line)) = output_import {
+                    extra_imports.insert(alias, line);
+                }
 
                 let is_client_streaming = method.client_streaming.unwrap_or(false);
                 let is_server_streaming = method.server_streaming.unwrap_or(false);
@@ -761,17 +845,13 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
                 .to_string()
                 + "_slimrpc.pb.go";
 
-            let proto_imports = match (&types_import_path, &types_alias) {
-                (Some(path), Some(alias)) => {
-                    let last_component = path.split('/').next_back().unwrap_or("");
-                    if alias == last_component {
-                        format!("\t\"{}\"\n", path)
-                    } else {
-                        format!("\t{} \"{}\"\n", alias, path)
-                    }
-                }
-                _ => String::new(),
-            };
+            // Sort imports alphabetically for deterministic output.
+            let mut import_lines: Vec<&String> = extra_imports.values().collect();
+            import_lines.sort();
+            let proto_imports: String = import_lines
+                .into_iter()
+                .map(|s| format!("\t{}\n", s))
+                .collect();
 
             let content = FILE_TEMPLATE
                 .replace("{{PROTO_FILE}}", &proto_file_name)
@@ -998,5 +1078,153 @@ mod tests {
         assert!(content.contains("*pb.Response"));
         // No bare type references
         assert!(!content.contains("*types.Request"));
+    }
+
+    /// Build a minimal FileDescriptorProto for an imported proto file whose types
+    /// are used as method inputs/outputs in another file.
+    fn create_import_file_descriptor(
+        file_name: &str,
+        proto_package: &str,
+        go_package: &str,
+    ) -> FileDescriptorProto {
+        use prost_types::FileOptions;
+        FileDescriptorProto {
+            name: Some(file_name.to_string()),
+            package: Some(proto_package.to_string()),
+            options: Some(FileOptions {
+                go_package: Some(go_package.to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_generate_with_imported_proto_type() {
+        // Service method uses google.protobuf.Empty from an imported proto file.
+        // The generator should auto-detect the Go package and add the import.
+        let service = ServiceDescriptorProto {
+            name: Some("TestService".to_string()),
+            method: vec![MethodDescriptorProto {
+                name: Some("Delete".to_string()),
+                input_type: Some(".test.Request".to_string()),
+                output_type: Some(".google.protobuf.Empty".to_string()),
+                client_streaming: Some(false),
+                server_streaming: Some(false),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let main_file = create_test_file_descriptor("test.proto", "test", vec![service]);
+        let empty_file = create_import_file_descriptor(
+            "google/protobuf/empty.proto",
+            "google.protobuf",
+            "google.golang.org/protobuf/types/known/emptypb",
+        );
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test.proto".to_string()],
+            proto_file: vec![main_file, empty_file],
+            ..Default::default()
+        };
+
+        let response = generate(request).unwrap();
+        let content = response.file[0].content.as_ref().unwrap();
+
+        // Import added automatically for the external package
+        assert!(
+            content.contains("\"google.golang.org/protobuf/types/known/emptypb\""),
+            "expected emptypb import, got:\n{}",
+            content
+        );
+        // Output type qualified with the Go alias
+        assert!(content.contains("*emptypb.Empty"));
+        // Input type from current package stays bare
+        assert!(content.contains("*Request"));
+        assert!(!content.contains("*test.Request"));
+    }
+
+    #[test]
+    fn test_generate_with_imported_proto_type_and_types_import() {
+        // Combines types_import (for same-package types) with an auto-detected
+        // import for a type from a different proto file.
+        let service = ServiceDescriptorProto {
+            name: Some("TestService".to_string()),
+            method: vec![MethodDescriptorProto {
+                name: Some("Delete".to_string()),
+                input_type: Some(".test.Request".to_string()),
+                output_type: Some(".google.protobuf.Empty".to_string()),
+                client_streaming: Some(false),
+                server_streaming: Some(false),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let main_file = create_test_file_descriptor("test.proto", "test", vec![service]);
+        let empty_file = create_import_file_descriptor(
+            "google/protobuf/empty.proto",
+            "google.protobuf",
+            "google.golang.org/protobuf/types/known/emptypb",
+        );
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test.proto".to_string()],
+            proto_file: vec![main_file, empty_file],
+            parameter: Some("types_import=github.com/org/repo/types".to_string()),
+            ..Default::default()
+        };
+
+        let response = generate(request).unwrap();
+        let content = response.file[0].content.as_ref().unwrap();
+
+        // Both imports present
+        assert!(content.contains("\"github.com/org/repo/types\""));
+        assert!(content.contains("\"google.golang.org/protobuf/types/known/emptypb\""));
+        // Same-package type uses types_alias, external type uses go_alias
+        assert!(content.contains("*types.Request"));
+        assert!(content.contains("*emptypb.Empty"));
+    }
+
+    #[test]
+    fn test_generate_with_go_package_semicolon_form() {
+        // go_package with "path;name" format — alias comes from the explicit name.
+        let service = ServiceDescriptorProto {
+            name: Some("TestService".to_string()),
+            method: vec![MethodDescriptorProto {
+                name: Some("Call".to_string()),
+                input_type: Some(".ext.Msg".to_string()),
+                output_type: Some(".test.Response".to_string()),
+                client_streaming: Some(false),
+                server_streaming: Some(false),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let main_file = create_test_file_descriptor("test.proto", "test", vec![service]);
+        let ext_file = create_import_file_descriptor(
+            "ext/msg.proto",
+            "ext",
+            "github.com/org/repo/internal/ext;extpb",
+        );
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test.proto".to_string()],
+            proto_file: vec![main_file, ext_file],
+            ..Default::default()
+        };
+
+        let response = generate(request).unwrap();
+        let content = response.file[0].content.as_ref().unwrap();
+
+        // The explicit alias "extpb" must appear in the import, not the dir name "ext"
+        assert!(
+            content.contains("extpb \"github.com/org/repo/internal/ext\""),
+            "expected aliased import, got:\n{}",
+            content
+        );
+        assert!(content.contains("*extpb.Msg"));
     }
 }
