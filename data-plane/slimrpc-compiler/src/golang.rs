@@ -420,13 +420,21 @@ const REGISTER_STREAM_STREAM_METHOD: &str = r#"	server.RegisterStreamStream("{{P
 pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> {
     let params = common::parse_parameters(request.parameter.as_deref().unwrap_or(""));
 
-    // Extract types_import (Go import path for proto types)
-    let types_import_path: Option<String> = params.get(TYPES_IMPORT).cloned();
+    // Extract types_import (Go import path for proto types), stripping any surrounding quotes
+    let types_import_path: Option<String> = params
+        .get(TYPES_IMPORT)
+        .map(|v| v.trim_matches('"').to_string());
 
-    // Determine package alias: explicit types_alias, or last component of import path
+    // Determine package alias: explicit types_alias, or last component of import path.
+    // Strip surrounding quotes to handle yaml values like types_alias="pb".
     let types_alias: Option<String> = if let Some(ref path) = types_import_path {
         let derived = path.split('/').next_back().unwrap_or("pb").to_string();
-        Some(params.get(TYPES_ALIAS).cloned().unwrap_or(derived))
+        Some(
+            params
+                .get(TYPES_ALIAS)
+                .map(|v| v.trim_matches('"').to_string())
+                .unwrap_or(derived),
+        )
     } else {
         None
     };
@@ -916,6 +924,43 @@ mod tests {
         // Types prefixed with derived alias "types"
         assert!(content.contains("*types.Request"));
         assert!(content.contains("*types.Response"));
+    }
+
+    #[test]
+    fn test_generate_with_quoted_types_alias() {
+        // types_alias value wrapped in quotes (e.g. from buf.gen.yaml: types_alias="pb")
+        // should produce the same output as the unquoted form
+        let service = ServiceDescriptorProto {
+            name: Some("TestService".to_string()),
+            method: vec![MethodDescriptorProto {
+                name: Some("Call".to_string()),
+                input_type: Some(".test.Request".to_string()),
+                output_type: Some(".test.Response".to_string()),
+                client_streaming: Some(false),
+                server_streaming: Some(false),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let file = create_test_file_descriptor("test.proto", "test", vec![service]);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test.proto".to_string()],
+            proto_file: vec![file],
+            parameter: Some(
+                "types_import=github.com/org/repo/types,types_alias=\"pb\"".to_string(),
+            ),
+            ..Default::default()
+        };
+
+        let response = generate(request).unwrap();
+        let content = response.file[0].content.as_ref().unwrap();
+
+        // Should produce aliased import without the extra quotes around the alias
+        assert!(content.contains("pb \"github.com/org/repo/types\""));
+        assert!(!content.contains("\"pb\""));
+        assert!(content.contains("*pb.Request"));
     }
 
     #[test]
