@@ -96,7 +96,7 @@ jobs:
           
           # Build and publish using Gradle
           ./gradlew publish \
-            -Pversion="$VERSION" \
+            -PpublishVersion="$VERSION" \
             --no-daemon \
             --stacktrace
           
