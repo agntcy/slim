@@ -341,6 +341,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "agntcy-slimctl"
+version = "0.1.0"
+dependencies = [
+ "agntcy-slim-config",
+ "agntcy-slim-controller",
+ "anyhow",
+ "clap",
+ "prost",
+ "prost-types",
+ "protoc-bin-vendored",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -60,6 +60,24 @@ tasks:
           BIN: "slim"
           BIN_ARGS: "--config ./config/telemetry/server-config.yaml"
 
+  data-plane:slimctl:run:
+    desc: "Run the Rust slimctl binary"
+    cmds:
+      - task: data-plane:run
+        vars:
+          BIN: "slimctl"
+          ARGS: "--package agntcy-slimctl"
+          BIN_ARGS: "{{.BIN_ARGS}}"
+    vars:
+      BIN_ARGS: '{{.BIN_ARGS | default "--help"}}'
+
+  data-plane:slimctl:build:
+    desc: "Build Rust slimctl and stage it in .dist/bin"
+    cmds:
+      - cargo build --package agntcy-slimctl
+      - mkdir -p ../.dist/bin
+      - cp target/debug/slimctl ../.dist/bin/slimctl
+
   data-plane:telemetry:start:
     desc: "Start telemetry stack"
     cmds:
