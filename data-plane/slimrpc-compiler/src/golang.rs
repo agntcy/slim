@@ -28,8 +28,7 @@ import (
 	slim_bindings "github.com/agntcy/slim-bindings-go"
 	"github.com/agntcy/slim-bindings-go/slimrpc"
 	"google.golang.org/protobuf/proto"
-{{PROTO_IMPORTS}}
-)
+{{PROTO_IMPORTS}})
 
 {{SERVICE_DEFINITIONS}}
 "#;
