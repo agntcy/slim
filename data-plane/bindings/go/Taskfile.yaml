@@ -230,27 +230,9 @@ tasks:
           exit 1
         fi
 
-        # Derive destination name from the target triple
-        TARGET="{{.TARGET}}"
-        ARCH=$(echo "$TARGET" | cut -d'-' -f1)
-        OS=$(echo "$TARGET" | cut -d'-' -f3)
-        ABI=$(echo "$TARGET" | cut -d'-' -f4)
-
-        # Determine extension and prefix from the library filename
-        case "$LIB_PATH" in
-          *.lib) LIB_EXT="lib"; LIB_PREFIX="" ;;
-          *)     LIB_EXT="a";   LIB_PREFIX="lib" ;;
-        esac
-
-        if [ -n "$ABI" ]; then
-          DEST_NAME="${LIB_PREFIX}{{.LIB_NAME}}_${ARCH}_${OS}_${ABI}.${LIB_EXT}"
-        else
-          DEST_NAME="${LIB_PREFIX}{{.LIB_NAME}}_${ARCH}_${OS}.${LIB_EXT}"
-        fi
-
         file_size=$(stat -f%z "$LIB_PATH" 2>/dev/null || stat -c%s "$LIB_PATH" 2>/dev/null)
-        echo "   $TARGET → $DEST_NAME ($((file_size / 1024 / 1024))MB)"
-        cp "$LIB_PATH" "$DEST_DIR/$DEST_NAME"
+        echo "   {{.TARGET}} → $(basename "$LIB_PATH") ($((file_size / 1024 / 1024))MB)"
+        cp "$LIB_PATH" "$DEST_DIR/"
       - echo "✅ Libraries in slim_bindings/:"
       - ls -lah "slim_bindings/"*{{.LIB_NAME}}*.a "slim_bindings/"*{{.LIB_NAME}}*.lib 2>/dev/null || echo "  (no library files found)"
     silent: true
