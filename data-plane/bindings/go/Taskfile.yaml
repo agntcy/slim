@@ -230,9 +230,28 @@ tasks:
           exit 1
         fi
 
+        # Derive destination name matching the -l flags in slim_bindings.go cgo directives:
+        # lib{{.LIB_NAME}}_${ARCH}_${OS}.a        (e.g. libslim_bindings_aarch64_darwin.a)
+        # lib{{.LIB_NAME}}_${ARCH}_${OS}_${ABI}.a (e.g. libslim_bindings_x86_64_linux_gnu.a)
+        TARGET="{{.TARGET}}"
+        ARCH=$(echo "$TARGET" | cut -d'-' -f1)
+        OS=$(echo  "$TARGET" | cut -d'-' -f3)
+        ABI=$(echo "$TARGET" | cut -d'-' -f4)
+
+        case "$LIB_PATH" in
+          *.lib) LIB_EXT="lib"; LIB_PREFIX="" ;;
+          *)     LIB_EXT="a";   LIB_PREFIX="lib" ;;
+        esac
+
+        if [ -n "$ABI" ]; then
+          DEST_NAME="${LIB_PREFIX}{{.LIB_NAME}}_${ARCH}_${OS}_${ABI}.${LIB_EXT}"
+        else
+          DEST_NAME="${LIB_PREFIX}{{.LIB_NAME}}_${ARCH}_${OS}.${LIB_EXT}"
+        fi
+
         file_size=$(stat -f%z "$LIB_PATH" 2>/dev/null || stat -c%s "$LIB_PATH" 2>/dev/null)
-        echo "   {{.TARGET}} → $(basename "$LIB_PATH") ($((file_size / 1024 / 1024))MB)"
-        cp "$LIB_PATH" "$DEST_DIR/"
+        echo "   $TARGET → $DEST_NAME ($((file_size / 1024 / 1024))MB)"
+        cp "$LIB_PATH" "$DEST_DIR/$DEST_NAME"
       - echo "✅ Libraries in slim_bindings/:"
       - ls -lah "slim_bindings/"*{{.LIB_NAME}}*.a "slim_bindings/"*{{.LIB_NAME}}*.lib 2>/dev/null || echo "  (no library files found)"
     silent: true
