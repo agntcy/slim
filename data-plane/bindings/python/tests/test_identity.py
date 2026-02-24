@@ -9,7 +9,9 @@ import pytest
 
 import slim_bindings
 
-keys_folder = f"{pathlib.Path(__file__).parent.resolve()}/testdata"
+# Shared certs: data-plane/testdata/certs (from tests/ -> bindings/python -> bindings -> data-plane)
+_keys_dir = pathlib.Path(__file__).resolve().parent.parent.parent.parent / "testdata" / "certs"
+keys_folder = str(_keys_dir)
 
 test_audience = ["test.audience"]
 

@@ -125,14 +125,15 @@ class IdentityTest {
             val senderName = Name("org", "default", "id_sender")
             val receiverName = Name("org", "default", "id_receiver")
             
-            // Keys used for signing JWTs of sender
-            val privateKeySender = "src/test/resources/testdata/ec256.pem"
-            val publicKeySender = "src/test/resources/testdata/ec256-public.pem"
+            // Keys used for signing JWTs of sender (shared: data-plane/testdata/certs)
+            val certsDir = "../../testdata/certs"
+            val privateKeySender = "$certsDir/ec256.pem"
+            val publicKeySender = "$certsDir/ec256-public.pem"
             val algorithmSender = JwtAlgorithm.ES256
             
             // Keys used for signing JWTs of receiver
-            val privateKeyReceiver = "src/test/resources/testdata/ec384.pem"
-            val publicKeyReceiver = "src/test/resources/testdata/ec384-public.pem"
+            val privateKeyReceiver = "$certsDir/ec384.pem"
+            val publicKeyReceiver = "$certsDir/ec384-public.pem"
             val algorithmReceiver = JwtAlgorithm.ES384
             
             // Create new app object. Note that the verifier will use the public key of the receiver
