@@ -58,7 +58,6 @@ def format_message_print(message1: str, message2: str = "") -> None:
     print(format_message(message1, message2))
 
 
-
 def jwt_identity(
     jwt_path: str,
     spire_bundle_path: str,
