@@ -47,5 +47,32 @@ target 'TestApp' do
         end
       end
     end
+
+    # Ensure libslim_bindings is linked (fixes undefined symbol: ffi_slim_bindings_*)
+    # AgntcySlimBindings.a has undefined refs to the Rust lib; must be linked into final app
+    # Use absolute paths - PODS_TARGET_SRCROOT may not resolve in aggregate xcconfig
+    slim_bindings_path = File.join(File.dirname(Pod::Config.instance.installation_root), 'node_modules', '@agntcy', 'slim-bindings')
+    slim_bindings_path = File.realpath(slim_bindings_path) if File.exist?(slim_bindings_path)
+    if File.directory?(slim_bindings_path)
+      xcf = File.join(slim_bindings_path, 'ios', 'SlimBindings.xcframework')
+      device_lib = File.join(xcf, 'ios-arm64')
+      sim_lib = File.join(xcf, 'ios-arm64-simulator')
+      if File.directory?(device_lib) && File.directory?(sim_lib)
+        marker = '// AgntcySlimBindings: link Rust lib'
+        append = "\n#{marker} (fixes ffi_slim_bindings_* undefined symbols)\n"
+        # Use $(LIBRARY_SEARCH_PATHS) to preserve base paths (incl. AgntcySlimBindings build dir), add SDK-specific Rust lib path
+        append += "LIBRARY_SEARCH_PATHS[sdk=iphoneos*] = $(LIBRARY_SEARCH_PATHS) \"#{device_lib}\"\n"
+        append += "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*] = $(LIBRARY_SEARCH_PATHS) \"#{sim_lib}\"\n"
+        append += "OTHER_LDFLAGS = $(OTHER_LDFLAGS) -lslim_bindings\n"
+        pods_target_support = File.join(installer.sandbox.root, 'Target Support Files', 'Pods-TestApp')
+        ['debug', 'release'].each do |config|
+          xcconfig_path = File.join(pods_target_support, "Pods-TestApp.#{config}.xcconfig")
+          next unless File.exist?(xcconfig_path)
+          content = File.read(xcconfig_path)
+          next if content.include?(marker)
+          File.write(xcconfig_path, content + append)
+        end
+      end
+    end
   end
 end

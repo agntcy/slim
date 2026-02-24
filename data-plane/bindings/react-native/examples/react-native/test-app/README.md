@@ -28,17 +28,21 @@ This app tests that the generated JSI bindings work correctly on iOS and Android
 
 ## Setup
 
-From the project root (`data-plane/bindings/javascript`):
+From the React Native bindings root (`data-plane/bindings/react-native`):
 
 ```bash
+# Build SlimBindings.xcframework (required for iOS; fixes undefined symbol errors)
+task prepare:ios
+
 # Set up the test app
 task test:e2e:setup
 ```
 
 This will:
-1. Install npm dependencies
-2. Install iOS pods
-3. Link the local SLIM bindings
+1. Build the iOS XCFramework (device + simulator)
+2. Install npm dependencies
+3. Install iOS pods
+4. Link the local SLIM bindings
 
 ## Running Tests
 

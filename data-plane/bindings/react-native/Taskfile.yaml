@@ -335,19 +335,41 @@ tasks:
       - echo "📦 Vendoring iOS static libs..."
       - |
         TASKFILE_DIR="{{.TASKFILE_DIR}}"
+        TARGET_DIR="$TASKFILE_DIR/../../target"
         TARGETS="{{.IOS_VENDOR_TARGETS}}"
         for TARGET in $TARGETS; do
-          SRC="$TASKFILE_DIR/../../target/$TARGET/release/libslim_bindings.a"
-          DEST_DIR="$TASKFILE_DIR/ios/static/$TARGET"
-          if [ -f "$SRC" ]; then
-            mkdir -p "$DEST_DIR"
-            cp -v "$SRC" "$DEST_DIR/"
-            echo "  ✅ $TARGET"
-          else
-            echo "  ⚠️  Not found: $SRC"
+          for CANDIDATE in "$TARGET_DIR/$TARGET/release/libslim_bindings.a" "$TARGET_DIR/$TARGET/release/deps/libslim_bindings.a" "$TARGET_DIR/$TARGET/debug/libslim_bindings.a" "$TARGET_DIR/$TARGET/debug/deps/libslim_bindings.a"; do
+            if [ -f "$CANDIDATE" ]; then
+              DEST_DIR="$TASKFILE_DIR/ios/static/$TARGET"
+              mkdir -p "$DEST_DIR"
+              cp -v "$CANDIDATE" "$DEST_DIR/libslim_bindings.a"
+              echo "  ✅ $TARGET"
+              break
+            fi
+          done
+          if [ ! -f "$TASKFILE_DIR/ios/static/$TARGET/libslim_bindings.a" ]; then
+            echo "  ⚠️  Not found: $TARGET_DIR/$TARGET/release/libslim_bindings.a (or deps/)"
           fi
         done
       - echo "✅ Vendored to ios/static/"
+    silent: false
+
+  # Alias: task prepare runs prepare:ios (build XCFramework for local iOS dev)
+  prepare:
+    desc: Alias for prepare:ios - build SlimBindings.xcframework for iOS
+    cmds:
+      - task prepare:ios
+
+  # One-shot: build both iOS targets, vendor, and create XCFramework. Use this for local iOS dev
+  # when SlimBindings.xcframework is missing (e.g. after clone, task clean, or using file: dep).
+  prepare:ios:
+    desc: Build Rust for iOS (device + sim), vendor libs, and create SlimBindings.xcframework
+    cmds:
+      - echo "🍎 Preparing iOS XCFramework (device + simulator)..."
+      - task adapter:bindings:build:all TARGET=aarch64-apple-ios PROFILE=release
+      - BINDGEN_EXTRA_CLANG_ARGS="-isysroot $(xcrun --sdk iphonesimulator --show-sdk-path) -target arm64-apple-ios15.0-simulator" task adapter:bindings:build:all TARGET=aarch64-apple-ios-sim PROFILE=release
+      - task xcframework:ios
+      - echo "✅ SlimBindings.xcframework ready. Run 'cd examples/react-native/test-app/ios && pod install' then build from Xcode."
     silent: false
 
   # Create XCFramework from vendored iOS static libs (device + simulator). Requires vendor:ios first.
