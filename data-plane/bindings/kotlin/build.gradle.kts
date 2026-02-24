@@ -246,8 +246,8 @@ tasks.register<Jar>("groupJar") {
 // Maven Central Publishing Configuration
 // ==========================================================================
 
-// Extract version from project property or tag (set via -Pversion=x.y.z in CI)
-val publishVersion = project.findProperty("version") as String? ?: version.toString()
+// Extract version from project property or tag (set via -PpublishVersion=x.y.z in CI)
+val publishVersion = project.findProperty("publishVersion") as String? ?: version.toString()
 
 // Sources JAR (required by Maven Central)
 val sourcesJar by tasks.registering(Jar::class) {
