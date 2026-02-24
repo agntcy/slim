@@ -217,54 +217,40 @@ tasks:
     silent: true
 
   copy-library:
-    desc: Copy static libraries from all built targets to the generated directory
+    desc: Copy the static library for the current target to the generated directory
     internal: true
     cmds:
-      - echo "📦 Copying static libraries..."
+      - echo "📦 Copying static library for {{.TARGET}}..."
       - |
-        TARGET_BASE=$(dirname "$(dirname "$(dirname '{{.LIB_PATH}}')")")
+        LIB_PATH='{{.LIB_PATH}}'
         DEST_DIR="slim_bindings"
-        found_any=false
 
-        # Scan all target/*/{PROFILE}/ directories for static libraries
-        for target_release_dir in "$TARGET_BASE"/*/{{.PROFILE}}; do
-          [ -d "$target_release_dir" ] || continue
-
-          # Find the static library (Unix: .a, Windows: .lib)
-          if [ -f "$target_release_dir/lib{{.LIB_NAME}}.a" ]; then
-            lib_file="$target_release_dir/lib{{.LIB_NAME}}.a"
-            LIB_EXT="a"
-            LIB_PREFIX="lib"
-          elif [ -f "$target_release_dir/{{.LIB_NAME}}.lib" ]; then
-            lib_file="$target_release_dir/{{.LIB_NAME}}.lib"
-            LIB_EXT="lib"
-            LIB_PREFIX=""
-          else
-            continue
-          fi
-
-          # Derive platform-specific destination name from the target triple
-          target=$(basename "$(dirname "$target_release_dir")")
-          ARCH=$(echo "$target" | cut -d'-' -f1)
-          OS=$(echo "$target" | cut -d'-' -f3)
-          ABI=$(echo "$target" | cut -d'-' -f4)
-
-          if [ -n "$ABI" ] && [ "$ABI" != "" ]; then
-            DEST_NAME="${LIB_PREFIX}{{.LIB_NAME}}_${ARCH}_${OS}_${ABI}.${LIB_EXT}"
-          else
-            DEST_NAME="${LIB_PREFIX}{{.LIB_NAME}}_${ARCH}_${OS}.${LIB_EXT}"
-          fi
-
-          file_size=$(stat -f%z "$lib_file" 2>/dev/null || stat -c%s "$lib_file" 2>/dev/null)
-          echo "   $target → $DEST_NAME ($((file_size / 1024 / 1024))MB)"
-          cp "$lib_file" "$DEST_DIR/$DEST_NAME"
-          found_any=true
-        done
-
-        if [ "$found_any" = false ]; then
-          echo "⚠️  No static libraries found under $TARGET_BASE"
+        if [ ! -f "$LIB_PATH" ]; then
+          echo "⚠️  Library not found: $LIB_PATH"
           exit 1
         fi
+
+        # Derive destination name from the target triple
+        TARGET="{{.TARGET}}"
+        ARCH=$(echo "$TARGET" | cut -d'-' -f1)
+        OS=$(echo "$TARGET" | cut -d'-' -f3)
+        ABI=$(echo "$TARGET" | cut -d'-' -f4)
+
+        # Determine extension and prefix from the library filename
+        case "$LIB_PATH" in
+          *.lib) LIB_EXT="lib"; LIB_PREFIX="" ;;
+          *)     LIB_EXT="a";   LIB_PREFIX="lib" ;;
+        esac
+
+        if [ -n "$ABI" ]; then
+          DEST_NAME="${LIB_PREFIX}{{.LIB_NAME}}_${ARCH}_${OS}_${ABI}.${LIB_EXT}"
+        else
+          DEST_NAME="${LIB_PREFIX}{{.LIB_NAME}}_${ARCH}_${OS}.${LIB_EXT}"
+        fi
+
+        file_size=$(stat -f%z "$LIB_PATH" 2>/dev/null || stat -c%s "$LIB_PATH" 2>/dev/null)
+        echo "   $TARGET → $DEST_NAME ($((file_size / 1024 / 1024))MB)"
+        cp "$LIB_PATH" "$DEST_DIR/$DEST_NAME"
       - echo "✅ Libraries in slim_bindings/:"
       - ls -lah "slim_bindings/"*{{.LIB_NAME}}*.a "slim_bindings/"*{{.LIB_NAME}}*.lib 2>/dev/null || echo "  (no library files found)"
     silent: true
