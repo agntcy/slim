@@ -435,12 +435,12 @@ fn parse_go_package(go_pkg: &str) -> (String, String) {
 /// - an optional `(alias, formatted_import_line)` for packages that need a new import
 ///
 /// Types that belong to `current_proto_pkg` are handled via `types_alias` (the
-/// `types_import` parameter); all other packages are looked up in `proto_pkg_to_go`.
+/// `types_import` parameter); all other types are looked up in `type_to_go`.
 fn resolve_proto_type(
     qualified_type: &str,
     current_proto_pkg: &str,
     types_alias: &Option<String>,
-    proto_pkg_to_go: &HashMap<String, (String, String)>,
+    type_to_go: &HashMap<String, (String, String)>,
 ) -> (String, Option<(String, String)>) {
     let trimmed = qualified_type.trim_start_matches('.');
     let bare = trimmed
@@ -459,8 +459,11 @@ fn resolve_proto_type(
             None => bare,
         };
         (qualified, None)
-    } else if let Some((import_path, go_alias)) = proto_pkg_to_go.get(type_proto_pkg) {
-        // External proto package — add its Go import and qualify the type name.
+    } else if let Some((import_path, go_alias)) = type_to_go.get(trimmed) {
+        // External type — add its Go import and qualify the type name.
+        // Look up by fully-qualified type name so that types from the same proto
+        // package but different Go packages (e.g. google.protobuf.Empty vs
+        // google.protobuf.FileDescriptorProto) resolve correctly.
         let last_component = import_path.split('/').next_back().unwrap_or("");
         let import_line = if go_alias == last_component {
             format!("\"{}\"", import_path)
@@ -500,9 +503,11 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
         None
     };
 
-    // Build map: proto package name → (Go import path, Go package alias)
-    // Used to auto-detect imports for types that come from other proto files.
-    let mut proto_pkg_to_go: HashMap<String, (String, String)> = HashMap::new();
+    // Build map: fully-qualified proto type name → (Go import path, Go package alias).
+    // Keyed per-type rather than per-package because proto packages can span multiple
+    // Go packages (e.g. google.protobuf.Empty lives in emptypb while
+    // google.protobuf.FileDescriptorProto lives in descriptorpb).
+    let mut type_to_go: HashMap<String, (String, String)> = HashMap::new();
     for file_desc in &request.proto_file {
         let Some(proto_pkg) = &file_desc.package else {
             continue;
@@ -515,10 +520,14 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
             continue;
         };
         let (import_path, alias) = parse_go_package(go_pkg);
-        // First entry wins when multiple files share the same proto package.
-        proto_pkg_to_go
-            .entry(proto_pkg.clone())
-            .or_insert((import_path, alias));
+        for msg in &file_desc.message_type {
+            if let Some(msg_name) = &msg.name {
+                let fqn = format!("{}.{}", proto_pkg, msg_name);
+                type_to_go
+                    .entry(fqn)
+                    .or_insert((import_path.clone(), alias.clone()));
+            }
+        }
     }
 
     let mut response = CodeGeneratorResponse {
@@ -600,14 +609,14 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
                 let method_name = method.name.clone().context("Method name missing")?;
                 let raw_input = method.input_type.clone().context("Input type missing")?;
                 let (input_type, input_import) =
-                    resolve_proto_type(&raw_input, &package_name, &types_alias, &proto_pkg_to_go);
+                    resolve_proto_type(&raw_input, &package_name, &types_alias, &type_to_go);
                 if let Some((alias, line)) = input_import {
                     extra_imports.insert(alias, line);
                 }
 
                 let raw_output = method.output_type.clone().context("Output type missing")?;
                 let (output_type, output_import) =
-                    resolve_proto_type(&raw_output, &package_name, &types_alias, &proto_pkg_to_go);
+                    resolve_proto_type(&raw_output, &package_name, &types_alias, &type_to_go);
                 if let Some((alias, line)) = output_import {
                     extra_imports.insert(alias, line);
                 }
@@ -1081,12 +1090,16 @@ mod tests {
 
     /// Build a minimal FileDescriptorProto for an imported proto file whose types
     /// are used as method inputs/outputs in another file.
+    ///
+    /// `message_names` should list every message type defined in the file so that
+    /// the per-type lookup map is populated correctly.
     fn create_import_file_descriptor(
         file_name: &str,
         proto_package: &str,
         go_package: &str,
+        message_names: &[&str],
     ) -> FileDescriptorProto {
-        use prost_types::FileOptions;
+        use prost_types::{DescriptorProto, FileOptions};
         FileDescriptorProto {
             name: Some(file_name.to_string()),
             package: Some(proto_package.to_string()),
@@ -1094,6 +1107,13 @@ mod tests {
                 go_package: Some(go_package.to_string()),
                 ..Default::default()
             }),
+            message_type: message_names
+                .iter()
+                .map(|n| DescriptorProto {
+                    name: Some(n.to_string()),
+                    ..Default::default()
+                })
+                .collect(),
             ..Default::default()
         }
     }
@@ -1120,6 +1140,7 @@ mod tests {
             "google/protobuf/empty.proto",
             "google.protobuf",
             "google.golang.org/protobuf/types/known/emptypb",
+            &["Empty"],
         );
 
         let request = CodeGeneratorRequest {
@@ -1166,6 +1187,7 @@ mod tests {
             "google/protobuf/empty.proto",
             "google.protobuf",
             "google.golang.org/protobuf/types/known/emptypb",
+            &["Empty"],
         );
 
         let request = CodeGeneratorRequest {
@@ -1207,6 +1229,7 @@ mod tests {
             "ext/msg.proto",
             "ext",
             "github.com/org/repo/internal/ext;extpb",
+            &["Msg"],
         );
 
         let request = CodeGeneratorRequest {
@@ -1225,5 +1248,63 @@ mod tests {
             content
         );
         assert!(content.contains("*extpb.Msg"));
+    }
+
+    #[test]
+    fn test_generate_disambiguates_shared_proto_package() {
+        // Regression test: two files share the proto package "google.protobuf" but map
+        // to different Go packages.  descriptor.proto appears *before* empty.proto in
+        // the proto_file list (as buf orders them), so a package-keyed map would
+        // incorrectly resolve google.protobuf.Empty to descriptorpb.
+        let service = ServiceDescriptorProto {
+            name: Some("TestService".to_string()),
+            method: vec![MethodDescriptorProto {
+                name: Some("Delete".to_string()),
+                input_type: Some(".test.Request".to_string()),
+                output_type: Some(".google.protobuf.Empty".to_string()),
+                client_streaming: Some(false),
+                server_streaming: Some(false),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let main_file = create_test_file_descriptor("test.proto", "test", vec![service]);
+        // descriptor.proto comes first — must NOT poison the lookup for Empty
+        let descriptor_file = create_import_file_descriptor(
+            "google/protobuf/descriptor.proto",
+            "google.protobuf",
+            "google.golang.org/protobuf/types/descriptorpb",
+            &["FileDescriptorProto", "DescriptorProto"],
+        );
+        let empty_file = create_import_file_descriptor(
+            "google/protobuf/empty.proto",
+            "google.protobuf",
+            "google.golang.org/protobuf/types/known/emptypb",
+            &["Empty"],
+        );
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test.proto".to_string()],
+            // descriptor.proto intentionally first, matching buf's ordering
+            proto_file: vec![main_file, descriptor_file, empty_file],
+            ..Default::default()
+        };
+
+        let response = generate(request).unwrap();
+        let content = response.file[0].content.as_ref().unwrap();
+
+        // Must import emptypb, not descriptorpb
+        assert!(
+            content.contains("\"google.golang.org/protobuf/types/known/emptypb\""),
+            "expected emptypb import, got:\n{}",
+            content
+        );
+        assert!(
+            !content.contains("descriptorpb"),
+            "unexpected descriptorpb import, got:\n{}",
+            content
+        );
+        assert!(content.contains("*emptypb.Empty"));
     }
 }
