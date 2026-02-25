@@ -44,21 +44,6 @@ use crate::component::configuration::Configuration;
 use crate::grpc::proxy::ProxyConfig;
 use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoader};
 
-/// Rewrites an http:// URI to https://.
-///
-/// Used in the connector chain to ensure HttpsConnector performs TLS even when
-/// the tonic Endpoint URI was changed to http:// to bypass tonic's internal
-/// service::Connector TLS check (which fails with HttpsUriWithoutTlsSupport
-/// when no tls_config() is set on the endpoint).
-pub fn rewrite_http_to_https(uri: Uri) -> Uri {
-    if uri.scheme_str() != Some("http") {
-        return uri;
-    }
-    let mut parts = uri.clone().into_parts();
-    parts.scheme = Some("https".parse().expect("https is a valid scheme"));
-    Uri::from_parts(parts).unwrap_or(uri)
-}
-
 /// Creates an HTTPS connector with optional SNI based on the origin
 pub fn https_connector<S>(
     s: S,
@@ -84,17 +69,11 @@ where
 /// Macro to create TLS-enabled or plain connectors based on TLS configuration,
 /// applying the optional origin (for SNI) when TLS is enabled.
 /// Supports both lazy and eager connection modes.
-///
-/// When TLS is configured, tonic's Endpoint URI is set to http:// (to bypass
-/// tonic's service::Connector TLS check which would fail with tls=None). The
-/// URI rewriter layer in the connector chain converts http:// → https:// so
-/// that HttpsConnector still performs the TLS handshake.
 macro_rules! create_connector {
     ($builder:expr, $base_connector:expr, $tls_config:expr, $server_name:expr, $lazy:expr) => {
         match ($tls_config, $lazy) {
             (Some(tls), true) => {
                 let connector = tower::ServiceBuilder::new()
-                    .map_request(rewrite_http_to_https)
                     .layer_fn(move |s| {
                         https_connector(s, &tls, $server_name.map(|s: &str| s.to_string()))
                     })
@@ -103,7 +82,6 @@ macro_rules! create_connector {
             }
             (Some(tls), false) => {
                 let connector = tower::ServiceBuilder::new()
-                    .map_request(rewrite_http_to_https)
                     .layer_fn(move |s| {
                         https_connector(s, &tls, $server_name.map(|s: &str| s.to_string()))
                     })
@@ -829,29 +807,8 @@ impl ClientConfig {
 
     async fn connect_tcp_channel(&self, uri: Uri, lazy: bool) -> Result<Channel, ConfigError> {
         let http_connector = self.create_http_connector()?;
+        let builder = self.create_channel_builder(uri.clone())?;
         let tls_config = self.load_tls_config().await?;
-
-        // Only use TLS when connecting to an https:// endpoint.
-        // load_tls_config() may return Some even for http:// endpoints (e.g., when
-        // insecure=false causes system CAs to be loaded). We must discard the TLS
-        // config for http:// endpoints to avoid forcing a TLS handshake on a plain
-        // HTTP server, which would cause an infinite TransportError retry loop.
-        //
-        // For https:// endpoints with TLS config, the Endpoint URI is rewritten from
-        // https:// to http:// to bypass tonic's service::Connector check that returns
-        // HttpsUriWithoutTlsSupport when endpoint.tls_config() is not set. The
-        // connector chain's map_request layer rewrites it back to https:// so that
-        // HttpsConnector still performs the TLS handshake.
-        let (builder_uri, tls_config) = if tls_config.is_some() && uri.scheme_str() == Some("https")
-        {
-            let mut parts = uri.clone().into_parts();
-            parts.scheme = Some("http".parse().expect("http is a valid scheme"));
-            let rewritten = Uri::from_parts(parts).map_err(|_| ConfigError::Unknown)?;
-            (rewritten, tls_config)
-        } else {
-            (uri.clone(), None)
-        };
-        let builder = self.create_channel_builder(builder_uri)?;
 
         if lazy {
             let connection = self.create_connection(uri, http_connector).await?;
