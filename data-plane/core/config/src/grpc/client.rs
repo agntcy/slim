@@ -75,7 +75,7 @@ macro_rules! create_connector {
             (Some(tls), true) => {
                 let connector = tower::ServiceBuilder::new()
                     .layer_fn(move |s| {
-                        https_connector(s, &tls, $server_name.map(|s: &str| s.to_string()))
+                        https_connector(s, &tls, $server_name.map(|s| s.to_string()))
                     })
                     .service($base_connector);
                 Ok($builder.connect_with_connector_lazy(connector))
@@ -83,7 +83,7 @@ macro_rules! create_connector {
             (Some(tls), false) => {
                 let connector = tower::ServiceBuilder::new()
                     .layer_fn(move |s| {
-                        https_connector(s, &tls, $server_name.map(|s: &str| s.to_string()))
+                        https_connector(s, &tls, $server_name.map(|s| s.to_string()))
                     })
                     .service($base_connector);
                 let ret = $builder.connect_with_connector(connector).await?;
