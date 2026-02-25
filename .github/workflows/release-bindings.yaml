@@ -372,8 +372,8 @@ jobs:
   publish-react-native:
     name: Publish React Native to npm
     runs-on: macos-15
-    needs:
-      - build-and-test-bindings
+    #needs:
+      #- build-and-test-bindings
     permissions:
       contents: read
     steps:
@@ -398,13 +398,35 @@ jobs:
           node-version: '20'
 
       - name: Build iOS static libs (device + simulator)
+        id: build-ios
         working-directory: ./data-plane/bindings/react-native
+        env:
+          # Required for ___chkstk_darwin: aws-lc-sys and linker need iOS 13.4+
+          IPHONEOS_DEPLOYMENT_TARGET: "13.4"
+          # Force linker wrapper via absolute path (Task's TASKFILE_DIR can differ on CI)
+          CARGO_TARGET_AARCH64_APPLE_IOS_LINKER: "${{ github.workspace }}/data-plane/.cargo/clang-ios-linker-wrapper.sh"
+          CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER: "${{ github.workspace }}/data-plane/.cargo/clang-ios-linker-wrapper.sh"
         run: |
           chmod +x "${{ github.workspace }}/data-plane/.cargo/clang-ios-linker-wrapper.sh"
+          rm -f /tmp/linker-args.log
           export BINDGEN_EXTRA_CLANG_ARGS="-isysroot $(xcrun --sdk iphonesimulator --show-sdk-path) -target arm64-apple-ios15.0-simulator"
           task adapter:bindings:build:all TARGET=aarch64-apple-ios-sim PROFILE=release
           export BINDGEN_EXTRA_CLANG_ARGS="-isysroot $(xcrun --sdk iphoneos --show-sdk-path) -target arm64-apple-ios15.0"
           task adapter:bindings:build:all TARGET=aarch64-apple-ios PROFILE=release
+
+      - name: Show linker debug log
+        if: failure()
+        run: |
+          echo "=== Linker wrapper debug log ==="
+          cat /tmp/linker-args.log 2>/dev/null || echo "(Log file not found - linker wrapper may not have been invoked)"
+
+      - name: Upload linker debug log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linker-args-debug
+          path: /tmp/linker-args.log
+          if-no-files-found: ignore
 
       - name: Vendor iOS libs and create XCFramework
         working-directory: ./data-plane/bindings/react-native

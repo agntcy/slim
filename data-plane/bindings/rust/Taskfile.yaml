@@ -65,9 +65,10 @@ tasks:
         elif [[ "{{.TARGET}}" == *"apple-ios"* || "{{.TARGET}}" == *"apple-darwin"* ]]; then
           # Apple targets (iOS, iOS Simulator, macOS) - use regular cargo build
           # Force linker wrapper for iOS so -target 10.0 is rewritten to 13.4 (___chkstk_darwin)
+          # Only set if not already set (e.g. by CI with absolute path)
           IOS_LINKER_WRAPPER="$(cd "{{.TASKFILE_DIR}}/../../.cargo" && pwd)/clang-ios-linker-wrapper.sh"
-          export CARGO_TARGET_AARCH64_APPLE_IOS_LINKER="$IOS_LINKER_WRAPPER"
-          export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER="$IOS_LINKER_WRAPPER"
+          [[ -z "${CARGO_TARGET_AARCH64_APPLE_IOS_LINKER:-}" ]] && export CARGO_TARGET_AARCH64_APPLE_IOS_LINKER="$IOS_LINKER_WRAPPER"
+          [[ -z "${CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER:-}" ]] && export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER="$IOS_LINKER_WRAPPER"
           ARGS=(
             "build"
             "--target"
