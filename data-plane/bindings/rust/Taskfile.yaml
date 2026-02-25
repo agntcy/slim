@@ -19,7 +19,12 @@ tasks:
     silent: true
     cmds:
       - echo "🦀 Building Rust bindings library... {{.TARGET}}"
-      - task: rust:crossbuild
-        vars:
-          ARGS: --config 'profile.release.strip="none"'
+      - |
+        TARGET_ARG=""
+        [ -n "{{.TARGET}}" ] && TARGET_ARG="TARGET={{.TARGET}}"
+        if [ "{{.TARGET}}" = "x86_64-unknown-linux-gnu" ]; then
+          task rust:crossbuild $TARGET_ARG ARGS='--config profile.release.strip="none"'
+        else
+          task rust:crossbuild $TARGET_ARG
+        fi
       - echo "🦀 Rust bindings library built successfully."
