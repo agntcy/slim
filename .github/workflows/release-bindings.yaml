@@ -372,8 +372,8 @@ jobs:
   publish-react-native:
     name: Publish React Native to npm
     runs-on: macos-15
-    #needs:
-      #- build-and-test-bindings
+    needs:
+      - build-and-test-bindings
     permissions:
       contents: read
     steps:
@@ -414,20 +414,6 @@ jobs:
           export BINDGEN_EXTRA_CLANG_ARGS="-isysroot $(xcrun --sdk iphoneos --show-sdk-path) -target arm64-apple-ios15.0"
           task adapter:bindings:build:all TARGET=aarch64-apple-ios PROFILE=release
 
-      - name: Show linker debug log
-        if: failure()
-        run: |
-          echo "=== Linker wrapper debug log ==="
-          cat /tmp/linker-args.log 2>/dev/null || echo "(Log file not found - linker wrapper may not have been invoked)"
-
-      - name: Upload linker debug log
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: linker-args-debug
-          path: /tmp/linker-args.log
-          if-no-files-found: ignore
-
       - name: Vendor iOS libs and create XCFramework
         working-directory: ./data-plane/bindings/react-native
         run: |
@@ -457,4 +443,3 @@ jobs:
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-

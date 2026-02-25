@@ -54,10 +54,8 @@ tasks:
     status:
       - sh -c 'find "{{.TASKFILE_DIR}}/../../target/{{.TARGET}}/release" -maxdepth 1 -name "*slim_bindings*" -type f 2>/dev/null | grep -q .'
     cmds:
-      - task: adapter:bindings:build:all
-        vars:
-          TARGET: "{{.TARGET}}"
-          PROFILE: release
+      # Use CLI invocation so PROFILE=release propagates (task: vars can drop through nested includes)
+      - task adapter:bindings:build:all TARGET={{.TARGET}} PROFILE=release
 
   generate:
     desc: Generate Node.js bindings using uniffi-bindgen-node
@@ -96,15 +94,21 @@ tasks:
         fi
         DEFAULT_LIB="${DYLIB_PREFIX}${LIB_NAME}.${DYLIB_EXT}"
 
+        # Try target/TARGET/release first; when TARGET equals host, Cargo may use target/release/
+        HOST_RELEASE_DIR="${TASKFILE_DIR}/../../target/${PROFILE}"
         if [ -f "${RELEASE_DIR}/${DEFAULT_LIB}" ]; then
           DYLIB_PATH="${RELEASE_DIR}/${DEFAULT_LIB}"
         elif [ -f "${RELEASE_DIR}/${RENAMED_LIB}" ]; then
           DYLIB_PATH="${RELEASE_DIR}/${RENAMED_LIB}"
+        elif [ -f "${HOST_RELEASE_DIR}/${DEFAULT_LIB}" ]; then
+          DYLIB_PATH="${HOST_RELEASE_DIR}/${DEFAULT_LIB}"
+        elif [ -f "${HOST_RELEASE_DIR}/${RENAMED_LIB}" ]; then
+          DYLIB_PATH="${HOST_RELEASE_DIR}/${RENAMED_LIB}"
         else
-          echo "❌ Error: Library not found in ${RELEASE_DIR}"
+          echo "❌ Error: Library not found in ${RELEASE_DIR} or ${HOST_RELEASE_DIR}"
           echo "   Tried: ${RENAMED_LIB}, ${DEFAULT_LIB}"
-          ls -la "${RELEASE_DIR}/" | grep slim || true
-          ls -la "${TASKFILE_DIR}/../../target/${PROFILE}/" 2>/dev/null | grep slim || true
+          ls -la "${RELEASE_DIR}/" 2>/dev/null | grep slim || true
+          ls -la "${HOST_RELEASE_DIR}/" 2>/dev/null | grep slim || true
           exit 1
         fi
 

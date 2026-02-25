@@ -17,6 +17,11 @@ env:
 
 vars:
   GNU_CLIB_VERSION: 2.28
+  # Default to release for bindings; overrides rust.yaml's default "debug" so vars propagate correctly
+  # when called from node/react-native/etc. (nested includes can drop PROFILE propagation)
+  PROFILE: '{{.PROFILE | default "release"}}'
+  RELEASE:
+    sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
 
 tasks:
   default:
