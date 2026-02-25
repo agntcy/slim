@@ -97,9 +97,12 @@ pub fn parse_endpoint(endpoint: &str) -> Result<(Connection, String)> {
     Ok((conn, endpoint.to_string()))
 }
 
-/// Parse a JSON config file and extract the connection info.
-/// The file must contain an "endpoint" key.
+/// Parse a JSON connection config file, validate it against [`ClientConfig`], and
+/// return a [`Connection`] whose `connection_id` is the endpoint and whose
+/// `config_data` is the raw JSON text.
 pub fn parse_config_file(config_file: &str) -> Result<Connection> {
+    use slim_config::grpc::client::ClientConfig;
+
     if config_file.is_empty() {
         bail!("config file path cannot be empty");
     }
@@ -110,22 +113,15 @@ pub fn parse_config_file(config_file: &str) -> Result<Connection> {
     let data = std::fs::read_to_string(config_file)
         .map_err(|e| anyhow::anyhow!("failed to read config file '{}': {}", config_file, e))?;
 
-    let json: serde_json::Value = serde_json::from_str(&data)
-        .map_err(|e| anyhow::anyhow!("invalid JSON in config file '{}': {}", config_file, e))?;
+    let cfg: ClientConfig = serde_json::from_str(&data)
+        .map_err(|e| anyhow::anyhow!("invalid connection config in '{}': {}", config_file, e))?;
 
-    let endpoint = json
-        .get("endpoint")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "'endpoint' key not found or empty in config file '{}'",
-                config_file
-            )
-        })?;
+    use slim_config::component::configuration::Configuration;
+    cfg.validate()
+        .map_err(|e| anyhow::anyhow!("invalid connection config in '{}': {}", config_file, e))?;
 
     Ok(Connection {
-        connection_id: endpoint.to_string(),
+        connection_id: cfg.endpoint,
         config_data: data,
     })
 }

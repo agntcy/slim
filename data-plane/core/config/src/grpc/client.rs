@@ -382,6 +382,10 @@ impl Configuration for ClientConfig {
     type Error = ConfigError;
 
     fn validate(&self) -> Result<(), Self::Error> {
+        if self.endpoint.is_empty() {
+            return Err(ConfigError::MissingEndpoint);
+        }
+
         // Validate the client configuration
         self.tls_setting.validate()?;
 
