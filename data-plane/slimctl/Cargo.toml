@@ -51,7 +51,7 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "rt", "time
 tokio-stream = { workspace = true }
 
 # gRPC / protobuf
-tonic = { workspace = true, features = ["tls-native-roots"] }
+tonic = { workspace = true }
 tonic-prost = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
