@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::Result;
+use clap::builder::styling::{AnsiColor, Effects, Styles};
 use clap::{Args, Parser, Subcommand};
 
 use crate::commands::{
@@ -13,9 +14,20 @@ use crate::commands::{
 };
 use crate::config::{ResolvedOpts, load_config};
 
+fn styles() -> Styles {
+    Styles::styled()
+        .header(AnsiColor::Yellow.on_default() | Effects::BOLD)
+        .usage(AnsiColor::Yellow.on_default() | Effects::BOLD)
+        .literal(AnsiColor::Green.on_default() | Effects::BOLD)
+        .placeholder(AnsiColor::Cyan.on_default())
+        .error(AnsiColor::Red.on_default() | Effects::BOLD)
+        .valid(AnsiColor::Green.on_default() | Effects::BOLD)
+        .invalid(AnsiColor::Red.on_default() | Effects::BOLD)
+}
+
 /// SLIM control CLI
 #[derive(Parser)]
-#[command(name = "slimctl", about = "SLIM control CLI")]
+#[command(name = "slimctl", about = "SLIM control CLI", styles = styles())]
 pub(crate) struct Cli {
     #[command(flatten)]
     global: GlobalOpts,
@@ -26,6 +38,7 @@ pub(crate) struct Cli {
 
 /// Global options applied to all commands (may appear before or after the subcommand)
 #[derive(Args)]
+#[command(next_help_heading = "Global Options")]
 struct GlobalOpts {
     /// Path to slimctl configuration file
     #[arg(long, env = "SLIMCTL_CONFIG", global = true)]

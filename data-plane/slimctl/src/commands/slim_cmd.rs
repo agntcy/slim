@@ -24,8 +24,8 @@ pub struct SlimStartArgs {
     /// Path to YAML configuration file
     #[arg(short = 'c', long, group = "source")]
     pub config: Option<String>,
-    /// Server endpoint override (sets SLIM_ENDPOINT environment variable)
-    #[arg(long, group = "source")]
+    /// Server endpoint override
+    #[arg(long, env = "SLIMCTL_SLIM_ENDPOINT", group = "source")]
     pub endpoint: Option<String>,
 }
 
@@ -41,15 +41,6 @@ async fn run_start(args: &SlimStartArgs) -> Result<()> {
         .endpoint
         .as_deref()
         .or_else(|| args.config.is_none().then_some(DEFAULT_ENDPOINT));
-
-    // Propagate the endpoint into the environment so embedded SLIM code can
-    // pick it up via SLIM_ENDPOINT.
-    if let Some(ep) = effective_endpoint {
-        unsafe {
-            #[allow(clippy::disallowed_methods)]
-            std::env::set_var("SLIM_ENDPOINT", ep);
-        }
-    }
 
     let config_file = args.config.as_deref().unwrap_or("");
 
