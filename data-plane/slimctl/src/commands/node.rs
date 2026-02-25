@@ -11,7 +11,7 @@ use crate::config::ResolvedOpts;
 use crate::proto::controller::proto::v1::{
     ConfigurationCommand, ControlMessage, Subscription, control_message::Payload,
 };
-use crate::utils::{parse_config_file, parse_endpoint, parse_route};
+use crate::utils::{VIA_KEYWORD, parse_config_file, parse_endpoint, parse_route};
 
 #[derive(Args)]
 pub struct NodeArgs {
@@ -160,7 +160,7 @@ async fn route_list(opts: &ResolvedOpts) -> Result<()> {
 }
 
 async fn route_add(route: &str, via: &str, config_file: &str, opts: &ResolvedOpts) -> Result<()> {
-    if via.to_lowercase() != "via" {
+    if !via.eq_ignore_ascii_case(VIA_KEYWORD) {
         bail!("invalid syntax: expected 'via' keyword, got '{}'", via);
     }
     let (org, ns, agent_type, agent_id) = parse_route(route)?;
@@ -190,7 +190,6 @@ async fn route_add(route: &str, via: &str, config_file: &str, opts: &ResolvedOpt
         Ok(Some(Err(e))) => bail!("error receiving ACK: {}", e),
         Ok(Some(Ok(ack_msg))) => {
             if let Some(Payload::ConfigCommandAck(a)) = ack_msg.payload {
-                print!("ACK received for {}", a.original_message_id);
                 for cs in &a.connections_status {
                     if cs.success {
                         println!("connection successfully applied: {}", cs.connection_id);
@@ -203,10 +202,10 @@ async fn route_add(route: &str, via: &str, config_file: &str, opts: &ResolvedOpt
                 }
                 for ss in &a.subscriptions_status {
                     if ss.success {
-                        println!("subscription successfully applied: {:?}", ss.subscription);
+                        println!("route added successfully: {:?}", ss.subscription);
                     } else {
                         println!(
-                            "failed to set subscription {:?}: {}",
+                            "failed to add route {:?}: {}",
                             ss.subscription, ss.error_msg
                         );
                     }
@@ -220,7 +219,7 @@ async fn route_add(route: &str, via: &str, config_file: &str, opts: &ResolvedOpt
 }
 
 async fn route_del(route: &str, via: &str, endpoint: &str, opts: &ResolvedOpts) -> Result<()> {
-    if via.to_lowercase() != "via" {
+    if !via.eq_ignore_ascii_case(VIA_KEYWORD) {
         bail!("invalid syntax: expected 'via' keyword, got '{}'", via);
     }
     let (org, ns, agent_type, agent_id) = parse_route(route)?;
@@ -250,13 +249,12 @@ async fn route_del(route: &str, via: &str, endpoint: &str, opts: &ResolvedOpts) 
         Ok(Some(Err(e))) => bail!("error receiving ACK: {}", e),
         Ok(Some(Ok(ack_msg))) => {
             if let Some(Payload::ConfigCommandAck(a)) = ack_msg.payload {
-                print!("ACK received for {}", a.original_message_id);
                 for ss in &a.subscriptions_status {
                     if ss.success {
-                        println!("subscription successfully deleted: {:?}", ss.subscription);
+                        println!("route deleted successfully: {:?}", ss.subscription);
                     } else {
                         println!(
-                            "failed to delete subscription {:?}: {}",
+                            "failed to delete route {:?}: {}",
                             ss.subscription, ss.error_msg
                         );
                     }

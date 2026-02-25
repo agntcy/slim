@@ -3,27 +3,47 @@
 
 use anyhow::{Result, bail};
 
+use slim_datapath::messages::encoder::Name;
+
 use crate::proto::controller::proto::v1::Connection;
 
-/// Parse a route string "organization/namespace/agentname/agentid" into its components.
-/// Returns (organization, namespace, agent_type, agent_id).
+/// Literal keyword required between a route and its destination in `route add/del` commands.
+pub const VIA_KEYWORD: &str = "via";
+
+/// Parse a route string `"org/namespace/agentname[/agentid]"` into its components.
+///
+/// The fourth component (`agentid`) is optional; when omitted it defaults to
+/// [`Name::NULL_COMPONENT`] (`u64::MAX`), matching the behaviour of the data-plane
+/// when no specific instance is targeted.
+///
+/// Returns `(organization, namespace, agent_type, agent_id)`.
 pub fn parse_route(route: &str) -> Result<(String, String, String, u64)> {
     let parts: Vec<&str> = route.split('/').collect();
-    if parts.len() != 4 {
+    if parts.len() < 3 || parts.len() > 4 {
         bail!(
-            "invalid route format '{}', expected 'organization/namespace/agentname/agentid'",
+            "invalid route format '{}', expected 'org/namespace/agentname[/agentid]'",
             route
         );
     }
-    if parts.iter().any(|p| p.is_empty()) {
+    if parts[..3].iter().any(|p| p.is_empty()) {
         bail!(
-            "invalid route format '{}', expected 'organization/namespace/agentname/agentid'",
+            "invalid route format '{}', expected 'org/namespace/agentname[/agentid]'",
             route
         );
     }
-    let agent_id: u64 = parts[3]
-        .parse()
-        .map_err(|_| anyhow::anyhow!("invalid agent instance ID (must be u64): '{}'", parts[3]))?;
+    let agent_id: u64 = if let Some(&id_str) = parts.get(3) {
+        if id_str.is_empty() {
+            bail!(
+                "invalid route format '{}', expected 'org/namespace/agentname[/agentid]'",
+                route
+            );
+        }
+        id_str
+            .parse()
+            .map_err(|_| anyhow::anyhow!("invalid agent instance ID (must be u64): '{}'", id_str))?
+    } else {
+        Name::NULL_COMPONENT
+    };
     Ok((
         parts[0].to_string(),
         parts[1].to_string(),
@@ -139,13 +159,27 @@ mod tests {
     }
 
     #[test]
+    fn parse_route_omitted_agent_id_defaults_to_null_component() {
+        let (org, ns, agent, id) = parse_route("myorg/mynamespace/myagent").unwrap();
+        assert_eq!(org, "myorg");
+        assert_eq!(ns, "mynamespace");
+        assert_eq!(agent, "myagent");
+        assert_eq!(id, Name::NULL_COMPONENT);
+    }
+
+    #[test]
     fn parse_route_too_few_parts() {
-        assert!(parse_route("org/ns/agent").is_err());
+        assert!(parse_route("org/ns").is_err());
     }
 
     #[test]
     fn parse_route_too_many_parts() {
         assert!(parse_route("org/ns/agent/42/extra").is_err());
+    }
+
+    #[test]
+    fn parse_route_trailing_slash_fails() {
+        assert!(parse_route("org/ns/agent/").is_err());
     }
 
     #[test]

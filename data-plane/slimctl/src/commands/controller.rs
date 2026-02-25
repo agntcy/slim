@@ -15,7 +15,7 @@ use crate::proto::controlplane::proto::v1::{
     RouteListRequest, RouteStatus,
 };
 use crate::rpc;
-use crate::utils::{is_endpoint, parse_config_file, parse_endpoint, parse_route};
+use crate::utils::{VIA_KEYWORD, is_endpoint, parse_config_file, parse_endpoint, parse_route};
 
 #[derive(Args)]
 pub struct ControllerArgs {
@@ -234,6 +234,7 @@ async fn run_route(args: &ControllerRouteArgs, opts: &ResolvedOpts) -> Result<()
 async fn node_list(opts: &ResolvedOpts) -> Result<()> {
     let mut client = get_control_plane_client(opts).await?;
     let resp = rpc!(client, list_nodes, NodeListRequest {}, opts);
+    println!("{} node(s) found", resp.entries.len());
     for node in &resp.entries {
         println!("Node ID: {} status: {:?}", node.id, node.status);
         if !node.connections.is_empty() {
@@ -322,7 +323,7 @@ async fn route_add(
     destination: &str,
     opts: &ResolvedOpts,
 ) -> Result<()> {
-    if via.to_lowercase() != "via" {
+    if via.to_lowercase() != VIA_KEYWORD {
         bail!("invalid syntax: expected 'via' keyword, got '{}'", via);
     }
     println!("Add route for node ID: {}", node_id);
@@ -375,7 +376,7 @@ async fn route_del(
     destination: &str,
     opts: &ResolvedOpts,
 ) -> Result<()> {
-    if via.to_lowercase() != "via" {
+    if via.to_lowercase() != VIA_KEYWORD {
         bail!("invalid syntax: expected 'via' keyword, got '{}'", via);
     }
     println!("Delete route for node ID: {}", node_id);
@@ -407,7 +408,11 @@ async fn route_del(
 
     let mut client = get_control_plane_client(opts).await?;
     let resp = rpc!(client, delete_route, req, opts);
-    println!("ACK received success={}", resp.success);
+    if resp.success {
+        println!("route removed successfully");
+    } else {
+        println!("error removing the route");
+    }
     Ok(())
 }
 
@@ -553,7 +558,10 @@ async fn channel_create(moderators_param: &str, opts: &ResolvedOpts) -> Result<(
         CreateChannelRequest { moderators },
         opts
     );
-    println!("Received response: {}", resp.channel_name);
+    if resp.channel_name.is_empty() {
+        bail!("failed to create channel: empty channel name in response");
+    }
+    println!("Channel created successfully: {}", resp.channel_name);
     Ok(())
 }
 

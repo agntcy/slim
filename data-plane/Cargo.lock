@@ -345,6 +345,7 @@ version = "1.0.0"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-config",
+ "agntcy-slim-datapath",
  "agntcy-slim-service",
  "agntcy-slim-signal",
  "agntcy-slim-tracing",
