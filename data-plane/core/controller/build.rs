@@ -11,15 +11,16 @@ fn main() {
         std::env::set_var("PROTOC", protoc_path);
     }
 
-    // The canonical source for controller.proto is this crate's own
-    // proto/v1/controller.proto; proto/<repo-root>/controller/v1/ holds a
-    // symlink that points here so that other crates and tools can reference it
-    // from a shared location.
+    // The canonical source for controller.proto lives at
+    // proto/controller/v1/controller.proto in the repository root.
+    // This crate's proto/v1/controller.proto is a symlink that points there,
+    // allowing other crates and tools to reference the file from a shared
+    // location while keeping a local path for proto compilation.
     //
     // The generated src/api/gen/controller.proto.v1.rs is committed to the
     // repository.  When building from a published package (where the
-    // workspace is unavailable) the pre-generated file is used as-is and this
-    // build script skips proto compilation.
+    // workspace and its symlinks are unavailable) the pre-generated file is
+    // used as-is and this build script skips proto compilation.
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let proto_file = std::path::Path::new(&manifest_dir).join("proto/v1/controller.proto");
 
