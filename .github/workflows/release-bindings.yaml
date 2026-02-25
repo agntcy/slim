@@ -52,13 +52,19 @@ jobs:
           echo "📦 Downloaded artifacts:"
           find ./artifacts -type f -ls
 
+      - name: Install LLVM
+        run: |
+          curl -L https://apt.llvm.org/llvm.sh -o /tmp/llvm.sh
+          chmod +x /tmp/llvm.sh
+          sudo /tmp/llvm.sh 19
+
       - name: Prepare release artifacts
         run: |
           mkdir -p ./release-artifacts
 
           # Strip symbols from Unix dynamic (.so) libraries to reduce size
           echo "Stripping Unix dynamic libraries..."
-          find ./artifacts -type f -name "*.so" -exec strip --strip-unneeded {} \;
+          find ./artifacts -type f -name "*.so" -exec llvm-strip-19 --strip-unneeded {} \;
           echo "Stripped .so files"
 
           # The download-artifact action already organizes files by artifact name
