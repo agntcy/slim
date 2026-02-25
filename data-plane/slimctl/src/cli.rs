@@ -24,43 +24,68 @@ pub(crate) struct Cli {
     command: Commands,
 }
 
-/// Global options applied to all commands (must appear before the subcommand)
+/// Global options applied to all commands (may appear before or after the subcommand)
 #[derive(Args)]
 struct GlobalOpts {
     /// Path to slimctl configuration file
-    #[arg(long, env = "SLIMCTL_CONFIG")]
+    #[arg(long, env = "SLIMCTL_CONFIG", global = true)]
     config: Option<String>,
 
     /// Basic auth credentials (username:password)
-    #[arg(short = 'b', long, env = "SLIMCTL_COMMON_OPTS_BASIC_AUTH_CREDS")]
+    #[arg(
+        short = 'b',
+        long,
+        env = "SLIMCTL_COMMON_OPTS_BASIC_AUTH_CREDS",
+        global = true
+    )]
     basic_auth_creds: Option<String>,
 
     /// SLIM gRPC control API endpoint (host:port)
-    #[arg(short = 's', long, env = "SLIMCTL_COMMON_OPTS_SERVER")]
+    #[arg(short = 's', long, env = "SLIMCTL_COMMON_OPTS_SERVER", global = true)]
     server: Option<String>,
 
     /// gRPC request timeout (e.g. 15s, 1m)
-    #[arg(long, env = "SLIMCTL_COMMON_OPTS_TIMEOUT")]
+    #[arg(long, env = "SLIMCTL_COMMON_OPTS_TIMEOUT", global = true)]
     timeout: Option<String>,
 
     /// Disable TLS (plain HTTP/2)
-    #[arg(long, env = "SLIMCTL_COMMON_OPTS_TLS_INSECURE")]
+    #[arg(
+        long = "tls.insecure",
+        env = "SLIMCTL_COMMON_OPTS_TLS_INSECURE",
+        global = true
+    )]
     tls_insecure: bool,
 
     /// Use TLS but skip server certificate verification
-    #[arg(long, env = "SLIMCTL_COMMON_OPTS_TLS_INSECURE_SKIP_VERIFY")]
+    #[arg(
+        long = "tls.insecure_skip_verify",
+        env = "SLIMCTL_COMMON_OPTS_TLS_INSECURE_SKIP_VERIFY",
+        global = true
+    )]
     tls_insecure_skip_verify: bool,
 
     /// Path to TLS CA certificate
-    #[arg(long, env = "SLIMCTL_COMMON_OPTS_TLS_CA_FILE")]
+    #[arg(
+        long = "tls.ca_file",
+        env = "SLIMCTL_COMMON_OPTS_TLS_CA_FILE",
+        global = true
+    )]
     tls_ca_file: Option<String>,
 
     /// Path to client TLS certificate
-    #[arg(long, env = "SLIMCTL_COMMON_OPTS_TLS_CERT_FILE")]
+    #[arg(
+        long = "tls.cert_file",
+        env = "SLIMCTL_COMMON_OPTS_TLS_CERT_FILE",
+        global = true
+    )]
     tls_cert_file: Option<String>,
 
     /// Path to client TLS key
-    #[arg(long, env = "SLIMCTL_COMMON_OPTS_TLS_KEY_FILE")]
+    #[arg(
+        long = "tls.key_file",
+        env = "SLIMCTL_COMMON_OPTS_TLS_KEY_FILE",
+        global = true
+    )]
     tls_key_file: Option<String>,
 }
 
@@ -786,19 +811,19 @@ mod tests {
 
     #[test]
     fn global_flag_tls_insecure() {
-        let cli = parse_ok(&["slimctl", "--tls-insecure", "version"]);
+        let cli = parse_ok(&["slimctl", "--tls.insecure", "version"]);
         assert!(cli.global.tls_insecure);
     }
 
     #[test]
     fn global_flag_tls_insecure_skip_verify() {
-        let cli = parse_ok(&["slimctl", "--tls-insecure-skip-verify", "version"]);
+        let cli = parse_ok(&["slimctl", "--tls.insecure_skip_verify", "version"]);
         assert!(cli.global.tls_insecure_skip_verify);
     }
 
     #[test]
     fn global_flag_tls_ca_file() {
-        let cli = parse_ok(&["slimctl", "--tls-ca-file", "/etc/ca.pem", "version"]);
+        let cli = parse_ok(&["slimctl", "--tls.ca_file", "/etc/ca.pem", "version"]);
         assert_eq!(cli.global.tls_ca_file.as_deref(), Some("/etc/ca.pem"));
     }
 
@@ -806,9 +831,9 @@ mod tests {
     fn global_flag_tls_cert_and_key() {
         let cli = parse_ok(&[
             "slimctl",
-            "--tls-cert-file",
+            "--tls.cert_file",
             "/etc/cert.pem",
-            "--tls-key-file",
+            "--tls.key_file",
             "/etc/key.pem",
             "version",
         ]);

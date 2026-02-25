@@ -278,7 +278,7 @@ mod tests {
             .unwrap();
         assert_eq!(opts.server, DEFAULT_SERVER);
         assert_eq!(opts.timeout, Duration::from_secs(15));
-        assert!(!opts.tls_insecure);
+        assert!(opts.tls_insecure);
         assert!(!opts.tls_insecure_skip_verify);
         assert!(opts.basic_auth_creds.is_empty());
         assert!(opts.tls_ca_file.is_empty());

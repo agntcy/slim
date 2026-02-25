@@ -179,50 +179,54 @@ var _ = Describe("Routing", func() {
 				Should(gbytes.Say(`hello from the b1`))
 
 			// test listing routes for node a
-			routeListOutA, err := exec.Command(
-				slimctlPath,
-				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort), "--tls-insecure",
-				"controller", "route", "list",
-				"-n", "slim/a",
-			).CombinedOutput()
-			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOutA))
+			routeListOutA := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
+				return exec.Command(
+					slimctlPath,
+					"controller", "route", "list",
+					"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
+					"-n", "slim/a",
+				)
+			})
 
 			routeListOutputA := string(routeListOutA)
 			Expect(routeListOutputA).To(ContainSubstring("org/default/b1"))
 			Expect(routeListOutputA).To(ContainSubstring("org/default/b2"))
 
 			// test listing connections for node a
-			connectionListOutA, err := exec.Command(
-				slimctlPath,
-				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort), "--tls-insecure",
-				"controller", "connection", "list",
-				"-n", "slim/a",
-			).CombinedOutput()
-			Expect(err).NotTo(HaveOccurred(), "slimctl connection list failed: %s", string(connectionListOutA))
+			connectionListOutA := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
+				return exec.Command(
+					slimctlPath,
+					"controller", "connection", "list",
+					"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
+					"-n", "slim/a",
+				)
+			})
 
 			connectionOutputA := string(connectionListOutA)
 			Expect(connectionOutputA).To(ContainSubstring(fmt.Sprintf(":%d", dataPlaneBPort)))
 
 			// test listing routes for node b
-			routeListOutB, err := exec.Command(
-				slimctlPath,
-				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort), "--tls-insecure",
-				"controller", "route", "list",
-				"-n", "slim/b",
-			).CombinedOutput()
-			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOutB))
+			routeListOutB := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
+				return exec.Command(
+					slimctlPath,
+					"controller", "route", "list",
+					"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
+					"-n", "slim/b",
+				)
+			})
 
 			routeListOutputB := string(routeListOutB)
 			Expect(routeListOutputB).To(ContainSubstring("org/default/a"))
 
 			// test listing connections for node b
-			connectionListOutB, err := exec.Command(
-				slimctlPath,
-				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort), "--tls-insecure",
-				"controller", "connection", "list",
-				"-n", "slim/b",
-			).CombinedOutput()
-			Expect(err).NotTo(HaveOccurred(), "slimctl connection list failed: %s", string(connectionListOutB))
+			connectionListOutB := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
+				return exec.Command(
+					slimctlPath,
+					"controller", "connection", "list",
+					"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
+					"-n", "slim/b",
+				)
+			})
 
 			connectionOutputB := string(connectionListOutB)
 			Expect(connectionOutputB).To(ContainSubstring(fmt.Sprintf(":%d", dataPlaneAPort)))
@@ -237,8 +241,8 @@ var _ = Describe("Routing", func() {
 			// test listing routes for node a
 			routeListOutA, err = exec.Command(
 				slimctlPath,
-				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort), "--tls-insecure",
 				"controller", "route", "list",
+				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
 				"-n", "slim/a",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOutA))
@@ -248,8 +252,8 @@ var _ = Describe("Routing", func() {
 			// test listing routes for node b
 			routeListOutB, err = exec.Command(
 				slimctlPath,
-				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort), "--tls-insecure",
 				"controller", "route", "list",
+				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
 				"-n", "slim/b",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOutB))
