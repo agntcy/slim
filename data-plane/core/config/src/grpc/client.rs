@@ -45,7 +45,7 @@ use crate::grpc::proxy::ProxyConfig;
 use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoader};
 
 /// Creates an HTTPS connector with optional SNI based on the origin
-pub fn https_connector<S>(
+fn https_connector<S>(
     s: S,
     tls: &rustls::ClientConfig,
     server_name: Option<String>,
