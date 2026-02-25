@@ -8,6 +8,7 @@
 
 use std::sync::{Arc, OnceLock};
 
+use display_error_chain::ErrorChainExt;
 use futures_timer::Delay;
 use tracing::{debug, info};
 
@@ -76,33 +77,8 @@ struct GlobalState {
 pub fn initialize_from_config(config_path: String) {
     // Use get_or_init for atomic initialization
     GLOBAL_STATE.get_or_init(|| {
-        // Load configuration
-        let mut config = ConfigLoader::new(&config_path).expect("Failed to create config loader");
-
-        // Get configurations
-        let runtime_config = config
-            .runtime()
-            .expect("invalid runtime configuration")
-            .clone();
-        let tracing_conf = config
-            .tracing()
-            .expect("invalid tracing configuration")
-            .clone();
-        let service_configs: Vec<CoreServiceConfiguration> = match config.services_config() {
-            Ok(services) => {
-                if !services.is_empty() {
-                    debug!("Using service configuration from config file");
-                    services.values().cloned().collect()
-                } else {
-                    debug!("No services in config, using default");
-                    vec![CoreServiceConfiguration::default()]
-                }
-            }
-            Err(_) => {
-                debug!("No services section in config, using default");
-                vec![CoreServiceConfiguration::default()]
-            }
-        };
+        let (runtime_config, tracing_conf, service_configs) =
+            load_configs(&config_path).unwrap_or_else(|e| panic!("Initialization failed: {}", e));
 
         // Perform initialization and return config
         initialize_internal(
@@ -112,6 +88,26 @@ pub fn initialize_from_config(config_path: String) {
         )
         .unwrap_or_else(|e| panic!("Initialization failed: {}", e))
     });
+}
+
+/// Initialize SLIM bindings from a configuration file and return errors
+/// instead of panicking.
+#[uniffi::export]
+pub fn initialize_from_config_with_error(config_path: String) -> Result<(), SlimError> {
+    if GLOBAL_STATE.get().is_some() {
+        return Ok(());
+    }
+
+    let (runtime_config, tracing_conf, service_configs) = load_configs(&config_path)?;
+    let global_state = initialize_internal(runtime_config, tracing_conf, &service_configs)?;
+
+    GLOBAL_STATE
+        .set(global_state)
+        .map_err(|_| SlimError::InternalError {
+            message: "Global state already initialized".to_string(),
+        })?;
+
+    Ok(())
 }
 
 /// Initialize SLIM bindings with custom configuration structs
@@ -159,6 +155,53 @@ pub fn initialize_with_configs(
         .unwrap_or_else(|e| panic!("Initialization failed: {}", e))
     });
     Ok(())
+}
+
+fn load_configs(
+    config_path: &str,
+) -> Result<
+    (
+        CoreRuntimeConfiguration,
+        CoreTracingConfiguration,
+        Vec<CoreServiceConfiguration>,
+    ),
+    SlimError,
+> {
+    let mut config = ConfigLoader::new(config_path).map_err(|e| SlimError::ConfigError {
+        message: e.chain().to_string(),
+    })?;
+
+    let runtime_config = config
+        .runtime()
+        .map_err(|e| SlimError::ConfigError {
+            message: e.chain().to_string(),
+        })?
+        .clone();
+
+    let tracing_conf = config
+        .tracing()
+        .map_err(|e| SlimError::ConfigError {
+            message: e.chain().to_string(),
+        })?
+        .clone();
+
+    let service_configs: Vec<CoreServiceConfiguration> = match config.services_config() {
+        Ok(services) => {
+            if !services.is_empty() {
+                debug!("Using service configuration from config file");
+                services.values().cloned().collect()
+            } else {
+                debug!("No services in config, using default");
+                vec![CoreServiceConfiguration::default()]
+            }
+        }
+        Err(_) => {
+            debug!("No services section in config, using default");
+            vec![CoreServiceConfiguration::default()]
+        }
+    };
+
+    Ok((runtime_config, tracing_conf, service_configs))
 }
 
 /// Initialize SLIM bindings with default configuration
@@ -391,7 +434,7 @@ async fn initialize_and_start_global_services(
                     );
                 } else {
                     return Err(SlimError::ServiceError {
-                        message: format!("Failed to start service {}: {}", idx, e),
+                        message: format!("Failed to start service {}: {}", idx, e.chain()),
                     });
                 }
             }
@@ -988,6 +1031,21 @@ services:
         let _ = result;
     }
 
+    #[test_fork::fork]
+    #[test]
+    fn test_initialize_from_config_with_error_invalid_path() {
+        // Test that we get a structured error instead of a panic
+        let result =
+            initialize_from_config_with_error("/nonexistent/path/to/config.yaml".to_string());
+
+        match result {
+            Err(SlimError::ConfigError { message }) => {
+                assert!(!message.is_empty());
+            }
+            other => panic!("Expected ConfigError, got: {:?}", other),
+        }
+    }
+
     #[test]
     fn test_get_services_count() {
         // Test that get_services returns services
@@ -1062,6 +1120,47 @@ services:
         assert!(!service_configs.is_empty());
 
         // Clean up
+        let _ = std::fs::remove_file(&config_path);
+    }
+
+    #[test_fork::fork]
+    #[test]
+    fn test_initialize_from_config_with_error_valid_yaml() {
+        // Test the non-panicking initializer with a valid config file
+        use std::io::Write;
+
+        let config_content = r#"
+tracing:
+    log_level: info
+    display_thread_names: true
+
+runtime:
+    n_cores: 1
+    thread_name: "test-runtime-error"
+    drain_timeout: 3s
+
+services:
+    test-service:
+        node_id: "test-node"
+        group_name: "test-group"
+        dataplane:
+            servers: []
+            clients: []
+"#;
+
+        let temp_dir = std::env::temp_dir();
+        let config_path = temp_dir.join("test-valid-config-error.yaml");
+        let mut file = std::fs::File::create(&config_path).expect("Failed to create temp file");
+        file.write_all(config_content.as_bytes())
+            .expect("Failed to write config");
+        drop(file);
+
+        let result = initialize_from_config_with_error(config_path.to_str().unwrap().to_string());
+        assert!(result.is_ok(), "Expected Ok(()), got: {:?}", result);
+
+        let service_configs = get_service_config();
+        assert!(!service_configs.is_empty());
+
         let _ = std::fs::remove_file(&config_path);
     }
 }

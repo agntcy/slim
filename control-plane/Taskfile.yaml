@@ -143,7 +143,6 @@ tasks:
           --plugin={{.REPO_ROOT}}/.tools/protoc-gen-go-grpc \
           controller/v1/controller.proto controlplane/v1/controlplane.proto
 
-
   control-plane:token-service:build:
     desc: Build token service
     dir: token-service/cmd

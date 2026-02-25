@@ -159,6 +159,7 @@ fn dirs_home() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
 }
 
+// TODO: Use duration-string
 /// Parse a duration string like "15s", "1m", "500ms" into a std::time::Duration.
 pub fn parse_duration(s: &str) -> Result<Duration> {
     if let Some(ms) = s.strip_suffix("ms") {
