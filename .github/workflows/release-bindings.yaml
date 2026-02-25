@@ -436,7 +436,12 @@ jobs:
 
       - name: Generate bindings
         working-directory: ./data-plane/bindings/react-native
-        run: task generate TARGET=aarch64-apple-ios-sim
+        env:
+          CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER: "${{ github.workspace }}/data-plane/.cargo/clang-ios-linker-wrapper.sh"
+          IPHONEOS_DEPLOYMENT_TARGET: "13.4"
+        run: |
+          export BINDGEN_EXTRA_CLANG_ARGS="-isysroot $(xcrun --sdk iphonesimulator --show-sdk-path) -target arm64-apple-ios15.0-simulator"
+          task generate TARGET=aarch64-apple-ios-sim
 
       - name: Set version in package.json
         working-directory: ./data-plane/bindings/react-native
