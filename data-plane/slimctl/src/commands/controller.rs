@@ -933,4 +933,683 @@ mod tests {
         let widths = compute_route_col_widths(&[r1, r2]);
         assert!(widths[1] >= "this-is-a-much-longer-source-node-id".len());
     }
+
+    // ── print helpers ────────────────────────────────────────────────────────
+
+    #[test]
+    fn print_row_no_panic() {
+        let cells = ["a", "b", "c", "d", "e", "f", "g", "h"];
+        let widths = [5usize; 8];
+        print_row(&cells, &widths);
+    }
+
+    #[test]
+    fn print_route_header_no_panic() {
+        let widths = compute_route_col_widths(&[]);
+        print_route_header(&widths);
+    }
+
+    #[test]
+    fn print_route_row_no_panic() {
+        let r = make_route(
+            "src",
+            "dst",
+            "http://host:80",
+            "org",
+            "ns",
+            "agent",
+            Some(1),
+            RouteStatus::Applied as i32,
+            false,
+            0,
+        );
+        let widths = compute_route_col_widths(std::slice::from_ref(&r));
+        print_route_row(&r, &widths);
+    }
+
+    // ── via validation ───────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn route_add_invalid_via_fails() {
+        let opts = crate::config::ResolvedOpts {
+            server: "127.0.0.1:1".to_string(),
+            timeout: std::time::Duration::from_secs(1),
+            tls_insecure: true,
+            tls_insecure_skip_verify: false,
+            tls_ca_file: String::new(),
+            tls_cert_file: String::new(),
+            tls_key_file: String::new(),
+            basic_auth_creds: String::new(),
+        };
+        let err = route_add("node1", "a/b/c/0", "not_via", "dest", &opts)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("via"));
+    }
+
+    #[tokio::test]
+    async fn route_del_invalid_via_fails() {
+        let opts = crate::config::ResolvedOpts {
+            server: "127.0.0.1:1".to_string(),
+            timeout: std::time::Duration::from_secs(1),
+            tls_insecure: true,
+            tls_insecure_skip_verify: false,
+            tls_ca_file: String::new(),
+            tls_cert_file: String::new(),
+            tls_key_file: String::new(),
+            basic_auth_creds: String::new(),
+        };
+        let err = route_del("node1", "a/b/c/0", "bad", "dest", &opts)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("via"));
+    }
+
+    // ── gRPC mock server tests ───────────────────────────────────────────────
+
+    mod mock_server {
+        use std::time::Duration;
+
+        use tokio_stream::wrappers::TcpListenerStream;
+
+        use crate::config::ResolvedOpts;
+        use crate::proto::controller::proto::v1::{
+            Ack, AddParticipantRequest, ConnectionListResponse, DeleteChannelRequest,
+            DeleteParticipantRequest, ListChannelsRequest, ListChannelsResponse,
+            ListParticipantsRequest, ListParticipantsResponse, SubscriptionListResponse,
+        };
+        use crate::proto::controlplane::proto::v1::{
+            AddRouteRequest, AddRouteResponse, CreateChannelRequest, CreateChannelResponse,
+            DeleteRouteRequest, DeleteRouteResponse, Node as CpNode, NodeListRequest,
+            NodeListResponse, RouteListRequest, RouteListResponse,
+            control_plane_service_server::{ControlPlaneService, ControlPlaneServiceServer},
+        };
+
+        use super::super::*;
+
+        struct MockControlPlaneSvc;
+
+        #[tonic::async_trait]
+        impl ControlPlaneService for MockControlPlaneSvc {
+            async fn add_route(
+                &self,
+                _req: tonic::Request<AddRouteRequest>,
+            ) -> Result<tonic::Response<AddRouteResponse>, tonic::Status> {
+                Ok(tonic::Response::new(AddRouteResponse {
+                    success: true,
+                    route_id: "r1".to_string(),
+                }))
+            }
+
+            async fn delete_route(
+                &self,
+                _req: tonic::Request<DeleteRouteRequest>,
+            ) -> Result<tonic::Response<DeleteRouteResponse>, tonic::Status> {
+                Ok(tonic::Response::new(DeleteRouteResponse { success: true }))
+            }
+
+            async fn list_subscriptions(
+                &self,
+                _req: tonic::Request<CpNode>,
+            ) -> Result<tonic::Response<SubscriptionListResponse>, tonic::Status> {
+                Ok(tonic::Response::new(SubscriptionListResponse {
+                    original_message_id: String::new(),
+                    entries: vec![],
+                }))
+            }
+
+            async fn list_connections(
+                &self,
+                _req: tonic::Request<CpNode>,
+            ) -> Result<tonic::Response<ConnectionListResponse>, tonic::Status> {
+                Ok(tonic::Response::new(ConnectionListResponse {
+                    original_message_id: String::new(),
+                    entries: vec![],
+                }))
+            }
+
+            async fn list_nodes(
+                &self,
+                _req: tonic::Request<NodeListRequest>,
+            ) -> Result<tonic::Response<NodeListResponse>, tonic::Status> {
+                Ok(tonic::Response::new(NodeListResponse { entries: vec![] }))
+            }
+
+            async fn create_channel(
+                &self,
+                _req: tonic::Request<CreateChannelRequest>,
+            ) -> Result<tonic::Response<CreateChannelResponse>, tonic::Status> {
+                Ok(tonic::Response::new(CreateChannelResponse {
+                    channel_name: "test-channel".to_string(),
+                }))
+            }
+
+            async fn delete_channel(
+                &self,
+                _req: tonic::Request<DeleteChannelRequest>,
+            ) -> Result<tonic::Response<Ack>, tonic::Status> {
+                Ok(tonic::Response::new(Ack {
+                    original_message_id: String::new(),
+                    success: true,
+                    messages: vec![],
+                }))
+            }
+
+            async fn add_participant(
+                &self,
+                _req: tonic::Request<AddParticipantRequest>,
+            ) -> Result<tonic::Response<Ack>, tonic::Status> {
+                Ok(tonic::Response::new(Ack {
+                    original_message_id: String::new(),
+                    success: true,
+                    messages: vec![],
+                }))
+            }
+
+            async fn delete_participant(
+                &self,
+                _req: tonic::Request<DeleteParticipantRequest>,
+            ) -> Result<tonic::Response<Ack>, tonic::Status> {
+                Ok(tonic::Response::new(Ack {
+                    original_message_id: String::new(),
+                    success: true,
+                    messages: vec![],
+                }))
+            }
+
+            async fn list_channels(
+                &self,
+                _req: tonic::Request<ListChannelsRequest>,
+            ) -> Result<tonic::Response<ListChannelsResponse>, tonic::Status> {
+                Ok(tonic::Response::new(ListChannelsResponse {
+                    original_message_id: String::new(),
+                    channel_name: vec![],
+                }))
+            }
+
+            async fn list_participants(
+                &self,
+                _req: tonic::Request<ListParticipantsRequest>,
+            ) -> Result<tonic::Response<ListParticipantsResponse>, tonic::Status> {
+                Ok(tonic::Response::new(ListParticipantsResponse {
+                    original_message_id: String::new(),
+                    participant_name: vec![],
+                }))
+            }
+
+            async fn list_routes(
+                &self,
+                _req: tonic::Request<RouteListRequest>,
+            ) -> Result<tonic::Response<RouteListResponse>, tonic::Status> {
+                Ok(tonic::Response::new(RouteListResponse { routes: vec![] }))
+            }
+        }
+
+        async fn spawn_mock_cp_server() -> String {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let incoming = TcpListenerStream::new(listener);
+            tokio::spawn(async move {
+                tonic::transport::Server::builder()
+                    .add_service(ControlPlaneServiceServer::new(MockControlPlaneSvc))
+                    .serve_with_incoming(incoming)
+                    .await
+                    .unwrap();
+            });
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            format!("{}:{}", addr.ip(), addr.port())
+        }
+
+        fn make_opts(addr: &str) -> ResolvedOpts {
+            ResolvedOpts {
+                server: addr.to_string(),
+                timeout: Duration::from_secs(5),
+                tls_insecure: true,
+                tls_insecure_skip_verify: false,
+                tls_ca_file: String::new(),
+                tls_cert_file: String::new(),
+                tls_key_file: String::new(),
+                basic_auth_creds: String::new(),
+            }
+        }
+
+        #[tokio::test]
+        async fn node_list_succeeds() {
+            let addr = spawn_mock_cp_server().await;
+            node_list(&make_opts(&addr)).await.unwrap();
+        }
+
+        #[tokio::test]
+        async fn connection_list_succeeds() {
+            let addr = spawn_mock_cp_server().await;
+            connection_list("node1", &make_opts(&addr)).await.unwrap();
+        }
+
+        #[tokio::test]
+        async fn route_list_succeeds() {
+            let addr = spawn_mock_cp_server().await;
+            route_list("node1", &make_opts(&addr)).await.unwrap();
+        }
+
+        #[tokio::test]
+        async fn route_add_succeeds() {
+            let addr = spawn_mock_cp_server().await;
+            route_add("node1", "a/b/c/0", "via", "node-dest", &make_opts(&addr))
+                .await
+                .unwrap();
+        }
+
+        #[tokio::test]
+        async fn route_del_with_endpoint_succeeds() {
+            let addr = spawn_mock_cp_server().await;
+            route_del(
+                "node1",
+                "a/b/c/0",
+                "via",
+                "http://127.0.0.1:8080",
+                &make_opts(&addr),
+            )
+            .await
+            .unwrap();
+        }
+
+        #[tokio::test]
+        async fn route_del_with_node_id_succeeds() {
+            let addr = spawn_mock_cp_server().await;
+            route_del("node1", "a/b/c/0", "via", "dest-node", &make_opts(&addr))
+                .await
+                .unwrap();
+        }
+
+        #[tokio::test]
+        async fn route_outline_succeeds() {
+            let addr = spawn_mock_cp_server().await;
+            route_outline("", "", &make_opts(&addr)).await.unwrap();
+        }
+
+        #[tokio::test]
+        async fn channel_create_succeeds() {
+            let addr = spawn_mock_cp_server().await;
+            channel_create("moderators=alice", &make_opts(&addr))
+                .await
+                .unwrap();
+        }
+
+        #[tokio::test]
+        async fn channel_delete_succeeds() {
+            let addr = spawn_mock_cp_server().await;
+            channel_delete("my-channel", &make_opts(&addr))
+                .await
+                .unwrap();
+        }
+
+        #[tokio::test]
+        async fn channel_list_succeeds() {
+            let addr = spawn_mock_cp_server().await;
+            channel_list(&make_opts(&addr)).await.unwrap();
+        }
+
+        #[tokio::test]
+        async fn participant_add_succeeds() {
+            let addr = spawn_mock_cp_server().await;
+            participant_add("alice", "chan1", &make_opts(&addr))
+                .await
+                .unwrap();
+        }
+
+        #[tokio::test]
+        async fn participant_delete_succeeds() {
+            let addr = spawn_mock_cp_server().await;
+            participant_delete("alice", "chan1", &make_opts(&addr))
+                .await
+                .unwrap();
+        }
+
+        #[tokio::test]
+        async fn participant_list_succeeds() {
+            let addr = spawn_mock_cp_server().await;
+            participant_list("chan1", &make_opts(&addr)).await.unwrap();
+        }
+
+        // ── error server ─────────────────────────────────────────────────────
+
+        /// All methods return a gRPC status error.
+        struct ErrorControlPlaneSvc;
+
+        #[tonic::async_trait]
+        impl ControlPlaneService for ErrorControlPlaneSvc {
+            async fn add_route(
+                &self,
+                _: tonic::Request<AddRouteRequest>,
+            ) -> Result<tonic::Response<AddRouteResponse>, tonic::Status> {
+                Err(tonic::Status::internal("error"))
+            }
+            async fn delete_route(
+                &self,
+                _: tonic::Request<DeleteRouteRequest>,
+            ) -> Result<tonic::Response<DeleteRouteResponse>, tonic::Status> {
+                Err(tonic::Status::internal("error"))
+            }
+            async fn list_subscriptions(
+                &self,
+                _: tonic::Request<CpNode>,
+            ) -> Result<tonic::Response<SubscriptionListResponse>, tonic::Status> {
+                Err(tonic::Status::internal("error"))
+            }
+            async fn list_connections(
+                &self,
+                _: tonic::Request<CpNode>,
+            ) -> Result<tonic::Response<ConnectionListResponse>, tonic::Status> {
+                Err(tonic::Status::internal("error"))
+            }
+            async fn list_nodes(
+                &self,
+                _: tonic::Request<NodeListRequest>,
+            ) -> Result<tonic::Response<NodeListResponse>, tonic::Status> {
+                Err(tonic::Status::internal("error"))
+            }
+            async fn create_channel(
+                &self,
+                _: tonic::Request<CreateChannelRequest>,
+            ) -> Result<tonic::Response<CreateChannelResponse>, tonic::Status> {
+                Err(tonic::Status::internal("error"))
+            }
+            async fn delete_channel(
+                &self,
+                _: tonic::Request<DeleteChannelRequest>,
+            ) -> Result<tonic::Response<Ack>, tonic::Status> {
+                Err(tonic::Status::internal("error"))
+            }
+            async fn add_participant(
+                &self,
+                _: tonic::Request<AddParticipantRequest>,
+            ) -> Result<tonic::Response<Ack>, tonic::Status> {
+                Err(tonic::Status::internal("error"))
+            }
+            async fn delete_participant(
+                &self,
+                _: tonic::Request<DeleteParticipantRequest>,
+            ) -> Result<tonic::Response<Ack>, tonic::Status> {
+                Err(tonic::Status::internal("error"))
+            }
+            async fn list_channels(
+                &self,
+                _: tonic::Request<ListChannelsRequest>,
+            ) -> Result<tonic::Response<ListChannelsResponse>, tonic::Status> {
+                Err(tonic::Status::internal("error"))
+            }
+            async fn list_participants(
+                &self,
+                _: tonic::Request<ListParticipantsRequest>,
+            ) -> Result<tonic::Response<ListParticipantsResponse>, tonic::Status> {
+                Err(tonic::Status::internal("error"))
+            }
+            async fn list_routes(
+                &self,
+                _: tonic::Request<RouteListRequest>,
+            ) -> Result<tonic::Response<RouteListResponse>, tonic::Status> {
+                Err(tonic::Status::internal("error"))
+            }
+        }
+
+        // ── negative-ACK (success = false) server ────────────────────────────
+
+        /// Returns success=false for every method that the client checks.
+        /// Other methods return normal success responses so the functions reach
+        /// the success check rather than erroring earlier.
+        struct FailureControlPlaneSvc;
+
+        #[tonic::async_trait]
+        impl ControlPlaneService for FailureControlPlaneSvc {
+            async fn add_route(
+                &self,
+                _: tonic::Request<AddRouteRequest>,
+            ) -> Result<tonic::Response<AddRouteResponse>, tonic::Status> {
+                Ok(tonic::Response::new(AddRouteResponse {
+                    success: false,
+                    route_id: String::new(),
+                }))
+            }
+            async fn delete_route(
+                &self,
+                _: tonic::Request<DeleteRouteRequest>,
+            ) -> Result<tonic::Response<DeleteRouteResponse>, tonic::Status> {
+                Ok(tonic::Response::new(DeleteRouteResponse { success: true }))
+            }
+            async fn list_subscriptions(
+                &self,
+                _: tonic::Request<CpNode>,
+            ) -> Result<tonic::Response<SubscriptionListResponse>, tonic::Status> {
+                Ok(tonic::Response::new(SubscriptionListResponse {
+                    original_message_id: String::new(),
+                    entries: vec![],
+                }))
+            }
+            async fn list_connections(
+                &self,
+                _: tonic::Request<CpNode>,
+            ) -> Result<tonic::Response<ConnectionListResponse>, tonic::Status> {
+                Ok(tonic::Response::new(ConnectionListResponse {
+                    original_message_id: String::new(),
+                    entries: vec![],
+                }))
+            }
+            async fn list_nodes(
+                &self,
+                _: tonic::Request<NodeListRequest>,
+            ) -> Result<tonic::Response<NodeListResponse>, tonic::Status> {
+                Ok(tonic::Response::new(NodeListResponse { entries: vec![] }))
+            }
+            async fn create_channel(
+                &self,
+                _: tonic::Request<CreateChannelRequest>,
+            ) -> Result<tonic::Response<CreateChannelResponse>, tonic::Status> {
+                Ok(tonic::Response::new(CreateChannelResponse {
+                    channel_name: "ch".to_string(),
+                }))
+            }
+            async fn delete_channel(
+                &self,
+                _: tonic::Request<DeleteChannelRequest>,
+            ) -> Result<tonic::Response<Ack>, tonic::Status> {
+                Ok(tonic::Response::new(Ack {
+                    success: false,
+                    original_message_id: String::new(),
+                    messages: vec![],
+                }))
+            }
+            async fn add_participant(
+                &self,
+                _: tonic::Request<AddParticipantRequest>,
+            ) -> Result<tonic::Response<Ack>, tonic::Status> {
+                Ok(tonic::Response::new(Ack {
+                    success: false,
+                    original_message_id: String::new(),
+                    messages: vec![],
+                }))
+            }
+            async fn delete_participant(
+                &self,
+                _: tonic::Request<DeleteParticipantRequest>,
+            ) -> Result<tonic::Response<Ack>, tonic::Status> {
+                Ok(tonic::Response::new(Ack {
+                    success: false,
+                    original_message_id: String::new(),
+                    messages: vec![],
+                }))
+            }
+            async fn list_channels(
+                &self,
+                _: tonic::Request<ListChannelsRequest>,
+            ) -> Result<tonic::Response<ListChannelsResponse>, tonic::Status> {
+                Ok(tonic::Response::new(ListChannelsResponse {
+                    original_message_id: String::new(),
+                    channel_name: vec![],
+                }))
+            }
+            async fn list_participants(
+                &self,
+                _: tonic::Request<ListParticipantsRequest>,
+            ) -> Result<tonic::Response<ListParticipantsResponse>, tonic::Status> {
+                Ok(tonic::Response::new(ListParticipantsResponse {
+                    original_message_id: String::new(),
+                    participant_name: vec![],
+                }))
+            }
+            async fn list_routes(
+                &self,
+                _: tonic::Request<RouteListRequest>,
+            ) -> Result<tonic::Response<RouteListResponse>, tonic::Status> {
+                Ok(tonic::Response::new(RouteListResponse { routes: vec![] }))
+            }
+        }
+
+        async fn spawn_cp_svc<S>(svc: S) -> String
+        where
+            S: ControlPlaneService,
+        {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let incoming = TcpListenerStream::new(listener);
+            tokio::spawn(async move {
+                tonic::transport::Server::builder()
+                    .add_service(ControlPlaneServiceServer::new(svc))
+                    .serve_with_incoming(incoming)
+                    .await
+                    .unwrap();
+            });
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            format!("{}:{}", addr.ip(), addr.port())
+        }
+
+        // ── gRPC-level error tests ────────────────────────────────────────────
+
+        #[tokio::test]
+        async fn node_list_grpc_error_propagates() {
+            let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
+            assert!(node_list(&make_opts(&addr)).await.is_err());
+        }
+
+        #[tokio::test]
+        async fn connection_list_grpc_error_propagates() {
+            let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
+            assert!(connection_list("n1", &make_opts(&addr)).await.is_err());
+        }
+
+        #[tokio::test]
+        async fn route_list_grpc_error_propagates() {
+            let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
+            assert!(route_list("n1", &make_opts(&addr)).await.is_err());
+        }
+
+        #[tokio::test]
+        async fn route_add_grpc_error_propagates() {
+            let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
+            assert!(
+                route_add("n1", "a/b/c/0", "via", "dest", &make_opts(&addr))
+                    .await
+                    .is_err()
+            );
+        }
+
+        #[tokio::test]
+        async fn route_del_grpc_error_propagates() {
+            let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
+            assert!(
+                route_del("n1", "a/b/c/0", "via", "dest", &make_opts(&addr))
+                    .await
+                    .is_err()
+            );
+        }
+
+        #[tokio::test]
+        async fn route_outline_grpc_error_propagates() {
+            let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
+            assert!(route_outline("", "", &make_opts(&addr)).await.is_err());
+        }
+
+        #[tokio::test]
+        async fn channel_create_grpc_error_propagates() {
+            let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
+            assert!(
+                channel_create("moderators=alice", &make_opts(&addr))
+                    .await
+                    .is_err()
+            );
+        }
+
+        #[tokio::test]
+        async fn channel_delete_grpc_error_propagates() {
+            let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
+            assert!(channel_delete("ch1", &make_opts(&addr)).await.is_err());
+        }
+
+        #[tokio::test]
+        async fn channel_list_grpc_error_propagates() {
+            let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
+            assert!(channel_list(&make_opts(&addr)).await.is_err());
+        }
+
+        #[tokio::test]
+        async fn participant_add_grpc_error_propagates() {
+            let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
+            assert!(
+                participant_add("alice", "ch1", &make_opts(&addr))
+                    .await
+                    .is_err()
+            );
+        }
+
+        #[tokio::test]
+        async fn participant_delete_grpc_error_propagates() {
+            let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
+            assert!(
+                participant_delete("alice", "ch1", &make_opts(&addr))
+                    .await
+                    .is_err()
+            );
+        }
+
+        #[tokio::test]
+        async fn participant_list_grpc_error_propagates() {
+            let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
+            assert!(participant_list("ch1", &make_opts(&addr)).await.is_err());
+        }
+
+        // ── negative-ACK (success = false) tests ─────────────────────────────
+
+        #[tokio::test]
+        async fn route_add_negative_ack_fails() {
+            let addr = spawn_cp_svc(FailureControlPlaneSvc).await;
+            let err = route_add("n1", "a/b/c/0", "via", "dest", &make_opts(&addr))
+                .await
+                .unwrap_err();
+            assert!(err.to_string().contains("failed to create route"));
+        }
+
+        #[tokio::test]
+        async fn channel_delete_negative_ack_fails() {
+            let addr = spawn_cp_svc(FailureControlPlaneSvc).await;
+            let err = channel_delete("ch1", &make_opts(&addr)).await.unwrap_err();
+            assert!(err.to_string().contains("failed to delete channel"));
+        }
+
+        #[tokio::test]
+        async fn participant_add_negative_ack_fails() {
+            let addr = spawn_cp_svc(FailureControlPlaneSvc).await;
+            let err = participant_add("alice", "ch1", &make_opts(&addr))
+                .await
+                .unwrap_err();
+            assert!(err.to_string().contains("failed to add participants"));
+        }
+
+        #[tokio::test]
+        async fn participant_delete_negative_ack_fails() {
+            let addr = spawn_cp_svc(FailureControlPlaneSvc).await;
+            let err = participant_delete("alice", "ch1", &make_opts(&addr))
+                .await
+                .unwrap_err();
+            assert!(err.to_string().contains("failed to delete participant"));
+        }
+    }
 }

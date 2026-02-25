@@ -119,3 +119,30 @@ async fn start_slim_instance(config_file: &str) -> Result<()> {
     rx.await
         .context("slim instance thread terminated unexpectedly")?
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_temp_config_with_explicit_endpoint() {
+        let tmp = create_temp_config(Some("127.0.0.1:9999")).unwrap();
+        let content = std::fs::read_to_string(tmp.path()).unwrap();
+        assert!(content.contains("127.0.0.1:9999"));
+    }
+
+    #[test]
+    fn create_temp_config_with_none_uses_default() {
+        let tmp = create_temp_config(None).unwrap();
+        let content = std::fs::read_to_string(tmp.path()).unwrap();
+        assert!(content.contains(DEFAULT_ENDPOINT));
+    }
+
+    #[test]
+    fn create_temp_config_file_is_writeable() {
+        let tmp = create_temp_config(Some("0.0.0.0:1234")).unwrap();
+        assert!(tmp.path().exists());
+        let content = std::fs::read_to_string(tmp.path()).unwrap();
+        assert!(!content.is_empty());
+    }
+}

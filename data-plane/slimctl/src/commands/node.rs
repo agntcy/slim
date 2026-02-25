@@ -298,3 +298,413 @@ async fn connection_list(opts: &ResolvedOpts) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+    use std::time::Duration;
+
+    use tokio_stream::StreamExt;
+    use tokio_stream::wrappers::TcpListenerStream;
+
+    use crate::config::ResolvedOpts;
+    use crate::proto::controller::proto::v1::{
+        ConfigurationCommandAck, ConnectionListResponse, ControlMessage, SubscriptionListResponse,
+        control_message::Payload,
+        controller_service_server::{ControllerService, ControllerServiceServer},
+    };
+
+    use super::*;
+
+    struct MockControllerSvc;
+
+    #[tonic::async_trait]
+    impl ControllerService for MockControllerSvc {
+        type OpenControlChannelStream = std::pin::Pin<
+            Box<
+                dyn tonic::codegen::tokio_stream::Stream<
+                        Item = Result<ControlMessage, tonic::Status>,
+                    > + Send
+                    + 'static,
+            >,
+        >;
+
+        async fn open_control_channel(
+            &self,
+            request: tonic::Request<tonic::Streaming<ControlMessage>>,
+        ) -> Result<tonic::Response<Self::OpenControlChannelStream>, tonic::Status> {
+            let mut stream = request.into_inner();
+            let msg = stream
+                .next()
+                .await
+                .ok_or_else(|| tonic::Status::internal("no message received"))?
+                .map_err(|e| tonic::Status::internal(e.to_string()))?;
+
+            let resp_payload = match msg.payload {
+                Some(Payload::SubscriptionListRequest(_)) => {
+                    Payload::SubscriptionListResponse(SubscriptionListResponse {
+                        original_message_id: msg.message_id.clone(),
+                        entries: vec![],
+                    })
+                }
+                Some(Payload::ConnectionListRequest(_)) => {
+                    Payload::ConnectionListResponse(ConnectionListResponse {
+                        original_message_id: msg.message_id.clone(),
+                        entries: vec![],
+                    })
+                }
+                Some(Payload::ConfigCommand(_)) => {
+                    Payload::ConfigCommandAck(ConfigurationCommandAck {
+                        original_message_id: msg.message_id.clone(),
+                        connections_status: vec![],
+                        subscriptions_status: vec![],
+                    })
+                }
+                _ => return Err(tonic::Status::invalid_argument("unknown message type")),
+            };
+
+            let resp_msg = ControlMessage {
+                message_id: uuid::Uuid::new_v4().to_string(),
+                payload: Some(resp_payload),
+            };
+
+            Ok(tonic::Response::new(Box::pin(tokio_stream::once(Ok(
+                resp_msg,
+            )))))
+        }
+    }
+
+    async fn spawn_mock_node_server() -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let incoming = TcpListenerStream::new(listener);
+        tokio::spawn(async move {
+            tonic::transport::Server::builder()
+                .add_service(ControllerServiceServer::new(MockControllerSvc))
+                .serve_with_incoming(incoming)
+                .await
+                .unwrap();
+        });
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        format!("{}:{}", addr.ip(), addr.port())
+    }
+
+    fn make_opts(addr: &str) -> ResolvedOpts {
+        ResolvedOpts {
+            server: addr.to_string(),
+            timeout: Duration::from_secs(5),
+            tls_insecure: true,
+            tls_insecure_skip_verify: false,
+            tls_ca_file: String::new(),
+            tls_cert_file: String::new(),
+            tls_key_file: String::new(),
+            basic_auth_creds: String::new(),
+        }
+    }
+
+    #[test]
+    fn route_add_invalid_via_fails() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(route_add(
+            "a/b/c/0",
+            "not_via",
+            "config.json",
+            &make_opts("127.0.0.1:1"),
+        ));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("via"));
+    }
+
+    #[test]
+    fn route_del_invalid_via_fails() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(route_del(
+            "a/b/c/0",
+            "wrong",
+            "http://host:80",
+            &make_opts("127.0.0.1:1"),
+        ));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("via"));
+    }
+
+    #[tokio::test]
+    async fn route_list_succeeds() {
+        let addr = spawn_mock_node_server().await;
+        route_list(&make_opts(&addr)).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn connection_list_succeeds() {
+        let addr = spawn_mock_node_server().await;
+        connection_list(&make_opts(&addr)).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn route_add_via_mock_server() {
+        let addr = spawn_mock_node_server().await;
+        let mut f = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        write!(f, r#"{{"endpoint": "http://127.0.0.1:8080"}}"#).unwrap();
+        let path = f.path().to_str().unwrap().to_string();
+        route_add("a/b/c/0", "via", &path, &make_opts(&addr))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn route_del_via_mock_server() {
+        let addr = spawn_mock_node_server().await;
+        route_del("a/b/c/0", "via", "http://127.0.0.1:8080", &make_opts(&addr))
+            .await
+            .unwrap();
+    }
+
+    // ── error-handling mock services ─────────────────────────────────────────
+
+    /// Returns a gRPC status error immediately (before sending any stream items).
+    struct ErrorControllerSvc;
+
+    #[tonic::async_trait]
+    impl ControllerService for ErrorControllerSvc {
+        type OpenControlChannelStream = std::pin::Pin<
+            Box<
+                dyn tonic::codegen::tokio_stream::Stream<
+                        Item = Result<ControlMessage, tonic::Status>,
+                    > + Send
+                    + 'static,
+            >,
+        >;
+
+        async fn open_control_channel(
+            &self,
+            _request: tonic::Request<tonic::Streaming<ControlMessage>>,
+        ) -> Result<tonic::Response<Self::OpenControlChannelStream>, tonic::Status> {
+            Err(tonic::Status::internal("forced server error"))
+        }
+    }
+
+    /// Returns an `Ok` stream whose first item is itself an error.
+    struct StreamErrorControllerSvc;
+
+    #[tonic::async_trait]
+    impl ControllerService for StreamErrorControllerSvc {
+        type OpenControlChannelStream = std::pin::Pin<
+            Box<
+                dyn tonic::codegen::tokio_stream::Stream<
+                        Item = Result<ControlMessage, tonic::Status>,
+                    > + Send
+                    + 'static,
+            >,
+        >;
+
+        async fn open_control_channel(
+            &self,
+            _request: tonic::Request<tonic::Streaming<ControlMessage>>,
+        ) -> Result<tonic::Response<Self::OpenControlChannelStream>, tonic::Status> {
+            let items: Vec<Result<ControlMessage, tonic::Status>> =
+                vec![Err(tonic::Status::internal("stream item error"))];
+            Ok(tonic::Response::new(Box::pin(tokio_stream::iter(items))))
+        }
+    }
+
+    /// Returns a ConfigCommandAck whose per-entry status flags are all false
+    /// (negative ACK), to exercise the "failed to …" print branches.
+    struct NackControllerSvc;
+
+    #[tonic::async_trait]
+    impl ControllerService for NackControllerSvc {
+        type OpenControlChannelStream = std::pin::Pin<
+            Box<
+                dyn tonic::codegen::tokio_stream::Stream<
+                        Item = Result<ControlMessage, tonic::Status>,
+                    > + Send
+                    + 'static,
+            >,
+        >;
+
+        async fn open_control_channel(
+            &self,
+            request: tonic::Request<tonic::Streaming<ControlMessage>>,
+        ) -> Result<tonic::Response<Self::OpenControlChannelStream>, tonic::Status> {
+            use crate::proto::controller::proto::v1::{
+                ConfigurationCommandAck, ConnectionAck, SubscriptionAck,
+            };
+            let mut stream = request.into_inner();
+            let msg = stream
+                .next()
+                .await
+                .ok_or_else(|| tonic::Status::internal("no message"))?
+                .map_err(|e| tonic::Status::internal(e.to_string()))?;
+
+            let ack = ConfigurationCommandAck {
+                original_message_id: msg.message_id.clone(),
+                connections_status: vec![ConnectionAck {
+                    connection_id: "c1".to_string(),
+                    success: false,
+                    error_msg: "connection failed".to_string(),
+                }],
+                subscriptions_status: vec![SubscriptionAck {
+                    subscription: None,
+                    success: false,
+                    error_msg: "subscription failed".to_string(),
+                }],
+            };
+            let resp = ControlMessage {
+                message_id: uuid::Uuid::new_v4().to_string(),
+                payload: Some(Payload::ConfigCommandAck(ack)),
+            };
+            Ok(tonic::Response::new(Box::pin(tokio_stream::once(Ok(resp)))))
+        }
+    }
+
+    /// Returns an unexpected payload type (not a ConfigCommandAck) in response
+    /// to a ConfigCommand, exercising the `bail!("unexpected response type …")` arm.
+    struct UnexpectedPayloadControllerSvc;
+
+    #[tonic::async_trait]
+    impl ControllerService for UnexpectedPayloadControllerSvc {
+        type OpenControlChannelStream = std::pin::Pin<
+            Box<
+                dyn tonic::codegen::tokio_stream::Stream<
+                        Item = Result<ControlMessage, tonic::Status>,
+                    > + Send
+                    + 'static,
+            >,
+        >;
+
+        async fn open_control_channel(
+            &self,
+            _request: tonic::Request<tonic::Streaming<ControlMessage>>,
+        ) -> Result<tonic::Response<Self::OpenControlChannelStream>, tonic::Status> {
+            use crate::proto::controller::proto::v1::SubscriptionListResponse;
+            let resp = ControlMessage {
+                message_id: uuid::Uuid::new_v4().to_string(),
+                payload: Some(Payload::SubscriptionListResponse(
+                    SubscriptionListResponse::default(),
+                )),
+            };
+            Ok(tonic::Response::new(Box::pin(tokio_stream::once(Ok(resp)))))
+        }
+    }
+
+    async fn spawn_svc<S>(svc: S) -> String
+    where
+        S: crate::proto::controller::proto::v1::controller_service_server::ControllerService,
+    {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let incoming = TcpListenerStream::new(listener);
+        tokio::spawn(async move {
+            tonic::transport::Server::builder()
+                .add_service(ControllerServiceServer::new(svc))
+                .serve_with_incoming(incoming)
+                .await
+                .unwrap();
+        });
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        format!("{}:{}", addr.ip(), addr.port())
+    }
+
+    // ── gRPC-level error tests ────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn route_list_grpc_error_propagates() {
+        let addr = spawn_svc(ErrorControllerSvc).await;
+        assert!(route_list(&make_opts(&addr)).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn connection_list_grpc_error_propagates() {
+        let addr = spawn_svc(ErrorControllerSvc).await;
+        assert!(connection_list(&make_opts(&addr)).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn route_add_grpc_error_propagates() {
+        let addr = spawn_svc(ErrorControllerSvc).await;
+        let mut f = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        write!(f, r#"{{"endpoint": "http://127.0.0.1:8080"}}"#).unwrap();
+        let path = f.path().to_str().unwrap().to_string();
+        assert!(
+            route_add("a/b/c/0", "via", &path, &make_opts(&addr))
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn route_del_grpc_error_propagates() {
+        let addr = spawn_svc(ErrorControllerSvc).await;
+        assert!(
+            route_del("a/b/c/0", "via", "http://127.0.0.1:8080", &make_opts(&addr))
+                .await
+                .is_err()
+        );
+    }
+
+    // ── stream-item error tests ───────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn route_list_stream_error_propagates() {
+        let addr = spawn_svc(StreamErrorControllerSvc).await;
+        let err = route_list(&make_opts(&addr)).await.unwrap_err();
+        assert!(err.to_string().contains("stream error"));
+    }
+
+    #[tokio::test]
+    async fn connection_list_stream_error_propagates() {
+        let addr = spawn_svc(StreamErrorControllerSvc).await;
+        let err = connection_list(&make_opts(&addr)).await.unwrap_err();
+        assert!(err.to_string().contains("stream error"));
+    }
+
+    // ── negative-ACK tests (success = false per entry) ───────────────────────
+
+    #[tokio::test]
+    async fn route_add_negative_ack_prints_failure() {
+        let addr = spawn_svc(NackControllerSvc).await;
+        let mut f = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        write!(f, r#"{{"endpoint": "http://127.0.0.1:8080"}}"#).unwrap();
+        let path = f.path().to_str().unwrap().to_string();
+        // The client prints the failure but still returns Ok
+        assert!(
+            route_add("a/b/c/0", "via", &path, &make_opts(&addr))
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn route_del_negative_ack_prints_failure() {
+        let addr = spawn_svc(NackControllerSvc).await;
+        // The client prints the failure but still returns Ok
+        assert!(
+            route_del("a/b/c/0", "via", "http://127.0.0.1:8080", &make_opts(&addr))
+                .await
+                .is_ok()
+        );
+    }
+
+    // ── unexpected-payload tests ──────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn route_add_unexpected_payload_fails() {
+        let addr = spawn_svc(UnexpectedPayloadControllerSvc).await;
+        let mut f = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        write!(f, r#"{{"endpoint": "http://127.0.0.1:8080"}}"#).unwrap();
+        let path = f.path().to_str().unwrap().to_string();
+        let err = route_add("a/b/c/0", "via", &path, &make_opts(&addr))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("unexpected response type"));
+    }
+
+    #[tokio::test]
+    async fn route_del_unexpected_payload_fails() {
+        let addr = spawn_svc(UnexpectedPayloadControllerSvc).await;
+        let err = route_del("a/b/c/0", "via", "http://127.0.0.1:8080", &make_opts(&addr))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("unexpected response type"));
+    }
+}

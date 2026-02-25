@@ -106,3 +106,80 @@ fn run_set(cmd: &SetCommand, config_file: Option<&str>) -> Result<()> {
     save_config(&config, config_file)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn init_config(path: &str) {
+        crate::config::save_config(&crate::config::SlimctlConfig::default(), Some(path)).unwrap();
+    }
+
+    #[test]
+    fn set_tls_ca_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cfg.yaml");
+        let path_str = path.to_str().unwrap().to_string();
+        init_config(&path_str);
+        run_set(
+            &SetCommand::TlsCaFile {
+                value: "/path/ca.pem".to_string(),
+            },
+            Some(&path_str),
+        )
+        .unwrap();
+        let config = crate::config::load_config(Some(&path_str)).unwrap();
+        assert_eq!(config.common_opts.tls_ca_file, "/path/ca.pem");
+    }
+
+    #[test]
+    fn set_tls_cert_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cfg.yaml");
+        let path_str = path.to_str().unwrap().to_string();
+        init_config(&path_str);
+        run_set(
+            &SetCommand::TlsCertFile {
+                value: "/path/cert.pem".to_string(),
+            },
+            Some(&path_str),
+        )
+        .unwrap();
+        let config = crate::config::load_config(Some(&path_str)).unwrap();
+        assert_eq!(config.common_opts.tls_cert_file, "/path/cert.pem");
+    }
+
+    #[test]
+    fn set_tls_key_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cfg.yaml");
+        let path_str = path.to_str().unwrap().to_string();
+        init_config(&path_str);
+        run_set(
+            &SetCommand::TlsKeyFile {
+                value: "/path/key.pem".to_string(),
+            },
+            Some(&path_str),
+        )
+        .unwrap();
+        let config = crate::config::load_config(Some(&path_str)).unwrap();
+        assert_eq!(config.common_opts.tls_key_file, "/path/key.pem");
+    }
+
+    #[test]
+    fn set_basic_auth_creds() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cfg.yaml");
+        let path_str = path.to_str().unwrap().to_string();
+        init_config(&path_str);
+        run_set(
+            &SetCommand::BasicAuthCreds {
+                value: "user:pass".to_string(),
+            },
+            Some(&path_str),
+        )
+        .unwrap();
+        let config = crate::config::load_config(Some(&path_str)).unwrap();
+        assert_eq!(config.common_opts.basic_auth_creds, "user:pass");
+    }
+}

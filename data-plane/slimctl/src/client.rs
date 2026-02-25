@@ -248,4 +248,20 @@ mod tests {
         let req = with_timeout("hello", &opts);
         assert_eq!(req.into_inner(), "hello");
     }
+
+    #[test]
+    fn bare_server_skip_verify_succeeds() {
+        let mut opts = base_opts();
+        opts.tls_insecure = false;
+        opts.tls_insecure_skip_verify = true;
+        assert!(build_client_config(&opts).is_ok());
+    }
+
+    #[test]
+    fn bare_server_with_ca_file_succeeds() {
+        let mut opts = base_opts();
+        opts.tls_insecure = false;
+        opts.tls_ca_file = "/path/ca.pem".to_string();
+        assert!(build_client_config(&opts).is_ok());
+    }
 }
