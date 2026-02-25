@@ -25,3 +25,7 @@ services:
         - endpoint: "0.0.0.0:46358"
           tls:
             insecure: true
+      clients:
+        - endpoint: "http://127.0.0.1:50052"
+          tls:
+            insecure: true

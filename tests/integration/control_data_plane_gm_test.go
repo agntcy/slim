@@ -160,9 +160,9 @@ var _ = Describe("Group management through control plane", func() {
 		It("SLIM node creates channel, adds participant, removes participant and deletes channel", func() {
 			addChannelOutput, err := exec.Command(
 				slimctlPath,
+				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort), "--tls-insecure",
 				"c", "channel", "create",
 				"moderators=org/default/moderator1/0",
-				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort), "--tls-insecure",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(addChannelOutput).NotTo(BeEmpty())
@@ -186,10 +186,10 @@ var _ = Describe("Group management through control plane", func() {
 			// Invite clientA to the channel
 			addClientAOutput, errA := exec.Command(
 				slimctlPath,
+				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort), "--tls-insecure",
 				"c", "participant", "add",
 				participantA,
 				"--channel-id", channelName,
-				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort), "--tls-insecure",
 			).CombinedOutput()
 
 			Expect(errA).NotTo(HaveOccurred())
@@ -203,10 +203,10 @@ var _ = Describe("Group management through control plane", func() {
 			// Invite clientC to the channel
 			addClientCOutput, errB := exec.Command(
 				slimctlPath,
+				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort), "--tls-insecure",
 				"c", "participant", "add",
 				participantC,
 				"--channel-id", channelName,
-				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort), "--tls-insecure",
 			).CombinedOutput()
 
 			Expect(errB).NotTo(HaveOccurred())
@@ -227,10 +227,10 @@ var _ = Describe("Group management through control plane", func() {
 			// Remove participant c from the channel
 			deleteParticipantOutput, errP := exec.Command(
 				slimctlPath,
+				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPorts), "--tls-insecure",
 				"c", "participant", "delete",
 				participantC,
 				"--channel-id", channelName,
-				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPorts), "--tls-insecure",
 			).CombinedOutput()
 
 			Expect(errP).NotTo(HaveOccurred())
@@ -244,9 +244,9 @@ var _ = Describe("Group management through control plane", func() {
 			deleteChannelOutput := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
 				return exec.Command(
 					slimctlPath,
+					"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
 					"c", "channel", "delete",
 					channelName,
-					"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
 				)
 			})
 			Expect(deleteChannelOutput).NotTo(BeEmpty())

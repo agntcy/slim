@@ -41,26 +41,28 @@ pub enum SetCommand {
     TlsCertFile { value: String },
     /// Set TLS client key file path
     TlsKeyFile { value: String },
-    /// Set TLS insecure mode (true/false)
+    /// Set TLS insecure mode - disables TLS and uses plain HTTP (true/false)
     TlsInsecure { value: String },
+    /// Set TLS insecure skip verify mode - skips TLS certificate verification (true/false)
+    TlsInsecureSkipVerify { value: String },
 }
 
-pub async fn run(args: &ConfigArgs) -> Result<()> {
+pub async fn run(args: &ConfigArgs, config_file: Option<&str>) -> Result<()> {
     match &args.command {
-        ConfigCommand::List => run_list(),
-        ConfigCommand::Set(set_args) => run_set(&set_args.command),
+        ConfigCommand::List => run_list(config_file),
+        ConfigCommand::Set(set_args) => run_set(&set_args.command, config_file),
     }
 }
 
-fn run_list() -> Result<()> {
-    let config = load_config()?;
+fn run_list(config_file: Option<&str>) -> Result<()> {
+    let config = load_config(config_file)?;
     let yaml = serde_yaml::to_string(&config)?;
     print!("{}", yaml);
     Ok(())
 }
 
-fn run_set(cmd: &SetCommand) -> Result<()> {
-    let mut config = load_config()?;
+fn run_set(cmd: &SetCommand, config_file: Option<&str>) -> Result<()> {
+    let mut config = load_config(config_file)?;
     match cmd {
         SetCommand::BasicAuthCreds { value } => {
             config.common_opts.basic_auth_creds = value.clone();
@@ -91,7 +93,16 @@ fn run_set(cmd: &SetCommand) -> Result<()> {
             })?;
             config.common_opts.tls_insecure = insecure;
         }
+        SetCommand::TlsInsecureSkipVerify { value } => {
+            let skip_verify: bool = value.parse().map_err(|_| {
+                anyhow::anyhow!(
+                    "invalid value '{}' for tls-insecure-skip-verify, expected true or false",
+                    value
+                )
+            })?;
+            config.common_opts.tls_insecure_skip_verify = skip_verify;
+        }
     }
-    save_config(&config)?;
+    save_config(&config, config_file)?;
     Ok(())
 }

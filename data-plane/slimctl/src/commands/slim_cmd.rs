@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::{Context, Result};
-use clap::{Args, Subcommand};
+use clap::{ArgGroup, Args, Subcommand};
+
+use crate::defaults::DEFAULT_ENDPOINT;
 
 #[derive(Args)]
 pub struct SlimArgs {
@@ -17,12 +19,13 @@ pub enum SlimCommand {
 }
 
 #[derive(Args)]
+#[command(group(ArgGroup::new("source")))]
 pub struct SlimStartArgs {
     /// Path to YAML configuration file
-    #[arg(short = 'c', long)]
+    #[arg(short = 'c', long, group = "source")]
     pub config: Option<String>,
     /// Server endpoint override (sets SLIM_ENDPOINT environment variable)
-    #[arg(long)]
+    #[arg(long, group = "source")]
     pub endpoint: Option<String>,
 }
 
@@ -33,23 +36,27 @@ pub async fn run(args: &SlimArgs) -> Result<()> {
 }
 
 async fn run_start(args: &SlimStartArgs) -> Result<()> {
-    // Set SLIM_ENDPOINT environment variable if --endpoint is provided or no config is given
-    if let Some(endpoint) = &args.endpoint {
+    // Resolve effective endpoint: explicit flag > default (when no config file given)
+    let effective_endpoint = args
+        .endpoint
+        .as_deref()
+        .or_else(|| args.config.is_none().then_some(DEFAULT_ENDPOINT));
+
+    // Propagate the endpoint into the environment so embedded SLIM code can
+    // pick it up via SLIM_ENDPOINT.
+    if let Some(ep) = effective_endpoint {
         unsafe {
             #[allow(clippy::disallowed_methods)]
-            std::env::set_var("SLIM_ENDPOINT", endpoint);
+            std::env::set_var("SLIM_ENDPOINT", ep);
         }
     }
 
     let config_file = args.config.as_deref().unwrap_or("");
-    if config_file.is_empty() && args.endpoint.is_none() {
-        anyhow::bail!("either --config or --endpoint must be specified to start a SLIM instance");
-    }
 
     // If no config file, create a minimal default config using the endpoint
     let temp_config;
     let config_path = if config_file.is_empty() {
-        temp_config = create_temp_config(args.endpoint.as_deref())?;
+        temp_config = create_temp_config(effective_endpoint)?;
         temp_config
             .path()
             .to_str()
@@ -65,7 +72,7 @@ async fn run_start(args: &SlimStartArgs) -> Result<()> {
 
 fn create_temp_config(endpoint: Option<&str>) -> Result<tempfile::NamedTempFile> {
     use std::io::Write;
-    let endpoint_str = endpoint.unwrap_or("localhost:46357");
+    let endpoint_str = endpoint.unwrap_or(DEFAULT_ENDPOINT);
     let config_yaml = format!(
         r#"runtime:
   n_cores: 0

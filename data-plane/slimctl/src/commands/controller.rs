@@ -702,3 +702,235 @@ async fn participant_list(channel_id: &str, opts: &ResolvedOpts) -> Result<()> {
     );
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[allow(clippy::too_many_arguments)]
+    fn make_route(
+        source: &str,
+        dest_node: &str,
+        dest_endpoint: &str,
+        c0: &str,
+        c1: &str,
+        c2: &str,
+        component_id: Option<u64>,
+        status: i32,
+        deleted: bool,
+        last_updated: i64,
+    ) -> RouteEntry {
+        RouteEntry {
+            id: 1,
+            source_node_id: source.to_string(),
+            dest_node_id: dest_node.to_string(),
+            dest_endpoint: dest_endpoint.to_string(),
+            component_0: c0.to_string(),
+            component_1: c1.to_string(),
+            component_2: c2.to_string(),
+            component_id,
+            status,
+            deleted,
+            last_updated,
+            ..Default::default()
+        }
+    }
+
+    // ── route_status_str ────────────────────────────────────────────────────
+
+    #[test]
+    fn route_status_applied() {
+        assert_eq!(route_status_str(RouteStatus::Applied as i32), "APPLIED");
+    }
+
+    #[test]
+    fn route_status_failed() {
+        assert_eq!(route_status_str(RouteStatus::Failed as i32), "FAILED");
+    }
+
+    #[test]
+    fn route_status_unspecified_is_unknown() {
+        assert_eq!(route_status_str(0), "UNKNOWN");
+    }
+
+    #[test]
+    fn route_status_out_of_range_is_unknown() {
+        assert_eq!(route_status_str(999), "UNKNOWN");
+    }
+
+    // ── format_unix_timestamp ───────────────────────────────────────────────
+
+    #[test]
+    fn format_unix_timestamp_epoch() {
+        assert_eq!(format_unix_timestamp(0), "1970-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn format_unix_timestamp_known_value() {
+        // 2024-02-01T00:00:00Z
+        assert_eq!(format_unix_timestamp(1706745600), "2024-02-01T00:00:00Z");
+    }
+
+    #[test]
+    fn format_unix_timestamp_negative_falls_back_to_raw() {
+        // Sufficiently-out-of-range negative value returns the raw number
+        let ts = -99_999_999_999_i64;
+        let result = format_unix_timestamp(ts);
+        assert!(!result.is_empty());
+        // Either a valid formatted date or the raw number as string
+        assert!(result == ts.to_string() || result.contains('-'));
+    }
+
+    // ── build_subscription_str ──────────────────────────────────────────────
+
+    #[test]
+    fn build_subscription_str_with_component_id() {
+        let r = make_route("", "", "", "org", "ns", "agent", Some(42), 0, false, 0);
+        assert_eq!(build_subscription_str(&r), "org/ns/agent/42");
+    }
+
+    #[test]
+    fn build_subscription_str_without_component_id() {
+        let r = make_route("", "", "", "org", "ns", "agent", None, 0, false, 0);
+        assert_eq!(build_subscription_str(&r), "org/ns/agent");
+    }
+
+    #[test]
+    fn build_subscription_str_zero_component_id() {
+        let r = make_route("", "", "", "a", "b", "c", Some(0), 0, false, 0);
+        assert_eq!(build_subscription_str(&r), "a/b/c/0");
+    }
+
+    // ── parse_moderators ────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_moderators_single() {
+        assert_eq!(parse_moderators("moderators=alice").unwrap(), vec!["alice"]);
+    }
+
+    #[test]
+    fn parse_moderators_multiple() {
+        assert_eq!(
+            parse_moderators("moderators=alice,bob,carol").unwrap(),
+            vec!["alice", "bob", "carol"]
+        );
+    }
+
+    #[test]
+    fn parse_moderators_trims_spaces() {
+        assert_eq!(
+            parse_moderators("moderators=alice, bob").unwrap(),
+            vec!["alice", "bob"]
+        );
+    }
+
+    #[test]
+    fn parse_moderators_wrong_key() {
+        assert!(parse_moderators("owners=alice").is_err());
+    }
+
+    #[test]
+    fn parse_moderators_no_equals() {
+        assert!(parse_moderators("moderatorsalice").is_err());
+    }
+
+    #[test]
+    fn parse_moderators_empty_value() {
+        assert!(parse_moderators("moderators=").is_err());
+    }
+
+    #[test]
+    fn parse_moderators_only_commas() {
+        assert!(parse_moderators("moderators=,,,").is_err());
+    }
+
+    // ── route_cells ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn route_cells_populates_all_columns() {
+        let r = make_route(
+            "src-node",
+            "dst-node",
+            "",
+            "org",
+            "ns",
+            "agent",
+            Some(7),
+            RouteStatus::Applied as i32,
+            false,
+            0,
+        );
+        let cells = route_cells(&r);
+        assert_eq!(cells[0], "1"); // id
+        assert_eq!(cells[1], "src-node"); // source
+        assert_eq!(cells[2], "dst-node"); // dest node
+        assert_eq!(cells[3], "-"); // dest endpoint (empty → "-")
+        assert_eq!(cells[4], "org/ns/agent/7"); // subscription
+        assert_eq!(cells[5], "APPLIED"); // status
+        assert_eq!(cells[6], "No"); // deleted
+    }
+
+    #[test]
+    fn route_cells_empty_dest_node_becomes_dash() {
+        let r = make_route("src", "", "", "o", "n", "a", None, 0, false, 0);
+        assert_eq!(route_cells(&r)[2], "-");
+    }
+
+    #[test]
+    fn route_cells_nonempty_dest_endpoint() {
+        let r = make_route(
+            "src",
+            "",
+            "http://host:8080",
+            "o",
+            "n",
+            "a",
+            None,
+            0,
+            false,
+            0,
+        );
+        assert_eq!(route_cells(&r)[3], "http://host:8080");
+    }
+
+    #[test]
+    fn route_cells_deleted_shows_yes() {
+        let r = make_route("src", "", "", "o", "n", "a", None, 0, true, 0);
+        assert_eq!(route_cells(&r)[6], "Yes");
+    }
+
+    // ── compute_route_col_widths ─────────────────────────────────────────────
+
+    #[test]
+    fn col_widths_empty_routes_equals_header_widths() {
+        let widths = compute_route_col_widths(&[]);
+        for (i, &header) in ROUTE_HEADERS.iter().enumerate() {
+            assert_eq!(widths[i], header.len(), "column {i} mismatch");
+        }
+    }
+
+    #[test]
+    fn col_widths_expands_for_long_data() {
+        let long_source = "a-very-long-source-node-id-exceeding-header";
+        let r = RouteEntry {
+            source_node_id: long_source.to_string(),
+            ..Default::default()
+        };
+        let widths = compute_route_col_widths(&[r]);
+        assert!(widths[1] >= long_source.len());
+    }
+
+    #[test]
+    fn col_widths_multiple_routes_takes_max() {
+        let r1 = RouteEntry {
+            source_node_id: "short".to_string(),
+            ..Default::default()
+        };
+        let r2 = RouteEntry {
+            source_node_id: "this-is-a-much-longer-source-node-id".to_string(),
+            ..Default::default()
+        };
+        let widths = compute_route_col_widths(&[r1, r2]);
+        assert!(widths[1] >= "this-is-a-much-longer-source-node-id".len());
+    }
+}

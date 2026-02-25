@@ -79,17 +79,17 @@ var _ = Describe("Routing", func() {
 		Eventually(serverBSession.Out, 15*time.Second).Should(gbytes.Say("started controlplane server"))
 
 		// add routes
-		outB, errB2 := exec.Command(slimctlPath, "n",
-			"route", "add", "org/default/b/0",
-			"via", "./testdata/client-b-config-data.json",
+		outB, errB2 := exec.Command(slimctlPath,
 			"-s", fmt.Sprintf("127.0.0.1:%d", controllerAPort), "--tls-insecure",
+			"n", "route", "add", "org/default/b/0",
+			"via", "./testdata/client-b-config-data.json",
 		).CombinedOutput()
 		Expect(errB2).NotTo(HaveOccurred(), "slimctl route add b failed: %s", string(outB))
 
-		outA, errA2 := exec.Command(slimctlPath, "n",
-			"route", "add", "org/default/a/0",
-			"via", "./testdata/client-a-config-data.json",
+		outA, errA2 := exec.Command(slimctlPath,
 			"-s", fmt.Sprintf("127.0.0.1:%d", controllerBPort), "--tls-insecure",
+			"n", "route", "add", "org/default/a/0",
+			"via", "./testdata/client-a-config-data.json",
 		).CombinedOutput()
 		Expect(errA2).NotTo(HaveOccurred(), "slimctl route add a failed: %s", string(outA))
 	})
@@ -145,9 +145,9 @@ var _ = Describe("Routing", func() {
 		It("should have the valid routes and connections", func() {
 			// test listing routes
 			routeListOut, err := exec.Command(
-				slimctlPath, "n",
-				"route", "list",
+				slimctlPath,
 				"-s", fmt.Sprintf("127.0.0.1:%d", controllerAPort), "--tls-insecure",
+				"n", "route", "list",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOut))
 
@@ -156,9 +156,9 @@ var _ = Describe("Routing", func() {
 
 			// test listing connections
 			connectionListOut, err := exec.Command(
-				slimctlPath, "n",
-				"connection", "list",
+				slimctlPath,
 				"-s", fmt.Sprintf("127.0.0.1:%d", controllerAPort), "--tls-insecure",
+				"n", "connection", "list",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred(), "slimctl connection list failed: %s", string(connectionListOut))
 

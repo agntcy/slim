@@ -181,10 +181,9 @@ var _ = Describe("Routing", func() {
 			// test listing routes for node a
 			routeListOutA, err := exec.Command(
 				slimctlPath,
+				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort), "--tls-insecure",
 				"controller", "route", "list",
-				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
 				"-n", "slim/a",
-				"--tls-insecure",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOutA))
 
@@ -195,9 +194,9 @@ var _ = Describe("Routing", func() {
 			// test listing connections for node a
 			connectionListOutA, err := exec.Command(
 				slimctlPath,
+				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort), "--tls-insecure",
 				"controller", "connection", "list",
-				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
-				"-n", "slim/a", "--tls-insecure",
+				"-n", "slim/a",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred(), "slimctl connection list failed: %s", string(connectionListOutA))
 
@@ -207,9 +206,9 @@ var _ = Describe("Routing", func() {
 			// test listing routes for node b
 			routeListOutB, err := exec.Command(
 				slimctlPath,
+				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort), "--tls-insecure",
 				"controller", "route", "list",
-				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
-				"-n", "slim/b", "--tls-insecure",
+				"-n", "slim/b",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOutB))
 
@@ -219,9 +218,9 @@ var _ = Describe("Routing", func() {
 			// test listing connections for node b
 			connectionListOutB, err := exec.Command(
 				slimctlPath,
+				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort), "--tls-insecure",
 				"controller", "connection", "list",
-				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
-				"-n", "slim/b", "--tls-insecure",
+				"-n", "slim/b",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred(), "slimctl connection list failed: %s", string(connectionListOutB))
 
@@ -238,9 +237,9 @@ var _ = Describe("Routing", func() {
 			// test listing routes for node a
 			routeListOutA, err = exec.Command(
 				slimctlPath,
+				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort), "--tls-insecure",
 				"controller", "route", "list",
-				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
-				"-n", "slim/a", "--tls-insecure",
+				"-n", "slim/a",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOutA))
 
@@ -249,9 +248,9 @@ var _ = Describe("Routing", func() {
 			// test listing routes for node b
 			routeListOutB, err = exec.Command(
 				slimctlPath,
+				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort), "--tls-insecure",
 				"controller", "route", "list",
-				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
-				"-n", "slim/b", "--tls-insecure",
+				"-n", "slim/b",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOutB))
 

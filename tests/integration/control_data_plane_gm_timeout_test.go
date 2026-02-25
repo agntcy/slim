@@ -125,9 +125,9 @@ var _ = Describe("Group management through control plane with timeout", func() {
 		It("SLIM node creates channel, adds nonexistent participant", func() {
 			addChannelOutput, err := exec.Command(
 				slimctlPath,
+				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort), "--tls-insecure",
 				"c", "channel", "create",
 				"moderators=org/default/moderator1/0",
-				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort), "--tls-insecure",
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(addChannelOutput).NotTo(BeEmpty())
@@ -150,10 +150,10 @@ var _ = Describe("Group management through control plane with timeout", func() {
 			// Invite clientA to the channel
 			addClientAOutput, errA := exec.Command(
 				slimctlPath,
+				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort), "--tls-insecure",
 				"c", "participant", "add",
 				participantA,
 				"--channel-id", channelName,
-				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort), "--tls-insecure",
 			).CombinedOutput()
 
 			time.Sleep(2000 * time.Millisecond)

@@ -351,6 +351,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "duration-string",
  "prost",
  "prost-types",
  "protoc-bin-vendored",

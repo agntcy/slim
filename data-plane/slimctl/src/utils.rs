@@ -109,3 +109,183 @@ pub fn parse_config_file(config_file: &str) -> Result<Connection> {
         config_data: data,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    // ── parse_route ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_route_valid() {
+        let (org, ns, agent, id) = parse_route("myorg/mynamespace/myagent/42").unwrap();
+        assert_eq!(org, "myorg");
+        assert_eq!(ns, "mynamespace");
+        assert_eq!(agent, "myagent");
+        assert_eq!(id, 42);
+    }
+
+    #[test]
+    fn parse_route_zero_agent_id() {
+        let (_, _, _, id) = parse_route("org/ns/agent/0").unwrap();
+        assert_eq!(id, 0);
+    }
+
+    #[test]
+    fn parse_route_max_u64_agent_id() {
+        let (_, _, _, id) = parse_route("org/ns/agent/18446744073709551615").unwrap();
+        assert_eq!(id, u64::MAX);
+    }
+
+    #[test]
+    fn parse_route_too_few_parts() {
+        assert!(parse_route("org/ns/agent").is_err());
+    }
+
+    #[test]
+    fn parse_route_too_many_parts() {
+        assert!(parse_route("org/ns/agent/42/extra").is_err());
+    }
+
+    #[test]
+    fn parse_route_empty_middle_part() {
+        assert!(parse_route("org//agent/42").is_err());
+    }
+
+    #[test]
+    fn parse_route_leading_slash() {
+        assert!(parse_route("/ns/agent/42").is_err());
+    }
+
+    #[test]
+    fn parse_route_non_u64_agent_id() {
+        assert!(parse_route("org/ns/agent/notanumber").is_err());
+    }
+
+    #[test]
+    fn parse_route_negative_agent_id() {
+        assert!(parse_route("org/ns/agent/-1").is_err());
+    }
+
+    // ── is_endpoint ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn is_endpoint_with_colon() {
+        assert!(is_endpoint("localhost:50051"));
+    }
+
+    #[test]
+    fn is_endpoint_http_prefix() {
+        assert!(is_endpoint("http://localhost:50051"));
+    }
+
+    #[test]
+    fn is_endpoint_https_prefix() {
+        assert!(is_endpoint("https://localhost:50051"));
+    }
+
+    #[test]
+    fn is_endpoint_plain_string() {
+        assert!(!is_endpoint("some-node-id"));
+    }
+
+    #[test]
+    fn is_endpoint_empty() {
+        assert!(!is_endpoint(""));
+    }
+
+    #[test]
+    fn is_endpoint_uuid_like() {
+        assert!(!is_endpoint("550e8400-e29b-41d4-a716-446655440000"));
+    }
+
+    // ── parse_endpoint ──────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_endpoint_valid_http() {
+        let (conn, id) = parse_endpoint("http://localhost:8080").unwrap();
+        assert_eq!(conn.connection_id, "http://localhost:8080");
+        assert_eq!(conn.config_data, "");
+        assert_eq!(id, "http://localhost:8080");
+    }
+
+    #[test]
+    fn parse_endpoint_valid_https() {
+        // Use a non-default port; url::Url::port() returns None for scheme defaults (443).
+        let (conn, id) = parse_endpoint("https://example.com:8443").unwrap();
+        assert_eq!(conn.connection_id, "https://example.com:8443");
+        assert_eq!(id, "https://example.com:8443");
+    }
+
+    #[test]
+    fn parse_endpoint_unsupported_scheme() {
+        assert!(parse_endpoint("grpc://host:50051").is_err());
+    }
+
+    #[test]
+    fn parse_endpoint_missing_port() {
+        assert!(parse_endpoint("http://localhost").is_err());
+    }
+
+    #[test]
+    fn parse_endpoint_not_a_url() {
+        assert!(parse_endpoint("not_a_url").is_err());
+    }
+
+    // ── parse_config_file ───────────────────────────────────────────────────
+
+    #[test]
+    fn parse_config_file_empty_path() {
+        assert!(parse_config_file("").is_err());
+    }
+
+    #[test]
+    fn parse_config_file_non_json_extension() {
+        assert!(parse_config_file("config.yaml").is_err());
+    }
+
+    #[test]
+    fn parse_config_file_nonexistent() {
+        assert!(parse_config_file("/nonexistent/path/config.json").is_err());
+    }
+
+    #[test]
+    fn parse_config_file_valid() {
+        let mut f = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        write!(f, r#"{{"endpoint": "http://host:8080"}}"#).unwrap();
+        let conn = parse_config_file(f.path().to_str().unwrap()).unwrap();
+        assert_eq!(conn.connection_id, "http://host:8080");
+        assert!(conn.config_data.contains("endpoint"));
+    }
+
+    #[test]
+    fn parse_config_file_config_data_is_full_json() {
+        let mut f = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        let json = r#"{"endpoint": "http://host:9090", "extra": "value"}"#;
+        write!(f, "{}", json).unwrap();
+        let conn = parse_config_file(f.path().to_str().unwrap()).unwrap();
+        assert_eq!(conn.config_data, json);
+    }
+
+    #[test]
+    fn parse_config_file_invalid_json() {
+        let mut f = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        write!(f, "not json").unwrap();
+        assert!(parse_config_file(f.path().to_str().unwrap()).is_err());
+    }
+
+    #[test]
+    fn parse_config_file_missing_endpoint_key() {
+        let mut f = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        write!(f, r#"{{"other_key": "value"}}"#).unwrap();
+        assert!(parse_config_file(f.path().to_str().unwrap()).is_err());
+    }
+
+    #[test]
+    fn parse_config_file_empty_endpoint_value() {
+        let mut f = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        write!(f, r#"{{"endpoint": ""}}"#).unwrap();
+        assert!(parse_config_file(f.path().to_str().unwrap()).is_err());
+    }
+}
