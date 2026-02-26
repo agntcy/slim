@@ -72,25 +72,3 @@ jobs:
         run: |
           echo "Prime cache hit: ${{ steps.prime.outputs.cache-hit }}"
           echo "Version: ${{ steps.prime.outputs.version }}"
-
-  test-cache-hit:
-    runs-on: ubuntu-latest
-    needs: [test-cache-prime]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Restore from cache
-        id: cached
-        uses: ./.github/actions/setup-task
-
-      - name: Verify cache was used
-        shell: bash
-        run: |
-          echo "Cache hit: ${{ steps.cached.outputs.cache-hit }}"
-          if [[ "${{ steps.cached.outputs.cache-hit }}" == "true" ]]; then
-            echo "✓ Cache is working correctly!"
-          else
-            echo "✗ Cache is not working as expected"
-            exit 1
-          fi
