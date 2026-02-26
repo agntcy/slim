@@ -309,5 +309,17 @@ publishing {
                 password = System.getenv("GITHUB_TOKEN")
             }
         }
+        // Maven Central via OSSRH Staging API (central.sonatype.com). OSSRH (s01.oss.sonatype.org) was shut down June 2025.
+        // Requires Central Portal User Token: https://central.sonatype.org/publish/generate-portal-token/
+        if (System.getenv("MVN_TOKEN_NAME") != null && System.getenv("MVN_TOKEN_PASSWORD") != null) {
+            maven {
+                name = "MavenCentral"
+                url = uri("https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/")
+                credentials {
+                    username = System.getenv("MVN_TOKEN_NAME")
+                    password = System.getenv("MVN_TOKEN_PASSWORD")
+                }
+            }
+        }
     }
 }
