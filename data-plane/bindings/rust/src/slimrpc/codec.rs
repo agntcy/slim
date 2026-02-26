@@ -6,18 +6,18 @@
 //! Provides trait abstractions for encoding and decoding messages in SlimRPC.
 //! These traits are typically implemented by protobuf-generated code.
 
-use super::Status;
+use super::RpcError;
 
 /// Trait for encoding messages to bytes
 pub trait Encoder {
     /// Encode a message to bytes
-    fn encode(self) -> Result<Vec<u8>, Status>;
+    fn encode(self) -> Result<Vec<u8>, RpcError>;
 }
 
 /// Trait for decoding messages from bytes
 pub trait Decoder: Default {
     /// Decode a message from bytes
-    fn decode(buf: impl Into<Vec<u8>>) -> Result<Self, Status>;
+    fn decode(buf: impl Into<Vec<u8>>) -> Result<Self, RpcError>;
 }
 
 /// Combined codec trait for types that can be both encoded and decoded
@@ -28,13 +28,13 @@ impl<T: Encoder + Decoder> Codec for T {}
 
 // Standard implementations for Vec<u8> (pass-through)
 impl Encoder for Vec<u8> {
-    fn encode(self) -> Result<Vec<u8>, Status> {
+    fn encode(self) -> Result<Vec<u8>, RpcError> {
         Ok(self)
     }
 }
 
 impl Decoder for Vec<u8> {
-    fn decode(buf: impl Into<Vec<u8>>) -> Result<Self, Status> {
+    fn decode(buf: impl Into<Vec<u8>>) -> Result<Self, RpcError> {
         Ok(buf.into())
     }
 }
@@ -50,13 +50,13 @@ mod tests {
     }
 
     impl Encoder for TestMessage {
-        fn encode(self) -> Result<Vec<u8>, Status> {
+        fn encode(self) -> Result<Vec<u8>, RpcError> {
             Ok(self.data)
         }
     }
 
     impl Decoder for TestMessage {
-        fn decode(buf: impl Into<Vec<u8>>) -> Result<Self, Status> {
+        fn decode(buf: impl Into<Vec<u8>>) -> Result<Self, RpcError> {
             Ok(TestMessage { data: buf.into() })
         }
     }

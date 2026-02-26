@@ -11,7 +11,7 @@ use futures::StreamExt;
 use parking_lot::Mutex;
 use tokio::sync::Mutex as TokioMutex;
 
-use super::{Channel, Code, RpcError, Status};
+use super::{Channel, RpcCode, RpcError};
 
 /// Request stream reader
 ///
@@ -49,7 +49,7 @@ impl RequestStream {
         let mut stream = self.inner.lock().await;
         match stream.next().await {
             Some(Ok(data)) => StreamMessage::Data(data),
-            Some(Err(e)) => StreamMessage::Error(e.into()),
+            Some(Err(e)) => StreamMessage::Error(e),
             None => StreamMessage::End,
         }
     }
@@ -74,12 +74,12 @@ pub enum StreamMessage {
 #[derive(uniffi::Object)]
 pub struct ResponseSink {
     /// Channel sender for streaming responses (None when closed)
-    sender: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Result<Vec<u8>, Status>>>>,
+    sender: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Result<Vec<u8>, RpcError>>>>,
 }
 
 impl ResponseSink {
     /// Create a new response sink wrapper
-    pub fn new(sender: tokio::sync::mpsc::UnboundedSender<Result<Vec<u8>, Status>>) -> Self {
+    pub fn new(sender: tokio::sync::mpsc::UnboundedSender<Result<Vec<u8>, RpcError>>) -> Self {
         Self {
             sender: Mutex::new(Some(sender)),
         }
@@ -88,7 +88,7 @@ impl ResponseSink {
     /// Get the receiver side of the channel
     pub fn receiver() -> (
         Self,
-        tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, Status>>,
+        tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, RpcError>>,
     ) {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = Self::new(tx);
@@ -112,10 +112,10 @@ impl ResponseSink {
         let sender = self.sender.lock();
         match sender.as_ref() {
             Some(s) => s.send(Ok(data)).map_err(|_| {
-                RpcError::new(Code::Unavailable, "Failed to send response".to_string())
+                RpcError::new(RpcCode::Unavailable, "Failed to send response".to_string())
             }),
             None => Err(RpcError::new(
-                Code::FailedPrecondition,
+                RpcCode::FailedPrecondition,
                 "Response sink is closed".to_string(),
             )),
         }
@@ -134,14 +134,11 @@ impl ResponseSink {
     pub async fn send_error_async(&self, error: RpcError) -> Result<(), RpcError> {
         let mut sender_guard = self.sender.lock();
         match sender_guard.take() {
-            Some(sender) => {
-                let status: Status = error.into();
-                sender.send(Err(status)).map_err(|_| {
-                    RpcError::new(Code::Unavailable, "Failed to send error".to_string())
-                })
-            }
+            Some(sender) => sender.send(Err(error)).map_err(|_| {
+                RpcError::new(RpcCode::Unavailable, "Failed to send error".to_string())
+            }),
             None => Err(RpcError::new(
-                Code::FailedPrecondition,
+                RpcCode::FailedPrecondition,
                 "Response sink is already closed".to_string(),
             )),
         }
@@ -182,12 +179,12 @@ impl ResponseSink {
 #[derive(uniffi::Object)]
 pub struct ResponseStreamReader {
     /// Inner receiver channel for stream messages
-    inner: TokioMutex<tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, Status>>>,
+    inner: TokioMutex<tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, RpcError>>>,
 }
 
 impl ResponseStreamReader {
     /// Create a new response stream reader
-    pub fn new(rx: tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, Status>>) -> Self {
+    pub fn new(rx: tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, RpcError>>) -> Self {
         Self {
             inner: TokioMutex::new(rx),
         }
@@ -210,7 +207,7 @@ impl ResponseStreamReader {
         let mut rx = self.inner.lock().await;
         match rx.recv().await {
             Some(Ok(data)) => StreamMessage::Data(data),
-            Some(Err(e)) => StreamMessage::Error(e.into()),
+            Some(Err(e)) => StreamMessage::Error(e),
             None => StreamMessage::End,
         }
     }
@@ -222,7 +219,7 @@ impl ResponseStreamReader {
 #[derive(uniffi::Object)]
 pub struct RequestStreamWriter {
     sender: TokioMutex<Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>,
-    response: TokioMutex<Option<tokio::task::JoinHandle<Result<Vec<u8>, Status>>>>,
+    response: TokioMutex<Option<tokio::task::JoinHandle<Result<Vec<u8>, RpcError>>>>,
 }
 
 impl RequestStreamWriter {
@@ -279,22 +276,22 @@ impl RequestStreamWriter {
         let sender = self.sender.lock().await;
         if let Some(tx) = sender.as_ref() {
             tx.send(data)
-                .map_err(|_| RpcError::new(Code::Internal, "Stream closed".to_string()))
+                .map_err(|_| RpcError::new(RpcCode::Internal, "Stream closed".to_string()))
         } else {
             Err(RpcError::new(
-                Code::Internal,
+                RpcCode::Internal,
                 "Stream already finalized".to_string(),
             ))
         }
     }
 
     /// Finalize the stream and get the response (blocking version)
-    pub fn finalize(&self) -> Result<Vec<u8>, RpcError> {
-        crate::get_runtime().block_on(self.finalize_async())
+    pub fn finalize_stream(&self) -> Result<Vec<u8>, RpcError> {
+        crate::get_runtime().block_on(self.finalize_stream_async())
     }
 
     /// Finalize the stream and get the response (async version)
-    pub async fn finalize_async(&self) -> Result<Vec<u8>, RpcError> {
+    pub async fn finalize_stream_async(&self) -> Result<Vec<u8>, RpcError> {
         // Drop the sender to signal end of stream
         {
             let mut sender = self.sender.lock().await;
@@ -304,16 +301,25 @@ impl RequestStreamWriter {
         // Wait for response
         let mut response_guard = self.response.lock().await;
         if let Some(handle) = response_guard.take() {
-            let result = handle
+            handle
                 .await
-                .map_err(|e| RpcError::new(Code::Internal, format!("Task failed: {}", e)))?;
-            result.map_err(|e| e.into())
+                .map_err(|e| RpcError::new(RpcCode::Internal, format!("Task failed: {}", e)))?
         } else {
             Err(RpcError::new(
-                Code::Internal,
+                RpcCode::Internal,
                 "Stream already finalized".to_string(),
             ))
         }
+    }
+}
+
+#[uniffi::export]
+impl RequestStreamWriter {
+    /// Finalize the stream and get the response (async version)
+    ///
+    /// **Deprecated**: Use [`finalize_stream_async`](Self::finalize_stream_async) instead.
+    pub async fn finalize_async(&self) -> Result<Vec<u8>, RpcError> {
+        self.finalize_stream_async().await
     }
 }
 
@@ -323,7 +329,7 @@ impl RequestStreamWriter {
 #[derive(uniffi::Object)]
 pub struct BidiStreamHandler {
     sender: TokioMutex<Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>,
-    receiver: TokioMutex<tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, Status>>>,
+    receiver: TokioMutex<tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, RpcError>>>,
 }
 
 impl BidiStreamHandler {
@@ -382,10 +388,10 @@ impl BidiStreamHandler {
         let sender = self.sender.lock().await;
         if let Some(tx) = sender.as_ref() {
             tx.send(data)
-                .map_err(|_| RpcError::new(Code::Internal, "Stream closed".to_string()))
+                .map_err(|_| RpcError::new(RpcCode::Internal, "Stream closed".to_string()))
         } else {
             Err(RpcError::new(
-                Code::Internal,
+                RpcCode::Internal,
                 "Stream already closed".to_string(),
             ))
         }
@@ -413,7 +419,7 @@ impl BidiStreamHandler {
         let mut rx = self.receiver.lock().await;
         match rx.recv().await {
             Some(Ok(data)) => StreamMessage::Data(data),
-            Some(Err(e)) => StreamMessage::Error(e.into()),
+            Some(Err(e)) => StreamMessage::Error(e),
             None => StreamMessage::End,
         }
     }
@@ -473,7 +479,7 @@ mod tests {
 
         sink.send_async(vec![1, 2, 3]).await.unwrap();
 
-        let error = RpcError::new(Code::Internal, "Test error".to_string());
+        let error = RpcError::new(RpcCode::Internal, "Test error".to_string());
         sink.send_error_async(error).await.unwrap();
 
         let msg1 = rx.recv().await.unwrap();

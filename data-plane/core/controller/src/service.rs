@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use std::vec;
 
@@ -11,7 +12,7 @@ use display_error_chain::ErrorChainExt;
 use slim_config::component::id::ID;
 use slim_config::grpc::server::ServerConfig;
 use slim_session::SessionMessage;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
 use tokio_util::sync::CancellationToken;
@@ -41,7 +42,10 @@ use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::Name;
 use slim_datapath::messages::encoder::calculate_hash;
-use slim_datapath::messages::utils::{DELETE_GROUP, IS_MODERATOR, SlimHeaderFlags, TRUE_VAL};
+use slim_datapath::messages::utils::{
+    DELETE_GROUP, IS_MODERATOR, SUBSCRIPTION_ACK_ERROR, SUBSCRIPTION_ACK_ID,
+    SUBSCRIPTION_ACK_SUCCESS, SlimHeaderFlags, TRUE_VAL,
+};
 use slim_datapath::tables::SubscriptionTable;
 
 use slim_session::timer::{Timer, TimerType};
@@ -117,6 +121,13 @@ struct ControllerServiceInternal {
 
     /// queue for pending subscription notifications when connections are down
     pending_notifications: Arc<parking_lot::Mutex<Vec<ControlMessage>>>,
+
+    /// pending subscription acknowledgments keyed by ack id
+    pending_subscription_acks:
+        parking_lot::Mutex<HashMap<String, oneshot::Sender<Result<(), String>>>>,
+
+    /// counter used to generate subscription acknowledgment ids
+    subscription_ack_counter: AtomicU64,
 
     /// map of generated u32 keys to original string message IDs and their associated timers
     message_id_map: Arc<parking_lot::RwLock<HashMap<u32, (String, Option<Timer>)>>>,
@@ -240,6 +251,8 @@ impl ControlPlane {
                     auth_provider: config.auth_provider,
                     _auth_verifier: config.auth_verifier,
                     pending_notifications: Arc::new(parking_lot::Mutex::new(Vec::new())),
+                    pending_subscription_acks: parking_lot::Mutex::new(HashMap::new()),
+                    subscription_ack_counter: AtomicU64::new(0),
                     message_id_map: Arc::new(parking_lot::RwLock::new(HashMap::new())),
                     timer_factory: parking_lot::RwLock::new(None),
                     connection_details: config.connection_details,
@@ -370,6 +383,12 @@ impl ControlPlane {
                                 match res {
                                     Ok(msg) => {
                                         debug!("Send sub/unsub/ack to control plane for message: {:?}", msg);
+                                        // These ACKs correspond to subscribe/unsubscribe operations initiated by
+                                        // the controller itself. They are consumed here and must not be forwarded
+                                        // back like subscribe/unsubscribe messages that originate from remote peers.
+                                        if controller.handle_subscription_ack_message(&msg) {
+                                            continue;
+                                        }
                                         match msg.get_type() {
                                             Subscribe(_) => {
                                                 controller.handle_subscribe_message(msg.get_dst(), &clients).await;
@@ -754,23 +773,14 @@ impl ControllerService {
                             let mut subscription_success = true;
                             let mut subscription_error_msg = String::new();
 
-                            if !self
+                            let conn = self
                                 .inner
                                 .connections
                                 .read()
-                                .contains_key(&subscription.connection_id)
-                            {
-                                subscription_success = false;
-                                subscription_error_msg =
-                                    format!("Connection {} not found", subscription.connection_id);
-                            } else {
-                                let conn = self
-                                    .inner
-                                    .connections
-                                    .read()
-                                    .get(&subscription.connection_id)
-                                    .cloned()
-                                    .unwrap();
+                                .get(&subscription.connection_id)
+                                .cloned();
+
+                            if let Some(conn) = conn {
                                 let source = Name::from_strings([
                                     subscription.component_0.as_str(),
                                     subscription.component_1.as_str(),
@@ -792,13 +802,20 @@ impl ControllerService {
                                     .build_subscribe()
                                     .unwrap();
 
-                                if let Err(e) = self.send_control_message(msg).await {
+                                let ack_id = self.next_subscription_ack_id();
+                                if let Err(err) =
+                                    self.send_subscription_message_with_ack(msg, ack_id).await
+                                {
                                     subscription_success = false;
                                     subscription_error_msg =
-                                        format!("Failed to subscribe: {}", e.chain());
+                                        format!("Failed to subscribe: {}", err);
                                 } else {
                                     info!(?subscription, "Successfully created subscription",);
                                 }
+                            } else {
+                                subscription_success = false;
+                                subscription_error_msg =
+                                    format!("Connection {} not found", subscription.connection_id);
                             }
 
                             // Add subscription status
@@ -814,23 +831,14 @@ impl ControllerService {
                             let mut subscription_success = true;
                             let mut subscription_error_msg = String::new();
 
-                            if !self
+                            let conn = self
                                 .inner
                                 .connections
                                 .read()
-                                .contains_key(&subscription.connection_id)
-                            {
-                                subscription_success = false;
-                                subscription_error_msg =
-                                    format!("Connection {} not found", subscription.connection_id);
-                            } else {
-                                let conn = self
-                                    .inner
-                                    .connections
-                                    .read()
-                                    .get(&subscription.connection_id)
-                                    .cloned()
-                                    .unwrap();
+                                .get(&subscription.connection_id)
+                                .cloned();
+
+                            if let Some(conn) = conn {
                                 let source = Name::from_strings([
                                     subscription.component_0.as_str(),
                                     subscription.component_1.as_str(),
@@ -852,13 +860,20 @@ impl ControllerService {
                                     .build_unsubscribe()
                                     .unwrap();
 
-                                if let Err(e) = self.send_control_message(msg).await {
+                                let ack_id = self.next_subscription_ack_id();
+                                if let Err(err) =
+                                    self.send_subscription_message_with_ack(msg, ack_id).await
+                                {
                                     subscription_success = false;
                                     subscription_error_msg =
-                                        format!("Failed to unsubscribe: {}", e);
+                                        format!("Failed to unsubscribe: {}", err);
                                 } else {
                                     info!(?subscription, "Successfully deleted subscription");
                                 }
+                            } else {
+                                subscription_success = false;
+                                subscription_error_msg =
+                                    format!("Connection {} not found", subscription.connection_id);
                             }
 
                             // Add subscription status (for deletion)
@@ -1362,6 +1377,75 @@ impl ControllerService {
         };
 
         return self.send_or_queue_notification(ctrl, clients).await;
+    }
+
+    fn next_subscription_ack_id(&self) -> String {
+        let next = self
+            .inner
+            .subscription_ack_counter
+            .fetch_add(1, Ordering::Relaxed);
+        format!("sub-{}", next)
+    }
+
+    fn register_subscription_ack(&self, ack_id: String) -> oneshot::Receiver<Result<(), String>> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.inner
+            .pending_subscription_acks
+            .lock()
+            .insert(ack_id, ack_tx);
+        ack_rx
+    }
+
+    fn remove_subscription_ack(&self, ack_id: &str) {
+        self.inner.pending_subscription_acks.lock().remove(ack_id);
+    }
+
+    fn handle_subscription_ack_message(&self, msg: &DataPlaneMessage) -> bool {
+        let Some(ack_id) = msg.get_metadata(SUBSCRIPTION_ACK_ID).cloned() else {
+            return false;
+        };
+
+        let success = msg
+            .get_metadata(SUBSCRIPTION_ACK_SUCCESS)
+            .map(|val| val == TRUE_VAL)
+            .unwrap_or(false);
+        let error_msg = msg.get_metadata(SUBSCRIPTION_ACK_ERROR).cloned();
+
+        let sender = self.inner.pending_subscription_acks.lock().remove(&ack_id);
+        if let Some(sender) = sender {
+            let _ = sender.send(if success {
+                Ok(())
+            } else {
+                Err(error_msg.unwrap_or_else(|| "subscription ack failed".to_string()))
+            });
+        } else {
+            debug!(
+                ack_id = %ack_id,
+                "received subscription ack with no pending waiter"
+            );
+        }
+
+        true
+    }
+
+    async fn send_subscription_message_with_ack(
+        &self,
+        mut msg: DataPlaneMessage,
+        ack_id: String,
+    ) -> Result<(), String> {
+        let ack_rx = self.register_subscription_ack(ack_id.clone());
+        msg.insert_metadata(SUBSCRIPTION_ACK_ID.to_string(), ack_id.clone());
+
+        if let Err(e) = self.send_control_message(msg).await {
+            self.remove_subscription_ack(&ack_id);
+            return Err(format!("datapath send error: {}", e.chain()));
+        }
+
+        match ack_rx.await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(err)) => Err(err),
+            Err(_) => Err("subscription ack channel closed".to_string()),
+        }
     }
 
     // send an ack back to the control plane. the success field indicates whether the original

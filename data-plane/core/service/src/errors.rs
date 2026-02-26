@@ -9,6 +9,14 @@ use thiserror::Error;
 use slim_session::errors::SessionError as SessionErrorType;
 
 #[derive(Error, Debug)]
+pub enum SubscriptionAckError {
+    #[error("ack rejected by datapath: {message}")]
+    Rejected { message: String },
+    #[error("ack channel closed")]
+    ChannelClosed,
+}
+
+#[derive(Error, Debug)]
 pub enum ServiceError {
     // Configuration / setup
     #[error("no server or client configured")]
@@ -55,10 +63,10 @@ pub enum ServiceError {
     },
 
     // Routing / subscription operations
-    #[error("error sending subscription: {0}")]
-    SubscriptionError(String),
-    #[error("error sending unsubscription: {0}")]
-    UnsubscriptionError(String),
+    #[error("error sending subscription")]
+    SubscriptionError(#[source] SubscriptionAckError),
+    #[error("error sending unsubscription")]
+    UnsubscriptionError(#[source] SubscriptionAckError),
     #[error("error on set route: {0}")]
     SetRouteError(String),
     #[error("error on remove route: {0}")]

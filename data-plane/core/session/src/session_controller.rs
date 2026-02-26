@@ -796,9 +796,6 @@ mod tests {
 
             let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-            let storage_path =
-                std::path::PathBuf::from(format!("/tmp/test_session_{}", rand::random::<u64>()));
-
             let controller = SessionController::builder()
                 .with_id(self.session_id)
                 .with_source(self.source.clone())
@@ -806,7 +803,6 @@ mod tests {
                 .with_config(config)
                 .with_identity_provider(SharedSecret::new("test", SHARED_SECRET).unwrap())
                 .with_identity_verifier(SharedSecret::new("test", SHARED_SECRET).unwrap())
-                .with_storage_path(storage_path)
                 .with_tx(tx)
                 .with_tx_to_session_layer(tx_session_layer)
                 .ready()
@@ -1175,9 +1171,6 @@ mod tests {
         let moderator_name = Name::from_strings(["org", "ns", "moderator"]).with_id(1);
         let participant_name = Name::from_strings(["org", "ns", "participant"]);
         let participant_name_id = Name::from_strings(["org", "ns", "participant"]).with_id(1);
-        let storage_path_moderator = std::path::PathBuf::from("/tmp/test_invite_moderator");
-        let storage_path_participant = std::path::PathBuf::from("/tmp/test_invite_participant");
-
         // create a SessionModerator
         let (tx_slim_moderator, mut rx_slim_moderator) = tokio::sync::mpsc::channel(10);
         let (tx_app_moderator, _rx_app_moderator) = tokio::sync::mpsc::unbounded_channel();
@@ -1203,7 +1196,6 @@ mod tests {
             .with_config(moderator_config)
             .with_identity_provider(SharedSecret::new("moderator", SHARED_SECRET).unwrap())
             .with_identity_verifier(SharedSecret::new("moderator", SHARED_SECRET).unwrap())
-            .with_storage_path(storage_path_moderator.clone())
             .with_tx(tx_moderator.clone())
             .with_tx_to_session_layer(tx_session_layer_moderator)
             .ready()
@@ -1236,7 +1228,6 @@ mod tests {
             .with_config(participant_config)
             .with_identity_provider(SharedSecret::new("participant", SHARED_SECRET).unwrap())
             .with_identity_verifier(SharedSecret::new("participant", SHARED_SECRET).unwrap())
-            .with_storage_path(storage_path_participant.clone())
             .with_tx(tx_participant.clone())
             .with_tx_to_session_layer(tx_session_layer_participant)
             .ready()
@@ -1725,7 +1716,6 @@ mod tests {
             tx_to_session_layer: tx_session_layer,
             identity_provider: SharedSecret::new("src", SHARED_SECRET).unwrap(),
             identity_verifier: SharedSecret::new("src", SHARED_SECRET).unwrap(),
-            storage_path: std::path::PathBuf::from("/tmp/internal_draining_test"),
             graceful_shutdown_timeout: Some(Duration::from_secs(10)),
         };
 
@@ -1893,7 +1883,6 @@ mod tests {
             tx_to_session_layer: tx_session_layer,
             identity_provider: SharedSecret::new("test", SHARED_SECRET).unwrap(),
             identity_verifier: SharedSecret::new("test", SHARED_SECRET).unwrap(),
-            storage_path: std::path::PathBuf::from("/tmp/test_draining"),
             graceful_shutdown_timeout,
         }
     }

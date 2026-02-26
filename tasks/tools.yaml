@@ -59,7 +59,7 @@ vars:
         fi
 
 tasks:
-  tools:foreach:
+  foreach:
     internal: true
     desc: Run task for each tool
     cmds:
@@ -69,20 +69,20 @@ tasks:
           {{.CMD}}
         done
 
-  tools:dir:
+  dir:
     internal: true
     cmds:
       - mkdir -p {{.TOOLS_INSTALL_DIR}}
     status:
       - test -d {{.TOOLS_INSTALL_DIR}}
 
-  tools:gomodtidy:
+  gomodtidy:
     internal: true
     desc: Install go modules in tools
     cmds:
       - cd {{.TOOLS_MODULE_DIR}} && go mod tidy
 
-  tools:buf:
+  buf:
     internal: true
     desc: Install buf
     cmds:
@@ -96,9 +96,9 @@ tasks:
     status:
       - test -f {{.TOOLS_INSTALL_DIR}}/buf
 
-  tools:protoc:
+  protoc:
     deps:
-      - tools:dir
+      - dir
     dir: "{{.TMP_FOLDER}}"
     cmds:
       - |
@@ -118,14 +118,13 @@ tasks:
           test -f {{.TOOLS_INSTALL_DIR}}/${tool}
         done
 
-  # Download packages
-  tools:go-tools:
+  go-tools:
     internal: true
     deps:
-      - tools:dir
-      - tools:gomodtidy
+      - dir
+      - gomodtidy
     cmds:
-      - task: tools:foreach
+      - task: foreach
         vars:
           CMD: |
             unset GOOS
@@ -139,20 +138,20 @@ tasks:
           test -f {{.TOOLS_INSTALL_DIR}}/${bin_name}
         done
 
-  tools:
-    desc: Download tools
+  all:
+    desc: Download all tools
     cmds:
-      - task: tools:protoc
-      - task: tools:go-tools
-      - task: tools:zig
+      - task: protoc
+      - task: go-tools
+      - task: zig
 
-  tools:zig:
+  zig:
     desc: Install Zig locally for all platforms via direct download
     dir: "{{.TMP_FOLDER}}"
     status:
       - test -f "{{.TOOLS_INSTALL_DIR}}/zig" || test -f "{{.TOOLS_INSTALL_DIR}}/zig.exe"
     deps:
-      - tools:dir
+      - dir
     vars:
       ZIG_VERSION: '{{.ZIG_VERSION | default "0.14.1"}}'
       DOWNLOAD_BASE: "https://ziglang.org/download/{{.ZIG_VERSION}}/zig-{{.DETECTED_ARCH}}-{{.DETECTED_OS}}-{{.ZIG_VERSION}}.{{.EXTENSION}}"
@@ -166,14 +165,14 @@ tasks:
         fi
       - mv zig-{{.DETECTED_ARCH}}-{{.DETECTED_OS}}-{{.ZIG_VERSION}}/* "{{.TOOLS_INSTALL_DIR}}"
       - echo "Zig installed to {{.TOOLS_INSTALL_DIR}}"
-      - task: tools:dlltool-wrapper
+      - task: dlltool-wrapper
 
-  tools:dlltool-wrapper:
+  dlltool-wrapper:
     desc: Create dlltool wrapper script for MinGW cross-compilation
     status:
       - test -f "{{.TOOLS_INSTALL_DIR}}/{{.DETECTED_ARCH}}-w64-mingw32-dlltool"
     deps:
-      - tools:dir
+      - dir
     cmds:
       - |
         cat > "{{.TOOLS_INSTALL_DIR}}/{{.DETECTED_ARCH}}-w64-mingw32-dlltool" << 'EOF'

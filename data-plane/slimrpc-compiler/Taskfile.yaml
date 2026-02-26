@@ -1,0 +1,23 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: '3'
+
+includes:
+  rust:
+    taskfile: ../../tasks/rust.yaml
+    internal: true
+
+tasks:
+  default:
+    cmds:
+      - task -l
+
+  crossbuild:
+    desc: Cross-compile the slimrpc-compiler
+    dir: "{{.TASKFILE_DIR}}"
+    silent: true
+    cmds:
+      - echo "🦀 Building slimrpc-compiler... {{.TARGET}}"
+      - task: rust:crossbuild
+      - echo "🦀 slimrpc-compiler built successfully."

@@ -130,10 +130,10 @@ pub fn build_method_subscription_name(
 mod channel;
 mod codec;
 mod context;
+mod error;
 mod rpc_session;
 mod server;
 mod session_wrapper;
-mod status;
 
 // UniFFI-specific modules
 mod handler_traits;
@@ -142,10 +142,10 @@ mod stream_types;
 pub use channel::Channel;
 pub use codec::{Codec, Decoder, Encoder};
 pub use context::{Context, Metadata, SessionContext};
+pub use error::{InvalidRpcCode, RpcCode, RpcError};
 pub use rpc_session::{HandlerInfo, RpcSession, StreamRpcSession, send_error};
 pub use server::{HandlerResponse, HandlerType, ItemStream, RpcHandler, Server, StreamRpcHandler};
 pub use session_wrapper::{ReceivedMessage, SessionRx, SessionTx, new_session};
-pub use status::{Code, RpcError, Status, StatusError};
 
 // UniFFI handler traits and stream types
 pub use handler_traits::{
@@ -186,7 +186,7 @@ pub fn calculate_deadline(timeout: Option<std::time::Duration>) -> std::time::Sy
 }
 
 /// Result type for SlimRPC operations
-pub type Result<T> = std::result::Result<T, Status>;
+pub type Result<T> = std::result::Result<T, RpcError>;
 
 /// Type alias for request streams in stream-based RPC handlers
 ///
@@ -196,20 +196,20 @@ pub type Result<T> = std::result::Result<T, Status>;
 /// # Example
 ///
 /// ```no_run
-/// # use slim_bindings::{Status, Decoder, Encoder};
+/// # use slim_bindings::{RpcError, Decoder, Encoder};
 /// # use futures::StreamExt;
 /// # use futures::stream::BoxStream;
 /// # #[derive(Default)]
 /// # struct MyRequest {}
 /// # impl Decoder for MyRequest {
-/// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(MyRequest::default()) }
+/// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, RpcError> { Ok(MyRequest::default()) }
 /// # }
 /// # #[derive(Default)]
 /// # struct MyResponse {}
 /// # impl Encoder for MyResponse {
-/// #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
+/// #     fn encode(self) -> Result<Vec<u8>, RpcError> { Ok(vec![]) }
 /// # }
-/// async fn handler(mut stream: BoxStream<'static, Result<MyRequest, Status>>) -> Result<MyResponse, Status> {
+/// async fn handler(mut stream: BoxStream<'static, Result<MyRequest, RpcError>>) -> Result<MyResponse, RpcError> {
 ///     while let Some(request) = stream.next().await {
 ///         let req = request?;
 ///         // Process request
@@ -231,20 +231,20 @@ pub type RequestStream<T> = futures::stream::BoxStream<'static, Result<T>>;
 /// # Example
 ///
 /// ```no_run
-/// # use slim_bindings::{Status, Decoder, Encoder};
-/// # type Result<T> = std::result::Result<T, Status>;
+/// # use slim_bindings::{RpcError, Decoder, Encoder};
+/// # type Result<T> = std::result::Result<T, RpcError>;
 /// # use futures::stream::{self, Stream};
 /// # #[derive(Default, Clone)]
 /// # struct MyRequest {}
 /// # impl Decoder for MyRequest {
-/// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, Status> { Ok(MyRequest::default()) }
+/// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, RpcError> { Ok(MyRequest::default()) }
 /// # }
 /// # #[derive(Default, Clone)]
 /// # struct MyResponse {}
 /// # impl Encoder for MyResponse {
-/// #     fn encode(self) -> std::result::Result<Vec<u8>, Status> { Ok(vec![]) }
+/// #     fn encode(self) -> std::result::Result<Vec<u8>, RpcError> { Ok(vec![]) }
 /// # }
-/// async fn handler(request: MyRequest) -> std::result::Result<impl Stream<Item = Result<MyResponse>>, Status> {
+/// async fn handler(request: MyRequest) -> std::result::Result<impl Stream<Item = Result<MyResponse>>, RpcError> {
 ///     let responses = vec![MyResponse::default(), MyResponse::default(), MyResponse::default()];
 ///     Ok(stream::iter(responses.into_iter().map(Ok)))
 /// }

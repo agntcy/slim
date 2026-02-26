@@ -7,103 +7,17 @@ includes:
   rust:
     taskfile: ../../../tasks/rust.yaml
     internal: true
-  tools:
-    taskfile: ../../../tasks/tools.yaml
-    internal: true
-    flatten: true
-
-env:
-  PATH: "{{.TOOLS_INSTALL_DIR}}/zig:{{.PATH}}"
-
-vars:
-  GNU_CLIB_VERSION: 2.28
-  # Default to release for bindings; overrides rust.yaml's default "debug" so vars propagate correctly
-  # when called from node/react-native/etc. (nested includes can drop PROFILE propagation)
-  PROFILE: '{{.PROFILE | default "release"}}'
-  RELEASE:
-    sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
 
 tasks:
   default:
     cmds:
       - task -l
 
-  bindings:install-cargo-components:
-    desc: Install required cargo components
-    status:
-      - which cargo-zigbuild
-    cmds:
-      - echo "🦀 Installing required cargo components..."
-      - cargo install cargo-zigbuild
-
   bindings:build:all:
-    desc: Build the Rust library with UniFFI
+    desc: Build the Rust library with cross-compilation support
     dir: "{{.TASKFILE_DIR}}"
-    deps:
-      - tools:zig
-      - tools:dlltool-wrapper
-      - bindings:install-cargo-components
     silent: true
     cmds:
       - echo "🦀 Building Rust bindings library... {{.TARGET}}"
-      - rustup target add {{.TARGET}}
-      - |
-        # Determine the correct libc version based on TARGET_ABI
-        TARGET_ABI="{{.TARGET_ABI}}"
-        TARGET_OS="{{.TARGET_OS}}"
-
-        ARGS=()
-
-        # Determine whether to use cargo build or cargo zigbuild
-        # - Native builds: use regular cargo build with --target for consistent paths
-        # - Apple targets (iOS, macOS): use regular cargo build (zigbuild not compatible)
-        # - Linux/gnu targets: use zigbuild with libc version for gnu ABI
-        # - Other cross-compilation targets: use zigbuild
-        if [[ "{{.TARGET}}" == "" || "{{.TARGET}}" == "$(rustc -vV | sed -n 's|host: ||p')" ]]; then
-          # Native build - explicitly specify target for consistent output paths
-          ARGS=(
-            "build"
-            "--target"
-            "{{.TARGET}}"
-            {{.RELEASE}}
-          )
-        elif [[ "{{.TARGET}}" == *"apple-ios"* || "{{.TARGET}}" == *"apple-darwin"* ]]; then
-          # Apple targets (iOS, iOS Simulator, macOS) - use regular cargo build
-          # Force linker wrapper for iOS so -target 10.0 is rewritten to 13.4 (___chkstk_darwin)
-          # Only set if not already set (e.g. by CI with absolute path)
-          IOS_LINKER_WRAPPER="$(cd "{{.TASKFILE_DIR}}/../../.cargo" && pwd)/clang-ios-linker-wrapper.sh"
-          [[ -z "${CARGO_TARGET_AARCH64_APPLE_IOS_LINKER:-}" ]] && export CARGO_TARGET_AARCH64_APPLE_IOS_LINKER="$IOS_LINKER_WRAPPER"
-          [[ -z "${CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER:-}" ]] && export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER="$IOS_LINKER_WRAPPER"
-          ARGS=(
-            "build"
-            "--target"
-            "{{.TARGET}}"
-            {{.RELEASE}}
-          )
-        elif [[ "$TARGET_OS" == "linux" || "$TARGET_ABI" == "gnu" ]]; then
-          # For Linux or gnu targets, use zigbuild with libc version for gnu ABI
-          LIBC_VERSION=""
-          if [[ "$TARGET_ABI" == "gnu" ]]; then
-            LIBC_VERSION=".{{.GNU_CLIB_VERSION}}"
-          fi
-
-          ARGS=(
-            "zigbuild"
-            "--target"
-            "{{.TARGET}}$LIBC_VERSION"
-            {{.RELEASE}}
-          )
-        else
-          # Other cross-compilation targets (e.g., Windows MSVC) - use zigbuild
-          ARGS=(
-            "zigbuild"
-            "--target"
-            "{{.TARGET}}"
-            {{.RELEASE}}
-          )
-        fi
-
-        echo cargo ${ARGS[*]}
-        # Prepend workspace .cargo so Cargo finds clang-ios-linker-wrapper.sh for iOS targets
-        PATH="{{.TASKFILE_DIR}}/../../.cargo:{{.TOOLS_INSTALL_DIR}}:$PATH" cargo "${ARGS[@]}"
+      - task: rust:crossbuild
       - echo "🦀 Rust bindings library built successfully."

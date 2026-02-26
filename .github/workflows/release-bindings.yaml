@@ -12,7 +12,10 @@ on:
 env:
   LIBRARY_NAME: slim_bindings
   GO_BINDINGS_REPO: agntcy/slim-bindings-go
+  NUGET_PACKAGE_NAME: Agntcy.Slim
   UNIFFI_BINDGEN_GO_VERSION: v0.4.0+v0.28.3
+  UNIFFI_BINDGEN_CS_VERSION: v0.9.0+v0.28.3
+  DOTNET_VERSION: "8.0.x"
 
 jobs:
   # ==========================================================================
@@ -21,6 +24,8 @@ jobs:
   build-and-test-bindings:
     name: "Build and Test Bindings"
     uses: ./.github/workflows/reusable-bindings-build-and-test.yaml
+    with:
+      tag-name: ${{ github.ref_name }}
 
   # ==========================================================================
   # Job 2: Create GitHub release with library artifacts (for test tags)
@@ -132,7 +137,17 @@ jobs:
           packages-dir: dist
 
   # ==========================================================================
-  # Job 5: Generate Node bindings once (x86_64 Linux) for use by all pack jobs.
+  # Job 5: Release .NET bindings to NuGet
+  # ==========================================================================
+  release-dotnet-bindings:
+    name: "Release .NET Bindings"
+    needs: build-and-test-bindings
+    uses: ./.github/workflows/reusable-dotnet-bindings-release.yaml
+    secrets:
+      nuget-api-token: ${{ secrets.NUGET_API_TOKEN }}
+
+  # ==========================================================================
+  # Job 6: Generate Node bindings once (x86_64 Linux) for use by all pack jobs.
   # uniffi-bindgen-node must load the .so on the host; we only have native lib for
   # the runner, so we generate once then pack per target with each target's lib.
   # ==========================================================================
@@ -191,7 +206,7 @@ jobs:
           path: ./data-plane/bindings/node/generated/
 
   # ==========================================================================
-  # Job 6: Build Node platform packages (matrix: one per target with .so/.dylib/.dll).
+  # Job 7: Build Node platform packages (matrix: one per target with .so/.dylib/.dll).
   # Uses pre-generated bindings + each target's library (no uniffi-bindgen-node on non-native libs).
   # musl excluded: Rust build produces only static .a for musl, no .so.
   # ==========================================================================
@@ -271,7 +286,7 @@ jobs:
           path: ./data-plane/bindings/node/dist/node-*.tgz
 
   # ==========================================================================
-  # Job 7: Publish Node platform packages to npm
+  # Job 8: Publish Node platform packages to npm
   # ==========================================================================
   publish-node-platform-packages:
     name: Publish Node platform packages
@@ -302,7 +317,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ==========================================================================
-  # Job 8: Publish Node main package to npm
+  # Job 9: Publish Node main package to npm
   # Uses pre-generated bindings from generate-node-bindings-once; only emits types and publishes.
   # ==========================================================================
   publish-node-main:
@@ -366,7 +381,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ==========================================================================
-  # Job 9: Build and publish React Native bindings to npm
+  # Job 10: Build and publish React Native bindings to npm
   # Runs on mac to build iOS static lib; requires NPM_TOKEN.
   # ==========================================================================
   publish-react-native:

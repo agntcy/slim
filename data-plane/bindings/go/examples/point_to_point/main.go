@@ -9,7 +9,7 @@ import (
 	"log"
 	"time"
 
-	slim "github.com/agntcy/slim/bindings/generated/slim_bindings"
+	slim "github.com/agntcy/slim-bindings-go"
 	"github.com/agntcy/slim/bindings/go/examples/common"
 )
 
@@ -51,7 +51,7 @@ func main() {
 }
 
 func runSender(app *slim.App, connID uint64, remote, message string, iterations int, enableMLS bool, instance uint64) {
-	remoteName, err := common.SplitID(remote)
+	remoteName, err := slim.NameFromString(remote)
 	if err != nil {
 		log.Fatalf("Failed to parse remote ID: %v", err)
 	}

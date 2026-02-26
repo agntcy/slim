@@ -18,6 +18,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   control-plane-build-and-test:
     name: Control plane - build & test
@@ -26,6 +30,8 @@ jobs:
     with:
       go-version: 1.25.5
       working-directory: ./control-plane
+      use-local-bindings: true
+      cgo-enabled: '1'
 
   control-plane-docker-build:
     name: Build control plane docker image

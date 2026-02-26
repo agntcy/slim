@@ -4,6 +4,119 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## v1.1.0 (12 February 2026)
+
+### Key Highlights
+
+#### 🎯 Major Features Added
+
+- **SLIMRPC in Bindings**: Complete implementation of SLIMRPC functionality directly in Rust bindings, enabling cross-language support ([#1202](https://github.com/agntcy/slim/pull/1202))
+- **Go SLIMRPC Support**: Added SLIMRPC compiler support for Go with examples and code generation ([#1163](https://github.com/agntcy/slim/pull/1163))
+- **Python SLIMRPC Refactor**: Migrated Python SLIMRPC to use the new Rust-based implementation from slim-bindings ([#1148](https://github.com/agntcy/slim/pull/1148))
+
+#### 🚀 Features
+
+- Remove lock from MLS state for improved performance ([#1203](https://github.com/agntcy/slim/pull/1203))
+- SLIMRPC compiler now produces language-specific binaries (`protoc-gen-slimrpc-python` and `protoc-gen-slimrpc-go`) ([#1163](https://github.com/agntcy/slim/pull/1163))
+- Reorganized Go bindings structure to support local development with slim-bindings-go ([#1163](https://github.com/agntcy/slim/pull/1163))
+
+#### 🐛 Bug Fixes
+
+- Fix vulnerability GO-2026-4337 ([#1213](https://github.com/agntcy/slim/pull/1213))
+- Fix gRPC connection closure issues ([#1159](https://github.com/agntcy/slim/pull/1159))
+- Fix async methods in Go bindings ([#1149](https://github.com/agntcy/slim/pull/1149))
+- Fix RUSTSEC-2026-0009 security advisory ([#1205](https://github.com/agntcy/slim/pull/1205))
+- Fix code and image scan configuration files ([#1199](https://github.com/agntcy/slim/pull/1199))
+- Fix controller Dockerfile ([#1169](https://github.com/agntcy/slim/pull/1169))
+- Fix misleading prints in slimctl ([#1170](https://github.com/agntcy/slim/pull/1170))
+
+#### 🔧 Infrastructure & Tooling
+
+- Upgrade to Rust 1.93 ([#1190](https://github.com/agntcy/slim/pull/1190))
+- Remove unused Go tools from CI ([#1172](https://github.com/agntcy/slim/pull/1172))
+- Remove integration folder refactoring ([#1195](https://github.com/agntcy/slim/pull/1195))
+- CI improvements for slimrpc-compiler with removed Windows GNU targets ([#1219](https://github.com/agntcy/slim/pull/1219))
+- Fix release-plz package naming for slimrpc compiler ([#1214](https://github.com/agntcy/slim/pull/1214), [#1215](https://github.com/agntcy/slim/pull/1215))
+
+#### 📦 Packaging & Dependencies
+
+- Bump protobuf from 6.32.1 to 6.33.5 ([#1177](https://github.com/agntcy/slim/pull/1177))
+- Bump github.com/go-git/go-git/v5 from 5.16.3 to 5.16.5 ([#1210](https://github.com/agntcy/slim/pull/1210))
+
+### Component Versions Summary
+
+| Component                   | Latest Version | Release Date |
+| --------------------------- | -------------- | ------------ |
+| slim                        | v1.0.2         | 2026-02-12   |
+| slim-bindings               | v1.1.0         | 2026-02-12   |
+| protoc-slimrpc-plugin       | v1.0.0         | 2026-02-12   |
+| control-plane               | v1.0.0         | 2026-01-30   |
+| slimctl                     | v1.0.0         | 2026-01-30   |
+| helm-slim                   | v1.0.0         | 2026-02-02   |
+| helm-slim-control-plane     | v1.0.0         | 2026-01-30   |
+
+### Release Artifacts
+
+- **Container Images**: Available on GitHub Container Registry
+  - `ghcr.io/agntcy/slim:v1.0.2`
+- **Python Packages**: Published to PyPI
+  - `slim-bindings==1.1.0`
+- **Rust Crates**: Published to crates.io
+  - `agntcy-protoc-slimrpc-plugin==1.0.0`
+- **Go Bindings**: Available at [github.com/agntcy/slim-bindings-go](https://github.com/agntcy/slim-bindings-go)
+
+### Compatibility Matrix
+
+All components with the same major version (v1.x.x) are compatible with each other.
+
+| Component                    | Version | Compatible With                                             |
+| ---------------------------- | ------- | ----------------------------------------------------------- |
+| **slim**                     | v1.0.2  | Data plane runtime                                          |
+| **slim-bindings**            | v1.1.0  | Python 3.10+ and Go 1.21+ (with CGO)                       |
+| **protoc-slimrpc-plugin**    | v1.0.0  | protoc 3.x+, supports Python and Go code generation        |
+| **control-plane**            | v1.0.0  | Control plane services                                      |
+| **slimctl**                  | v1.0.0  | CLI tool                                                    |
+| **helm charts**              | v1.0.0  | Kubernetes deployment                                       |
+
+#### Compatibility Notes
+
+- **slim-bindings v1.1.0** includes SLIMRPC functionality directly in the bindings
+- **protoc-slimrpc-plugin v1.0.0** supports both Python and Go code generation
+- **SLIMRPC** is now available across Python and Go through unified Rust implementation
+- Backward compatible with slim-bindings v1.0.x for non-SLIMRPC features
+
+### Migration Notes
+
+#### SLIM App API Changes
+
+The API for creating SLIM App instances has changed in v1.0.0. If you're upgrading from versions prior to v1.0.0, please refer to the [Migration Guide: SLIM Python Bindings v0.7.x to v1.x](#migration-guide-slim-python-bindings-v07x-to-v1x) section in the v1.0.0 release notes below for detailed migration instructions. v1.1.0 maintains compatibility with v1.0.0 App creation API.
+
+#### SLIMRPC Python Migration
+
+The standalone `slimrpc` Python package has been deprecated in favor of SLIMRPC functionality now included directly in `slim-bindings`. The `slimrpc` package was primarily used as a dependency in code generated by the `protoc-slimrpc-plugin` compiler.
+
+**To migrate:**
+
+1. Update the `protoc-slimrpc-plugin` to version 1.0.0
+2. Update your project dependencies:
+   - Remove: `slimrpc`
+   - Add: `slim-bindings~=1.1`
+3. Regenerate your SLIMRPC code using the updated compiler
+
+The generated code will now import from `slim_bindings` instead of `slimrpc`:
+
+**Old (generated with protoc-slimrpc-plugin <1.0.0):**
+```python
+from slimrpc import ...
+```
+
+**New (generated with protoc-slimrpc-plugin >=1.0.0):**
+```python
+from slim_bindings.slimrpc import ...
+```
+
+The API remains largely the same, but the implementation is now in Rust for better performance and cross-language consistency.
+
 ## v1.0.0 (30 January 2026)
 
 ### Key Highlights

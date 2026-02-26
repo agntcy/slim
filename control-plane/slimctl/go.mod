@@ -1,6 +1,6 @@
 module github.com/agntcy/slim/control-plane/slimctl
 
-go 1.25.6
+go 1.25.7
 
 require (
 	github.com/agntcy/slim-bindings-go v1.0.0
@@ -11,7 +11,7 @@ require (
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/pflag v1.0.6
 	go.uber.org/zap v1.27.0
-	google.golang.org/protobuf v1.36.6
+	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -35,3 +35,5 @@ require (
 )
 
 replace github.com/agntcy/slim/control-plane/common => ../common
+
+replace github.com/agntcy/slim-bindings-go => ../../data-plane/bindings/go/slim_bindings

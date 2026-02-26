@@ -23,7 +23,7 @@ use slim_testing::utils::TEST_VALID_SECRET;
 use tokio::sync::Mutex;
 
 use slim_bindings::slimrpc::{
-    Channel, Code, Context, Decoder, Encoder, RequestStream, Server, Status,
+    Channel, Context, Decoder, Encoder, RequestStream, RpcCode, RpcError, Server,
 };
 
 // ============================================================================
@@ -38,18 +38,18 @@ struct TestRequest {
 }
 
 impl Encoder for TestRequest {
-    fn encode(self) -> Result<Vec<u8>, Status> {
+    fn encode(self) -> Result<Vec<u8>, RpcError> {
         let encoded = bincode::encode_to_vec(self, bincode::config::standard())
-            .map_err(|e| Status::internal(format!("Encoding error: {}", e)))?;
+            .map_err(|e| RpcError::internal(format!("Encoding error: {}", e)))?;
         Ok(encoded)
     }
 }
 
 impl Decoder for TestRequest {
-    fn decode(buf: impl Into<Vec<u8>>) -> Result<Self, Status> {
+    fn decode(buf: impl Into<Vec<u8>>) -> Result<Self, RpcError> {
         let (decoded, _len): (TestRequest, usize) =
             bincode::decode_from_slice(&buf.into(), bincode::config::standard())
-                .map_err(|e| Status::invalid_argument(format!("Decoding error: {}", e)))?;
+                .map_err(|e| RpcError::invalid_argument(format!("Decoding error: {}", e)))?;
         Ok(decoded)
     }
 }
@@ -62,18 +62,18 @@ struct TestResponse {
 }
 
 impl Encoder for TestResponse {
-    fn encode(self) -> Result<Vec<u8>, Status> {
+    fn encode(self) -> Result<Vec<u8>, RpcError> {
         let encoded = bincode::encode_to_vec(self, bincode::config::standard())
-            .map_err(|e| Status::internal(format!("Encoding error: {}", e)))?;
+            .map_err(|e| RpcError::internal(format!("Encoding error: {}", e)))?;
         Ok(encoded)
     }
 }
 
 impl Decoder for TestResponse {
-    fn decode(buf: impl Into<Vec<u8>>) -> Result<Self, Status> {
+    fn decode(buf: impl Into<Vec<u8>>) -> Result<Self, RpcError> {
         let (decoded, _len): (TestResponse, usize) =
             bincode::decode_from_slice(&buf.into(), bincode::config::standard())
-                .map_err(|e| Status::invalid_argument(format!("Decoding error: {}", e)))?;
+                .map_err(|e| RpcError::invalid_argument(format!("Decoding error: {}", e)))?;
         Ok(decoded)
     }
 }
@@ -96,7 +96,7 @@ impl TestEnv {
         let service = Arc::new(Service::new(id));
 
         let server_name = Name::from_strings(["org", "ns", "server"]);
-        let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
+        let secret = SharedSecret::new("server", TEST_VALID_SECRET).unwrap();
 
         let (server_app, server_notifications) = service
             .create_app(
@@ -115,6 +115,7 @@ impl TestEnv {
 
         // Create client
         let client_name = Name::from_strings(["org", "ns", "client"]);
+        let secret = SharedSecret::new("client", TEST_VALID_SECRET).unwrap();
         let (client_app, _) = service
             .create_app(
                 &client_name,
@@ -163,7 +164,7 @@ impl TestEnv {
 
 /// Collect all responses from a stream into a vector
 async fn collect_stream_responses<T>(
-    mut stream: impl futures::Stream<Item = Result<T, Status>> + Unpin,
+    mut stream: impl futures::Stream<Item = Result<T, RpcError>> + Unpin,
 ) -> Vec<T> {
     let mut responses = Vec::new();
     while let Some(result) = stream.next().await {
@@ -174,8 +175,8 @@ async fn collect_stream_responses<T>(
 
 /// Collect responses from a stream until an error occurs
 async fn collect_stream_until_error<T>(
-    mut stream: impl futures::Stream<Item = Result<T, Status>> + Unpin,
-) -> (Vec<T>, Option<Status>) {
+    mut stream: impl futures::Stream<Item = Result<T, RpcError>> + Unpin,
+) -> (Vec<T>, Option<RpcError>) {
     let mut responses = Vec::new();
     let mut error = None;
     while let Some(result) = stream.next().await {
@@ -234,15 +235,15 @@ fn register_counting_handler(
 
 /// Assert that a result is an error with the expected code and optional message substring
 fn assert_error_with_code(
-    result: Result<impl std::fmt::Debug, Status>,
-    code: Code,
+    result: Result<impl std::fmt::Debug, RpcError>,
+    code: RpcCode,
     msg_contains: Option<&str>,
 ) {
     assert!(result.is_err(), "Expected an error");
     let err = result.unwrap_err();
     assert_eq!(err.code(), code, "Error code mismatch");
     if let Some(expected_msg) = msg_contains {
-        let actual_msg = err.message().unwrap_or("");
+        let actual_msg = err.message();
         assert!(
             actual_msg.contains(expected_msg),
             "Error message '{}' does not contain '{}'",
@@ -301,7 +302,7 @@ async fn test_unary_unary_error_handling() {
         "TestService",
         "ErrorMethod",
         |_request: TestRequest, _ctx: Context| async move {
-            Err::<TestResponse, _>(Status::invalid_argument("Invalid input"))
+            Err::<TestResponse, _>(RpcError::invalid_argument("Invalid input"))
         },
     );
 
@@ -312,12 +313,12 @@ async fn test_unary_unary_error_handling() {
         value: 1,
     };
 
-    let result: Result<TestResponse, Status> = env
+    let result: Result<TestResponse, RpcError> = env
         .channel
         .unary("TestService", "ErrorMethod", request, None, None)
         .await;
 
-    assert_error_with_code(result, Code::InvalidArgument, Some("Invalid input"));
+    assert_error_with_code(result, RpcCode::InvalidArgument, Some("Invalid input"));
 
     env.shutdown().await;
 }
@@ -387,7 +388,7 @@ async fn test_stream_unary_rpc() {
 // ============================================================================
 //
 // This test verifies that errors in the request stream are properly handled.
-// Note: RequestStream<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send>>
+// Note: RequestStream<T> = Pin<Box<dyn Stream<Item = Result<T, RpcError>> + Send>>
 // Each item in the stream is a Result that can contain:
 // - Ok(T): Successfully received and deserialized message
 // - Err(Status): Network error, deserialization error, or transport issue
@@ -409,14 +410,14 @@ async fn test_stream_unary_error_handling() {
 
             // Iterate over the stream of Results
             while let Some(req_result) = request_stream.next().await {
-                // Each item is a Result<TestRequest, Status>
+                // Each item is a Result<TestRequest, RpcError>
                 // Use ? to propagate any errors from the stream (network, deserialization, etc.)
                 let req = req_result?;
 
                 // Validate input - return error if value is negative
                 if req.value < 0 {
                     tracing::info!("Received invalid value: {}", req.value);
-                    return Err(Status::invalid_argument(format!(
+                    return Err(RpcError::invalid_argument(format!(
                         "Negative values not allowed: {}",
                         req.value
                     )));
@@ -457,7 +458,7 @@ async fn test_stream_unary_error_handling() {
     ];
     let request_stream = stream::iter(requests);
 
-    let response: Result<TestResponse, Status> = env
+    let response: Result<TestResponse, RpcError> = env
         .channel
         .stream_unary(
             "TestService",
@@ -471,8 +472,8 @@ async fn test_stream_unary_error_handling() {
     // Verify that the error was propagated back
     assert!(response.is_err(), "Expected an error response");
     let err = response.unwrap_err();
-    assert_eq!(err.code(), Code::InvalidArgument);
-    let msg = err.message().unwrap();
+    assert_eq!(err.code(), RpcCode::InvalidArgument);
+    let msg = err.message();
     assert!(
         msg.contains("Negative values not allowed"),
         "Error message was: {}",
@@ -575,7 +576,7 @@ async fn test_unary_stream_error_handling() {
                     // After 3 items, simulate an error condition
                     if i > 3 {
                         tracing::info!("Simulating error after {} responses", i - 1);
-                        yield Err(Status::internal(
+                        yield Err(RpcError::internal(
                             format!("Failed to generate item {}", i)
                         ));
                         break;
@@ -624,8 +625,8 @@ async fn test_unary_stream_error_handling() {
     // Verify the error was received
     assert!(error_received.is_some(), "Expected an error in the stream");
     let err = error_received.unwrap();
-    assert_eq!(err.code(), Code::Internal);
-    assert!(err.message().unwrap().contains("Failed to generate item 4"));
+    assert_eq!(err.code(), RpcCode::Internal);
+    assert!(err.message().contains("Failed to generate item 4"));
 
     env.shutdown().await;
 }
@@ -1040,7 +1041,7 @@ async fn test_session_per_rpc_even_after_error() {
 
                 // Fail on first call
                 if current == 1 {
-                    return Err(Status::internal("Simulated error"));
+                    return Err(RpcError::internal("Simulated error"));
                 }
 
                 Ok(TestResponse {
@@ -1063,7 +1064,7 @@ async fn test_session_per_rpc_even_after_error() {
         .unary::<TestRequest, TestResponse>("TestService", "FlakyMethod", request1, None, None)
         .await;
     assert!(result1.is_err());
-    assert_eq!(result1.unwrap_err().code(), Code::Internal);
+    assert_eq!(result1.unwrap_err().code(), RpcCode::Internal);
 
     // Second call should succeed using a NEW session (each RPC gets its own session)
     let request2 = TestRequest {
@@ -1654,7 +1655,7 @@ async fn test_client_deadline_unary_unary() {
     };
 
     // Call with a very short timeout (100ms)
-    let result: Result<TestResponse, Status> = env
+    let result: Result<TestResponse, RpcError> = env
         .channel
         .unary(
             "TestService",
@@ -1668,7 +1669,7 @@ async fn test_client_deadline_unary_unary() {
     // Should timeout on the client side
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert_eq!(err.code(), Code::DeadlineExceeded);
+    assert_eq!(err.code(), RpcCode::DeadlineExceeded);
 
     env.shutdown().await;
 }
@@ -1688,7 +1689,7 @@ async fn test_client_deadline_unary_stream() {
                 async move {
                     // Each item takes 500ms
                     tokio::time::sleep(Duration::from_millis(500)).await;
-                    Ok::<_, Status>(TestResponse {
+                    Ok::<_, RpcError>(TestResponse {
                         result: format!("{}-{}", msg, i),
                         count: i,
                     })
@@ -1729,7 +1730,7 @@ async fn test_client_deadline_unary_stream() {
     );
     assert!(last_error.is_some());
     let err = last_error.unwrap();
-    assert_eq!(err.code(), Code::DeadlineExceeded);
+    assert_eq!(err.code(), RpcCode::DeadlineExceeded);
 
     env.shutdown().await;
 }
@@ -1765,7 +1766,7 @@ async fn test_server_deadline_unary_unary() {
     };
 
     // Call with a short timeout (500ms) - server should enforce this
-    let result: Result<TestResponse, Status> = env
+    let result: Result<TestResponse, RpcError> = env
         .channel
         .unary(
             "TestService",
@@ -1779,7 +1780,7 @@ async fn test_server_deadline_unary_unary() {
     // Should timeout on the server side (handler execution)
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert_eq!(err.code(), Code::DeadlineExceeded);
+    assert_eq!(err.code(), RpcCode::DeadlineExceeded);
 
     env.shutdown().await;
 }
@@ -1797,7 +1798,7 @@ async fn test_server_deadline_unary_stream() {
             // Handler setup takes 2 seconds before returning stream
             tokio::time::sleep(Duration::from_secs(2)).await;
             Ok(stream::iter((0..3).map(move |i| {
-                Ok::<_, Status>(TestResponse {
+                Ok::<_, RpcError>(TestResponse {
                     result: format!("{}-{}", request.message, i),
                     count: i,
                 })
@@ -1832,7 +1833,7 @@ async fn test_server_deadline_unary_stream() {
         item_result.unwrap_err()
     };
 
-    assert_eq!(err.code(), Code::DeadlineExceeded);
+    assert_eq!(err.code(), RpcCode::DeadlineExceeded);
 
     env.shutdown().await;
 }
@@ -1878,7 +1879,7 @@ async fn test_server_deadline_stream_unary() {
     ];
 
     // Call with a short timeout (500ms)
-    let result: Result<TestResponse, Status> = env
+    let result: Result<TestResponse, RpcError> = env
         .channel
         .stream_unary(
             "TestService",
@@ -1892,7 +1893,7 @@ async fn test_server_deadline_stream_unary() {
     // Should timeout on the server side
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert_eq!(err.code(), Code::DeadlineExceeded);
+    assert_eq!(err.code(), RpcCode::DeadlineExceeded);
 
     env.shutdown().await;
 }
@@ -1916,7 +1917,7 @@ async fn test_server_deadline_stream_stream() {
             tokio::time::sleep(Duration::from_secs(2)).await;
 
             Ok(stream::iter((0..3).map(|i| {
-                Ok::<_, Status>(TestResponse {
+                Ok::<_, RpcError>(TestResponse {
                     result: format!("response-{}", i),
                     count: i,
                 })
@@ -1952,12 +1953,12 @@ async fn test_server_deadline_stream_stream() {
         // Should get a deadline exceeded error
         let result = response_stream.next().await;
         assert!(result.is_some());
-        let item_result: Result<TestResponse, Status> = result.unwrap();
+        let item_result: Result<TestResponse, RpcError> = result.unwrap();
         assert!(item_result.is_err());
         item_result.unwrap_err()
     };
 
-    assert_eq!(err.code(), Code::DeadlineExceeded);
+    assert_eq!(err.code(), RpcCode::DeadlineExceeded);
 
     env.shutdown().await;
 }
@@ -1999,7 +2000,7 @@ async fn test_server_deadline_already_exceeded() {
 
     // Call with an already expired deadline (1ms and then wait)
     let channel_clone = env.channel.clone();
-    let result: Result<TestResponse, Status> = tokio::spawn(async move {
+    let result: Result<TestResponse, RpcError> = tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(50)).await;
         channel_clone
             .unary(
@@ -2017,7 +2018,7 @@ async fn test_server_deadline_already_exceeded() {
     // Should fail with deadline exceeded
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert_eq!(err.code(), Code::DeadlineExceeded);
+    assert_eq!(err.code(), RpcCode::DeadlineExceeded);
 
     // Handler should not have been called (deadline checked before execution)
     // Note: There's a race condition here, but with 50ms delay + network time,
@@ -2147,7 +2148,7 @@ async fn test_server_rejects_already_expired_deadline() {
     // to ensure the deadline is already expired when the server receives it
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    let result: Result<TestResponse, Status> = env
+    let result: Result<TestResponse, RpcError> = env
         .channel
         .unary(
             "TestService",
@@ -2165,7 +2166,7 @@ async fn test_server_rejects_already_expired_deadline() {
     // The error might be DeadlineExceeded or Internal depending on timing
     // (if the deadline check happens before or after session setup)
     assert!(
-        err.code() == Code::DeadlineExceeded || err.code() == Code::Internal,
+        err.code() == RpcCode::DeadlineExceeded || err.code() == RpcCode::Internal,
         "Expected DeadlineExceeded or Internal, got {:?}",
         err.code()
     );
@@ -2226,7 +2227,7 @@ async fn test_server_enforces_deadline_during_handler_execution() {
     };
 
     // Set a short deadline (500ms) while handler takes 5 seconds
-    let result: Result<TestResponse, Status> = env
+    let result: Result<TestResponse, RpcError> = env
         .channel
         .unary(
             "TestService",
@@ -2242,7 +2243,7 @@ async fn test_server_enforces_deadline_during_handler_execution() {
     let err = result.unwrap_err();
     assert_eq!(
         err.code(),
-        Code::DeadlineExceeded,
+        RpcCode::DeadlineExceeded,
         "Expected DeadlineExceeded, got {:?}",
         err.code()
     );
@@ -2319,7 +2320,7 @@ async fn test_server_enforces_deadline_for_stream_unary() {
         .collect::<Vec<_>>();
 
     // Set a deadline of 500ms (server should enforce this)
-    let result: Result<TestResponse, Status> = env
+    let result: Result<TestResponse, RpcError> = env
         .channel
         .stream_unary(
             "TestService",
@@ -2335,7 +2336,7 @@ async fn test_server_enforces_deadline_for_stream_unary() {
     let err = result.unwrap_err();
     assert_eq!(
         err.code(),
-        Code::DeadlineExceeded,
+        RpcCode::DeadlineExceeded,
         "Expected DeadlineExceeded, got {:?}",
         err.code()
     );
@@ -2438,7 +2439,7 @@ async fn test_server_enforces_deadline_for_unary_stream() {
     let err = error.unwrap();
     assert_eq!(
         err.code(),
-        Code::DeadlineExceeded,
+        RpcCode::DeadlineExceeded,
         "Expected DeadlineExceeded, got {:?}",
         err.code()
     );
@@ -2557,7 +2558,7 @@ async fn test_server_enforces_deadline_for_stream_stream() {
     let err = error.unwrap();
     assert_eq!(
         err.code(),
-        Code::DeadlineExceeded,
+        RpcCode::DeadlineExceeded,
         "Expected DeadlineExceeded, got {:?}",
         err.code()
     );
@@ -2763,7 +2764,7 @@ async fn test_server_shutdown_during_handler_execution() {
     // The error should be Cancelled since the handler was cancelled during shutdown
     assert_eq!(
         error.code(),
-        Code::Cancelled,
+        RpcCode::Cancelled,
         "Expected Cancelled error when server shuts down during handler execution, got: {:?}",
         error.code()
     );

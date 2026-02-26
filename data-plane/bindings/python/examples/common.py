@@ -58,27 +58,6 @@ def format_message_print(message1: str, message2: str = "") -> None:
     print(format_message(message1, message2))
 
 
-def split_id(id: str) -> slim_bindings.Name:
-    """
-    Split an ID of form organization/namespace/application (or channel).
-
-    Args:
-        id: String in the canonical 'org/namespace/app-or-stream' format.
-
-    Raises:
-        ValueError: If the id cannot be split into exactly three segments.
-
-    Returns:
-        Name: Constructed identity object.
-    """
-    try:
-        organization, namespace, app = id.split("/")
-    except ValueError as e:
-        print("Error: IDs must be in the format organization/namespace/app-or-stream.")
-        raise e
-    return slim_bindings.Name(organization, namespace, app)
-
-
 def jwt_identity(
     jwt_path: str,
     spire_bundle_path: str,
@@ -134,13 +113,13 @@ def jwt_identity(
     encoding_key_config = slim_bindings.JwtKeyConfig(
         algorithm=slim_bindings.JwtAlgorithm.RS256,
         format=slim_bindings.JwtKeyFormat.PEM,
-        key=slim_bindings.JwtKeyData.DATA(value=jwt_content),
+        key=slim_bindings.JwtKeyData.DATA(value=jwt_content),  # type: ignore
     )
 
     # Create provider config for JWT authentication
     provider_config = slim_bindings.IdentityProviderConfig.JWT(
         config=slim_bindings.ClientJwtAuth(
-            key=slim_bindings.JwtKeyType.ENCODING(key=encoding_key_config),
+            key=slim_bindings.JwtKeyType.ENCODING(key=encoding_key_config),  # type: ignore
             audience=aud or ["default-audience"],
             issuer=iss or "default-issuer",
             subject=sub or local_name,
@@ -152,13 +131,13 @@ def jwt_identity(
     decoding_key_config = slim_bindings.JwtKeyConfig(
         algorithm=slim_bindings.JwtAlgorithm.RS256,
         format=slim_bindings.JwtKeyFormat.JWKS,
-        key=slim_bindings.JwtKeyData.DATA(value=spire_jwks),
+        key=slim_bindings.JwtKeyData.DATA(value=spire_jwks),  # type: ignore
     )
 
     # Create verifier config
     verifier_config = slim_bindings.IdentityVerifierConfig.JWT(
         config=slim_bindings.JwtAuth(
-            key=slim_bindings.JwtKeyType.DECODING(key=decoding_key_config),
+            key=slim_bindings.JwtKeyType.DECODING(key=decoding_key_config),  # type: ignore
             audience=aud or ["default-audience"],
             issuer=iss or "default-issuer",
             subject=sub,
@@ -239,7 +218,7 @@ async def create_local_app(config: BaseConfig) -> tuple[slim_bindings.App, int]:
     service = setup_service()
 
     # Convert local identifier to a strongly typed Name.
-    local_name = split_id(config.local)
+    local_name = slim_bindings.Name.from_string(config.local)
 
     client_config = slim_bindings.new_insecure_client_config(config.slim)
     conn_id = await service.connect_async(client_config)

@@ -13,8 +13,8 @@ use async_stream::stream;
 use futures::StreamExt;
 
 use super::{
-    Code, Context, HandlerResponse, HandlerType, ItemStream, ReceivedMessage, RpcHandler,
-    STATUS_CODE_KEY, SessionRx, SessionTx, Status, StreamRpcHandler,
+    Context, HandlerResponse, HandlerType, ItemStream, ReceivedMessage, RpcCode, RpcError,
+    RpcHandler, STATUS_CODE_KEY, SessionRx, SessionTx, StreamRpcHandler,
 };
 
 /// Handler information retrieved from registry
@@ -51,12 +51,12 @@ impl<'a> RpcSession<'a> {
     }
 
     /// Handle a session for a specific method
-    pub async fn handle(mut self, handler_info: HandlerInfo) -> Result<(), Status> {
+    pub async fn handle(mut self, handler_info: HandlerInfo) -> Result<(), RpcError> {
         tracing::debug!(method_path = %self.method_path, "Processing RPC");
 
         // Check deadline before starting
         if self.ctx.is_deadline_exceeded() {
-            return Err(Status::deadline_exceeded("Deadline exceeded"));
+            return Err(RpcError::deadline_exceeded("Deadline exceeded"));
         }
 
         // Get deadline from context for the entire handler execution
@@ -72,14 +72,14 @@ impl<'a> RpcSession<'a> {
                         match handler_type {
                             HandlerType::UnaryUnary => self.handle_unary_unary(handler).await,
                             HandlerType::UnaryStream => self.handle_unary_stream(handler).await,
-                            _ => Err(Status::internal(
+                            _ => Err(RpcError::internal(
                                 "Invalid handler type for unary-input method",
                             )),
                         }
                     }
                     HandlerInfo::Stream(_, _) => {
                         // This shouldn't happen as stream methods are handled separately
-                        Err(Status::internal(
+                        Err(RpcError::internal(
                             "Stream methods should be handled separately",
                         ))
                     }
@@ -87,7 +87,7 @@ impl<'a> RpcSession<'a> {
             } => result,
             _ = sleep_fut => {
                 tracing::debug!("RPC handler execution exceeded deadline");
-                Err(Status::deadline_exceeded("Deadline exceeded during RPC execution"))
+                Err(RpcError::deadline_exceeded("Deadline exceeded during RPC execution"))
             }
         };
 
@@ -101,7 +101,7 @@ impl<'a> RpcSession<'a> {
     }
 
     /// Handle unary-unary RPC
-    async fn handle_unary_unary(&mut self, handler: RpcHandler) -> Result<(), Status> {
+    async fn handle_unary_unary(&mut self, handler: RpcHandler) -> Result<(), RpcError> {
         // Get the first message from the session
         let received = self.receive_first_message().await?;
 
@@ -114,10 +114,10 @@ impl<'a> RpcSession<'a> {
         // Send response
         match response {
             HandlerResponse::Unary(response_bytes) => {
-                self.send_message(response_bytes, Code::Ok).await?;
+                self.send_message(response_bytes, RpcCode::Ok).await?;
             }
             _ => {
-                return Err(Status::internal(
+                return Err(RpcError::internal(
                     "Handler returned unexpected response type",
                 ));
             }
@@ -127,7 +127,7 @@ impl<'a> RpcSession<'a> {
     }
 
     /// Handle unary-stream RPC
-    async fn handle_unary_stream(&mut self, handler: RpcHandler) -> Result<(), Status> {
+    async fn handle_unary_stream(&mut self, handler: RpcHandler) -> Result<(), RpcError> {
         // Get the first message from the session
         let received = self.receive_first_message().await?;
 
@@ -143,7 +143,7 @@ impl<'a> RpcSession<'a> {
                 self.send_response_stream(stream).await?;
             }
             _ => {
-                return Err(Status::internal(
+                return Err(RpcError::internal(
                     "Handler returned unexpected response type",
                 ));
             }
@@ -153,29 +153,29 @@ impl<'a> RpcSession<'a> {
     }
 
     /// Send a message with status code
-    async fn send_message(&self, payload: Vec<u8>, code: Code) -> Result<(), Status> {
+    async fn send_message(&self, payload: Vec<u8>, code: RpcCode) -> Result<(), RpcError> {
         let metadata = Self::create_status_metadata(code);
         let handle = self
             .session_tx
             .publish(payload, Some("msg".to_string()), Some(metadata))
             .await
-            .map_err(|e| Status::internal(format!("Failed to send message: {}", e)))?;
+            .map_err(|e| RpcError::internal(format!("Failed to send message: {}", e)))?;
         handle
             .await
-            .map_err(|e| Status::internal(format!("Failed to complete message send: {}", e)))
+            .map_err(|e| RpcError::internal(format!("Failed to complete message send: {}", e)))
     }
 
     /// Send end-of-stream marker
-    async fn send_end_of_stream(&self) -> Result<(), Status> {
-        self.send_message(Vec::new(), Code::Ok).await
+    async fn send_end_of_stream(&self) -> Result<(), RpcError> {
+        self.send_message(Vec::new(), RpcCode::Ok).await
     }
 
     /// Send all responses from a stream
-    async fn send_response_stream(&self, mut stream: ItemStream) -> Result<(), Status> {
+    async fn send_response_stream(&self, mut stream: ItemStream) -> Result<(), RpcError> {
         while let Some(result) = stream.next().await {
             match result {
                 Ok(response_bytes) => {
-                    self.send_message(response_bytes, Code::Ok).await?;
+                    self.send_message(response_bytes, RpcCode::Ok).await?;
                 }
                 Err(e) => return Err(e),
             }
@@ -184,17 +184,18 @@ impl<'a> RpcSession<'a> {
     }
 
     /// Receive first message from session
-    async fn receive_first_message(&mut self) -> Result<ReceivedMessage, Status> {
+    async fn receive_first_message(&mut self) -> Result<ReceivedMessage, RpcError> {
         self.session_rx.get_message(None).await.map_err(|e| {
             tracing::debug!(error = %e, "Session closed or error receiving message");
-            Status::internal(format!("Failed to receive message: {}", e))
+            RpcError::internal(format!("Failed to receive message: {}", e))
         })
     }
 
     /// Create status code metadata
-    fn create_status_metadata(code: Code) -> HashMap<String, String> {
+    fn create_status_metadata(code: RpcCode) -> HashMap<String, String> {
         let mut metadata = HashMap::new();
-        metadata.insert(STATUS_CODE_KEY.to_string(), code.as_i32().to_string());
+        let code_i32: i32 = code.into();
+        metadata.insert(STATUS_CODE_KEY.to_string(), code_i32.to_string());
         metadata
     }
 }
@@ -227,14 +228,14 @@ impl<'a> StreamRpcSession<'a> {
         self,
         stream_handler: StreamRpcHandler,
         handler_type: HandlerType,
-    ) -> Result<(), Status> {
+    ) -> Result<(), RpcError> {
         let method_path = self.method_path.clone();
 
         tracing::debug!(%method_path, "Processing stream-based RPC");
 
         // Check deadline for stream-based methods
         if self.ctx.is_deadline_exceeded() {
-            return Err(Status::deadline_exceeded("Deadline exceeded"));
+            return Err(RpcError::deadline_exceeded("Deadline exceeded"));
         }
 
         // Get deadline from context for the entire handler execution
@@ -246,7 +247,7 @@ impl<'a> StreamRpcSession<'a> {
             result = self.handle_stream_based_method(stream_handler, handler_type) => result,
             _ = sleep_fut => {
                 tracing::debug!("Stream RPC handler execution exceeded deadline");
-                Err(Status::deadline_exceeded("Deadline exceeded during RPC execution"))
+                Err(RpcError::deadline_exceeded("Deadline exceeded during RPC execution"))
             }
         };
 
@@ -264,7 +265,7 @@ impl<'a> StreamRpcSession<'a> {
         self,
         handler: StreamRpcHandler,
         handler_type: HandlerType,
-    ) -> Result<(), Status> {
+    ) -> Result<(), RpcError> {
         // Extract fields to consume self properly
         let session_tx = self.session_tx;
         let session_rx = self.session_rx;
@@ -295,16 +296,16 @@ impl<'a> StreamRpcSession<'a> {
                 // Check for end-of-stream marker
                 let code = received.metadata.get(STATUS_CODE_KEY)
                     .and_then(|s| s.parse::<i32>().ok())
-                    .and_then(Code::from_i32)
-                    .unwrap_or(Code::Ok);
+                    .and_then(|code| RpcCode::try_from(code).ok())
+                    .unwrap_or(RpcCode::Ok);
 
-                if code == Code::Ok && received.payload.is_empty() {
+                if code == RpcCode::Ok && received.payload.is_empty() {
                     break;
                 }
 
-                if code != Code::Ok {
+                if code != RpcCode::Ok {
                     let message = String::from_utf8_lossy(&received.payload).to_string();
-                    yield Err(Status::new(code, message));
+                    yield Err(RpcError::new(code, message));
                     break;
                 }
 
@@ -325,20 +326,20 @@ impl<'a> StreamRpcSession<'a> {
                 let response = match handler_result {
                     HandlerResponse::Unary(bytes) => bytes,
                     _ => {
-                        return Err(Status::internal(
+                        return Err(RpcError::internal(
                             "Handler returned unexpected response type",
                         ));
                     }
                 };
 
-                Self::send_message_static(session_tx, response, Code::Ok).await?;
+                Self::send_message_static(session_tx, response, RpcCode::Ok).await?;
             }
             HandlerType::StreamStream => {
                 // Send streaming responses
                 let response_stream = match handler_result {
                     HandlerResponse::Stream(stream) => stream,
                     _ => {
-                        return Err(Status::internal(
+                        return Err(RpcError::internal(
                             "Handler returned unexpected response type",
                         ));
                     }
@@ -347,7 +348,7 @@ impl<'a> StreamRpcSession<'a> {
                 Self::send_response_stream_static(session_tx, response_stream).await?;
             }
             _ => {
-                return Err(Status::internal(
+                return Err(RpcError::internal(
                     "Invalid handler type for stream-based method",
                 ));
             }
@@ -360,32 +361,32 @@ impl<'a> StreamRpcSession<'a> {
     async fn send_message_static(
         session_tx: &SessionTx,
         payload: Vec<u8>,
-        code: Code,
-    ) -> Result<(), Status> {
+        code: RpcCode,
+    ) -> Result<(), RpcError> {
         let metadata = Self::create_status_metadata(code);
         let handle = session_tx
             .publish(payload, Some("msg".to_string()), Some(metadata))
             .await
-            .map_err(|e| Status::internal(format!("Failed to send message: {}", e)))?;
+            .map_err(|e| RpcError::internal(format!("Failed to send message: {}", e)))?;
         handle
             .await
-            .map_err(|e| Status::internal(format!("Failed to complete message send: {}", e)))
+            .map_err(|e| RpcError::internal(format!("Failed to complete message send: {}", e)))
     }
 
     /// Send end-of-stream marker (static version for after self is consumed)
-    async fn send_end_of_stream_static(session_tx: &SessionTx) -> Result<(), Status> {
-        Self::send_message_static(session_tx, Vec::new(), Code::Ok).await
+    async fn send_end_of_stream_static(session_tx: &SessionTx) -> Result<(), RpcError> {
+        Self::send_message_static(session_tx, Vec::new(), RpcCode::Ok).await
     }
 
     /// Send all responses from a stream (static version for after self is consumed)
     async fn send_response_stream_static(
         session_tx: &SessionTx,
         mut stream: ItemStream,
-    ) -> Result<(), Status> {
+    ) -> Result<(), RpcError> {
         while let Some(result) = stream.next().await {
             match result {
                 Ok(response_bytes) => {
-                    Self::send_message_static(session_tx, response_bytes, Code::Ok).await?;
+                    Self::send_message_static(session_tx, response_bytes, RpcCode::Ok).await?;
                 }
                 Err(e) => return Err(e),
             }
@@ -394,17 +395,18 @@ impl<'a> StreamRpcSession<'a> {
     }
 
     /// Create status code metadata
-    fn create_status_metadata(code: Code) -> HashMap<String, String> {
+    fn create_status_metadata(code: RpcCode) -> HashMap<String, String> {
         let mut metadata = HashMap::new();
-        metadata.insert(STATUS_CODE_KEY.to_string(), code.as_i32().to_string());
+        let code_i32: i32 = code.into();
+        metadata.insert(STATUS_CODE_KEY.to_string(), code_i32.to_string());
         metadata
     }
 }
 
 /// Helper function to send an error response
-pub async fn send_error(session: &SessionTx, status: Status) -> Result<(), Status> {
-    let message = status.message().unwrap_or("").to_string();
-    let metadata = create_status_metadata(status.code());
+pub async fn send_error(session: &SessionTx, error: RpcError) -> Result<(), RpcError> {
+    let message = error.message().to_string();
+    let metadata = create_status_metadata(error.code());
     let handle = session
         .publish(
             message.into_bytes(),
@@ -412,16 +414,17 @@ pub async fn send_error(session: &SessionTx, status: Status) -> Result<(), Statu
             Some(metadata),
         )
         .await
-        .map_err(|e| Status::internal(format!("Failed to send error: {}", e)))?;
+        .map_err(|e| RpcError::internal(format!("Failed to send error: {}", e)))?;
     handle.await.map_err(|e| {
         tracing::warn!(error = %e, "Failed to send error response");
-        Status::internal(format!("Failed to complete error send: {}", e))
+        RpcError::internal(format!("Failed to complete error send: {}", e))
     })
 }
 
 /// Helper function to create status code metadata
-fn create_status_metadata(code: Code) -> HashMap<String, String> {
+fn create_status_metadata(code: RpcCode) -> HashMap<String, String> {
     let mut metadata = HashMap::new();
-    metadata.insert(STATUS_CODE_KEY.to_string(), code.as_i32().to_string());
+    let code_i32: i32 = code.into();
+    metadata.insert(STATUS_CODE_KEY.to_string(), code_i32.to_string());
     metadata
 }

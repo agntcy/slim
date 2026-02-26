@@ -260,51 +260,65 @@ pub struct ClientConfig {
     /// The target endpoint the client will connect to
     pub endpoint: String,
 
-    /// Origin (HTTP Host authority override) for the client
-    pub origin: Option<String>,
-
-    /// Optional TLS SNI server name override
-    pub server_name: Option<String>,
-
-    /// Compression type
-    pub compression: Option<CompressionType>,
-
-    /// Rate limit string (e.g., "100/s" for 100 requests per second)
-    pub rate_limit: Option<String>,
-
     /// TLS client configuration
     pub tls: TlsClientConfig,
 
+    /// Origin (HTTP Host authority override) for the client
+    #[uniffi(default = None)]
+    pub origin: Option<String>,
+
+    /// Optional TLS SNI server name override
+    #[uniffi(default = None)]
+    pub server_name: Option<String>,
+
+    /// Compression type
+    #[uniffi(default = None)]
+    pub compression: Option<CompressionType>,
+
+    /// Rate limit string (e.g., "100/s" for 100 requests per second)
+    #[uniffi(default = None)]
+    pub rate_limit: Option<String>,
+
     /// Keepalive parameters
+    #[uniffi(default = None)]
     pub keepalive: Option<KeepaliveConfig>,
 
     /// HTTP Proxy configuration
-    pub proxy: ProxyConfig,
+    #[uniffi(default = None)]
+    pub proxy: Option<ProxyConfig>,
 
     /// Connection timeout
-    pub connect_timeout: Duration,
+    #[uniffi(default = None)]
+    pub connect_timeout: Option<Duration>,
 
     /// Request timeout
-    pub request_timeout: Duration,
+    #[uniffi(default = None)]
+    pub request_timeout: Option<Duration>,
 
     /// Read buffer size in bytes
+    #[uniffi(default = None)]
     pub buffer_size: Option<u64>,
 
     /// Headers associated with gRPC requests
-    pub headers: HashMap<String, String>,
+    #[uniffi(default = None)]
+    pub headers: Option<HashMap<String, String>>,
 
     /// Authentication configuration for outgoing RPCs
-    pub auth: ClientAuthenticationConfig,
+    #[uniffi(default = None)]
+    pub auth: Option<ClientAuthenticationConfig>,
 
     /// Backoff retry configuration
-    pub backoff: BackoffConfig,
+    #[uniffi(default = None)]
+    pub backoff: Option<BackoffConfig>,
 
     /// Arbitrary user-provided metadata as JSON string
+    #[uniffi(default = None)]
     pub metadata: Option<String>,
 }
 
 impl From<ClientConfig> for CoreClientConfig {
     fn from(config: ClientConfig) -> Self {
+        let core_defaults = CoreClientConfig::default();
         CoreClientConfig {
             endpoint: config.endpoint,
             origin: config.origin,
@@ -313,13 +327,22 @@ impl From<ClientConfig> for CoreClientConfig {
             rate_limit: config.rate_limit,
             tls_setting: config.tls.into(),
             keepalive: config.keepalive.map(Into::into),
-            proxy: config.proxy.into(),
-            connect_timeout: config.connect_timeout.into(),
-            request_timeout: config.request_timeout.into(),
+            proxy: config.proxy.map(Into::into).unwrap_or(core_defaults.proxy),
+            connect_timeout: config
+                .connect_timeout
+                .map(Into::into)
+                .unwrap_or(core_defaults.connect_timeout),
+            request_timeout: config
+                .request_timeout
+                .map(Into::into)
+                .unwrap_or(core_defaults.request_timeout),
             buffer_size: config.buffer_size.map(|s| s as usize),
-            headers: config.headers,
-            auth: config.auth.into(),
-            backoff: config.backoff.into(),
+            headers: config.headers.unwrap_or(core_defaults.headers),
+            auth: config.auth.map(Into::into).unwrap_or(core_defaults.auth),
+            backoff: config
+                .backoff
+                .map(Into::into)
+                .unwrap_or(core_defaults.backoff),
             metadata: config
                 .metadata
                 .and_then(|json| serde_json::from_str::<MetadataMap>(&json).ok()),
@@ -337,13 +360,13 @@ impl From<CoreClientConfig> for ClientConfig {
             rate_limit: config.rate_limit,
             tls: config.tls_setting.into(),
             keepalive: config.keepalive.map(Into::into),
-            proxy: config.proxy.into(),
-            connect_timeout: *config.connect_timeout,
-            request_timeout: *config.request_timeout,
+            proxy: Some(config.proxy.into()),
+            connect_timeout: Some(*config.connect_timeout),
+            request_timeout: Some(*config.request_timeout),
             buffer_size: config.buffer_size.map(|s| s as u64),
-            headers: config.headers,
-            auth: config.auth.into(),
-            backoff: config.backoff.into(),
+            headers: Some(config.headers),
+            auth: Some(config.auth.into()),
+            backoff: Some(config.backoff.into()),
             metadata: config.metadata.and_then(|m| serde_json::to_string(&m).ok()),
         }
     }
@@ -354,22 +377,20 @@ impl Default for ClientConfig {
         let core_defaults = CoreClientConfig::default();
         Self {
             endpoint: core_defaults.endpoint,
-            origin: core_defaults.origin,
-            server_name: core_defaults.server_name,
-            compression: core_defaults.compression.map(Into::into),
-            rate_limit: core_defaults.rate_limit,
+            origin: None,
+            server_name: None,
+            compression: None,
+            rate_limit: None,
             tls: core_defaults.tls_setting.into(),
-            keepalive: core_defaults.keepalive.map(Into::into),
-            proxy: core_defaults.proxy.into(),
-            connect_timeout: core_defaults.connect_timeout.into(),
-            request_timeout: core_defaults.request_timeout.into(),
-            buffer_size: core_defaults.buffer_size.map(|s| s as u64),
-            headers: core_defaults.headers,
-            auth: core_defaults.auth.into(),
-            backoff: core_defaults.backoff.into(),
-            metadata: core_defaults
-                .metadata
-                .and_then(|m| serde_json::to_string(&m).ok()),
+            keepalive: None,
+            proxy: None,
+            connect_timeout: None,
+            request_timeout: None,
+            buffer_size: None,
+            headers: None,
+            auth: None,
+            backoff: None,
+            metadata: None,
         }
     }
 }
@@ -383,6 +404,16 @@ pub fn new_insecure_client_config(endpoint: String) -> ClientConfig {
             insecure: true,
             ..Default::default()
         },
+        ..Default::default()
+    }
+}
+
+/// Create a new secure client config (TLS enabled with default settings)
+#[uniffi::export]
+pub fn new_secure_client_config(endpoint: String) -> ClientConfig {
+    ClientConfig {
+        endpoint,
+        tls: TlsClientConfig::default(),
         ..Default::default()
     }
 }
@@ -412,15 +443,13 @@ mod tests {
                 tls_version: "tls1.2".to_string(),
             },
             keepalive: None,
-            proxy: ProxyConfig::default(),
-            connect_timeout: Duration::from_secs(10),
-            request_timeout: Duration::from_secs(30),
+            proxy: None,
+            connect_timeout: Some(Duration::from_secs(10)),
+            request_timeout: Some(Duration::from_secs(30)),
             buffer_size: None,
-            headers: HashMap::new(),
-            auth: ClientAuthenticationConfig::None,
-            backoff: BackoffConfig::Exponential {
-                config: ExponentialBackoff::default(),
-            },
+            headers: None,
+            auth: None,
+            backoff: None,
             metadata: None,
         };
 
@@ -433,18 +462,32 @@ mod tests {
     fn test_client_config_default() {
         let config = ClientConfig::default();
 
-        // Verify defaults match core defaults
+        // Verify defaults are all None (core defaults applied during conversion)
         assert_eq!(config.endpoint, "");
         assert_eq!(config.origin, None);
         assert_eq!(config.server_name, None);
         assert_eq!(config.compression, None);
         assert_eq!(config.rate_limit, None);
-        assert_eq!(config.connect_timeout, Duration::from_secs(0));
-        assert_eq!(config.request_timeout, Duration::from_secs(0));
+        assert_eq!(config.tls, TlsClientConfig::default());
+        assert_eq!(config.keepalive, None);
+        assert_eq!(config.proxy, None);
+        assert_eq!(config.connect_timeout, None);
+        assert_eq!(config.request_timeout, None);
         assert_eq!(config.buffer_size, None);
-        assert!(config.headers.is_empty());
-        assert_eq!(config.auth, ClientAuthenticationConfig::None);
+        assert_eq!(config.headers, None);
+        assert_eq!(config.auth, None);
+        assert_eq!(config.backoff, None);
         assert_eq!(config.metadata, None);
+
+        // Verify core defaults are applied when converting to CoreClientConfig
+        let core: CoreClientConfig = config.into();
+        assert_eq!(*core.connect_timeout, Duration::from_secs(0));
+        assert_eq!(*core.request_timeout, Duration::from_secs(0));
+        assert!(core.headers.is_empty());
+        assert_eq!(
+            core.auth,
+            slim_config::grpc::client::AuthenticationConfig::None
+        );
     }
 
     #[test]
@@ -453,6 +496,24 @@ mod tests {
 
         assert_eq!(config.endpoint, "localhost:50051");
         assert!(config.tls.insecure);
+    }
+
+    #[test]
+    fn test_client_config_new_secure() {
+        let config = new_secure_client_config("api.example.com:443".to_string());
+
+        assert_eq!(config.endpoint, "api.example.com:443");
+        assert!(!config.tls.insecure);
+        assert!(!config.tls.insecure_skip_verify);
+        assert_eq!(config.tls, TlsClientConfig::default());
+        // All optional fields should be None
+        assert_eq!(config.origin, None);
+        assert_eq!(config.keepalive, None);
+        assert_eq!(config.proxy, None);
+        assert_eq!(config.connect_timeout, None);
+        assert_eq!(config.request_timeout, None);
+        assert_eq!(config.auth, None);
+        assert_eq!(config.backoff, None);
     }
 
     #[test]
@@ -473,18 +534,18 @@ mod tests {
                 timeout: Duration::from_secs(20),
                 keep_alive_while_idle: true,
             }),
-            proxy: ProxyConfig::default(),
-            connect_timeout: Duration::from_secs(15),
-            request_timeout: Duration::from_secs(60),
+            proxy: Some(ProxyConfig::default()),
+            connect_timeout: Some(Duration::from_secs(15)),
+            request_timeout: Some(Duration::from_secs(60)),
             buffer_size: Some(8192),
-            headers: headers.clone(),
-            auth: ClientAuthenticationConfig::None,
-            backoff: BackoffConfig::FixedInterval {
+            headers: Some(headers.clone()),
+            auth: Some(ClientAuthenticationConfig::None),
+            backoff: Some(BackoffConfig::FixedInterval {
                 config: FixedIntervalBackoff {
                     interval: Duration::from_secs(1),
                     max_attempts: 5,
                 },
-            },
+            }),
             metadata: Some(r#"{"client":"test"}"#.to_string()),
         };
 
@@ -513,8 +574,14 @@ mod tests {
         assert_eq!(ffi_config.origin, core_config.origin);
         assert_eq!(ffi_config.server_name, core_config.server_name);
         assert_eq!(ffi_config.rate_limit, core_config.rate_limit);
-        assert_eq!(ffi_config.connect_timeout, *core_config.connect_timeout);
-        assert_eq!(ffi_config.request_timeout, *core_config.request_timeout);
+        assert_eq!(
+            ffi_config.connect_timeout,
+            Some(*core_config.connect_timeout)
+        );
+        assert_eq!(
+            ffi_config.request_timeout,
+            Some(*core_config.request_timeout)
+        );
     }
 
     #[test]
@@ -527,15 +594,15 @@ mod tests {
             rate_limit: Some("50/s".to_string()),
             tls: TlsClientConfig::default(),
             keepalive: None,
-            proxy: ProxyConfig::default(),
-            connect_timeout: Duration::from_secs(5),
-            request_timeout: Duration::from_secs(10),
+            proxy: Some(ProxyConfig::default()),
+            connect_timeout: Some(Duration::from_secs(5)),
+            request_timeout: Some(Duration::from_secs(10)),
             buffer_size: Some(4096),
-            headers: HashMap::new(),
-            auth: ClientAuthenticationConfig::None,
-            backoff: BackoffConfig::Exponential {
+            headers: Some(HashMap::new()),
+            auth: Some(ClientAuthenticationConfig::None),
+            backoff: Some(BackoffConfig::Exponential {
                 config: ExponentialBackoff::default(),
-            },
+            }),
             metadata: None,
         };
 
@@ -674,22 +741,9 @@ mod tests {
     fn test_metadata_serialization() {
         let config = ClientConfig {
             endpoint: "test:443".to_string(),
-            origin: None,
-            server_name: None,
-            compression: None,
-            rate_limit: None,
             tls: TlsClientConfig::default(),
-            keepalive: None,
-            proxy: ProxyConfig::default(),
-            connect_timeout: Duration::from_secs(10),
-            request_timeout: Duration::from_secs(30),
-            buffer_size: None,
-            headers: HashMap::new(),
-            auth: ClientAuthenticationConfig::None,
-            backoff: BackoffConfig::Exponential {
-                config: ExponentialBackoff::default(),
-            },
             metadata: Some(r#"{"env":"production","region":"us-west"}"#.to_string()),
+            ..Default::default()
         };
 
         let core: CoreClientConfig = config.into();
@@ -704,22 +758,9 @@ mod tests {
     fn test_metadata_invalid_json() {
         let config = ClientConfig {
             endpoint: "test:443".to_string(),
-            origin: None,
-            server_name: None,
-            compression: None,
-            rate_limit: None,
             tls: TlsClientConfig::default(),
-            keepalive: None,
-            proxy: ProxyConfig::default(),
-            connect_timeout: Duration::from_secs(10),
-            request_timeout: Duration::from_secs(30),
-            buffer_size: None,
-            headers: HashMap::new(),
-            auth: ClientAuthenticationConfig::None,
-            backoff: BackoffConfig::Exponential {
-                config: ExponentialBackoff::default(),
-            },
             metadata: Some("not valid json".to_string()),
+            ..Default::default()
         };
 
         let core: CoreClientConfig = config.into();
@@ -865,9 +906,10 @@ mod tests {
         );
         assert_eq!(ffi_config.rate_limit, Some("100/s".to_string()));
         assert_eq!(ffi_config.buffer_size, Some(8192));
-        assert_eq!(ffi_config.headers.len(), 1);
+        let headers_map = ffi_config.headers.unwrap();
+        assert_eq!(headers_map.len(), 1);
         assert_eq!(
-            ffi_config.headers.get("X-Custom-Header"),
+            headers_map.get("X-Custom-Header"),
             Some(&"value".to_string())
         );
 
@@ -894,7 +936,6 @@ mod tests {
 
         let ffi_config: ClientConfig = core_config.into();
 
-        assert!(ffi_config.keepalive.is_some());
         let keepalive = ffi_config.keepalive.unwrap();
         assert_eq!(keepalive.tcp_keepalive, Duration::from_secs(90));
         assert_eq!(keepalive.http2_keepalive, Duration::from_secs(45));
@@ -944,13 +985,11 @@ mod tests {
 
         let ffi_config: ClientConfig = core_config.into();
 
-        assert_eq!(
-            ffi_config.proxy.url,
-            Some("http://proxy.internal:3128".to_string())
-        );
-        assert_eq!(ffi_config.proxy.username, Some("proxy_user".to_string()));
-        assert_eq!(ffi_config.proxy.password, Some("proxy_pass".to_string()));
-        assert_eq!(ffi_config.proxy.headers.len(), 1);
+        let proxy = ffi_config.proxy.unwrap();
+        assert_eq!(proxy.url, Some("http://proxy.internal:3128".to_string()));
+        assert_eq!(proxy.username, Some("proxy_user".to_string()));
+        assert_eq!(proxy.password, Some("proxy_pass".to_string()));
+        assert_eq!(proxy.headers.len(), 1);
     }
 
     #[test]
@@ -995,7 +1034,7 @@ mod tests {
 
         let ffi_config: ClientConfig = core_config.into();
 
-        match ffi_config.backoff {
+        match ffi_config.backoff.unwrap() {
             BackoffConfig::FixedInterval { config } => {
                 assert_eq!(config.interval, Duration::from_secs(5));
                 assert_eq!(config.max_attempts, 8);
@@ -1017,7 +1056,7 @@ mod tests {
 
         let ffi_config: ClientConfig = core_config.into();
 
-        match ffi_config.auth {
+        match ffi_config.auth.unwrap() {
             ClientAuthenticationConfig::Basic { config } => {
                 assert_eq!(config.username, "test_user");
                 assert_eq!(config.password, "test_pass");

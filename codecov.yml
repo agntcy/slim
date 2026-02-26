@@ -1,0 +1,4 @@
+ignore:
+  - data-plane/testing/src/common.rs
+  - data-plane/testing/src/bin/test_p2p.rs
+  - data-plane/testing/src/bin/test_group.rs

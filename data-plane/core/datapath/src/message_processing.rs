@@ -33,7 +33,10 @@ use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::{DataPathError, MessageContext};
 use crate::forwarder::Forwarder;
 use crate::messages::Name;
-use crate::messages::utils::SlimHeaderFlags;
+use crate::messages::utils::{
+    FALSE_VAL, SUBSCRIPTION_ACK_ERROR, SUBSCRIPTION_ACK_ID, SUBSCRIPTION_ACK_SUCCESS,
+    SlimHeaderFlags, TRUE_VAL,
+};
 use crate::tables::connection_table::ConnectionTable;
 use crate::tables::subscription_table::SubscriptionTableImpl;
 
@@ -474,44 +477,62 @@ impl MessageProcessor {
             .await
     }
 
-    // Use a single function to process subscription and unsubscription packets.
-    // The flag add = true is used to add a new subscription while add = false
-    // is used to remove existing state
-    async fn process_subscription(
+    async fn send_subscription_ack(
+        &self,
+        in_connection: u64,
+        source: Name,
+        destination: Name,
+        add: bool,
+        ack_id: String,
+        result: &Result<(), DataPathError>,
+    ) {
+        let (success, error_msg) = match result {
+            Ok(()) => (true, None),
+            Err(e) => (false, Some(e.to_string())),
+        };
+
+        let mut builder = Message::builder()
+            .source(source)
+            .destination(destination)
+            .metadata(SUBSCRIPTION_ACK_ID, ack_id)
+            .metadata(
+                SUBSCRIPTION_ACK_SUCCESS,
+                if success { TRUE_VAL } else { FALSE_VAL },
+            );
+
+        if let Some(error_msg) = error_msg {
+            builder = builder.metadata(SUBSCRIPTION_ACK_ERROR, error_msg);
+        }
+
+        let ack_msg = if add {
+            builder.build_subscribe()
+        } else {
+            builder.build_unsubscribe()
+        };
+
+        match ack_msg {
+            Ok(msg) => {
+                if let Err(e) = self.send_msg(msg, in_connection).await {
+                    error!(error = %e.chain(), "failed to send subscription ack");
+                }
+            }
+            Err(e) => {
+                error!(error = %e.chain(), "failed to build subscription ack message");
+            }
+        }
+    }
+
+    async fn process_subscription_update_and_forward(
         &self,
         msg: Message,
-        in_connection: u64,
+        conn: u64,
+        forward: Option<u64>,
         add: bool,
     ) -> Result<(), DataPathError> {
-        debug!(
-            %in_connection,
-            ?msg,
-            "received {}subscription",
-            if add { "" } else { "un" }
-        );
-
-        // telemetry /////////////////////////////////////////
-        info!(
-            telemetry = true,
-            monotonic_counter.num_messages_by_type = 1,
-            message_type = { if add { "subscribe" } else { "unsubscribe" } }
-        );
-        //////////////////////////////////////////////////////
-
         let dst = msg.get_dst();
 
-        // get header
-        let header = msg.get_slim_header();
-
-        // get in and out connections
-        let (conn, forward) = header.get_in_out_connections();
-
-        // get input connection. As connection is deleted only after the processing,
-        // it is safe to assume that at this point the connection must exist.
-        let maybe_connection = self.forwarder().get_connection(conn);
-
-        // Required to make the borrow checker happy
-        let connection = if let Some(c) = maybe_connection {
+        // As connection is deleted only after processing, at this point it must exist.
+        let connection = if let Some(c) = self.forwarder().get_connection(conn) {
             c
         } else {
             return Err(DataPathError::MessageProcessingError {
@@ -536,24 +557,80 @@ impl MessageProcessor {
         )?;
 
         match forward {
-            None => {
-                // if the subscription is not forwarded, we are done
-                Ok(())
-            }
+            None => Ok(()),
             Some(out_conn) => {
-                debug!(%out_conn, "forwarding {}subscription to connection", if add { "" } else { "un" });
+                debug!(
+                    %out_conn,
+                    "forwarding {}subscription to connection",
+                    if add { "" } else { "un" }
+                );
 
-                // get source name and identity
                 let source = msg.get_source();
                 let identity = msg.get_identity();
 
-                // send message
                 self.send_msg(msg, out_conn).await.map(|_| {
                     self.forwarder()
                         .on_forwarded_subscription(source, dst, identity, out_conn, add);
                 })
             }
         }
+    }
+
+    // Use a single function to process subscription and unsubscription packets.
+    // The flag add = true is used to add a new subscription while add = false
+    // is used to remove existing state
+    async fn process_subscription(
+        &self,
+        mut msg: Message,
+        in_connection: u64,
+        add: bool,
+    ) -> Result<(), DataPathError> {
+        debug!(
+            %in_connection,
+            ?msg,
+            "received {}subscription",
+            if add { "" } else { "un" }
+        );
+
+        // telemetry /////////////////////////////////////////
+        info!(
+            telemetry = true,
+            monotonic_counter.num_messages_by_type = 1,
+            message_type = { if add { "subscribe" } else { "unsubscribe" } }
+        );
+        //////////////////////////////////////////////////////
+
+        let ack_id = msg.get_metadata(SUBSCRIPTION_ACK_ID).cloned();
+        let (ack_source, ack_destination) = if ack_id.is_some() {
+            (Some(msg.get_source()), Some(msg.get_dst()))
+        } else {
+            (None, None)
+        };
+
+        if ack_id.is_some() {
+            msg.remove_metadata(SUBSCRIPTION_ACK_ID);
+            msg.remove_metadata(SUBSCRIPTION_ACK_SUCCESS);
+            msg.remove_metadata(SUBSCRIPTION_ACK_ERROR);
+        }
+
+        // get header
+        let header = msg.get_slim_header();
+
+        // get in and out connections
+        let (conn, forward) = header.get_in_out_connections();
+
+        let result = self
+            .process_subscription_update_and_forward(msg, conn, forward, add)
+            .await;
+
+        if let (Some(ack_id), Some(source), Some(destination)) =
+            (ack_id, ack_source, ack_destination)
+        {
+            self.send_subscription_ack(in_connection, source, destination, add, ack_id, &result)
+                .await;
+        }
+
+        result
     }
 
     pub async fn process_message(
@@ -937,5 +1014,84 @@ impl DataPlaneService for MessageProcessor {
         Ok(Response::new(
             Box::pin(out_stream) as Self::OpenChannelStream
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+
+    async fn assert_failed_subscription_ack_is_sent(add: bool) {
+        let processor = MessageProcessor::new();
+        let (in_connection, _tx, mut rx) = processor
+            .register_local_connection(false)
+            .expect("failed to create local connection");
+
+        let source = Name::from_strings(["org", "ns", "source"]).with_id(1);
+        let destination = Name::from_strings(["org", "ns", "destination"]).with_id(2);
+        let ack_id = if add { "ack-sub" } else { "ack-unsub" };
+        let invalid_connection = u64::MAX - 1;
+
+        let builder = Message::builder()
+            .source(source.clone())
+            .destination(destination.clone())
+            .incoming_conn(invalid_connection)
+            .metadata(SUBSCRIPTION_ACK_ID, ack_id.to_string());
+
+        let msg = if add {
+            builder.build_subscribe().unwrap()
+        } else {
+            builder.build_unsubscribe().unwrap()
+        };
+
+        let result = processor
+            .process_subscription(msg, in_connection, add)
+            .await;
+        assert!(matches!(
+            result,
+            Err(DataPathError::MessageProcessingError { .. })
+        ));
+
+        let ack_msg = tokio::time::timeout(Duration::from_secs(1), rx.recv())
+            .await
+            .expect("timeout waiting for ack")
+            .expect("ack channel closed")
+            .expect("failed to receive ack message");
+
+        if add {
+            assert!(matches!(ack_msg.get_type(), SubscribeType(_)));
+        } else {
+            assert!(matches!(ack_msg.get_type(), UnsubscribeType(_)));
+        }
+        assert_eq!(
+            ack_msg
+                .get_metadata(SUBSCRIPTION_ACK_ID)
+                .map(|value| value.as_str()),
+            Some(ack_id)
+        );
+        assert_eq!(
+            ack_msg
+                .get_metadata(SUBSCRIPTION_ACK_SUCCESS)
+                .map(|value| value.as_str()),
+            Some(FALSE_VAL)
+        );
+        assert!(
+            ack_msg.get_metadata(SUBSCRIPTION_ACK_ERROR).is_some(),
+            "failed ack should include an error message"
+        );
+        assert_eq!(ack_msg.get_source(), source);
+        assert_eq!(ack_msg.get_dst(), destination);
+    }
+
+    #[tokio::test]
+    async fn test_process_subscription_sends_failed_ack_on_subscribe_error() {
+        assert_failed_subscription_ack_is_sent(true).await;
+    }
+
+    #[tokio::test]
+    async fn test_process_subscription_sends_failed_ack_on_unsubscribe_error() {
+        assert_failed_subscription_ack_is_sent(false).await;
     }
 }

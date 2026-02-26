@@ -16,8 +16,8 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 
 use slim_bindings::{
-    App, Channel, Code, Direction, IdentityProviderConfig, IdentityVerifierConfig, Name, RpcError,
-    Server, StreamMessage, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler,
+    App, Channel, Direction, IdentityProviderConfig, IdentityVerifierConfig, Name, RpcCode,
+    RpcError, Server, StreamMessage, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler,
     UnaryUnaryHandler, initialize_with_defaults,
 };
 
@@ -52,7 +52,7 @@ impl UnaryUnaryHandler for ErrorHandler {
         _context: Arc<slim_bindings::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         Err(RpcError::new(
-            Code::InvalidArgument,
+            RpcCode::InvalidArgument,
             "Intentional error".to_string(),
         ))
     }
@@ -104,7 +104,7 @@ impl UnaryStreamHandler for StreamErrorHandler {
 
         // Then send an error
         sink.send_error_async(RpcError::new(
-            Code::Internal,
+            RpcCode::Internal,
             "Stream error after 2 messages".to_string(),
         ))
         .await?;
@@ -166,7 +166,7 @@ impl StreamUnaryHandler for StreamInputErrorHandler {
                     // Check for error marker (first byte == 255)
                     if !data.is_empty() && data[0] == 255 {
                         return Err(RpcError::new(
-                            Code::InvalidArgument,
+                            RpcCode::InvalidArgument,
                             format!("Invalid data at message {}", count),
                         ));
                     }
@@ -621,7 +621,7 @@ async fn test_unary_unary_error_handling() {
 
     assert!(result.is_err());
     let error = result.unwrap_err();
-    assert_eq!(error.code(), Code::InvalidArgument);
+    assert_eq!(error.code(), RpcCode::InvalidArgument);
     assert!(error.message().contains("Intentional error"));
 
     env.server.shutdown_async().await;
@@ -722,7 +722,7 @@ async fn test_unary_stream_error_handling() {
                 responses.push(data);
             }
             StreamMessage::Error(e) => {
-                assert_eq!(e.code(), Code::Internal);
+                assert_eq!(e.code(), RpcCode::Internal);
                 assert!(e.message().contains("Stream error after 2 messages"));
                 got_error = true;
                 break;
@@ -775,7 +775,10 @@ async fn test_stream_unary_rpc() {
     }
 
     // Finalize and get response
-    let response = writer.finalize_async().await.expect("Failed to finalize");
+    let response = writer
+        .finalize_stream_async()
+        .await
+        .expect("Failed to finalize");
 
     // Parse response: total (4 bytes) + count (4 bytes)
     assert_eq!(response.len(), 8);
@@ -825,10 +828,10 @@ async fn test_stream_unary_error_handling() {
         .expect("Failed to send");
 
     // Finalize - should get an error
-    let result = writer.finalize_async().await;
+    let result = writer.finalize_stream_async().await;
     assert!(result.is_err());
     let error = result.unwrap_err();
-    assert_eq!(error.code(), Code::InvalidArgument);
+    assert_eq!(error.code(), RpcCode::InvalidArgument);
     assert!(error.message().contains("Invalid data"));
 
     env.server.shutdown_async().await;
@@ -1399,7 +1402,10 @@ async fn test_stream_unary_with_metadata() {
     }
 
     // Finalize and get response
-    let response = writer.finalize_async().await.expect("Failed to finalize");
+    let response = writer
+        .finalize_stream_async()
+        .await
+        .expect("Failed to finalize");
     let sum = u32::from_le_bytes([response[0], response[1], response[2], response[3]]);
 
     let expected_sum: u32 = values.iter().sum();
@@ -1630,7 +1636,7 @@ async fn test_client_deadline_unary_unary() {
     let err = result.unwrap_err();
     assert_eq!(
         err.code(),
-        Code::DeadlineExceeded,
+        RpcCode::DeadlineExceeded,
         "Expected DeadlineExceeded, got {:?}",
         err.code()
     );
@@ -1686,7 +1692,7 @@ async fn test_client_deadline_unary_stream() {
                 got_error = true;
                 assert_eq!(
                     e.code(),
-                    Code::DeadlineExceeded,
+                    RpcCode::DeadlineExceeded,
                     "Expected DeadlineExceeded, got {:?}",
                     e.code()
                 );
@@ -1758,7 +1764,7 @@ async fn test_server_deadline_unary_unary() {
     let err = result.unwrap_err();
     assert_eq!(
         err.code(),
-        Code::DeadlineExceeded,
+        RpcCode::DeadlineExceeded,
         "Expected DeadlineExceeded, got {:?}",
         err.code()
     );
@@ -1807,7 +1813,7 @@ async fn test_server_deadline_unary_stream() {
         StreamMessage::Error(e) => {
             assert_eq!(
                 e.code(),
-                Code::DeadlineExceeded,
+                RpcCode::DeadlineExceeded,
                 "Expected DeadlineExceeded, got {:?}",
                 e.code()
             );
@@ -1867,13 +1873,13 @@ async fn test_server_deadline_stream_unary() {
     }
 
     // Finalize and get response - should timeout on the server side
-    let result = writer.finalize_async().await;
+    let result = writer.finalize_stream_async().await;
 
     assert!(result.is_err(), "Expected timeout error");
     let err = result.unwrap_err();
     assert_eq!(
         err.code(),
-        Code::DeadlineExceeded,
+        RpcCode::DeadlineExceeded,
         "Expected DeadlineExceeded, got {:?}",
         err.code()
     );
@@ -1936,7 +1942,7 @@ async fn test_server_deadline_stream_stream() {
         StreamMessage::Error(e) => {
             assert_eq!(
                 e.code(),
-                Code::DeadlineExceeded,
+                RpcCode::DeadlineExceeded,
                 "Expected DeadlineExceeded, got {:?}",
                 e.code()
             );
@@ -2001,7 +2007,7 @@ async fn test_server_enforces_deadline_during_handler_execution() {
     let err = result.unwrap_err();
     assert_eq!(
         err.code(),
-        Code::DeadlineExceeded,
+        RpcCode::DeadlineExceeded,
         "Expected DeadlineExceeded, got {:?}",
         err.code()
     );

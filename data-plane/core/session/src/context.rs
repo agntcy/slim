@@ -179,7 +179,6 @@ mod tests {
                 .with_config(cfg)
                 .with_identity_provider(DummyProvider)
                 .with_identity_verifier(DummyVerifier)
-                .with_storage_path(std::env::temp_dir())
                 .with_tx(session_tx)
                 .with_tx_to_session_layer(tx_session)
                 .ready()

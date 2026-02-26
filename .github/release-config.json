@@ -26,10 +26,6 @@
     "data-plane/testing": {
       "package-name": "slim-testutils",
       "release-type": "simple"
-    },
-    "data-plane/python/integrations/slimrpc": {
-      "package-name": "slimrpc",
-      "release-type": "python"
     }
   }
 }

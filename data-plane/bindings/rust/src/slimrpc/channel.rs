@@ -23,8 +23,8 @@ use slim_datapath::messages::Name;
 use slim_service::app::App as SlimApp;
 
 use super::{
-    BidiStreamHandler, Code, Context, Metadata, ReceivedMessage, RequestStreamWriter,
-    ResponseStreamReader, RpcError, STATUS_CODE_KEY, Status, build_method_subscription_name,
+    BidiStreamHandler, Context, Metadata, ReceivedMessage, RequestStreamWriter,
+    ResponseStreamReader, RpcCode, RpcError, STATUS_CODE_KEY, build_method_subscription_name,
     calculate_deadline, calculate_timeout_duration,
     codec::{Decoder, Encoder},
     session_wrapper::{SessionRx, SessionTx, new_session},
@@ -126,17 +126,17 @@ impl Channel {
     }
 
     /// Check if received message is end-of-stream or error
-    fn check_stream_message(&self, received: &ReceivedMessage) -> Result<Option<()>, Status> {
+    fn check_stream_message(&self, received: &ReceivedMessage) -> Result<Option<()>, RpcError> {
         let code = self.parse_status_code(received.metadata.get(STATUS_CODE_KEY))?;
 
         // Empty message with OK code signals end of stream
-        if code == Code::Ok && received.payload.is_empty() {
+        if code == RpcCode::Ok && received.payload.is_empty() {
             return Ok(None); // End of stream
         }
 
-        if code != Code::Ok {
+        if code != RpcCode::Ok {
             let message = String::from_utf8_lossy(&received.payload).to_string();
-            return Err(Status::new(code, message));
+            return Err(RpcError::new(code, message));
         }
 
         Ok(Some(())) // Continue
@@ -155,24 +155,24 @@ impl Channel {
     /// * `metadata` - Optional metadata to include with the request
     ///
     /// # Returns
-    /// The decoded response or a `Status` error
+    /// The decoded response or a `RpcError` error
     ///
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_bindings::{Channel, Status, Encoder, Decoder};
+    /// # use slim_bindings::{Channel, RpcError, Encoder, Decoder};
     /// # use std::time::Duration;
     /// # #[derive(Default)]
     /// # struct Request {}
     /// # impl Encoder for Request {
-    /// #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
+    /// #     fn encode(self) -> Result<Vec<u8>, RpcError> { Ok(vec![]) }
     /// # }
     /// # #[derive(Default)]
     /// # struct Response {}
     /// # impl Decoder for Response {
-    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(Response::default()) }
+    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, RpcError> { Ok(Response::default()) }
     /// # }
-    /// # async fn example(channel: Channel) -> std::result::Result<(), Status> {
+    /// # async fn example(channel: Channel) -> std::result::Result<(), RpcError> {
     /// let request = Request::default();
     /// let response: Response = channel.unary(
     ///     "MyService",
@@ -191,7 +191,7 @@ impl Channel {
         request: Req,
         timeout: Option<Duration>,
         metadata: Option<Metadata>,
-    ) -> Result<Res, Status>
+    ) -> Result<Res, RpcError>
     where
         Req: Encoder,
         Res: Decoder,
@@ -231,7 +231,7 @@ impl Channel {
                 }
             } => result,
             _ = &mut delay => {
-                Err(Status::deadline_exceeded("Client deadline exceeded during unary call"))
+                Err(RpcError::deadline_exceeded("Client deadline exceeded during unary call"))
             }
         }
     }
@@ -249,24 +249,24 @@ impl Channel {
     /// * `metadata` - Optional metadata to include with the request
     ///
     /// # Returns
-    /// A stream of decoded responses or `Status` errors
+    /// A stream of decoded responses or `RpcError` errors
     ///
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_bindings::{Channel, Status, Encoder, Decoder};
+    /// # use slim_bindings::{Channel, RpcError, Encoder, Decoder};
     /// # use futures::{StreamExt, pin_mut};
     /// # #[derive(Default)]
     /// # struct Request { count: i32 }
     /// # impl Encoder for Request {
-    /// #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
+    /// #     fn encode(self) -> Result<Vec<u8>, RpcError> { Ok(vec![]) }
     /// # }
     /// # #[derive(Default)]
     /// # struct Response { value: i32 }
     /// # impl Decoder for Response {
-    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(Response::default()) }
+    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, RpcError> { Ok(Response::default()) }
     /// # }
-    /// # async fn example(channel: Channel) -> Result<(), Status> {
+    /// # async fn example(channel: Channel) -> Result<(), RpcError> {
     /// let request = Request { count: 10 };
     /// let stream = channel.unary_stream::<Request, Response>(
     ///     "MyService",
@@ -291,7 +291,7 @@ impl Channel {
         request: Req,
         timeout: Option<Duration>,
         metadata: Option<Metadata>,
-    ) -> impl Stream<Item = Result<Res, Status>>
+    ) -> impl Stream<Item = Result<Res, RpcError>>
     where
         Req: Encoder + Send + 'static,
         Res: Decoder + Send + 'static,
@@ -312,7 +312,7 @@ impl Channel {
             let session_result = tokio::select! {
                 result = channel.create_session(&service_name, &method_name, &ctx) => result,
                 _ = &mut delay => {
-                    Err(Status::deadline_exceeded("Client deadline exceeded during unary-stream call"))
+                    Err(RpcError::deadline_exceeded("Client deadline exceeded during unary-stream call"))
                 }
             };
             let (session_tx, mut session_rx) = session_result?;
@@ -322,7 +322,7 @@ impl Channel {
                 result = channel.send_request(&session_tx, &ctx, request, &service_name, &method_name) => result,
                 _ = &mut delay => {
                     Self::close_session_safe(&session_tx, &channel.app).await;
-                    Err(Status::deadline_exceeded("Client deadline exceeded while sending request"))
+                    Err(RpcError::deadline_exceeded("Client deadline exceeded while sending request"))
                 }
             };
             if let Err(e) = send_result {
@@ -333,10 +333,10 @@ impl Channel {
             // Receive streaming responses with same deadline, yielding as we go
             loop {
                 let receive_result = tokio::select! {
-                    result = session_rx.get_message(None) => result.map_err(|e| Status::internal(format!("Failed to receive response: {}", e))),
+                    result = session_rx.get_message(None) => result.map_err(|e| RpcError::internal(format!("Failed to receive response: {}", e))),
                     _ = &mut delay => {
                         Self::close_session_safe(&session_tx, &channel.app).await;
-                        Err(Status::deadline_exceeded("Client deadline exceeded while receiving stream"))
+                        Err(RpcError::deadline_exceeded("Client deadline exceeded while receiving stream"))
                     }
                 };
                 let received = match receive_result {
@@ -373,24 +373,24 @@ impl Channel {
     /// * `metadata` - Optional metadata to include with the request
     ///
     /// # Returns
-    /// The decoded response or a `Status` error
+    /// The decoded response or a `RpcError` error
     ///
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_bindings::{Channel, Status, Encoder, Decoder};
+    /// # use slim_bindings::{Channel, RpcError, Encoder, Decoder};
     /// # use futures::stream;
     /// # #[derive(Default)]
     /// # struct Request { data: Vec<u8> }
     /// # impl Encoder for Request {
-    /// #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
+    /// #     fn encode(self) -> Result<Vec<u8>, RpcError> { Ok(vec![]) }
     /// # }
     /// # #[derive(Default)]
     /// # struct Response { total: usize }
     /// # impl Decoder for Response {
-    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(Response::default()) }
+    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, RpcError> { Ok(Response::default()) }
     /// # }
-    /// # async fn example(channel: Channel) -> Result<(), Status> {
+    /// # async fn example(channel: Channel) -> Result<(), RpcError> {
     /// let requests = vec![
     ///     Request { data: vec![1, 2, 3] },
     ///     Request { data: vec![4, 5, 6] },
@@ -414,7 +414,7 @@ impl Channel {
         request_stream: impl Stream<Item = Req> + Send + 'static,
         timeout: Option<Duration>,
         metadata: Option<Metadata>,
-    ) -> Result<Res, Status>
+    ) -> Result<Res, RpcError>
     where
         Req: Encoder,
         Res: Decoder,
@@ -452,7 +452,7 @@ impl Channel {
                 }
             } => result,
             _ = &mut delay => {
-                Err(Status::deadline_exceeded("Client deadline exceeded during stream-unary call"))
+                Err(RpcError::deadline_exceeded("Client deadline exceeded during stream-unary call"))
             }
         }
     }
@@ -471,24 +471,24 @@ impl Channel {
     /// * `metadata` - Optional metadata to include with the request
     ///
     /// # Returns
-    /// A stream of decoded responses or `Status` errors
+    /// A stream of decoded responses or `RpcError` errors
     ///
     /// # Example
     ///
     /// ```no_run
-    /// # use slim_bindings::{Channel, Status, Encoder, Decoder};
+    /// # use slim_bindings::{Channel, RpcError, Encoder, Decoder};
     /// # use futures::{stream, StreamExt, pin_mut};
     /// # #[derive(Default)]
     /// # struct Request { message: String }
     /// # impl Encoder for Request {
-    /// #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
+    /// #     fn encode(self) -> Result<Vec<u8>, RpcError> { Ok(vec![]) }
     /// # }
     /// # #[derive(Default)]
     /// # struct Response { reply: String }
     /// # impl Decoder for Response {
-    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(Response::default()) }
+    /// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, RpcError> { Ok(Response::default()) }
     /// # }
-    /// # async fn example(channel: Channel) -> std::result::Result<(), Status> {
+    /// # async fn example(channel: Channel) -> std::result::Result<(), RpcError> {
     /// let requests = vec![
     ///     Request { message: "hello".to_string() },
     ///     Request { message: "world".to_string() },
@@ -518,7 +518,7 @@ impl Channel {
         request_stream: impl Stream<Item = Req> + Send + 'static,
         timeout: Option<Duration>,
         metadata: Option<Metadata>,
-    ) -> impl Stream<Item = Result<Res, Status>>
+    ) -> impl Stream<Item = Result<Res, RpcError>>
     where
         Req: Encoder + Send + 'static,
         Res: Decoder + Send + 'static,
@@ -539,7 +539,7 @@ impl Channel {
             let session_result = tokio::select! {
                 result = channel.create_session(&service_name, &method_name, &ctx) => result,
                 _ = &mut delay => {
-                    Err(Status::deadline_exceeded("Client deadline exceeded during stream-stream call"))
+                    Err(RpcError::deadline_exceeded("Client deadline exceeded during stream-stream call"))
                 }
             };
             let (session_tx, mut session_rx) = session_result?;
@@ -561,7 +561,7 @@ impl Channel {
             let mut send_completed = false;
             loop {
                 let receive_result = tokio::select! {
-                    result = session_rx.get_message(None) => result.map_err(|e| Status::internal(format!("Failed to receive response: {}", e))),
+                    result = session_rx.get_message(None) => result.map_err(|e| RpcError::internal(format!("Failed to receive response: {}", e))),
                     send_result = &mut send_handle, if !send_completed => {
                         send_completed = true;
                         // Check if send task completed successfully
@@ -573,13 +573,13 @@ impl Channel {
                             },
                             Err(e) => {
                                 Self::close_session_safe(&session_tx, &channel.app).await;
-                                Err(Status::internal(format!("Send task panicked: {}", e)))
+                                Err(RpcError::internal(format!("Send task panicked: {}", e)))
                             },
                         }
                     }
                     _ = &mut delay => {
                         Self::close_session_safe(&session_tx, &channel.app).await;
-                        Err(Status::deadline_exceeded("Client deadline exceeded while receiving stream"))
+                        Err(RpcError::deadline_exceeded("Client deadline exceeded while receiving stream"))
                     },
                 };
                 let received = match receive_result {
@@ -609,7 +609,7 @@ impl Channel {
         service_name: &str,
         method_name: &str,
         ctx: &Context,
-    ) -> Result<(SessionTx, SessionRx), Status> {
+    ) -> Result<(SessionTx, SessionRx), RpcError> {
         let service_name = service_name.to_string();
         let method_name = method_name.to_string();
         let ctx = ctx.clone();
@@ -656,8 +656,8 @@ impl Channel {
             // Create session configuration with deadline metadata
             let slim_config = slim_session::session_config::SessionConfig {
                 session_type: ProtoSessionType::PointToPoint,
-                mls_enabled: false,
-                max_retries: Some(3),
+                mls_enabled: true,
+                max_retries: Some(10),
                 interval: Some(Duration::from_secs(1)),
                 initiator: true,
                 metadata: ctx.metadata(),
@@ -667,12 +667,12 @@ impl Channel {
             let (session_ctx, completion) = app
                 .create_session(slim_config, method_subscription_name.clone(), None)
                 .await
-                .map_err(|e| Status::unavailable(format!("Failed to create session: {}", e)))?;
+                .map_err(|e| RpcError::unavailable(format!("Failed to create session: {}", e)))?;
 
             // Wait for session handshake completion
             completion
                 .await
-                .map_err(|e| Status::unavailable(format!("Session handshake failed: {}", e)))?;
+                .map_err(|e| RpcError::unavailable(format!("Session handshake failed: {}", e)))?;
 
             // Wrap the session context for RPC operations
             let (session_tx, session_rx) = new_session(session_ctx);
@@ -683,7 +683,7 @@ impl Channel {
         // Await the spawned task
         handle
             .await
-            .map_err(|e| Status::internal(format!("Session creation task failed: {}", e)))?
+            .map_err(|e| RpcError::internal(format!("Session creation task failed: {}", e)))?
     }
 
     /// Create a context for a specific RPC call with deadline
@@ -708,14 +708,14 @@ impl Channel {
     }
 
     /// Parse status code from metadata value
-    fn parse_status_code(&self, code_str: Option<&String>) -> Result<Code, Status> {
+    fn parse_status_code(&self, code_str: Option<&String>) -> Result<RpcCode, RpcError> {
         match code_str {
             Some(s) => s
                 .parse::<i32>()
                 .ok()
-                .and_then(Code::from_i32)
-                .ok_or_else(|| Status::internal(format!("Invalid status code: {}", s))),
-            None => Ok(Code::Ok), // Default to OK if not present
+                .and_then(|code| RpcCode::try_from(code).ok())
+                .ok_or_else(|| RpcError::internal(format!("Invalid status code: {}", s))),
+            None => Ok(RpcCode::Ok), // Default to OK if not present
         }
     }
 
@@ -772,7 +772,7 @@ impl Channel {
         request: Req,
         service_name: &str,
         method_name: &str,
-    ) -> Result<(), Status>
+    ) -> Result<(), RpcError>
     where
         Req: Encoder,
     {
@@ -783,7 +783,7 @@ impl Channel {
 
         tracing::debug!(%service_name, %method_name, "Sent request");
         handle.await.map_err(|e| {
-            Status::internal(format!(
+            RpcError::internal(format!(
                 "Failed to complete sending request for {}-{}: {}",
                 service_name,
                 method_name,
@@ -802,7 +802,7 @@ impl Channel {
         request_stream: impl Stream<Item = Req> + Send + 'static,
         service_name: &str,
         method_name: &str,
-    ) -> Result<(), Status>
+    ) -> Result<(), RpcError>
     where
         Req: Encoder,
     {
@@ -820,7 +820,8 @@ impl Channel {
 
         // Send end-of-stream marker
         let mut end_metadata = HashMap::new();
-        end_metadata.insert(STATUS_CODE_KEY.to_string(), Code::Ok.as_i32().to_string());
+        let code: i32 = RpcCode::Ok.into();
+        end_metadata.insert(STATUS_CODE_KEY.to_string(), code.to_string());
         let handle = session
             .publish(Vec::new(), Some("msg".to_string()), Some(end_metadata))
             .await?;
@@ -830,7 +831,7 @@ impl Channel {
         let results = join_all(handles).await;
         for result in results {
             result.map_err(|e| {
-                Status::internal(format!(
+                RpcError::internal(format!(
                     "Failed to complete sending request for {}-{}: {}",
                     service_name,
                     method_name,
@@ -845,7 +846,7 @@ impl Channel {
     /// Receive and decode a single response
     ///
     /// Distinguishes between:
-    /// - RPC errors: Status codes in metadata from the handler (keep session open)
+    /// - RPC errors: RpcError codes in metadata from the handler (keep session open)
     /// - Transport errors: Communication/decoding failures (close session)
     async fn receive_response<Res>(&self, session: &mut SessionRx) -> Result<Res, ReceiveError>
     where
@@ -862,9 +863,9 @@ impl Channel {
             .parse_status_code(received.metadata.get(STATUS_CODE_KEY))
             .map_err(ReceiveError::Transport)?;
 
-        if code != Code::Ok {
+        if code != RpcCode::Ok {
             let message = String::from_utf8_lossy(&received.payload).to_string();
-            return Err(ReceiveError::Rpc(Status::new(code, message)));
+            return Err(ReceiveError::Rpc(RpcError::new(code, message)));
         }
 
         // Try to decode response - any error here is a transport error
@@ -877,9 +878,9 @@ impl Channel {
 /// Result type for receive operations that distinguishes error sources
 enum ReceiveError {
     /// Transport-level error (session closed, decode failure, etc.) - should close session
-    Transport(Status),
+    Transport(RpcError),
     /// RPC-level error from handler (in metadata) - should keep session open
-    Rpc(Status),
+    Rpc(RpcError),
 }
 
 // UniFFI-compatible methods for foreign language bindings
@@ -968,9 +969,8 @@ impl Channel {
         timeout: Option<std::time::Duration>,
         metadata: Option<Metadata>,
     ) -> Result<Vec<u8>, RpcError> {
-        Ok(self
-            .unary(&service_name, &method_name, request, timeout, metadata)
-            .await?)
+        self.unary(&service_name, &method_name, request, timeout, metadata)
+            .await
     }
 
     /// Make a unary-to-stream RPC call (blocking version)
@@ -1119,8 +1119,8 @@ mod tests {
     #[test]
     fn test_parse_status_code() {
         // Test status code parsing
-        assert_eq!(Code::from_i32(0), Some(Code::Ok));
-        assert_eq!(Code::from_i32(13), Some(Code::Internal));
-        assert_eq!(Code::from_i32(999), None);
+        assert_eq!(RpcCode::try_from(0), Ok(RpcCode::Ok));
+        assert_eq!(RpcCode::try_from(13), Ok(RpcCode::Internal));
+        assert!(RpcCode::try_from(999).is_err());
     }
 }

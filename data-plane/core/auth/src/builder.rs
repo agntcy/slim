@@ -543,20 +543,32 @@ mod tests {
     use std::fs;
     use std::fs::File;
     use std::io::Write;
+    use std::path::Path;
+    use std::path::PathBuf;
+    use std::process;
     use std::time::SystemTime;
     use std::time::UNIX_EPOCH;
 
     use slim_config::tls::provider::initialize_crypto_provider;
 
-    fn create_file(file_path: &str, content: &str) -> std::io::Result<()> {
+    fn temp_file_path(prefix: &str) -> PathBuf {
+        let mut path = env::temp_dir();
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time went backwards")
+            .as_nanos();
+        path.push(format!("{prefix}_{}_{}.txt", process::id(), unique));
+        path
+    }
+
+    fn create_file(file_path: &Path, content: &str) -> std::io::Result<()> {
         let mut file = File::create(file_path)?;
         file.write_all(content.as_bytes())?;
         Ok(())
     }
 
-    fn delete_file(file_path: &str) -> std::io::Result<()> {
-        fs::remove_file(file_path)?;
-        Ok(())
+    fn delete_file(file_path: &Path) {
+        let _ = fs::remove_file(file_path);
     }
 
     #[test]
@@ -583,10 +595,9 @@ mod tests {
     #[tokio::test]
     async fn test_jwt_builder_basic_key_from_file() {
         // crate file
-        let path = env::current_dir().expect("error reading local path");
-        let full_path = path.join("key_file_builder.txt");
-        let file_name = full_path.to_str().unwrap();
-        create_file(file_name, "tesk-key").expect("failed to create file");
+        let file_path = temp_file_path("key_file_builder");
+        create_file(&file_path, "tesk-key").expect("failed to create file");
+        let file_name = file_path.to_string_lossy().to_string();
 
         // create jwt builder
         let jwt = JwtBuilder::new()
@@ -607,7 +618,7 @@ mod tests {
         assert_eq!(claims.aud.unwrap(), &["test-audience"]);
         assert_eq!(claims.sub.unwrap(), "test-subject");
 
-        delete_file(file_name).expect("error deleting file");
+        delete_file(&file_path);
     }
 
     #[tokio::test]
@@ -722,13 +733,15 @@ mod tests {
 
         let tokenvalue = "thecontent";
 
-        create_file("/tmp/token", tokenvalue).unwrap();
+        let file_path = temp_file_path("token");
+        create_file(&file_path, tokenvalue).unwrap();
+        let file_name = file_path.to_string_lossy().to_string();
 
         let provider = JwtBuilder::new()
             .issuer("https://example.com")
             .audience(&["test-audience"])
             .subject("test-subject")
-            .token_file("/tmp/token")
+            .token_file(&file_name)
             .build()
             .unwrap();
 
@@ -738,7 +751,7 @@ mod tests {
 
         // Modify the file
         let new_token_value = "thenewcontent";
-        create_file("/tmp/token", new_token_value).unwrap();
+        create_file(&file_path, new_token_value).unwrap();
 
         // let's wait 100ms for the modification to take place and the file
         // watcher to update the token
@@ -747,6 +760,8 @@ mod tests {
         // Let's check the token again
         let token = provider.get_token().unwrap();
         assert_eq!(token, new_token_value);
+
+        delete_file(&file_path);
     }
 
     #[tokio::test]

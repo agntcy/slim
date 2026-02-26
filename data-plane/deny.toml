@@ -31,7 +31,9 @@ allow = [
 # Ignore local workspace license values for unpublished crates.
 private = { ignore = true }
 confidence-threshold = 0.8
-exceptions = []
+exceptions = [
+    { name = "duration-string", version = "0.5.3", allow = ["Apache-2.0", "MIT"] },
+]
 
 [bans]
 # TODO: Remove duplicate dependencies.

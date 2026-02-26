@@ -98,6 +98,22 @@ var _ = Describe("SLIM server + client connection using configuration files", fu
 		It(fmt.Sprintf("server and client start and connect (config dir: %s)", filepath.Dir(c.ServerPath)), func() {
 			fmt.Println(GinkgoWriter, "Testing config - server:", c.ServerPath, "client:", c.ClientPath)
 
+			dataPlanePort := reservePort()
+			replacements := map[string]string{
+				"0.0.0.0:46357":           fmt.Sprintf("0.0.0.0:%d", dataPlanePort),
+				"http://localhost:46357":  fmt.Sprintf("http://localhost:%d", dataPlanePort),
+				"http://127.0.0.1:46357":  fmt.Sprintf("http://127.0.0.1:%d", dataPlanePort),
+				"https://localhost:46357": fmt.Sprintf("https://localhost:%d", dataPlanePort),
+				"https://127.0.0.1:46357": fmt.Sprintf("https://127.0.0.1:%d", dataPlanePort),
+			}
+
+			serverConfig := writeTempConfigNearSource(c.ServerPath, "tmp-server-config-*.yaml", replacements)
+			clientConfig := writeTempConfigNearSource(c.ClientPath, "tmp-client-config-*.yaml", replacements)
+			defer func() {
+				_ = os.Remove(serverConfig)
+				_ = os.Remove(clientConfig)
+			}()
+
 			// Server config must exist
 			serverInfo, err := os.Stat(c.ServerPath)
 			Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("server configuration file not found: %s", c.ServerPath))
@@ -112,7 +128,7 @@ var _ = Describe("SLIM server + client connection using configuration files", fu
 			dataPlaneDir := filepath.Join("..", "..", "data-plane")
 
 			// Start server SLIM node
-			serverCmd := exec.Command(slimPath, "--config", c.ServerPath)
+			serverCmd := exec.Command(slimPath, "--config", serverConfig)
 			serverCmd.Dir = dataPlaneDir
 			serverSession, err := gexec.Start(serverCmd, GinkgoWriter, GinkgoWriter)
 			Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("failed to start server SLIM with config %s", c.ServerPath))
@@ -120,22 +136,18 @@ var _ = Describe("SLIM server + client connection using configuration files", fu
 
 			// Ensure server cleanup
 			defer func() {
-				if serverSession != nil {
-					serverSession.Terminate().Wait(5 * time.Second)
-				}
+				terminateSession(serverSession, 5*time.Second)
 			}()
 
 			// Start client SLIM node
-			clientCmd := exec.Command(slimPath, "--config", c.ClientPath)
+			clientCmd := exec.Command(slimPath, "--config", clientConfig)
 			clientCmd.Dir = dataPlaneDir
 			clientSession, errClientStart := gexec.Start(clientCmd, GinkgoWriter, GinkgoWriter)
 			Expect(errClientStart).NotTo(HaveOccurred(), fmt.Sprintf("failed to start client SLIM with config %s", c.ClientPath))
 
 			// Ensure client cleanup
 			defer func() {
-				if clientSession != nil {
-					clientSession.Terminate().Wait(5 * time.Second)
-				}
+				terminateSession(clientSession, 5*time.Second)
 			}()
 
 			Eventually(clientSession, 15*time.Second).Should(gbytes.Say("client connected"))

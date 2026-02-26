@@ -220,40 +220,49 @@ pub struct TlsServerConfig {
     /// CA certificate source for verifying client certificates
     pub client_ca: CaSource,
     /// Include system CA certificates pool (default: true)
-    pub include_system_ca_certs_pool: bool,
+    #[uniffi(default = None)]
+    pub include_system_ca_certs_pool: Option<bool>,
     /// TLS version to use: "tls1.2" or "tls1.3" (default: "tls1.3")
-    pub tls_version: String,
+    #[uniffi(default = None)]
+    pub tls_version: Option<String>,
     /// Reload client CA file when modified
-    pub reload_client_ca_file: bool,
+    #[uniffi(default = None)]
+    pub reload_client_ca_file: Option<bool>,
 }
 
 impl Default for TlsServerConfig {
     fn default() -> Self {
-        let core_defaults = CoreTlsServerConfig::default();
         TlsServerConfig {
-            insecure: core_defaults.insecure,
-            source: core_defaults.config.source.into(),
-            client_ca: core_defaults.client_ca.into(),
-            include_system_ca_certs_pool: core_defaults.config.include_system_ca_certs_pool,
-            tls_version: core_defaults.config.tls_version,
-            reload_client_ca_file: core_defaults.reload_client_ca_file,
+            insecure: false,
+            source: TlsSource::None,
+            client_ca: CaSource::None,
+            include_system_ca_certs_pool: None,
+            tls_version: None,
+            reload_client_ca_file: None,
         }
     }
 }
 
 impl From<TlsServerConfig> for CoreTlsServerConfig {
     fn from(config: TlsServerConfig) -> Self {
+        let core_defaults = CoreTlsServerConfig::default();
         CoreTlsServerConfig {
             config: slim_config::tls::common::Config {
                 source: config.source.into(),
                 ca_source: slim_config::tls::common::CaSource::None,
-                include_system_ca_certs_pool: config.include_system_ca_certs_pool,
-                tls_version: config.tls_version,
+                include_system_ca_certs_pool: config
+                    .include_system_ca_certs_pool
+                    .unwrap_or(core_defaults.config.include_system_ca_certs_pool),
+                tls_version: config
+                    .tls_version
+                    .unwrap_or(core_defaults.config.tls_version),
                 reload_interval: None,
             },
             insecure: config.insecure,
             client_ca: config.client_ca.into(),
-            reload_client_ca_file: config.reload_client_ca_file,
+            reload_client_ca_file: config
+                .reload_client_ca_file
+                .unwrap_or(core_defaults.reload_client_ca_file),
         }
     }
 }
@@ -264,9 +273,9 @@ impl From<CoreTlsServerConfig> for TlsServerConfig {
             insecure: config.insecure,
             source: config.config.source.into(),
             client_ca: config.client_ca.into(),
-            include_system_ca_certs_pool: config.config.include_system_ca_certs_pool,
-            tls_version: config.config.tls_version,
-            reload_client_ca_file: config.reload_client_ca_file,
+            include_system_ca_certs_pool: Some(config.config.include_system_ca_certs_pool),
+            tls_version: Some(config.config.tls_version),
+            reload_client_ca_file: Some(config.reload_client_ca_file),
         }
     }
 }
@@ -589,9 +598,15 @@ mod tests {
         assert!(!config.insecure);
         assert_eq!(config.source, TlsSource::None);
         assert_eq!(config.client_ca, CaSource::None);
-        assert!(config.include_system_ca_certs_pool);
-        assert_eq!(config.tls_version, "tls1.3");
-        assert!(!config.reload_client_ca_file);
+        assert_eq!(config.include_system_ca_certs_pool, None);
+        assert_eq!(config.tls_version, None);
+        assert_eq!(config.reload_client_ca_file, None);
+
+        // Verify core defaults are applied when converting
+        let core: CoreTlsServerConfig = config.into();
+        assert!(core.config.include_system_ca_certs_pool);
+        assert_eq!(core.config.tls_version, "tls1.3");
+        assert!(!core.reload_client_ca_file);
     }
 
     // Test TlsServerConfig conversions
@@ -606,22 +621,25 @@ mod tests {
             client_ca: CaSource::Pem {
                 data: "ca-data".to_string(),
             },
-            include_system_ca_certs_pool: true,
-            tls_version: "tls1.3".to_string(),
-            reload_client_ca_file: true,
+            include_system_ca_certs_pool: Some(true),
+            tls_version: Some("tls1.3".to_string()),
+            reload_client_ca_file: Some(true),
         };
 
         let core_config: CoreTlsServerConfig = config.clone().into();
         assert_eq!(core_config.insecure, config.insecure);
         assert_eq!(
             core_config.reload_client_ca_file,
-            config.reload_client_ca_file
+            config.reload_client_ca_file.unwrap()
         );
         assert_eq!(
             core_config.config.include_system_ca_certs_pool,
-            config.include_system_ca_certs_pool
+            config.include_system_ca_certs_pool.unwrap()
         );
-        assert_eq!(core_config.config.tls_version, config.tls_version);
+        assert_eq!(
+            core_config.config.tls_version,
+            config.tls_version.clone().unwrap()
+        );
 
         let back: TlsServerConfig = core_config.into();
         assert_eq!(back, config);
@@ -784,9 +802,9 @@ mod tests {
             client_ca: CaSource::File {
                 path: "/etc/tls/ca.crt".to_string(),
             },
-            include_system_ca_certs_pool: false,
-            tls_version: "tls1.2".to_string(),
-            reload_client_ca_file: true,
+            include_system_ca_certs_pool: Some(false),
+            tls_version: Some("tls1.2".to_string()),
+            reload_client_ca_file: Some(true),
         };
 
         let core_config: CoreTlsServerConfig = config.clone().into();

@@ -10,6 +10,10 @@ includes:
   rust:
     taskfile: ../../../tasks/rust.yaml
     internal: true
+  tools:
+    taskfile: ../../../tasks/tools.yaml
+    internal: true
+    flatten: true
 
 vars:
   BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
@@ -40,7 +44,7 @@ tasks:
     cmds:
       - echo "🔧 Patching cgo directives..."
       - |
-        GO_FILE="generated/{{.LIB_NAME}}/{{.LIB_NAME}}.go"
+        GO_FILE="slim_bindings/{{.LIB_NAME}}.go"
         if [ -f "$GO_FILE" ]; then
           # Create the new cgo preamble with static LDFLAGS placeholders
           cat > /tmp/cgo_preamble.txt << 'EOF'
@@ -79,7 +83,7 @@ tasks:
     cmds:
       - echo "🔧 Patching slim_bindings.h..."
       - |
-        HEADER_FILE="generated/{{.LIB_NAME}}/{{.LIB_NAME}}.h"
+        HEADER_FILE="slim_bindings/{{.LIB_NAME}}.h"
         if [ -f "$HEADER_FILE" ]; then
           # Check if patch is already applied
           if grep -q "#ifdef _WIN32" "$HEADER_FILE" && grep -q "__declspec(dllexport) void slim_bindings_uniffiFutureContinuationCallback" "$HEADER_FILE"; then
@@ -124,12 +128,85 @@ tasks:
       - |
         uniffi-bindgen-go \
           --library '{{.LIB_PATH}}' \
-          --out-dir generated
-      - cd generated && go mod init github.com/agntcy/slim/bindings/generated 2>/dev/null || true && go mod edit -go=1.25
+          --out-dir '.' \
       - task: copy-library
       - task: patch-header
       - task: patch-cgo-directives
-      - echo "✅ Bindings generated in generated/"
+      - echo "✅ Bindings generated in slim_bindings/"
+    silent: true
+
+  generate-from-cache:
+    desc: Generate Go bindings using a cached native library
+    deps:
+      - task: install-uniffi-bindgen-go
+    cmds:
+      - echo "🔧 Generating Go bindings from cached library..."
+      - |
+        set -euo pipefail
+
+        TARGET_OS="{{.TARGETOS}}"
+        TARGET_ARCH="{{.TARGETARCH}}"
+        TARGET_ABI="{{.TARGETABI}}"
+
+        if [ -z "$TARGET_OS" ]; then
+          TARGET_OS="$(go env GOOS)"
+        fi
+        if [ -z "$TARGET_ARCH" ]; then
+          TARGET_ARCH="$(go env GOARCH)"
+        fi
+
+        case "$TARGET_OS" in
+          darwin)
+            if [ "$TARGET_ARCH" = "arm64" ]; then
+              LIB_ARCH="aarch64"
+            else
+              LIB_ARCH="x86_64"
+            fi
+            LIB_NAME="lib{{.LIB_NAME}}_${LIB_ARCH}_darwin.a"
+            ;;
+          linux)
+            if [ -z "$TARGET_ABI" ]; then
+              TARGET_ABI="gnu"
+            fi
+            if [ "$TARGET_ARCH" = "arm64" ]; then
+              LIB_ARCH="aarch64"
+            else
+              LIB_ARCH="x86_64"
+            fi
+            LIB_NAME="lib{{.LIB_NAME}}_${LIB_ARCH}_linux_${TARGET_ABI}.a"
+            ;;
+          windows)
+            if [ -z "$TARGET_ABI" ]; then
+              TARGET_ABI="gnu"
+            fi
+            if [ "$TARGET_ARCH" != "amd64" ] && [ "$TARGET_ARCH" != "x86_64" ]; then
+              echo "❌ Unsupported TARGETARCH for windows: $TARGET_ARCH"
+              exit 1
+            fi
+            LIB_NAME="lib{{.LIB_NAME}}_x86_64_windows_${TARGET_ABI}.a"
+            ;;
+          *)
+            echo "❌ Unsupported TARGETOS: $TARGET_OS"
+            exit 1
+            ;;
+        esac
+
+        GOPATH_DIR=$(go env GOPATH)
+        CACHE_DIR="$GOPATH_DIR/.cgo-cache/slim-bindings"
+        LIB_PATH="$CACHE_DIR/$LIB_NAME"
+
+        if [ ! -f "$LIB_PATH" ]; then
+          echo "❌ Cached bindings library not found: $LIB_PATH"
+          exit 1
+        fi
+
+        uniffi-bindgen-go \
+          --library "$LIB_PATH" \
+          --out-dir '.' \
+
+      - task: patch-header
+      - task: patch-cgo-directives
+      - echo "✅ Bindings generated in slim_bindings/"
     silent: true
 
   install-uniffi-bindgen-go:
@@ -148,7 +225,7 @@ tasks:
       - echo "📦 Copying static libraries..."
       - |
         LIB_DIR=$(dirname "{{.LIB_PATH}}")
-        DEST_DIR="generated/{{.LIB_NAME}}"
+        DEST_DIR="slim_bindings"
 
         # Check if libraries already have platform-specific names (from CI build)
         PLATFORM_LIBS=$(find "$LIB_DIR" -type f \( -name "lib{{.LIB_NAME}}_*.a" -o -name "{{.LIB_NAME}}_*.lib" \) 2>/dev/null | head -1)
@@ -199,9 +276,28 @@ tasks:
             exit 1
           fi
         fi
-      - echo "✅ Libraries in generated/{{.LIB_NAME}}/:"
-      - ls -lah "generated/{{.LIB_NAME}}/"*{{.LIB_NAME}}*.a "generated/{{.LIB_NAME}}/"*{{.LIB_NAME}}*.lib 2>/dev/null || echo "  (no library files found)"
+      - echo "✅ Libraries in slim_bindings/:"
+      - ls -lah "slim_bindings/"*{{.LIB_NAME}}*.a "slim_bindings/"*{{.LIB_NAME}}*.lib 2>/dev/null || echo "  (no library files found)"
     silent: true
+
+  generate-proto:
+    desc: "Generate proto files for the Python bindings"
+    deps:
+      - task: rust:toolchain:run-command
+        vars:
+          COMMAND: |
+            cargo build --package agntcy-protoc-slimrpc-plugin --bin protoc-gen-slimrpc-go --release
+      - task: tools:buf
+    cmds:
+      - |
+        # Find all the buf.gen.yaml files in the current directory and its subdirectories
+        find . -name 'buf.gen.yaml' | while read -r file; do
+          # Generate the proto files using buf
+          echo "Generating proto files for $file"
+          # get folder name
+          folder=$(dirname "$file")
+          pushd > /dev/null ${folder} && {{.TOOLS_INSTALL_DIR}}/buf generate && popd > /dev/null
+        done
 
   test:
     desc: Run all tests
@@ -231,7 +327,9 @@ tasks:
     cmds:
       - echo "🧹 Cleaning build artifacts..."
       - cd {{.BINDINGS_DIR}} && cargo clean
-      - rm -rf generated/
+      - rm slim_bindings/slim_bindings.go || true
+      - rm slim_bindings/slim_bindings.h || true
+      - rm slim_bindings/libslim_bindings_*.a || true
       - echo "✅ Clean complete"
     silent: true
 
@@ -242,7 +340,7 @@ tasks:
       - task: adapter:bindings:build:all
         vars:
           PROFILE: release
-    dir: cmd/server
+    dir: examples/server
     cmds:
       - echo "🚀 Starting SLIM server..."
       - go run . {{.CLI_ARGS}}
@@ -282,7 +380,7 @@ tasks:
     cmds:
       - echo "👨 Starting Bob (sender)..."
       - go run . --enable-mls --local="org/bob/app" --remote="org/alice/app" --message="Hello SLIM" --iterations=5 --server="http://localhost:46357" {{.CLI_ARGS}}
-    silent: true    
+    silent: true
 
   example:group:moderator:
     desc: Run group moderator (creates session and invites participants)
