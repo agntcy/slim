@@ -116,30 +116,13 @@ tasks:
         echo "${DYLIB_PATH}" > /tmp/slim-node-dylib-path.txt
       - mkdir -p generated
       - |
-        # uniffi-bindgen-node expects lib{crate_name}.{ext}; CI artifact uses renamed lib (libslim_bindings_x86_64_linux_gnu.so).
-        # Copy to canonical name so the tool can find the crate metadata.
+        # Generate Node.js bindings with uniffi-bindgen-node (pass original library path directly)
         DYLIB_PATH=$(cat /tmp/slim-node-dylib-path.txt)
-        TARGET="{{.TARGET}}"
-        TASKFILE_DIR="{{.TASKFILE_DIR}}"
-        LIB_NAME="{{.LIB_NAME}}"
-        case "$TARGET" in
-          *-apple-darwin)  CANONICAL="lib${LIB_NAME}.dylib" ;;
-          *-linux-*)       CANONICAL="lib${LIB_NAME}.so" ;;
-          *-windows-*|*-msvc) CANONICAL="${LIB_NAME}.dll" ;;
-          *)               CANONICAL="lib${LIB_NAME}.so" ;;
-        esac
-        CANONICAL_PATH="${TASKFILE_DIR}/generated/${CANONICAL}"
-        cp "$DYLIB_PATH" "$CANONICAL_PATH"
-        echo "   Using canonical path for bindgen: $CANONICAL_PATH"
-        echo "$CANONICAL_PATH" > /tmp/slim-node-bindgen-lib.txt
-      - |
-        # Generate Node.js bindings with uniffi-bindgen-node
-        BINDGEN_LIB=$(cat /tmp/slim-node-bindgen-lib.txt)
         cd {{.TASKFILE_DIR}}
         uniffi-bindgen-node \
           --crate-name {{.LIB_NAME}} \
           --out-dir generated \
-          "${BINDGEN_LIB}"
+          "${DYLIB_PATH}"
       - |
         # Copy the dynamic library to the generated directory (generated code expects libslim_bindings.<ext>).
         DYLIB_PATH=$(cat /tmp/slim-node-dylib-path.txt)
@@ -155,7 +138,7 @@ tasks:
         echo "📦 Copying dynamic library to generated/${CANONICAL_NAME}..."
         cp "${DYLIB_PATH}" "generated/${CANONICAL_NAME}"
         echo "✅ Copied to generated/${CANONICAL_NAME}"
-        rm -f /tmp/slim-node-dylib-path.txt /tmp/slim-node-bindgen-lib.txt
+        rm -f /tmp/slim-node-dylib-path.txt
       - |
         # Apply FFI compatibility patches using TypeScript script
         cd {{.TASKFILE_DIR}}/generated
