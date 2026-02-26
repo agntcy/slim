@@ -89,7 +89,7 @@ async fn main() -> Result<()> {
     // Load configuration
     let mut loader = config::ConfigLoader::new(config_file)
         .with_context(|| format!("Failed to load configuration from {}", config_file))?;
-    let _guard = loader.tracing().setup_tracing_subscriber();
+    let _guard = loader.tracing()?.setup_tracing_subscriber();
 
     info!(%config_file, local=%local_name, "starting client example");
 

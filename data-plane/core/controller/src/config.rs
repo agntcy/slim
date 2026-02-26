@@ -18,6 +18,7 @@ use crate::service::{ControlPlane, ControlPlaneSettings, from_server_config};
 
 /// Configuration for the Control-Plane / Data-Plane component
 #[derive(Debug, Clone, Deserialize, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     /// Controller GRPC server settings
     #[serde(default)]

@@ -3,19 +3,15 @@
 
 // Standard library imports
 use std::collections::HashMap;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::Hash;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use display_error_chain::ErrorChainExt;
 // Third-party crates
+use display_error_chain::ErrorChainExt;
 use serde::Deserialize;
-use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
-use slim_auth::traits::{TokenProvider, Verifier};
 use slim_config::component::configuration::Configuration;
 use slim_config::component::id::{ID, Kind};
 use slim_config::component::{Component, ComponentBuilder};
@@ -24,18 +20,23 @@ use slim_config::grpc::server::ServerConfig;
 use slim_controller::config::Config as ControllerConfig;
 use slim_controller::config::Config as DataplaneConfig;
 use slim_controller::service::ControlPlane;
-// removed unused DataPlaneServiceServer import
 use slim_datapath::message_processing::MessageProcessor;
-use slim_datapath::messages::Name;
 
 // Local crate
-#[cfg(feature = "session")]
-use crate::app::App;
 use crate::errors::ServiceError;
+
+// Session feature imports
 #[cfg(feature = "session")]
-use slim_session::notification::Notification;
-#[cfg(feature = "session")]
-use slim_session::{Direction, SessionError};
+use {
+    crate::app::App,
+    slim_auth::traits::{TokenProvider, Verifier},
+    slim_datapath::messages::Name,
+    slim_session::notification::Notification,
+    slim_session::{Direction, SessionError},
+    std::collections::hash_map::DefaultHasher,
+    std::hash::Hash,
+    tokio::sync::mpsc,
+};
 
 // Define the kind of the component as static string
 pub const KIND: &str = "slim";
@@ -57,6 +58,7 @@ pub struct ConnectionInfo {
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ServiceConfiguration {
     /// Optional node ID for the service. If not set, the name of the component will be used.
     #[serde(default)]

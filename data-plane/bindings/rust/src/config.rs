@@ -171,8 +171,20 @@ fn load_configs(
         message: e.chain().to_string(),
     })?;
 
-    let runtime_config = config.runtime().clone();
-    let tracing_conf = config.tracing().clone();
+    let runtime_config = config
+        .runtime()
+        .map_err(|e| SlimError::ConfigError {
+            message: e.chain().to_string(),
+        })?
+        .clone();
+
+    let tracing_conf = config
+        .tracing()
+        .map_err(|e| SlimError::ConfigError {
+            message: e.chain().to_string(),
+        })?
+        .clone();
+
     let service_configs: Vec<CoreServiceConfiguration> = match config.services_config() {
         Ok(services) => {
             if !services.is_empty() {
