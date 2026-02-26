@@ -396,6 +396,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
 
       - name: Build iOS static libs (device + simulator)
         id: build-ios
@@ -434,6 +435,7 @@ jobs:
         run: npm pkg set version="${{ steps.version.outputs.version }}"
 
       - name: Configure npm auth
+        working-directory: ./data-plane/bindings/react-native
         run: echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
