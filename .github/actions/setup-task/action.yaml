@@ -23,8 +23,5 @@ outputs:
 runs:
   using: "composite"
   steps:
-    - name: Setup Task
-      uses: arduino/setup-task@v2
-      with:
-        version: ${{ inputs.version }}
-        repo-token: ${{ inputs.github-token }}
+    - name: Setup Taskfile
+      uses: ./.github/actions/setup-task

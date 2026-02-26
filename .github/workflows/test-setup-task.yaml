@@ -28,7 +28,6 @@ jobs:
         uses: ./.github/actions/setup-task
         with:
           version: ${{ matrix.version }}
-          cache-enabled: 'true'
 
       - name: Verify Task Installation
         shell: bash
@@ -67,9 +66,6 @@ jobs:
       - name: Prime cache (download Task)
         id: prime
         uses: ./.github/actions/setup-task
-        with:
-          version: 'v3.39.2'
-          cache-enabled: 'true'
 
       - name: Display outputs
         shell: bash
@@ -87,9 +83,6 @@ jobs:
       - name: Restore from cache
         id: cached
         uses: ./.github/actions/setup-task
-        with:
-          version: 'v3.39.2'
-          cache-enabled: 'true'
 
       - name: Verify cache was used
         shell: bash
