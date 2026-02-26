@@ -1,1 +1,209 @@
-../../../data-plane/core/controller/proto/v1/controller.proto
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+package controller.proto.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/wrappers.proto";
+
+option go_package = "github.com/agntcy/slim/control-plane/common/proto/controller/v1;controllerv1";
+
+service ControllerService {
+  rpc OpenControlChannel(stream ControlMessage) returns (stream ControlMessage) {}
+}
+
+message ControlMessage {
+  string message_id = 1;
+
+  oneof payload {
+    ConfigurationCommand config_command = 2;
+    Ack ack = 3;
+    SubscriptionListRequest subscription_list_request = 4;
+    SubscriptionListResponse subscription_list_response = 5;
+    ConnectionListRequest connection_list_request = 6;
+    ConnectionListResponse connection_list_response = 7;
+    RegisterNodeRequest register_node_request = 8;
+    RegisterNodeResponse register_node_response = 9;
+    DeregisterNodeRequest deregister_node_request = 10;
+    DeregisterNodeResponse deregister_node_response = 11;
+
+    CreateChannelRequest create_channel_request = 12;
+    DeleteChannelRequest delete_channel_request = 13;
+    AddParticipantRequest add_participant_request = 14;
+    DeleteParticipantRequest delete_participant_request = 15;
+    ListChannelsRequest list_channel_request = 16;
+    ListChannelsResponse list_channel_response = 17;
+    ListParticipantsRequest list_participants_request = 18;
+    ListParticipantsResponse list_participants_response = 19;
+
+    ConfigurationCommandAck config_command_ack = 20;
+  }
+}
+
+message Connection {
+  string connection_id = 1;
+  string config_data = 2;
+}
+
+message ConnectionAck {
+  string connection_id = 1;
+  bool success = 2;
+  string errorMsg = 3;
+}
+
+message Subscription {
+  string component_0 = 1;
+  string component_1 = 2;
+  string component_2 = 3;
+  google.protobuf.UInt64Value id = 4;
+  string connection_id = 5;
+  optional string node_id = 6;
+}
+
+message SubscriptionAck {
+  Subscription subscription = 1;
+  bool success = 2;
+  string errorMsg = 3;
+}
+
+message ConfigurationCommand {
+  repeated Connection connections_to_create = 1;
+  repeated Subscription subscriptions_to_set = 2;
+  repeated Subscription subscriptions_to_delete = 3;
+}
+
+message ConfigurationCommandAck {
+  string original_message_id = 1;
+  repeated ConnectionAck connections_status = 2;
+  repeated SubscriptionAck subscriptions_status = 3;
+}
+
+message Ack {
+  string original_message_id = 1;
+  bool success = 2;
+  repeated string messages = 3;
+}
+
+message SubscriptionListRequest {}
+
+message SubscriptionListResponse {
+  string original_message_id = 1;
+  repeated SubscriptionEntry entries = 2;
+}
+
+message SubscriptionEntry {
+  string component_0 = 1;
+  string component_1 = 2;
+  string component_2 = 3;
+  google.protobuf.UInt64Value id = 4;
+  repeated ConnectionEntry local_connections = 5;
+  repeated ConnectionEntry remote_connections = 6;
+}
+
+enum ConnectionType {
+  CONNECTION_TYPE_LOCAL = 0;
+  CONNECTION_TYPE_REMOTE = 1;
+}
+
+message ConnectionEntry {
+  uint64 id = 1;
+  ConnectionType connection_type = 2;
+  string config_data = 3;
+}
+
+message ConnectionListRequest {}
+
+message ConnectionListResponse {
+  string original_message_id = 1;
+  repeated ConnectionEntry entries = 2;
+}
+
+message Node {
+  string id = 1;
+}
+
+message ConnectionDetails {
+  string endpoint = 1;
+  bool mtls_required = 2;
+  google.protobuf.Struct metadata = 3;
+  optional string auth = 4;
+  optional string tls = 5;
+}
+
+message RegisterNodeRequest {
+  string node_id = 1;
+  repeated ConnectionDetails connection_details = 2;
+  optional string group_name = 3;
+}
+
+message RegisterNodeResponse {
+  string original_message_id = 1;
+  bool success = 2;
+}
+
+message DeregisterNodeRequest {
+  Node node = 1;
+}
+
+message DeregisterNodeResponse {
+  string original_message_id = 1;
+  bool success = 2;
+}
+
+message CreateChannelRequest {
+  // list of moderators for the channel
+  repeated string moderators = 1;
+
+  // The channel name in the form organization/namespace/channel_name
+  string channel_name = 2;
+}
+
+message DeleteChannelRequest {
+  // The channel name in the form organization/namespace/channel_name
+  string channel_name = 1;
+
+  // list of moderators for the channel
+  repeated string moderators = 2;
+}
+
+message AddParticipantRequest {
+  // The channel name in the form organization/namespace/channel_name
+  string channel_name = 1;
+
+  // Name of the participant
+  string participant_name = 2;
+
+  // list of moderators for the channel
+  repeated string moderators = 3;
+}
+
+message DeleteParticipantRequest {
+  // The channel name in the form organization/namespace/channel_name
+  string channel_name = 1;
+
+  // ID of participant
+  string participant_name = 2;
+
+  // list of moderators for the channel
+  repeated string moderators = 3;
+}
+
+message ListChannelsRequest {}
+
+message ListChannelsResponse {
+  string original_message_id = 1;
+  // IDs of the channels available in the control plane
+  repeated string channel_name = 2;
+}
+
+message ListParticipantsRequest {
+  // name of the channel
+  string channel_name = 1;
+}
+
+message ListParticipantsResponse {
+  string original_message_id = 1;
+  // list of participants in the channel
+  repeated string participant_name = 2;
+}

@@ -23,7 +23,6 @@ agntcy-slim-signal = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
-display-error-chain = { workspace = true }
 duration-string = { workspace = true }
 indexmap = { workspace = true }
 lazy_static = { workspace = true }

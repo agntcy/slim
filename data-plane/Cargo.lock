@@ -22,7 +22,6 @@ dependencies = [
  "agntcy-slim-tracing",
  "anyhow",
  "clap",
- "display-error-chain",
  "duration-string",
  "indexmap 2.13.0",
  "jemallocator",
@@ -342,12 +341,18 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slimctl"
-version = "0.1.0"
+version = "1.2.0"
 dependencies = [
+ "agntcy-slim",
  "agntcy-slim-config",
- "agntcy-slim-controller",
+ "agntcy-slim-datapath",
+ "agntcy-slim-service",
+ "agntcy-slim-signal",
+ "agntcy-slim-tracing",
  "anyhow",
+ "chrono",
  "clap",
+ "duration-string",
  "prost",
  "prost-types",
  "protoc-bin-vendored",
