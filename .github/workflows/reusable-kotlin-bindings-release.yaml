@@ -32,6 +32,13 @@ on:
         required: false
         type: string
         default: slim-bindings
+    secrets:
+      MVN_REPO_USERNAME:
+        description: Maven Central repository username
+        required: false
+      MVN_REPO_PASSWORD:
+        description: Maven Central repository password
+        required: false
 
 env:
   LIBRARY_NAME: ${{ inputs.library-name }}
@@ -103,3 +110,16 @@ jobs:
           echo "✅ Successfully published to GitHub Packages"
           echo "Package: ${{ env.MAVEN_GROUP_ID }}:${{ env.MAVEN_ARTIFACT_ID }}:$VERSION"
           echo "📦 View at: https://github.com/${{ github.repository }}/packages"
+
+      # Publish to Maven Central (when credentials are provided)
+      - name: Publish to Maven Central
+        if: ${{ secrets.MVN_REPO_USERNAME != '' && secrets.MVN_REPO_PASSWORD != '' }}
+        env:
+          MVN_REPO_USERNAME: ${{ secrets.MVN_REPO_USERNAME }}
+          MVN_REPO_PASSWORD: ${{ secrets.MVN_REPO_PASSWORD }}
+        run: |
+          echo "Publishing Kotlin bindings to Maven Central..."
+          VERSION="${{ steps.extract-version.outputs.version }}"
+          echo "Publishing version: $VERSION"
+          ./gradlew publishMavenPublicationToMavenCentralRepository -PpublishVersion="$VERSION" --no-daemon --stacktrace
+          echo "✅ Successfully published to Maven Central"

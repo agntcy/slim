@@ -309,5 +309,15 @@ publishing {
                 password = System.getenv("GITHUB_TOKEN")
             }
         }
+        if (System.getenv("MVN_REPO_USERNAME") != null && System.getenv("MVN_REPO_PASSWORD") != null) {
+            maven {
+                name = "MavenCentral"
+                url = uri("https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/")
+                credentials {
+                    username = System.getenv("MVN_REPO_USERNAME")
+                    password = System.getenv("MVN_REPO_PASSWORD")
+                }
+            }
+        }
     }
 }
