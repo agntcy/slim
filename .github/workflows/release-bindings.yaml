@@ -141,6 +141,7 @@ jobs:
   # ==========================================================================
   release-dotnet-bindings:
     name: "Release .NET Bindings"
+    if: false  # Disabled for temporary npm testing
     needs: build-and-test-bindings
     uses: ./.github/workflows/reusable-dotnet-bindings-release.yaml
     secrets:
