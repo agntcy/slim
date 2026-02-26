@@ -137,3 +137,6 @@ artifacts
 
 libslim_bindings.dylib
 libslim_bindings.a
+
+# TaskFile temporary files
+.task
