@@ -1,5 +1,5 @@
 [workspace]
-release_always = true
+release_always = false
 # do not release packages by default
 release = false
 
