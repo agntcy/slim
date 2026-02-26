@@ -1108,6 +1108,29 @@ mod tests {
         assert_eq!(session_layer.pool_size(), 5);
     }
 
+    #[test]
+    fn test_direction_to_participant_settings() {
+        let s = Direction::Send.to_participant_settings();
+        assert_eq!(s.sends_data, Some(true));
+        assert_eq!(s.receives_data, Some(false));
+        assert!(!s.is_legacy());
+
+        let s = Direction::Recv.to_participant_settings();
+        assert_eq!(s.sends_data, Some(false));
+        assert_eq!(s.receives_data, Some(true));
+        assert!(!s.is_legacy());
+
+        let s = Direction::Bidirectional.to_participant_settings();
+        assert_eq!(s.sends_data, Some(true));
+        assert_eq!(s.receives_data, Some(true));
+        assert!(!s.is_legacy());
+
+        let s = Direction::None.to_participant_settings();
+        assert_eq!(s.sends_data, Some(false));
+        assert_eq!(s.receives_data, Some(false));
+        assert!(!s.is_legacy());
+    }
+
     #[tokio::test]
     async fn test_remove_app_name_with_null_component() {
         let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();

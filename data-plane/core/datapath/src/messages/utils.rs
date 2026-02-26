@@ -2199,4 +2199,79 @@ mod tests {
         let extracted = msg.extract_discovery_request().unwrap();
         assert!(extracted.destination.is_some());
     }
+
+    #[test]
+    fn test_participant_settings_is_legacy() {
+        // default = both None = legacy
+        assert!(ParticipantSettings::default().is_legacy());
+        // any field set = not legacy
+        assert!(
+            !ParticipantSettings {
+                sends_data: Some(true),
+                receives_data: None
+            }
+            .is_legacy()
+        );
+        assert!(
+            !ParticipantSettings {
+                sends_data: None,
+                receives_data: Some(false)
+            }
+            .is_legacy()
+        );
+        assert!(
+            !ParticipantSettings {
+                sends_data: Some(true),
+                receives_data: Some(true)
+            }
+            .is_legacy()
+        );
+        assert!(
+            !ParticipantSettings {
+                sends_data: Some(false),
+                receives_data: Some(false)
+            }
+            .is_legacy()
+        );
+    }
+
+    #[test]
+    fn test_participant_settings_is_sender_receiver() {
+        // legacy: both None -> both default to true
+        let legacy = ParticipantSettings::default();
+        assert!(legacy.is_sender());
+        assert!(legacy.is_receiver());
+
+        // send-only
+        let send_only = ParticipantSettings {
+            sends_data: Some(true),
+            receives_data: Some(false),
+        };
+        assert!(send_only.is_sender());
+        assert!(!send_only.is_receiver());
+
+        // recv-only
+        let recv_only = ParticipantSettings {
+            sends_data: Some(false),
+            receives_data: Some(true),
+        };
+        assert!(!recv_only.is_sender());
+        assert!(recv_only.is_receiver());
+
+        // none
+        let none = ParticipantSettings {
+            sends_data: Some(false),
+            receives_data: Some(false),
+        };
+        assert!(!none.is_sender());
+        assert!(!none.is_receiver());
+
+        // bidirectional (explicit)
+        let bidi = ParticipantSettings {
+            sends_data: Some(true),
+            receives_data: Some(true),
+        };
+        assert!(bidi.is_sender());
+        assert!(bidi.is_receiver());
+    }
 }

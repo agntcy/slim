@@ -1279,4 +1279,141 @@ mod tests {
             "Should have sent unsubscribe and route deletion messages"
         );
     }
+
+    #[tokio::test]
+    async fn test_welcome_stores_asymmetric_participant_settings() {
+        let (mut participant, _rx_slim, _rx_session_layer) =
+            setup_participant(ProtoSessionType::Multicast);
+        participant.init().await.unwrap();
+
+        let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
+        participant.moderator_name = Some(moderator.clone());
+
+        let sender = make_name(&["sender", "app", "v1"]).with_id(401);
+        let receiver = make_name(&["receiver", "app", "v1"]).with_id(402);
+
+        let sender_settings = ParticipantSettings {
+            sends_data: Some(true),
+            receives_data: Some(false),
+        };
+        let receiver_settings = ParticipantSettings {
+            sends_data: Some(false),
+            receives_data: Some(true),
+        };
+
+        let welcome_msg = Message::builder()
+            .source(moderator.clone())
+            .destination(participant.common.settings.source.clone())
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::GroupWelcome)
+            .session_id(1)
+            .message_id(200)
+            .payload(
+                CommandPayload::builder()
+                    .group_welcome(
+                        vec![sender.clone(), receiver.clone()],
+                        vec![sender_settings, receiver_settings],
+                        None,
+                    )
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let result = participant.on_welcome(welcome_msg).await;
+        assert!(result.is_ok());
+
+        let stored_sender = participant.group_list.get(&sender).unwrap();
+        assert!(stored_sender.is_sender());
+        assert!(!stored_sender.is_receiver());
+        assert!(!stored_sender.is_legacy());
+
+        let stored_receiver = participant.group_list.get(&receiver).unwrap();
+        assert!(!stored_receiver.is_sender());
+        assert!(stored_receiver.is_receiver());
+        assert!(!stored_receiver.is_legacy());
+    }
+
+    #[tokio::test]
+    async fn test_welcome_empty_settings_uses_legacy_defaults() {
+        // Old moderator sends group_welcome with no settings vec → all participants get legacy defaults
+        let (mut participant, _rx_slim, _rx_session_layer) =
+            setup_participant(ProtoSessionType::Multicast);
+        participant.init().await.unwrap();
+
+        let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
+        participant.moderator_name = Some(moderator.clone());
+
+        let p1 = make_name(&["p1", "app", "v1"]).with_id(401);
+
+        let welcome_msg = Message::builder()
+            .source(moderator.clone())
+            .destination(participant.common.settings.source.clone())
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::GroupWelcome)
+            .session_id(1)
+            .message_id(201)
+            .payload(
+                CommandPayload::builder()
+                    .group_welcome(vec![p1.clone()], vec![], None) // empty settings = old moderator
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let result = participant.on_welcome(welcome_msg).await;
+        assert!(result.is_ok());
+
+        let stored = participant.group_list.get(&p1).unwrap();
+        assert!(stored.is_legacy()); // fallback → legacy default
+        assert!(stored.is_sender()); // legacy defaults to true
+        assert!(stored.is_receiver()); // legacy defaults to true
+    }
+
+    #[tokio::test]
+    async fn test_welcome_mismatched_settings_length_returns_error() {
+        let (mut participant, _rx_slim, _rx_session_layer) =
+            setup_participant(ProtoSessionType::Multicast);
+        participant.init().await.unwrap();
+
+        let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
+        participant.moderator_name = Some(moderator.clone());
+
+        let p1 = make_name(&["p1", "app", "v1"]).with_id(401);
+        let p2 = make_name(&["p2", "app", "v1"]).with_id(402);
+
+        let welcome_msg = Message::builder()
+            .source(moderator.clone())
+            .destination(participant.common.settings.source.clone())
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::GroupWelcome)
+            .session_id(1)
+            .message_id(202)
+            .payload(
+                CommandPayload::builder()
+                    .group_welcome(
+                        vec![p1.clone(), p2.clone()],
+                        vec![ParticipantSettings::default()], // wrong: 1 setting for 2 participants
+                        None,
+                    )
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let result = participant.on_welcome(welcome_msg).await;
+        assert!(matches!(
+            result,
+            Err(SessionError::InvalidParticipantSettingsLength)
+        ));
+    }
 }
