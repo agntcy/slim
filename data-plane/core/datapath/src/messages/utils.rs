@@ -7,7 +7,9 @@ use std::{collections::HashMap, time::Duration};
 use tracing::debug;
 
 use super::encoder::Name;
-use crate::api::proto::dataplane::v1::{GroupClosePayload, GroupNackPayload, PingPayload};
+use crate::api::proto::dataplane::v1::{
+    GroupClosePayload, GroupNackPayload, ParticipantSettings, PingPayload,
+};
 use crate::api::{
     Content, MessageType, ProtoMessage, ProtoName, ProtoPublish, ProtoPublishType,
     ProtoSessionType, ProtoSubscribe, ProtoSubscribeType, ProtoUnsubscribe, ProtoUnsubscribeType,
@@ -131,6 +133,27 @@ impl Display for MessageType {
             MessageType::Subscribe(_) => write!(f, "subscribe"),
             MessageType::Unsubscribe(_) => write!(f, "unsubscribe"),
         }
+    }
+}
+
+impl ParticipantSettings {
+    /// Returns `true` if both fields are `None`, meaning this entry was generated
+    /// for an old participant that does not support `ParticipantSettings`.
+    /// New participants always set both fields explicitly to `Some(true)` or `Some(false)`.
+    pub fn is_legacy(&self) -> bool {
+        self.sends_data.is_none() && self.receives_data.is_none()
+    }
+
+    /// Returns whether this participant produces data messages.
+    /// `None` means the participant is an old sender, in that case return always true.
+    pub fn is_sender(&self) -> bool {
+        self.sends_data.unwrap_or(true)
+    }
+
+    /// Returns whether this participant consumes data messages.
+    /// `None` means the participant is an old sender, in that case return always true.
+    pub fn is_receiver(&self) -> bool {
+        self.receives_data.unwrap_or(true)
     }
 }
 
@@ -1058,8 +1081,15 @@ impl CommandPayloadBuilder {
     }
 
     /// Creates a join reply payload
-    pub fn join_reply(self, key_package: Option<Vec<u8>>) -> CommandPayload {
-        let payload = JoinReplyPayload { key_package };
+    pub fn join_reply(
+        self,
+        settings: ParticipantSettings,
+        key_package: Option<Vec<u8>>,
+    ) -> CommandPayload {
+        let payload = JoinReplyPayload {
+            key_package,
+            settings: Some(settings),
+        };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::JoinReply(payload)),
         }
@@ -1088,7 +1118,9 @@ impl CommandPayloadBuilder {
     pub fn group_add(
         self,
         new_participant: Name,
+        new_participant_settings: ParticipantSettings,
         participants: Vec<Name>,
+        participants_settings: Vec<ParticipantSettings>,
         mls: Option<MlsPayload>,
     ) -> CommandPayload {
         let proto_new_participant = Some(ProtoName::from(&new_participant));
@@ -1096,7 +1128,9 @@ impl CommandPayloadBuilder {
 
         let payload = GroupAddPayload {
             new_participant: proto_new_participant,
+            new_participant_settings: Some(new_participant_settings),
             participants: proto_participants,
+            settings: participants_settings,
             mls,
         };
         CommandPayload {
@@ -1125,11 +1159,17 @@ impl CommandPayloadBuilder {
     }
 
     /// Creates a group welcome payload
-    pub fn group_welcome(self, participants: Vec<Name>, mls: Option<MlsPayload>) -> CommandPayload {
+    pub fn group_welcome(
+        self,
+        participants: Vec<Name>,
+        participants_settings: Vec<ParticipantSettings>,
+        mls: Option<MlsPayload>,
+    ) -> CommandPayload {
         let proto_participants = participants.iter().map(ProtoName::from).collect();
 
         let payload = GroupWelcomePayload {
             participants: proto_participants,
+            settings: participants_settings,
             mls,
         };
         CommandPayload {
@@ -2076,7 +2116,8 @@ mod tests {
         assert!(extracted.timer_settings.is_some());
 
         // Test join reply
-        let payload = CommandPayload::builder().join_reply(Some(vec![1, 2, 3]));
+        let payload = CommandPayload::builder()
+            .join_reply(ParticipantSettings::default(), Some(vec![1, 2, 3]));
         let extracted = payload.as_join_reply_payload().unwrap();
         assert_eq!(extracted.key_package, Some(vec![1, 2, 3]));
 
@@ -2090,7 +2131,14 @@ mod tests {
 
         // Test group add
         let participants = vec![dest.clone()];
-        let payload = CommandPayload::builder().group_add(dest.clone(), participants.clone(), None);
+        let settings = vec![ParticipantSettings::default()];
+        let payload = CommandPayload::builder().group_add(
+            dest.clone(),
+            ParticipantSettings::default(),
+            participants.clone(),
+            settings.clone(),
+            None,
+        );
         let extracted = payload.as_group_add_payload().unwrap();
         assert!(extracted.new_participant.is_some());
 
@@ -2101,7 +2149,8 @@ mod tests {
         assert!(extracted.removed_participant.is_some());
 
         // Test group welcome
-        let payload = CommandPayload::builder().group_welcome(participants.clone(), None);
+        let payload =
+            CommandPayload::builder().group_welcome(participants.clone(), settings.clone(), None);
         let extracted = payload.as_welcome_payload().unwrap();
         assert!(!extracted.participants.is_empty());
 
@@ -2149,5 +2198,80 @@ mod tests {
         // Verify we can extract the payload
         let extracted = msg.extract_discovery_request().unwrap();
         assert!(extracted.destination.is_some());
+    }
+
+    #[test]
+    fn test_participant_settings_is_legacy() {
+        // default = both None = legacy
+        assert!(ParticipantSettings::default().is_legacy());
+        // any field set = not legacy
+        assert!(
+            !ParticipantSettings {
+                sends_data: Some(true),
+                receives_data: None
+            }
+            .is_legacy()
+        );
+        assert!(
+            !ParticipantSettings {
+                sends_data: None,
+                receives_data: Some(false)
+            }
+            .is_legacy()
+        );
+        assert!(
+            !ParticipantSettings {
+                sends_data: Some(true),
+                receives_data: Some(true)
+            }
+            .is_legacy()
+        );
+        assert!(
+            !ParticipantSettings {
+                sends_data: Some(false),
+                receives_data: Some(false)
+            }
+            .is_legacy()
+        );
+    }
+
+    #[test]
+    fn test_participant_settings_is_sender_receiver() {
+        // legacy: both None -> both default to true
+        let legacy = ParticipantSettings::default();
+        assert!(legacy.is_sender());
+        assert!(legacy.is_receiver());
+
+        // send-only
+        let send_only = ParticipantSettings {
+            sends_data: Some(true),
+            receives_data: Some(false),
+        };
+        assert!(send_only.is_sender());
+        assert!(!send_only.is_receiver());
+
+        // recv-only
+        let recv_only = ParticipantSettings {
+            sends_data: Some(false),
+            receives_data: Some(true),
+        };
+        assert!(!recv_only.is_sender());
+        assert!(recv_only.is_receiver());
+
+        // none
+        let none = ParticipantSettings {
+            sends_data: Some(false),
+            receives_data: Some(false),
+        };
+        assert!(!none.is_sender());
+        assert!(!none.is_receiver());
+
+        // bidirectional (explicit)
+        let bidi = ParticipantSettings {
+            sends_data: Some(true),
+            receives_data: Some(true),
+        };
+        assert!(bidi.is_sender());
+        assert!(bidi.is_receiver());
     }
 }
