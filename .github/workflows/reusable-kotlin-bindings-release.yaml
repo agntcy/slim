@@ -32,6 +32,13 @@ on:
         required: false
         type: string
         default: slim-bindings
+    secrets:
+      MVN_TOKEN_NAME:
+        description: Maven Central token username (Central Portal)
+        required: false
+      MVN_TOKEN_PASSWORD:
+        description: Maven Central token password (Central Portal)
+        required: false
 
 env:
   LIBRARY_NAME: ${{ inputs.library-name }}
@@ -103,3 +110,23 @@ jobs:
           echo "✅ Successfully published to GitHub Packages"
           echo "Package: ${{ env.MAVEN_GROUP_ID }}:${{ env.MAVEN_ARTIFACT_ID }}:$VERSION"
           echo "📦 View at: https://github.com/${{ github.repository }}/packages"
+
+      # Publish to Maven Central (when credentials are provided)
+      # Uses OSSRH Staging API (ossrh-staging-api.central.sonatype.com). OSSRH was shut down June 2025.
+      # Requires Central Portal User Token: https://central.sonatype.org/publish/generate-portal-token/
+      - name: Publish to Maven Central
+        env:
+          MVN_TOKEN_NAME: ${{ secrets.MVN_TOKEN_NAME }}
+          MVN_TOKEN_PASSWORD: ${{ secrets.MVN_TOKEN_PASSWORD }}
+        run: |
+          echo "Publishing Kotlin bindings to Maven Central..."
+          VERSION="${{ steps.extract-version.outputs.version }}"
+          echo "Publishing version: $VERSION"
+          ./gradlew publishMavenPublicationToMavenCentralRepository -PpublishVersion="$VERSION" --no-daemon --stacktrace
+          # OSSRH Staging API: transfer deployment to Central Portal (required for maven-publish plugin)
+          # Namespace = first segment of groupId (io.agntcy for io.agntcy.slim)
+          AUTH=$(echo -n "$MVN_TOKEN_NAME:$MVN_TOKEN_PASSWORD" | base64 -w0)
+          curl -sS -X POST \
+            -H "Authorization: Bearer $AUTH" \
+            "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/io.agntcy?publishing_type=automatic"
+          echo "✅ Successfully published to Maven Central"
