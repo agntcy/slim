@@ -15,7 +15,9 @@ use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, warn};
 
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType};
+use slim_datapath::api::{
+    ParticipantSettings, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType,
+};
 use slim_datapath::messages::Name;
 
 use crate::common::SessionMessage;
@@ -52,6 +54,28 @@ impl Direction {
             Direction::Recv => (true, false),
             Direction::Bidirectional => (false, false),
             Direction::None => (true, true),
+        }
+    }
+
+    pub fn to_participant_settings(self) -> ParticipantSettings {
+        match self {
+            // None (absent) means true, so only set fields explicitly when false
+            Direction::Send => ParticipantSettings {
+                sends_data: Some(true),
+                receives_data: Some(false),
+            },
+            Direction::Recv => ParticipantSettings {
+                sends_data: Some(false),
+                receives_data: Some(true),
+            },
+            Direction::Bidirectional => ParticipantSettings {
+                sends_data: Some(true),
+                receives_data: Some(true),
+            },
+            Direction::None => ParticipantSettings {
+                sends_data: Some(false),
+                receives_data: Some(false),
+            },
         }
     }
 }

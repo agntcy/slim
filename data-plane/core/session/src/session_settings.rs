@@ -5,7 +5,7 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::messages::Name;
 
 use crate::{
-    SessionError, common::SessionMessage, session_config::SessionConfig,
+    Direction, SessionError, common::SessionMessage, session_config::SessionConfig,
     transmitter::SessionTransmitter,
 };
 
@@ -37,6 +37,9 @@ where
 
     /// Session configuration
     pub(crate) config: SessionConfig,
+
+    /// Direction for data message flow (send, receive, both, or none)
+    pub(crate) direction: Direction,
 
     /// Transmitter for sending messages to App and SLIM
     pub(crate) tx: SessionTransmitter,

@@ -688,10 +688,10 @@ mod tests {
 
     use super::*;
     use slim_datapath::{
-        api::{CommandPayload, ProtoSessionMessageType, ProtoSessionType},
+        api::{CommandPayload, ParticipantSettings, ProtoSessionMessageType, ProtoSessionType},
         messages::Name,
     };
-    use std::time::Duration;
+    use std::{time::Duration, vec};
     use tokio::time::timeout;
     use tracing_test::traced_test;
 
@@ -914,7 +914,7 @@ mod tests {
         assert_eq!(received, request);
 
         // Create the join reply
-        let payload = CommandPayload::builder().join_reply(None);
+        let payload = CommandPayload::builder().join_reply(ParticipantSettings::default(), None);
 
         let reply = Message::builder()
             .source(source.clone())
@@ -1086,8 +1086,12 @@ mod tests {
 
         // Create a group welcome message
         let participant = Name::from_strings(["org", "ns", "participant"]);
-        let payload = CommandPayload::builder()
-            .group_welcome(vec![participant.clone(), source.clone()], None);
+        let settings = ParticipantSettings::default();
+        let payload = CommandPayload::builder().group_welcome(
+            vec![participant.clone(), source.clone()],
+            vec![settings, settings],
+            None,
+        );
 
         let welcome = Message::builder()
             .source(source.clone())
@@ -1209,9 +1213,12 @@ mod tests {
         // Now create a group add message to add participant1
         // This should wait for acks from both participant2 (already in group) and participant1 (being added)
         let participant1 = Name::from_strings(["org", "ns", "participant1"]);
+        let settings = ParticipantSettings::default();
         let payload = CommandPayload::builder().group_add(
             participant1.clone(),
+            settings,
             vec![participant1.clone(), participant2.clone(), source.clone()],
+            vec![settings, settings, settings],
             None, // mls_commit
         );
 
@@ -1356,13 +1363,15 @@ mod tests {
         // First add participant2 to establish a group with 2 members (source + participant2)
         let participant2 = Name::from_strings(["org", "ns", "participant2"]);
         sender.group_list.insert(participant2.clone());
-
+        let settings = ParticipantSettings::default();
         // Now create a group add message to add participant1
         // This should wait for acks from both participant2 (already in group) and participant1 (being added)
         let participant1 = Name::from_strings(["org", "ns", "participant1"]);
         let payload = CommandPayload::builder().group_add(
             participant1.clone(),
+            settings,
             vec![participant1.clone(), participant2.clone(), source.clone()],
+            vec![settings, settings, settings],
             None, // mls
         );
 
@@ -2427,7 +2436,8 @@ mod tests {
         );
 
         // Send join reply to clear pending state
-        let reply_payload = CommandPayload::builder().join_reply(None);
+        let reply_payload =
+            CommandPayload::builder().join_reply(ParticipantSettings::default(), None);
         let join_reply = Message::builder()
             .source(remote.clone())
             .destination(source.clone())
@@ -2564,7 +2574,8 @@ mod tests {
         );
 
         // Send join reply to clear pending state
-        let reply_payload = CommandPayload::builder().join_reply(None);
+        let reply_payload =
+            CommandPayload::builder().join_reply(ParticipantSettings::default(), None);
         let join_reply = Message::builder()
             .source(participant.clone())
             .destination(source.clone())

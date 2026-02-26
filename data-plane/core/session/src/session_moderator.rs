@@ -11,8 +11,8 @@ use display_error_chain::ErrorChainExt;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, MlsPayload, ProtoMessage as Message, ProtoSessionMessageType,
-        ProtoSessionType,
+        CommandPayload, MlsPayload, ParticipantSettings, ProtoMessage as Message,
+        ProtoSessionMessageType, ProtoSessionType,
     },
     messages::{
         Name,
@@ -55,6 +55,10 @@ where
     /// List of group participants
     group_list: HashMap<Name, u64>,
 
+    /// settings of each participant
+    /// The name here is the full name, including the id
+    participant_settings: HashMap<Name, ParticipantSettings>,
+
     /// Common settings
     common: SessionControllerCommon<P, V>,
 
@@ -85,6 +89,7 @@ where
             current_task: None,
             mls_state: None,
             group_list: HashMap::new(),
+            participant_settings: HashMap::new(),
             common,
             postponed_message: None,
             subscribed: false,
@@ -431,6 +436,7 @@ where
         let mut participant_no_id = participant.clone();
         participant_no_id.reset_id();
         self.group_list.remove(&participant_no_id);
+        self.participant_settings.remove(participant);
 
         // Remove endpoint from local session
         self.remove_endpoint(participant);
@@ -752,6 +758,13 @@ where
         self.group_list
             .insert(new_participant_name, new_participant_id);
 
+        // get the new participant settings from the join reply.
+        // None means old sender (pre-settings version)
+        let payload = msg.extract_join_reply()?;
+        let new_participant_settings = payload.settings.unwrap_or_default();
+        self.participant_settings
+            .insert(msg.get_source().clone(), new_participant_settings);
+
         // notify the local session that a new participant was added to the group
         debug!(session_name = %msg.get_source(), "add endpoint");
         self.add_endpoint(&msg.get_source()).await?;
@@ -779,8 +792,18 @@ where
 
         // Create participants list for the messages to send
         let mut participants_vec = vec![];
+        let mut participant_settings_vec = vec![];
+
         for (n, id) in &self.group_list {
             let name = n.clone().with_id(*id);
+            // here the settings should be always present in the map
+            let settings = self
+                .participant_settings
+                .get(&name)
+                .cloned()
+                .ok_or(SessionError::ParticipantSettingsNotFound(name.clone()))?;
+            participant_settings_vec.push(settings);
+            // add participant to the list
             participants_vec.push(name);
         }
 
@@ -788,7 +811,13 @@ where
         if participants_vec.len() > 2 {
             debug!("participant len is > 2, send a group update");
             let update_payload = CommandPayload::builder()
-                .group_add(msg.get_source().clone(), participants_vec.clone(), commit)
+                .group_add(
+                    msg.get_source().clone(),
+                    new_participant_settings,
+                    participants_vec.clone(),
+                    participant_settings_vec.clone(),
+                    commit,
+                )
                 .as_content();
             let add_msg_id = rand::random::<u32>();
             debug!(id = %add_msg_id, "send add update to channel");
@@ -820,7 +849,7 @@ where
         // send welcome message
         let welcome_msg_id = rand::random::<u32>();
         let welcome_payload = CommandPayload::builder()
-            .group_welcome(participants_vec, welcome)
+            .group_welcome(participants_vec, participant_settings_vec, welcome)
             .as_content();
         debug!(
             dst = %msg.get_slim_header().get_source(),
@@ -1287,6 +1316,10 @@ where
         let id = local_name.id();
         local_name.reset_id();
         self.group_list.insert(local_name, id);
+        self.participant_settings.insert(
+            self.common.settings.source.clone(),
+            self.common.settings.direction.to_participant_settings(),
+        );
 
         Ok(())
     }
@@ -1323,6 +1356,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Direction;
     use crate::session_config::SessionConfig;
     use crate::session_settings::SessionSettings;
     use crate::test_utils::{MockInnerHandler, MockTokenProvider, MockVerifier};
@@ -1369,6 +1403,7 @@ mod tests {
             source,
             destination,
             config,
+            direction: Direction::Bidirectional,
             tx,
             tx_session,
             tx_to_session_layer: tx_session_layer,
@@ -1752,6 +1787,7 @@ mod tests {
             source: source.clone(),
             destination: destination.clone(),
             config,
+            direction: Direction::Bidirectional,
             tx,
             tx_session,
             tx_to_session_layer: tx_session_layer,
@@ -1825,6 +1861,7 @@ mod tests {
             source: source.clone(),
             destination: destination.clone(),
             config,
+            direction: Direction::Bidirectional,
             tx,
             tx_session,
             tx_to_session_layer: tx_session_layer,
@@ -1948,6 +1985,7 @@ mod tests {
             source: source.clone(),
             destination: destination.clone(),
             config,
+            direction: Direction::Bidirectional,
             tx,
             tx_session,
             tx_to_session_layer: tx_session_layer,

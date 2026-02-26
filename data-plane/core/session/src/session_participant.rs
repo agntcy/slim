@@ -1,12 +1,15 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashSet, time::Duration};
+use std::{collections::HashMap, time::Duration};
 
 use async_trait::async_trait;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
-    api::{CommandPayload, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType},
+    api::{
+        CommandPayload, ParticipantSettings, ProtoMessage as Message, ProtoSessionMessageType,
+        ProtoSessionType,
+    },
     messages::{
         Name,
         utils::{LEAVING_SESSION, TRUE_VAL},
@@ -34,8 +37,8 @@ where
     /// name of the moderator, used to send mls proposal messages
     moderator_name: Option<Name>,
 
-    /// list of participants
-    group_list: HashSet<Name>,
+    /// list of participants with their settings
+    group_list: HashMap<Name, ParticipantSettings>,
 
     /// mls state
     mls_state: Option<MlsState<P, V>>,
@@ -63,7 +66,7 @@ where
 
         SessionParticipant {
             moderator_name: None,
-            group_list: HashSet::new(),
+            group_list: HashMap::new(),
             mls_state: None,
             common,
             conn_id: None,
@@ -245,7 +248,7 @@ where
     }
 
     fn participants_list(&self) -> Vec<Name> {
-        self.group_list.iter().cloned().collect()
+        self.group_list.keys().cloned().collect()
     }
 
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {
@@ -346,7 +349,7 @@ where
             .add_route(&source, msg.get_incoming_conn())
             .await?;
 
-        let payload = if let Some(mls_state) = &mut self.mls_state {
+        let key_package = if let Some(mls_state) = &mut self.mls_state {
             debug!("mls enabled, create the package key");
             let key = mls_state.generate_key_package().await?;
             Some(key)
@@ -354,7 +357,12 @@ where
             None
         };
 
-        let content = CommandPayload::builder().join_reply(payload).as_content();
+        let content = CommandPayload::builder()
+            .join_reply(
+                self.common.settings.direction.to_participant_settings(),
+                key_package,
+            )
+            .as_content();
 
         debug!("send join reply message");
         let reply = self.common.create_control_message(
@@ -381,15 +389,33 @@ where
 
         self.join(&msg).await?;
 
-        let list = &msg
+        let welcome_payload = msg
             .get_payload()
             .unwrap()
             .as_command_payload()?
-            .as_welcome_payload()?
-            .participants;
-        for n in list {
+            .as_welcome_payload()?;
+        let participant_list = &welcome_payload.participants;
+        let mut participant_settings_list = &welcome_payload.settings;
+
+        // Empty settings vec means old moderator (pre-settings version); fallback to default
+        // Non-empty but wrong length means a bug in the sender
+        let default_settings;
+        if participant_settings_list.is_empty() {
+            debug!("welcome message has empty participant settings, using defaults");
+            default_settings = vec![ParticipantSettings::default(); participant_list.len()];
+            participant_settings_list = &default_settings;
+        }
+
+        if participant_settings_list.len() != participant_list.len() {
+            return Err(SessionError::InvalidParticipantSettingsLength);
+        }
+
+        for (i, n) in participant_list.iter().enumerate() {
             let name = Name::from(n);
-            self.group_list.insert(name.clone());
+            let settings = participant_settings_list
+                .get(i)
+                .ok_or(SessionError::ParticipantSettingsNotFound(name.clone()))?;
+            self.group_list.insert(name.clone(), *settings);
 
             if name != self.common.settings.source {
                 debug!(name = %msg.get_source(), "add endpoint to the session");
@@ -449,7 +475,10 @@ where
                 .as_group_add_payload()?;
             if let Some(ref new_participant) = p.new_participant {
                 let name = Name::from(new_participant);
-                self.group_list.insert(name.clone());
+                // None means old moderator (pre-settings version); use default settings.
+                let settings = p.new_participant_settings.unwrap_or_default();
+
+                self.group_list.insert(name.clone(), settings);
 
                 debug!(name  = %msg.get_source(), "add endpoint to session");
                 // add a route to the new endpoint, this is needed in case of message retransmission
@@ -580,7 +609,7 @@ where
 
         // remove also all the routes to the other participants except the moderator
         // it will be removed in disconnect_from_moderator
-        for n in self.group_list.iter() {
+        for (n, _s) in self.group_list.iter() {
             if self.moderator_name.as_ref() != Some(n) {
                 self.common.delete_route(n, self.conn_id.unwrap()).await?;
             }
@@ -602,6 +631,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Direction;
     use crate::session_config::SessionConfig;
     use crate::session_settings::SessionSettings;
     use crate::test_utils::{MockInnerHandler, MockTokenProvider, MockVerifier};
@@ -649,6 +679,7 @@ mod tests {
             source,
             destination,
             config,
+            direction: Direction::Bidirectional,
             tx,
             tx_session,
             tx_to_session_layer: tx_session_layer,
@@ -744,6 +775,7 @@ mod tests {
 
         let participant1 = make_name(&["participant1", "app", "v1"]).with_id(401);
         let participant2 = make_name(&["participant2", "app", "v1"]).with_id(402);
+        let settings = ParticipantSettings::default();
 
         let welcome_msg = Message::builder()
             .source(moderator.clone())
@@ -757,7 +789,11 @@ mod tests {
             .message_id(200)
             .payload(
                 CommandPayload::builder()
-                    .group_welcome(vec![participant1.clone(), participant2.clone()], None)
+                    .group_welcome(
+                        vec![participant1.clone(), participant2.clone()],
+                        vec![settings, settings],
+                        None,
+                    )
                     .as_content(),
             )
             .build_publish()
@@ -810,7 +846,13 @@ mod tests {
             .message_id(300)
             .payload(
                 CommandPayload::builder()
-                    .group_add(new_participant.clone(), vec![], None)
+                    .group_add(
+                        new_participant.clone(),
+                        ParticipantSettings::default(),
+                        vec![],
+                        vec![],
+                        None,
+                    )
                     .as_content(),
             )
             .build_publish()
@@ -820,7 +862,7 @@ mod tests {
         assert!(result.is_ok());
 
         // Should have added participant to group list
-        assert!(participant.group_list.contains(&new_participant));
+        assert!(participant.group_list.contains_key(&new_participant));
 
         // Should have added endpoint
         assert_eq!(participant.inner.get_endpoints_added_count().await, 1);
@@ -841,7 +883,9 @@ mod tests {
         participant.moderator_name = Some(moderator.clone());
 
         let removed_participant = make_name(&["removed", "app", "v1"]).with_id(500);
-        participant.group_list.insert(removed_participant.clone());
+        participant
+            .group_list
+            .insert(removed_participant.clone(), ParticipantSettings::default());
 
         let remove_msg = Message::builder()
             .source(moderator.clone())
@@ -865,7 +909,7 @@ mod tests {
         assert!(result.is_ok());
 
         // Should have removed participant from group list
-        assert!(!participant.group_list.contains(&removed_participant));
+        assert!(!participant.group_list.contains_key(&removed_participant));
 
         // Should have removed endpoint
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
@@ -941,7 +985,7 @@ mod tests {
             .message_id(100)
             .payload(
                 CommandPayload::builder()
-                    .group_welcome(vec![], None)
+                    .group_welcome(vec![], vec![], None)
                     .as_content(),
             )
             .build_publish()
@@ -1011,7 +1055,7 @@ mod tests {
             .message_id(100)
             .payload(
                 CommandPayload::builder()
-                    .group_welcome(vec![], None)
+                    .group_welcome(vec![], vec![], None)
                     .as_content(),
             )
             .build_publish()
