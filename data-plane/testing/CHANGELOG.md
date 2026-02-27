@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.7.2](https://github.com/agntcy/slim/compare/slim-testutils-v0.7.1...slim-testutils-v0.7.2) (2026-02-27)
+
+
+### Features
+
+* **bindings:** expose participant list to the application ([#1089](https://github.com/agntcy/slim/issues/1089)) ([c31f6ec](https://github.com/agntcy/slim/commit/c31f6ec2fa74964d7b306daac32a5b70bdf49630))
+* remove go implementation of slimctl and refactor workflows ([#1276](https://github.com/agntcy/slim/issues/1276)) ([1771288](https://github.com/agntcy/slim/commit/1771288c5f735b3a9449fe0aeb994b1cec7f7993))
+* update slimrpc compiler to use slimrpc in latest slim-bindings ([b7e9266](https://github.com/agntcy/slim/commit/b7e92662dc66d46d412aff0c375e6d0a4679a751))
+
+
+### Bug Fixes
+
+* [#1051](https://github.com/agntcy/slim/issues/1051) ([932b21c](https://github.com/agntcy/slim/commit/932b21c5daea64bf6aacd31b44c7e79f88bd8de7))
+* **bindings:** improve identity error handling ([#1042](https://github.com/agntcy/slim/issues/1042)) ([44002b5](https://github.com/agntcy/slim/commit/44002b51c598f3780645b8f3fac48f5e34a373cb))
+* **controller:** start the controller service only if the related config is provided ([#1054](https://github.com/agntcy/slim/issues/1054)) ([932b21c](https://github.com/agntcy/slim/commit/932b21c5daea64bf6aacd31b44c7e79f88bd8de7))
+* p2p integration test ([#1049](https://github.com/agntcy/slim/issues/1049)) ([430873d](https://github.com/agntcy/slim/commit/430873decdaa8f90773f9b5f862935cd06f781cf))
+* **session:** correctly remove routes on session close ([#1039](https://github.com/agntcy/slim/issues/1039)) ([df21fe3](https://github.com/agntcy/slim/commit/df21fe377bf0b416a123ef688d3beafc3bd0488b))
+* **slimctl:** improve testing stability and reporting ([#1234](https://github.com/agntcy/slim/issues/1234)) ([d04751a](https://github.com/agntcy/slim/commit/d04751a82e7f171401b89cba3948289d5b8fbac8))
+
 ## [0.7.1](https://github.com/agntcy/slim/compare/slim-testutils-v0.7.0...slim-testutils-v0.7.1) (2025-11-21)
 
 
