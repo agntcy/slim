@@ -15,7 +15,7 @@ on:
         description: Git tag name for version extraction (e.g., slim-bindings-1.2.3)
         required: false
         type: string
-        default: ""
+        default: ''
       rust-workspace:
         description: Rust workspace directory for caching
         required: false
@@ -137,7 +137,7 @@ jobs:
 
   build-libraries:
     needs: generate-matrix
-    name: "${{ matrix.platform.target }}"
+    name: '${{ matrix.platform.target }}'
     runs-on: ${{ matrix.platform.runner }}
     defaults:
       run:
@@ -153,6 +153,7 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           workspace: ./data-plane
+          cache-enabled: false
       - name: Build library
         working-directory: ./data-plane/bindings/rust
         run: |
@@ -234,6 +235,7 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           workspace: ${{ inputs.rust-workspace }}
+          cache-enabled: false
 
       - name: Setup Go
         uses: ./.github/actions/setup-go
@@ -439,11 +441,12 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           workspace: ${{ inputs.rust-workspace }}
+          cache-enabled: false
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: '8.0.x'
 
       # Download all library artifacts from the build-libraries job
       - name: Download library artifacts

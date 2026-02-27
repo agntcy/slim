@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-version: "3"
+version: '3'
 
 includes:
   tools:
@@ -21,7 +21,7 @@ vars:
     sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
   CURRENT_TARGET:
     sh: 'rustc -vV | sed -n "s|host: ||p"'
-  TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
+  TARGET: '{{.TARGET | default .CURRENT_TARGET}}'
   TARGET_ARGS:
     sh: '[[ -z "{{.TARGET}}" ]] && echo '''' || echo ''--target {{.TARGET}}'''
   TARGET_ARCH:
@@ -39,7 +39,7 @@ vars:
 
 tasks:
   print-vars:
-    desc: "Print the variables"
+    desc: 'Print the variables'
     cmds:
       - |
         echo "Variables:"
@@ -53,21 +53,21 @@ tasks:
         echo ""
 
   fmt:
-    desc: "Format the code"
+    desc: 'Format the code'
     cmds:
       - cargo fmt {{.ARGS}}
     vars:
       ARGS: '{{ .ARGS | default "" }}'
 
   fmt:check:
-    desc: "Check the code formatting"
+    desc: 'Check the code formatting'
     cmds:
       - task: fmt
         vars:
-          ARGS: "-- --check"
+          ARGS: '-- --check'
 
   fetch:
-    desc: "Fetch the dependencies"
+    desc: 'Fetch the dependencies'
     deps:
       - task: install-target
     cmds:
@@ -76,19 +76,19 @@ tasks:
       ARGS: '{{.ARGS | default "--locked"}}'
 
   tools:fetch:
-    desc: "Fetch the dependencies"
+    desc: 'Fetch the dependencies'
     cmds:
       - task: install-cargo-components
         vars:
-          COMPONENTS: "{{.CARGO_COMPONENTS}}"
+          COMPONENTS: '{{.CARGO_COMPONENTS}}'
 
   tools:hash:
-    desc: "Compute the SHA-256 hash of the CARGO_COMPONENTS string"
+    desc: 'Compute the SHA-256 hash of the CARGO_COMPONENTS string'
     cmds:
       - cmd: sh -c "echo -n '{{.CARGO_COMPONENTS}}' | sha256sum | cut -d ' ' -f1"
 
   check:
-    desc: "Check the project"
+    desc: 'Check the project'
     deps:
       - task: install-target
     cmds:
@@ -97,81 +97,81 @@ tasks:
       ARGS: '{{.ARGS | default "--all-targets --locked"}}'
 
   clean:
-    desc: "Clean the project"
+    desc: 'Clean the project'
     cmds:
       - cargo clean {{.ARGS}}
     vars:
       ARGS: '{{ .ARGS | default "" }}'
 
   clippy:
-    desc: "Run clippy"
+    desc: 'Run clippy'
     deps:
-      - task: install-target
+      - task: check
     cmds:
       - cargo clippy {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}} -- -D warnings
     vars:
       ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
 
   sort:check:
-    desc: "Check the dependencies are sorted"
+    desc: 'Check the dependencies are sorted'
     cmds:
       - task: sort
         vars:
-          ARGS: "--check"
+          ARGS: '--check'
 
   unused:check:
-    desc: "Check for unused dependencies"
+    desc: 'Check for unused dependencies'
     deps:
       - task: install-cargo-components
         vars:
-          COMPONENTS: "cargo-machete"
+          COMPONENTS: 'cargo-machete'
     cmds:
       - cargo machete {{.ARGS}}
     vars:
       ARGS: '{{ .ARGS | default "" }}'
 
   licenses:
-    desc: "Check for licenses"
+    desc: 'Check for licenses'
     deps:
       - task: install-cargo-components
         vars:
-          COMPONENTS: "cargo-deny"
+          COMPONENTS: 'cargo-deny'
     cmds:
       - cargo deny check {{.ARGS}}
     vars:
       ARGS: '{{ .ARGS | default "" }}'
 
   typos:
-    desc: "Check for typos"
+    desc: 'Check for typos'
     deps:
       - task: install-cargo-components
         vars:
-          COMPONENTS: "typos-cli"
+          COMPONENTS: 'typos-cli'
     cmds:
       - typos
     vars:
       ARGS: '{{ .ARGS | default "" }}'
 
   sort:
-    desc: "Sort the dependencies"
+    desc: 'Sort the dependencies'
     deps:
       - task: install-cargo-components
         vars:
-          COMPONENTS: "cargo-sort"
+          COMPONENTS: 'cargo-sort'
     cmds:
       - cargo sort {{.GLOBAL_ARGS}} {{.ARGS}}
     vars:
       ARGS: '{{.ARGS | default ""}}'
 
   doc:
-    desc: "Generate the documentation"
+    desc: 'Generate the documentation'
     cmds:
       - cargo doc {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
     vars:
       ARGS: '{{.ARGS | default "--no-deps --locked --all-features"}}'
 
   lintall:
-    desc: "Run the linter"
+    desc: 'Run the linter'
     cmds:
       - task: fmt:check
       - task: clippy
@@ -182,7 +182,7 @@ tasks:
       - task: typos
 
   test:build:
-    desc: "Build the tests"
+    desc: 'Build the tests'
     deps:
       - task: install-target
     cmds:
@@ -191,7 +191,7 @@ tasks:
       ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
 
   test:
-    desc: "Run the tests"
+    desc: 'Run the tests'
     cmds:
       - cargo test {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
       - task: bindings:test
@@ -200,18 +200,18 @@ tasks:
       ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
 
   test:coverage:
-    desc: "Run tests coverage"
+    desc: 'Run tests coverage'
     deps:
       - task: install-cargo-components
         vars:
-          COMPONENTS: "cargo-llvm-cov"
+          COMPONENTS: 'cargo-llvm-cov'
     cmds:
       - cargo llvm-cov --lcov --output-path lcov.info {{.GLOBAL_ARGS}} {{.ARGS}}
     vars:
       ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
 
   build:
-    desc: "Build the project"
+    desc: 'Build the project'
     deps:
       - task: install-target
     cmds:
@@ -220,23 +220,23 @@ tasks:
       ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
 
   vuln:
-    desc: "Check for vulnerabilities"
+    desc: 'Check for vulnerabilities'
     deps:
       - task: install-cargo-components
         vars:
-          COMPONENTS: "cargo-audit"
+          COMPONENTS: 'cargo-audit'
     cmds:
       - cargo audit {{.ARGS}}
     vars:
       ARGS: '{{ .ARGS | default "" }}'
 
   crossbuild:
-    desc: "Cross-compile the project using cargo-zigbuild"
+    desc: 'Cross-compile the project using cargo-zigbuild'
     deps:
       - task: install-target
       - task: install-cargo-components
         vars:
-          COMPONENTS: "cargo-zigbuild"
+          COMPONENTS: 'cargo-zigbuild'
       - task: tools:zig
       - task: tools:dlltool-wrapper
     cmds:
@@ -279,43 +279,53 @@ tasks:
       ARGS: '{{ .ARGS | default "" }}'
 
   strip:
-    desc: "Strip the binary"
+    desc: 'Strip the binary'
     cmds:
-      - "{{.OBJCOPY}} --only-keep-debug {{.TARGET_BIN}} {{.TARGET_BIN}}.dbg"
-      - "{{.OBJCOPY}} --strip-unneeded {{.TARGET_BIN}}"
-      - "{{.OBJCOPY}} --add-gnu-debuglink={{.TARGET_BIN}} {{.TARGET_BIN}}.dbg"
+      - '{{.OBJCOPY}} --only-keep-debug {{.TARGET_BIN}} {{.TARGET_BIN}}.dbg'
+      - '{{.OBJCOPY}} --strip-unneeded {{.TARGET_BIN}}'
+      - '{{.OBJCOPY}} --add-gnu-debuglink={{.TARGET_BIN}} {{.TARGET_BIN}}.dbg'
     vars:
       TARGET_BIN: '{{.TARGET_BIN | default ""}}'
 
   run:
-    desc: "Run a binary"
+    desc: 'Run a binary'
     cmds:
-      - "cargo run {{.RELEASE}} --bin {{.BIN}} {{.ARGS}} -- {{.BIN_ARGS}}"
+      - 'cargo run {{.RELEASE}} --bin {{.BIN}} {{.ARGS}} -- {{.BIN_ARGS}}'
     vars:
       BIN: '{{.BIN | default "slim"}}'
       ARGS: '{{ .ARGS | default "" }}'
       BIN_ARGS: '{{ .BIN_ARGS | default "" }}'
 
   run-command:
-    desc: "Run a command"
+    desc: 'Run a command'
     dir: '{{.DIR | default ""}}'
     deps:
       - task: install-target
     cmds:
-      - "{{.COMMAND}}"
+      - '{{.COMMAND}}'
     vars:
       COMMAND: '{{.COMMAND | default ""}}'
 
   install-target:
-    desc: "Install the target"
+    desc: 'Install the target'
     internal: true
     cmds:
       - rustup target add {{.TARGET}}
 
   install-cargo-components:
-    desc: "Install cargo components"
+    desc: 'Install cargo components'
     internal: true
+    deps:
+      - task: install-cargo-binstall
     cmds:
-      - cargo install {{.COMPONENTS}}
+      - cargo binstall --no-confirm {{.COMPONENTS}}
     vars:
       COMPONENTS: '{{ .COMPONENTS | default "" }}'
+
+  install-cargo-binstall:
+    desc: 'Install cargo-binstall'
+    internal: true
+    status:
+      - cargo binstall --help >/dev/null 2>&1
+    cmds:
+      - cargo install cargo-binstall
