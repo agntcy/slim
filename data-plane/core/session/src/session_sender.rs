@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 
 use rand::Rng;
-use slim_datapath::api::ProtoSessionType;
+use slim_datapath::api::{ParticipantSettings, ProtoSessionType};
 use slim_datapath::messages::utils::{MAX_PUBLISH_ID, PUBLISH_TO};
 use slim_datapath::{api::ProtoMessage as Message, messages::Name};
 use tokio::sync::mpsc::Sender;
@@ -494,8 +494,13 @@ impl SessionSender {
         self.on_failure(message_id, error)
     }
 
-    pub async fn add_endpoint(&mut self, endpoint: &Name) -> Result<(), SessionError> {
-        // add endpoint to the list
+    pub async fn add_endpoint(&mut self, endpoint: &Name, settings: ParticipantSettings) -> Result<(), SessionError> {
+        // add endpoint to the list if the new participant is a receiver, otherwise ignore it
+        if !settings.is_legacy() && !settings.is_receiver() {
+            debug!(%endpoint, "new participant will not receive data messages, do not add it to the endpoint list");
+            return Ok(());
+        }
+
         self.endpoints_list.insert(endpoint.clone());
 
         debug!(
@@ -524,7 +529,8 @@ impl SessionSender {
         );
         // remove endpoint from the list and remove all the ack state
         // notice that no ack state may be associated to the endpoint
-        // (e.g. endpoint added but no message sent)
+        // (e.g. endpoint added but no message sent) or the endpoint 
+        // may not exists as it was not a receiver endpoint
         if let Some(set) = self.pending_acks_per_endpoint.get(endpoint) {
             for id in set {
                 let mut delete = false;
@@ -619,7 +625,7 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_endpoint(&remote)
+            .add_endpoint(&remote, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -699,7 +705,7 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_endpoint(&remote)
+            .add_endpoint(&remote, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -838,7 +844,7 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_endpoint(&remote)
+            .add_endpoint(&remote, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -922,15 +928,15 @@ mod tests {
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint(&remote1, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint(&remote2, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote3)
+            .add_endpoint(&remote3, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -1042,15 +1048,15 @@ mod tests {
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint(&remote1, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint(&remote2, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote3)
+            .add_endpoint(&remote3, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -1225,15 +1231,15 @@ mod tests {
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint(&remote1, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint(&remote2, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote3)
+            .add_endpoint(&remote3, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -1335,15 +1341,15 @@ mod tests {
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint(&remote1, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint(&remote2, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote3)
+            .add_endpoint(&remote3, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -1470,7 +1476,7 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_endpoint(&remote)
+            .add_endpoint(&remote, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -1646,7 +1652,7 @@ mod tests {
 
         // add the remote participant
         sender
-            .add_endpoint(&remote)
+            .add_endpoint(&remote, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -1690,15 +1696,15 @@ mod tests {
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint(&remote1, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint(&remote2, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote3)
+            .add_endpoint(&remote3, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -1766,7 +1772,7 @@ mod tests {
         let unknown_remote = Name::from_strings(["org", "ns", "unknown"]);
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint(&remote1, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -1816,7 +1822,7 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_endpoint(&remote)
+            .add_endpoint(&remote, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -1876,11 +1882,11 @@ mod tests {
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint(&remote1, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint(&remote2, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -1960,11 +1966,11 @@ mod tests {
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint(&remote1, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint(&remote2, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -2050,11 +2056,11 @@ mod tests {
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint(&remote1, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint(&remote2, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -2122,7 +2128,7 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_endpoint(&remote)
+            .add_endpoint(&remote, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -2207,11 +2213,11 @@ mod tests {
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint(&remote1, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint(&remote2, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -2305,7 +2311,7 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_endpoint(&remote)
+            .add_endpoint(&remote, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -2396,15 +2402,15 @@ mod tests {
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint(&remote1, ParticipantSettings::default())
             .await
             .expect("error adding remote1");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint(&remote2, ParticipantSettings::default())
             .await
             .expect("error adding remote2");
         sender
-            .add_endpoint(&remote3)
+            .add_endpoint(&remote3, ParticipantSettings::default())
             .await
             .expect("error adding remote3");
 
@@ -2496,7 +2502,7 @@ mod tests {
         let source = Name::from_strings(["org", "ns", "source"]);
 
         sender
-            .add_endpoint(&remote)
+            .add_endpoint(&remote, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -2647,7 +2653,7 @@ mod tests {
 
         // Now add the endpoint (normally would trigger flush)
         sender
-            .add_endpoint(&remote)
+            .add_endpoint(&remote, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 

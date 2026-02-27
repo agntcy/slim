@@ -3,7 +3,7 @@
 
 use async_trait::async_trait;
 use slim_datapath::{
-    api::{ProtoMessage as Message, ProtoSessionMessageType},
+    api::{ParticipantSettings, ProtoMessage as Message, ProtoSessionMessageType},
     messages::Name,
 };
 
@@ -126,9 +126,9 @@ impl Session {
         }
     }
 
-    pub async fn add_endpoint(&mut self, endpoint: &Name) -> Result<(), SessionError> {
+    pub async fn add_endpoint(&mut self, endpoint: &Name, settings: ParticipantSettings) -> Result<(), SessionError> {
         debug!(%endpoint, local_name = %self.local_name, "add participant");
-        self.sender.add_endpoint(endpoint).await
+        self.sender.add_endpoint(endpoint, settings).await
     }
 
     pub fn remove_endpoint(&mut self, endpoint: &Name) {
@@ -222,8 +222,9 @@ impl MessageHandler for Session {
     async fn add_endpoint(
         &mut self,
         endpoint: &slim_datapath::messages::Name,
+        settings: ParticipantSettings,
     ) -> Result<(), SessionError> {
-        self.add_endpoint(endpoint).await
+        self.add_endpoint(endpoint, settings).await
     }
 
     fn remove_endpoint(&mut self, endpoint: &slim_datapath::messages::Name) {
@@ -288,7 +289,7 @@ mod tests {
 
         // Add the remote endpoint to the session sender
         session
-            .add_endpoint(&remote_name)
+            .add_endpoint(&remote_name, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -638,7 +639,7 @@ mod tests {
 
         // Add receiver as endpoint for sender
         sender_session
-            .add_endpoint(&receiver_name)
+            .add_endpoint(&receiver_name, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -670,7 +671,7 @@ mod tests {
 
         // Add sender as endpoint for receiver
         receiver_session
-            .add_endpoint(&sender_name)
+            .add_endpoint(&sender_name, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 

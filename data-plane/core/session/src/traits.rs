@@ -3,7 +3,7 @@
 
 // Third-party crates
 use async_trait::async_trait;
-use slim_datapath::Status;
+use slim_datapath::{Status, api::ParticipantSettings};
 use slim_datapath::api::ProtoMessage as Message;
 
 // Local crate
@@ -50,6 +50,7 @@ pub trait MessageHandler: Send + Sync {
     async fn add_endpoint(
         &mut self,
         _endpoint: &slim_datapath::messages::Name,
+        _settings: ParticipantSettings,
     ) -> Result<(), SessionError> {
         Ok(())
     }
