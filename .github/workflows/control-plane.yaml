@@ -8,11 +8,13 @@ on:
   push:
     paths:
       - 'control-plane/**'
+      - '.github/workflows/control-plane.yaml'
     branches:
       - main
   pull_request:
     paths:
       - 'control-plane/**'
+      - '.github/workflows/control-plane.yaml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
