@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-name: kotlin-build-and-test
+name: reusable-kotlin-build-and-test
 on:
   workflow_call:
     inputs:

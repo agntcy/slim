@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-name: go-build-and-test
+name: reusable-go-build-and-test
 on:
   workflow_call:
     inputs:

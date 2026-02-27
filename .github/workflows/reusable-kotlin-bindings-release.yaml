@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-name: Reusable Kotlin Bindings Release
+name: reusable-kotlin-bindings-release
 
 on:
   workflow_call:
@@ -103,16 +103,16 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Building and publishing Kotlin bindings to GitHub Packages..."
-          
+
           VERSION="${{ steps.extract-version.outputs.version }}"
           echo "Publishing version: $VERSION"
-          
+
           # Build and publish using Gradle
           ./gradlew publish \
             -PpublishVersion="$VERSION" \
             --no-daemon \
             --stacktrace
-          
+
           echo "✅ Successfully published to GitHub Packages"
           echo "Package: ${{ env.MAVEN_GROUP_ID }}:${{ env.MAVEN_ARTIFACT_ID }}:$VERSION"
           echo "📦 View at: https://github.com/${{ github.repository }}/packages"

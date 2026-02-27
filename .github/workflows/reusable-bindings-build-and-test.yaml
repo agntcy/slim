@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-name: go-bindings-build-and-test
+name: reusable-bindings-build-and-test
 on:
   workflow_call:
     inputs:

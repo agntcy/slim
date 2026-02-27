@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-name: dotnet-build-and-test
+name: reusable-dotnet-build-and-test
 on:
   workflow_call:
     inputs:
