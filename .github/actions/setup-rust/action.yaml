@@ -16,7 +16,10 @@ inputs:
   cache-directories:
     description: 'Additional cache directories (whitespace-separated)'
     required: false
-    default: ''
+    default: |
+      ~/.cargo/bin
+      ~/.cargo/.crates.toml
+      ~/.cargo/.crates2.json
   cache-enabled:
     description: 'Enable rust cache'
     required: false
