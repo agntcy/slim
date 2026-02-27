@@ -73,10 +73,6 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           workspace: ${{ inputs.working-directory }}
-          cache-directories: |
-            ~/.cargo/bin
-            ~/.cargo/.crates.toml
-            ~/.cargo/.crates2.json
 
       - name: Setup Python
         uses: ./.github/actions/setup-python
@@ -109,10 +105,6 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           workspace: ${{ inputs.working-directory }}
-          cache-directories: |
-            ~/.cargo/bin
-            ~/.cargo/.crates.toml
-            ~/.cargo/.crates2.json
 
       - name: Run `coverage`
         run: |
@@ -137,10 +129,6 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           workspace: ${{ inputs.working-directory }}
-          cache-directories: |
-            ~/.cargo/bin
-            ~/.cargo/.crates.toml
-            ~/.cargo/.crates2.json
 
       - name: Setup Python
         uses: ./.github/actions/setup-python
@@ -203,10 +191,6 @@ jobs:
         with:
           workspace: ${{ inputs.working-directory }}
           cache-enabled: ${{ matrix.profile != 'release' }}
-          cache-directories: |
-            ~/.cargo/bin
-            ~/.cargo/.crates.toml
-            ~/.cargo/.crates2.json
 
       - name: Build
         run: |
