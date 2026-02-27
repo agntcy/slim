@@ -1,0 +1,17 @@
+# buf generate
+# Configuration for the buf generate command
+# Uses remote plugins, no separate install required.
+# This config generates python, go and java (protobuf) source.
+version: v2
+clean: false
+managed:
+  enabled: true
+inputs:
+  - proto_file: example_with_imports.proto
+plugins:
+  - local: ../../../target/release/protoc-gen-slimrpc-go
+    out: types
+    opt:
+      - paths=source_relative
+      - types_import=github.com/a2aproject/a2a-go/a2apb
+      - types_alias=a2a_a2apb

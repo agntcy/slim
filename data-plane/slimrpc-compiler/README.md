@@ -233,9 +233,19 @@ server implementations.
 
 ### Go Plugin
 
-- `paths`: Control output path strategy
+- `paths`: Control output path strategy (handled by buf/protoc, ignored by plugin)
   - `source_relative`: Generate files relative to the proto file location
-  - Default: Uses Go package paths
+
+- `types_import`: Go import path for the protobuf-generated types package.
+  Required when the generated slimrpc file lives in a different package than
+  the proto types.
+  - Example: `types_import=github.com/myorg/myrepo/types`
+  - Default: not set (types are used as bare unqualified names, requires same package)
+
+- `types_alias`: Optional Go package alias to use when referencing proto types.
+  Only valid when `types_import` is also set.
+  - Example: `types_alias=pb`
+  - Default: last path component of `types_import` (e.g., `"types"` for `.../types`)
 
 ## Troubleshooting
 
