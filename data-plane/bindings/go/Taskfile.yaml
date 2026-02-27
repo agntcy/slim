@@ -215,7 +215,7 @@ tasks:
       - which uniffi-bindgen-go
     cmds:
       - echo "📦 Installing uniffi-bindgen-go..."
-      - cargo install uniffi-bindgen-go --git https://github.com/agntcy/uniffi-bindgen-go.git --tag v0.4.0+v0.28.3-kegsay --config net.git-fetch-with-cli=true
+      - cargo install uniffi-bindgen-go --git https://github.com/agntcy/uniffi-bindgen-go.git --tag v0.4.0+v0.29 --config net.git-fetch-with-cli=true
     silent: true
 
   copy-library:

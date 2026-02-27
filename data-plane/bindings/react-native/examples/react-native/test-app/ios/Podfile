@@ -1,0 +1,78 @@
+# Resolve react_native_pods.rb with node to allow for hoisting
+require Pod::Executable.execute_command('node', ['-p',
+  'require.resolve(
+    "react-native/scripts/react_native_pods.rb",
+    {paths: [process.argv[1]]},
+  )', __dir__]).strip
+
+platform :ios, min_ios_version_supported
+prepare_react_native_project!
+
+linkage = ENV['USE_FRAMEWORKS']
+if linkage != nil
+  Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
+  use_frameworks! :linkage => linkage.to_sym
+end
+
+target 'TestApp' do
+  config = use_native_modules!
+
+  use_react_native!(
+    :path => config[:reactNativePath],
+    # An absolute path to your application root.
+    :app_path => "#{Pod::Config.instance.installation_root}/.."
+  )
+
+  post_install do |installer|
+    react_native_post_install(
+      installer,
+      config[:reactNativePath],
+      :mac_catalyst_enabled => false,
+      # :ccache_enabled => true
+    )
+    
+    # Exclude x86_64 architecture for iOS Simulator builds
+    # This is required because the Rust library is built for arm64 only
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'x86_64'
+      end
+    end
+    
+    # Also apply to the main app project
+    installer.aggregate_targets.each do |aggregate_target|
+      aggregate_target.user_project.targets.each do |target|
+        target.build_configurations.each do |config|
+          config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'x86_64'
+        end
+      end
+    end
+
+    # Ensure libslim_bindings is linked (fixes undefined symbol: ffi_slim_bindings_*)
+    # AgntcySlimBindings.a has undefined refs to the Rust lib; must be linked into final app
+    # Use absolute paths - PODS_TARGET_SRCROOT may not resolve in aggregate xcconfig
+    slim_bindings_path = File.join(File.dirname(Pod::Config.instance.installation_root), 'node_modules', '@agntcy', 'slim-bindings')
+    slim_bindings_path = File.realpath(slim_bindings_path) if File.exist?(slim_bindings_path)
+    if File.directory?(slim_bindings_path)
+      xcf = File.join(slim_bindings_path, 'ios', 'SlimBindings.xcframework')
+      device_lib = File.join(xcf, 'ios-arm64')
+      sim_lib = File.join(xcf, 'ios-arm64-simulator')
+      if File.directory?(device_lib) && File.directory?(sim_lib)
+        marker = '// AgntcySlimBindings: link Rust lib'
+        append = "\n#{marker} (fixes ffi_slim_bindings_* undefined symbols)\n"
+        # Use $(LIBRARY_SEARCH_PATHS) to preserve base paths (incl. AgntcySlimBindings build dir), add SDK-specific Rust lib path
+        append += "LIBRARY_SEARCH_PATHS[sdk=iphoneos*] = $(LIBRARY_SEARCH_PATHS) \"#{device_lib}\"\n"
+        append += "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*] = $(LIBRARY_SEARCH_PATHS) \"#{sim_lib}\"\n"
+        append += "OTHER_LDFLAGS = $(OTHER_LDFLAGS) -lslim_bindings\n"
+        pods_target_support = File.join(installer.sandbox.root, 'Target Support Files', 'Pods-TestApp')
+        ['debug', 'release'].each do |config|
+          xcconfig_path = File.join(pods_target_support, "Pods-TestApp.#{config}.xcconfig")
+          next unless File.exist?(xcconfig_path)
+          content = File.read(xcconfig_path)
+          next if content.include?(marker)
+          File.write(xcconfig_path, content + append)
+        end
+      end
+    end
+  end
+end

@@ -35,7 +35,7 @@ on:
         description: Version tag for uniffi-bindgen-go
         required: false
         type: string
-        default: v0.4.0+v0.28.3
+        default: v0.4.0+v0.29
 env:
   LIBRARY_NAME: slim_bindings
   PYTHON_VERSION: '3.11'
@@ -159,10 +159,23 @@ jobs:
           task bindings:build:all TARGET=${{ matrix.platform.target }} PROFILE=release
       - name: Strip and rename artifacts
         run: |
-          ls -lah ../../target/${{ matrix.platform.target }}/release/
-
-          # Split target and use in filename
+          # Cargo output path: zigbuild uses versioned target (e.g. .2.28) for linux-gnu;
+          # native build with --target uses unversioned path. Detect which exists.
           TARGET="${{ matrix.platform.target }}"
+          if [[ "$TARGET" == *"-linux-gnu" ]]; then
+            if [ -d "../../target/${TARGET}.2.28/release" ]; then
+              CARGO_TARGET="${TARGET}.2.28"
+            else
+              CARGO_TARGET="$TARGET"
+            fi
+          else
+            CARGO_TARGET="$TARGET"
+          fi
+
+          RELEASE_DIR="../../target/${CARGO_TARGET}/release"
+          ls -lah "$RELEASE_DIR/"
+
+          # Split target (logical name) for library filename
           ARCH=$(echo "$TARGET" | cut -d'-' -f1)
           OS=$(echo "$TARGET" | cut -d'-' -f3)
           ABI=$(echo "$TARGET" | cut -d'-' -f4)
@@ -178,19 +191,22 @@ jobs:
             LIB_NAME="slim_bindings_${ARCH}_${OS}"
           fi
 
-          # Handle both libslim_bindings* (Unix) and slim_bindings* (Windows)
-          for file in ../../target/${{ matrix.platform.target }}/release/libslim_bindings* ../../target/${{ matrix.platform.target }}/release/slim_bindings.*; do
+          # Rename in place in the cargo output directory
+          for file in "$RELEASE_DIR"/libslim_bindings* "$RELEASE_DIR"/slim_bindings.*; do
             if [ -f "$file" ]; then
               filename=$(basename "$file")
-
-              # Replace slim_bindings with arch_os_abi version, keeping any existing prefix
               new_filename="${filename/slim_bindings/${LIB_NAME}}"
-
               if [ "$filename" != "$new_filename" ]; then
-                mv "$file" "../../target/${{ matrix.platform.target }}/release/${new_filename}"
+                mv "$file" "$RELEASE_DIR/${new_filename}"
               fi
             fi
           done
+
+          # If cargo used a versioned target, move renamed files to the path the rest of the workflow expects
+          if [ "$CARGO_TARGET" != "$TARGET" ]; then
+            mkdir -p "../../target/${TARGET}/release"
+            mv "$RELEASE_DIR"/*slim_bindings* "../../target/${TARGET}/release/"
+          fi
 
           echo "📁 Renamed files:"
           ls -lah ../../target/${{ matrix.platform.target }}/release/*slim_bindings*
@@ -418,6 +434,54 @@ jobs:
         run: |
           echo "✅ Python wheel verification completed successfully on ${{ matrix.platform.target }}"
           echo "The wheel can be safely published."
+
+  node-bindings-test:
+    name: Test Node.js Bindings
+    runs-on: ubuntu-24.04
+    needs:
+      - build-libraries
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./data-plane/bindings/node
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          workspace: ./data-plane
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Task
+        run: |
+          sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
+
+      - name: Install uniffi-bindgen-node
+        run: |
+          rustup install stable --no-self-update 2>/dev/null || true
+          rustup run stable cargo install --git https://github.com/livekit/uniffi-bindgen-node.git --tag uniffi-bindgen-node@0.1.3
+
+      - name: Download libraries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bindings-x86_64-unknown-linux-gnu
+          path: ./data-plane/target/x86_64-unknown-linux-gnu/release/
+          merge-multiple: true
+
+      - name: List downloaded artifacts
+        run: |
+          echo "📦 Downloaded artifacts:"
+          find ../../target/x86_64-unknown-linux-gnu/release/ -type f -ls
+
+      - name: Generate Node.js bindings
+        run: |
+          task generate TARGET=x86_64-unknown-linux-gnu
 
   dotnet-bindings-build-and-test:
     name: Build .NET Bindings

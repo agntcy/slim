@@ -1,0 +1,300 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: '3'
+
+includes:
+  adapter:
+    taskfile: "../rust/Taskfile.yaml"
+    internal: false
+  rust:
+    taskfile: ../../../tasks/rust.yaml
+    internal: true
+
+vars:
+  BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
+  PROFILE: 'release'
+  CURRENT_TARGET:
+    sh: 'rustc -vV | sed -n "s|host: ||p"'
+  TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
+  LIB_NAME: slim_bindings
+  DYLIB_PREFIX:
+    sh: |
+      case "$(uname -s)" in
+        Darwin|Linux) echo "lib" ;;
+        MINGW*|MSYS*|CYGWIN*) echo "" ;;
+        *) echo "lib" ;;
+      esac
+  DYLIB_EXT:
+    sh: |
+      case "$(uname -s)" in
+        Darwin) echo "dylib" ;;
+        Linux) echo "so" ;;
+        MINGW*|MSYS*|CYGWIN*) echo "dll" ;;
+        *) echo "so" ;;
+      esac
+
+tasks:
+  default:
+    cmds:
+      - task -l
+
+  install-uniffi-bindgen-node:
+    desc: Install uniffi-bindgen-node
+    status:
+      - which uniffi-bindgen-node
+    cmds:
+      - echo "📦 Installing uniffi-bindgen-node..."
+      - cargo install --git https://github.com/livekit/uniffi-bindgen-node.git --tag uniffi-bindgen-node@0.1.3
+
+  # Only builds when library is missing (CI places it from artifact; local dev builds).
+  ensure-bindings-lib:
+    desc: Build Rust bindings lib if not already in target release dir
+    dir: "{{.TASKFILE_DIR}}"
+    status:
+      - sh -c 'find "{{.TASKFILE_DIR}}/../../target/{{.TARGET}}/release" -maxdepth 1 -name "*slim_bindings*" -type f 2>/dev/null | grep -q .'
+    cmds:
+      # Use CLI invocation so PROFILE=release propagates (task: vars can drop through nested includes)
+      - task adapter:bindings:build:all TARGET={{.TARGET}} PROFILE=release
+
+  generate:
+    desc: Generate Node.js bindings using uniffi-bindgen-node
+    dir: "{{.TASKFILE_DIR}}"
+    deps:
+      - task: ensure-bindings-lib
+        vars:
+          TARGET: "{{.TARGET}}"
+      - task: install-uniffi-bindgen-node
+    cmds:
+      - echo "🔧 Generating Node.js bindings..."
+      - |
+        # Compute library path with release profile.
+        # DYLIB_EXT/DYLIB_PREFIX must be derived from TARGET (not host) so CI on Linux finds .dylib for darwin artifacts.
+        PROFILE="release"
+        TARGET="{{.TARGET}}"
+        TASKFILE_DIR="{{.TASKFILE_DIR}}"
+        LIB_NAME="{{.LIB_NAME}}"
+        RELEASE_DIR="${TASKFILE_DIR}/../../target/${TARGET}/${PROFILE}"
+
+        case "$TARGET" in
+          *-apple-darwin)  DYLIB_EXT="dylib"; DYLIB_PREFIX="lib" ;;
+          *-linux-*)       DYLIB_EXT="so";    DYLIB_PREFIX="lib" ;;
+          *-windows-*|*-msvc) DYLIB_EXT="dll"; DYLIB_PREFIX="" ;;
+          *)               DYLIB_EXT="so";    DYLIB_PREFIX="lib" ;;
+        esac
+
+        ARCH=$(echo "$TARGET" | cut -d'-' -f1)
+        OS=$(echo "$TARGET" | cut -d'-' -f3)
+        ABI=$(echo "$TARGET" | cut -d'-' -f4)
+
+        if [ -n "$ABI" ] && [ "$ABI" != "" ]; then
+          RENAMED_LIB="${DYLIB_PREFIX}${LIB_NAME}_${ARCH}_${OS}_${ABI}.${DYLIB_EXT}"
+        else
+          RENAMED_LIB="${DYLIB_PREFIX}${LIB_NAME}_${ARCH}_${OS}.${DYLIB_EXT}"
+        fi
+        DEFAULT_LIB="${DYLIB_PREFIX}${LIB_NAME}.${DYLIB_EXT}"
+
+        # Try target/TARGET/release first; when TARGET equals host, Cargo may use target/release/
+        HOST_RELEASE_DIR="${TASKFILE_DIR}/../../target/${PROFILE}"
+        if [ -f "${RELEASE_DIR}/${DEFAULT_LIB}" ]; then
+          DYLIB_PATH="${RELEASE_DIR}/${DEFAULT_LIB}"
+        elif [ -f "${RELEASE_DIR}/${RENAMED_LIB}" ]; then
+          DYLIB_PATH="${RELEASE_DIR}/${RENAMED_LIB}"
+        elif [ -f "${HOST_RELEASE_DIR}/${DEFAULT_LIB}" ]; then
+          DYLIB_PATH="${HOST_RELEASE_DIR}/${DEFAULT_LIB}"
+        elif [ -f "${HOST_RELEASE_DIR}/${RENAMED_LIB}" ]; then
+          DYLIB_PATH="${HOST_RELEASE_DIR}/${RENAMED_LIB}"
+        else
+          echo "❌ Error: Library not found in ${RELEASE_DIR} or ${HOST_RELEASE_DIR}"
+          echo "   Tried: ${RENAMED_LIB}, ${DEFAULT_LIB}"
+          ls -la "${RELEASE_DIR}/" 2>/dev/null | grep slim || true
+          ls -la "${HOST_RELEASE_DIR}/" 2>/dev/null | grep slim || true
+          exit 1
+        fi
+
+        echo "   Library path: ${DYLIB_PATH}"
+        echo "${DYLIB_PATH}" > /tmp/slim-node-dylib-path.txt
+      - mkdir -p generated
+      - |
+        # Generate Node.js bindings with uniffi-bindgen-node (pass original library path directly)
+        DYLIB_PATH=$(cat /tmp/slim-node-dylib-path.txt)
+        cd {{.TASKFILE_DIR}}
+        uniffi-bindgen-node \
+          --crate-name {{.LIB_NAME}} \
+          --out-dir generated \
+          "${DYLIB_PATH}"
+      - |
+        # Copy the dynamic library to the generated directory (generated code expects libslim_bindings.<ext>).
+        DYLIB_PATH=$(cat /tmp/slim-node-dylib-path.txt)
+        LIB_NAME="{{.LIB_NAME}}"
+        TARGET="{{.TARGET}}"
+        case "$TARGET" in
+          *-apple-darwin)  DYLIB_EXT="dylib"; DYLIB_PREFIX="lib" ;;
+          *-linux-*)       DYLIB_EXT="so";    DYLIB_PREFIX="lib" ;;
+          *-windows-*|*-msvc) DYLIB_EXT="dll"; DYLIB_PREFIX="" ;;
+          *)               DYLIB_EXT="so";    DYLIB_PREFIX="lib" ;;
+        esac
+        CANONICAL_NAME="${DYLIB_PREFIX}${LIB_NAME}.${DYLIB_EXT}"
+        echo "📦 Copying dynamic library to generated/${CANONICAL_NAME}..."
+        cp "${DYLIB_PATH}" "generated/${CANONICAL_NAME}"
+        echo "✅ Copied to generated/${CANONICAL_NAME}"
+        rm -f /tmp/slim-node-dylib-path.txt
+      - |
+        # Apply FFI compatibility patches using TypeScript script
+        cd {{.TASKFILE_DIR}}/generated
+        npx tsx {{.TASKFILE_DIR}}/scripts/patch-generated.ts {{.TASKFILE_DIR}}/generated
+      - echo "✅ Node.js bindings generated and patched in generated/"
+    silent: false
+
+  install:
+    desc: Install dependencies for generated bindings
+    deps:
+      - task: generate
+    dir: "{{.TASKFILE_DIR}}/generated"
+    cmds:
+      - echo "📦 Installing generated bindings dependencies..."
+      - npm install
+      - echo "✅ Generated bindings dependencies installed"
+    silent: true
+
+  install:examples:
+    desc: Install dependencies for examples
+    deps:
+      - task: install
+    dir: "{{.TASKFILE_DIR}}/examples"
+    cmds:
+      - echo "📦 Installing examples dependencies..."
+      - npm install
+      - echo "✅ Examples dependencies installed"
+    silent: true
+
+  clean:
+    desc: Clean build artifacts and node_modules
+    cmds:
+      - echo "🧹 Cleaning build artifacts..."
+      - rm -rf generated/
+      - rm -rf types/
+      - rm -rf .platform-pkg/
+      - rm -rf dist/
+      - rm -rf examples/node_modules/
+      - echo "✅ Clean complete"
+    silent: true
+
+  # Emit TypeScript declarations from generated/ to types/ (for main package publish).
+  # Generated code has type mismatches vs uniffi-bindgen-react-native/ffi-rs; we use noEmitOnError: false
+  # and verify output so emit succeeds as long as types/ is produced.
+  emit-types:
+    desc: Emit .d.ts from generated/ to types/ (run after generate)
+    cmds:
+      - test -d {{.TASKFILE_DIR}}/generated || (echo "Run task generate first"; exit 1)
+      - npx -p typescript tsc -p {{.TASKFILE_DIR}}/tsconfig.emit-types.json || true
+      - test -f {{.TASKFILE_DIR}}/types/slim-bindings-node.d.ts || (echo "No types emitted; fix tsconfig or generated code"; exit 1)
+      - echo "✅ Types emitted to types/"
+    silent: true
+
+  # Pack a platform-specific npm package (for CI publish).
+  # Requires: Rust lib built for TARGET. Produces dist/node-<platform>.tgz.
+  pack:platform:
+    desc: Pack platform-specific npm package (TARGET=, VERSION= optional)
+    vars:
+      VERSION: '{{.VERSION | default "0.7.0"}}'
+    deps:
+      - task: generate
+        vars:
+          TARGET: "{{.TARGET}}"
+    cmds:
+      - mkdir -p dist
+      - npx tsx {{.TASKFILE_DIR}}/scripts/pack-platform.ts "{{.TARGET}}" "{{.VERSION}}"
+    silent: false
+
+  # Pack using pre-generated bindings (CI: generate once, then pack per target).
+  # Requires: generated/ exists (from generate-node-bindings-once job); library in ../../target/TARGET/release.
+  pack:platform:from-artifacts:
+    desc: Pack platform package using existing generated/ and target library (no generate)
+    dir: "{{.TASKFILE_DIR}}"
+    vars:
+      VERSION: '{{.VERSION | default "0.7.0"}}'
+    cmds:
+      - |
+        TARGET="{{.TARGET}}"
+        TASKFILE_DIR="{{.TASKFILE_DIR}}"
+        LIB_NAME="{{.LIB_NAME}}"
+        RELEASE_DIR="${TASKFILE_DIR}/../../target/${TARGET}/release"
+        GEN_DIR="${TASKFILE_DIR}/generated"
+        test -d "$GEN_DIR" || { echo "generated/ not found. Run generate-node-bindings-once job first."; exit 1; }
+        case "$TARGET" in
+          *-apple-darwin)  DYLIB_EXT="dylib"; DYLIB_PREFIX="lib" ;;
+          *-linux-*)       DYLIB_EXT="so";    DYLIB_PREFIX="lib" ;;
+          *-windows-*|*-msvc) DYLIB_EXT="dll"; DYLIB_PREFIX="" ;;
+          *)               DYLIB_EXT="so";    DYLIB_PREFIX="lib" ;;
+        esac
+        CANONICAL="${DYLIB_PREFIX}${LIB_NAME}.${DYLIB_EXT}"
+        # Copy dynamic lib only (.so / .dylib / .dll); artifact may also contain .a, .rlib
+        for f in "$RELEASE_DIR"/*.so "$RELEASE_DIR"/*.dylib "$RELEASE_DIR"/*.dll; do
+          [ -f "$f" ] || continue
+          cp -v "$f" "$GEN_DIR/$CANONICAL"
+          break
+        done
+        if [ ! -f "$GEN_DIR/$CANONICAL" ]; then
+          echo "No dynamic library (*.so, *.dylib, *.dll) found in $RELEASE_DIR"
+          ls -la "$RELEASE_DIR/" 2>/dev/null || true
+          exit 1
+        fi
+      - mkdir -p dist
+      - npx tsx {{.TASKFILE_DIR}}/scripts/pack-platform.ts "{{.TARGET}}" "{{.VERSION}}"
+    silent: false
+
+  # Examples
+  example:server:
+    desc: Run the SLIM Node.js server
+    deps:
+      - task: install:examples
+    dir: "{{.TASKFILE_DIR}}/examples"
+    cmds:
+      - echo "🚀 Starting SLIM Node.js server..."
+      - npm run server -- {{.CLI_ARGS}}
+    silent: false
+
+  example:alice:
+    desc: Run Alice (receiver) for point-to-point example
+    aliases: [example:p2p:alice]
+    deps:
+      ## - task: install:examples
+    dir: "{{.TASKFILE_DIR}}/examples"
+    cmds:
+      - echo "👩 Starting Alice (receiver)..."
+      - npm run alice -- {{.CLI_ARGS}}
+    silent: false
+
+  example:bob:
+    desc: Run Bob (sender) for point-to-point example
+    aliases: [example:p2p:bob]
+    deps:
+      ## - task: install:examples
+    dir: "{{.TASKFILE_DIR}}/examples"
+    cmds:
+      - echo "👨 Starting Bob (sender)..."
+      - npm run bob -- {{.CLI_ARGS}}
+    silent: false
+
+  # Tests
+  install:tests:
+    desc: Install dependencies for tests
+    deps:
+      - task: install
+    dir: "{{.TASKFILE_DIR}}/tests"
+    cmds:
+      - echo "📦 Installing test dependencies..."
+      - npm install
+      - echo "✅ Test dependencies installed"
+    silent: true
+
+  test:integration:
+    desc: Run integration tests for Node.js bindings
+    deps:
+      - task: install:tests
+    dir: "{{.TASKFILE_DIR}}/tests"
+    cmds:
+      - echo "🧪 Running integration tests..."
+      - npm test
+    silent: false

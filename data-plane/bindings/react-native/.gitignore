@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Generated bindings
+generated/
+
+
+# Build outputs
+dist/
+build/
+ios/static/
+ios/*.xcframework
+*.wasm
+*.wasm.d.ts
+
+# Testing
+coverage/
+.nyc_output/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+*.tmp
+.cache/
+.tools/
+
+# React Native
+.expo/
+.expo-shared/
+
