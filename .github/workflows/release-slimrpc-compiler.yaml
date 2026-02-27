@@ -95,3 +95,4 @@ jobs:
           zip: windows
           token: ${{ secrets.GITHUB_TOKEN }}
           manifest-path: ./data-plane/slimrpc-compiler/Cargo.toml
+          build-tool: ${{ matrix.build-tool }}
