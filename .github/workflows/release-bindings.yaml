@@ -168,3 +168,5 @@ jobs:
     secrets:
       MVN_TOKEN_NAME: ${{ secrets.MVN_TOKEN_NAME }}
       MVN_TOKEN_PASSWORD: ${{ secrets.MVN_TOKEN_PASSWORD }}
+      GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+      GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}

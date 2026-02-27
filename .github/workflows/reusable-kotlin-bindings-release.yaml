@@ -39,6 +39,12 @@ on:
       MVN_TOKEN_PASSWORD:
         description: Maven Central token password (Central Portal)
         required: false
+      GPG_SIGNING_KEY:
+        description: ASCII-armored GPG private key for signing
+        required: false
+      GPG_PASSPHRASE:
+        description: GPG key passphrase
+        required: false
 
 env:
   LIBRARY_NAME: ${{ inputs.library-name }}
@@ -118,6 +124,8 @@ jobs:
         env:
           MVN_TOKEN_NAME: ${{ secrets.MVN_TOKEN_NAME }}
           MVN_TOKEN_PASSWORD: ${{ secrets.MVN_TOKEN_PASSWORD }}
+          GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           echo "Publishing Kotlin bindings to Maven Central..."
           VERSION="${{ steps.extract-version.outputs.version }}"

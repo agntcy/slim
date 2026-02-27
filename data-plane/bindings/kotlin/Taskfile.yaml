@@ -257,13 +257,13 @@ tasks:
       - echo "✅ Build complete"
 
   publish:maven-central:
-    desc: Publish Kotlin bindings to Maven Central (requires MVN_TOKEN_NAME, MVN_TOKEN_PASSWORD, PUBLISH_VERSION). Use Central Portal token from https://central.sonatype.org/publish/generate-portal-token/
+    desc: Publish Kotlin bindings to Maven Central (requires MVN_TOKEN_NAME, MVN_TOKEN_PASSWORD, GPG_SIGNING_KEY, GPG_PASSPHRASE, PUBLISH_VERSION)
     deps:
       - generate
     vars:
       PUBLISH_VERSION: '{{.PUBLISH_VERSION | default "1.0.0"}}'
     cmds:
-      - '[ -n "$MVN_TOKEN_NAME" ] && [ -n "$MVN_TOKEN_PASSWORD" ] || (echo "Error: MVN_TOKEN_NAME and MVN_TOKEN_PASSWORD must be set"; exit 1)'
+      - '[ -n "$MVN_TOKEN_NAME" ] && [ -n "$MVN_TOKEN_PASSWORD" ] && [ -n "$GPG_SIGNING_KEY" ] && [ -n "$GPG_PASSPHRASE" ] || (echo "Error: MVN_TOKEN_NAME, MVN_TOKEN_PASSWORD, GPG_SIGNING_KEY, GPG_PASSPHRASE must be set"; exit 1)'
       - echo "Publishing Kotlin bindings to Maven Central (OSSRH Staging API)..."
       - ./gradlew publishMavenPublicationToMavenCentralRepository -PpublishVersion="{{.PUBLISH_VERSION}}" --no-daemon --stacktrace
       - echo "Transferring deployment to Central Portal..."

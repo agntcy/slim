@@ -11,6 +11,7 @@ plugins {
     kotlin("plugin.serialization") version "2.1.0"
     application
     `maven-publish`
+    signing
 }
 
 group = "io.agntcy.slim"
@@ -321,5 +322,13 @@ publishing {
                 }
             }
         }
+    }
+}
+
+// GPG signing for Maven Central (required). Uses in-memory key when env vars are set.
+if (System.getenv("GPG_SIGNING_KEY") != null && System.getenv("GPG_PASSPHRASE") != null) {
+    signing {
+        useInMemoryPgpKeys(System.getenv("GPG_SIGNING_KEY"), System.getenv("GPG_PASSPHRASE"))
+        sign(publishing.publications["maven"])
     }
 }
