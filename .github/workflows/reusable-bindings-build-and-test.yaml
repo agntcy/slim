@@ -35,7 +35,7 @@ on:
         description: Version tag for uniffi-bindgen-go
         required: false
         type: string
-        default: v0.4.0+v0.28.3
+        default: v0.4.0+v0.29
 env:
   LIBRARY_NAME: slim_bindings
   PYTHON_VERSION: '3.11'
