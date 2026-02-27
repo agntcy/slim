@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0](https://github.com/agntcy/slim/compare/protoc-slimrpc-plugin-v1.0.2...protoc-slimrpc-plugin-v1.1.0) - 2026-02-27
+
+### Added
+
+- *(slimrpc-compiler)* add types_import/types_alias params to Go plugin ([#1274](https://github.com/agntcy/slim/pull/1274))
+
+### Fixed
+
+- remove finalize keyword from bindings ([#1237](https://github.com/agntcy/slim/pull/1237))
+
 ## [1.0.2](https://github.com/agntcy/slim/compare/protoc-slimrpc-plugin-v1.0.1...protoc-slimrpc-plugin-v1.0.2) - 2026-02-13
 
 ### Fixed

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0](https://github.com/agntcy/slim/compare/slim-v1.0.2...slim-v1.1.0) - 2026-02-27
+
+### Added
+
+- remove go implementation of slimctl and refactor workflows ([#1276](https://github.com/agntcy/slim/pull/1276))
+
 ## [1.0.2](https://github.com/agntcy/slim/compare/slim-v1.0.1...slim-v1.0.2) - 2026-02-12
 
 ### Other

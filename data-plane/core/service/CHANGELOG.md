@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.7](https://github.com/agntcy/slim/compare/slim-service-v0.8.6...slim-service-v0.8.7) - 2026-02-27
+
+### Added
+
+- remove go implementation of slimctl and refactor workflows ([#1276](https://github.com/agntcy/slim/pull/1276))
+- add subscribe/unsubscribe ack handling ([#1111](https://github.com/agntcy/slim/pull/1111))
+
 ## [0.8.6](https://github.com/agntcy/slim/compare/slim-service-v0.8.5...slim-service-v0.8.6) - 2026-02-12
 
 ### Added
