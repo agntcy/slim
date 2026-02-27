@@ -61,6 +61,11 @@ jobs:
         with:
           workspace: ./data-plane
 
+      - name: Copy Cargo config from data-plane
+        run: |
+          mkdir -p .cargo
+          cp data-plane/.cargo/config.toml .cargo/config.toml
+
       - uses: taiki-e/upload-rust-binary-action@f391289bcff6a7f36b6301c0a74199657bbb4561 # v1.28.0
         with:
           bin: slimctl
