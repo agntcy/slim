@@ -266,7 +266,7 @@ publishing {
     publications {
         create<MavenPublication>("maven") {
             groupId = "io.agntcy.slim"
-            artifactId = "slim-bindings"
+            artifactId = "slim-bindings-kotlin"
             version = publishVersion
             
             from(components["java"])

@@ -31,7 +31,7 @@ on:
         description: Maven artifactId
         required: false
         type: string
-        default: slim-bindings
+        default: slim-bindings-kotlin
     secrets:
       MVN_TOKEN_NAME:
         description: Maven Central token username (Central Portal)
