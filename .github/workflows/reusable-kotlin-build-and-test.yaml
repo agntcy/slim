@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-name: kotlin-build-and-test
+name: reusable-kotlin-build-and-test
 on:
   workflow_call:
     inputs:
@@ -72,6 +72,14 @@ jobs:
           LIB_FILE="generated/jniLibs/linux-x86-64/libslim_bindings.so"
           echo "Using library: $LIB_FILE"
           task test SKIP_BUILD=true ARTIFACTS_DIR=./artifacts LIB_PATH="$LIB_FILE"
+
+      - name: Strip shared libraries
+        run: |
+          echo "✂️  Stripping shared libraries using llvm-strip-19..."
+          find ./generated/jniLibs -type f \( -name "*.so" -o -name "*.dylib" -o -name "*.dll" \) | while read -r lib; do
+            echo "  Stripping: $lib"
+            llvm-strip-19 "$lib"
+          done
 
       - name: Upload generated Kotlin code and JNI libraries
         uses: actions/upload-artifact@v4

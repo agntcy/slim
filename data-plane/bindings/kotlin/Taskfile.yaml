@@ -233,7 +233,7 @@ tasks:
 
           DEST_DIR="generated/jniLibs/$JNI_PATH"
           mkdir -p "$DEST_DIR"
-          
+
           # Get just the library filename
           LIB_FILENAME="${LIB_PREFIX}{{.LIB_NAME}}.${LIB_EXT}"
           cp "$SRC" "$DEST_DIR/$LIB_FILENAME"
