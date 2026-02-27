@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.4](https://github.com/agntcy/slim/compare/slim-datapath-v0.11.3...slim-datapath-v0.11.4) - 2026-02-27
+
+### Added
+
+- add subscribe/unsubscribe ack handling ([#1111](https://github.com/agntcy/slim/pull/1111))
+
 ## [0.11.3](https://github.com/agntcy/slim/compare/slim-datapath-v0.11.2...slim-datapath-v0.11.3) - 2026-02-12
 
 ### Other

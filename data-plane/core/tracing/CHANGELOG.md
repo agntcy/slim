@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4](https://github.com/agntcy/slim/compare/slim-tracing-v0.3.3...slim-tracing-v0.3.4) - 2026-02-27
+
+### Added
+
+- remove go implementation of slimctl and refactor workflows ([#1276](https://github.com/agntcy/slim/pull/1276))
+
 ## [0.3.3](https://github.com/agntcy/slim/compare/slim-tracing-v0.3.2...slim-tracing-v0.3.3) - 2026-02-12
 
 ### Other
