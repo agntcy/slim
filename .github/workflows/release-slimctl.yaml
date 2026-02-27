@@ -38,14 +38,27 @@ jobs:
       matrix:
         platform:
           - runner: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
-            archive: linux-amd64
+            target: x86_64-unknown-linux-gnu.2.28
+            archive: linux-amd64-gnu
+            build-tool: cargo-zigbuild
           - runner: ubuntu-24.04
-            target: aarch64-unknown-linux-gnu
-            archive: linux-arm64
+            target: aarch64-unknown-linux-gnu.2.28
+            archive: linux-arm64-gnu
+            build-tool: cargo-zigbuild
+          - runner: ubuntu-24.04
+            target: aarch64-unknown-linux-musl
+            archive: linux-arm64-musl
+            build-tool: cargo-zigbuild
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+            archive: linux-amd64-musl
+            build-tool: cargo-zigbuild
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
             archive: windows-amd64
+          - runner: windows-latest
+            target: aarch64-pc-windows-msvc
+            archive: windows-arm64
           - runner: macos-15-intel
             target: x86_64-apple-darwin
             archive: darwin-amd64
