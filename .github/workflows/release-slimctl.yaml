@@ -56,7 +56,7 @@ jobs:
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
             archive: windows-amd64
-          - runner: windows-latest
+          - runner: windows-11-arm
             target: aarch64-pc-windows-msvc
             archive: windows-arm64
           - runner: macos-15-intel
