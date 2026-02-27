@@ -56,15 +56,19 @@ jobs:
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
             archive: windows-amd64
+            build-tool: cargo
           - runner: windows-11-arm
             target: aarch64-pc-windows-msvc
             archive: windows-arm64
+            build-tool: cargo
           - runner: macos-15-intel
             target: x86_64-apple-darwin
             archive: darwin-amd64
+            build-tool: cargo
           - runner: macos-15
             target: aarch64-apple-darwin
             archive: darwin-arm64
+            build-tool: cargo
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -88,6 +92,7 @@ jobs:
           zip: windows
           token: ${{ secrets.GITHUB_TOKEN }}
           manifest-path: ./data-plane/slimctl/Cargo.toml
+          build-tool: ${{ matrix.platform.build-tool }}
 
   homebrew:
     runs-on: ubuntu-latest
