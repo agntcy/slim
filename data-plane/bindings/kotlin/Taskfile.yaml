@@ -1,0 +1,409 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+version: '3'
+
+silent: true
+set: [pipefail]
+shopt: [globstar]
+
+verbose: false
+
+includes:
+  adapter:
+    taskfile: ../rust/Taskfile.yaml
+    internal: false
+  rust:
+    taskfile: ../../../tasks/rust.yaml
+    internal: true
+
+env:
+  SHARED_SECRET: "demo-secret-key-for-examples012345"
+
+vars:
+  BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
+  PROFILE: '{{.PROFILE | default "release"}}'
+  CURRENT_TARGET:
+    sh: 'rustc -vV | sed -n "s|host: ||p"'
+  TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
+  SERVICE_TARGET: "{{.TASKFILE_DIR}}/../../target/{{.TARGET}}/{{.PROFILE}}"
+  LIB_NAME: slim_bindings
+  _DEFAULT_LIB_PATH:
+    sh: |
+      # Detect OS to determine library extension
+      OS=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
+      case "$OS" in
+        mingw*|msys*|cygwin*)
+          echo "{{.SERVICE_TARGET}}/{{.LIB_NAME}}.lib"
+          ;;
+        darwin*)
+          echo "{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.dylib"
+          ;;
+        *)
+          echo "{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.so"
+          ;;
+      esac
+  LIB_PATH: "{{.LIB_PATH | default ._DEFAULT_LIB_PATH}}"
+  ARTIFACTS_DIR: '{{.ARTIFACTS_DIR | default "./artifacts"}}'
+  # Platform mapping: rust-target|jni-path|extension
+  PLATFORMS: |
+    x86_64-unknown-linux-gnu|linux-x86-64|so
+    x86_64-unknown-linux-musl|linux-x86-64|so
+    aarch64-unknown-linux-gnu|linux-aarch64|so
+    aarch64-unknown-linux-musl|linux-aarch64|so
+    x86_64-apple-darwin|darwin-x86-64|dylib
+    aarch64-apple-darwin|darwin-aarch64|dylib
+    x86_64-pc-windows-msvc|win32-x86-64|dll
+    aarch64-pc-windows-msvc|win32-aarch64|dll
+
+tasks:
+  default:
+    cmds:
+      - task -l
+
+  generate:
+    desc: Generate Kotlin bindings from compiled Rust library
+    deps:
+      - task: adapter:bindings:build:all
+        vars:
+          PROFILE: release
+        status:
+          - test "{{.SKIP_BUILD | default "false"}}" = "true"
+      - task: rust:install-uniffi-bindgen
+    cmds:
+      - echo "🔧 Generating Kotlin bindings from compiled library..."
+      - echo "🔍 Check uniffi-bindgen version..."
+      - uniffi-bindgen --version
+      - task: copy-libraries
+      - echo "🔍 Checking library file exists:"
+      - ls -lah '{{.LIB_PATH}}'
+      - echo "🔍 Checking if library is valid:"
+      - file '{{.LIB_PATH}}'
+      - echo "🚀 Running uniffi-bindgen with verbose output..."
+      - |
+        set -x
+        uniffi-bindgen generate \
+          --library '{{.LIB_PATH}}' \
+          --language kotlin \
+          --config uniffi.toml \
+          --out-dir generated
+        BINDGEN_EXIT=$?
+        set +x
+        echo "uniffi-bindgen exit code: $BINDGEN_EXIT"
+        if [ $BINDGEN_EXIT -ne 0 ]; then
+          echo "❌ uniffi-bindgen failed with exit code $BINDGEN_EXIT"
+          exit $BINDGEN_EXIT
+        fi
+        echo "✅ uniffi-bindgen completed successfully"
+      - echo "📁 Listing generated files before patching..."
+      - |
+        if [ -d "generated" ]; then
+          echo "Contents of generated:"
+          ls -la generated/
+          echo "---"
+          echo "Contents of generated/io/agntcy/slim/bindings/:"
+          ls -la generated/io/agntcy/slim/bindings/ 2>/dev/null || echo "⚠️ Bindings directory not found"
+          echo "---"
+        else
+          echo "❌ Error: generated directory not found!"
+          exit 1
+        fi
+      - task: patch-bindings
+      - echo "✅ Bindings generated in generated/"
+
+  patch-bindings:
+    desc: Patch generated bindings to fix Kotlin compatibility issues
+    internal: true
+    cmds:
+      - python3 patch-bindings.py
+
+  copy-libraries:
+    desc: Copy native libraries from artifacts or local build to JNI structure
+    internal: true
+    cmds:
+      - rm -rf generated/jniLibs
+      - mkdir -p generated/jniLibs
+      - |
+        ARTIFACTS_DIR="{{.ARTIFACTS_DIR}}"
+        library_count=0
+
+        # Try CI artifacts directory first
+        if [[ -d "$ARTIFACTS_DIR" ]] && ls "$ARTIFACTS_DIR"/bindings-* &>/dev/null; then
+          echo "Copying libraries from artifacts: $ARTIFACTS_DIR"
+
+          # Iterate through all bindings-* artifact directories
+          for target_dir in "$ARTIFACTS_DIR"/bindings-*; do
+            if [[ ! -d "$target_dir" ]]; then
+              continue
+            fi
+
+            # Extract target triple from directory name
+            target=$(basename "$target_dir" | sed 's/^bindings-//')
+
+            # Look up the target in PLATFORMS to get JNI path and extension
+            jni_path=""
+            ext=""
+            while IFS='|' read -r platform_target platform_jni platform_ext; do
+              if [[ "$platform_target" == "$target" ]]; then
+                jni_path="$platform_jni"
+                ext="$platform_ext"
+                break
+              fi
+            done <<< "{{.PLATFORMS}}"
+
+            # Skip if target not in our supported platforms list
+            if [[ -z "$jni_path" || -z "$ext" ]]; then
+              echo "  Skipping $target (not in PLATFORMS list)"
+              continue
+            fi
+
+            echo "  Processing $target → $jni_path..."
+
+            # Determine library name patterns
+            case "$ext" in
+              so|dylib)
+                lib_pattern="lib{{.LIB_NAME}}*.$ext"
+                lib_name="lib{{.LIB_NAME}}.$ext"
+                ;;
+              dll)
+                lib_pattern="{{.LIB_NAME}}*.$ext"
+                lib_name="{{.LIB_NAME}}.$ext"
+                ;;
+            esac
+
+            # Find the library
+            src=$(find "$target_dir" -maxdepth 1 -name "$lib_pattern" -type f | head -1)
+
+            if [[ -z "$src" || ! -f "$src" ]]; then
+              echo "    ⚠️  Library not found (pattern: $lib_pattern)"
+              continue
+            fi
+
+            # Copy to JNI structure
+            jni_dir="generated/jniLibs/$jni_path"
+            mkdir -p "$jni_dir"
+            cp "$src" "$jni_dir/$lib_name"
+            echo "    ✅ Copied to $jni_path/$lib_name"
+            library_count=$((library_count + 1))
+          done
+        fi
+
+        # Fall back to local build output
+        if [[ $library_count -eq 0 ]]; then
+          echo "No CI artifacts found, copying from local build..."
+
+          # Detect OS and architecture
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          ARCH=$(uname -m)
+
+          case "$OS" in
+            darwin*)
+              case "$ARCH" in
+                x86_64|amd64) JNI_PATH="darwin-x86-64" ;;
+                arm64|aarch64) JNI_PATH="darwin-aarch64" ;;
+              esac
+              LIB_EXT="dylib"
+              LIB_PREFIX="lib"
+              ;;
+            linux*)
+              case "$ARCH" in
+                x86_64|amd64) JNI_PATH="linux-x86-64" ;;
+                arm64|aarch64) JNI_PATH="linux-aarch64" ;;
+              esac
+              LIB_EXT="so"
+              LIB_PREFIX="lib"
+              ;;
+            mingw*|msys*|cygwin*)
+              case "$ARCH" in
+                x86_64|amd64) JNI_PATH="win32-x86-64" ;;
+                arm64|aarch64) JNI_PATH="win32-aarch64" ;;
+              esac
+              LIB_EXT="dll"
+              LIB_PREFIX=""
+              ;;
+          esac
+
+          SRC="{{.LIB_PATH}}"
+
+          if [[ ! -f "$SRC" ]]; then
+            echo "⚠️  Library not found: $SRC"
+            exit 1
+          fi
+
+          DEST_DIR="generated/jniLibs/$JNI_PATH"
+          mkdir -p "$DEST_DIR"
+          
+          # Get just the library filename
+          LIB_FILENAME="${LIB_PREFIX}{{.LIB_NAME}}.${LIB_EXT}"
+          cp "$SRC" "$DEST_DIR/$LIB_FILENAME"
+          echo "✅ Copied local library to $DEST_DIR/$LIB_FILENAME"
+          library_count=1
+        fi
+
+        echo "📊 Total libraries copied: $library_count"
+        if [[ $library_count -eq 0 ]]; then
+          echo "❌ No libraries were copied!"
+          exit 1
+        fi
+
+  build:
+    desc: Build Kotlin code and create executable JARs
+    deps:
+      - generate
+    cmds:
+      - echo "🔨 Building Kotlin bindings..."
+      - ./gradlew build
+      - echo "✅ Build complete"
+
+  publish:maven-central:
+    desc: Publish Kotlin bindings to Maven Central (requires MVN_TOKEN_NAME, MVN_TOKEN_PASSWORD, GPG_SIGNING_KEY, GPG_PASSPHRASE, PUBLISH_VERSION)
+    deps:
+      - generate
+    vars:
+      PUBLISH_VERSION: '{{.PUBLISH_VERSION | default "1.0.0"}}'
+    cmds:
+      - '[ -n "$MVN_TOKEN_NAME" ] && [ -n "$MVN_TOKEN_PASSWORD" ] && [ -n "$GPG_SIGNING_KEY" ] && [ -n "$GPG_PASSPHRASE" ] || (echo "Error: MVN_TOKEN_NAME, MVN_TOKEN_PASSWORD, GPG_SIGNING_KEY, GPG_PASSPHRASE must be set"; exit 1)'
+      - echo "Publishing Kotlin bindings to Maven Central (OSSRH Staging API)..."
+      - ./gradlew publishMavenPublicationToMavenCentralRepository -PpublishVersion="{{.PUBLISH_VERSION}}" --no-daemon --stacktrace
+      - echo "Transferring deployment to Central Portal..."
+      - |
+        AUTH=$(echo -n "$MVN_TOKEN_NAME:$MVN_TOKEN_PASSWORD" | base64)
+        curl -sS -X POST -H "Authorization: Bearer $AUTH" \
+          "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/io.agntcy?publishing_type=automatic"
+      - echo "Successfully published."
+
+  clean:
+    desc: Clean build artifacts and generated code
+    cmds:
+      - echo "🧹 Cleaning build artifacts..."
+      - rm -rf generated/
+      - rm -rf build/
+      - rm -rf .gradle/
+      - ./gradlew clean 2>/dev/null || true
+      - echo "✅ Clean complete"
+
+  # ==========================================================================
+  # Testing Tasks
+  # ==========================================================================
+
+  test:
+    desc: Run all tests
+    deps:
+      - generate
+    cmds:
+      - echo "Running all tests..."
+      - ./gradlew clean test --rerun-tasks
+      - echo "Tests complete"
+      - echo "View test report at build/reports/tests/test/index.html"
+
+  test:class:
+    desc: Run a specific test class (use TEST_CLASS variable)
+    deps:
+      - generate
+    cmds:
+      - echo "Running {{.TEST_CLASS}}..."
+      - ./gradlew clean testClass -PtestClass={{.TEST_CLASS}} --rerun-tasks
+      - echo "Tests complete"
+      - echo "View test report at build/reports/tests/test/index.html"
+    vars:
+      TEST_CLASS: '{{.TEST_CLASS | default "BindingsTest"}}'
+
+  test:pattern:
+    desc: Run tests matching a pattern (use TEST_PATTERN variable)
+    deps:
+      - generate
+    cmds:
+      - echo "Running tests matching '{{.TEST_PATTERN}}'..."
+      - ./gradlew clean testPattern -PtestPattern={{.TEST_PATTERN}} --rerun-tasks
+      - echo "Tests complete"
+      - echo "View test report at build/reports/tests/test/index.html"
+    vars:
+      TEST_PATTERN: '{{.TEST_PATTERN | default "*"}}'
+
+  test:report:
+    desc: Open the test report in browser
+    cmds:
+      - |
+        if [ -f "build/reports/tests/test/index.html" ]; then
+          echo "Opening test report..."
+          case "$(uname -s)" in
+            Darwin*)
+              open build/reports/tests/test/index.html
+              ;;
+            Linux*)
+              xdg-open build/reports/tests/test/index.html 2>/dev/null || \
+              sensible-browser build/reports/tests/test/index.html 2>/dev/null || \
+              echo "Please open: build/reports/tests/test/index.html"
+              ;;
+            *)
+              echo "Please open: build/reports/tests/test/index.html"
+              ;;
+          esac
+        else
+          echo "No test report found. Run tests first: task test"
+        fi
+
+  # ==========================================================================
+  # Examples Tasks
+  # ==========================================================================
+
+  examples:server:
+    desc: Run the SLIM server example
+    cmds:
+      - echo "🚀 Starting SLIM server..."
+      - ./gradlew :runServer {{.CLI_ARGS}}
+    vars:
+      CLI_ARGS: '{{.CLI_ARGS | default ""}}'
+
+  examples:p2p:alice:
+    desc: "Point to Point example - Alice listens for messages and echoes them"
+    cmds:
+      - |
+        ./gradlew :runPointToPoint --args="--local agntcy/ns/alice --shared-secret $SHARED_SECRET {{.EXTRA_ARGS}}"
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  examples:p2p:no-mls:bob:
+    desc: "Point to Point example - Bob sends unencrypted messages to Alice"
+    env:
+      SLIM_INSTANCE_ID: bob
+    cmds:
+      - |
+        ./gradlew :runPointToPoint --args="--local agntcy/ns/bob --shared-secret $SHARED_SECRET --remote agntcy/ns/alice --message 'hey there' {{.EXTRA_ARGS}}"
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  examples:p2p:mls:bob:
+    desc: "Point to Point example - Bob sends encrypted messages to Alice"
+    env:
+      SLIM_INSTANCE_ID: bob
+    cmds:
+      - |
+        ./gradlew :runPointToPoint --args="--local agntcy/ns/bob --shared-secret $SHARED_SECRET --remote agntcy/ns/alice --message 'hey there' --enable-mls {{.EXTRA_ARGS}}"
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  examples:group:moderator:
+    desc: "Group moderator - Creates channel, invites participants"
+    cmds:
+      - |
+        ./gradlew :runGroup --args="--local agntcy/ns/moderator --shared-secret $SHARED_SECRET --remote agntcy/ns/chat --invites agntcy/ns/client-1 --invites agntcy/ns/client-2 --enable-mls {{.EXTRA_ARGS}}"
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  examples:group:client-1:
+    desc: "Group participant - Waits for invitation"
+    cmds:
+      - |
+        ./gradlew :runGroup --args="--local agntcy/ns/client-1 --shared-secret $SHARED_SECRET {{.EXTRA_ARGS}}"
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  examples:group:client-2:
+    desc: "Group participant - Waits for invitation"
+    cmds:
+      - |
+        ./gradlew :runGroup --args="--local agntcy/ns/client-2 --shared-secret $SHARED_SECRET {{.EXTRA_ARGS}}"
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'

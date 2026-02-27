@@ -20,4 +20,6 @@ tasks:
     cmds:
       - echo "🦀 Building Rust bindings library... {{.TARGET}}"
       - task: rust:crossbuild
+        vars:
+          ARGS: --config 'profile.release.strip="none"'
       - echo "🦀 Rust bindings library built successfully."

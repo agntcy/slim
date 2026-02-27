@@ -478,3 +478,13 @@ jobs:
           name: dotnet-bindings-nuget
           path: ./data-plane/bindings/dotnet/nupkg/*.nupkg
           if-no-files-found: error
+
+  kotlin-bindings-build-and-test:
+    name: "Kotlin Bindings Build and Test"
+    needs:
+      - generate-matrix
+      - build-libraries
+    uses: ./.github/workflows/reusable-kotlin-build-and-test.yaml
+    with:
+      runner: ${{ inputs.runner }}
+      rust-workspace: ${{ inputs.rust-workspace }}
