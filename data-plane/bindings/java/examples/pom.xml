@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>io.agntcy.slim</groupId>
+    <artifactId>slim-bindings-java-examples</artifactId>
+    <version>0.7.0</version>
+    <packaging>jar</packaging>
+
+    <name>SLIM Java Bindings Examples</name>
+    <description>Java examples for SLIM bindings with CompletableFuture</description>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <java.bindings.version>0.7.0</java.bindings.version>
+        <jna.version>5.14.0</jna.version>
+    </properties>
+
+    <dependencies>
+        <!-- SLIM Java Bindings JAR (installed to local Maven repository) -->
+        <dependency>
+            <groupId>io.agntcy.slim</groupId>
+            <artifactId>slim-bindings-java</artifactId>
+            <version>${java.bindings.version}</version>
+            <scope>compile</scope>
+        </dependency>
+
+        <!-- JNA (required by UniFFI bindings) -->
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>${jna.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <source>21</source>
+                    <target>21</target>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+                <configuration>
+                    <!-- Set native library path for JNA to find libslim_bindings -->
+                    <systemProperties>
+                        <systemProperty>
+                            <key>java.library.path</key>
+                            <value>${project.basedir}/../../generated/native</value>
+                        </systemProperty>
+                    </systemProperties>
+                </configuration>
+                <executions>
+                    <!-- Server example -->
+                    <execution>
+                        <id>server</id>
+                        <configuration>
+                            <mainClass>io.agntcy.slim.examples.Server</mainClass>
+                        </configuration>
+                    </execution>
+                    
+                    <!-- Point-to-point example -->
+                    <execution>
+                        <id>p2p</id>
+                        <configuration>
+                            <mainClass>io.agntcy.slim.examples.PointToPoint</mainClass>
+                        </configuration>
+                    </execution>
+                    
+                    <!-- Group example -->
+                    <execution>
+                        <id>group</id>
+                        <configuration>
+                            <mainClass>io.agntcy.slim.examples.Group</mainClass>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
