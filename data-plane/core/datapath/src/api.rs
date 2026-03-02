@@ -22,6 +22,7 @@ pub use proto::dataplane::v1::LeaveRequestPayload;
 pub use proto::dataplane::v1::Message as ProtoMessage;
 pub use proto::dataplane::v1::MlsPayload;
 pub use proto::dataplane::v1::Name as ProtoName;
+pub use proto::dataplane::v1::ParticipantSettings;
 pub use proto::dataplane::v1::Publish as ProtoPublish;
 pub use proto::dataplane::v1::SessionHeader;
 pub use proto::dataplane::v1::SessionMessageType as ProtoSessionMessageType;

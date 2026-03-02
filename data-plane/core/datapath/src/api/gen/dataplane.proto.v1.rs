@@ -205,9 +205,29 @@ pub struct TimerSettings {
 /// Join Reply
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct JoinReplyPayload {
-    /// to be used only is MLS is enabled
+    /// to be used only if MLS is enabled
     #[prost(bytes = "vec", optional, tag = "1")]
     pub key_package: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    /// Absent means the sender does not support participant settings (old version).
+    /// New senders always set this field explicitly.
+    #[prost(message, optional, tag = "2")]
+    pub settings: ::core::option::Option<ParticipantSettings>,
+}
+/// Old participants: { sends_data=None, receives_data=None } this will be used inside the
+/// group list to identify old versions of participants
+/// New participants: always set both fields explicitly to Some(true) or Some(false).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ParticipantSettings {
+    /// None means the participant is an old sender;
+    ///
+    /// participant produces data messages
+    #[prost(bool, optional, tag = "1")]
+    pub sends_data: ::core::option::Option<bool>,
+    /// None means the participant is an old sender;
+    ///
+    /// participant consumes data messages
+    #[prost(bool, optional, tag = "2")]
+    pub receives_data: ::core::option::Option<bool>,
 }
 /// Leave Request
 /// The destination is Optional. If present the message should be forwarded
@@ -239,9 +259,23 @@ pub struct GroupAddPayload {
     /// new participant to add
     #[prost(message, optional, tag = "1")]
     pub new_participant: ::core::option::Option<Name>,
+    /// new participant settings
+    /// Absent means the moderator does not support participant settings (old version).
+    /// New moderator always put this field. If the new added participant is using an old version
+    /// the field inside new_participant_settings are None (see ParticipantSettings).
+    #[prost(message, optional, tag = "4")]
+    pub new_participant_settings: ::core::option::Option<ParticipantSettings>,
     /// new list of participants
     #[prost(message, repeated, tag = "2")]
     pub participants: ::prost::alloc::vec::Vec<Name>,
+    /// settings of all participants
+    /// each entry in this field corresponds to
+    /// the participant in the same position in participants.
+    /// Empty means the moderator does not support participant settings (old version).
+    /// New moderators always populate this field with one entry per participant.
+    /// Old version participants has all fields in ParticipantSettings set to None.
+    #[prost(message, repeated, tag = "5")]
+    pub settings: ::prost::alloc::vec::Vec<ParticipantSettings>,
     /// used only when MLS is enabled
     #[prost(message, optional, tag = "3")]
     pub mls: ::core::option::Option<MlsPayload>,
@@ -250,7 +284,7 @@ pub struct GroupAddPayload {
 /// sent when a participant is removed
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GroupRemovePayload {
-    /// new participant to add
+    /// participant to remove
     #[prost(message, optional, tag = "1")]
     pub removed_participant: ::core::option::Option<Name>,
     /// new list of participants
@@ -266,6 +300,13 @@ pub struct GroupRemovePayload {
 pub struct GroupWelcomePayload {
     #[prost(message, repeated, tag = "1")]
     pub participants: ::prost::alloc::vec::Vec<Name>,
+    /// settings of all participants
+    /// each entry in this field corresponds to
+    /// the participant in the same position in participants.
+    /// Empty means the sender does not support participant settings (old version).
+    /// New senders always populate this field with one entry per participant.
+    #[prost(message, repeated, tag = "3")]
+    pub settings: ::prost::alloc::vec::Vec<ParticipantSettings>,
     /// used only when MLS is enabled
     #[prost(message, optional, tag = "2")]
     pub mls: ::core::option::Option<MlsPayload>,
@@ -281,8 +322,8 @@ pub struct GroupClosePayload {
 /// sent on mls key rotation
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct GroupProposalPayload {
-    /// Original name of the endpoint that crated the proposal name
-    /// this may by different from the packet source since it is
+    /// Original name of the endpoint that created the proposal
+    /// this may be different from the packet source since it is
     /// forwarded by the moderator on the channel to all the
     /// group participants
     #[prost(message, optional, tag = "1")]

@@ -46,6 +46,10 @@ pub enum SessionError {
     SessionMessageTypeUnexpected(ProtoSessionMessageType),
     #[error("error getting the participants list")]
     ParticipantsListQueryFailed,
+    #[error("participant settings not found for participant: {0}")]
+    ParticipantSettingsNotFound(Name),
+    #[error("invalid participant settings length")]
+    InvalidParticipantSettingsLength,
     #[error("unexpected error")]
     UnexpectedError { source: Box<SessionError> },
 

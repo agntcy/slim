@@ -165,8 +165,21 @@ message TimerSettings {
 
 // Join Reply
 message JoinReplyPayload {
-  // to be used only is MLS is enabled
+  // to be used only if MLS is enabled
   optional bytes key_package = 1;
+  // Absent means the sender does not support participant settings (old version).
+  // New senders always set this field explicitly.
+  optional ParticipantSettings settings = 2;
+}
+
+// Old participants: { sends_data=None, receives_data=None } this will be used inside the
+// group list to identify old versions of participants
+// New participants: always set both fields explicitly to Some(true) or Some(false).
+message ParticipantSettings {
+  // None means the participant is an old sender;
+  optional bool sends_data = 1; // participant produces data messages
+  // None means the participant is an old sender;
+  optional bool receives_data = 2; // participant consumes data messages
 }
 
 // Leave Request
@@ -194,8 +207,20 @@ message MlsPayload {
 message GroupAddPayload {
   // new participant to add
   Name new_participant = 1;
+  // new participant settings
+  // Absent means the moderator does not support participant settings (old version).
+  // New moderator always put this field. If the new added participant is using an old version
+  // the field inside new_participant_settings are None (see ParticipantSettings).
+  optional ParticipantSettings new_participant_settings = 4;
   // new list of participants
   repeated Name participants = 2;
+  // settings of all participants
+  // each entry in this field corresponds to
+  // the participant in the same position in participants.
+  // Empty means the moderator does not support participant settings (old version).
+  // New moderators always populate this field with one entry per participant.
+  // Old version participants has all fields in ParticipantSettings set to None.
+  repeated ParticipantSettings settings = 5;
   // used only when MLS is enabled
   optional MlsPayload mls = 3;
 }
@@ -203,7 +228,7 @@ message GroupAddPayload {
 // Group Remove Payload
 // sent when a participant is removed
 message GroupRemovePayload {
-  // new participant to add
+  // participant to remove
   Name removed_participant = 1;
   // new list of participants
   repeated Name participants = 2;
@@ -215,6 +240,12 @@ message GroupRemovePayload {
 // sent on group join
 message GroupWelcomePayload {
   repeated Name participants = 1;
+  // settings of all participants
+  // each entry in this field corresponds to
+  // the participant in the same position in participants.
+  // Empty means the sender does not support participant settings (old version).
+  // New senders always populate this field with one entry per participant.
+  repeated ParticipantSettings settings = 3;
   // used only when MLS is enabled
   optional MlsPayload mls = 2;
 }
@@ -228,8 +259,8 @@ message GroupClosePayload {
 // Group Proposal
 // sent on mls key rotation
 message GroupProposalPayload {
-  // Original name of the endpoint that crated the proposal name
-  // this may by different from the packet source since it is
+  // Original name of the endpoint that created the proposal
+  // this may be different from the packet source since it is
   // forwarded by the moderator on the channel to all the
   // group participants
   Name source = 1;

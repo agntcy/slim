@@ -492,7 +492,8 @@ mod tests {
 
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::api::{
-        CommandPayload, ProtoMessage, ProtoSessionMessageType, ProtoSessionType,
+        CommandPayload, ParticipantSettings, ProtoMessage, ProtoSessionMessageType,
+        ProtoSessionType,
     };
     use slim_testing::utils::TEST_VALID_SECRET;
 
@@ -913,8 +914,13 @@ mod tests {
         );
 
         // Send GroupWelcome message to complete the handshake
+        let settings = ParticipantSettings::default();
         let welcome_payload = CommandPayload::builder()
-            .group_welcome(vec![source.clone(), dest.clone()], None)
+            .group_welcome(
+                vec![source.clone(), dest.clone()],
+                vec![settings, settings],
+                None,
+            )
             .as_content();
 
         let welcome_message = Message::builder()

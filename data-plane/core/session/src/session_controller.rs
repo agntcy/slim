@@ -690,6 +690,7 @@ mod tests {
     // session is transitioning, indicating that graceful draining has begun.
     // Removed broken test_internal_draining_via_leave_request (incompatible mock trait implementation)
 
+    use crate::Direction;
     use crate::transmitter::SessionTransmitter;
     use slim_auth::shared_secret::SharedSecret;
 
@@ -1711,6 +1712,7 @@ mod tests {
                 initiator: true,
                 metadata: HashMap::new(),
             },
+            direction: Direction::Bidirectional,
             tx: SessionTransmitter::new(tx_slim, tx_app),
             tx_session: tx_session.clone(),
             tx_to_session_layer: tx_session_layer,
@@ -1878,6 +1880,7 @@ mod tests {
                 initiator: true,
                 metadata: HashMap::new(),
             },
+            direction: Direction::Bidirectional,
             tx: SessionTransmitter::new(tx_slim, tx_app),
             tx_session,
             tx_to_session_layer: tx_session_layer,

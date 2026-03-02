@@ -340,6 +340,7 @@ where
             source: self.source.unwrap(),
             destination: self.destination.unwrap(),
             config: self.config.unwrap(),
+            direction: self.direction,
             tx: self.tx.unwrap(),
             tx_session: tx_session.clone(),
             tx_to_session_layer: self.tx_to_session_layer.unwrap(),
