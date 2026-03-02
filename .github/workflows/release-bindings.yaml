@@ -52,9 +52,20 @@ jobs:
           echo "📦 Downloaded artifacts:"
           find ./artifacts -type f -ls
 
+      - name: Install LLVM
+        run: |
+          curl -L https://apt.llvm.org/llvm.sh -o /tmp/llvm.sh
+          chmod +x /tmp/llvm.sh
+          sudo /tmp/llvm.sh 19
+
       - name: Prepare release artifacts
         run: |
           mkdir -p ./release-artifacts
+
+          # Strip symbols from dynamic/shared libraries to reduce size
+          echo "Stripping dynamic libraries..."
+          find ./artifacts -type f \( -name "*.so" -o -name "*.dylib" -o -name "*.dll" -o -name "*.lib" \) -exec llvm-strip-19 --strip-unneeded {} \;
+          echo "Stripped .so, .dylib, .dll, .lib files"
 
           # The download-artifact action already organizes files by artifact name
           # Each platform's libraries are in ./artifacts/bindings-<target>/
@@ -143,3 +154,19 @@ jobs:
     uses: ./.github/workflows/reusable-dotnet-bindings-release.yaml
     secrets:
       nuget-api-token: ${{ secrets.NUGET_API_TOKEN }}
+
+  # ==========================================================================
+  # Job 6: Release Kotlin bindings to GitHub Packages
+  # ==========================================================================
+  release-kotlin-bindings:
+    name: "Release Kotlin Bindings"
+    needs: build-and-test-bindings
+    uses: ./.github/workflows/reusable-kotlin-bindings-release.yaml
+    permissions:
+      contents: read
+      packages: write
+    secrets:
+      MVN_TOKEN_NAME: ${{ secrets.MVN_TOKEN_NAME }}
+      MVN_TOKEN_PASSWORD: ${{ secrets.MVN_TOKEN_PASSWORD }}
+      GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+      GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}

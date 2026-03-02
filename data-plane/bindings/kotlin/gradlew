@@ -1,0 +1,15 @@
+#!/bin/sh
+
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+# Simple gradle wrapper script
+# This script forwards all arguments to gradle
+
+if command -v gradle >/dev/null 2>&1; then
+    exec gradle "$@"
+else
+    echo "Error: gradle is not installed or not in PATH"
+    echo "Please install Gradle 8.5+ from https://gradle.org/install/"
+    exit 1
+fi

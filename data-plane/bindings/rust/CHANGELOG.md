@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0](https://github.com/agntcy/slim/compare/slim-bindings-v1.1.1...slim-bindings-v1.2.0) - 2026-02-27
+
+### Added
+
+- slim bindings kotlin ([#1198](https://github.com/agntcy/slim/pull/1198))
+- remove go implementation of slimctl and refactor workflows ([#1276](https://github.com/agntcy/slim/pull/1276))
+- Create helper to convert string name to slim_bindings.Name ([#1251](https://github.com/agntcy/slim/pull/1251))
+- improve default values for exposed Client and Server config ([#1244](https://github.com/agntcy/slim/pull/1244))
+
+### Fixed
+
+- *(slimctl)* improve startup error reporting ([#1248](https://github.com/agntcy/slim/pull/1248))
+- remove finalize keyword from bindings ([#1237](https://github.com/agntcy/slim/pull/1237))
+
 ## [1.1.1](https://github.com/agntcy/slim/compare/slim-bindings-v1.1.0...slim-bindings-v1.1.1) - 2026-02-13
 
 ### Fixed

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.8](https://github.com/agntcy/slim/compare/slim-controller-v0.4.7...slim-controller-v0.4.8) - 2026-02-27
+
+### Added
+
+- remove go implementation of slimctl and refactor workflows ([#1276](https://github.com/agntcy/slim/pull/1276))
+- add subscribe/unsubscribe ack handling ([#1111](https://github.com/agntcy/slim/pull/1111))
+
 ## [0.4.7](https://github.com/agntcy/slim/compare/slim-controller-v0.4.6...slim-controller-v0.4.7) - 2026-02-12
 
 ### Other
