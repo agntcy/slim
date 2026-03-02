@@ -1,0 +1,62 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# Kotlin
+*.class
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+*.iml
+*.ipr
+*.iws
+
+# IntelliJ IDEA
+.idea/
+out/
+*.iml
+
+# Eclipse
+.classpath
+.project
+.settings/
+bin/
+
+# NetBeans
+nbproject/
+build/
+nbbuild/
+dist/
+nbdist/
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store
+
+# UniFFI generated code
+generated/
+
+# Native libraries
+*.so
+*.dylib
+*.dll
+*.a
+*.lib
+
+# Logs
+*.log
+
+# Test results
+test-results/
+test-reports/

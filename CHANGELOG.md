@@ -4,6 +4,117 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## v1.2.0 (27 February 2026)
+
+### Key Highlights
+
+#### 🎯 Major Features Added
+
+- **Kotlin Bindings**: New Kotlin language bindings generated with UniFFI, including p2p and group communication examples matching the Python bindings ([#1198](https://github.com/agntcy/slim/pull/1198))
+- **.NET/C# Bindings**: New C#/.NET SDK using `uniffi-bindgen-cs`, with full async/await support, `CancellationToken` integration, and multi-platform support (Linux x64/arm64, macOS x64/arm64, Windows x64) ([#1133](https://github.com/agntcy/slim/pull/1133))
+- **slimctl Rewritten in Rust**: The `slimctl` CLI tool has been ported from Go to Rust, bringing full Go CLI parity and integration with the Rust workspace ([#1255](https://github.com/agntcy/slim/pull/1255))
+
+#### 🚀 Features
+
+- Add subscribe/unsubscribe acknowledgment handling in the data plane ([#1111](https://github.com/agntcy/slim/pull/1111))
+- Add `types_import` and `types_alias` parameters to the SLIMRPC Go plugin, enabling generated stubs to live in a separate Go package from proto types ([#1274](https://github.com/agntcy/slim/pull/1274))
+- Introduce `Name::from_string` constructor in `slim-bindings` to convert a string identity (`org/namespace/app`) into a `Name`, removing duplicated parsing helpers ([#1251](https://github.com/agntcy/slim/pull/1251))
+- Improve default values for `TlsClientConfig` and `TlsServerConfig` — only TLS and endpoint are now mandatory ([#1244](https://github.com/agntcy/slim/pull/1244))
+
+#### 🐛 Bug Fixes
+
+- Fix startup error reporting in slimctl ([#1248](https://github.com/agntcy/slim/pull/1248))
+- Fix `slimrpc-server-python` returning an error by default when no error should be returned ([#1231](https://github.com/agntcy/slim/pull/1231))
+- Remove `finalize` keyword from language bindings ([#1237](https://github.com/agntcy/slim/pull/1237))
+- Improve slimctl integration testing stability and failure reporting ([#1234](https://github.com/agntcy/slim/pull/1234))
+- Strip native libs before packaging binaries ([#1304](https://github.com/agntcy/slim/pull/1304))
+- Add missing target platforms for the slimctl release workflow ([#1306](https://github.com/agntcy/slim/pull/1306), [#1307](https://github.com/agntcy/slim/pull/1307))
+- Copy `cargo-config` before running `taiki-e/upload-rust-binary-action` ([#1305](https://github.com/agntcy/slim/pull/1305))
+
+#### 🔧 Infrastructure & Tooling
+
+- Remove the Go implementation of slimctl and refactor CI/CD workflows accordingly ([#1276](https://github.com/agntcy/slim/pull/1276))
+- Release Rust crates only when the release PR is merged, preventing premature publishes ([#1287](https://github.com/agntcy/slim/pull/1287))
+- Use `arduino/setup-task` to install the Task runner in CI ([#1284](https://github.com/agntcy/slim/pull/1284))
+- Use local bindings in integration tests ([#1247](https://github.com/agntcy/slim/pull/1247))
+- Fix Go release workflow for `slim-bindings-go` ([#1225](https://github.com/agntcy/slim/pull/1225))
+- Fix unused variables error in `control-plane.yaml` CI workflow ([#1296](https://github.com/agntcy/slim/pull/1296))
+
+#### 📦 Packaging & Dependencies
+
+- Bump `github.com/cloudflare/circl` from 1.6.1 to 1.6.3 in `/internal/tools` ([#1282](https://github.com/agntcy/slim/pull/1282))
+
+### Component Versions Summary
+
+| Component                   | Latest Version | Release Date |
+| --------------------------- | -------------- | ------------ |
+| slim                        | v1.1.0         | 2026-02-27   |
+| slim-bindings               | v1.2.0         | 2026-02-27   |
+| protoc-slimrpc-plugin       | v1.1.0         | 2026-02-27   |
+| slimctl                     | v1.2.0         | 2026-02-27   |
+| control-plane               | v1.0.0         | 2026-01-30   |
+| helm-slim                   | v1.0.0         | 2026-02-02   |
+| helm-slim-control-plane     | v1.0.0         | 2026-01-30   |
+
+### Release Artifacts
+
+- **Container Images**: Available on GitHub Container Registry
+  - `ghcr.io/agntcy/slim:v1.1.0`
+- **Python Packages**: Published to PyPI
+  - `slim-bindings==1.2.0`
+- **Kotlin Packages**: Published to GitHub Packages (Maven/Gradle)
+  - `io.agntcy:slim-bindings:1.2.0`
+- **.NET Packages**: Published to NuGet
+  - `Agntcy.Slim==1.2.0`
+- **Rust Crates**: Published to crates.io
+  - `agntcy-protoc-slimrpc-plugin==1.1.0`
+  - `agntcy-slimctl==1.2.0`
+- **Go Bindings**: Available at [github.com/agntcy/slim-bindings-go](https://github.com/agntcy/slim-bindings-go)
+
+### Compatibility Matrix
+
+All components with the same major version (v1.x.x) are compatible with each other.
+
+| Component                    | Version | Compatible With                                                         |
+| ---------------------------- | ------- | ----------------------------------------------------------------------- |
+| **slim**                     | v1.1.0  | Data plane runtime                                                      |
+| **slim-bindings**            | v1.2.0  | Python 3.10+, Go 1.21+ (with CGO), Kotlin (JVM 17+), .NET 8.0+        |
+| **protoc-slimrpc-plugin**    | v1.1.0  | protoc 3.x+, supports Python and Go code generation                    |
+| **slimctl**                  | v1.2.0  | CLI tool (Linux x64/arm64, macOS x64/arm64, Windows x64)               |
+| **control-plane**            | v1.0.0  | Control plane services                                                  |
+| **helm charts**              | v1.0.0  | Kubernetes deployment                                                   |
+
+#### Compatibility Notes
+
+- **slim-bindings v1.2.0** adds Kotlin and .NET language bindings alongside the existing Python and Go support
+- **slimctl v1.2.0** is now a native Rust binary; the Go-based slimctl is no longer maintained
+- **protoc-slimrpc-plugin v1.1.0** supports separate package placement for generated Go stubs via `types_import`/`types_alias`
+- Backward compatible with slim-bindings v1.1.x for all existing Python, Go, and SLIMRPC features
+
+### Migration Notes
+
+#### slimctl
+
+The `slimctl` CLI tool has been rewritten in Rust. The new binary provides full parity with the previous Go implementation. If you installed `slimctl` manually or via CI scripts, replace the binary with the new Rust-based version available in the release artifacts. No command-line interface changes are expected.
+
+#### .NET Bindings
+
+A new C#/.NET SDK is available for SLIM. Refer to the examples under `data-plane/bindings/dotnet/` to get started.
+
+#### Kotlin Bindings
+
+Kotlin bindings are now available via Maven/Gradle. Refer to the examples under `data-plane/bindings/kotlin/` for p2p and group communication patterns equivalent to the Python bindings examples.
+
+#### SLIMRPC Go Plugin — Separate Package Support
+
+The `protoc-gen-slimrpc-go` plugin now accepts `types_import` and optionally `types_alias` parameters. If you want the generated SLIMRPC stubs to reference proto types from a separate package, pass:
+
+```
+--slimrpc-go_out=. --slimrpc-go_opt=types_import=github.com/example/pkg/types,types_alias=types
+```
+
+This is optional and fully backward compatible — existing invocations without these parameters continue to work unchanged.
+
 ## v1.1.0 (12 February 2026)
 
 ### Key Highlights

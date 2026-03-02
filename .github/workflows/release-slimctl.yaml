@@ -38,20 +38,37 @@ jobs:
       matrix:
         platform:
           - runner: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
-            archive: linux-amd64
+            target: x86_64-unknown-linux-gnu.2.28
+            archive: linux-amd64-gnu
+            build-tool: cargo-zigbuild
           - runner: ubuntu-24.04
-            target: aarch64-unknown-linux-gnu
-            archive: linux-arm64
+            target: aarch64-unknown-linux-gnu.2.28
+            archive: linux-arm64-gnu
+            build-tool: cargo-zigbuild
+          - runner: ubuntu-24.04
+            target: aarch64-unknown-linux-musl
+            archive: linux-arm64-musl
+            build-tool: cargo-zigbuild
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+            archive: linux-amd64-musl
+            build-tool: cargo-zigbuild
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
             archive: windows-amd64
+            build-tool: cargo
+          - runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            archive: windows-arm64
+            build-tool: cargo
           - runner: macos-15-intel
             target: x86_64-apple-darwin
             archive: darwin-amd64
+            build-tool: cargo
           - runner: macos-15
             target: aarch64-apple-darwin
             archive: darwin-arm64
+            build-tool: cargo
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -60,6 +77,11 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           workspace: ./data-plane
+
+      - name: Copy Cargo config from data-plane
+        run: |
+          mkdir -p .cargo
+          cp data-plane/.cargo/config.toml .cargo/config.toml
 
       - uses: taiki-e/upload-rust-binary-action@f391289bcff6a7f36b6301c0a74199657bbb4561 # v1.28.0
         with:
@@ -70,6 +92,7 @@ jobs:
           zip: windows
           token: ${{ secrets.GITHUB_TOKEN }}
           manifest-path: ./data-plane/slimctl/Cargo.toml
+          build-tool: ${{ matrix.platform.build-tool }}
 
   homebrew:
     runs-on: ubuntu-latest

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-name: Reusable .NET Bindings Release
+name: reusable-dotnet-bindings-release
 
 on:
   workflow_call:

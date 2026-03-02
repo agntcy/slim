@@ -135,7 +135,7 @@ async def receive_loop(
         session = created_session
 
     # Make session available to other tasks
-    shared_session_container[0] = session
+    shared_session_container.append(session)
     session_ready.set()
 
     # Get source and destination names for display

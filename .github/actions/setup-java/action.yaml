@@ -1,0 +1,43 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+
+name: Setup Java Environment
+description: setup environment to build/test/lint Kotlin applications
+inputs:
+  java-version:
+    description: 'Java version to install'
+    required: false
+    default: '21'
+  distribution:
+    description: 'Java distribution to use'
+    required: false
+    default: 'temurin'
+outputs:
+  cache-hit:
+    description: "Whether we hit the cache"
+    value: ${{ steps.setup-java.outputs.cache-hit }}
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Java (with Gradle cache)
+      id: setup-java
+      uses: actions/setup-java@v4
+      with:
+        distribution: ${{ inputs.distribution }}
+        java-version: ${{ inputs.java-version }}
+        cache: gradle
+        cache-dependency-path: |
+          **/*.gradle*
+          **/gradle-wrapper.properties
+          **/settings.gradle*
+          **/gradle.properties
+          **/gradle/libs.versions.toml
+
+    - name: Setup Taskfile
+      uses: ./.github/actions/setup-task
+
+    - name: Update GITHUB_PATH
+      run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+      shell: bash

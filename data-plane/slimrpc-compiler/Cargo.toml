@@ -1,7 +1,7 @@
 [package]
 name = "agntcy-protoc-slimrpc-plugin"
 description = "A protoc plugin for generating slimrpc code"
-version = "1.0.2"
+version = "1.1.0"
 license.workspace = true
 edition.workspace = true
 
