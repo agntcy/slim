@@ -267,7 +267,11 @@ where
         }
     }
 
-    async fn add_endpoint(&mut self, endpoint: &Name, settings: ParticipantSettings) -> Result<(), SessionError> {
+    async fn add_endpoint(
+        &mut self,
+        endpoint: &Name,
+        settings: ParticipantSettings,
+    ) -> Result<(), SessionError> {
         self.inner.add_endpoint(endpoint, settings).await
     }
 
@@ -767,7 +771,8 @@ where
 
         // notify the local session that a new participant was added to the group
         debug!(session_name = %msg.get_source(), "add endpoint");
-        self.add_endpoint(&msg.get_source(), new_participant_settings).await?;
+        self.add_endpoint(&msg.get_source(), new_participant_settings)
+            .await?;
 
         // get mls data if MLS is enabled
         let (commit, welcome) = if let Some(mls_state) = &mut self.mls_state {
@@ -1622,7 +1627,9 @@ mod tests {
         let endpoint = make_name(&["participant", "app", "v1"]).with_id(400);
 
         // Add endpoint
-        let result = moderator.add_endpoint(&endpoint, ParticipantSettings::default()).await;
+        let result = moderator
+            .add_endpoint(&endpoint, ParticipantSettings::default())
+            .await;
         assert!(result.is_ok());
         assert_eq!(moderator.inner.get_endpoints_added_count().await, 1);
 

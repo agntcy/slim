@@ -140,6 +140,17 @@ impl SessionReceiver {
                     // draining period is started, do no accept any new message
                     return Err(SessionError::SessionDrainingDrop);
                 }
+
+                // if shutdown_receive is true the message is ignored
+                if self.shutdown_receive {
+                    debug!(
+                        id = %message.get_id(),
+                        source = %message.get_source(),
+                        "receiver is disabled, do not deliver message to app",
+                    );
+                    return Ok(());
+                }
+
                 if self.session_type == ProtoSessionType::PointToPoint {
                     // if the session is point to point publish_to falls back
                     // to the standard publish function
@@ -162,16 +173,6 @@ impl SessionReceiver {
     }
 
     pub async fn on_publish_message(&mut self, message: Message) -> Result<(), SessionError> {
-        // if shutdown_receive is true we just ack the message and do not deliver it to the app
-        if self.shutdown_receive {
-            debug!(
-                id = %message.get_id(),
-                source = %message.get_source(),
-                "receiver is disabled, do not deliver message to app",
-            );
-            return Ok(());
-        }
-
         if self.timer_factory.is_none() || message.contains_metadata(PUBLISH_TO) {
             debug!(
                 id = %message.get_id(),
@@ -1975,7 +1976,7 @@ mod tests {
     #[traced_test]
     async fn test_shutdown_receive_out_of_order_messages() {
         // Test 3: Send messages 1, 3, 2 out of order with shutdown_receive=true.
-        // Verify all ACKs are sent but no messages reach the app, and no RTX requests are generated.
+        // Verify no ACKs are sent, no messages reach the app, and no RTX requests are generated.
         let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
@@ -2019,22 +2020,9 @@ mod tests {
                 .unwrap_or_else(|_| panic!("error sending message{}", msg_id));
         }
 
-        // Verify all 3 ACKs were sent (in the order messages were received: 1, 3, 2)
-        let expected_order = [1u32, 3u32, 2u32];
-        for expected_id in expected_order {
-            let ack = timeout(Duration::from_millis(100), rx_slim.recv())
-                .await
-                .unwrap_or_else(|_| panic!("timeout waiting for ack{}", expected_id))
-                .expect("channel closed")
-                .unwrap_or_else(|_| panic!("error in received ack{}", expected_id));
-
-            assert_eq!(ack.get_dst(), remote_name);
-            assert_eq!(
-                ack.get_session_message_type(),
-                slim_datapath::api::ProtoSessionMessageType::MsgAck
-            );
-            assert_eq!(ack.get_session_header().get_message_id(), expected_id);
-        }
+        // Verify no ACKs were sent
+        let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
+        assert!(res.is_err(), "Expected no ACKs but got: {:?}", res);
 
         // Verify no messages were delivered to app
         let res = timeout(Duration::from_millis(100), rx_app.recv()).await;
@@ -2043,17 +2031,13 @@ mod tests {
             "Expected no messages to app but got: {:?}",
             res
         );
-
-        // Verify no RTX requests were sent (even though messages arrived out of order)
-        let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
-        assert!(res.is_err(), "Expected no RTX requests but got: {:?}", res);
     }
 
     #[tokio::test]
     #[traced_test]
     async fn test_shutdown_receive_multiple_senders() {
         // Test 4: Two senders send messages simultaneously with shutdown_receive=true.
-        // Verify ACKs go to both senders but no messages reach the app.
+        // Verify no ACKs are produced and no messages reach the app.
         let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
@@ -2143,22 +2127,9 @@ mod tests {
             .await
             .expect("error sending message2 from remote2");
 
-        // Collect all 4 ACKs
-        let mut received_acks = Vec::new();
-        for _ in 0..4 {
-            let ack = timeout(Duration::from_millis(100), rx_slim.recv())
-                .await
-                .expect("timeout waiting for ack")
-                .expect("channel closed")
-                .expect("error in received ack");
-            received_acks.push((ack.get_dst(), ack.get_session_header().get_message_id()));
-        }
-
-        // Verify all ACKs were sent to correct destinations
-        assert!(received_acks.contains(&(remote1_name.clone(), 1)));
-        assert!(received_acks.contains(&(remote1_name.clone(), 2)));
-        assert!(received_acks.contains(&(remote2_name.clone(), 1)));
-        assert!(received_acks.contains(&(remote2_name.clone(), 2)));
+        // Verify no ACKs were sent
+        let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
+        assert!(res.is_err(), "Expected no ACKs but got: {:?}", res);
 
         // Verify no messages were delivered to app
         let res = timeout(Duration::from_millis(100), rx_app.recv()).await;
@@ -2167,17 +2138,13 @@ mod tests {
             "Expected no messages to app but got: {:?}",
             res
         );
-
-        // Verify no RTX requests were sent
-        let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
-        assert!(res.is_err(), "Expected no RTX requests but got: {:?}", res);
     }
 
     #[tokio::test]
     #[traced_test]
     async fn test_shutdown_receive_publish_to_messages() {
         // Test 5: Verify that even PUBLISH_TO messages (which normally bypass buffering)
-        // are not delivered to the app when shutdown_receive=true, but still generate ACKs.
+        // are not delivered to the app when shutdown_receive=true, and no ACKs are generated.
         let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
@@ -2252,23 +2219,9 @@ mod tests {
             .await
             .expect("error sending message2");
 
-        // Verify all 3 ACKs were sent (including PUBLISH_TO)
-        let mut received_acks = Vec::new();
-        for _ in 0..3 {
-            let ack = timeout(Duration::from_millis(100), rx_slim.recv())
-                .await
-                .expect("timeout waiting for ack")
-                .expect("channel closed")
-                .expect("error in received ack");
-
-            let has_publish_to = ack.metadata.contains_key(PUBLISH_TO);
-            received_acks.push((ack.get_session_header().get_message_id(), has_publish_to));
-        }
-
-        // Verify ACKs for message 1, 100 (with PUBLISH_TO), and 2
-        assert!(received_acks.contains(&(1, false)));
-        assert!(received_acks.contains(&(100, true))); // PUBLISH_TO message should have metadata in ACK
-        assert!(received_acks.contains(&(2, false)));
+        // Verify no ACKs were sent (including for PUBLISH_TO message)
+        let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
+        assert!(res.is_err(), "Expected no ACKs but got: {:?}", res);
 
         // Verify no messages were delivered to app (including PUBLISH_TO message)
         let res = timeout(Duration::from_millis(100), rx_app.recv()).await;
@@ -2277,10 +2230,6 @@ mod tests {
             "Expected no messages to app (including PUBLISH_TO) but got: {:?}",
             res
         );
-
-        // Verify no RTX requests were sent
-        let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
-        assert!(res.is_err(), "Expected no RTX requests but got: {:?}", res);
     }
 
     #[tokio::test]

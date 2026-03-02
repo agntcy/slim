@@ -126,7 +126,11 @@ impl Session {
         }
     }
 
-    pub async fn add_endpoint(&mut self, endpoint: &Name, settings: ParticipantSettings) -> Result<(), SessionError> {
+    pub async fn add_endpoint(
+        &mut self,
+        endpoint: &Name,
+        settings: ParticipantSettings,
+    ) -> Result<(), SessionError> {
         debug!(%endpoint, local_name = %self.local_name, "add participant");
         self.sender.add_endpoint(endpoint, settings).await
     }

@@ -3,8 +3,8 @@
 
 // Third-party crates
 use async_trait::async_trait;
-use slim_datapath::{Status, api::ParticipantSettings};
 use slim_datapath::api::ProtoMessage as Message;
+use slim_datapath::{Status, api::ParticipantSettings};
 
 // Local crate
 use super::SessionInterceptorProvider;

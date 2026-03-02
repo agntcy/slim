@@ -154,7 +154,11 @@ impl MessageHandler for MockInnerHandler {
         Ok(())
     }
 
-    async fn add_endpoint(&mut self, endpoint: &Name, _settings: ParticipantSettings) -> Result<(), SessionError> {
+    async fn add_endpoint(
+        &mut self,
+        endpoint: &Name,
+        _settings: ParticipantSettings,
+    ) -> Result<(), SessionError> {
         self.endpoints_added.lock().await.push(endpoint.clone());
         Ok(())
     }

@@ -231,7 +231,11 @@ where
         }
     }
 
-    async fn add_endpoint(&mut self, endpoint: &Name, settings: ParticipantSettings) -> Result<(), SessionError> {
+    async fn add_endpoint(
+        &mut self,
+        endpoint: &Name,
+        settings: ParticipantSettings,
+    ) -> Result<(), SessionError> {
         self.inner.add_endpoint(endpoint, settings).await
     }
 
@@ -1201,7 +1205,9 @@ mod tests {
         let endpoint = make_name(&["endpoint", "app", "v1"]).with_id(400);
 
         // Add endpoint
-        let result = participant.add_endpoint(&endpoint, ParticipantSettings::default()).await;
+        let result = participant
+            .add_endpoint(&endpoint, ParticipantSettings::default())
+            .await;
         assert!(result.is_ok());
         assert_eq!(participant.inner.get_endpoints_added_count().await, 1);
 
