@@ -6,7 +6,7 @@
 
     <groupId>io.agntcy.slim</groupId>
     <artifactId>slim-bindings-java</artifactId>
-    <version>0.7.0</version>
+    <version>0.1.2</version>
     <packaging>jar</packaging>
 
     <name>SLIM Java Bindings</name>

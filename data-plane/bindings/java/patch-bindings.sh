@@ -77,6 +77,30 @@ if [ -f "$BINDINGS_DIR/io/agntcy/slim/bindings/FfiConverterTypeJwtKeyData.java" 
     "$BINDINGS_DIR/io/agntcy/slim/bindings/FfiConverterTypeJwtKeyData.java"
 fi
 
+# Fix 7: RpcCode and similar enums - Rust-style unsigned literals and malformed delimiters
+# UniFFI generates 0u, 1u etc. (Rust) and ,} / ;} instead of , / ;
+# Also cast int literals to Short for enum constructors expecting Short
+echo "  → Fixing enum unsigned literals and delimiters..."
+find "$BINDINGS_DIR" -name "*.java" -type f -exec sed -i.bak \
+  -e 's/\([0-9][0-9]*\)u/\1/g' \
+  -e 's/,}/,/g' \
+  -e 's/;}/;/g' \
+  {} \;
+# RpcCode enum constructor expects Short; cast int literals
+if [ -f "$BINDINGS_DIR/io/agntcy/slim/bindings/RpcCode.java" ]; then
+  sed -i.bak -e 's/\([A-Z_][A-Z_0-9]*\)(\([0-9][0-9]*\))/\1((short)\2)/g' \
+    "$BINDINGS_DIR/io/agntcy/slim/bindings/RpcCode.java"
+fi
+
+# Fix 8: ResponseSink close() conflict with AutoCloseable
+# ResponseSink implements both AutoCloseable.close() and ResponseSinkInterface.close()
+# Rename the stream close to closeStream() to avoid duplicate method
+echo "  → Fixing ResponseSink close() conflict with AutoCloseable..."
+find "$BINDINGS_DIR" -name "*.java" -type f -exec sed -i.bak \
+  -e 's/public void close() throws RpcException/public void closeStream() throws RpcException/g' \
+  -e 's/sink\.close()/sink.closeStream()/g' \
+  {} \;
+
 # Fix 6: UniFFI contract version mismatch  
 # uniffi-bindgen-java 0.2.1 generates contract version 29, but needs to match Rust uniffi version
 # After testing, Rust uniffi 0.28.3 uses contract version 29, not 28
@@ -100,3 +124,5 @@ echo "   - Renamed wait() → waitForCompletion() to avoid Object.wait() conflic
 echo "   - Fixed equals() return type: Boolean → boolean"
 echo "   - Fixed equals() Object casting for lower() method"
 echo "   - Fixed duplicate pattern variable names in sealed type switches"
+echo "   - Fixed enum unsigned literals (0u → 0), delimiters (,} → ,; ;} → ;), and Short cast for RpcCode"
+echo "   - Renamed ResponseSink.close() → closeStream() to avoid AutoCloseable conflict"
