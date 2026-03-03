@@ -312,7 +312,7 @@ tasks:
       - which uniffi-bindgen
     cmds:
       - echo "📦 Installing uniffi-bindgen..."
-      - cargo install uniffi-bindgen-cli --git https://github.com/mozilla/uniffi-rs.git --tag v0.28.3
+      - cargo install uniffi-bindgen-cli --git https://github.com/mozilla/uniffi-rs.git --tag v0.29.5
       - echo "✅ uniffi-bindgen installed"
 
   install-target:
