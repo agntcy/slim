@@ -8,6 +8,7 @@ use std::{
 
 use async_trait::async_trait;
 use display_error_chain::ErrorChainExt;
+use rand::rand_core::le;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
@@ -593,6 +594,8 @@ where
 
         // now the moderator is busy - create the task first
         debug!("Create AddParticipant task with ack_tx");
+        self.current_task = Some(ModeratorTask::Add(AddParticipant::new(ack_tx, None)));
+
         // check if there is a destination name in the payload. If yes recreate the message
         // with the right destination and send it out
         let payload = msg.extract_discovery_request().map_err(|e| {
@@ -636,7 +639,11 @@ where
                 (msg, None)
             }
         };
-        self.current_task = Some(ModeratorTask::Add(AddParticipant::new(ack_tx, ack)));
+
+        // set the ack message in the task if required
+        if let Some(ack_msg) = ack {
+            self.current_task.as_mut().unwrap().set_ack_msg(ack_msg);
+        }
 
         // check if the participant is already part of the group
         let new_participant_name = discovery.get_dst();
@@ -692,10 +699,13 @@ where
         // if this is a multicast session we need to add a route for the channel
         // on the connection from where we received the message. This has to be done
         // all the times because the messages from the remote endpoints may come from
-        // different connections. In case the route exists already it will be just ignored
+        // different connections.
         if self.common.settings.config.session_type == ProtoSessionType::Multicast {
             self.common
                 .add_route(&self.common.settings.destination, msg.get_incoming_conn())
+                .await?;
+            self.common
+                .add_route(&self.common.settings.control, msg.get_incoming_conn())
                 .await?;
         }
 
@@ -704,6 +714,7 @@ where
         let msg_id = rand::random::<u32>();
 
         let channel = if self.common.settings.config.session_type == ProtoSessionType::Multicast {
+            // keep using the destination as channel name, the control name can be recreated by the participants
             Some(self.common.settings.destination.clone())
         } else {
             None
@@ -768,6 +779,25 @@ where
         let new_participant_settings = payload.settings.unwrap_or_default();
         self.participant_settings
             .insert(msg.get_source().clone(), new_participant_settings);
+        if new_participant_settings == ParticipantSettings::default() &&
+            self.common.settings.config.session_type == ProtoSessionType::Multicast {
+            // this is a legacy participant so we need to use the legacy channel
+            debug!("The new participant is a legacy one, setup the legacy channel");
+            // the legacy channel name is the same ad the destionation with null id.
+            let mut legacy_name = self.common.settings.destination.clone();
+            legacy_name.reset_id();
+            if self.common.settings.legacy.is_none() {
+                self.common.settings.legacy = Some(legacy_name.clone());
+                // also add a susbcription for the laegacy channel
+                self.common
+                    .add_subscription(&legacy_name, msg.get_incoming_conn())
+                    .await?;
+            }
+            // for every participant add the route
+            self.common
+                .add_route(&legacy_name, msg.get_incoming_conn())
+                .await?;
+        }
 
         // notify the local session that a new participant was added to the group
         debug!(session_name = %msg.get_source(), "add endpoint");
@@ -828,10 +858,10 @@ where
             debug!(id = %add_msg_id, "send add update to channel");
             self.common
                 .send_control_message(
-                    &self.common.settings.destination.clone(),
+                    &self.common.settings.control.clone(),
                     ProtoSessionMessageType::GroupAdd,
                     add_msg_id,
-                    update_payload,
+                    update_payload.clone(),
                     None,
                     true,
                 )
@@ -840,6 +870,24 @@ where
                 .as_mut()
                 .unwrap()
                 .commit_start(add_msg_id)?;
+            if let Some(legacy) = self.common.settings.legacy.clone() {
+                let legacy_id = rand::random::<u32>();
+                debug!(id = %legacy_id, "also send the group update to the legacy channel");
+                self.common
+                    .send_control_message(
+                        &legacy,
+                        ProtoSessionMessageType::GroupAdd,
+                        legacy_id,
+                        update_payload,
+                        None,
+                        true,
+                    )
+                    .await?;
+                self.current_task
+                    .as_mut()
+                    .unwrap()
+                    .commit_legacy_start(legacy_id)?;
+            }
         } else {
             // no commit message will be sent so update the task state to consider the commit as received
             // the timer id is not important here, it just need to be consistent
@@ -882,6 +930,9 @@ where
         Ok(())
     }
 
+    /// xxxxxxx 
+    /// OK up to here
+    /// xxxxxx
     async fn on_leave_request(
         &mut self,
         mut msg: Message,
@@ -1303,11 +1354,15 @@ where
         // if this is a point to point connection set the remote name so that we
         // can add also the right id to the message destination name
         if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
-            self.common.settings.destination = remote;
+            self.common.settings.destination = remote.clone();
+            self.common.settings.control = remote;
         } else {
             // if this is a multicast session we need to subscribe for the channel name
             self.common
                 .add_subscription(&self.common.settings.destination, conn)
+                .await?;
+            self.common
+                .add_subscription(&self.common.settings.control, conn)
                 .await?;
         }
 

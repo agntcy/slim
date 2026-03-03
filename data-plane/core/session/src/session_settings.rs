@@ -33,7 +33,16 @@ where
     pub(crate) source: Name,
 
     /// Remote endpoint or group name
+    /// used to send application data
     pub(crate) destination: Name,
+
+    /// Group name for control messages
+    /// in P2P session is the same as destination
+    pub(crate) control: Name,
+
+    /// Legacy group name. Use only if a legacy
+    /// partcipant is connected to the group
+    pub(crate) legacy: Option<Name>,
 
     /// Session configuration
     pub(crate) config: SessionConfig,

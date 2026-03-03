@@ -85,6 +85,19 @@ impl From<&ProtoName> for Name {
 impl Name {
     // NULL_COMPONENT is used to represent a component that is not set
     pub const NULL_COMPONENT: u64 = u64::MAX;
+    // Channels gets two different names: one for data and one for control
+    // messages. The first 3 comoponents are the same for both. Only the 4th 
+    // component (id) is different.
+    // DATA_CHANNEL_ID is the id for the data channel name
+    pub const DATA_CHANNEL_ID: u64 = u64::MAX - 1;
+    // CONTROL_CHANNEL_ID is the id for the control channel name.
+    pub const CONTROL_CHANNEL_ID: u64 = u64::MAX - 2;
+
+    /// Returns true if `id` is one of the reserved sentinel values
+    /// (`NULL_COMPONENT`, `DATA_CHANNEL_ID`, `CONTROL_CHANNEL_ID`).
+    pub const fn is_reserved_id(id: u64) -> bool {
+        id >= Self::CONTROL_CHANNEL_ID
+    }
 
     pub fn from_strings(components: [impl Into<String>; 3]) -> Self {
         let strings = components.map(Into::into);
