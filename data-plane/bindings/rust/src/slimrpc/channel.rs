@@ -5,14 +5,6 @@
 //!
 //! Provides a Channel type for making RPC calls to remote services.
 //! Supports all gRPC streaming patterns over SLIM sessions.
-//!
-//! ## Session reuse
-//!
-//! A single SLIM session is maintained per remote peer and shared across all
-//! concurrent RPC calls.  Each call is tagged with a unique `rpc-id` in the
-//! SLIM message metadata.  A background dispatcher task reads from the shared
-//! `SessionRx` and routes each incoming message to the mpsc channel registered
-//! for that `rpc-id`, so every concurrent caller gets exactly its own responses.
 
 use std::collections::HashMap;
 use std::sync::Arc;
