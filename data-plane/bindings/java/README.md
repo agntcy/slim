@@ -38,7 +38,7 @@ This will:
 task build
 ```
 
-Creates a JAR at `target/slim-bindings-java-0.7.0.jar`.
+Creates a JAR at `target/slim-bindings-java-1.2.0.jar`.
 
 ### 3. Install to Local Maven Repository
 

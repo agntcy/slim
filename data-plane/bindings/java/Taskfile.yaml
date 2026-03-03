@@ -20,6 +20,8 @@ env:
   SHARED_SECRET: "demo-secret-key-for-examples012345"
 
 vars:
+  BINDINGS_VERSION:
+    sh: 'mvn -f pom.xml help:evaluate -Dexpression=project.version -q -DforceStdout'
   BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
   PROFILE: '{{.PROFILE | default "release"}}'
   CURRENT_TARGET:
@@ -135,6 +137,15 @@ tasks:
       - mvn clean package -DskipTests
       - echo "✅ Build complete"
 
+  test:
+    desc: Run Java bindings tests
+    deps:
+      - generate
+    cmds:
+      - echo "🧪 Running Java bindings tests..."
+      - mvn test -Djava.util.concurrent.ForkJoinPool.common.parallelism=16
+      - echo "✅ Tests complete"
+
   install:
     desc: Install Java bindings JAR to local Maven repository
     deps:
@@ -163,19 +174,19 @@ tasks:
     cmds:
       - echo "📦 Installing Java bindings to Maven local repository..."
       - |
-        if [ ! -f target/slim-bindings-java-0.7.0.jar ]; then
+        if [ ! -f target/slim-bindings-java-{{.BINDINGS_VERSION}}.jar ]; then
           echo "⚠️  Java bindings JAR not found, building first..."
           task build
         fi
       - |
         mvn install:install-file \
-          -Dfile=target/slim-bindings-java-0.7.0.jar \
+          -Dfile=target/slim-bindings-java-{{.BINDINGS_VERSION}}.jar \
           -DgroupId=io.agntcy.slim \
           -DartifactId=slim-bindings-java \
-          -Dversion=0.7.0 \
+          -Dversion={{.BINDINGS_VERSION}} \
           -Dpackaging=jar \
           -DgeneratePom=true
-      - echo "✅ Java bindings installed to ~/.m2/repository/io/agntcy/slim/slim-bindings-java/0.7.0/"
+      - echo "✅ Java bindings installed to ~/.m2/repository/io/agntcy/slim/slim-bindings-java/{{.BINDINGS_VERSION}}/"
 
   examples:compile:
     desc: Compile Java examples

@@ -6,7 +6,7 @@
 
     <groupId>io.agntcy.slim</groupId>
     <artifactId>slim-bindings-java-examples</artifactId>
-    <version>0.7.0</version>
+    <version>1.2.0</version>
     <packaging>jar</packaging>
 
     <name>SLIM Java Bindings Examples</name>
@@ -16,7 +16,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
-        <java.bindings.version>0.7.0</java.bindings.version>
+        <java.bindings.version>1.2.0</java.bindings.version>
         <jna.version>5.14.0</jna.version>
     </properties>
 
