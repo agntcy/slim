@@ -114,8 +114,6 @@ fn generate_rpc_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-// ── Metadata builders ─────────────────────────────────────────────────────────
-
 /// Metadata for the first (or only) message of an RPC call.
 /// Carries routing info (service, method), the rpc-id, and any deadline / user
 /// metadata from the context.
