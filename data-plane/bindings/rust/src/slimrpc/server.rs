@@ -825,7 +825,6 @@ impl Server {
         // Subscribe to the base name so that the SLIM network routes incoming
         // sessions to this server. Method dispatch is determined by reading the
         // "service" and "method" keys from the SLIM metadata of the first message
-        // in each session rather than from per-method subscription names.
         tracing::info!(%base_name, "Subscribing");
         if let Err(e) = app.subscribe(&base_name, connection_id).await {
             let status = RpcError::internal(format!("Failed to subscribe to {}: {}", base_name, e));
