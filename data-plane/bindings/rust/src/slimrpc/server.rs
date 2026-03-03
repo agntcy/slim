@@ -24,11 +24,10 @@ use slim_session::notification::Notification;
 
 use super::{
     Context, HandlerInfo, METHOD_KEY, RPC_ID_KEY, ReceivedMessage, RequestStream, ResponseSink,
-    RpcCode, RpcError, RpcSession, SERVICE_KEY, STATUS_CODE_KEY, StreamRpcSession,
-    StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
-    UniffiRequestStream,
+    RpcCode, RpcError, RpcSession, SERVICE_KEY, StreamRpcSession, StreamStreamHandler,
+    StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler, UniffiRequestStream,
     codec::{Decoder, Encoder},
-    send_error_for_rpc,
+    msg_is_terminal, send_error_for_rpc,
     session_wrapper::{SessionRx, SessionTx, new_session},
 };
 
@@ -295,17 +294,6 @@ pub struct Server {
     drain_watch: RwLock<Option<drain::Watch>>,
     /// Runtime handle for spawning tasks (resolved at construction)
     runtime: tokio::runtime::Handle,
-}
-
-/// Returns true if `msg` is the final message in an RPC stream (error status or empty payload).
-fn msg_is_terminal(msg: &ReceivedMessage) -> bool {
-    let code = msg
-        .metadata
-        .get(STATUS_CODE_KEY)
-        .and_then(|s| s.parse::<i32>().ok())
-        .and_then(|c| RpcCode::try_from(c).ok())
-        .unwrap_or(RpcCode::Ok);
-    code != RpcCode::Ok || msg.payload.is_empty()
 }
 
 /// Spawn a handler task for a new RPC call and, for stream-input handlers, register the mpsc

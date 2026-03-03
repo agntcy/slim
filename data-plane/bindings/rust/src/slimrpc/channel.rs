@@ -30,6 +30,7 @@ use super::{
     RequestStreamWriter, ResponseStreamReader, RpcCode, RpcError, SERVICE_KEY, STATUS_CODE_KEY,
     calculate_deadline, calculate_timeout_duration,
     codec::{Decoder, Encoder},
+    msg_is_terminal,
     session_wrapper::{SessionRx, SessionTx, new_session},
 };
 
@@ -291,12 +292,11 @@ impl Channel {
 
     /// Check if received message is end-of-stream or error
     fn check_stream_message(&self, received: &ReceivedMessage) -> Result<Option<()>, RpcError> {
-        let code = self.parse_status_code(received.metadata.get(STATUS_CODE_KEY))?;
-
-        if code == RpcCode::Ok && received.payload.is_empty() {
+        if msg_is_terminal(received) {
             return Ok(None); // End of stream
         }
 
+        let code = self.parse_status_code(received.metadata.get(STATUS_CODE_KEY))?;
         if code != RpcCode::Ok {
             let message = String::from_utf8_lossy(&received.payload).to_string();
             return Err(RpcError::new(code, message));

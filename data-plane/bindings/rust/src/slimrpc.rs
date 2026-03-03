@@ -184,6 +184,21 @@ pub fn calculate_timeout_duration(timeout: Option<std::time::Duration>) -> std::
     timeout.unwrap_or(MAX_TIMEOUT)
 }
 
+/// Returns `true` when `msg` is an end-of-stream marker: status code is `Ok`
+/// **and** the payload is empty.
+///
+/// This is the canonical test used by both the client and server to decide
+/// whether a received message terminates the current RPC stream.
+pub(crate) fn msg_is_terminal(msg: &session_wrapper::ReceivedMessage) -> bool {
+    let code = msg
+        .metadata
+        .get(STATUS_CODE_KEY)
+        .and_then(|s| s.parse::<i32>().ok())
+        .and_then(|c| RpcCode::try_from(c).ok())
+        .unwrap_or(RpcCode::Ok);
+    code == RpcCode::Ok && msg.payload.is_empty()
+}
+
 /// Calculate deadline from optional timeout duration
 ///
 /// Returns now + timeout_duration (or now + MAX_TIMEOUT if None).
