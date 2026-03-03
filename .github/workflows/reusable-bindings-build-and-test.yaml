@@ -440,3 +440,13 @@ jobs:
     with:
       runner: ${{ inputs.runner }}
       rust-workspace: ${{ inputs.rust-workspace }}
+
+  java-bindings-build-and-test:
+    name: "Java Bindings Build and Test"
+    needs:
+      - generate-matrix
+      - build-libraries
+    uses: ./.github/workflows/reusable-java-build-and-test.yaml
+    with:
+      runner: ${{ inputs.runner }}
+      rust-workspace: ${{ inputs.rust-workspace }}
