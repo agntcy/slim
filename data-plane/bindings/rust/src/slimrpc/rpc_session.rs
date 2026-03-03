@@ -171,8 +171,7 @@ impl<'a> StreamRpcSession<'a> {
     /// concurrent RPC calls. The `channel_rx` receives messages routed by the demux task.
     /// The `rpc_id` is embedded in every response so the client can route it back.
     ///
-    /// The context is initialised from the first message's metadata so that
-    /// the deadline travels correctly (it is no longer in the session config).
+    /// The context is initialised from the first message's metadata
     pub fn new_with_rpc_id(
         session_tx: &'a SessionTx,
         channel_rx: mpsc::UnboundedReceiver<ReceivedMessage>,
