@@ -682,8 +682,9 @@ where
             id = discovery.get_id(),
             "send discovery request",
         );
+        // for messages to be sent to a specifc name always use the non legacy sender
         self.common
-            .send_with_timer(discovery)
+            .send_with_timer(discovery, false)
             .await
             .map_err(|e| self.handle_task_error(e))
     }
@@ -695,6 +696,7 @@ where
             "discovery reply",
         );
         // update sender status to stop timers
+        // this is expected on the non legacy sender
         self.common.sender.on_message(&msg).await?;
 
         // evolve the current task state
@@ -730,7 +732,7 @@ where
         let msg_id = rand::random::<u32>();
 
         let channel = if self.common.settings.config.session_type == ProtoSessionType::Multicast {
-            // keep using the destination as channel name, the control name can be recreated by the participants
+            // using the destination as channel name, the control name can be recreated by the participants
             Some(self.common.settings.destination.clone())
         } else {
             None
@@ -758,7 +760,7 @@ where
                 payload,
                 Some(self.common.settings.config.metadata.clone()),
                 false,
-                false,
+                false, // not legacy as it is sent to the specific endpoint
             )
             .await?;
 
@@ -774,6 +776,7 @@ where
             "join reply",
         );
         // stop the timer for the join request
+        // use not legacy sender
         self.common.sender.on_message(&msg).await?;
 
         // evolve the current task state
@@ -881,6 +884,7 @@ where
                     update_payload.clone(),
                     None,
                     true,
+                    false, // not legacy
                 )
                 .await?;
             self.current_task
@@ -898,6 +902,7 @@ where
                         update_payload,
                         None,
                         true,
+                        true, // use the legacy sender
                     )
                     .await?;
                 self.current_task
@@ -926,6 +931,8 @@ where
             id = %welcome_msg_id,
             "send welcome message",
         );
+        // here we need to use the right sender as the message is used to create the
+        // list of participant in the channel.
         self.common
             .send_control_message(
                 &msg.get_slim_header().get_source(),
@@ -934,6 +941,7 @@ where
                 welcome_payload,
                 None,
                 false,
+                new_participant_settings.is_legacy(), // not legacy as it is sent to the specific endpoint
             )
             .await?;
 
@@ -1054,12 +1062,15 @@ where
                 .update_phase_completed(12345)?;
 
             // just send the leave message in this case
-            self.common.sender.on_message(&leave_message).await?;
+            let settings = self.participant_settings.get(&leave_message.get_dst());
+            let use_legacy = settings.map(|s| s.is_legacy()).ok_or_else(|| SessionError::ParticipantSettingsNotFound(leave_message.get_dst().clone()))?;
+            let msg_id = leave_message.get_id();
+            self.common.send_with_timer(leave_message, use_legacy).await?;
 
             self.current_task
                 .as_mut()
                 .unwrap()
-                .leave_start(leave_message.get_id())?;
+                .leave_start(msg_id)?;
         }
 
         Ok(())
@@ -1114,7 +1125,13 @@ where
             )?;
             // the participant will be removed from the group so we need to remove
             // it from the local sender.
-            self.common.sender.remove_participant(&disconnected);
+            let settings = self.participant_settings.get(&disconnected);
+            let use_legacy = settings.map(|s| s.is_legacy()).ok_or_else(|| SessionError::ParticipantSettingsNotFound(disconnected.clone()))?;
+            if use_legacy {
+                self.common.legacy_sender.as_mut().ok_or_else(|| SessionError::LegacyChannelNotInitialized)?.remove_participant(&disconnected);
+            } else {
+                self.common.sender.remove_participant(&disconnected);
+            }
             self.common.send_to_slim(reply).await?;
 
             // replace LEAVING_SESSION with DISCONNECTION_DETECTED so that if the process of the
