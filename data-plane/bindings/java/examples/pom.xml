@@ -10,7 +10,7 @@
     <packaging>jar</packaging>
 
     <name>SLIM Java Bindings Examples</name>
-    <description>Java examples for SLIM bindings with CompletableFuture</description>
+    <description>Java examples for SLIM bindings</description>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

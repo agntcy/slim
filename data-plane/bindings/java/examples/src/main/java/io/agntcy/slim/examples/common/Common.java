@@ -86,7 +86,7 @@ public class Common {
 
         // Connect to SLIM server (returns connection ID)
         ClientConfig config = SlimBindings.newInsecureClientConfig(serverAddr);
-        Long connId = globalService.connectAsync(config).get();
+        Long connId = globalService.connect(config);
 
         // Forward subscription to next node
         app.subscribe(app.name(), connId);

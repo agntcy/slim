@@ -233,7 +233,7 @@ tasks:
       - generate
     cmds:
       - echo "🧪 Running Java bindings tests..."
-      - mvn test -Djava.util.concurrent.ForkJoinPool.common.parallelism=32
+      - mvn test
       - echo "✅ Tests complete"
 
   install:

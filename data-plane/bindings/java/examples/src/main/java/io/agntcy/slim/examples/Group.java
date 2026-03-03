@@ -10,7 +10,11 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.time.Duration;
 import java.util.Map;
-import java.util.concurrent.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -30,7 +34,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * - Invites are explicit: the moderator invites each participant after
  * creating the session.
  * - Participants that did not create the session simply wait for
- * listenForSessionAsync() to yield their Session.
+ * listenForSession() to yield their Session.
  *
  * Usage:
  * Moderator: --local org/ns/mod --remote org/ns/chat --invites org/ns/p1
@@ -97,19 +101,15 @@ public class Group {
                     Map.of() // metadata - use empty map instead of null
             );
 
-            // Create session - returns a context with completion and session
-            SessionWithCompletion sessionWithCompletion = app.createSession(sessionConfig, chatChannel);
-            // Wait for session to be established
-            sessionWithCompletion.completion().waitForCompletion();
-            Session createdSession = sessionWithCompletion.session();
+            // Create session and wait for establishment
+            Session createdSession = app.createSessionAndWait(sessionConfig, chatChannel);
             createdSessionRef.set(createdSession);
 
             // Invite each provided participant
             for (String invite : config.invites) {
                 Name inviteName = Common.splitId(invite);
-                app.setRouteAsync(inviteName, connId).get();
-                CompletionHandle handle = createdSession.invite(inviteName);
-                handle.waitForCompletion();
+                app.setRoute(inviteName, connId);
+                createdSession.inviteAndWait(inviteName);
                 System.out.println(config.local + " -> add " + inviteName.toString() + " to the group");
             }
         }
@@ -129,7 +129,7 @@ public class Group {
         // Launch keyboard loop
         Future<?> keyboardTask = executor.submit(() -> {
             try {
-                keyboardLoop(app, createdSessionRef.get(), sessionReady, instanceId, config);
+                keyboardLoop(app, connId, createdSessionRef.get(), sessionReady, instanceId, config);
             } catch (Exception e) {
                 System.err.println("Keyboard loop error: " + e.getMessage());
             }
@@ -155,7 +155,7 @@ public class Group {
 
         if (createdSession == null) {
             System.out.println("Waiting for session...");
-            session = app.listenForSessionAsync(null).get();
+            session = app.listenForSession(null);
         } else {
             session = createdSession;
         }
@@ -170,7 +170,7 @@ public class Group {
             try {
                 // Await next inbound message from the group session
                 Duration timeout = Duration.ofSeconds(30);
-                ReceivedMessage receivedMsg = session.getMessageAsync(timeout).get();
+                ReceivedMessage receivedMsg = session.getMessage(timeout);
                 MessageContext ctx = receivedMsg.context();
                 byte[] payload = receivedMsg.payload();
 
@@ -182,24 +182,19 @@ public class Group {
                 // to a previous one. In this case we do not reply to avoid loops
                 if (!ctx.metadata().containsKey("PUBLISH_TO")) {
                     String reply = "message received by " + sourceName.toString();
-                    session.publishToAsync(ctx, reply.getBytes(), null, ctx.metadata()).get();
+                    session.publishToAndWait(ctx, reply.getBytes(), null, ctx.metadata());
                 }
 
                 // Re-print prompt
                 System.out.print(sourceName.toString() + " > ");
                 System.out.flush();
 
-            } catch (InterruptedException e) {
-                // Thread interrupted, exit gracefully
-                break;
-            } catch (ExecutionException e) {
+            } catch (SlimException e) {
                 // Check if session is closed
-                if (e.getCause() != null &&
-                        e.getCause().getMessage() != null &&
-                        e.getCause().getMessage().toLowerCase().contains("session closed")) {
+                if (e.getMessage() != null && e.getMessage().toLowerCase().contains("session closed")) {
                     break;
                 }
-                // Timeout, continue listening
+                // Timeout or other error, continue listening
                 continue;
             } catch (Exception e) {
                 // Other errors, continue
@@ -208,7 +203,7 @@ public class Group {
         }
     }
 
-    private static void keyboardLoop(App app, Session createdSession,
+    private static void keyboardLoop(App app, Long connId, Session createdSession,
             CompletableFuture<Session> sessionReady, long instanceId, Config.GroupConfig config)
             throws Exception {
         // Wait for the session to be established
@@ -244,30 +239,28 @@ public class Group {
 
             if (lower.equals("exit") || lower.equals("quit")) {
                 if (createdSession != null) {
-                    // Delete the session
-                    CompletionHandle handle = app.deleteSession(session);
-                    handle.waitForCompletion();
+                    app.deleteSessionAndWait(session);
                 }
                 break;
             } else if (lower.startsWith("invite ") && createdSession != null) {
                 String inviteId = trimmed.substring(7).trim();
-                handleInvite(session, inviteId);
+                handleInvite(app, connId, session, inviteId);
             } else if (lower.startsWith("remove ") && createdSession != null) {
                 String removeId = trimmed.substring(7).trim();
                 handleRemove(session, removeId);
             } else {
                 // Send message to the channel
-                session.publishAsync(userInput.getBytes(), null, null).get();
+                session.publishAndWait(userInput.getBytes(), null, null);
             }
         }
     }
 
-    private static void handleInvite(Session session, String inviteId) {
+    private static void handleInvite(App app, Long connId, Session session, String inviteId) {
         try {
             System.out.println("Inviting participant: " + inviteId);
             Name inviteName = Common.splitId(inviteId);
-            CompletionHandle handle = session.invite(inviteName);
-            handle.waitForCompletion();
+            app.setRoute(inviteName, connId);
+            session.inviteAndWait(inviteName);
             System.out.println("✅ Successfully invited " + inviteId);
         } catch (Exception e) {
             String errorStr = e.getMessage() != null ? e.getMessage() : "";
@@ -285,8 +278,7 @@ public class Group {
         try {
             System.out.println("Removing participant: " + removeId);
             Name removeName = Common.splitId(removeId);
-            CompletionHandle handle = session.remove(removeName);
-            handle.waitForCompletion();
+            session.removeAndWait(removeName);
             System.out.println("✅ Successfully removed " + removeId);
         } catch (Exception e) {
             String errorStr = e.getMessage() != null ? e.getMessage() : "";

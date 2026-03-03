@@ -9,8 +9,11 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.Duration;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -52,8 +55,8 @@ class BindingsTest {
             if (server.localService()) {
                 svcAlice = new Service("svcalice");
                 svcBob = new Service("svcbob");
-                connIdAlice = svcAlice.connectAsync(server.getClientConfig()).get();
-                connIdBob = svcBob.connectAsync(server.getClientConfig()).get();
+                connIdAlice = svcAlice.connect(server.getClientConfig());
+                connIdBob = svcBob.connect(server.getClientConfig());
                 System.out.println("[BindingsTest] testEndToEnd: connect");
             } else {
                 svcAlice = server.service();
@@ -69,10 +72,10 @@ class BindingsTest {
             if (server.localService()) {
                 aliceNameFinal = Name.newWithId("org", "default", "alice_e2e", appAlice.id());
                 bobNameFinal = Name.newWithId("org", "default", "bob_e2e", appBob.id());
-                appAlice.subscribeAsync(aliceNameFinal, connIdAlice).get();
-                appBob.subscribeAsync(bobNameFinal, connIdBob).get();
+                appAlice.subscribe(aliceNameFinal, connIdAlice);
+                appBob.subscribe(bobNameFinal, connIdBob);
                 Thread.sleep(1000);
-                appAlice.setRouteAsync(bobNameFinal, connIdAlice).get();
+                appAlice.setRoute(bobNameFinal, connIdAlice);
                 System.out.println("[BindingsTest] testEndToEnd: subscribe");
             }
 
@@ -85,36 +88,31 @@ class BindingsTest {
                     Duration.ofSeconds(1),
                     Map.of());
 
-            SessionWithCompletion sessionContextAlice = appAlice.createSession(sessionConfig, bobNameFinal);
-            sessionContextAlice.completion().waitAsync().get();
+            Session sessionAlice = appAlice.createSessionAndWait(sessionConfig, bobNameFinal);
             System.out.println("[BindingsTest] testEndToEnd: session create");
 
             byte[] msg = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9};
-            CompletableFuture<CompletionHandle> handleFuture = sessionContextAlice.session().publishAsync(msg, null, null);
-            handleFuture.get().waitAsync().get();
+            sessionAlice.publishAndWait(msg, null, null);
             System.out.println("[BindingsTest] testEndToEnd: publish");
 
-            Session sessionContextBob = appBob.listenForSessionAsync(Duration.ofSeconds(5)).get();
-            ReceivedMessage receivedMsg = sessionContextBob.getMessageAsync(Duration.ofSeconds(5)).get();
+            Session sessionContextBob = appBob.listenForSession(Duration.ofSeconds(5));
+            ReceivedMessage receivedMsg = sessionContextBob.getMessage(Duration.ofSeconds(5));
             System.out.println("[BindingsTest] testEndToEnd: receive");
             MessageContext messageCtx = receivedMsg.context();
             byte[] msgRcv = receivedMsg.payload();
 
-            assertEquals(sessionContextBob.sessionId(), sessionContextAlice.session().sessionId());
+            assertEquals(sessionContextBob.sessionId(), sessionAlice.sessionId());
             assertArrayEquals(msg, msgRcv);
 
-            CompletableFuture<CompletionHandle> handleReplyFuture =
-                    sessionContextBob.publishToAsync(messageCtx, msgRcv, null, null);
-            handleReplyFuture.get().waitAsync().get();
+            sessionContextBob.publishToAndWait(messageCtx, msgRcv, null, null);
             System.out.println("[BindingsTest] testEndToEnd: reply");
 
-            ReceivedMessage receivedMsgAlice =
-                    sessionContextAlice.session().getMessageAsync(Duration.ofSeconds(5)).get();
+            ReceivedMessage receivedMsgAlice = sessionAlice.getMessage(Duration.ofSeconds(5));
             byte[] msgRcvAlice = receivedMsgAlice.payload();
 
             assertArrayEquals(msg, msgRcvAlice);
 
-            appAlice.deleteSessionAsync(sessionContextAlice.session()).get();
+            appAlice.deleteSessionAndWait(sessionAlice);
             System.out.println("[BindingsTest] testEndToEnd: delete");
 
             if (connIdAlice != null) {
@@ -146,8 +144,8 @@ class BindingsTest {
         svcServer.runServerAsync(serverConf).get();
 
         ClientConfig clientConf = SlimBindings.newInsecureClientConfig("http://" + endpoint);
-        Long connIdAlice = svcAlice.connectAsync(clientConf).get();
-        Long connIdBob = svcBob.connectAsync(clientConf).get();
+        Long connIdAlice = svcAlice.connect(clientConf);
+        Long connIdBob = svcBob.connect(clientConf);
         System.out.println("[BindingsTest] testAutoReconnectAfterServerRestart: connect");
 
         Name aliceName = new Name("org", "default", "alice_res");
@@ -159,11 +157,11 @@ class BindingsTest {
         Name aliceNameWithId = Name.newWithId("org", "default", "alice_res", appAlice.id());
         Name bobNameWithId = Name.newWithId("org", "default", "bob_res", appBob.id());
 
-        appAlice.subscribeAsync(aliceNameWithId, connIdAlice).get();
-        appBob.subscribeAsync(bobNameWithId, connIdBob).get();
+        appAlice.subscribe(aliceNameWithId, connIdAlice);
+        appBob.subscribe(bobNameWithId, connIdBob);
         Thread.sleep(1000);
 
-        appAlice.setRouteAsync(bobNameWithId, connIdAlice).get();
+        appAlice.setRoute(bobNameWithId, connIdAlice);
         Thread.sleep(1000);
 
         SessionConfig sessionConfig = new SessionConfig(
@@ -173,21 +171,18 @@ class BindingsTest {
                 Duration.ofSeconds(1),
                 Map.of());
 
-        SessionWithCompletion sessionContextAlice = appAlice.createSession(sessionConfig, bobNameWithId);
-        sessionContextAlice.completion().waitAsync().get();
+        Session sessionAlice = appAlice.createSessionAndWait(sessionConfig, bobNameWithId);
         System.out.println("[BindingsTest] testAutoReconnectAfterServerRestart: session create");
 
         byte[] baselineMsg = new byte[]{1, 2, 3};
-        CompletableFuture<CompletionHandle> handleFuture =
-                sessionContextAlice.session().publishAsync(baselineMsg, null, null);
-        handleFuture.get().waitAsync().get();
+        sessionAlice.publishAndWait(baselineMsg, null, null);
 
-        Session bobSessionCtx = appBob.listenForSessionAsync(Duration.ofSeconds(5)).get();
-        ReceivedMessage receivedMsg = bobSessionCtx.getMessageAsync(Duration.ofSeconds(5)).get();
+        Session bobSessionCtx = appBob.listenForSession(Duration.ofSeconds(5));
+        ReceivedMessage receivedMsg = bobSessionCtx.getMessage(Duration.ofSeconds(5));
         byte[] received = receivedMsg.payload();
         assertArrayEquals(baselineMsg, received);
 
-        assertEquals(bobSessionCtx.sessionId(), sessionContextAlice.session().sessionId());
+        assertEquals(bobSessionCtx.sessionId(), sessionAlice.sessionId());
         System.out.println("[BindingsTest] testAutoReconnectAfterServerRestart: baseline message ok");
 
         svcServer.shutdownAsync().get();
@@ -200,15 +195,13 @@ class BindingsTest {
         System.out.println("[BindingsTest] testAutoReconnectAfterServerRestart: server restarted, reconnecting");
 
         byte[] testMsg = new byte[]{4, 5, 6};
-        CompletableFuture<CompletionHandle> handle2Future =
-                sessionContextAlice.session().publishAsync(testMsg, null, null);
-        handle2Future.get().waitAsync().get();
+        sessionAlice.publishAndWait(testMsg, null, null);
 
-        ReceivedMessage receivedMsg2 = bobSessionCtx.getMessageAsync(Duration.ofSeconds(5)).get();
+        ReceivedMessage receivedMsg2 = bobSessionCtx.getMessage(Duration.ofSeconds(5));
         byte[] received2 = receivedMsg2.payload();
         assertArrayEquals(testMsg, received2);
 
-        appAlice.deleteSessionAsync(sessionContextAlice.session()).get();
+        appAlice.deleteSessionAndWait(sessionAlice);
 
         svcAlice.disconnect(connIdAlice);
         svcBob.disconnect(connIdBob);
@@ -234,10 +227,10 @@ class BindingsTest {
 
             if (server.localService()) {
                 svcAlice = new Service("svcalice");
-                connIdAlice = svcAlice.connectAsync(server.getClientConfig()).get();
+                connIdAlice = svcAlice.connect(server.getClientConfig());
                 appAlice = svcAlice.createAppWithSecret(aliceName, TestHelpers.LONG_SECRET);
                 Name aliceNameWithId = Name.newWithId("org", "default", "alice_nonsub", appAlice.id());
-                appAlice.subscribeAsync(aliceNameWithId, connIdAlice).get();
+                appAlice.subscribe(aliceNameWithId, connIdAlice);
             } else {
                 svcAlice = server.service();
                 appAlice = svcAlice.createAppWithSecret(aliceName, TestHelpers.LONG_SECRET);
@@ -252,10 +245,8 @@ class BindingsTest {
                     null,
                     Map.of());
 
-            assertThrows(Exception.class, () -> {
-                SessionWithCompletion session = appAlice.createSession(sessionConfig, bobName);
-                session.completion().waitFor(Duration.ofSeconds(10));
-            });
+            assertThrows(Exception.class, () ->
+                    appAlice.createSessionAndWait(sessionConfig, bobName));
 
             if (connIdAlice != null) {
                 svcAlice.disconnect(connIdAlice);
@@ -284,10 +275,10 @@ class BindingsTest {
 
             if (server.localService()) {
                 svcAlice = new Service("svcalice");
-                connIdAlice = svcAlice.connectAsync(server.getClientConfig()).get();
+                connIdAlice = svcAlice.connect(server.getClientConfig());
                 appAlice = svcAlice.createAppWithSecret(aliceName, TestHelpers.LONG_SECRET);
                 Name aliceNameWithId = Name.newWithId("org", "default", "alice_timeout", appAlice.id());
-                appAlice.subscribeAsync(aliceNameWithId, connIdAlice).get();
+                appAlice.subscribe(aliceNameWithId, connIdAlice);
             } else {
                 svcAlice = server.service();
                 appAlice = svcAlice.createAppWithSecret(aliceName, TestHelpers.LONG_SECRET);
@@ -297,7 +288,7 @@ class BindingsTest {
             Duration timeout = Duration.ofMillis(100);
 
             Exception exception = assertThrows(Exception.class, () ->
-                    appAlice.listenForSessionAsync(timeout).get());
+                    appAlice.listenForSession(timeout));
 
             double elapsedTime = (System.currentTimeMillis() - startTime) / 1000.0;
             System.out.println("[BindingsTest] testListenForSessionTimeout: timeout asserted elapsed=" + elapsedTime + "s");
@@ -310,8 +301,19 @@ class BindingsTest {
                                     && exception.getCause().getMessage() != null
                                     && exception.getCause().getMessage().toLowerCase().contains("timeout")));
 
-            assertThrows(Exception.class, () ->
-                    appAlice.listenForSessionAsync(null).get(100, TimeUnit.MILLISECONDS));
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            try {
+                Future<?> future = executor.submit(() -> {
+                    try {
+                        appAlice.listenForSession(null);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+                assertThrows(TimeoutException.class, () -> future.get(100, TimeUnit.MILLISECONDS));
+            } finally {
+                executor.shutdownNow();
+            }
 
             if (connIdAlice != null) {
                 svcAlice.disconnect(connIdAlice);

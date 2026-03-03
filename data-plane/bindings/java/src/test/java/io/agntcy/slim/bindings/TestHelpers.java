@@ -116,7 +116,7 @@ public final class TestHelpers {
             if (clientConfig == null) {
                 throw new IllegalStateException("Client config should not be null for local service");
             }
-            connId = svc.connectAsync(clientConfig).get();
+            connId = svc.connect(clientConfig);
         } else {
             svc = server.service();
             connId = null;
@@ -126,7 +126,7 @@ public final class TestHelpers {
 
         if (server.localService() && connId != null) {
             Name nameWithId = Name.newWithId("org", "test_" + testId, partName, participant.id());
-            participant.subscribeAsync(nameWithId, connId).get();
+            participant.subscribe(nameWithId, connId);
             Thread.sleep(100);
         }
 

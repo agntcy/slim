@@ -34,9 +34,7 @@ class GroupTest {
                 5,
                 Duration.ofSeconds(1),
                 Map.of());
-        SessionWithCompletion sessionContext = participant.createSession(sessionConfig, chatName);
-        sessionContext.completion().waitAsync().get();
-        return sessionContext.session();
+        return participant.createSessionAndWait(sessionConfig, chatName);
     }
 
     private void inviteParticipants(App participant, Session session, TestHelpers.ServerFixture server,
@@ -46,9 +44,9 @@ class GroupTest {
                 String nameToAdd = "participant_" + i;
                 Name toAdd = new Name("org", "test_" + testId, nameToAdd);
                 if (server.localService() && connId != null) {
-                    participant.setRouteAsync(toAdd, connId).get();
+                    participant.setRoute(toAdd, connId);
                 }
-                session.inviteAsync(toAdd).get().waitAsync().get();
+                session.inviteAndWait(toAdd);
             }
         }
         Thread.sleep(1000);
@@ -97,7 +95,7 @@ class GroupTest {
                             if (readyCount.incrementAndGet() == participantsCount - 1) {
                                 allReady.countDown();
                             }
-                            session = participant.listenForSessionAsync(null).get();
+                            session = participant.listenForSession(null);
                             assertEquals(SessionType.GROUP, session.sessionType());
                             System.out.println("[GroupTest] participant " + idx + ": got session");
                         }
@@ -111,10 +109,10 @@ class GroupTest {
                                 String nextParticipantName = "participant_" + nextParticipant;
                                 String msg = message + " - " + nextParticipantName;
                                 called = true;
-                                session.publishAsync(msg.getBytes(), null, null).get().waitAsync().get();
+                                session.publishAndWait(msg.getBytes(), null, null);
                             }
 
-                            ReceivedMessage receivedMsg = session.getMessageAsync(Duration.ofSeconds(30)).get();
+                            ReceivedMessage receivedMsg = session.getMessage(Duration.ofSeconds(30));
                             byte[] msgRcv = receivedMsg.payload();
                             localCount++;
 
@@ -126,8 +124,7 @@ class GroupTest {
                             if (!called && msgStr.endsWith(partName)) {
                                 int nextParticipant = (idx + 1) % participantsCount;
                                 String nextParticipantName = "participant_" + nextParticipant;
-                                session.publishAsync((message + " - " + nextParticipantName).getBytes(), null, null)
-                                        .get().waitAsync().get();
+                                session.publishAndWait((message + " - " + nextParticipantName).getBytes(), null, null);
                                 called = true;
                                 System.out.println("[GroupTest] participant " + idx + ": publishing to " + nextParticipantName);
                             }
@@ -136,7 +133,7 @@ class GroupTest {
                                 System.out.println("[GroupTest] participant " + idx + ": done (localCount=" + localCount + ")");
                                 if (idx == 0) {
                                     Thread.sleep(500);
-                                    participant.deleteSessionAsync(session).get().waitAsync().get();
+                                    participant.deleteSessionAndWait(session);
                                     System.out.println("[GroupTest] moderator: deleted session");
                                 }
                                 break;

@@ -36,7 +36,7 @@ class PointToPointTest {
         Service svcSender;
         if (server.localService()) {
             svcSender = new Service("svcsender");
-            connIdSender = svcSender.connectAsync(server.getClientConfig()).get();
+            connIdSender = svcSender.connect(server.getClientConfig());
         } else {
             svcSender = server.service();
         }
@@ -45,9 +45,9 @@ class PointToPointTest {
 
         if (server.localService() && connIdSender != null) {
             Name senderNameWithId = Name.newWithId("org", "test_" + testId, "p2psender", sender.id());
-            sender.subscribeAsync(senderNameWithId, connIdSender).get();
+            sender.subscribe(senderNameWithId, connIdSender);
             Thread.sleep(100);
-            sender.setRouteAsync(receiverName, connIdSender).get();
+            sender.setRoute(receiverName, connIdSender);
         }
 
         return new Object[]{sender, connIdSender};
@@ -56,11 +56,10 @@ class PointToPointTest {
     private void publishMessages(Session senderSession, int nMessages, String payloadType, Map<String, String> metadata)
             throws Exception {
         for (int i = 0; i < nMessages; i++) {
-            CompletableFuture<CompletionHandle> h = senderSession.publishAsync(
+            senderSession.publishAndWait(
                     "Hello from sender".getBytes(),
                     payloadType,
                     metadata);
-            h.get().waitAsync().get();
             if ((i + 1) % 200 == 0) {
                 System.out.println("[PointToPointTest] published " + (i + 1) + "/" + nMessages + " messages");
             }
@@ -68,7 +67,7 @@ class PointToPointTest {
     }
 
     private int waitForAck(Session senderSession) throws Exception {
-        ReceivedMessage receivedMsg = senderSession.getMessageAsync(Duration.ofSeconds(30)).get();
+        ReceivedMessage receivedMsg = senderSession.getMessage(Duration.ofSeconds(30));
         byte[] msg = receivedMsg.payload();
         String ackText = new String(msg);
         assertTrue(ackText.startsWith("All messages received: "),
@@ -120,7 +119,7 @@ class PointToPointTest {
                         Service svcReceiver;
                         if (server.localService()) {
                             svcReceiver = new Service("svcreceiver" + idx);
-                            connIdReceiver = svcReceiver.connectAsync(server.getClientConfig()).get();
+                            connIdReceiver = svcReceiver.connect(server.getClientConfig());
                             System.out.println("[PointToPointTest] receiver " + idx + ": connected");
                         } else {
                             svcReceiver = server.service();
@@ -131,17 +130,17 @@ class PointToPointTest {
                         if (server.localService() && connIdReceiver != null) {
                             Name receiverNameWithId =
                                     Name.newWithId("org", "test_" + testId, "p2preceiver", receiver.id());
-                            receiver.subscribeAsync(receiverNameWithId, connIdReceiver).get();
+                            receiver.subscribe(receiverNameWithId, connIdReceiver);
                             Thread.sleep(100);
                         }
 
                         System.out.println("[PointToPointTest] receiver " + idx + ": listening");
-                        Session session = receiver.listenForSessionAsync(Duration.ofSeconds(120)).get();
+                        Session session = receiver.listenForSession(Duration.ofSeconds(120));
                         assertEquals(SessionType.POINT_TO_POINT, session.sessionType());
                         System.out.println("[PointToPointTest] receiver " + idx + ": got session");
                         while (true) {
                             try {
-                                ReceivedMessage receivedMsg = session.getMessageAsync(Duration.ofSeconds(30)).get();
+                                ReceivedMessage receivedMsg = session.getMessage(Duration.ofSeconds(30));
                                 MessageContext ctx = receivedMsg.context();
                                 Map<String, String> meta = ctx.metadata();
                                 if ("hello message".equals(ctx.payloadType())
@@ -149,10 +148,10 @@ class PointToPointTest {
                                     receiverCounts.get(idx).incrementAndGet();
 
                                     if (receiverCounts.get(idx).get() == nMessages) {
-                                        session.publishAsync(
+                                        session.publishAndWait(
                                                 ("All messages received: " + idx).getBytes(),
                                                 null,
-                                                null).get().waitAsync().get();
+                                                null);
                                     }
                                 }
                             } catch (Exception e) {
@@ -174,9 +173,7 @@ class PointToPointTest {
                     Duration.ofMillis(100),
                     Map.of());
 
-            SessionWithCompletion senderSessionContext = sender.createSession(sessionConfig, receiverName);
-            senderSessionContext.completion().waitAsync().get();
-            Session senderSession = senderSessionContext.session();
+            Session senderSession = sender.createSessionAndWait(sessionConfig, receiverName);
             System.out.println("[PointToPointTest] sender session created");
             String payloadType = "hello message";
             Map<String, String> metadata = Map.of("sender", "hello");
@@ -187,7 +184,7 @@ class PointToPointTest {
             validateAffinity(receiverCounts, nMessages);
             System.out.println("[PointToPointTest] winner=receiver " + winnerId + ", affinity validated");
 
-            sender.deleteSessionAsync(senderSession).get().waitAsync().get();
+            sender.deleteSessionAndWait(senderSession);
 
             executor.shutdownNow();
             executor.awaitTermination(10, TimeUnit.SECONDS);

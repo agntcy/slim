@@ -4,7 +4,7 @@ Java bindings for SLIM (Secure Lightweight Interconnected Messaging) generated v
 
 ## Features
 
-- **Native Java Interface**: Idiomatic Java API with `CompletableFuture` for async operations
+- **Native Java Interface**: Idiomatic Java API with sync methods; async variants via `CompletableFuture` available
 - **Java 21**: Built for modern Java with records and latest language features
 - **JNA Integration**: Seamless native library loading via Java Native Access (JNA)
 - **Complete Examples**: Server, Point-to-Point, and Group messaging examples
@@ -72,7 +72,7 @@ task examples:group:client-2
 │  (Your Code)            │
 └───────────┬─────────────┘
             │
-            │ CompletableFuture API
+            │ Sync / CompletableFuture API
             ▼
 ┌─────────────────────────┐
 │  Generated Java Classes │
@@ -143,9 +143,8 @@ App app = service.createAppWithSecret(appName, "my-secret-min-32-chars!!");
 // Create client config
 ClientConfig config = SlimBindings.newInsecureClientConfig("http://localhost:46357");
 
-// Connect asynchronously
-CompletableFuture<Long> connFuture = service.connectAsync(config);
-Long connectionId = connFuture.get();
+// Connect (sync)
+Long connectionId = service.connect(config);
 ```
 
 ### Creating Sessions
@@ -162,9 +161,7 @@ SessionConfig sessionConfig = new SessionConfig(
     Map.of()  // metadata
 );
 
-CompletableFuture<Session> sessionFuture = 
-    app.createSessionAndWaitAsync(sessionConfig, remoteName);
-Session session = sessionFuture.get();
+Session session = app.createSessionAndWait(sessionConfig, remoteName);
 ```
 
 ### Sending Messages
@@ -173,17 +170,26 @@ Session session = sessionFuture.get();
 byte[] message = "Hello, SLIM!".getBytes();
 
 // Publish and wait
-session.publishAndWaitAsync(message, null, null).get();
+session.publishAndWait(message, null, null);
 ```
 
 ### Receiving Messages
 
 ```java
 Duration timeout = Duration.ofSeconds(30);
-CompletableFuture<ReceivedMessage> msgFuture = session.getMessageAsync(timeout);
-ReceivedMessage msg = msgFuture.get();
+ReceivedMessage msg = session.getMessage(timeout);
 
 System.out.println("Received: " + new String(msg.payload()));
+```
+
+### Async Methods (CompletableFuture)
+
+Async variants (`*Async`) returning `CompletableFuture` are available for all operations. They can be a good choice when using **Virtual Threads** (Java 21+), where blocking is cheap and you can use `.get()` or `.join()` without tying up OS threads.
+
+When using the **standard Java thread model** (OS threads) with async methods, consider increasing the common pool parallelism:
+
+```bash
+java -Djava.util.concurrent.ForkJoinPool.common.parallelism=16 -jar myapp.jar
 ```
 
 ## Available Tasks

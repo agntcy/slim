@@ -1,6 +1,6 @@
 # SLIM Java Examples
 
-This directory contains Java examples demonstrating the SLIM Java bindings with `CompletableFuture` async patterns.
+This directory contains Java examples demonstrating the SLIM Java bindings using sync methods.
 
 ## Prerequisites
 
@@ -134,90 +134,26 @@ task group:client-2
 
 ---
 
-## Running All Examples
+## Sync Methods
 
-**Terminal 1 - Server:**
-```bash
-task server
-```
-
-**Terminal 2 - P2P Receiver:**
-```bash
-task p2p:alice
-```
-
-**Terminal 3 - P2P Sender:**
-```bash
-task p2p:bob
-```
-
-Or for group messaging:
-
-**Terminal 1 - Server:**
-```bash
-task server
-```
-
-**Terminal 2 - Group Moderator:**
-```bash
-task group:moderator
-```
-
-**Terminal 3 - Participant 1:**
-```bash
-task group:client-1
-```
-
-**Terminal 4 - Participant 2:**
-```bash
-task group:client-2
-```
-
-## Common Utilities
-
-Located in `src/main/java/io/agntcy/slim/examples/common/`:
-
-### Common.java
-
-- `splitId(String id)`: Parse "org/namespace/app" into `Name`
-- `createAndConnectApp(...)`: Helper to create app and connect to server
-- `AppConnection`: Container for app + connection ID
-
-### Config.java
-
-- `BaseConfig`: Shared configuration fields
-- `PointToPointConfig`: P2P-specific config
-- `GroupConfig`: Group-specific config
-- `ServerConfig`: Server-specific config
-- `ArgParser`: Simple CLI argument parser
-
-### Colors.java
-
-- ANSI color codes for terminal output
-- `colored(color, message)`: Format text with color
-- `instancePrefix(id)`: Format instance ID prefix
-
-## CompletableFuture Patterns
-
-All async operations use `CompletableFuture`:
+The examples use sync methods for simplicity:
 
 ```java
 // Connect to server
-CompletableFuture<Long> connFuture = service.connectAsync(config);
-Long connId = connFuture.get();  // Block and get result
+Long connId = service.connect(config);
 
 // Create session
-CompletableFuture<Session> sessionFuture = 
-    app.createSessionAndWaitAsync(sessionConfig, remoteName);
-Session session = sessionFuture.get();
+Session session = app.createSessionAndWait(sessionConfig, remoteName);
 
 // Send message
-session.publishAndWaitAsync(message.getBytes(), null, null).get();
+session.publishAndWait(message.getBytes(), null, null);
 
 // Receive message
 Duration timeout = Duration.ofSeconds(30);
-ReceivedMessage msg = session.getMessageAsync(timeout).get();
+ReceivedMessage msg = session.getMessage(timeout);
 ```
+
+**Async alternatives:** `*Async` variants returning `CompletableFuture` are available. They work well with **Virtual Threads** (Java 21+). When using OS threads with async methods, set `-Djava.util.concurrent.ForkJoinPool.common.parallelism=16`.
 
 ## Parallel Execution
 
@@ -241,82 +177,3 @@ receiveTask.cancel(true);
 // Cleanup
 executor.shutdownNow();
 ```
-
-## Troubleshooting
-
-### JNA Cannot Find Native Library
-
-If you see `UnsatisfiedLinkError`:
-
-```bash
-# Check library exists
-ls ../generated/native/
-
-# Ensure bindings are installed
-cd ..
-task install
-
-# Recompile examples
-cd examples
-task compile
-```
-
-### Maven Dependency Issues
-
-```bash
-# Clean and rebuild
-mvn clean
-rm -rf target/
-task install:bindings
-task compile
-```
-
-### Connection Refused
-
-Ensure the server is running:
-
-```bash
-# In separate terminal
-task server
-```
-
-## Example Output
-
-**Point-to-Point (Sender):**
-```
-[42] ✅ Created app
-[42] 🔌 Connected to http://localhost:46357 (conn ID: 1)
-[42] 📍 Route set to agntcy/ns/alice via connection 1
-[42] 🔍 Creating session to agntcy/ns/alice...
-[42] 📡 Session created
-[42] 📤 Sent message 'hello from Java' - 1/5
-[42] 📥 Received reply 'hello from Java from 43' - 1/5
-...
-```
-
-**Group (Moderator):**
-```
-[44] ✅ Created app
-[44] 🔌 Connected to http://localhost:46357 (conn ID: 1)
-Creating new group session (moderator)... agntcy/ns/moderator
-agntcy/ns/moderator -> add agntcy/ns/client-1 to the group
-agntcy/ns/moderator -> add agntcy/ns/client-2 to the group
-
-Welcome to the group agntcy/ns/chat!
-Commands:
-  - Type a message to send it to the group
-  - 'remove NAME' to remove a participant
-  - 'invite NAME' to invite a participant
-  - 'exit' or 'quit' to leave the group
-
-agntcy/ns/moderator > Hello everyone!
-
-agntcy/ns/client-1 > message received by agntcy/ns/client-1
-agntcy/ns/client-2 > message received by agntcy/ns/client-2
-```
-
-## Resources
-
-- [SLIM Java Bindings README](../README.md)
-- [UniFFI Book](https://mozilla.github.io/uniffi-rs/)
-- [CompletableFuture Guide](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/CompletableFuture.html)

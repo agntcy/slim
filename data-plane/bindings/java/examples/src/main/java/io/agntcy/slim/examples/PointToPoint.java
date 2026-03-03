@@ -8,18 +8,17 @@ import io.agntcy.slim.bindings.*;
 
 import java.time.Duration;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Point-to-point messaging example using Java CompletableFuture.
+ * Point-to-point messaging example using sync methods.
  *
  * Demonstrates:
  * - Creating SLIM apps with shared secret authentication
  * - Connecting to a SLIM server
  * - Creating point-to-point sessions
- * - Sending and receiving messages with async operations
+ * - Sending and receiving messages with sync operations
  *
  * Usage:
  * Receiver: --local org/namespace/alice
@@ -80,7 +79,7 @@ public class PointToPoint {
         Name remoteName = Common.splitId(config.remote);
 
         // Set route to remote via the server connection
-        app.setRouteAsync(remoteName, connId).get();
+        app.setRoute(remoteName, connId);
         System.out.println(Colors.instancePrefix(instanceId) +
                 "📍 Route set to " + config.remote + " via connection " + connId);
 
@@ -96,7 +95,7 @@ public class PointToPoint {
         System.out.println(Colors.instancePrefix(instanceId) +
                 "🔍 Creating session to " + config.remote + "...");
 
-        Session session = app.createSessionAndWaitAsync(sessionConfig, remoteName).get();
+        Session session = app.createSessionAndWait(sessionConfig, remoteName);
 
         // Give session a moment to establish
         Thread.sleep(100);
@@ -106,13 +105,13 @@ public class PointToPoint {
         // Send messages
         for (int i = 0; i < config.iterations; i++) {
             try {
-                session.publishAndWaitAsync(config.message.getBytes(), null, null).get();
+                session.publishAndWait(config.message.getBytes(), null, null);
                 System.out.println(Colors.instancePrefix(instanceId) +
                         "📤 Sent message '" + config.message + "' - " + (i + 1) + "/" + config.iterations);
 
                 // Wait for reply
                 Duration timeout = Duration.ofSeconds(5);
-                ReceivedMessage msg = session.getMessageAsync(timeout).get();
+                ReceivedMessage msg = session.getMessage(timeout);
                 System.out.println(Colors.instancePrefix(instanceId) +
                         "📥 Received reply '" + new String(msg.payload()) + "' - " + (i + 1) + "/"
                         + config.iterations);
@@ -125,7 +124,7 @@ public class PointToPoint {
         }
 
         // Clean up
-        app.deleteSessionAndWaitAsync(session).get();
+        app.deleteSessionAndWait(session);
     }
 
     private static void runReceiver(App app, long instanceId) throws Exception {
@@ -135,7 +134,7 @@ public class PointToPoint {
 
         while (true) {
             try {
-                Session session = app.listenForSessionAsync(null).get();
+                Session session = app.listenForSession(null);
                 System.out.println(Colors.instancePrefix(instanceId) + "🎉 New session established!");
 
                 // Handle session in background
@@ -151,13 +150,13 @@ public class PointToPoint {
         try {
             while (true) {
                 Duration timeout = Duration.ofSeconds(60);
-                ReceivedMessage msg = session.getMessageAsync(timeout).get();
+                ReceivedMessage msg = session.getMessage(timeout);
 
                 String text = new String(msg.payload());
                 System.out.println(Colors.instancePrefix(instanceId) + "📨 Received: " + text);
 
                 String reply = text + " from " + instanceId;
-                session.publishToAndWaitAsync(msg.context(), reply.getBytes(), null, null).get();
+                session.publishToAndWait(msg.context(), reply.getBytes(), null, null);
 
                 System.out.println(Colors.instancePrefix(instanceId) + "📤 Replied: " + reply);
             }
@@ -165,7 +164,7 @@ public class PointToPoint {
             System.out.println(Colors.instancePrefix(instanceId) + "🔚 Session ended: " + e.getMessage());
         } finally {
             try {
-                app.deleteSessionAndWaitAsync(session).get();
+                app.deleteSessionAndWait(session);
                 System.out.println(Colors.instancePrefix(instanceId) + "👋 Session closed");
             } catch (Exception e) {
                 System.err.println(Colors.instancePrefix(instanceId) +
