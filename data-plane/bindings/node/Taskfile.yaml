@@ -116,10 +116,10 @@ tasks:
         echo "${DYLIB_PATH}" > /tmp/slim-node-dylib-path.txt
       - mkdir -p generated
       - |
-        # Generate Node.js bindings with uniffi-bindgen-node (pass original library path directly)
+        # Generate Node.js bindings with uniffi-bindgen-node (0.1.4+ uses generate subcommand)
         DYLIB_PATH=$(cat /tmp/slim-node-dylib-path.txt)
         cd {{.TASKFILE_DIR}}
-        uniffi-bindgen-node \
+        uniffi-bindgen-node generate \
           --crate-name {{.LIB_NAME}} \
           --out-dir generated \
           "${DYLIB_PATH}"
