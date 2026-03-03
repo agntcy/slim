@@ -164,7 +164,7 @@ pub struct Channel {
     /// Runtime handle for spawning tasks (resolved at construction)
     runtime: tokio::runtime::Handle,
     /// Shared persistent session (lazily initialised, recreated when dead)
-    session: Arc<tokio::sync::Mutex<Option<ChannelSession>>>,
+    session: Arc<ParkingRwLock<Option<ChannelSession>>>,
 }
 
 impl Channel {
@@ -190,37 +190,50 @@ impl Channel {
             remote,
             connection_id,
             runtime,
-            session: Arc::new(tokio::sync::Mutex::new(None)),
+            session: Arc::new(ParkingRwLock::new(None)),
         }
     }
 
     /// Return the existing session if alive, otherwise create a new one.
+    ///
+    /// Fast path: read lock — return the session if it is alive.
+    /// Slow path: create a new session outside any lock, then take the write lock
+    /// and store it (re-checking in case a concurrent caller beat us to it).
     async fn get_or_create_session(
         &self,
     ) -> Result<(SessionTx, Arc<ResponseDispatcher>), RpcError> {
-        let mut guard = self.session.lock().await;
-
-        // Reuse the current session if it is still alive.
-        if let Some(ref cs) = *guard {
-            if cs.is_alive() {
+        // Fast path: cheap read lock, no session creation needed.
+        {
+            let guard = self.session.read();
+            if let Some(ref cs) = *guard
+                && cs.is_alive()
+            {
                 return Ok((cs.tx.clone(), cs.dispatcher.clone()));
             }
-            tracing::debug!("no persistent session - recreating");
         }
 
-        // Create a fresh raw session
+        // Slow path: session is absent or dead.
+        // Create outside any lock — session creation is async.
+        tracing::debug!("no persistent session - recreating");
         let (session_tx, session_rx) = self.create_raw_session().await?;
-
         let dispatcher = Arc::new(ResponseDispatcher::new());
         let task = tokio::spawn(response_dispatcher_task(session_rx, dispatcher.clone()));
-
-        let cs = ChannelSession {
+        let new_cs = ChannelSession {
             tx: session_tx.clone(),
             dispatcher: dispatcher.clone(),
             task,
         };
-        *guard = Some(cs);
 
+        // Write lock: re-check in case a concurrent caller already recreated.
+        let mut guard = self.session.write();
+        if let Some(ref existing) = *guard
+            && existing.is_alive()
+        {
+            // Discard ours and return the one that was already there.
+            new_cs.task.abort();
+            return Ok((existing.tx.clone(), existing.dispatcher.clone()));
+        }
+        *guard = Some(new_cs);
         Ok((session_tx, dispatcher))
     }
 
@@ -299,7 +312,7 @@ impl Channel {
                 .parse::<i32>()
                 .ok()
                 .and_then(|code| RpcCode::try_from(code).ok())
-                .ok_or_else(|| RpcError::internal(format!("Invalid status code: {}", s))),
+                .ok_or(RpcError::internal(format!("Invalid status code: {}", s))),
             None => Ok(RpcCode::Ok),
         }
     }
