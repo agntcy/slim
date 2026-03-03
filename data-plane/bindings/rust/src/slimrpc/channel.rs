@@ -737,8 +737,6 @@ enum ReceiveError {
     Rpc(RpcError),
 }
 
-// ── UniFFI-compatible methods for foreign language bindings ───────────────────
-
 #[uniffi::export]
 impl Channel {
     /// Create a new RPC channel
