@@ -33,8 +33,6 @@ use super::{
     session_wrapper::{SessionRx, SessionTx, new_session},
 };
 
-// ── Response dispatcher ───────────────────────────────────────────────────────
-
 /// Routes incoming response messages to the correct per-RPC mpsc channel.
 ///
 /// The background `response_dispatcher_task` calls `dispatch()` for each message
