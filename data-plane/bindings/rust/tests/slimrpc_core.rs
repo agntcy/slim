@@ -899,8 +899,6 @@ async fn test_concurrent_unary_calls() {
 
 // ============================================================================
 // Session Reuse Tests
-// (Session is now persistent and shared across RPC calls; each call is
-//  identified by a unique rpc-id rather than a separate session.)
 // ============================================================================
 
 #[tokio::test]
