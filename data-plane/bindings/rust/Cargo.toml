@@ -37,6 +37,7 @@ tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tracing = { workspace = true }
 uniffi = { version = "0.28.3", features = ["cli"] }
+uuid = { workspace = true }
 
 [build-dependencies]
 uniffi = { version = "0.28.3", features = ["build"] }

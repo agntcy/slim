@@ -23,11 +23,12 @@ use slim_session::errors::SessionError;
 use slim_session::notification::Notification;
 
 use super::{
-    Context, HandlerInfo, RequestStream, ResponseSink, RpcCode, RpcError, RpcSession,
-    StreamRpcSession, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler,
-    UnaryUnaryHandler, UniffiRequestStream, build_method_subscription_name,
+    Context, HandlerInfo, METHOD_KEY, RPC_ID_KEY, ReceivedMessage, RequestStream, ResponseSink,
+    RpcCode, RpcError, RpcSession, SERVICE_KEY, STATUS_CODE_KEY, StreamRpcSession,
+    StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
+    UniffiRequestStream,
     codec::{Decoder, Encoder},
-    send_error,
+    send_error_for_rpc,
     session_wrapper::new_session,
 };
 
@@ -69,8 +70,6 @@ struct ServiceRegistry {
     handlers: HashMap<String, (RpcHandler, HandlerType)>,
     /// Map of method paths to stream handlers (for stream-input methods)
     stream_handlers: HashMap<String, (StreamRpcHandler, HandlerType)>,
-    /// Map of subscription names to method paths for routing
-    subscription_to_method: HashMap<Name, String>,
 }
 
 impl ServiceRegistry {
@@ -79,21 +78,7 @@ impl ServiceRegistry {
         Self {
             handlers: HashMap::new(),
             stream_handlers: HashMap::new(),
-            subscription_to_method: HashMap::new(),
         }
-    }
-
-    /// Register a subscription name mapping
-    fn register_subscription(&mut self, mut subscription_name: Name, method_path: String) {
-        subscription_name.set_id(Name::NULL_COMPONENT);
-        self.subscription_to_method
-            .insert(subscription_name, method_path);
-    }
-
-    /// Get method path from subscription name
-    fn get_method_from_subscription(&self, subscription_name: &mut Name) -> Option<String> {
-        subscription_name.set_id(Name::NULL_COMPONENT);
-        self.subscription_to_method.get(subscription_name).cloned()
     }
 
     /// Register a unary-unary handler
@@ -452,17 +437,6 @@ impl Server {
         }
     }
 
-    /// Helper method to register subscription for a method
-    fn register_method_mapping(&self, service_name: &str, method_name: &str) {
-        // Build subscription name and register mapping
-        let subscription_name =
-            build_method_subscription_name(&self.base_name, service_name, method_name);
-        let method_path = format!("{}/{}", service_name, method_name);
-        self.registry
-            .write()
-            .register_subscription(subscription_name, method_path);
-    }
-
     /// Register a unary-unary RPC handler
     ///
     /// Handles a single request and returns a single response.
@@ -522,8 +496,6 @@ impl Server {
         self.registry
             .write()
             .register_unary_unary(service_name, method_name, handler);
-
-        self.register_method_mapping(service_name, method_name);
     }
 
     /// Register a unary-stream RPC handler
@@ -588,8 +560,6 @@ impl Server {
         self.registry
             .write()
             .register_unary_stream(service_name, method_name, handler);
-
-        self.register_method_mapping(service_name, method_name);
     }
 
     /// Register a stream-unary RPC handler
@@ -656,8 +626,6 @@ impl Server {
         self.registry
             .write()
             .register_stream_unary(service_name, method_name, handler);
-
-        self.register_method_mapping(service_name, method_name);
     }
 
     /// Register a stream-stream RPC handler
@@ -736,8 +704,6 @@ impl Server {
         self.registry
             .write()
             .register_stream_stream(service_name, method_name, handler);
-
-        self.register_method_mapping(service_name, method_name);
     }
 
     /// Get all registered method paths
@@ -856,19 +822,14 @@ impl Server {
             "SlimRPC server starting"
         );
 
-        // Subscribe to all registered methods
-        let subscription_names: Vec<Name> =
-            registry.subscription_to_method.keys().cloned().collect();
-
-        for subscription_name in subscription_names {
-            tracing::info!(%subscription_name, "Subscribing");
-            if let Err(e) = app.subscribe(&subscription_name, connection_id).await {
-                let status = RpcError::internal(format!(
-                    "Failed to subscribe to {}: {}",
-                    subscription_name, e
-                ));
-                return (rx, Err(status));
-            }
+        // Subscribe to the base name so that the SLIM network routes incoming
+        // sessions to this server. Method dispatch is determined by reading the
+        // "service" and "method" keys from the SLIM metadata of the first message
+        // in each session rather than from per-method subscription names.
+        tracing::info!(%base_name, "Subscribing");
+        if let Err(e) = app.subscribe(&base_name, connection_id).await {
+            let status = RpcError::internal(format!("Failed to subscribe to {}: {}", base_name, e));
+            return (rx, Err(status));
         }
 
         // Save spawned tasks
@@ -897,76 +858,218 @@ impl Server {
                         }
                     };
 
-                    // Get the source (subscription name) from the session controller to determine which method to call
-                    let mut subscription_name = match session_ctx.session_arc() {
-                        Some(session) => session.source().clone(),
-                        None => {
-                            let status = RpcError::internal("Session controller not available");
-                            return (rx, Err(status));
-                        }
-                    };
+                    tracing::debug!("Received new session — starting per-session demux task");
 
-                    tracing::debug!(%subscription_name, "Processing session for subscription");
-
-                    // Look up the method path and handler info for this subscription
-                    let lookup_result = {
-                        let method_path_opt = registry.get_method_from_subscription(&mut subscription_name);
-                        method_path_opt.and_then(|method_path| {
-                            registry.get_handler_info(&method_path).map(|handler_info| (method_path, handler_info))
-                        })
-                    };
-
-                    // Spawn a task to handle this session
+                    // Spawn one long-lived task per session.
+                    // The task demultiplexes incoming messages by their `rpc-id` metadata
+                    // field and dispatches each new RPC call to a separate handler task.
                     let (session_tx, mut session_rx) = new_session(session_ctx);
+                    let registry_clone = registry.clone();
                     let app_clone = app.clone();
                     let watch_clone = drain_watch.clone();
                     let handle = tokio::spawn(async move {
-                        let watch = std::pin::pin!(watch_clone.signaled());
+                        // Map from rpc_id to the mpsc sender for a live stream-input handler.
+                        // Unary-input handlers are spawned without an entry here (they need
+                        // only the first message and no further routing).
+                        // Map from rpc_id to the mpsc sender for a live stream-input handler.
+                        let mut pending_streams: HashMap<
+                            String,
+                            mpsc::UnboundedSender<ReceivedMessage>,
+                        > = HashMap::new();
 
-                        tokio::select! {
-                            _ = watch => {
-                                tracing::debug!(%subscription_name, "Session task terminated due to server shutdown");
-                                // Send Cancelled error to client before closing
-                                let _ = send_error(&session_tx, RpcError::cancelled("Server shutting down")).await;
-                                let _ = session_tx.close(app_clone.as_ref()).await;
-                            }
-                            _ = async {
-                                // Check if method is registered and handle error in task
-                                let Some((method_path, handler_info)) = lookup_result else {
-                                    tracing::error!(%subscription_name, "No method registered for subscription");
-                                    // Send error and wait for acknowledgment
-                                    let _ = send_error(&session_tx, RpcError::internal("No method registered for subscription")).await;
+                        // Map from rpc_id to its handler JoinHandle (for all active RPCs).
+                        // Lazily cleaned up when new messages arrive.
+                        let mut active_tasks: HashMap<String, JoinHandle<()>> = HashMap::new();
 
-                                    // Delete the session when done
+                        let mut drain_fut = std::pin::pin!(watch_clone.signaled());
+                        // Tracks whether we already called close() so we avoid calling twice.
+                        let mut already_closed = false;
+
+                        loop {
+                            let msg = tokio::select! {
+                                _ = &mut drain_fut => {
+                                    tracing::debug!("Session demux task: server shutdown — cancelling {} active RPCs", active_tasks.len());
+                                    // Send a Cancelled error for every active RPC so the client
+                                    // receives a meaningful status code rather than just a
+                                    // "channel closed" error.
+                                    for rpc_id in active_tasks.keys() {
+                                        let _ = send_error_for_rpc(
+                                            &session_tx,
+                                            RpcError::cancelled("Server shutting down"),
+                                            rpc_id,
+                                        ).await;
+                                    }
+                                    for (_, task) in active_tasks.drain() {
+                                        task.abort();
+                                    }
                                     let _ = session_tx.close(app_clone.as_ref()).await;
-                                    return;
-                                };
-
-                                tracing::debug!(%method_path, %subscription_name, "Received session for method");
-
-                                let result = match handler_info {
-                                    HandlerInfo::Stream(stream_handler, handler_type) => {
-                                        // For stream-based methods, create StreamRpcSession
-                                        let stream_session = StreamRpcSession::new(&session_tx, session_rx, method_path.clone());
-                                        stream_session.handle(stream_handler, handler_type).await
-                                    }
-                                    _ => {
-                                        // For unary methods, create RpcSession
-                                        let session = RpcSession::new(&session_tx, &mut session_rx, method_path.clone());
-                                        session.handle(handler_info).await
-                                    }
-                                };
-
-                                if let Err(e) = result {
-                                    tracing::error!(%method_path, error = %e, "Error handling session");
-
-                                    // Send error to client before closing
-                                    let _ = send_error(&session_tx, e).await;
+                                    already_closed = true;
+                                    break;
                                 }
+                                result = session_rx.get_message(None) => {
+                                    match result {
+                                        Ok(m) => m,
+                                        Err(e) => {
+                                            tracing::debug!(error = %e, "Session closed by peer");
+                                            break;
+                                        }
+                                    }
+                                }
+                            };
 
-                                // Close the session after handling (success or after sending error)
-                                let _ = session_tx.close(app_clone.as_ref()).await;
-                            } => {}
+                            // Lazily remove completed handler tasks
+                            active_tasks.retain(|_, h| !h.is_finished());
+
+                            let rpc_id = msg
+                                .metadata
+                                .get(RPC_ID_KEY)
+                                .cloned()
+                                .unwrap_or_default();
+
+                            if let Some(tx) = pending_streams.get(&rpc_id) {
+                                // Route to an existing stream-input handler.
+                                let code = msg
+                                    .metadata
+                                    .get(STATUS_CODE_KEY)
+                                    .and_then(|s| s.parse::<i32>().ok())
+                                    .and_then(|c| RpcCode::try_from(c).ok())
+                                    .unwrap_or(RpcCode::Ok);
+                                let is_terminal = (code == RpcCode::Ok && msg.payload.is_empty())
+                                    || code != RpcCode::Ok;
+                                let _ = tx.send(msg);
+                                if is_terminal {
+                                    pending_streams.remove(&rpc_id);
+                                }
+                            } else {
+                                // New RPC call — dispatch by service/method metadata.
+                                let service = msg
+                                    .metadata
+                                    .get(SERVICE_KEY)
+                                    .cloned()
+                                    .unwrap_or_default();
+                                let method = msg
+                                    .metadata
+                                    .get(METHOD_KEY)
+                                    .cloned()
+                                    .unwrap_or_default();
+                                let method_path = format!("{}/{}", service, method);
+
+                                tracing::debug!(%method_path, %rpc_id, "Dispatching new RPC call");
+
+                                let handler_info =
+                                    registry_clone.get_handler_info(&method_path);
+                                let Some(handler_info) = handler_info else {
+                                    tracing::error!(%method_path, "No handler registered");
+                                    let _ = send_error_for_rpc(
+                                        &session_tx,
+                                        RpcError::unimplemented(format!(
+                                            "Method not found: {}",
+                                            method_path
+                                        )),
+                                        &rpc_id,
+                                    )
+                                    .await;
+                                    continue;
+                                };
+
+                                match handler_info {
+                                    HandlerInfo::Stream(stream_handler, handler_type) => {
+                                        let (stream_tx, stream_rx) =
+                                            mpsc::unbounded_channel();
+
+                                        // Only add to pending if the first message is not
+                                        // already an EOS/error (empty-stream case).
+                                        let code = msg
+                                            .metadata
+                                            .get(STATUS_CODE_KEY)
+                                            .and_then(|s| s.parse::<i32>().ok())
+                                            .and_then(|c| RpcCode::try_from(c).ok())
+                                            .unwrap_or(RpcCode::Ok);
+                                        let is_terminal = (code == RpcCode::Ok
+                                            && msg.payload.is_empty())
+                                            || code != RpcCode::Ok;
+                                        if !is_terminal {
+                                            pending_streams
+                                                .insert(rpc_id.clone(), stream_tx);
+                                        }
+                                        // Drop the sender if not inserted (no more messages)
+                                        // so the handler's channel closes immediately after
+                                        // the first message.
+
+                                        let session_tx_clone = session_tx.clone();
+                                        let rpc_id_for_task = rpc_id.clone();
+                                        let rpc_id_for_err = rpc_id.clone();
+                                        let task = tokio::spawn(async move {
+                                            let session = StreamRpcSession::new_with_rpc_id(
+                                                &session_tx_clone,
+                                                stream_rx,
+                                                method_path.clone(),
+                                                msg,
+                                                rpc_id_for_task,
+                                            );
+                                            let result =
+                                                session.handle(stream_handler, handler_type).await;
+                                            if let Err(e) = result {
+                                                tracing::error!(
+                                                    %method_path,
+                                                    error = %e,
+                                                    "Error in stream RPC handler"
+                                                );
+                                                let _ = send_error_for_rpc(
+                                                    &session_tx_clone,
+                                                    e,
+                                                    &rpc_id_for_err,
+                                                )
+                                                .await;
+                                            }
+                                        });
+                                        active_tasks.insert(rpc_id.clone(), task);
+                                    }
+                                    HandlerInfo::Unary(handler, handler_type) => {
+                                        let session_tx_clone = session_tx.clone();
+                                        let rpc_id_for_task = rpc_id.clone();
+                                        let rpc_id_for_map = rpc_id.clone();
+                                        let task = tokio::spawn(async move {
+                                            let rpc_id_for_err = rpc_id_for_task.clone();
+                                            let session = RpcSession::new_with_rpc_id(
+                                                &session_tx_clone,
+                                                method_path.clone(),
+                                                msg,
+                                                rpc_id_for_task,
+                                            );
+                                            let result = session
+                                                .handle(HandlerInfo::Unary(
+                                                    handler,
+                                                    handler_type,
+                                                ))
+                                                .await;
+                                            if let Err(e) = result {
+                                                tracing::error!(
+                                                    %method_path,
+                                                    error = %e,
+                                                    "Error in unary RPC handler"
+                                                );
+                                                let _ = send_error_for_rpc(
+                                                    &session_tx_clone,
+                                                    e,
+                                                    &rpc_id_for_err,
+                                                )
+                                                .await;
+                                            }
+                                        });
+                                        active_tasks.insert(rpc_id_for_map, task);
+                                    }
+                                }
+                            }
+                        }
+
+                        // Wait for remaining handler tasks (those not aborted on drain)
+                        let remaining: Vec<JoinHandle<()>> = active_tasks.into_values().collect();
+                        join_all(remaining).await;
+
+                        // Close the session unless we already did so in the drain branch
+                        if !already_closed {
+                            let _ = session_tx.close(app_clone.as_ref()).await;
                         }
                     });
 

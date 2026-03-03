@@ -43,6 +43,14 @@ pub struct SessionRx {
     rx: AppChannelReceiver,
 }
 
+impl Clone for SessionTx {
+    fn clone(&self) -> Self {
+        Self {
+            controller: self.controller.clone(),
+        }
+    }
+}
+
 impl SessionTx {
     /// Get the session ID
     pub fn session_id(&self) -> u32 {
