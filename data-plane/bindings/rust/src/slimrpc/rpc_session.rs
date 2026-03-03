@@ -47,9 +47,7 @@ impl<'a> RpcSession<'a> {
     /// correct waiting caller.  No `SessionRx` is required because all subsequent
     /// messages are demultiplexed before reaching this handler.
     ///
-    /// The context is initialised from the first message's metadata so that
-    /// the deadline (which no longer travels in the session-level config but in
-    /// the first message body) is correctly set before `handle()` checks it.
+    /// The context is initialised from the first message's metadata.
     pub fn new_with_rpc_id(
         session_tx: &'a SessionTx,
         method_path: String,
@@ -71,38 +69,26 @@ impl<'a> RpcSession<'a> {
     pub async fn handle(self, handler_info: HandlerInfo) -> Result<(), RpcError> {
         tracing::debug!(method_path = %self.method_path, "Processing RPC");
 
-        // Check deadline before starting
         if self.ctx.is_deadline_exceeded() {
             return Err(RpcError::deadline_exceeded("Deadline exceeded"));
         }
 
-        let Self {
-            session_tx,
-            method_path,
-            ctx,
-            first_message,
-            rpc_id,
-        } = self;
-
-        // Get deadline from context for the entire handler execution
-        let deadline = tokio::time::Instant::now() + ctx.remaining_time();
+        let method_path = self.method_path.clone();
+        let deadline = tokio::time::Instant::now() + self.ctx.remaining_time();
         let sleep_fut = std::pin::pin!(tokio::time::sleep_until(deadline));
 
-        // Handle based on handler type with deadline enforcement
         let result = tokio::select! {
-            result = async {
+            result = async move {
                 match handler_info {
-                    HandlerInfo::Unary(handler, handler_type) => {
-                        match handler_type {
-                            HandlerType::UnaryUnary => {
-                                Self::handle_unary_unary(session_tx, ctx, first_message, handler, &rpc_id).await
-                            }
-                            HandlerType::UnaryStream => {
-                                Self::handle_unary_stream(session_tx, ctx, first_message, handler, &rpc_id).await
-                            }
-                            _ => Err(RpcError::internal("Invalid handler type for unary-input method")),
+                    HandlerInfo::Unary(handler, handler_type) => match handler_type {
+                        HandlerType::UnaryUnary => {
+                            Self::handle_unary_unary(self.session_tx, self.ctx, self.first_message, handler, &self.rpc_id).await
                         }
-                    }
+                        HandlerType::UnaryStream => {
+                            Self::handle_unary_stream(self.session_tx, self.ctx, self.first_message, handler, &self.rpc_id).await
+                        }
+                        _ => Err(RpcError::internal("Invalid handler type for unary-input method")),
+                    },
                     HandlerInfo::Stream(_, _) => {
                         Err(RpcError::internal("Stream methods should be handled separately"))
                     }
