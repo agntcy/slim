@@ -122,6 +122,9 @@ pub struct ControllerSender {
 
     /// drain state - when true, no new messages from app are accepted
     draining_state: ControllerSenderDrainStatus,
+
+    /// set to true if it is used to send messages to legacy participants
+    is_legacy: bool,
 }
 
 impl ControllerSender {
@@ -135,6 +138,7 @@ impl ControllerSender {
         initiator: bool,
         tx: SessionTransmitter,
         tx_signals: Sender<SessionMessage>,
+        is_legacy: bool,    
     ) -> Self {
         let mut list = HashSet::new();
         list.insert(local_name.clone());
@@ -173,6 +177,7 @@ impl ControllerSender {
             tx,
             tx_session: tx_signals,
             draining_state: ControllerSenderDrainStatus::NotDraining,
+            is_legacy,
         }
     }
 
@@ -221,7 +226,14 @@ impl ControllerSender {
                             .channel
                             .as_ref()
                             .ok_or(SessionError::MissingGroupNameInJoinRequest)?;
-                        let group_name = Name::from(name);
+                        let mut group_name = Name::from(name);
+                        // for legacy senders the channel name ends with NULL_COMPONENT
+                        // for new senders the channel name ends with CONTROL_CHANNEL_ID
+                        if self.is_legacy {
+                            group_name.reset_id();
+                        } else {
+                            group_name.set_id(Name::CONTROL_CHANNEL_ID);
+                        }
                         debug!(
                             destination = %group_name,
                             "update group name on join request message for multicast session",

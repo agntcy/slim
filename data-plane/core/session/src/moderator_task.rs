@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use rand::rand_core::le;
 // Third-party crates
 use tokio::sync::oneshot;
 use tracing::debug;
@@ -341,7 +342,7 @@ impl TaskUpdate for AddParticipant {
         if let Some(legacy_commit) = &self.commit_legacy {
             done && legacy_commit.received
         } else {
-            false
+            done
         }
     }
 }
@@ -349,6 +350,8 @@ impl TaskUpdate for AddParticipant {
 #[derive(Debug, Default)]
 pub struct RemoveParticipant {
     commit: State,
+    // use to track messages on the legacy channel
+    commit_legacy: Option<State>,
     leave: State,
     /// Optional ack message to send back to the control plane upon completion
     ack_msg: Option<Message>,
@@ -363,6 +366,7 @@ impl RemoveParticipant {
     ) -> Self {
         Self {
             commit: Default::default(),
+            commit_legacy: None,
             leave: Default::default(),
             ack_msg,
             ack_tx,
@@ -430,6 +434,17 @@ impl TaskUpdate for RemoveParticipant {
         Ok(())
     }
 
+    fn commit_legacy_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
+        debug!(
+            %timer_id,
+            "start commit legacy on RemoveParticipanMls task",
+        );
+        let legacy_commit = self.commit_legacy.get_or_insert(State::default());
+        legacy_commit.received = false;
+        legacy_commit.timer_id = timer_id;
+        Ok(())
+    }
+
     fn proposal_start(&mut self, _timer_id: u32) -> Result<(), SessionError> {
         Err(unsupported_phase())
     }
@@ -442,19 +457,33 @@ impl TaskUpdate for RemoveParticipant {
                 "commit completed on RemoveParticipanMls task",
             );
             Ok(())
+        } else if let Some(legacy_commit) = &mut self.commit_legacy &&
+            legacy_commit.timer_id == timer_id {
+            legacy_commit.received = true;
+            debug!(
+                %timer_id,
+                "legacy commit completed on RemoveParticipanMls task",
+            );
+            Ok(())
         } else {
             Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id))
         }
     }
 
     fn task_complete(&self) -> bool {
-        self.commit.received && self.leave.received
+        let done = self.commit.received && self.leave.received;
+        if self.commit_legacy.is_some() {
+            done && self.commit_legacy.as_ref().unwrap().received
+        } else {
+            done
+        }
     }
 }
 
 #[derive(Debug, Default)]
 pub struct NotifyParticipants {
     notify: State,
+    notify_legacy: Option<State>,
     /// Optional ack message to send back to the control plane upon completion
     ack_msg: Option<Message>,
     /// Optional ack notifier to signal when the notify operation completes
@@ -468,6 +497,7 @@ impl NotifyParticipants {
     ) -> Self {
         Self {
             notify: Default::default(),
+            notify_legacy: None,
             ack_msg,
             ack_tx,
         }
@@ -510,6 +540,14 @@ impl TaskUpdate for NotifyParticipants {
         Ok(())
     }
 
+    fn commit_legacy_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
+        debug!(%timer_id, "start notify participants legacy task");
+        let legacy_notify = self.notify_legacy.get_or_insert(State::default());
+        legacy_notify.received = false;
+        legacy_notify.timer_id = timer_id;
+        Ok(())  
+    }
+
     fn proposal_start(&mut self, _timer_id: u32) -> Result<(), SessionError> {
         Err(unsupported_phase())
     }
@@ -522,15 +560,26 @@ impl TaskUpdate for NotifyParticipants {
                 "notify participants completed on NotifyParticipants task",
             );
 
+        } else if let Some(legacy_notify) = &mut self.notify_legacy && 
+            legacy_notify.timer_id == timer_id {
+            legacy_notify.received = true;
+            debug!(
+                %timer_id,
+                "notify participants legacy completed on NotifyParticipants task",
+            );
+    
+        } else {
+            return Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id));
+        }
+
+        if self.notify.received && (self.notify_legacy.is_none() || self.notify_legacy.as_ref().unwrap().received) {
             // Signal success to the ack notifier if present (notify operation complete)
             if let Some(tx) = self.ack_tx.take() {
                 let _ = tx.send(Ok(()));
             }
-
-            Ok(())
-        } else {
-            Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id))
         }
+
+        Ok(())
     }
 
     fn task_complete(&self) -> bool {
@@ -542,6 +591,7 @@ impl TaskUpdate for NotifyParticipants {
 pub struct UpdateParticipant {
     proposal: State,
     commit: State,
+    commit_legacy: Option<State>,
     /// Optional ack message to send back to the control plane upon completion
     ack_msg: Option<Message>,
     /// Optional ack notifier to signal when the update operation completes
@@ -587,6 +637,17 @@ impl TaskUpdate for UpdateParticipant {
         Ok(())
     }
 
+    fn commit_legacy_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
+        debug!(
+            %timer_id,
+            "start commit legacy on UpdateParticipanMls task",
+        );
+        let legacy_commit = self.commit_legacy.get_or_insert(State::default());
+        legacy_commit.received = false;
+        legacy_commit.timer_id = timer_id;
+        Ok(())
+    }
+
     fn proposal_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         debug!(%timer_id,
             "start proposal on UpdateParticipanMls task",
@@ -611,13 +672,21 @@ impl TaskUpdate for UpdateParticipant {
                 "commit completed on UpdateParticipanMls task",
             );
             Ok(())
+        } else if let Some(legacy_commit) = &mut self.commit_legacy &&
+            legacy_commit.timer_id == timer_id {
+            legacy_commit.received = true;
+            debug!(
+                %timer_id,
+                "legacy commit completed on UpdateParticipanMls task",
+            );
+            Ok(())
         } else {
             Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id))
         }
     }
 
     fn task_complete(&self) -> bool {
-        self.proposal.received && self.commit.received
+        self.proposal.received && self.commit.received && self.commit_legacy.as_ref().map_or(true, |c| c.received)  
     }
 }
 

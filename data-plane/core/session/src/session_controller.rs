@@ -536,6 +536,9 @@ where
     /// sender for command messages
     pub(crate) sender: ControllerSender,
 
+    /// sender for command messages on legacy group
+    pub(crate) legacy_sender: Option<ControllerSender>,
+
     /// processing state
     pub(crate) processing_state: ProcessingState,
 }
@@ -558,13 +561,38 @@ where
             settings.tx.clone(),
             // send signal to the controller
             settings.tx_session.clone(),
+            false, // not legacy
         );
 
         SessionControllerCommon {
             settings,
             sender: controller_sender,
+            legacy_sender: None,
             processing_state: ProcessingState::Active,
         }
+    }
+
+    pub(crate) fn add_legacy_sender(&mut self) {
+        if self.legacy_sender.is_some() {
+            return;
+        }
+
+        // Create the controller sender for legacy channel.
+        let legacy_sender = ControllerSender::new(
+            self.settings.config.get_timer_settings(),
+            self.settings.source.clone(),
+            self.settings.config.session_type,
+            self.settings.id,
+            Some(PING_INTERVAL),
+            self.settings.config.initiator,
+            // send messages to slim/app
+            self.settings.tx.clone(),
+            // send signal to the controller
+            self.settings.tx_session.clone(),
+            true, // legacy
+        );
+
+        self.legacy_sender = Some(legacy_sender);
     }
 
     /// internal and helper functions
@@ -578,7 +606,14 @@ where
     }
 
     /// Send control message without creating ack channel (for internal use by moderator)
-    pub(crate) async fn send_with_timer(&mut self, message: Message) -> Result<(), SessionError> {
+    pub(crate) async fn send_with_timer(&mut self, message: Message, legacy: bool) -> Result<(), SessionError> {
+        if legacy {
+            if let Some(legacy_sender) = &mut self.legacy_sender {
+                return legacy_sender.on_message(&message).await;
+            } else {
+                return Err(SessionError::LegacyChannelNotInitialized);
+            }
+        }
         self.sender.on_message(&message).await
     }
 
@@ -670,13 +705,14 @@ where
         payload: Content,
         metadata: Option<HashMap<String, String>>,
         broadcast: bool,
+        legacy: bool,
     ) -> Result<(), SessionError> {
         let mut msg =
             self.create_control_message(dst, message_type, message_id, payload, broadcast)?;
         if let Some(m) = metadata {
             msg.set_metadata_map(m);
         }
-        self.send_with_timer(msg).await
+        self.send_with_timer(msg, legacy).await
     }
 }
 

@@ -50,6 +50,8 @@ pub enum SessionError {
     ParticipantSettingsNotFound(Name),
     #[error("invalid participant settings length")]
     InvalidParticipantSettingsLength,
+    #[error("legacy channel not initialized")]
+    LegacyChannelNotInitialized,
     #[error("unexpected error")]
     UnexpectedError { source: Box<SessionError> },
 

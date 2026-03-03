@@ -8,7 +8,6 @@ use std::{
 
 use async_trait::async_trait;
 use display_error_chain::ErrorChainExt;
-use rand::rand_core::le;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
@@ -472,7 +471,7 @@ where
         removed_participant: Name,
         participants: Vec<Name>,
         mls_payload: Option<MlsPayload>,
-    ) -> Result<u32, SessionError> {
+    ) -> Result<(u32, Option<u32>), SessionError> {
         let update_payload = CommandPayload::builder()
             .group_remove(removed_participant, participants, mls_payload)
             .as_content();
@@ -483,13 +482,30 @@ where
                 &self.common.settings.destination.clone(),
                 ProtoSessionMessageType::GroupRemove,
                 msg_id,
-                update_payload,
+                update_payload.clone(),
                 None,
                 true,
+                false,
             )
             .await?;
 
-        Ok(msg_id)
+        let mut legacy_msg_id = None;
+        if let Some(legacy) = self.common.settings.legacy.clone() {
+                legacy_msg_id = Some(rand::random::<u32>());
+                self.common
+                    .send_control_message(
+                        &legacy,
+                        ProtoSessionMessageType::GroupAdd,
+                        legacy_msg_id.unwrap(),
+                        update_payload,
+                        None,
+                        true,
+                        true,
+                    )
+                    .await?;
+            }
+
+        Ok((msg_id, legacy_msg_id))
     }
 
     async fn process_control_message(
@@ -742,6 +758,7 @@ where
                 payload,
                 Some(self.common.settings.config.metadata.clone()),
                 false,
+                false,
             )
             .await?;
 
@@ -779,7 +796,7 @@ where
         let new_participant_settings = payload.settings.unwrap_or_default();
         self.participant_settings
             .insert(msg.get_source().clone(), new_participant_settings);
-        if new_participant_settings == ParticipantSettings::default() &&
+        if new_participant_settings.is_legacy() &&
             self.common.settings.config.session_type == ProtoSessionType::Multicast {
             // this is a legacy participant so we need to use the legacy channel
             debug!("The new participant is a legacy one, setup the legacy channel");
@@ -930,9 +947,6 @@ where
         Ok(())
     }
 
-    /// xxxxxxx 
-    /// OK up to here
-    /// xxxxxx
     async fn on_leave_request(
         &mut self,
         mut msg: Message,
@@ -944,6 +958,8 @@ where
             self.tasks_todo.push_back((msg, ack_tx));
             return Ok(());
         }
+
+        self.current_task = Some(ModeratorTask::Remove(RemoveParticipant::new(ack_tx, None)));
 
         debug!("Create RemoveParticipant task with ack_tx");
         // adjust the message according to the sender:
@@ -981,8 +997,11 @@ where
             None => (msg.get_dst(), None),
         };
 
-        self.current_task = Some(ModeratorTask::Remove(RemoveParticipant::new(ack_tx, ack)));
-
+        // set the ack message in the task if required
+        if let Some(ack_msg) = ack {
+            self.current_task.as_mut().unwrap().set_ack_msg(ack_msg);
+        }
+        
         // Look up participant ID in group list
         let id = match self.group_list.get(&dst_without_id) {
             Some(id) => *id,
@@ -1011,10 +1030,15 @@ where
 
         if participants_vec.len() > 2 {
             // in this case we need to send first the group update and later the leave message
-            let msg_id = self
+            let (msg_id, legacy_msg_id) = self
                 .send_group_remove(leave_message.get_dst(), participants_vec, mls_payload)
                 .await?;
             self.current_task.as_mut().unwrap().commit_start(msg_id)?;
+
+            // update the task with legacy message if needed
+            if let Some(legacy_id) = legacy_msg_id {
+                self.current_task.as_mut().unwrap().commit_legacy_start(legacy_id)?;
+            }
 
             // We need to save the leave message and send it after
             // the reception of all the acks for the group update message
@@ -1147,10 +1171,17 @@ where
             .await?;
 
         // Notify all the participants left and update the MLS state if needed
-        let msg_id = self
+        let (msg_id, legacy_msg_id) = self
             .send_group_remove(disconnected, participants_vec, mls_payload)
             .await?;
-        self.current_task.as_mut().unwrap().commit_start(msg_id)
+        self.current_task.as_mut().unwrap().commit_start(msg_id)?;
+        if legacy_msg_id.is_some() {
+            self.current_task
+                .as_mut()
+                .unwrap()
+                .commit_legacy_start(legacy_msg_id.unwrap())?;
+        }
+        Ok(())
     }
 
     async fn delete_all(
@@ -1177,6 +1208,11 @@ where
             return Ok(());
         }
 
+                // create the close task
+        self.current_task = Some(ModeratorTask::CloseOrDisconnect(NotifyParticipants::new(
+            ack_tx, None,
+        )));
+
         let destination = self.common.settings.destination.clone();
         let close_id = rand::random::<u32>();
         let close = self.common.create_control_message(
@@ -1184,7 +1220,7 @@ where
             ProtoSessionMessageType::GroupClose,
             close_id,
             CommandPayload::builder()
-                .group_close(participants)
+                .group_close(participants.clone())
                 .as_content(),
             true,
         )?;
@@ -1201,14 +1237,36 @@ where
             None
         };
 
-        // create the close task
-        self.current_task = Some(ModeratorTask::CloseOrDisconnect(NotifyParticipants::new(
-            ack_tx, ack,
-        )));
+        // set message ack if needed
+        if let Some(ack_msg) = ack {
+            self.current_task.as_mut().unwrap().set_ack_msg(ack_msg);
+        }
+
         self.current_task.as_mut().unwrap().commit_start(close_id)?;
 
         // sent the message
-        self.common.sender.on_message(&close).await
+        self.common.sender.on_message(&close).await?; 
+
+        // check if we need to send the message also on the legacy channel
+        if let Some(legacy) = self.common.settings.legacy.clone() {
+            let legacy_id = rand::random::<u32>();
+            debug!(id = %legacy_id, "also send the group close message to the legacy channel");
+            let legacy_close = self.common.create_control_message(
+                &legacy,
+                ProtoSessionMessageType::GroupClose,
+                legacy_id,
+                CommandPayload::builder()
+                    .group_close(participants)
+                    .as_content(),
+                true,
+            )?;
+            self.common.sender.on_message(&legacy_close).await?;
+            self.current_task
+                .as_mut().unwrap()
+                .commit_legacy_start(legacy_id)?;
+        }
+        Ok(())
+
     }
 
     async fn on_leave_reply(&mut self, msg: Message) -> Result<(), SessionError> {
