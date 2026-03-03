@@ -881,8 +881,6 @@ impl Server {
                         let mut active_tasks: HashMap<String, JoinHandle<()>> = HashMap::new();
 
                         let mut drain_fut = std::pin::pin!(watch_clone.signaled());
-                        // Tracks whether we already called close() so we avoid calling twice.
-                        let mut already_closed = false;
 
                         loop {
                             let msg = tokio::select! {
@@ -901,8 +899,6 @@ impl Server {
                                     for (_, task) in active_tasks.drain() {
                                         task.abort();
                                     }
-                                    let _ = session_tx.close(app_clone.as_ref()).await;
-                                    already_closed = true;
                                     break;
                                 }
                                 result = session_rx.get_message(None) => {
@@ -1066,10 +1062,7 @@ impl Server {
                         let remaining: Vec<JoinHandle<()>> = active_tasks.into_values().collect();
                         join_all(remaining).await;
 
-                        // Close the session unless we already did so in the drain branch
-                        if !already_closed {
-                            let _ = session_tx.close(app_clone.as_ref()).await;
-                        }
+                        let _ = session_tx.close(app_clone.as_ref()).await;
                     });
 
                     tasks.push(handle);

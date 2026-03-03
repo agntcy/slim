@@ -32,6 +32,7 @@ pub struct ReceivedMessage {
 }
 
 /// Session transmitter - used only for sending messages
+#[derive(Clone)]
 pub struct SessionTx {
     /// The underlying session controller
     controller: Arc<slim_session::session_controller::SessionController>,
@@ -41,14 +42,6 @@ pub struct SessionTx {
 pub struct SessionRx {
     /// Receiver for incoming messages
     rx: AppChannelReceiver,
-}
-
-impl Clone for SessionTx {
-    fn clone(&self) -> Self {
-        Self {
-            controller: self.controller.clone(),
-        }
-    }
 }
 
 impl SessionTx {
