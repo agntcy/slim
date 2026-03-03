@@ -45,7 +45,7 @@ tasks:
       - which uniffi-bindgen-node
     cmds:
       - echo "📦 Installing uniffi-bindgen-node..."
-      - cargo install --git https://github.com/livekit/uniffi-bindgen-node.git --tag uniffi-bindgen-node@0.1.3
+      - cargo install --git https://github.com/livekit/uniffi-bindgen-node.git --tag uniffi-bindgen-node@0.1.4
 
   # Only builds when library is missing (CI places it from artifact; local dev builds).
   ensure-bindings-lib:
