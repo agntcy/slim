@@ -402,6 +402,15 @@ async fn run_session_demux(
         // New RPC call — resolve handler and dispatch.
         let service = msg.metadata.get(SERVICE_KEY).cloned().unwrap_or_default();
         let method = msg.metadata.get(METHOD_KEY).cloned().unwrap_or_default();
+
+        // Skip messages that are not inbound RPC requests (e.g., responses from other
+        // members circulating through a GROUP/multicast session). A valid request always
+        // carries a SERVICE_KEY; responses and other protocol messages do not.
+        if service.is_empty() {
+            tracing::trace!(%rpc_id, "Skipping non-request message (no service key)");
+            continue;
+        }
+
         let method_path = format!("{}/{}", service, method);
 
         tracing::debug!(%method_path, %rpc_id, "Dispatching new RPC call");
