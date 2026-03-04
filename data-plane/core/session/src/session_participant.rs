@@ -451,15 +451,12 @@ where
                 let name = Name::from(new_participant);
                 self.group_list.insert(name.clone());
 
-                // Skip adding ourselves as an endpoint (we never ACK our own messages).
-                if name != self.common.settings.source {
-                    debug!(name  = %msg.get_source(), "add endpoint to session");
-                    // add a route to the new endpoint, this is needed in case of message retransmission
-                    self.common
-                        .add_route(&name, msg.get_incoming_conn())
-                        .await?;
-                    self.add_endpoint(&name).await?;
-                }
+                debug!(name  = %msg.get_source(), "add endpoint to session");
+                // add a route to the new endpoint, this is needed in case of message retransmission
+                self.common
+                    .add_route(&name, msg.get_incoming_conn())
+                    .await?;
+                self.add_endpoint(&name).await?;
             }
         } else {
             let p = msg
