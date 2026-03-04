@@ -36,10 +36,33 @@ use slim_datapath::api::ProtoSessionType;
 use slim_datapath::messages::Name;
 use slim_service::app::App as SlimApp;
 
+// ── Multicast response types ──────────────────────────────────────────────────
+
+/// Per-message context attached to every item in a multicast response stream.
+///
+/// Identifies which group member produced the response, allowing callers to
+/// correlate responses with their origin when multiple members are involved.
+#[derive(Debug, Clone)]
+pub struct MessageContext {
+    /// SLIM name of the member app that sent this message.
+    pub source: Name,
+}
+
+/// A single item in a multicast response stream: the decoded response together
+/// with the context identifying its origin.
+#[derive(Debug, Clone)]
+pub struct MulticastItem<T> {
+    /// Context identifying the member that produced this response.
+    pub context: MessageContext,
+    /// The decoded response message.
+    pub message: T,
+}
+
 use super::{
-    BidiStreamHandler, Context, METHOD_KEY, Metadata, RPC_ID_KEY, ReceivedMessage,
-    RequestStreamWriter, ResponseStreamReader, RpcCode, RpcError, SERVICE_KEY, STATUS_CODE_KEY,
-    calculate_deadline, calculate_timeout_duration,
+    BidiStreamHandler, Context, METHOD_KEY, Metadata, MulticastBidiStreamHandler,
+    MulticastResponseReader, RPC_ID_KEY, ReceivedMessage, RequestStreamWriter,
+    ResponseStreamReader, RpcCode, RpcError, SERVICE_KEY, STATUS_CODE_KEY, calculate_deadline,
+    calculate_timeout_duration,
     codec::{Decoder, Encoder},
     msg_is_terminal,
     session_wrapper::{SessionRx, SessionTx, new_session},
@@ -593,9 +616,6 @@ impl Channel {
                 return;
             }
 
-            let num_members = if channel.is_group { channel.pending_members.len() } else { 1 };
-            let mut eos_count = 0usize;
-
             loop {
                 let received_opt = tokio::select! {
                     msg = rx.recv() => Ok(msg),
@@ -606,68 +626,34 @@ impl Channel {
 
                 let received = match received_opt {
                     Err(e) => { yield Err(e); break; }
-                    Ok(None) => {
-                        if eos_count < num_members {
-                            yield Err(RpcError::internal(format!(
-                                "Session closed after {}/{} EOS markers",
-                                eos_count, num_members
-                            )));
-                        }
-                        break;
-                    }
+                    Ok(None) => { yield Err(RpcError::internal("Session closed")); break; }
                     Ok(Some(m)) => m,
                 };
 
-                if msg_is_terminal(&received) {
-                    eos_count += 1;
-                    if !channel.is_group || eos_count >= num_members {
-                        break;
-                    }
-                    continue;
-                }
+                if msg_is_terminal(&received) { break; }
 
                 let code = match channel.parse_status_code(received.metadata.get(STATUS_CODE_KEY)) {
                     Ok(c) => c,
                     Err(e) => { yield Err(e); break; }
                 };
                 if code != RpcCode::Ok {
-                    let message = String::from_utf8_lossy(&received.payload).to_string();
-                    let err = RpcError::new(code, message);
-                    if channel.is_group {
-                        eos_count += 1;
-                        yield Err(err);
-                        if eos_count >= num_members { break; }
-                        continue;
-                    } else {
-                        yield Err(err);
-                        break;
-                    }
+                    yield Err(RpcError::new(code, String::from_utf8_lossy(&received.payload).to_string()));
+                    break;
                 }
 
                 let response = match Res::decode(received.payload) {
                     Ok(r) => r,
-                    Err(e) => {
-                        if channel.is_group {
-                            eos_count += 1;
-                            yield Err(e);
-                            if eos_count >= num_members { break; }
-                            continue;
-                        } else {
-                            yield Err(e);
-                            break;
-                        }
-                    }
+                    Err(e) => { yield Err(e); break; }
                 };
                 yield Ok(response);
             }
         }
     }
 
-    /// Core streaming method for streaming-request patterns.
+    /// Core streaming method for streaming-request patterns (P2P).
     ///
-    /// Sends `request_stream` (with a trailing EOS marker) concurrently while
-    /// receiving responses. The stream ends when each member's response stream ends
-    /// (EOS received from all members).
+    /// Sends `request_stream` concurrently while receiving the single server's
+    /// responses. The stream ends on the server EOS or an error.
     fn responses_from_stream_input<Req, Res>(
         &self,
         service_name: &str,
@@ -701,8 +687,6 @@ impl Channel {
             let mut rx = dispatcher.register(&rpc_id);
             let _guard = DispatcherGuard { dispatcher: dispatcher.clone(), rpc_id: rpc_id.clone() };
 
-            // Send the request stream in a background task so we can receive
-            // responses concurrently.
             let session_tx_for_send = session_tx.clone();
             let ctx_for_send = ctx.clone();
             let service_for_send = service_name.clone();
@@ -712,19 +696,220 @@ impl Channel {
             let mut send_handle = channel.runtime.spawn(async move {
                 channel_for_send
                     .send_request_stream_impl(
-                        &session_tx_for_send,
-                        &ctx_for_send,
-                        request_stream,
-                        &service_for_send,
-                        &method_for_send,
-                        &rpc_id_for_send,
+                        &session_tx_for_send, &ctx_for_send, request_stream,
+                        &service_for_send, &method_for_send, &rpc_id_for_send,
                     )
                     .await
             });
 
-            let num_members = if channel.is_group { channel.pending_members.len() } else { 1 };
+            let mut send_completed = false;
+            loop {
+                let received_opt = tokio::select! {
+                    msg = rx.recv() => Ok(msg),
+                    send_result = &mut send_handle, if !send_completed => {
+                        send_completed = true;
+                        match send_result {
+                            Ok(Ok(_)) => continue,
+                            Ok(Err(e)) => Err(e),
+                            Err(e) => Err(RpcError::internal(format!("Send task panicked: {}", e))),
+                        }
+                    },
+                    _ = &mut delay => Err(RpcError::deadline_exceeded(
+                        "Client deadline exceeded while receiving response"
+                    )),
+                };
+
+                let received = match received_opt {
+                    Err(e) => { yield Err(e); break; }
+                    Ok(None) => { yield Err(RpcError::internal("Session closed")); break; }
+                    Ok(Some(m)) => m,
+                };
+
+                if msg_is_terminal(&received) { break; }
+
+                let code = match channel.parse_status_code(received.metadata.get(STATUS_CODE_KEY)) {
+                    Ok(c) => c,
+                    Err(e) => { yield Err(e); break; }
+                };
+                if code != RpcCode::Ok {
+                    yield Err(RpcError::new(code, String::from_utf8_lossy(&received.payload).to_string()));
+                    break;
+                }
+
+                let response = match Res::decode(received.payload) {
+                    Ok(r) => r,
+                    Err(e) => { yield Err(e); break; }
+                };
+                yield Ok(response);
+            }
+        }
+    }
+
+    /// Core streaming method for single-request GROUP (multicast) patterns.
+    ///
+    /// Sends `request` once to all group members and streams back every response
+    /// wrapped in a `MulticastItem` that identifies the source member.
+    /// The stream ends when all members have sent their final response (EOS).
+    /// Member errors are yielded as `Err` items (counted as that member's EOS).
+    fn responses_from_request_group<Req, Res>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        request: Req,
+        timeout: Option<Duration>,
+        metadata: Option<Metadata>,
+    ) -> impl Stream<Item = Result<MulticastItem<Res>, RpcError>>
+    where
+        Req: Encoder + Send + 'static,
+        Res: Decoder + Send + 'static,
+    {
+        let service_name = service_name.to_string();
+        let method_name = method_name.to_string();
+        let channel = self.clone();
+
+        stream! {
+            let ctx = channel.create_context_for_rpc(timeout, metadata.clone());
+            let timeout_duration = calculate_timeout_duration(timeout);
+            let mut delay = Delay::new(timeout_duration);
+
+            let (session_tx, dispatcher) = match tokio::select! {
+                result = channel.get_or_create_session() => result,
+                _ = &mut delay => Err(RpcError::deadline_exceeded("Client deadline exceeded during session setup")),
+            } {
+                Ok(v) => v,
+                Err(e) => { yield Err(e); return; }
+            };
+
+            let rpc_id = generate_rpc_id();
+            let mut rx = dispatcher.register(&rpc_id);
+            let _guard = DispatcherGuard { dispatcher: dispatcher.clone(), rpc_id: rpc_id.clone() };
+
+            let send_result = tokio::select! {
+                result = channel.send_request_impl(
+                    &session_tx, &ctx, request,
+                    &service_name, &method_name, &rpc_id,
+                ) => result,
+                _ = &mut delay => Err(RpcError::deadline_exceeded("Client deadline exceeded while sending request")),
+            };
+            if let Err(e) = send_result { yield Err(e); return; }
+
+            let num_members = channel.pending_members.len();
+            let mut eos_count = 0usize;
+
+            loop {
+                let received_opt = tokio::select! {
+                    msg = rx.recv() => Ok(msg),
+                    _ = &mut delay => Err(RpcError::deadline_exceeded(
+                        "Client deadline exceeded while receiving response"
+                    )),
+                };
+
+                let received = match received_opt {
+                    Err(e) => { yield Err(e); break; }
+                    Ok(None) => {
+                        if eos_count < num_members {
+                            yield Err(RpcError::internal(format!(
+                                "Session closed after {}/{} EOS markers",
+                                eos_count, num_members
+                            )));
+                        }
+                        break;
+                    }
+                    Ok(Some(m)) => m,
+                };
+
+                if msg_is_terminal(&received) {
+                    eos_count += 1;
+                    if eos_count >= num_members { break; }
+                    continue;
+                }
+
+                let code = match channel.parse_status_code(received.metadata.get(STATUS_CODE_KEY)) {
+                    Ok(c) => c,
+                    Err(e) => { yield Err(e); break; }
+                };
+                if code != RpcCode::Ok {
+                    let msg_text = String::from_utf8_lossy(&received.payload).to_string();
+                    eos_count += 1;
+                    yield Err(RpcError::new(code, msg_text));
+                    if eos_count >= num_members { break; }
+                    continue;
+                }
+
+                let source = received.source.clone();
+                let response = match Res::decode(received.payload) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        eos_count += 1;
+                        yield Err(e);
+                        if eos_count >= num_members { break; }
+                        continue;
+                    }
+                };
+                yield Ok(MulticastItem { context: MessageContext { source }, message: response });
+            }
+        }
+    }
+
+    /// Core streaming method for streaming-request GROUP (multicast) patterns.
+    ///
+    /// Broadcasts `request_stream` to all group members concurrently while
+    /// collecting their responses. Each response is wrapped in a `MulticastItem`
+    /// that identifies the source member.
+    /// The stream ends when all members have sent their final response (EOS).
+    /// Member errors are yielded as `Err` items (counted as that member's EOS).
+    fn responses_from_stream_input_group<Req, Res>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        request_stream: impl Stream<Item = Req> + Send + 'static,
+        timeout: Option<Duration>,
+        metadata: Option<Metadata>,
+    ) -> impl Stream<Item = Result<MulticastItem<Res>, RpcError>>
+    where
+        Req: Encoder + Send + 'static,
+        Res: Decoder + Send + 'static,
+    {
+        let service_name = service_name.to_string();
+        let method_name = method_name.to_string();
+        let channel = self.clone();
+
+        stream! {
+            let ctx = channel.create_context_for_rpc(timeout, metadata.clone());
+            let timeout_duration = calculate_timeout_duration(timeout);
+            let mut delay = Delay::new(timeout_duration);
+
+            let (session_tx, dispatcher) = match tokio::select! {
+                result = channel.get_or_create_session() => result,
+                _ = &mut delay => Err(RpcError::deadline_exceeded("Client deadline exceeded during session setup")),
+            } {
+                Ok(v) => v,
+                Err(e) => { yield Err(e); return; }
+            };
+
+            let rpc_id = generate_rpc_id();
+            let mut rx = dispatcher.register(&rpc_id);
+            let _guard = DispatcherGuard { dispatcher: dispatcher.clone(), rpc_id: rpc_id.clone() };
+
+            let session_tx_for_send = session_tx.clone();
+            let ctx_for_send = ctx.clone();
+            let service_for_send = service_name.clone();
+            let method_for_send = method_name.clone();
+            let rpc_id_for_send = rpc_id.clone();
+            let channel_for_send = channel.clone();
+            let mut send_handle = channel.runtime.spawn(async move {
+                channel_for_send
+                    .send_request_stream_impl(
+                        &session_tx_for_send, &ctx_for_send, request_stream,
+                        &service_for_send, &method_for_send, &rpc_id_for_send,
+                    )
+                    .await
+            });
+
+            let num_members = channel.pending_members.len();
             let mut eos_count = 0usize;
             let mut send_completed = false;
+
             loop {
                 let received_opt = tokio::select! {
                     msg = rx.recv() => Ok(msg),
@@ -757,9 +942,7 @@ impl Channel {
 
                 if msg_is_terminal(&received) {
                     eos_count += 1;
-                    if !channel.is_group || eos_count >= num_members {
-                        break;
-                    }
+                    if eos_count >= num_members { break; }
                     continue;
                 }
 
@@ -768,34 +951,24 @@ impl Channel {
                     Err(e) => { yield Err(e); break; }
                 };
                 if code != RpcCode::Ok {
-                    let message = String::from_utf8_lossy(&received.payload).to_string();
-                    let err = RpcError::new(code, message);
-                    if channel.is_group {
-                        eos_count += 1;
-                        yield Err(err);
-                        if eos_count >= num_members { break; }
-                        continue;
-                    } else {
-                        yield Err(err);
-                        break;
-                    }
+                    let msg_text = String::from_utf8_lossy(&received.payload).to_string();
+                    eos_count += 1;
+                    yield Err(RpcError::new(code, msg_text));
+                    if eos_count >= num_members { break; }
+                    continue;
                 }
 
+                let source = received.source.clone();
                 let response = match Res::decode(received.payload) {
                     Ok(r) => r,
                     Err(e) => {
-                        if channel.is_group {
-                            eos_count += 1;
-                            yield Err(e);
-                            if eos_count >= num_members { break; }
-                            continue;
-                        } else {
-                            yield Err(e);
-                            break;
-                        }
+                        eos_count += 1;
+                        yield Err(e);
+                        if eos_count >= num_members { break; }
+                        continue;
                     }
                 };
-                yield Ok(response);
+                yield Ok(MulticastItem { context: MessageContext { source }, message: response });
             }
         }
     }
@@ -893,10 +1066,10 @@ impl Channel {
         )
     }
 
-    /// Multicast unary: broadcast one request, receive one response per member.
+    /// Multicast unary: broadcast one request, receive one `MulticastItem` per member.
     ///
-    /// Each group member is expected to return a single response. Responses are
-    /// yielded as they arrive. The stream ends when all members have sent their final response (EOS).
+    /// Each item carries a `MessageContext` identifying the source member plus the
+    /// decoded response. The stream ends when all members have sent their response.
     pub fn multicast_unary<Req, Res>(
         &self,
         service_name: &str,
@@ -904,19 +1077,19 @@ impl Channel {
         request: Req,
         timeout: Option<Duration>,
         metadata: Option<Metadata>,
-    ) -> impl Stream<Item = Result<Res, RpcError>>
+    ) -> impl Stream<Item = Result<MulticastItem<Res>, RpcError>>
     where
         Req: Encoder + Send + 'static,
         Res: Decoder + Send + 'static,
     {
-        self.responses_from_request(service_name, method_name, request, timeout, metadata)
+        self.responses_from_request_group(service_name, method_name, request, timeout, metadata)
     }
 
-    /// Multicast unary-stream: broadcast one request, receive a stream per member.
+    /// Multicast unary-stream: broadcast one request, receive a stream of `MulticastItem`s.
     ///
     /// Each group member may return multiple responses. All responses from all
-    /// members are interleaved in arrival order. The stream ends when the GROUP
-    /// session closes.
+    /// members are interleaved in arrival order, each tagged with its source.
+    /// The stream ends when all members have sent their final EOS.
     ///
     /// Transport is identical to `multicast_unary`; the semantic difference
     /// (one vs many responses per member) lives in the server handler.
@@ -927,19 +1100,19 @@ impl Channel {
         request: Req,
         timeout: Option<Duration>,
         metadata: Option<Metadata>,
-    ) -> impl Stream<Item = Result<Res, RpcError>>
+    ) -> impl Stream<Item = Result<MulticastItem<Res>, RpcError>>
     where
         Req: Encoder + Send + 'static,
         Res: Decoder + Send + 'static,
     {
-        self.responses_from_request(service_name, method_name, request, timeout, metadata)
+        self.responses_from_request_group(service_name, method_name, request, timeout, metadata)
     }
 
-    /// Multicast stream-unary: broadcast a request stream, receive one response per member.
+    /// Multicast stream-unary: broadcast a request stream, receive one `MulticastItem` per member.
     ///
     /// The request stream is broadcast to all members. Each member replies with
-    /// a single response after receiving the full request stream. All responses
-    /// are yielded as they arrive. The stream ends when all members have sent their final response (EOS).
+    /// a single response tagged with its source. The stream ends when all members
+    /// have sent their response.
     pub fn multicast_stream_unary<Req, Res>(
         &self,
         service_name: &str,
@@ -947,12 +1120,12 @@ impl Channel {
         request_stream: impl Stream<Item = Req> + Send + 'static,
         timeout: Option<Duration>,
         metadata: Option<Metadata>,
-    ) -> impl Stream<Item = Result<Res, RpcError>>
+    ) -> impl Stream<Item = Result<MulticastItem<Res>, RpcError>>
     where
         Req: Encoder + Send + 'static,
         Res: Decoder + Send + 'static,
     {
-        self.responses_from_stream_input(
+        self.responses_from_stream_input_group(
             service_name,
             method_name,
             request_stream,
@@ -961,11 +1134,12 @@ impl Channel {
         )
     }
 
-    /// Multicast stream-stream: broadcast a request stream, receive a stream per member.
+    /// Multicast stream-stream: broadcast a request stream, receive a stream of `MulticastItem`s.
     ///
     /// The request stream is broadcast to all members. Each member replies with
     /// its own response stream. All responses from all members are interleaved in
-    /// arrival order. The stream ends when all members have sent their final response (EOS).
+    /// arrival order, each tagged with its source. The stream ends when all members
+    /// have sent their final EOS.
     ///
     /// Transport is identical to `multicast_stream_unary`; the semantic
     /// difference lives in the server handler.
@@ -976,12 +1150,12 @@ impl Channel {
         request_stream: impl Stream<Item = Req> + Send + 'static,
         timeout: Option<Duration>,
         metadata: Option<Metadata>,
-    ) -> impl Stream<Item = Result<Res, RpcError>>
+    ) -> impl Stream<Item = Result<MulticastItem<Res>, RpcError>>
     where
         Req: Encoder + Send + 'static,
         Res: Decoder + Send + 'static,
     {
-        self.responses_from_stream_input(
+        self.responses_from_stream_input_group(
             service_name,
             method_name,
             request_stream,
@@ -1164,6 +1338,157 @@ impl Channel {
             metadata,
         ))
     }
+
+    // ── Multicast UniFFI methods ───────────────────────────────────────────────
+
+    /// Broadcast one request to all GROUP members and collect their responses.
+    ///
+    /// Returns a reader from which each member's response (wrapped in
+    /// `MulticastStreamMessage`) can be pulled one at a time (blocking).
+    pub fn call_multicast_unary(
+        &self,
+        service_name: String,
+        method_name: String,
+        request: Vec<u8>,
+        timeout: Option<std::time::Duration>,
+        metadata: Option<Metadata>,
+    ) -> Result<std::sync::Arc<MulticastResponseReader>, RpcError> {
+        crate::get_runtime().block_on(self.call_multicast_unary_async(
+            service_name,
+            method_name,
+            request,
+            timeout,
+            metadata,
+        ))
+    }
+
+    /// Broadcast one request to all GROUP members and collect their responses
+    /// (async).
+    pub async fn call_multicast_unary_async(
+        &self,
+        service_name: String,
+        method_name: String,
+        request: Vec<u8>,
+        timeout: Option<std::time::Duration>,
+        metadata: Option<Metadata>,
+    ) -> Result<std::sync::Arc<MulticastResponseReader>, RpcError> {
+        let channel = self.clone();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        crate::get_runtime().spawn(async move {
+            let stream = channel.multicast_unary::<Vec<u8>, Vec<u8>>(
+                &service_name,
+                &method_name,
+                request,
+                timeout,
+                metadata,
+            );
+            futures::pin_mut!(stream);
+            while let Some(item) = futures::StreamExt::next(&mut stream).await {
+                if tx.send(item).is_err() {
+                    break;
+                }
+            }
+        });
+        Ok(std::sync::Arc::new(MulticastResponseReader::new(rx)))
+    }
+
+    /// Broadcast one request to all GROUP members and stream their responses
+    /// (blocking).
+    ///
+    /// Semantically identical to `call_multicast_unary` at the transport level;
+    /// the difference is that each member may send multiple responses before its
+    /// EOS, which the server handler determines.
+    pub fn call_multicast_unary_stream(
+        &self,
+        service_name: String,
+        method_name: String,
+        request: Vec<u8>,
+        timeout: Option<std::time::Duration>,
+        metadata: Option<Metadata>,
+    ) -> Result<std::sync::Arc<MulticastResponseReader>, RpcError> {
+        crate::get_runtime().block_on(self.call_multicast_unary_stream_async(
+            service_name,
+            method_name,
+            request,
+            timeout,
+            metadata,
+        ))
+    }
+
+    /// Broadcast one request to all GROUP members and stream their responses
+    /// (async).
+    pub async fn call_multicast_unary_stream_async(
+        &self,
+        service_name: String,
+        method_name: String,
+        request: Vec<u8>,
+        timeout: Option<std::time::Duration>,
+        metadata: Option<Metadata>,
+    ) -> Result<std::sync::Arc<MulticastResponseReader>, RpcError> {
+        let channel = self.clone();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        crate::get_runtime().spawn(async move {
+            let stream = channel.multicast_unary_stream::<Vec<u8>, Vec<u8>>(
+                &service_name,
+                &method_name,
+                request,
+                timeout,
+                metadata,
+            );
+            futures::pin_mut!(stream);
+            while let Some(item) = futures::StreamExt::next(&mut stream).await {
+                if tx.send(item).is_err() {
+                    break;
+                }
+            }
+        });
+        Ok(std::sync::Arc::new(MulticastResponseReader::new(rx)))
+    }
+
+    /// Broadcast a request stream to all GROUP members and collect their
+    /// responses.
+    ///
+    /// Returns a handler that lets you send requests and receive responses
+    /// concurrently. Use `send` / `send_async` to push request messages,
+    /// `close_send` / `close_send_async` to signal end-of-requests, and
+    /// `recv` / `recv_async` to pull response items.
+    pub fn call_multicast_stream_unary(
+        &self,
+        service_name: String,
+        method_name: String,
+        timeout: Option<std::time::Duration>,
+        metadata: Option<Metadata>,
+    ) -> std::sync::Arc<MulticastBidiStreamHandler> {
+        std::sync::Arc::new(MulticastBidiStreamHandler::new(
+            self.clone(),
+            service_name,
+            method_name,
+            timeout,
+            metadata,
+        ))
+    }
+
+    /// Broadcast a request stream to all GROUP members and stream their
+    /// responses.
+    ///
+    /// Semantically equivalent to `call_multicast_stream_unary` at the
+    /// transport level; the difference (one vs many responses per member) is
+    /// determined by the server handler.
+    pub fn call_multicast_stream_stream(
+        &self,
+        service_name: String,
+        method_name: String,
+        timeout: Option<std::time::Duration>,
+        metadata: Option<Metadata>,
+    ) -> std::sync::Arc<MulticastBidiStreamHandler> {
+        std::sync::Arc::new(MulticastBidiStreamHandler::new(
+            self.clone(),
+            service_name,
+            method_name,
+            timeout,
+            metadata,
+        ))
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -1216,15 +1541,18 @@ mod tests {
         let dispatcher = ResponseDispatcher::new();
         let mut rx = dispatcher.register("rpc-x");
 
+        let dummy_name = Name::from_strings(["", "", ""]);
         let msg = ReceivedMessage {
             metadata: HashMap::new(),
             payload: vec![1, 2, 3],
+            source: dummy_name.clone(),
         };
         assert!(dispatcher.dispatch(msg, "rpc-x"));
         assert!(!dispatcher.dispatch(
             ReceivedMessage {
                 metadata: HashMap::new(),
-                payload: vec![]
+                payload: vec![],
+                source: dummy_name.clone(),
             },
             "rpc-unknown"
         ));
@@ -1233,7 +1561,8 @@ mod tests {
         assert!(!dispatcher.dispatch(
             ReceivedMessage {
                 metadata: HashMap::new(),
-                payload: vec![]
+                payload: vec![],
+                source: dummy_name.clone(),
             },
             "rpc-x"
         ));
@@ -1263,7 +1592,8 @@ mod tests {
         assert!(!dispatcher.dispatch(
             ReceivedMessage {
                 metadata: HashMap::new(),
-                payload: vec![]
+                payload: vec![],
+                source: Name::from_strings(["", "", ""]),
             },
             "rpc-guard"
         ));

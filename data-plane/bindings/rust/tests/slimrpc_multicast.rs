@@ -33,7 +33,9 @@ use slim_datapath::messages::Name;
 use slim_service::service::Service;
 use slim_testing::utils::TEST_VALID_SECRET;
 
-use slim_bindings::slimrpc::{Channel, Context, Decoder, Encoder, RequestStream, RpcError, Server};
+use slim_bindings::slimrpc::{
+    Channel, Context, Decoder, Encoder, MulticastItem, RequestStream, RpcError, Server,
+};
 
 // ============================================================================
 // Test message types
@@ -180,16 +182,46 @@ impl MulticastTestEnv {
 // Helpers
 // ============================================================================
 
+/// Collect exactly `n` items (successes or errors) from a multicast stream.
+///
+/// Unlike `collect_n_multicast`, this does NOT panic on errors — it stores them
+/// so tests can assert on the mix of successes and failures.
+async fn collect_n_mixed<T>(
+    stream: impl futures::Stream<Item = Result<MulticastItem<T>, RpcError>>,
+    n: usize,
+    timeout: Duration,
+    label: &str,
+) -> Vec<Result<MulticastItem<T>, RpcError>> {
+    pin_mut!(stream);
+    let mut results: Vec<Result<MulticastItem<T>, RpcError>> = Vec::with_capacity(n);
+    tokio::time::timeout(timeout, async {
+        for _ in 0..n {
+            match stream.next().await {
+                Some(item) => results.push(item),
+                None => break,
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| {
+        panic!(
+            "{label}: timed out after collecting {}/{n} items",
+            results.len()
+        )
+    });
+    results
+}
+
 /// Collect exactly `n` responses from a multicast stream, failing if:
 /// - the stream ends before `n` items arrive, or
 /// - any item is an error, or
 /// - the operation does not complete within `timeout`.
 async fn collect_n_multicast<T>(
-    stream: impl futures::Stream<Item = Result<T, RpcError>>,
+    stream: impl futures::Stream<Item = Result<MulticastItem<T>, RpcError>>,
     n: usize,
     timeout: Duration,
     label: &str,
-) -> Vec<T> {
+) -> Vec<MulticastItem<T>> {
     pin_mut!(stream);
     let mut responses = Vec::with_capacity(n);
     tokio::time::timeout(timeout, async {
@@ -256,13 +288,22 @@ async fn test_multicast_unary() {
         "multicast_unary",
     )
     .await;
-    responses.sort_by_key(|r| r.member_id);
+    responses.sort_by_key(|r| r.message.member_id);
 
     assert_eq!(responses.len(), NUM_MEMBERS);
-    assert_eq!(responses[0].result, "M0: hello");
-    assert_eq!(responses[0].count, 10);
-    assert_eq!(responses[1].result, "M1: hello");
-    assert_eq!(responses[1].count, 11);
+    assert_eq!(responses[0].message.result, "M0: hello");
+    assert_eq!(responses[0].message.count, 10);
+    assert_eq!(responses[1].message.result, "M1: hello");
+    assert_eq!(responses[1].message.count, 11);
+    // Source should identify each member by name.
+    assert_eq!(
+        responses[0].context.source,
+        Name::from_strings(["org", "ns", "member-0"])
+    );
+    assert_eq!(
+        responses[1].context.source,
+        Name::from_strings(["org", "ns", "member-1"])
+    );
 
     env.shutdown().await;
 }
@@ -325,10 +366,22 @@ async fn test_multicast_unary_stream() {
     assert_eq!(responses.len(), total);
     // Each member contributed exactly ITEMS_PER_MEMBER items.
     for mid in 0..NUM_MEMBERS {
-        let count = responses.iter().filter(|r| r.member_id == mid).count();
+        let count = responses
+            .iter()
+            .filter(|r| r.message.member_id == mid)
+            .count();
         assert_eq!(
             count, ITEMS_PER_MEMBER,
             "member {mid} should have sent {ITEMS_PER_MEMBER} items"
+        );
+        // Every item from this member should carry the expected source name.
+        let expected_src = Name::from_strings(["org", "ns", &format!("member-{mid}")]);
+        assert!(
+            responses
+                .iter()
+                .filter(|r| r.message.member_id == mid)
+                .all(|r| r.context.source == expected_src),
+            "member {mid} items have wrong source"
         );
     }
 
@@ -400,17 +453,24 @@ async fn test_multicast_stream_unary() {
         "multicast_stream_unary",
     )
     .await;
-    responses.sort_by_key(|r| r.member_id);
+    responses.sort_by_key(|r| r.message.member_id);
 
     assert_eq!(responses.len(), NUM_MEMBERS);
     for r in &responses {
-        assert_eq!(r.count, 6, "member {} should sum to 6", r.member_id);
-        assert!(
-            r.result.contains("a+b+c"),
-            "member {} got: {}",
-            r.member_id,
-            r.result
+        assert_eq!(
+            r.message.count, 6,
+            "member {} should sum to 6",
+            r.message.member_id
         );
+        assert!(
+            r.message.result.contains("a+b+c"),
+            "member {} got: {}",
+            r.message.member_id,
+            r.message.result
+        );
+        let expected_src =
+            Name::from_strings(["org", "ns", &format!("member-{}", r.message.member_id)]);
+        assert_eq!(r.context.source, expected_src, "wrong source for member");
     }
 
     env.shutdown().await;
@@ -487,14 +547,192 @@ async fn test_multicast_stream_stream() {
 
     assert_eq!(responses.len(), total);
     for mid in 0..NUM_MEMBERS {
-        let member_responses: Vec<_> = responses.iter().filter(|r| r.member_id == mid).collect();
+        let member_responses: Vec<_> = responses
+            .iter()
+            .filter(|r| r.message.member_id == mid)
+            .collect();
         assert_eq!(member_responses.len(), NUM_REQUESTS);
-        let values: Vec<i32> = member_responses.iter().map(|r| r.count).collect();
+        let values: Vec<i32> = member_responses.iter().map(|r| r.message.count).collect();
         // Each member should have echoed all 3 request values.
         for v in [1, 2, 3] {
             assert!(values.contains(&v), "member {mid} missing value {v}");
         }
+        let expected_src = Name::from_strings(["org", "ns", &format!("member-{mid}")]);
+        assert!(
+            member_responses
+                .iter()
+                .all(|r| r.context.source == expected_src),
+            "member {mid} items have wrong source"
+        );
     }
+
+    env.shutdown().await;
+}
+
+// ============================================================================
+// Test 5 — partial error, unary pattern
+// ============================================================================
+
+/// One member returns an error; the other members' successes must still arrive.
+///
+/// Uses `multicast_unary` (unary-unary). The server sends one data message per
+/// member — no EOS marker. The caller collects exactly NUM_MEMBERS items
+/// (mix of Ok and Err) and then drops the stream.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_multicast_partial_error_unary() {
+    const NUM_MEMBERS: usize = 3;
+    let mut env = MulticastTestEnv::new("test-multicast-partial-error-unary", NUM_MEMBERS).await;
+
+    // Member 0 returns an error.
+    env.member_servers[0].register_unary_unary_internal(
+        "TestService",
+        "Echo",
+        move |_req: TestRequest, _ctx: Context| async move {
+            Err::<TestResponse, _>(RpcError::internal("member 0 failed"))
+        },
+    );
+    // Members 1 and 2 succeed.
+    for i in 1..NUM_MEMBERS {
+        env.member_servers[i].register_unary_unary_internal(
+            "TestService",
+            "Echo",
+            move |req: TestRequest, _ctx: Context| async move {
+                Ok(TestResponse {
+                    member_id: i,
+                    result: format!("M{i}: {}", req.message),
+                    count: req.value + i as i32,
+                })
+            },
+        );
+    }
+    env.start_all_servers().await;
+
+    let stream = env.channel.multicast_unary::<TestRequest, TestResponse>(
+        "TestService",
+        "Echo",
+        TestRequest {
+            message: "hello".to_string(),
+            value: 10,
+        },
+        Some(Duration::from_secs(10)),
+        None,
+    );
+
+    let results = collect_n_mixed(
+        stream,
+        NUM_MEMBERS,
+        Duration::from_secs(10),
+        "partial_error_unary",
+    )
+    .await;
+
+    assert_eq!(results.len(), NUM_MEMBERS);
+    let errors: Vec<_> = results.iter().filter(|r| r.is_err()).collect();
+    let successes: Vec<_> = results.iter().filter(|r| r.is_ok()).collect();
+    assert_eq!(errors.len(), 1, "expected exactly 1 error");
+    assert_eq!(successes.len(), 2, "expected 2 successes");
+
+    env.shutdown().await;
+}
+
+// ============================================================================
+// Test 6 — partial error, streaming pattern
+// ============================================================================
+
+/// One member errors mid-stream; the other member's full response stream must
+/// still arrive and the combined stream must terminate cleanly.
+///
+/// Uses `multicast_unary_stream`. Member 0 yields two items then an error;
+/// member 1 yields three items then EOS. The client should receive:
+///   - 2 Ok items from member 0
+///   - 1 Err from member 0 (counted as its EOS)
+///   - 3 Ok items from member 1
+///   - stream terminates after member 1's EOS
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_multicast_partial_error_unary_stream() {
+    const NUM_MEMBERS: usize = 2;
+    const M0_OK_ITEMS: usize = 2;
+    const M1_OK_ITEMS: usize = 3;
+    let mut env =
+        MulticastTestEnv::new("test-multicast-partial-error-unary-stream", NUM_MEMBERS).await;
+
+    // Member 0: 2 ok items then an error (no server-side EOS follows the error).
+    env.member_servers[0].register_unary_stream_internal(
+        "TestService",
+        "Expand",
+        move |req: TestRequest, _ctx: Context| async move {
+            let items: Vec<Result<TestResponse, RpcError>> = (0..M0_OK_ITEMS)
+                .map(|j| {
+                    Ok(TestResponse {
+                        member_id: 0,
+                        result: format!("M0-item{j}: {}", req.message),
+                        count: j as i32,
+                    })
+                })
+                .chain(std::iter::once(Err(RpcError::internal("M0 stream error"))))
+                .collect();
+            Ok(stream::iter(items))
+        },
+    );
+    // Member 1: 3 ok items, server sends EOS after the last one.
+    env.member_servers[1].register_unary_stream_internal(
+        "TestService",
+        "Expand",
+        move |req: TestRequest, _ctx: Context| async move {
+            let items: Vec<Result<TestResponse, RpcError>> = (0..M1_OK_ITEMS)
+                .map(|j| {
+                    Ok(TestResponse {
+                        member_id: 1,
+                        result: format!("M1-item{j}: {}", req.message),
+                        count: j as i32,
+                    })
+                })
+                .collect();
+            Ok(stream::iter(items))
+        },
+    );
+    env.start_all_servers().await;
+
+    let stream = env
+        .channel
+        .multicast_unary_stream::<TestRequest, TestResponse>(
+            "TestService",
+            "Expand",
+            TestRequest {
+                message: "x".to_string(),
+                value: 1,
+            },
+            Some(Duration::from_secs(10)),
+            None,
+        );
+
+    // M0 yields M0_OK_ITEMS Ok + 1 Err; M1 yields M1_OK_ITEMS Ok.
+    // The stream terminates after M1's EOS (M0's error is counted as its EOS),
+    // so the total item count is known up front.
+    let total = M0_OK_ITEMS + 1 + M1_OK_ITEMS;
+    let results = collect_n_mixed(
+        stream,
+        total,
+        Duration::from_secs(10),
+        "partial_error_stream",
+    )
+    .await;
+
+    let errors: Vec<_> = results.iter().filter(|r| r.is_err()).collect();
+    let successes: Vec<_> = results.iter().filter(|r| r.is_ok()).collect();
+    assert_eq!(errors.len(), 1, "expected exactly 1 error (from M0)");
+    assert_eq!(
+        successes.len(),
+        M0_OK_ITEMS + M1_OK_ITEMS,
+        "expected all ok items from both members"
+    );
+    let m1_items: Vec<_> = successes
+        .iter()
+        .filter(|r| r.as_ref().unwrap().message.member_id == 1)
+        .collect();
+    assert_eq!(m1_items.len(), M1_OK_ITEMS, "M1 should deliver all items");
 
     env.shutdown().await;
 }

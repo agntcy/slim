@@ -29,6 +29,8 @@ pub struct ReceivedMessage {
     pub metadata: std::collections::HashMap<String, String>,
     /// Message payload
     pub payload: Vec<u8>,
+    /// Name of the app that sent this message (extracted from the SLIM header)
+    pub source: Name,
 }
 
 /// Session transmitter - used only for sending messages
@@ -105,6 +107,21 @@ impl SessionTx {
         Ok(handle)
     }
 
+    /// Publish a unicast message directly to `target`, bypassing the session's
+    /// default destination (useful in GROUP sessions to reply only to the requester).
+    pub async fn publish_unicast(
+        &self,
+        target: &Name,
+        data: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<std::collections::HashMap<String, String>>,
+    ) -> Result<CompletionHandle, RpcError> {
+        self.controller
+            .publish(target, data, payload_type, metadata)
+            .await
+            .map_err(|e| RpcError::internal(e.chain().to_string()))
+    }
+
     /// Get a clone of the underlying session controller
     pub fn controller(&self) -> Arc<slim_session::session_controller::SessionController> {
         self.controller.clone()
@@ -162,9 +179,11 @@ impl SessionRx {
             };
 
             // Extract metadata and payload from the proto message
+            let source = msg.get_source();
             Ok(ReceivedMessage {
                 metadata: msg.metadata,
                 payload,
+                source,
             })
         };
 

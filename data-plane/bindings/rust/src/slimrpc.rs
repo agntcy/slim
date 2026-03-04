@@ -141,7 +141,7 @@ mod session_wrapper;
 mod handler_traits;
 mod stream_types;
 
-pub use channel::Channel;
+pub use channel::{Channel, MessageContext, MulticastItem};
 pub use codec::{Codec, Decoder, Encoder};
 pub use context::{Context, Metadata, SessionContext};
 pub use error::{InvalidRpcCode, RpcCode, RpcError};
@@ -154,8 +154,9 @@ pub use handler_traits::{
     StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
 };
 pub use stream_types::{
-    BidiStreamHandler, RequestStream as UniffiRequestStream, RequestStreamWriter, ResponseSink,
-    ResponseStreamReader, StreamMessage,
+    BidiStreamHandler, MulticastBidiStreamHandler, MulticastResponseReader, MulticastStreamMessage,
+    RequestStream as UniffiRequestStream, RequestStreamWriter, ResponseSink, ResponseStreamReader,
+    RpcMessageContext, RpcMulticastItem, StreamMessage,
 };
 
 /// Key used in metadata for RPC deadline/timeout
