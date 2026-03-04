@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 
 use rand::Rng;
-use slim_datapath::api::ProtoSessionType;
+use slim_datapath::api::{ParticipantSettings, ProtoSessionType};
 use slim_datapath::messages::utils::{MAX_PUBLISH_ID, PUBLISH_TO};
 use slim_datapath::{api::ProtoMessage as Message, messages::Name};
 use tokio::sync::mpsc::Sender;
@@ -494,8 +494,17 @@ impl SessionSender {
         self.on_failure(message_id, error)
     }
 
-    pub async fn add_endpoint(&mut self, endpoint: &Name) -> Result<(), SessionError> {
-        // add endpoint to the list
+    pub async fn add_endpoint(
+        &mut self,
+        endpoint: &Name,
+        settings: ParticipantSettings,
+    ) -> Result<(), SessionError> {
+        // add endpoint to the list if the new participant is a receiver, otherwise ignore it
+        if !settings.is_legacy() && !settings.is_receiver() {
+            debug!(%endpoint, "new participant will not receive data messages, do not add it to the endpoint list");
+            return Ok(());
+        }
+
         self.endpoints_list.insert(endpoint.clone());
 
         debug!(
@@ -524,7 +533,8 @@ impl SessionSender {
         );
         // remove endpoint from the list and remove all the ack state
         // notice that no ack state may be associated to the endpoint
-        // (e.g. endpoint added but no message sent)
+        // (e.g. endpoint added but no message sent) or the endpoint
+        // may not exists as it was not a receiver endpoint
         if let Some(set) = self.pending_acks_per_endpoint.get(endpoint) {
             for id in set {
                 let mut delete = false;
@@ -619,7 +629,7 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_endpoint(&remote)
+            .add_endpoint(&remote, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -699,7 +709,7 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_endpoint(&remote)
+            .add_endpoint(&remote, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -838,7 +848,7 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_endpoint(&remote)
+            .add_endpoint(&remote, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -922,15 +932,15 @@ mod tests {
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint(&remote1, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint(&remote2, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote3)
+            .add_endpoint(&remote3, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -1042,15 +1052,15 @@ mod tests {
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint(&remote1, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint(&remote2, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote3)
+            .add_endpoint(&remote3, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -1225,15 +1235,15 @@ mod tests {
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint(&remote1, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint(&remote2, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote3)
+            .add_endpoint(&remote3, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -1335,15 +1345,15 @@ mod tests {
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint(&remote1, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint(&remote2, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote3)
+            .add_endpoint(&remote3, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -1470,7 +1480,7 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_endpoint(&remote)
+            .add_endpoint(&remote, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -1646,7 +1656,7 @@ mod tests {
 
         // add the remote participant
         sender
-            .add_endpoint(&remote)
+            .add_endpoint(&remote, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -1663,6 +1673,445 @@ mod tests {
             slim_datapath::api::ProtoSessionMessageType::Msg
         );
         assert_eq!(received.get_id(), 1);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_add_endpoint_ignores_non_receiver_participant() {
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(1);
+
+        let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _rx_app) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let mut sender = SessionSender::new(
+            Some(settings),
+            10,
+            ProtoSessionType::PointToPoint,
+            tx,
+            Some(tx_signal),
+            false,
+        );
+        let remote = Name::from_strings(["org", "ns", "send-only"]);
+
+        let send_only_settings = ParticipantSettings {
+            sends_data: Some(true),
+            receives_data: Some(false),
+        };
+
+        sender
+            .add_endpoint(&remote, send_only_settings)
+            .await
+            .expect("error adding participant");
+
+        assert!(!sender.endpoints_list.contains(&remote));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_non_receiver_endpoint_does_not_flush_buffered_messages() {
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(1);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _rx_app) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let mut sender = SessionSender::new(
+            Some(settings),
+            10,
+            ProtoSessionType::PointToPoint,
+            tx,
+            Some(tx_signal),
+            false,
+        );
+        let remote = Name::from_strings(["org", "ns", "remote"]);
+
+        let source = Name::from_strings(["org", "ns", "source"]);
+        let mut message = Message::builder()
+            .source(source)
+            .destination(remote.clone())
+            .application_payload("test_payload", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+
+        sender
+            .on_message(message, None)
+            .await
+            .expect("error sending message");
+
+        let send_only_settings = ParticipantSettings {
+            sends_data: Some(true),
+            receives_data: Some(false),
+        };
+
+        sender
+            .add_endpoint(&remote, send_only_settings)
+            .await
+            .expect("error adding participant");
+
+        let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
+        assert!(
+            res.is_err(),
+            "Expected timeout (buffer must not flush for non-receiver endpoint), but got: {:?}",
+            res
+        );
+
+        let receiver_settings = ParticipantSettings {
+            sends_data: Some(false),
+            receives_data: Some(true),
+        };
+
+        sender
+            .add_endpoint(&remote, receiver_settings)
+            .await
+            .expect("error adding participant");
+
+        let received = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for message")
+            .expect("channel closed")
+            .expect("error message");
+
+        assert_eq!(
+            received.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::Msg
+        );
+        assert_eq!(received.get_id(), 1);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_add_endpoint_accepts_legacy_participant_settings() {
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(1);
+
+        let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _rx_app) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let mut sender = SessionSender::new(
+            Some(settings),
+            10,
+            ProtoSessionType::PointToPoint,
+            tx,
+            Some(tx_signal),
+            false,
+        );
+        let remote = Name::from_strings(["org", "ns", "legacy"]);
+
+        sender
+            .add_endpoint(&remote, ParticipantSettings::default())
+            .await
+            .expect("error adding participant");
+
+        assert!(sender.endpoints_list.contains(&remote));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_multicast_pending_acks_track_only_receivers() {
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(1);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _rx_app) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let mut sender = SessionSender::new(
+            Some(settings),
+            10,
+            ProtoSessionType::Multicast,
+            tx,
+            Some(tx_signal),
+            false,
+        );
+        let group = Name::from_strings(["org", "ns", "group"]);
+        let recv_endpoint = Name::from_strings(["org", "ns", "receiver"]);
+        let send_only_endpoint = Name::from_strings(["org", "ns", "send-only"]);
+
+        sender
+            .add_endpoint(
+                &recv_endpoint,
+                ParticipantSettings {
+                    sends_data: Some(false),
+                    receives_data: Some(true),
+                },
+            )
+            .await
+            .expect("error adding receiver endpoint");
+
+        sender
+            .add_endpoint(
+                &send_only_endpoint,
+                ParticipantSettings {
+                    sends_data: Some(true),
+                    receives_data: Some(false),
+                },
+            )
+            .await
+            .expect("error adding send-only endpoint");
+
+        let source = Name::from_strings(["org", "ns", "source"]);
+        let mut message = Message::builder()
+            .source(source)
+            .destination(group)
+            .application_payload("test_payload", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+
+        sender
+            .on_message(message, None)
+            .await
+            .expect("error sending message");
+
+        let _sent = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for message")
+            .expect("channel closed")
+            .expect("error message");
+
+        assert!(sender.pending_acks.contains_key(&1));
+        assert_eq!(sender.pending_acks_per_endpoint.len(), 1);
+        assert!(
+            sender
+                .pending_acks_per_endpoint
+                .contains_key(&recv_endpoint)
+        );
+        assert!(
+            !sender
+                .pending_acks_per_endpoint
+                .contains_key(&send_only_endpoint)
+        );
+
+        sender.remove_endpoint(&send_only_endpoint);
+
+        assert!(sender.pending_acks.contains_key(&1));
+        assert_eq!(sender.pending_acks_per_endpoint.len(), 1);
+        assert!(
+            sender
+                .pending_acks_per_endpoint
+                .contains_key(&recv_endpoint)
+        );
+        assert!(
+            !sender
+                .pending_acks_per_endpoint
+                .contains_key(&send_only_endpoint)
+        );
+
+        let mut ack = Message::builder()
+            .source(recv_endpoint.clone())
+            .destination(Name::from_strings(["org", "ns", "source"]))
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
+        ack.get_session_header_mut().set_message_id(1);
+        ack.get_session_header_mut()
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
+
+        sender
+            .on_message(ack, None)
+            .await
+            .expect("error sending ack");
+
+        assert!(!sender.pending_acks.contains_key(&1));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_publish_to_with_send_only_destination_is_rejected() {
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(1);
+
+        let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let mut sender = SessionSender::new(
+            Some(settings),
+            10,
+            ProtoSessionType::Multicast,
+            tx,
+            Some(tx_signal),
+            false,
+        );
+        let recv_endpoint = Name::from_strings(["org", "ns", "receiver"]);
+        let send_only_endpoint = Name::from_strings(["org", "ns", "send-only"]);
+
+        sender
+            .add_endpoint(
+                &recv_endpoint,
+                ParticipantSettings {
+                    sends_data: Some(false),
+                    receives_data: Some(true),
+                },
+            )
+            .await
+            .expect("error adding receiver endpoint");
+
+        sender
+            .add_endpoint(
+                &send_only_endpoint,
+                ParticipantSettings {
+                    sends_data: Some(true),
+                    receives_data: Some(false),
+                },
+            )
+            .await
+            .expect("error adding send-only endpoint");
+
+        let source = Name::from_strings(["org", "ns", "source"]);
+        let mut message = Message::builder()
+            .source(source)
+            .destination(send_only_endpoint.clone())
+            .application_payload("test_payload", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
+
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+        message
+            .metadata
+            .insert(PUBLISH_TO.to_string(), String::new());
+
+        let result = sender.on_message(message, None).await;
+        assert!(
+            result.is_err_and(|e| matches!(e, SessionError::UnknownDestination(_))),
+            "Expected UnknownDestination error"
+        );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_add_endpoint_duplicate_receiver_is_idempotent_for_pending_acks() {
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(1);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _rx_app) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let mut sender = SessionSender::new(
+            Some(settings),
+            10,
+            ProtoSessionType::PointToPoint,
+            tx,
+            Some(tx_signal),
+            false,
+        );
+        let recv_endpoint = Name::from_strings(["org", "ns", "receiver"]);
+
+        let receiver_settings = ParticipantSettings {
+            sends_data: Some(false),
+            receives_data: Some(true),
+        };
+
+        sender
+            .add_endpoint(&recv_endpoint, receiver_settings)
+            .await
+            .expect("error adding receiver endpoint");
+        sender
+            .add_endpoint(&recv_endpoint, receiver_settings)
+            .await
+            .expect("error adding duplicated receiver endpoint");
+
+        assert_eq!(sender.endpoints_list.len(), 1);
+
+        let source = Name::from_strings(["org", "ns", "source"]);
+        let mut message = Message::builder()
+            .source(source)
+            .destination(recv_endpoint.clone())
+            .application_payload("test_payload", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+
+        sender
+            .on_message(message, None)
+            .await
+            .expect("error sending message");
+
+        let _sent = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for message")
+            .expect("channel closed")
+            .expect("error message");
+
+        assert_eq!(sender.pending_acks_per_endpoint.len(), 1);
+        let endpoint_acks = sender
+            .pending_acks_per_endpoint
+            .get(&recv_endpoint)
+            .expect("missing endpoint pending-ack set");
+        assert_eq!(endpoint_acks.len(), 1);
+        assert!(endpoint_acks.contains(&1));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_remove_last_receiver_clears_pending_ack_immediately() {
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(1);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _rx_app) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let mut sender = SessionSender::new(
+            Some(settings),
+            10,
+            ProtoSessionType::PointToPoint,
+            tx,
+            Some(tx_signal),
+            false,
+        );
+        let recv_endpoint = Name::from_strings(["org", "ns", "receiver"]);
+
+        sender
+            .add_endpoint(
+                &recv_endpoint,
+                ParticipantSettings {
+                    sends_data: Some(false),
+                    receives_data: Some(true),
+                },
+            )
+            .await
+            .expect("error adding receiver endpoint");
+
+        let source = Name::from_strings(["org", "ns", "source"]);
+        let mut message = Message::builder()
+            .source(source)
+            .destination(recv_endpoint.clone())
+            .application_payload("test_payload", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+
+        sender
+            .on_message(message, None)
+            .await
+            .expect("error sending message");
+
+        let _sent = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for message")
+            .expect("channel closed")
+            .expect("error message");
+
+        assert!(sender.pending_acks.contains_key(&1));
+        sender.remove_endpoint(&recv_endpoint);
+        assert!(!sender.pending_acks.contains_key(&1));
+
+        let res = timeout(Duration::from_millis(800), rx_signal.recv()).await;
+        assert!(res.is_err(), "Expected no timer signal but got: {:?}", res);
     }
 
     #[tokio::test]
@@ -1690,15 +2139,15 @@ mod tests {
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint(&remote1, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint(&remote2, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote3)
+            .add_endpoint(&remote3, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -1766,7 +2215,7 @@ mod tests {
         let unknown_remote = Name::from_strings(["org", "ns", "unknown"]);
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint(&remote1, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -1816,7 +2265,7 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_endpoint(&remote)
+            .add_endpoint(&remote, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -1876,11 +2325,11 @@ mod tests {
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint(&remote1, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint(&remote2, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -1960,11 +2409,11 @@ mod tests {
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint(&remote1, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint(&remote2, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -2050,11 +2499,11 @@ mod tests {
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint(&remote1, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint(&remote2, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -2122,7 +2571,7 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_endpoint(&remote)
+            .add_endpoint(&remote, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -2207,11 +2656,11 @@ mod tests {
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint(&remote1, ParticipantSettings::default())
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint(&remote2, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -2305,7 +2754,7 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_endpoint(&remote)
+            .add_endpoint(&remote, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -2396,15 +2845,15 @@ mod tests {
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint(&remote1, ParticipantSettings::default())
             .await
             .expect("error adding remote1");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint(&remote2, ParticipantSettings::default())
             .await
             .expect("error adding remote2");
         sender
-            .add_endpoint(&remote3)
+            .add_endpoint(&remote3, ParticipantSettings::default())
             .await
             .expect("error adding remote3");
 
@@ -2496,7 +2945,7 @@ mod tests {
         let source = Name::from_strings(["org", "ns", "source"]);
 
         sender
-            .add_endpoint(&remote)
+            .add_endpoint(&remote, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
@@ -2647,7 +3096,7 @@ mod tests {
 
         // Now add the endpoint (normally would trigger flush)
         sender
-            .add_endpoint(&remote)
+            .add_endpoint(&remote, ParticipantSettings::default())
             .await
             .expect("error adding participant");
 
