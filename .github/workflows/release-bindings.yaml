@@ -182,7 +182,6 @@ jobs:
       contents: read
       packages: write
     secrets:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       MVN_TOKEN_NAME: ${{ secrets.MVN_TOKEN_NAME }}
       MVN_TOKEN_PASSWORD: ${{ secrets.MVN_TOKEN_PASSWORD }}
       GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
