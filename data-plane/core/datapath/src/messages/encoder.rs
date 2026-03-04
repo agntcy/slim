@@ -86,7 +86,7 @@ impl Name {
     // NULL_COMPONENT is used to represent a component that is not set
     pub const NULL_COMPONENT: u64 = u64::MAX;
     // Channels gets two different names: one for data and one for control
-    // messages. The first 3 comoponents are the same for both. Only the 4th 
+    // messages. The first 3 components are the same for both. Only the 4th
     // component (id) is different.
     // DATA_CHANNEL_ID is the id for the data channel name
     pub const DATA_CHANNEL_ID: u64 = u64::MAX - 1;

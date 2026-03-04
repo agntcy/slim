@@ -606,7 +606,11 @@ where
     }
 
     /// Send control message without creating ack channel (for internal use by moderator)
-    pub(crate) async fn send_with_timer(&mut self, message: Message, legacy: bool) -> Result<(), SessionError> {
+    pub(crate) async fn send_with_timer(
+        &mut self,
+        message: Message,
+        legacy: bool,
+    ) -> Result<(), SessionError> {
         if legacy {
             if let Some(legacy_sender) = &mut self.legacy_sender {
                 return legacy_sender.on_message(&message).await;
@@ -697,6 +701,7 @@ where
     }
 
     /// Send control message without creating ack channel (for internal use by moderator)
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn send_control_message(
         &mut self,
         dst: &Name,
@@ -1739,7 +1744,9 @@ mod tests {
         let settings = SessionSettings {
             id: 999,
             source: Name::from_strings(["org", "ns", "source"]).with_id(1),
-            destination: Name::from_strings(["org", "ns", "dest"]).with_id(2),
+            destination: Name::from_strings(["org", "ns", "dest"]).with_id(Name::DATA_CHANNEL_ID),
+            control: Name::from_strings(["org", "ns", "control"]).with_id(Name::CONTROL_CHANNEL_ID),
+            legacy: None,
             config: SessionConfig {
                 session_type: ProtoSessionType::PointToPoint,
                 max_retries: Some(3),
@@ -1907,7 +1914,9 @@ mod tests {
         SessionSettings {
             id: 1,
             source: Name::from_strings(["org", "ns", "test"]).with_id(1),
-            destination: Name::from_strings(["org", "ns", "test"]).with_id(2),
+            destination: Name::from_strings(["org", "ns", "test"]).with_id(Name::DATA_CHANNEL_ID),
+            control: Name::from_strings(["org", "ns", "test"]).with_id(Name::CONTROL_CHANNEL_ID),
+            legacy: None,
             config: SessionConfig {
                 session_type: ProtoSessionType::PointToPoint,
                 max_retries: Some(5),

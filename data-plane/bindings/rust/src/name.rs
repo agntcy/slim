@@ -81,7 +81,7 @@ impl Name {
         id: u64,
     ) -> Self {
         if SlimName::is_reserved_id(id) {
-             panic!("id {id:#x} is a reserved sentinel value and cannot be used as a name id");
+            panic!("id {id:#x} is a reserved sentinel value and cannot be used as a name id");
         }
         let inner = SlimName::from_strings([component0, component1, component2]).with_id(id);
         Name { inner }

@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    collections::{HashMap, VecDeque}, f32::consts::E, time::Duration
+    collections::{HashMap, VecDeque},
+    time::Duration,
 };
 
 use async_trait::async_trait;
@@ -490,19 +491,19 @@ where
 
         let mut legacy_msg_id = None;
         if let Some(legacy) = self.common.settings.legacy.clone() {
-                legacy_msg_id = Some(rand::random::<u32>());
-                self.common
-                    .send_control_message(
-                        &legacy,
-                        ProtoSessionMessageType::GroupAdd,
-                        legacy_msg_id.unwrap(),
-                        update_payload,
-                        None,
-                        true,
-                        true,
-                    )
-                    .await?;
-            }
+            legacy_msg_id = Some(rand::random::<u32>());
+            self.common
+                .send_control_message(
+                    &legacy,
+                    ProtoSessionMessageType::GroupAdd,
+                    legacy_msg_id.unwrap(),
+                    update_payload,
+                    None,
+                    true,
+                    true,
+                )
+                .await?;
+        }
 
         Ok((msg_id, legacy_msg_id))
     }
@@ -759,7 +760,7 @@ where
                 payload,
                 Some(self.common.settings.config.metadata.clone()),
                 false,
-                false, // join request are always handeled by the non legacy sender
+                false, // join request are always handled by the non legacy sender
             )
             .await?;
 
@@ -798,23 +799,29 @@ where
         let new_participant_settings = payload.settings.unwrap_or_default();
         self.participant_settings
             .insert(msg.get_source().clone(), new_participant_settings);
-        if new_participant_settings.is_legacy() &&
-            self.common.settings.config.session_type == ProtoSessionType::Multicast {
+        if new_participant_settings.is_legacy()
+            && self.common.settings.config.session_type == ProtoSessionType::Multicast
+        {
             // this is a legacy participant so we need to use the legacy channel
             debug!("The new participant is a legacy one, setup the legacy channel");
-            // the legacy channel name is the same ad the destionation with null id.
-            let mut legacy_name = self.common.settings.destination.clone();
-            legacy_name.reset_id();
+            // the legacy channel name is the same ad the destination with null id.
             if self.common.settings.legacy.is_none() {
+                let mut legacy_name = self.common.settings.destination.clone();
+                legacy_name.reset_id();
                 self.common.settings.legacy = Some(legacy_name.clone());
-                // also add a susbcription for the laegacy channel
+                // create the legacy sender
+                self.common.add_legacy_sender();
+                // also add a subscription for the legacy channel
                 self.common
                     .add_subscription(&legacy_name, msg.get_incoming_conn())
                     .await?;
             }
             // for every participant add the route as we do for the standard channel
             self.common
-                .add_route(&legacy_name, msg.get_incoming_conn())
+                .add_route(
+                    self.common.settings.legacy.as_ref().unwrap(),
+                    msg.get_incoming_conn(),
+                )
                 .await?;
         }
 
@@ -1008,7 +1015,7 @@ where
         if let Some(ack_msg) = ack {
             self.current_task.as_mut().unwrap().set_ack_msg(ack_msg);
         }
-        
+
         // Look up participant ID in group list
         let id = match self.group_list.get(&dst_without_id) {
             Some(id) => *id,
@@ -1044,7 +1051,10 @@ where
 
             // update the task with legacy message if needed
             if let Some(legacy_id) = legacy_msg_id {
-                self.current_task.as_mut().unwrap().commit_legacy_start(legacy_id)?;
+                self.current_task
+                    .as_mut()
+                    .unwrap()
+                    .commit_legacy_start(legacy_id)?;
             }
 
             // We need to save the leave message and send it after
@@ -1063,20 +1073,21 @@ where
             // just send the leave message in this case
             let msg_id = leave_message.get_id();
             if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
-                // in case of p2p session the legacy sender is nevers used
-                 self.common.send_with_timer(leave_message, false).await?;
+                // in case of p2p session the legacy sender is never used
+                self.common.send_with_timer(leave_message, false).await?;
             } else {
                 // use the right sender based on the participant settings
                 // this is required to remove the participants from the right sender
                 let settings = self.participant_settings.get(&leave_message.get_dst());
-                let use_legacy = settings.map(|s| s.is_legacy()).ok_or_else(|| SessionError::ParticipantSettingsNotFound(leave_message.get_dst().clone()))?;
-                self.common.send_with_timer(leave_message, use_legacy).await?;
+                let use_legacy = settings.map(|s| s.is_legacy()).ok_or_else(|| {
+                    SessionError::ParticipantSettingsNotFound(leave_message.get_dst().clone())
+                })?;
+                self.common
+                    .send_with_timer(leave_message, use_legacy)
+                    .await?;
             }
 
-            self.current_task
-                .as_mut()
-                .unwrap()
-                .leave_start(msg_id)?;
+            self.current_task.as_mut().unwrap().leave_start(msg_id)?;
         }
 
         Ok(())
@@ -1132,13 +1143,19 @@ where
             // the participant will be removed from the group so we need to remove
             // it from the local sender.
             if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
-                // in case of p2p session the legacy sender is nevers used
+                // in case of p2p session the legacy sender is never used
                 self.common.sender.remove_participant(&disconnected);
             } else {
                 let settings = self.participant_settings.get(&disconnected);
-                let use_legacy = settings.map(|s| s.is_legacy()).ok_or_else(|| SessionError::ParticipantSettingsNotFound(disconnected.clone()))?;
+                let use_legacy = settings.map(|s| s.is_legacy()).ok_or_else(|| {
+                    SessionError::ParticipantSettingsNotFound(disconnected.clone())
+                })?;
                 if use_legacy {
-                    self.common.legacy_sender.as_mut().ok_or_else(|| SessionError::LegacyChannelNotInitialized)?.remove_participant(&disconnected);
+                    self.common
+                        .legacy_sender
+                        .as_mut()
+                        .ok_or_else(|| SessionError::LegacyChannelNotInitialized)?
+                        .remove_participant(&disconnected);
                 } else {
                     self.common.sender.remove_participant(&disconnected);
                 }
@@ -1203,11 +1220,11 @@ where
             .send_group_remove(disconnected, participants_vec, mls_payload)
             .await?;
         self.current_task.as_mut().unwrap().commit_start(msg_id)?;
-        if legacy_msg_id.is_some() {
+        if let Some(id) = legacy_msg_id {
             self.current_task
                 .as_mut()
                 .unwrap()
-                .commit_legacy_start(legacy_msg_id.unwrap())?;
+                .commit_legacy_start(id)?;
         }
         Ok(())
     }
@@ -1273,7 +1290,7 @@ where
         self.current_task.as_mut().unwrap().commit_start(close_id)?;
 
         // sent the message
-        self.common.sender.on_message(&close).await?; 
+        self.common.sender.on_message(&close).await?;
 
         // check if we need to send the message also on the legacy channel
         if let Some(legacy) = self.common.settings.legacy.clone() {
@@ -1288,14 +1305,18 @@ where
                     .as_content(),
                 true,
             )?;
-            self.common.legacy_sender.as_mut().ok_or_else(|| SessionError::LegacyChannelNotInitialized)?.on_message(&legacy_close).await?;
+            self.common
+                .legacy_sender
+                .as_mut()
+                .ok_or_else(|| SessionError::LegacyChannelNotInitialized)?
+                .on_message(&legacy_close)
+                .await?;
             self.current_task
                 .as_mut()
                 .unwrap()
                 .commit_legacy_start(legacy_id)?;
         }
         Ok(())
-
     }
 
     async fn on_leave_reply(&mut self, msg: Message) -> Result<(), SessionError> {
@@ -1322,7 +1343,10 @@ where
             }
             Err(e) => {
                 // see if the packet was sent with the legacy sender if exists
-                debug!("Error processing leave reply with the default sender: {:?}. Try with the legacy sender if available", e);
+                debug!(
+                    "Error processing leave reply with the default sender: {:?}. Try with the legacy sender if available",
+                    e
+                );
                 if let Some(legacy_sender) = self.common.legacy_sender.as_mut() {
                     legacy_sender.on_message(&msg).await?;
                     if !legacy_sender.is_still_pending(msg_id) {
@@ -1358,7 +1382,10 @@ where
             }
             Err(e) => {
                 // see if the packet was sent with the legacy sender if exists
-                debug!("Error processing leave reply with the default sender: {:?}. Try with the legacy sender if available", e);
+                debug!(
+                    "Error processing leave reply with the default sender: {:?}. Try with the legacy sender if available",
+                    e
+                );
                 if let Some(legacy_sender) = self.common.legacy_sender.as_mut() {
                     legacy_sender.on_message(&msg).await?;
                     if !legacy_sender.is_still_pending(msg_id) {
@@ -1383,10 +1410,17 @@ where
                 // send the leave message and progress
                 // select the right sender based on the participant settings
                 let settings = self.participant_settings.get(&leave_message.get_dst());
-                let use_legacy = settings.map(|s| s.is_legacy()).ok_or_else(|| SessionError::ParticipantSettingsNotFound(leave_message.get_dst().clone()))?;
+                let use_legacy = settings.map(|s| s.is_legacy()).ok_or_else(|| {
+                    SessionError::ParticipantSettingsNotFound(leave_message.get_dst().clone())
+                })?;
                 if use_legacy {
-                    self.common.legacy_sender.as_mut().ok_or_else(|| SessionError::LegacyChannelNotInitialized)?.on_message(leave_message).await?;
-                } else {    
+                    self.common
+                        .legacy_sender
+                        .as_mut()
+                        .ok_or_else(|| SessionError::LegacyChannelNotInitialized)?
+                        .on_message(leave_message)
+                        .await?;
+                } else {
                     self.common.sender.on_message(leave_message).await?;
                 }
                 self.current_task
@@ -1552,7 +1586,8 @@ mod tests {
         mpsc::Receiver<Result<SessionMessage, SessionError>>,
     ) {
         let source = make_name(&["local", "moderator", "v1"]).with_id(100);
-        let destination = make_name(&["channel", "name", "v1"]).with_id(200);
+        let destination = make_name(&["channel", "name", "v1"]).with_id(Name::DATA_CHANNEL_ID);
+        let control = make_name(&["channel", "name", "v1"]).with_id(Name::DATA_CHANNEL_ID);
 
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;
@@ -1577,6 +1612,8 @@ mod tests {
             id: 1,
             source,
             destination,
+            control,
+            legacy: None,
             config,
             direction: Direction::Bidirectional,
             tx,
@@ -1938,7 +1975,8 @@ mod tests {
     #[tokio::test]
     async fn test_moderator_point_to_point_destination_update() {
         let source = make_name(&["local", "app", "v1"]).with_id(100);
-        let destination = make_name(&["remote", "app", "v1"]).with_id(200);
+        let destination = make_name(&["remote", "app", "v1"]).with_id(Name::DATA_CHANNEL_ID);
+        let control = make_name(&["remote", "app", "v1"]).with_id(Name::CONTROL_CHANNEL_ID);
 
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;
@@ -1963,6 +2001,8 @@ mod tests {
             id: 1,
             source: source.clone(),
             destination: destination.clone(),
+            control: control.clone(),
+            legacy: None,
             config,
             direction: Direction::Bidirectional,
             tx,
@@ -2012,7 +2052,10 @@ mod tests {
 
         // Create moderator with agntcy/ns/moderator naming
         let source = Name::from_strings(["agntcy", "ns", "moderator"]).with_id(100);
-        let destination = Name::from_strings(["agntcy", "ns", "chat"]);
+        let destination =
+            Name::from_strings(["agntcy", "ns", "chat"]).with_id(Name::DATA_CHANNEL_ID);
+        let control =
+            Name::from_strings(["agntcy", "ns", "chat"]).with_id(Name::CONTROL_CHANNEL_ID);
 
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;
@@ -2037,6 +2080,8 @@ mod tests {
             id: 1,
             source: source.clone(),
             destination: destination.clone(),
+            control: control.clone(),
+            legacy: None,
             config,
             direction: Direction::Bidirectional,
             tx,
@@ -2136,7 +2181,10 @@ mod tests {
 
         // Create moderator with agntcy/ns/moderator naming
         let source = Name::from_strings(["agntcy", "ns", "moderator"]).with_id(100);
-        let destination = Name::from_strings(["agntcy", "ns", "chat"]);
+        let destination =
+            Name::from_strings(["agntcy", "ns", "chat"]).with_id(Name::DATA_CHANNEL_ID);
+        let control =
+            Name::from_strings(["agntcy", "ns", "chat"]).with_id(Name::CONTROL_CHANNEL_ID);
 
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;
@@ -2161,6 +2209,8 @@ mod tests {
             id: 1,
             source: source.clone(),
             destination: destination.clone(),
+            control: control.clone(),
+            legacy: None,
             config,
             direction: Direction::Bidirectional,
             tx,

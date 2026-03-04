@@ -138,7 +138,7 @@ impl ControllerSender {
         initiator: bool,
         tx: SessionTransmitter,
         tx_signals: Sender<SessionMessage>,
-        is_legacy: bool,    
+        is_legacy: bool,
     ) -> Self {
         let mut list = HashSet::new();
         list.insert(local_name.clone());
@@ -735,6 +735,7 @@ mod tests {
             false,
             tx,
             tx_signal,
+            false,
         );
 
         // Create a discovery request message
@@ -855,6 +856,7 @@ mod tests {
             false,
             tx,
             tx_signal,
+            false,
         );
 
         // Create a join request message
@@ -979,6 +981,7 @@ mod tests {
             false,
             tx,
             tx_signal,
+            false,
         );
 
         // Create a leave request message
@@ -1097,6 +1100,7 @@ mod tests {
             false,
             tx,
             tx_signal,
+            false,
         );
 
         // Create a group welcome message
@@ -1219,6 +1223,7 @@ mod tests {
             false,
             tx,
             tx_signal,
+            false,
         );
 
         // First add participant2 to establish a group with 2 members (source + participant2)
@@ -1373,6 +1378,7 @@ mod tests {
             false,
             tx,
             tx_signal,
+            false,
         );
 
         // First add participant2 to establish a group with 2 members (source + participant2)
@@ -1584,6 +1590,7 @@ mod tests {
             true,
             tx,
             tx_signal,
+            false,
         );
 
         // Add participant to the group and set group name
@@ -1980,6 +1987,7 @@ mod tests {
             false, // participant, not initiator
             tx,
             tx_signal,
+            false,
         );
 
         // === PING INTERVAL 1: Moderator sends ping, participant receives it ===
@@ -2179,6 +2187,7 @@ mod tests {
             true, // initiator (moderator)
             tx,
             tx_signal,
+            false,
         );
 
         // Set up group with 2 participants
@@ -2409,6 +2418,7 @@ mod tests {
             true, // initiator
             tx,
             tx_signal,
+            false,
         );
 
         // Simulate sending a join request to establish group_name
@@ -2546,6 +2556,7 @@ mod tests {
             true, // initiator
             tx,
             tx_signal,
+            false,
         );
 
         // Simulate sending a join request with channel name in payload

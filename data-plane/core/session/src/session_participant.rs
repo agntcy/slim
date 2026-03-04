@@ -391,8 +391,6 @@ where
             mls_state.process_welcome_message(&msg).await?;
         }
 
-        self.join(&msg).await?;
-
         let welcome_payload = msg
             .get_payload()
             .unwrap()
@@ -414,6 +412,7 @@ where
             return Err(SessionError::InvalidParticipantSettingsLength);
         }
 
+        let mut legacy = false;
         for (i, n) in participant_list.iter().enumerate() {
             let name = Name::from(n);
             let settings = participant_settings_list
@@ -430,9 +429,14 @@ where
                         .add_route(&name, msg.get_incoming_conn())
                         .await?;
                 }
+                if settings.is_legacy() {
+                    legacy = true;
+                }
                 self.add_endpoint(&name, *settings).await?;
             }
         }
+
+        self.join(&msg, legacy).await?;
 
         let ack = self.common.create_control_message(
             &msg.get_source(),
@@ -576,7 +580,7 @@ where
         self.common.send_to_slim(msg).await
     }
 
-    async fn join(&mut self, msg: &Message) -> Result<(), SessionError> {
+    async fn join(&mut self, msg: &Message, legacy: bool) -> Result<(), SessionError> {
         if self.subscribed {
             return Ok(());
         }
@@ -593,8 +597,28 @@ where
             .add_route(&self.common.settings.destination, msg.get_incoming_conn())
             .await?;
         self.common
+            .add_route(&self.common.settings.control, msg.get_incoming_conn())
+            .await?;
+        self.common
             .add_subscription(&self.common.settings.destination, msg.get_incoming_conn())
-            .await
+            .await?;
+        self.common
+            .add_subscription(&self.common.settings.control, msg.get_incoming_conn())
+            .await?;
+
+        if legacy {
+            // at lease one of the participants is a legacy one. setup the legacy channel and subscribe to it
+            let mut legacy_name = self.common.settings.destination.clone();
+            legacy_name.reset_id();
+            self.common.settings.legacy = Some(legacy_name.clone());
+            self.common
+                .add_route(&legacy_name, msg.get_incoming_conn())
+                .await?;
+            self.common
+                .add_subscription(&legacy_name, msg.get_incoming_conn())
+                .await?;
+        }
+        Ok(())
     }
 
     async fn disconnect_from_group(&self) -> Result<(), SessionError> {
@@ -658,7 +682,8 @@ mod tests {
         mpsc::Receiver<Result<SessionMessage, SessionError>>,
     ) {
         let source = make_name(&["local", "participant", "v1"]).with_id(100);
-        let destination = make_name(&["channel", "name", "v1"]).with_id(200);
+        let destination = make_name(&["channel", "name", "v1"]).with_id(Name::DATA_CHANNEL_ID);
+        let control = make_name(&["channel", "name", "v1"]).with_id(Name::CONTROL_CHANNEL_ID);
 
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;
@@ -682,6 +707,8 @@ mod tests {
             id: 1,
             source,
             destination,
+            control,
+            legacy: None,
             config,
             direction: Direction::Bidirectional,
             tx,
@@ -995,7 +1022,7 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result = participant.join(&welcome_msg).await;
+        let result = participant.join(&welcome_msg, false).await;
         assert!(result.is_ok());
         assert!(participant.subscribed);
 
@@ -1034,7 +1061,7 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result = participant.join(&msg).await;
+        let result = participant.join(&msg, false).await;
         assert!(result.is_ok());
         assert!(participant.subscribed);
         // P2P doesn't send subscribe message
@@ -1066,7 +1093,7 @@ mod tests {
             .unwrap();
 
         // First join
-        participant.join(&msg).await.unwrap();
+        participant.join(&msg, false).await.unwrap();
 
         // Drain all messages from first join (routes + subscribe)
         let mut message_count = 0;
@@ -1076,7 +1103,7 @@ mod tests {
         assert!(message_count > 0, "First join should send messages");
 
         // Second join should do nothing
-        participant.join(&msg).await.unwrap();
+        participant.join(&msg, false).await.unwrap();
         let second_sub = rx_slim.try_recv();
         assert!(
             second_sub.is_err(),

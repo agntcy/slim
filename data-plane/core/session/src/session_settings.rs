@@ -41,7 +41,7 @@ where
     pub(crate) control: Name,
 
     /// Legacy group name. Use only if a legacy
-    /// partcipant is connected to the group
+    /// participant is connected to the group
     pub(crate) legacy: Option<Name>,
 
     /// Session configuration

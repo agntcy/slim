@@ -1,7 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use rand::rand_core::le;
 // Third-party crates
 use tokio::sync::oneshot;
 use tracing::debug;
@@ -321,8 +320,9 @@ impl TaskUpdate for AddParticipant {
                 "commit completed on AddParticipan task",
             );
             Ok(())
-        } else if let Some(legacy_commit) = &mut self.commit_legacy &&
-            legacy_commit.timer_id == timer_id {
+        } else if let Some(legacy_commit) = &mut self.commit_legacy
+            && legacy_commit.timer_id == timer_id
+        {
             debug!(
                 %timer_id,
                 "commit legacy completed on AddParticipan task",
@@ -335,15 +335,11 @@ impl TaskUpdate for AddParticipant {
     }
 
     fn task_complete(&self) -> bool {
-        let done = self.discovery.received
+        self.discovery.received
             && self.join.received
             && self.welcome.received
-            && self.commit.received;
-        if let Some(legacy_commit) = &self.commit_legacy {
-            done && legacy_commit.received
-        } else {
-            done
-        }
+            && self.commit.received
+            && self.commit_legacy.as_ref().is_none_or(|c| c.received)
     }
 }
 
@@ -457,8 +453,9 @@ impl TaskUpdate for RemoveParticipant {
                 "commit completed on RemoveParticipanMls task",
             );
             Ok(())
-        } else if let Some(legacy_commit) = &mut self.commit_legacy &&
-            legacy_commit.timer_id == timer_id {
+        } else if let Some(legacy_commit) = &mut self.commit_legacy
+            && legacy_commit.timer_id == timer_id
+        {
             legacy_commit.received = true;
             debug!(
                 %timer_id,
@@ -471,12 +468,9 @@ impl TaskUpdate for RemoveParticipant {
     }
 
     fn task_complete(&self) -> bool {
-        let done = self.commit.received && self.leave.received;
-        if self.commit_legacy.is_some() {
-            done && self.commit_legacy.as_ref().unwrap().received
-        } else {
-            done
-        }
+        self.commit.received
+            && self.leave.received
+            && self.commit_legacy.as_ref().is_none_or(|c| c.received)
     }
 }
 
@@ -545,7 +539,7 @@ impl TaskUpdate for NotifyParticipants {
         let legacy_notify = self.notify_legacy.get_or_insert(State::default());
         legacy_notify.received = false;
         legacy_notify.timer_id = timer_id;
-        Ok(())  
+        Ok(())
     }
 
     fn proposal_start(&mut self, _timer_id: u32) -> Result<(), SessionError> {
@@ -559,20 +553,21 @@ impl TaskUpdate for NotifyParticipants {
                 %timer_id,
                 "notify participants completed on NotifyParticipants task",
             );
-
-        } else if let Some(legacy_notify) = &mut self.notify_legacy && 
-            legacy_notify.timer_id == timer_id {
+        } else if let Some(legacy_notify) = &mut self.notify_legacy
+            && legacy_notify.timer_id == timer_id
+        {
             legacy_notify.received = true;
             debug!(
                 %timer_id,
                 "notify participants legacy completed on NotifyParticipants task",
             );
-    
         } else {
             return Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id));
         }
 
-        if self.notify.received && (self.notify_legacy.is_none() || self.notify_legacy.as_ref().unwrap().received) {
+        if self.notify.received
+            && (self.notify_legacy.is_none() || self.notify_legacy.as_ref().unwrap().received)
+        {
             // Signal success to the ack notifier if present (notify operation complete)
             if let Some(tx) = self.ack_tx.take() {
                 let _ = tx.send(Ok(()));
@@ -672,8 +667,9 @@ impl TaskUpdate for UpdateParticipant {
                 "commit completed on UpdateParticipanMls task",
             );
             Ok(())
-        } else if let Some(legacy_commit) = &mut self.commit_legacy &&
-            legacy_commit.timer_id == timer_id {
+        } else if let Some(legacy_commit) = &mut self.commit_legacy
+            && legacy_commit.timer_id == timer_id
+        {
             legacy_commit.received = true;
             debug!(
                 %timer_id,
@@ -686,7 +682,9 @@ impl TaskUpdate for UpdateParticipant {
     }
 
     fn task_complete(&self) -> bool {
-        self.proposal.received && self.commit.received && self.commit_legacy.as_ref().map_or(true, |c| c.received)  
+        self.proposal.received
+            && self.commit.received
+            && self.commit_legacy.as_ref().is_none_or(|c| c.received)
     }
 }
 
