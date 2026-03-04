@@ -6,7 +6,8 @@ version: '3'
 includes:
   rust:
     taskfile: ../rust/Taskfile.yaml
-    internal: true
+    # Must be callable so generate can invoke rust:bindings:build:all for local builds
+    internal: false
 
 vars:
   # Rust bindings directory
@@ -99,7 +100,9 @@ tasks:
     status:
       - which uniffi-bindgen-cs
     cmds:
-      - cargo install uniffi-bindgen-cs --git https://github.com/NordSecurity/uniffi-bindgen-cs.git --tag v0.10.0+v0.29.4
+      # PR #163: uniffi v0.30/v0.31 support - https://github.com/NordSecurity/uniffi-bindgen-cs/pull/163
+      # Revert to released tag when merged: --tag v0.10.0+v0.29.4 (or v0.11.0+v0.31 when released)
+      - cargo install uniffi-bindgen-cs --git https://github.com/jmbryan4/uniffi-bindgen-cs.git --branch upgrade/uniffi-rs-0.31.0-clean --config net.git-fetch-with-cli=true
     silent: true
 
 
