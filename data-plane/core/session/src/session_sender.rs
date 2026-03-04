@@ -85,10 +85,6 @@ pub struct SessionSender {
 
     /// oneshot senders to signal when network acks are received for each message
     ack_notifiers: HashMap<u32, oneshot::Sender<Result<(), SessionError>>>,
-
-    // shutdown_send flag. if set no message is sent to the network
-    // and all messages are dropped
-    shutdown_send: bool,
 }
 
 #[allow(dead_code)]
@@ -101,7 +97,6 @@ impl SessionSender {
         session_type: ProtoSessionType,
         tx: SessionTransmitter,
         tx_signals: Option<Sender<SessionMessage>>,
-        shutdown_send: bool,
     ) -> Self {
         let factory = if let Some(settings) = timer_settings
             && let Some(tx) = tx_signals
@@ -110,10 +105,6 @@ impl SessionSender {
         } else {
             None
         };
-
-        debug!(
-           %shutdown_send, "creating session sender"
-        );
 
         SessionSender {
             buffer: ProducerBuffer::with_capacity(512),
@@ -128,7 +119,6 @@ impl SessionSender {
             to_flush: false,
             draining_state: SenderDrainStatus::NotDraining,
             ack_notifiers: HashMap::new(),
-            shutdown_send,
         }
     }
 
@@ -198,16 +188,6 @@ impl SessionSender {
         mut message: Message,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<(), SessionError> {
-        // if shutdown_send is true we drop all messages but we signal success
-        // to the application using the ack channel if provided
-        if self.shutdown_send {
-            debug!(message_id = %message.get_id(), "sender is shutdown, drop message");
-            if let Some(tx) = ack_tx {
-                let _ = tx.send(Err(SessionError::SessionSenderShutdown));
-            }
-            return Err(SessionError::SessionSenderShutdown);
-        }
-
         let is_publish_to = message.metadata.contains_key(PUBLISH_TO);
 
         // if is_publish_to and the message destination is not
@@ -457,6 +437,16 @@ impl SessionSender {
         Ok(())
     }
 
+    pub fn timer_id_exists(&self, id: u32) -> bool {
+        if id > MAX_PUBLISH_ID {
+            // this must be a message sent with publish_to, so check the pending acks map
+            self.pending_acks.contains_key(&id)
+        } else {
+            // this is a message sent to the group, check if the timer exists
+            self.pending_acks.contains_key(&id)
+        }
+    }
+
     pub fn on_failure(&mut self, id: u32, error: SessionError) -> Result<(), SessionError> {
         // remove all the state related to this timer
         if let Some((gt, _)) = self.pending_acks.get_mut(&id) {
@@ -563,6 +553,10 @@ impl SessionSender {
         debug!(list_size = %self.endpoints_list.len(), "new list size");
     }
 
+    pub fn has_no_endpoints(&self) -> bool {
+        self.endpoints_list.is_empty()
+    }
+
     pub fn start_drain(&mut self) {
         self.draining_state = SenderDrainStatus::Initiated;
         if self.pending_acks.is_empty() {
@@ -624,7 +618,6 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
-            false,
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
@@ -704,7 +697,6 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
-            false,
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
@@ -843,7 +835,6 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
-            false,
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
@@ -924,7 +915,6 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            false,
         );
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
@@ -1044,7 +1034,6 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            false,
         );
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
@@ -1227,7 +1216,6 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            false,
         );
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
@@ -1337,7 +1325,6 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            false,
         );
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
@@ -1475,7 +1462,6 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
-            false,
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
@@ -1622,7 +1608,6 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
-            false,
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
@@ -1692,7 +1677,6 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
-            false,
         );
         let remote = Name::from_strings(["org", "ns", "send-only"]);
 
@@ -1726,7 +1710,6 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
-            false,
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
@@ -1801,7 +1784,6 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
-            false,
         );
         let remote = Name::from_strings(["org", "ns", "legacy"]);
 
@@ -1830,7 +1812,6 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            false,
         );
         let group = Name::from_strings(["org", "ns", "group"]);
         let recv_endpoint = Name::from_strings(["org", "ns", "receiver"]);
@@ -1941,7 +1922,6 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            false,
         );
         let recv_endpoint = Name::from_strings(["org", "ns", "receiver"]);
         let send_only_endpoint = Name::from_strings(["org", "ns", "send-only"]);
@@ -2005,7 +1985,6 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
-            false,
         );
         let recv_endpoint = Name::from_strings(["org", "ns", "receiver"]);
 
@@ -2071,7 +2050,6 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
-            false,
         );
         let recv_endpoint = Name::from_strings(["org", "ns", "receiver"]);
 
@@ -2132,7 +2110,6 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            false,
         );
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
@@ -2209,7 +2186,6 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            false,
         );
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let unknown_remote = Name::from_strings(["org", "ns", "unknown"]);
@@ -2260,7 +2236,6 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
-            false,
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
@@ -2319,7 +2294,6 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            false,
         );
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
@@ -2403,7 +2377,6 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            false,
         );
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
@@ -2493,7 +2466,6 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            false,
         );
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
@@ -2566,7 +2538,6 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            false,
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
@@ -2649,7 +2620,6 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            false,
         );
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
@@ -2749,7 +2719,6 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
-            true, // shutdown_send enabled
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
@@ -2837,7 +2806,6 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            true, // shutdown_send enabled
         );
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
@@ -2939,7 +2907,6 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
-            true, // shutdown_send enabled
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -3036,7 +3003,6 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
-            true, // shutdown_send enabled
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
         let source = Name::from_strings(["org", "ns", "source"]);
