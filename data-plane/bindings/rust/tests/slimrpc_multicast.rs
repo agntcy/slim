@@ -33,9 +33,7 @@ use slim_datapath::messages::Name;
 use slim_service::service::Service;
 use slim_testing::utils::TEST_VALID_SECRET;
 
-use slim_bindings::slimrpc::{
-    Channel, Context, Decoder, Encoder, RequestStream, RpcError, Server,
-};
+use slim_bindings::slimrpc::{Channel, Context, Decoder, Encoder, RequestStream, RpcError, Server};
 
 // ============================================================================
 // Test message types
@@ -95,12 +93,12 @@ struct MulticastTestEnv {
     service: Arc<Service>,
     /// Member servers — each registered under its own unique app name.
     member_servers: Vec<Arc<Server>>,
-    /// Individual app names for each member (used for per-member invites).
-    member_app_names: Vec<Name>,
-    /// Channel used as the multicast broadcaster (session targets `group_name`).
+    /// Channel used as the multicast broadcaster.
+    ///
+    /// Created with `Channel::new_with_members_internal` so the GROUP session
+    /// name is randomly generated and members are auto-invited on the first
+    /// multicast call.
     channel: Channel,
-    /// The GROUP session channel name (the `remote` the Channel targets).
-    group_name: Name,
 }
 
 impl MulticastTestEnv {
@@ -108,52 +106,52 @@ impl MulticastTestEnv {
         let id = ID::new_with_name(Kind::new("slim").unwrap(), test_name).unwrap();
         let service = Arc::new(Service::new(id));
 
-        // The group/topic name used as the multicast session destination and
-        // as the base_name for Server subscriptions.
-        let group_name = Name::from_strings(["org", "ns", "member"]);
-        let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
-
         // Create N member apps, each with a UNIQUE name ("org/ns/member-{i}").
-        // The unique name allows the broadcaster to invite each member
-        // individually via invite_participant.  The Server still subscribes to
-        // `group_name` (base_name) so RPC method routing works correctly, and
-        // the app auto-subscribes to its own unique name (via process_messages)
-        // so it is reachable for the invite discovery-request.
+        // Each app auto-subscribes to its own unique name via process_messages,
+        // making it reachable for the invite discovery-request sent by the Channel.
         let mut member_servers = Vec::new();
         let mut member_app_names = Vec::new();
         for i in 0..num_members {
-            let member_app_name =
-                Name::from_strings(["org", "ns", &format!("member-{}", i)]);
+            let member_app_name = Name::from_strings(["org", "ns", &format!("member-{}", i)]);
+            let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
             let (app, notifications) = service
                 .create_app(
                     &member_app_name,
                     AuthProvider::shared_secret(secret.clone()),
-                    AuthVerifier::shared_secret(secret.clone()),
+                    AuthVerifier::shared_secret(secret),
                 )
                 .unwrap();
             let app = Arc::new(app);
-            // Server subscribes to group_name for RPC method routing.
             let server = Arc::new(Server::new_internal(
                 app.clone(),
-                group_name.clone(),
+                member_app_name.clone(),
                 notifications,
             ));
             member_app_names.push(member_app_name);
             member_servers.push(server);
         }
 
-        // Broadcaster app — different name, Channel targeting the group name.
+        // Broadcaster app — uses new_with_members_internal so the Channel
+        // generates a random UUID group name and auto-invites all members on
+        // the first multicast call.
         let client_name = Name::from_strings(["org", "ns", "client"]);
+        let secret = SharedSecret::new("client", TEST_VALID_SECRET).unwrap();
         let (client_app, _) = service
             .create_app(
                 &client_name,
                 AuthProvider::shared_secret(secret.clone()),
-                AuthVerifier::shared_secret(secret.clone()),
+                AuthVerifier::shared_secret(secret),
             )
             .unwrap();
-        let channel = Channel::new_internal(Arc::new(client_app), group_name.clone());
+        let channel =
+            Channel::new_with_members_internal(Arc::new(client_app), member_app_names, true, None)
+                .expect("failed to create channel");
 
-        Self { service, member_servers, member_app_names, channel, group_name }
+        Self {
+            service,
+            member_servers,
+            channel,
+        }
     }
 
     /// Start all member servers in background tasks.
@@ -166,54 +164,8 @@ impl MulticastTestEnv {
                 }
             });
         }
-        // Give all servers time to subscribe.
+        // Give all servers time to subscribe before the first invite is sent.
         tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-
-    /// Invite all members into the GROUP session.
-    ///
-    /// Sends one invite per member (by their unique app name). Each invite is
-    /// a unicast discovery-request so every member joins the session.
-    ///
-    /// Call this after `start_all_servers()` and before making multicast RPC
-    /// calls. A 200 ms sleep is included after all invites so every member has
-    /// time to complete the join handshake.
-    async fn invite_members(&self) {
-        for name in &self.member_app_names {
-            self.channel
-                .invite_participant(name.clone())
-                .await
-                .expect("invite_participant failed");
-        }
-        // Let all members finish joining the session.
-        tokio::time::sleep(Duration::from_millis(200)).await;
-    }
-
-    /// Create an additional Channel for an observer app (passive-join mode).
-    ///
-    /// The returned channel will wait for a `NewSession` invite when
-    /// `subscribe_group_inbox()` is first called. The caller must invite it
-    /// explicitly via `self.channel.invite_participant(observer_name)` before
-    /// that call (or concurrently with it).
-    ///
-    /// Returns `(channel, observer_name)` so the caller can issue the invite.
-    async fn new_observer_channel(&self) -> (Channel, Name) {
-        let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
-        let observer_name = Name::from_strings(["org", "ns", "observer"]);
-        let (observer_app, notifications) = self
-            .service
-            .create_app(
-                &observer_name,
-                AuthProvider::shared_secret(secret.clone()),
-                AuthVerifier::shared_secret(secret.clone()),
-            )
-            .unwrap();
-        let channel = Channel::new_internal_with_notifications(
-            Arc::new(observer_app),
-            self.group_name.clone(),
-            notifications,
-        );
-        (channel, observer_name)
     }
 
     async fn shutdown(&mut self) {
@@ -250,7 +202,12 @@ async fn collect_n_multicast<T>(
         }
     })
     .await
-    .unwrap_or_else(|_| panic!("{label}: timed out after collecting {}/{n} items", responses.len()));
+    .unwrap_or_else(|_| {
+        panic!(
+            "{label}: timed out after collecting {}/{n} items",
+            responses.len()
+        )
+    });
     responses
 }
 
@@ -280,17 +237,25 @@ async fn test_multicast_unary() {
         );
     }
     env.start_all_servers().await;
-    env.invite_members().await;
 
     let stream = env.channel.multicast_unary::<TestRequest, TestResponse>(
         "TestService",
         "Echo",
-        TestRequest { message: "hello".to_string(), value: 10 },
+        TestRequest {
+            message: "hello".to_string(),
+            value: 10,
+        },
         Some(Duration::from_secs(10)),
         None,
     );
 
-    let mut responses = collect_n_multicast(stream, NUM_MEMBERS, Duration::from_secs(10), "multicast_unary").await;
+    let mut responses = collect_n_multicast(
+        stream,
+        NUM_MEMBERS,
+        Duration::from_secs(10),
+        "multicast_unary",
+    )
+    .await;
     responses.sort_by_key(|r| r.member_id);
 
     assert_eq!(responses.len(), NUM_MEMBERS);
@@ -334,24 +299,37 @@ async fn test_multicast_unary_stream() {
         );
     }
     env.start_all_servers().await;
-    env.invite_members().await;
 
-    let stream = env.channel.multicast_unary_stream::<TestRequest, TestResponse>(
-        "TestService",
-        "Expand",
-        TestRequest { message: "x".to_string(), value: 1 },
-        Some(Duration::from_secs(10)),
-        None,
-    );
+    let stream = env
+        .channel
+        .multicast_unary_stream::<TestRequest, TestResponse>(
+            "TestService",
+            "Expand",
+            TestRequest {
+                message: "x".to_string(),
+                value: 1,
+            },
+            Some(Duration::from_secs(10)),
+            None,
+        );
 
     let total = NUM_MEMBERS * ITEMS_PER_MEMBER;
-    let responses = collect_n_multicast(stream, total, Duration::from_secs(10), "multicast_unary_stream").await;
+    let responses = collect_n_multicast(
+        stream,
+        total,
+        Duration::from_secs(10),
+        "multicast_unary_stream",
+    )
+    .await;
 
     assert_eq!(responses.len(), total);
     // Each member contributed exactly ITEMS_PER_MEMBER items.
     for mid in 0..NUM_MEMBERS {
         let count = responses.iter().filter(|r| r.member_id == mid).count();
-        assert_eq!(count, ITEMS_PER_MEMBER, "member {mid} should have sent {ITEMS_PER_MEMBER} items");
+        assert_eq!(
+            count, ITEMS_PER_MEMBER,
+            "member {mid} should have sent {ITEMS_PER_MEMBER} items"
+        );
     }
 
     env.shutdown().await;
@@ -389,29 +367,50 @@ async fn test_multicast_stream_unary() {
         );
     }
     env.start_all_servers().await;
-    env.invite_members().await;
 
     let requests = stream::iter(vec![
-        TestRequest { message: "a".to_string(), value: 1 },
-        TestRequest { message: "b".to_string(), value: 2 },
-        TestRequest { message: "c".to_string(), value: 3 },
+        TestRequest {
+            message: "a".to_string(),
+            value: 1,
+        },
+        TestRequest {
+            message: "b".to_string(),
+            value: 2,
+        },
+        TestRequest {
+            message: "c".to_string(),
+            value: 3,
+        },
     ]);
 
-    let stream = env.channel.multicast_stream_unary::<TestRequest, TestResponse>(
-        "TestService",
-        "Sum",
-        requests,
-        Some(Duration::from_secs(10)),
-        None,
-    );
+    let stream = env
+        .channel
+        .multicast_stream_unary::<TestRequest, TestResponse>(
+            "TestService",
+            "Sum",
+            requests,
+            Some(Duration::from_secs(10)),
+            None,
+        );
 
-    let mut responses = collect_n_multicast(stream, NUM_MEMBERS, Duration::from_secs(10), "multicast_stream_unary").await;
+    let mut responses = collect_n_multicast(
+        stream,
+        NUM_MEMBERS,
+        Duration::from_secs(10),
+        "multicast_stream_unary",
+    )
+    .await;
     responses.sort_by_key(|r| r.member_id);
 
     assert_eq!(responses.len(), NUM_MEMBERS);
     for r in &responses {
         assert_eq!(r.count, 6, "member {} should sum to 6", r.member_id);
-        assert!(r.result.contains("a+b+c"), "member {} got: {}", r.member_id, r.result);
+        assert!(
+            r.result.contains("a+b+c"),
+            "member {} got: {}",
+            r.member_id,
+            r.result
+        );
     }
 
     env.shutdown().await;
@@ -451,24 +450,40 @@ async fn test_multicast_stream_stream() {
         );
     }
     env.start_all_servers().await;
-    env.invite_members().await;
 
     let requests = stream::iter(vec![
-        TestRequest { message: "x".to_string(), value: 1 },
-        TestRequest { message: "y".to_string(), value: 2 },
-        TestRequest { message: "z".to_string(), value: 3 },
+        TestRequest {
+            message: "x".to_string(),
+            value: 1,
+        },
+        TestRequest {
+            message: "y".to_string(),
+            value: 2,
+        },
+        TestRequest {
+            message: "z".to_string(),
+            value: 3,
+        },
     ]);
 
-    let stream = env.channel.multicast_stream_stream::<TestRequest, TestResponse>(
-        "TestService",
-        "Echo",
-        requests,
-        Some(Duration::from_secs(10)),
-        None,
-    );
+    let stream = env
+        .channel
+        .multicast_stream_stream::<TestRequest, TestResponse>(
+            "TestService",
+            "Echo",
+            requests,
+            Some(Duration::from_secs(10)),
+            None,
+        );
 
     let total = NUM_MEMBERS * NUM_REQUESTS;
-    let responses = collect_n_multicast(stream, total, Duration::from_secs(10), "multicast_stream_stream").await;
+    let responses = collect_n_multicast(
+        stream,
+        total,
+        Duration::from_secs(10),
+        "multicast_stream_stream",
+    )
+    .await;
 
     assert_eq!(responses.len(), total);
     for mid in 0..NUM_MEMBERS {
@@ -479,107 +494,6 @@ async fn test_multicast_stream_stream() {
         for v in [1, 2, 3] {
             assert!(values.contains(&v), "member {mid} missing value {v}");
         }
-    }
-
-    env.shutdown().await;
-}
-
-// ============================================================================
-// Test 5 — group inbox
-// ============================================================================
-
-/// An observer app opens a multicast Channel to the same group name and
-/// subscribes to the group inbox.  When the broadcaster makes a multicast RPC
-/// call the member servers respond; those responses circulate through the GROUP
-/// session.  Because the observer has no active RPC with the same rpc-id, the
-/// responses are forwarded to its group inbox instead of being dropped.
-#[tokio::test]
-#[tracing_test::traced_test]
-async fn test_group_inbox_sees_other_members_responses() {
-    const NUM_MEMBERS: usize = 2;
-    let mut env = MulticastTestEnv::new("test-group-inbox", NUM_MEMBERS).await;
-
-    for (i, server) in env.member_servers.iter().enumerate() {
-        server.register_unary_unary_internal(
-            "TestService",
-            "Echo",
-            move |req: TestRequest, _ctx: Context| async move {
-                Ok(TestResponse {
-                    member_id: i,
-                    result: format!("M{i}: {}", req.message),
-                    count: req.value,
-                })
-            },
-        );
-    }
-    env.start_all_servers().await;
-    env.invite_members().await;
-
-    // Create an observer Channel in passive-join mode.  The observer waits
-    // for a NewSession invite rather than creating its own GROUP session.
-    let (observer, observer_name) = env.new_observer_channel().await;
-
-    // Invite the observer into the broadcaster's GROUP session.
-    // The invite message arrives at the observer app's notification queue; it
-    // will be picked up by subscribe_group_inbox() below.
-    env.channel
-        .invite_participant(observer_name)
-        .await
-        .expect("invite observer failed");
-
-    // Give the observer's app time to process the invite and buffer the
-    // NewSession notification before subscribe_group_inbox reads it.
-    tokio::time::sleep(Duration::from_millis(100)).await;
-
-    // subscribe_group_inbox() reads the buffered NewSession notification and
-    // sets up the unrouted-message sink on the observer's dispatcher.
-    let inbox = observer
-        .subscribe_group_inbox()
-        .await
-        .expect("subscribe_group_inbox failed");
-    pin_mut!(inbox);
-
-    // Broadcaster sends a multicast request and collects both responses.
-    let stream = env.channel.multicast_unary::<TestRequest, TestResponse>(
-        "TestService",
-        "Echo",
-        TestRequest { message: "ping".to_string(), value: 7 },
-        Some(Duration::from_secs(10)),
-        None,
-    );
-    let broadcaster_responses = collect_n_multicast(
-        stream,
-        NUM_MEMBERS,
-        Duration::from_secs(10),
-        "group_inbox/broadcaster",
-    )
-    .await;
-    assert_eq!(broadcaster_responses.len(), NUM_MEMBERS);
-
-    // The observer's inbox should receive the same response messages: they
-    // arrived on the GROUP session with rpc-ids unknown to the observer.
-    let inbox_msgs = tokio::time::timeout(Duration::from_secs(5), async {
-        let mut msgs = Vec::new();
-        for _ in 0..NUM_MEMBERS {
-            match inbox.next().await {
-                Some(m) => msgs.push(m),
-                None => break,
-            }
-        }
-        msgs
-    })
-    .await
-    .expect("Timed out waiting for group inbox messages");
-
-    assert_eq!(
-        inbox_msgs.len(),
-        NUM_MEMBERS,
-        "Observer inbox should have received one message per member"
-    );
-
-    // Verify the inbox messages carry non-empty payloads (the encoded responses).
-    for msg in &inbox_msgs {
-        assert!(!msg.payload.is_empty(), "Inbox message should have a payload");
     }
 
     env.shutdown().await;

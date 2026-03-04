@@ -46,7 +46,7 @@
 //! # let request = Request::default();
 //! // Create a channel
 //! let remote = Name::new("org".to_string(), "namespace".to_string(), "service".to_string());
-//! let channel = Channel::new_internal(app.clone(), remote.as_slim_name());
+//! let channel = Channel::new_with_members_internal(app.clone(), vec![remote.as_slim_name().clone()], false, None).unwrap();
 //!
 //! // Make an RPC call (typically through generated code)
 //! let response: Response = channel.unary("MyService", "MyMethod", request, None, None).await?;
