@@ -18,6 +18,8 @@
         <maven.compiler.target>21</maven.compiler.target>
         <java.bindings.version>1.2.0</java.bindings.version>
         <jna.version>5.14.0</jna.version>
+        <!-- JNA native path: linux-x86-64, darwin-x86-64, darwin-aarch64, win32-x86-64, win32-aarch64 -->
+        <native.platform>linux-x86-64</native.platform>
     </properties>
 
     <dependencies>
@@ -54,11 +56,11 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.1.0</version>
                 <configuration>
-                    <!-- Set native library path for JNA to find libslim_bindings -->
+                    <!-- Set native library path for JNA to find libslim_bindings (JNA format: platform subdir) -->
                     <systemProperties>
                         <systemProperty>
                             <key>java.library.path</key>
-                            <value>${project.basedir}/../../generated/native</value>
+                            <value>${project.basedir}/../../generated/native/${native.platform}</value>
                         </systemProperty>
                     </systemProperties>
                 </configuration>
@@ -90,4 +92,43 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>darwin-x86-64</id>
+            <activation>
+                <os><family>mac</family><arch>x86_64</arch></os>
+            </activation>
+            <properties>
+                <native.platform>darwin-x86-64</native.platform>
+            </properties>
+        </profile>
+        <profile>
+            <id>darwin-aarch64</id>
+            <activation>
+                <os><family>mac</family><arch>aarch64</arch></os>
+            </activation>
+            <properties>
+                <native.platform>darwin-aarch64</native.platform>
+            </properties>
+        </profile>
+        <profile>
+            <id>win32-x86-64</id>
+            <activation>
+                <os><family>windows</family><arch>amd64</arch></os>
+            </activation>
+            <properties>
+                <native.platform>win32-x86-64</native.platform>
+            </properties>
+        </profile>
+        <profile>
+            <id>win32-aarch64</id>
+            <activation>
+                <os><family>windows</family><arch>aarch64</arch></os>
+            </activation>
+            <properties>
+                <native.platform>win32-aarch64</native.platform>
+            </properties>
+        </profile>
+    </profiles>
 </project>

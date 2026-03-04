@@ -67,9 +67,9 @@ jobs:
       - name: Generate bindings and run tests
         run: |
           echo "Generate bindings and run tests..."
-          # First, copy-libraries will run (inside generate task) and create generated/native structure
-          # Then point LIB_PATH to the correctly-named library in generated/native
-          LIB_FILE="generated/native/linux-x86_64/libslim_bindings.so"
+          # First, copy-libraries will run (inside generate task) and create generated/native structure (JNA format: linux-x86-64)
+          # LIB_PATH points to the library for uniffi-bindgen and is passed to mvn test for uniffi.component.slim_bindings.libraryOverride
+          LIB_FILE="generated/native/linux-x86-64/libslim_bindings.so"
           echo "Using library: $LIB_FILE"
           task test SKIP_BUILD=true ARTIFACTS_DIR=./artifacts LIB_PATH="$LIB_FILE"
 

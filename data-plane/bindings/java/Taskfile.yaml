@@ -46,16 +46,16 @@ vars:
       esac
   LIB_PATH: "{{.LIB_PATH | default ._DEFAULT_LIB_PATH}}"
   ARTIFACTS_DIR: '{{.ARTIFACTS_DIR | default "./artifacts"}}'
-  # Platform mapping: rust-target|java-native-path|extension
+  # Platform mapping: rust-target|java-native-path|extension (JNA format: hyphens, win32 for Windows)
   PLATFORMS: |
-    x86_64-unknown-linux-gnu|linux-x86_64|so
-    x86_64-unknown-linux-musl|linux-x86_64|so
+    x86_64-unknown-linux-gnu|linux-x86-64|so
+    x86_64-unknown-linux-musl|linux-x86-64|so
     aarch64-unknown-linux-gnu|linux-aarch64|so
     aarch64-unknown-linux-musl|linux-aarch64|so
-    x86_64-apple-darwin|darwin-x86_64|dylib
+    x86_64-apple-darwin|darwin-x86-64|dylib
     aarch64-apple-darwin|darwin-aarch64|dylib
-    x86_64-pc-windows-msvc|windows-x86_64|dll
-    aarch64-pc-windows-msvc|windows-aarch64|dll
+    x86_64-pc-windows-msvc|win32-x86-64|dll
+    aarch64-pc-windows-msvc|win32-aarch64|dll
 
 tasks:
   default:
@@ -167,7 +167,7 @@ tasks:
           case "$OS" in
             darwin*)
               case "$ARCH" in
-                x86_64|amd64) JAVA_PATH="darwin-x86_64" ;;
+                x86_64|amd64) JAVA_PATH="darwin-x86-64" ;;
                 arm64|aarch64) JAVA_PATH="darwin-aarch64" ;;
               esac
               LIB_EXT="dylib"
@@ -175,7 +175,7 @@ tasks:
               ;;
             linux*)
               case "$ARCH" in
-                x86_64|amd64) JAVA_PATH="linux-x86_64" ;;
+                x86_64|amd64) JAVA_PATH="linux-x86-64" ;;
                 arm64|aarch64) JAVA_PATH="linux-aarch64" ;;
               esac
               LIB_EXT="so"
@@ -183,8 +183,8 @@ tasks:
               ;;
             mingw*|msys*|cygwin*)
               case "$ARCH" in
-                x86_64|amd64) JAVA_PATH="windows-x86_64" ;;
-                arm64|aarch64) JAVA_PATH="windows-aarch64" ;;
+                x86_64|amd64) JAVA_PATH="win32-x86-64" ;;
+                arm64|aarch64) JAVA_PATH="win32-aarch64" ;;
               esac
               LIB_EXT="dll"
               LIB_PREFIX=""
@@ -233,7 +233,12 @@ tasks:
       - generate
     cmds:
       - echo "🧪 Running Java bindings tests..."
-      - mvn test
+      - |
+        if [[ -n "{{.LIB_PATH}}" && "{{.LIB_PATH}}" == generated/native/* ]]; then
+          mvn test -Duniffi.component.slim_bindings.libraryOverride="$(pwd)/{{.LIB_PATH}}"
+        else
+          mvn test
+        fi
       - echo "✅ Tests complete"
 
   install:

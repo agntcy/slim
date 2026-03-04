@@ -98,11 +98,13 @@ data-plane/bindings/java/
 ├── README.md               # This file
 ├── generated/              # Generated code (gitignored)
 │   ├── uniffi/slim_bindings/  # Java source files
-│   └── native/             # Native libraries by platform
-│       ├── darwin-x86_64/
+│   └── native/             # Native libraries by platform (JNA format)
+│       ├── darwin-x86-64/
 │       ├── darwin-aarch64/
-│       ├── linux-x86_64/
-│       └── windows-x86_64/
+│       ├── linux-x86-64/
+│       ├── linux-aarch64/
+│       ├── win32-x86-64/
+│       └── win32-aarch64/
 └── examples/               # Java examples
     ├── Taskfile.yaml
     ├── pom.xml
