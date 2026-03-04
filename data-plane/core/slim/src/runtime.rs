@@ -8,6 +8,7 @@ use tokio::runtime::{Builder, Runtime};
 use tracing::{info, warn};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct RuntimeConfiguration {
     /// the number of cores to use for this runtime
     #[serde(default = "default_n_cores")]

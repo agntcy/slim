@@ -45,6 +45,7 @@ pub enum ConfigError {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TracingConfiguration {
     #[serde(default = "default_log_level")]
     log_level: String,
@@ -76,6 +77,7 @@ impl Default for TracingConfiguration {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OpenTelemetryConfig {
     #[serde(default)]
     enabled: bool,

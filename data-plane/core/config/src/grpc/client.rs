@@ -382,6 +382,10 @@ impl Configuration for ClientConfig {
     type Error = ConfigError;
 
     fn validate(&self) -> Result<(), Self::Error> {
+        if self.endpoint.is_empty() {
+            return Err(ConfigError::MissingEndpoint);
+        }
+
         // Validate the client configuration
         self.tls_setting.validate()?;
 
@@ -501,9 +505,11 @@ impl ClientConfig {
                               + Send
                               + 'static,
             Future: Send,
-        > + Send
+        >
+        + Send
         + Clone
-        + 'static,
+        + 'static
+        + use<>,
         ConfigError,
     > {
         self.to_channel_internal(false).await
@@ -544,9 +550,11 @@ impl ClientConfig {
                               + Send
                               + 'static,
             Future: Send,
-        > + Send
+        >
+        + Send
         + Clone
-        + 'static,
+        + 'static
+        + use<>,
         ConfigError,
     > {
         // Validate endpoint
@@ -967,9 +975,11 @@ impl ClientConfig {
                               + Send
                               + 'static,
             Future: Send,
-        > + Send
+        >
+        + Send
         + Clone
-        + 'static,
+        + 'static
+        + use<>,
         ConfigError,
     > {
         match &self.auth {

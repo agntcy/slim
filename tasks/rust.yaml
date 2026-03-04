@@ -306,6 +306,15 @@ tasks:
     vars:
       COMMAND: '{{.COMMAND | default ""}}'
 
+  install-uniffi-bindgen:
+    desc: "Install uniffi-bindgen CLI tool"
+    status:
+      - which uniffi-bindgen
+    cmds:
+      - echo "📦 Installing uniffi-bindgen..."
+      - cargo install uniffi-bindgen-cli --git https://github.com/mozilla/uniffi-rs.git --tag v0.29.5
+      - echo "✅ uniffi-bindgen installed"
+
   install-target:
     desc: "Install the target"
     internal: true

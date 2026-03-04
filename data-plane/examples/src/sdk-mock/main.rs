@@ -116,7 +116,10 @@ async fn main() {
 
     // create configured components using ConfigLoader
     let mut loader = config::ConfigLoader::new(config_file).expect("failed to load configuration");
-    let _guard = loader.tracing().setup_tracing_subscriber();
+    let _guard = loader
+        .tracing()
+        .expect("invalid tracing configuration")
+        .setup_tracing_subscriber();
 
     info!(%config_file, %local_name, %remote_name, "starting client");
 

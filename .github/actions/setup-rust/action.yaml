@@ -30,8 +30,6 @@ runs:
 
     - name: Setup Taskfile
       uses: ./.github/actions/setup-task
-      with:
-        cache-enabled: true
 
     - name: Install C/C++ toolchain
       if: runner.os == 'Linux'

@@ -70,12 +70,8 @@ jobs:
         go-version: '1.25.5'
         cache: true
 
-    - name: Install Task
-      if: matrix.language == 'go'
-      uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2.0.0
-      with:
-        version: 3.x
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Setup Taskfile
+      uses: ./.github/actions/setup-task
 
     - name: Install buf CLI
       if: matrix.language == 'go'
@@ -172,7 +168,7 @@ jobs:
 
         # Download Go module dependencies for control-plane modules
         echo "Pre-downloading Go module dependencies..."
-        for module_dir in control-plane/common control-plane/control-plane control-plane/slimctl control-plane/token-service; do
+        for module_dir in control-plane/common control-plane/control-plane control-plane/token-service; do
           if [ -f "$module_dir/go.mod" ]; then
             echo "Downloading deps for $module_dir"
             (cd "$module_dir" && go mod download) || echo "Failed to download deps for $module_dir"

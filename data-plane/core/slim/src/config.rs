@@ -10,10 +10,9 @@ use indexmap::IndexMap;
 use lazy_static::lazy_static;
 use std::collections::HashSet;
 
-use display_error_chain::ErrorChainExt;
 use serde_yaml::{Value, from_str};
 use thiserror::Error;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::runtime::RuntimeConfiguration;
 use slim_config::component::configuration::Configuration;
@@ -115,42 +114,28 @@ impl ConfigLoader {
         })
     }
 
-    pub fn tracing(&mut self) -> &TracingConfiguration {
+    pub fn tracing(&mut self) -> Result<&TracingConfiguration, ConfigError> {
         if self.tracing.is_none() {
-            let cfg = self
-                .root
-                .get("tracing")
-                .cloned()
-                .map(|v| {
-                    serde_yaml::from_value(v).unwrap_or_else(|e| {
-                        warn!(error = %e.chain(), "invalid tracing config, falling back to default");
-                        TracingConfiguration::default()
-                    })
-                })
-                .unwrap_or_else(TracingConfiguration::default);
+            let cfg = match self.root.get("tracing").cloned() {
+                Some(v) => serde_yaml::from_value(v)?,
+                None => TracingConfiguration::default(),
+            };
             debug!(?cfg, "Tracing configuration loaded");
             self.tracing = Some(cfg);
         }
-        self.tracing.as_ref().unwrap()
+        Ok(self.tracing.as_ref().unwrap())
     }
 
-    pub fn runtime(&mut self) -> &RuntimeConfiguration {
+    pub fn runtime(&mut self) -> Result<&RuntimeConfiguration, ConfigError> {
         if self.runtime.is_none() {
-            let cfg = self
-                .root
-                .get("runtime")
-                .cloned()
-                .map(|v| {
-                    serde_yaml::from_value(v).unwrap_or_else(|e| {
-                        warn!(error = %e.chain(), "invalid runtime config, falling back to default");
-                        RuntimeConfiguration::default()
-                    })
-                })
-                .unwrap_or_else(RuntimeConfiguration::default);
+            let cfg = match self.root.get("runtime").cloned() {
+                Some(v) => serde_yaml::from_value(v)?,
+                None => RuntimeConfiguration::default(),
+            };
             debug!(?cfg, "Runtime configuration loaded");
             self.runtime = Some(cfg);
         }
-        self.runtime.as_ref().unwrap()
+        Ok(self.runtime.as_ref().unwrap())
     }
 
     pub fn services(&mut self) -> Result<&mut IndexMap<ID, Service>, ConfigError> {
@@ -233,13 +218,13 @@ mod tests {
         let path = format!("{}/config.yaml", testdata_path());
         let mut loader = ConfigLoader::new(&path).expect("loader init should succeed");
 
-        let tracing = loader.tracing();
+        let tracing = loader.tracing().expect("tracing config should load");
         assert!(
             !tracing.log_level().is_empty(),
             "tracing log level should not be empty"
         );
 
-        let _runtime = loader.runtime();
+        let _runtime = loader.runtime().expect("runtime config should load");
 
         let services = loader.services().expect("services should load");
         assert!(!services.is_empty(), "services map should not be empty");
@@ -250,8 +235,8 @@ mod tests {
     fn test_missing_services_affects_only_services_loader() {
         let path = format!("{}/config-no-services.yaml", testdata_path());
         let mut loader = ConfigLoader::new(&path).expect("loader init should succeed");
-        let _ = loader.tracing();
-        let _ = loader.runtime();
+        let _ = loader.tracing().expect("tracing config should load");
+        let _ = loader.runtime().expect("runtime config should load");
         let services = loader.services();
         assert!(
             services.is_err(),
@@ -288,7 +273,7 @@ mod tests {
     fn test_tracing_specific_config() {
         let path = format!("{}/config-tracing.yaml", testdata_path());
         let mut loader = ConfigLoader::new(&path).expect("loader init should succeed");
-        let tracing = loader.tracing();
+        let tracing = loader.tracing().expect("tracing config should load");
         assert_eq!(tracing.log_level(), "debug");
     }
 

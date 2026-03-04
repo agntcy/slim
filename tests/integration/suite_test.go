@@ -5,7 +5,6 @@ package integration
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -40,13 +39,9 @@ func setBinaryPaths(target string) {
 	slimPath = mustAbs(filepath.Join(dataPlaneTarget, "slim"))
 	sdkMockPath = mustAbs(filepath.Join(dataPlaneTarget, "sdk-mock"))
 	clientPath = mustAbs(filepath.Join(dataPlaneTarget, "client"))
-	distBin := filepath.Join("..", "..", ".dist", "bin")
+	slimctlPath = mustAbs(filepath.Join(dataPlaneTarget, "slimctl"))
 
-	if override := strings.TrimSpace(os.Getenv("SLIMCTL_PATH")); override != "" {
-		slimctlPath = mustAbs(override)
-	} else {
-		slimctlPath = mustAbs(filepath.Join(distBin, "slimctl"))
-	}
+	distBin := filepath.Join("..", "..", ".dist", "bin")
 	controlPlanePath = mustAbs(filepath.Join(distBin, "control-plane"))
 }
 
