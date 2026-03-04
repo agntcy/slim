@@ -34,7 +34,7 @@ on:
         default: slim-bindings-java
     secrets:
       GITHUB_TOKEN:
-        description: GitHub token for package publishing (default: automatic)
+        description: GitHub token for package publishing (required)
         required: false
       MVN_TOKEN_NAME:
         description: Maven Central token username (Central Portal)
