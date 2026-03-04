@@ -33,9 +33,6 @@ on:
         type: string
         default: slim-bindings-java
     secrets:
-      GITHUB_TOKEN:
-        description: GitHub token for package publishing (required)
-        required: false
       MVN_TOKEN_NAME:
         description: Maven Central token username (Central Portal)
         required: false
@@ -137,11 +134,10 @@ jobs:
           echo "Package: ${{ env.MAVEN_GROUP_ID }}:${{ env.MAVEN_ARTIFACT_ID }}:$VERSION"
           echo "📦 View at: https://github.com/${{ github.repository }}/packages"
 
-      # Publish to Maven Central (when credentials are provided)
+      # Publish to Maven Central (requires MVN_TOKEN_NAME, MVN_TOKEN_PASSWORD, GPG_SIGNING_KEY, GPG_PASSPHRASE)
       # Uses OSSRH Staging API (ossrh-staging-api.central.sonatype.com). OSSRH was shut down June 2025.
       # Requires Central Portal User Token: https://central.sonatype.org/publish/generate-portal-token/
       - name: Add Maven Central server to settings
-        if: ${{ secrets.MVN_TOKEN_NAME != '' && secrets.MVN_TOKEN_PASSWORD != '' }}
         env:
           MVN_TOKEN_NAME: ${{ secrets.MVN_TOKEN_NAME }}
           MVN_TOKEN_PASSWORD: ${{ secrets.MVN_TOKEN_PASSWORD }}
@@ -163,7 +159,6 @@ jobs:
           EOF
 
       - name: Import GPG key for Maven Central signing
-        if: ${{ secrets.GPG_SIGNING_KEY != '' && secrets.GPG_PASSPHRASE != '' }}
         env:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
@@ -171,7 +166,6 @@ jobs:
           echo "$GPG_SIGNING_KEY" | gpg --batch --yes --import --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE"
 
       - name: Publish to Maven Central
-        if: ${{ secrets.MVN_TOKEN_NAME != '' && secrets.MVN_TOKEN_PASSWORD != '' && secrets.GPG_SIGNING_KEY != '' && secrets.GPG_PASSPHRASE != '' }}
         env:
           MVN_TOKEN_NAME: ${{ secrets.MVN_TOKEN_NAME }}
           MVN_TOKEN_PASSWORD: ${{ secrets.MVN_TOKEN_PASSWORD }}
