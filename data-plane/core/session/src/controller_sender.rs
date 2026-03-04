@@ -285,13 +285,13 @@ impl ControllerSender {
             | slim_datapath::api::ProtoSessionMessageType::JoinReply
             | slim_datapath::api::ProtoSessionMessageType::LeaveReply
             | slim_datapath::api::ProtoSessionMessageType::GroupAck => {
-                self.on_reply_message(message);
+                self.on_reply_message(message)?;
             }
             slim_datapath::api::ProtoSessionMessageType::GroupNack => {
                 // in case on Nack we stop the timer as for the Acks
                 // and we leave the application/controller decide what
                 // to do to handle it
-                self.on_reply_message(message);
+                self.on_reply_message(message)?;
             }
             slim_datapath::api::ProtoSessionMessageType::Ping => self.on_ping_message(message),
             slim_datapath::api::ProtoSessionMessageType::GroupAdd => {
@@ -376,7 +376,7 @@ impl ControllerSender {
         self.tx.send_to_slim(Ok(message.clone())).await
     }
 
-    fn on_reply_message(&mut self, message: &Message) {
+    fn on_reply_message(&mut self, message: &Message) -> Result<(), SessionError> {
         let id = message.get_id();
         debug!(
             %id,
@@ -393,7 +393,9 @@ impl ControllerSender {
             {
                 name.reset_id();
             }
-            pending.missing_replies.remove(&name);
+            if !pending.missing_replies.remove(&name) {
+                return Err(SessionError::UnexpectedReply(message.get_id()));
+            }
             if pending.missing_replies.is_empty() {
                 debug!("all replies received, remove timer");
                 pending.timer.stop();
@@ -404,6 +406,7 @@ impl ControllerSender {
         if delete {
             self.pending_replies.remove(&id);
         }
+        Ok(())
     }
 
     fn on_ping_message(&mut self, message: &Message) {

@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    collections::{HashMap, VecDeque},
-    time::Duration,
+    collections::{HashMap, VecDeque}, f32::consts::E, time::Duration
 };
 
 use async_trait::async_trait;
@@ -682,7 +681,7 @@ where
             id = discovery.get_id(),
             "send discovery request",
         );
-        // for messages to be sent to a specifc name always use the non legacy sender
+        // for discovery messages always use the non legacy sender
         self.common
             .send_with_timer(discovery, false)
             .await
@@ -760,7 +759,7 @@ where
                 payload,
                 Some(self.common.settings.config.metadata.clone()),
                 false,
-                false, // not legacy as it is sent to the specific endpoint
+                false, // join request are always handeled by the non legacy sender
             )
             .await?;
 
@@ -776,7 +775,7 @@ where
             "join reply",
         );
         // stop the timer for the join request
-        // use not legacy sender
+        // join replies are always handled by the non legacy sender
         self.common.sender.on_message(&msg).await?;
 
         // evolve the current task state
@@ -794,7 +793,7 @@ where
             .insert(new_participant_name, new_participant_id);
 
         // get the new participant settings from the join reply.
-        // None means old sender (pre-settings version)
+        // None means legacy sender (pre-settings version)
         let payload = msg.extract_join_reply()?;
         let new_participant_settings = payload.settings.unwrap_or_default();
         self.participant_settings
@@ -813,7 +812,7 @@ where
                     .add_subscription(&legacy_name, msg.get_incoming_conn())
                     .await?;
             }
-            // for every participant add the route
+            // for every participant add the route as we do for the standard channel
             self.common
                 .add_route(&legacy_name, msg.get_incoming_conn())
                 .await?;
@@ -884,7 +883,7 @@ where
                     update_payload.clone(),
                     None,
                     true,
-                    false, // not legacy
+                    false, // by default use the non legacy sender
                 )
                 .await?;
             self.current_task
@@ -902,7 +901,7 @@ where
                         update_payload,
                         None,
                         true,
-                        true, // use the legacy sender
+                        true, // use the legacy sender is setup
                     )
                     .await?;
                 self.current_task
@@ -941,7 +940,7 @@ where
                 welcome_payload,
                 None,
                 false,
-                new_participant_settings.is_legacy(), // not legacy as it is sent to the specific endpoint
+                new_participant_settings.is_legacy(), // must use the right sender
             )
             .await?;
 
@@ -1062,10 +1061,17 @@ where
                 .update_phase_completed(12345)?;
 
             // just send the leave message in this case
-            let settings = self.participant_settings.get(&leave_message.get_dst());
-            let use_legacy = settings.map(|s| s.is_legacy()).ok_or_else(|| SessionError::ParticipantSettingsNotFound(leave_message.get_dst().clone()))?;
             let msg_id = leave_message.get_id();
-            self.common.send_with_timer(leave_message, use_legacy).await?;
+            if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
+                // in case of p2p session the legacy sender is nevers used
+                 self.common.send_with_timer(leave_message, false).await?;
+            } else {
+                // use the right sender based on the participant settings
+                // this is required to remove the participants from the right sender
+                let settings = self.participant_settings.get(&leave_message.get_dst());
+                let use_legacy = settings.map(|s| s.is_legacy()).ok_or_else(|| SessionError::ParticipantSettingsNotFound(leave_message.get_dst().clone()))?;
+                self.common.send_with_timer(leave_message, use_legacy).await?;
+            }
 
             self.current_task
                 .as_mut()
@@ -1125,12 +1131,17 @@ where
             )?;
             // the participant will be removed from the group so we need to remove
             // it from the local sender.
-            let settings = self.participant_settings.get(&disconnected);
-            let use_legacy = settings.map(|s| s.is_legacy()).ok_or_else(|| SessionError::ParticipantSettingsNotFound(disconnected.clone()))?;
-            if use_legacy {
-                self.common.legacy_sender.as_mut().ok_or_else(|| SessionError::LegacyChannelNotInitialized)?.remove_participant(&disconnected);
-            } else {
+            if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
+                // in case of p2p session the legacy sender is nevers used
                 self.common.sender.remove_participant(&disconnected);
+            } else {
+                let settings = self.participant_settings.get(&disconnected);
+                let use_legacy = settings.map(|s| s.is_legacy()).ok_or_else(|| SessionError::ParticipantSettingsNotFound(disconnected.clone()))?;
+                if use_legacy {
+                    self.common.legacy_sender.as_mut().ok_or_else(|| SessionError::LegacyChannelNotInitialized)?.remove_participant(&disconnected);
+                } else {
+                    self.common.sender.remove_participant(&disconnected);
+                }
             }
             self.common.send_to_slim(reply).await?;
 
@@ -1225,7 +1236,7 @@ where
             return Ok(());
         }
 
-                // create the close task
+        // create the close task
         self.current_task = Some(ModeratorTask::CloseOrDisconnect(NotifyParticipants::new(
             ack_tx, None,
         )));
@@ -1277,9 +1288,10 @@ where
                     .as_content(),
                 true,
             )?;
-            self.common.sender.on_message(&legacy_close).await?;
+            self.common.legacy_sender.as_mut().ok_or_else(|| SessionError::LegacyChannelNotInitialized)?.on_message(&legacy_close).await?;
             self.current_task
-                .as_mut().unwrap()
+                .as_mut()
+                .unwrap()
                 .commit_legacy_start(legacy_id)?;
         }
         Ok(())
@@ -1300,9 +1312,26 @@ where
             .await?;
 
         // notify the sender and see if we can pick another task
-        self.common.sender.on_message(&msg).await?;
-        if !self.common.sender.is_still_pending(msg_id) {
-            self.current_task.as_mut().unwrap().leave_complete(msg_id)?;
+        // use the default sender first and, in case of error, fallback to the legacy one
+        match self.common.sender.on_message(&msg).await {
+            Ok(()) => {
+                // the message was sent with the default sender, check if we can close the task
+                if !self.common.sender.is_still_pending(msg_id) {
+                    self.current_task.as_mut().unwrap().leave_complete(msg_id)?;
+                }
+            }
+            Err(e) => {
+                // see if the packet was sent with the legacy sender if exists
+                debug!("Error processing leave reply with the default sender: {:?}. Try with the legacy sender if available", e);
+                if let Some(legacy_sender) = self.common.legacy_sender.as_mut() {
+                    legacy_sender.on_message(&msg).await?;
+                    if !legacy_sender.is_still_pending(msg_id) {
+                        self.current_task.as_mut().unwrap().leave_complete(msg_id)?;
+                    }
+                } else {
+                    return Err(e);
+                }
+            }
         }
 
         self.task_done().await
@@ -1314,48 +1343,59 @@ where
             id = %msg.get_id(),
             "received group ack",
         );
-        // notify the sender
-        self.common.sender.on_message(&msg).await?;
 
-        // check if the timer is done
+        // use the default sender first and, in case of error, fallback to the legacy one
         let msg_id = msg.get_id();
-        if !self.common.sender.is_still_pending(msg_id) {
-            debug!(
-                id = %msg_id,
-                "process group ack. try to close task",
-            );
-            // we received all the messages related to this timer
-            // check if we are done and move on
-            self.current_task
-                .as_mut()
-                .unwrap()
-                .update_phase_completed(msg_id)?;
-
-            // check if the task is finished.
-            if !self.current_task.as_mut().unwrap().task_complete() {
-                // if the task is not finished yet we may need to send a leave
-                // message that was postponed to send all group update first
-                if let Some(leave_message) = &self.postponed_message
-                    && matches!(self.current_task, Some(ModeratorTask::Remove(_)))
-                {
-                    // send the leave message an progress
-                    self.common.sender.on_message(leave_message).await?;
+        match self.common.sender.on_message(&msg).await {
+            Ok(()) => {
+                // the message was sent with the default sender, check if we can close the task
+                if !self.common.sender.is_still_pending(msg_id) {
                     self.current_task
                         .as_mut()
                         .unwrap()
-                        .leave_start(leave_message.get_id())?;
-                    // rest the postponed message
-                    self.postponed_message = None;
+                        .update_phase_completed(msg_id)?;
                 }
             }
+            Err(e) => {
+                // see if the packet was sent with the legacy sender if exists
+                debug!("Error processing leave reply with the default sender: {:?}. Try with the legacy sender if available", e);
+                if let Some(legacy_sender) = self.common.legacy_sender.as_mut() {
+                    legacy_sender.on_message(&msg).await?;
+                    if !legacy_sender.is_still_pending(msg_id) {
+                        self.current_task
+                            .as_mut()
+                            .unwrap()
+                            .update_phase_completed(msg_id)?;
+                    }
+                } else {
+                    return Err(e);
+                }
+            }
+        }
 
-            // check if we can progress with another task
-            self.task_done().await?;
-        } else {
-            debug!(
-                id = %msg_id,
-                "timer for message still pending, do not close the task",
-            );
+        // check if the task is finished.
+        if !self.current_task.as_mut().unwrap().task_complete() {
+            // if the task is not finished yet we may need to send a leave
+            // message that was postponed to send all group update first
+            if let Some(leave_message) = &self.postponed_message
+                && matches!(self.current_task, Some(ModeratorTask::Remove(_)))
+            {
+                // send the leave message and progress
+                // select the right sender based on the participant settings
+                let settings = self.participant_settings.get(&leave_message.get_dst());
+                let use_legacy = settings.map(|s| s.is_legacy()).ok_or_else(|| SessionError::ParticipantSettingsNotFound(leave_message.get_dst().clone()))?;
+                if use_legacy {
+                    self.common.legacy_sender.as_mut().ok_or_else(|| SessionError::LegacyChannelNotInitialized)?.on_message(leave_message).await?;
+                } else {    
+                    self.common.sender.on_message(leave_message).await?;
+                }
+                self.current_task
+                    .as_mut()
+                    .unwrap()
+                    .leave_start(leave_message.get_id())?;
+                // rest the postponed message
+                self.postponed_message = None;
+            }
         }
 
         Ok(())
