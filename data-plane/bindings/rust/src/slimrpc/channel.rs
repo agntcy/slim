@@ -501,7 +501,7 @@ impl Channel {
     // ── Send helpers ──────────────────────────────────────────────────────────
 
     /// Send a single request message.
-    async fn send_request_impl<Req>(
+    async fn send_request<Req>(
         &self,
         session: &SessionTx,
         ctx: &Context,
@@ -536,7 +536,7 @@ impl Channel {
     }
 
     /// Send a stream of request messages.
-    async fn send_request_stream_impl<Req>(
+    async fn send_request_stream<Req>(
         &self,
         session: &SessionTx,
         ctx: &Context,
@@ -640,7 +640,7 @@ impl Channel {
             let _guard = DispatcherGuard { dispatcher: dispatcher.clone(), rpc_id: rpc_id.clone() };
 
             let send_result = tokio::select! {
-                result = channel.send_request_impl(
+                result = channel.send_request(
                     &session_tx, &ctx, request,
                     &service_name, &method_name, &rpc_id,
                 ) => result,
@@ -751,7 +751,7 @@ impl Channel {
             let channel_for_send = channel.clone();
             let mut send_handle = channel.runtime.spawn(async move {
                 channel_for_send
-                    .send_request_stream_impl(
+                    .send_request_stream(
                         &session_tx_for_send, &ctx_for_send, request_stream,
                         &service_for_send, &method_for_send, &rpc_id_for_send,
                     )
