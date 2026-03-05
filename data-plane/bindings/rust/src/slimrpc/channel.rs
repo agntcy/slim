@@ -17,7 +17,7 @@
 //!
 //! The "unary" variants are simply the streaming variants followed by `.next()`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -162,13 +162,17 @@ async fn response_dispatcher_task(mut session_rx: SessionRx, dispatcher: Arc<Res
 
 // ── ChannelSession ────────────────────────────────────────────────────────────
 
-/// A live SLIM session together with its dispatcher and background task.
+/// A live SLIM session together with its dispatcher, background task, and member set.
 struct ChannelSession {
     tx: SessionTx,
     dispatcher: Arc<ResponseDispatcher>,
     /// Background task reading from the session. When finished the session
     /// is considered dead and will be recreated on the next RPC call.
     task: JoinHandle<()>,
+    /// Group members currently in this session.
+    /// Populated at session creation and extended by `invite_participant`.
+    /// Preserved across session recreations.
+    members: HashSet<Name>,
 }
 
 impl ChannelSession {
@@ -248,8 +252,10 @@ pub struct Channel {
     /// `true` for GROUP channels (`new_group` / `new_group_with_connection`),
     /// `false` for P2P channels (`new` / `new_with_connection`).
     is_group: bool,
-    /// Group members to invite whenever the GROUP session is (re)created.
-    members: Arc<Vec<Name>>,
+    /// Initial group members set at construction time. Used to seed a new
+    /// session on the first call. Dynamically invited members are stored
+    /// in `ChannelSession::members` and inherited across session recreations.
+    initial_members: HashSet<Name>,
     connection_id: Option<u64>,
     runtime: tokio::runtime::Handle,
     /// Persistent session (lazily initialised, recreated when dead).
@@ -282,17 +288,19 @@ impl Channel {
 
         let runtime = crate::get_runtime().handle().clone();
 
+        let members_set: HashSet<Name> = members.into_iter().collect();
+
         let remote = if is_group {
             generate_group_name(app.app_name())
         } else {
-            members[0].clone()
+            members_set.iter().next().unwrap().clone()
         };
 
         Ok(Self {
             app,
             remote,
             is_group,
-            members: Arc::new(members),
+            initial_members: members_set,
             connection_id,
             runtime,
             session: Arc::new(tokio::sync::Mutex::new(None)),
@@ -305,78 +313,128 @@ impl Channel {
     ///
     /// - Single-member channel (`is_group == false`): uses the P2P slot.
     /// - Multi-member channel (`is_group == true`): uses the GROUP slot and
-    ///   auto-invites all pending members on the first call (holding the invite
-    ///   lock for the full invite + join-wait so concurrent callers block until
-    ///   all members have joined).
-    ///
-    /// Fast path: read lock — return if alive.
-    /// Slow path: create outside any lock, then write lock with re-check.
+    ///   auto-invites all members on every (re)creation under the session lock.
     async fn get_or_create_session(
         &self,
-    ) -> Result<(SessionTx, Arc<ResponseDispatcher>), RpcError> {
+    ) -> Result<(SessionTx, Arc<ResponseDispatcher>, usize), RpcError> {
+        let mut guard = self.session.lock().await;
+        self.ensure_session(&mut guard).await?;
+        let cs = guard
+            .as_ref()
+            .ok_or_else(|| RpcError::internal("session missing after creation"))?;
+        Ok((cs.tx.clone(), cs.dispatcher.clone(), cs.members.len()))
+    }
+
+    /// Create (or recreate) the SLIM session inside an already-held lock guard.
+    ///
+    /// If the session is already alive this is a no-op. Otherwise the old
+    /// (dead) session's member set is inherited so dynamically invited members
+    /// survive reconnects. All members are invited on every creation.
+    async fn ensure_session(
+        &self,
+        guard: &mut tokio::sync::MutexGuard<'_, Option<ChannelSession>>,
+    ) -> Result<(), RpcError> {
+        if let Some(ref cs) = **guard
+            && cs.is_alive()
+        {
+            return Ok(());
+        }
+
         let session_type = if self.is_group {
             ProtoSessionType::Multicast
         } else {
             ProtoSessionType::PointToPoint
         };
 
-        let mut guard = self.session.lock().await;
-
-        if let Some(ref cs) = *guard
-            && cs.is_alive()
-        {
-            return Ok((cs.tx.clone(), cs.dispatcher.clone()));
-        }
+        // Preserve members from the old (dead) session so dynamically invited
+        // members survive session recreations. Fall back to initial_members on
+        // first creation.
+        let members = guard
+            .take()
+            .map(|old| old.members)
+            .unwrap_or_else(|| self.initial_members.clone());
 
         tracing::debug!(?session_type, "no persistent session — recreating");
         let (session_tx, session_rx) = self.create_raw_session_typed(session_type).await?;
         let dispatcher = Arc::new(ResponseDispatcher::new());
         let task = tokio::spawn(response_dispatcher_task(session_rx, dispatcher.clone()));
-        *guard = Some(ChannelSession {
+
+        **guard = Some(ChannelSession {
             tx: session_tx.clone(),
             dispatcher: dispatcher.clone(),
             task,
+            members,
         });
 
-        // Invite all pending members whenever the GROUP session is (re)created.
+        // Invite all members whenever the GROUP session is (re)created.
         if self.is_group {
-            for member in self.members.iter() {
-                session_tx
-                    .controller()
-                    .invite_participant(member)
-                    .await
-                    .map_err(|e| RpcError::internal(format!("Failed to invite {}: {}", member, e)))?
-                    .await
-                    .map_err(|e| {
-                        RpcError::internal(format!("Failed to invite {}: {}", member, e))
-                    })?;
-            }
-            if !self.members.is_empty() {
-                tokio::time::sleep(Duration::from_millis(200)).await;
+            if let Some(ref cs) = **guard {
+                for member in &cs.members {
+                    session_tx
+                        .controller()
+                        .invite_participant(member)
+                        .await
+                        .map_err(|e| {
+                            RpcError::internal(format!("Failed to invite {}: {}", member, e))
+                        })?
+                        .await
+                        .map_err(|e| {
+                            RpcError::internal(format!("Failed to invite {}: {}", member, e))
+                        })?;
+                }
             }
         }
 
-        Ok((session_tx, dispatcher))
+        Ok(())
     }
 
     /// Invite a participant into the GROUP session.
     ///
-    /// Creates the GROUP session (as moderator) if not yet established, then
-    /// sends a discovery-request invite to `destination`. The call returns as
-    /// soon as the invite message is dispatched; use a short sleep after this
-    /// call to allow all invited participants to finish joining before making
-    /// multicast RPC calls.
+    /// Creates the GROUP session if not yet established. Checks for duplicates
+    /// before any session work, then invites and inserts — all under a single
+    /// lock acquisition.
     ///
-    /// # Arguments
-    /// * `destination` – Name of the app to invite. If multiple apps are
-    ///   subscribed to the same name all of them will receive the invite.
+    /// Returns an error if called on a P2P channel or if `destination` is
+    /// already a member.
     pub async fn invite_participant(&self, destination: Name) -> Result<(), RpcError> {
-        let (session_tx, _) = self.get_or_create_session().await?;
-        session_tx
+        if !self.is_group {
+            return Err(RpcError::invalid_argument(
+                "invite_participant is only valid on GROUP channels",
+            ));
+        }
+
+        let mut guard = self.session.lock().await;
+
+        // Check for duplicates before doing any work. A dead session still
+        // carries its member set (inherited on recreation), so checking it is
+        // correct regardless of liveness. Fall back to initial_members when no
+        // session exists yet.
+        let already_member = match guard.as_ref() {
+            Some(s) => s.members.contains(&destination),
+            None => self.initial_members.contains(&destination),
+        };
+        if already_member {
+            return Err(RpcError::already_exists(format!(
+                "{} is already a member",
+                destination
+            )));
+        }
+
+        // Create the session if needed — reuses the lock already held.
+        self.ensure_session(&mut guard).await?;
+
+        let session = guard
+            .as_mut()
+            .ok_or_else(|| RpcError::internal("session disappeared"))?;
+        session
+            .tx
             .controller()
             .invite_participant(&destination)
             .await
+            .map_err(|e| RpcError::internal(format!("Failed to invite {}: {}", destination, e)))?
+            .await
             .map_err(|e| RpcError::internal(format!("Failed to invite {}: {}", destination, e)))?;
+        session.members.insert(destination);
         Ok(())
     }
 
@@ -584,7 +642,7 @@ impl Channel {
             let timeout_duration = calculate_timeout_duration(timeout);
             let mut delay = Delay::new(timeout_duration);
 
-            let (session_tx, dispatcher) = match tokio::select! {
+            let (session_tx, dispatcher, _) = match tokio::select! {
                 result = channel.get_or_create_session() => result,
                 _ = &mut delay => Err(RpcError::deadline_exceeded("Client deadline exceeded during session setup")),
             } {
@@ -668,7 +726,7 @@ impl Channel {
             let timeout_duration = calculate_timeout_duration(timeout);
             let mut delay = Delay::new(timeout_duration);
 
-            let (session_tx, dispatcher) = match tokio::select! {
+            let (session_tx, dispatcher, _) = match tokio::select! {
                 result = channel.get_or_create_session() => result,
                 _ = &mut delay => Err(RpcError::deadline_exceeded("Client deadline exceeded during session setup")),
             } {
@@ -765,7 +823,7 @@ impl Channel {
             let timeout_duration = calculate_timeout_duration(timeout);
             let mut delay = Delay::new(timeout_duration);
 
-            let (session_tx, dispatcher) = match tokio::select! {
+            let (session_tx, dispatcher, num_members) = match tokio::select! {
                 result = channel.get_or_create_session() => result,
                 _ = &mut delay => Err(RpcError::deadline_exceeded("Client deadline exceeded during session setup")),
             } {
@@ -785,8 +843,6 @@ impl Channel {
                 _ = &mut delay => Err(RpcError::deadline_exceeded("Client deadline exceeded while sending request")),
             };
             if let Err(e) = send_result { yield Err(e); return; }
-
-            let num_members = channel.members.len();
             let mut eos_count = 0usize;
 
             loop {
@@ -872,7 +928,7 @@ impl Channel {
             let timeout_duration = calculate_timeout_duration(timeout);
             let mut delay = Delay::new(timeout_duration);
 
-            let (session_tx, dispatcher) = match tokio::select! {
+            let (session_tx, dispatcher, num_members) = match tokio::select! {
                 result = channel.get_or_create_session() => result,
                 _ = &mut delay => Err(RpcError::deadline_exceeded("Client deadline exceeded during session setup")),
             } {
@@ -898,8 +954,6 @@ impl Channel {
                     )
                     .await
             });
-
-            let num_members = channel.members.len();
             let mut eos_count = 0usize;
             let mut send_completed = false;
 
