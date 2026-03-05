@@ -148,7 +148,7 @@ async fn response_dispatcher_task(mut session_rx: SessionRx, dispatcher: Arc<Res
             Ok(msg) => {
                 let rpc_id = msg.metadata.get(RPC_ID_KEY).cloned().unwrap_or_default();
                 if !dispatcher.dispatch(msg, &rpc_id) {
-                    tracing::trace!(%rpc_id, "Received message for unknown rpc-id (forwarded to group inbox if subscribed)");
+                    tracing::trace!(%rpc_id, "Received message for unknown rpc-id, dropping");
                 }
             }
             Err(e) => {
@@ -183,12 +183,17 @@ fn generate_rpc_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-/// Generate a random group session name (UUID-based).
+/// Generate a random group session name derived from the client name.
 ///
-/// Used as the `remote` for GROUP (Multicast) sessions created by
-/// `Channel::new_with_members_internal` when more than one member is provided.
-fn generate_group_name() -> Name {
-    Name::from_strings(["slim", "group", &uuid::Uuid::new_v4().to_string()])
+/// Uses the first two components of `client_name` and a UUID as the third,
+/// so the group address lives in the same namespace as the client app.
+fn generate_group_name(client_name: &Name) -> Name {
+    let parts = client_name.components_strings();
+    Name::from_strings([
+        parts[0].as_str(),
+        parts[1].as_str(),
+        &uuid::Uuid::new_v4().to_string(),
+    ])
 }
 
 /// Metadata for the first (or only) message of an RPC call.
@@ -260,10 +265,9 @@ pub struct Channel {
     members_invited: Arc<tokio::sync::Mutex<bool>>,
     connection_id: Option<u64>,
     runtime: tokio::runtime::Handle,
-    /// Persistent P2P session (lazily initialised, recreated when dead).
+    /// Persistent session (lazily initialised, recreated when dead).
+    /// PointToPoint for P2P channels, Multicast for GROUP channels.
     session: Arc<tokio::sync::Mutex<Option<ChannelSession>>>,
-    /// Persistent GROUP/Multicast session (lazily initialised on first multicast call).
-    multicast_session: Arc<tokio::sync::Mutex<Option<ChannelSession>>>,
 }
 
 impl Channel {
@@ -288,7 +292,7 @@ impl Channel {
 
         let remote = members[0].clone();
         let group_remote = if is_group {
-            generate_group_name()
+            generate_group_name(app.app_name())
         } else {
             remote.clone()
         };
@@ -303,7 +307,6 @@ impl Channel {
             connection_id,
             runtime,
             session: Arc::new(tokio::sync::Mutex::new(None)),
-            multicast_session: Arc::new(tokio::sync::Mutex::new(None)),
         })
     }
 
@@ -322,13 +325,13 @@ impl Channel {
     async fn get_or_create_session(
         &self,
     ) -> Result<(SessionTx, Arc<ResponseDispatcher>), RpcError> {
-        let (slot, session_type) = if self.is_group {
-            (&self.multicast_session, ProtoSessionType::Multicast)
+        let session_type = if self.is_group {
+            ProtoSessionType::Multicast
         } else {
-            (&self.session, ProtoSessionType::PointToPoint)
+            ProtoSessionType::PointToPoint
         };
 
-        let mut guard = slot.lock().await;
+        let mut guard = self.session.lock().await;
 
         if let Some(ref cs) = *guard
             && cs.is_alive()
