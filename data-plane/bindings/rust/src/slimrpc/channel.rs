@@ -391,8 +391,7 @@ impl Channel {
     /// Invite a participant into the GROUP session.
     ///
     /// Creates the GROUP session if not yet established. Checks for duplicates
-    /// before any session work, then invites and inserts — all under a single
-    /// lock acquisition.
+    /// before any session work, then invites and inserts
     ///
     /// Returns an error if called on a P2P channel or if `destination` is
     /// already a member.
