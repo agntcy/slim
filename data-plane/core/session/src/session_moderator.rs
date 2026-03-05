@@ -166,12 +166,6 @@ where
                             .process_message(&mut message, direction)
                             .await?;
                     }
-
-                    tracing::info!(
-                        "Receive app message. Direction: {:?}. MSG {:?}",
-                        direction,
-                        message
-                    );
                     self.inner
                         .on_message(SessionMessage::OnMessage {
                             message,
@@ -1596,7 +1590,7 @@ mod tests {
     use crate::session_settings::SessionSettings;
     use crate::test_utils::{MockInnerHandler, MockTokenProvider, MockVerifier};
     use slim_datapath::Status;
-    use slim_datapath::api::{CommandPayload, ProtoSessionType};
+    use slim_datapath::api::{CommandPayload, ParticipantSettings, ProtoSessionType};
     use slim_datapath::messages::Name;
     use tokio::sync::mpsc;
 
@@ -1861,7 +1855,7 @@ mod tests {
 
         // Add endpoint
         let result = moderator
-            .add_endpoint(&endpoint, ParticipantSettings::default())
+            .add_endpoint(&endpoint, ParticipantSettings::new(true, true))
             .await;
         assert!(result.is_ok());
         assert_eq!(moderator.inner.get_endpoints_added_count().await, 1);
@@ -1894,15 +1888,26 @@ mod tests {
 
         let remote = make_name(&["remote", "app", "v1"]).with_id(200);
 
-        // First join
+        // First join - for Multicast, this sends 2 subscription messages (data + control)
         moderator.join(remote.clone(), 12345).await.unwrap();
         let first_subscribe = rx_slim.try_recv();
-        assert!(first_subscribe.is_ok());
-
-        // Second join should do nothing
-        moderator.join(remote, 12345).await.unwrap();
+        assert!(
+            first_subscribe.is_ok(),
+            "First subscription message should be sent"
+        );
         let second_subscribe = rx_slim.try_recv();
-        assert!(second_subscribe.is_err()); // No message should be sent
+        assert!(
+            second_subscribe.is_ok(),
+            "Second subscription message should be sent"
+        );
+
+        // Second join should do nothing (early return due to subscribed=true)
+        moderator.join(remote, 12345).await.unwrap();
+        let third_subscribe = rx_slim.try_recv();
+        assert!(
+            third_subscribe.is_err(),
+            "No message should be sent on second join"
+        ); // No message should be sent
     }
 
     #[tokio::test]
@@ -2135,6 +2140,12 @@ mod tests {
             .group_list
             .insert(participant.clone(), participant_id);
 
+        // Add participant settings (required by on_disconnection_detected)
+        moderator.participant_settings.insert(
+            participant.clone().with_id(participant_id),
+            ParticipantSettings::new(true, true),
+        );
+
         // Verify we have exactly 2 participants (moderator + participant)
         assert_eq!(
             moderator.group_list.len(),
@@ -2267,6 +2278,20 @@ mod tests {
         moderator.group_list.insert(participant1.clone(), 401);
         moderator.group_list.insert(participant2.clone(), 402);
         moderator.group_list.insert(participant3.clone(), 403);
+
+        // Add participant settings for each participant (required by on_disconnection_detected)
+        moderator.participant_settings.insert(
+            participant1.clone().with_id(401),
+            ParticipantSettings::new(true, true),
+        );
+        moderator.participant_settings.insert(
+            participant2.clone().with_id(402),
+            ParticipantSettings::new(true, true),
+        );
+        moderator.participant_settings.insert(
+            participant3.clone().with_id(403),
+            ParticipantSettings::new(true, true),
+        );
 
         // Create first leave request coming directly from participant1 with LEAVING_SESSION metadata
         let participant1_with_id = participant1.clone().with_id(401);

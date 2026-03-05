@@ -142,6 +142,13 @@ impl Display for MessageType {
 }
 
 impl ParticipantSettings {
+    pub fn new(sends_data: bool, receives_data: bool) -> Self {
+        Self {
+            sends_data: Some(sends_data),
+            receives_data: Some(receives_data),
+        }
+    }
+
     /// Returns `true` if both fields are `None`, meaning this entry was generated
     /// for an old participant that does not support `ParticipantSettings`.
     /// New participants always set both fields explicitly to `Some(true)` or `Some(false)`.
@@ -2122,7 +2129,7 @@ mod tests {
 
         // Test join reply
         let payload = CommandPayload::builder()
-            .join_reply(ParticipantSettings::default(), Some(vec![1, 2, 3]));
+            .join_reply(ParticipantSettings::new(true, true), Some(vec![1, 2, 3]));
         let extracted = payload.as_join_reply_payload().unwrap();
         assert_eq!(extracted.key_package, Some(vec![1, 2, 3]));
 
@@ -2136,10 +2143,10 @@ mod tests {
 
         // Test group add
         let participants = vec![dest.clone()];
-        let settings = vec![ParticipantSettings::default()];
+        let settings = vec![ParticipantSettings::new(true, true)];
         let payload = CommandPayload::builder().group_add(
             dest.clone(),
-            ParticipantSettings::default(),
+            ParticipantSettings::new(true, true),
             participants.clone(),
             settings.clone(),
             None,

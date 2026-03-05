@@ -914,7 +914,7 @@ mod tests {
         );
 
         // Send GroupWelcome message to complete the handshake
-        let settings = ParticipantSettings::default();
+        let settings = ParticipantSettings::new(true, true);
         let welcome_payload = CommandPayload::builder()
             .group_welcome(
                 vec![source.clone(), dest.clone()],
@@ -1209,7 +1209,7 @@ mod tests {
         }
 
         // Create multicast channel name
-        let channel_name = Name::from_strings(["org", "ns", config.channel_suffix]).with_id(0);
+        let channel_name = Name::from_strings(["org", "ns", config.channel_suffix]);
 
         // Have all participants subscribe to the channel
         for app in &participant_apps {
@@ -1283,7 +1283,11 @@ mod tests {
 
             // For multicast sessions, the destination is also the channel name
             let dst = session_arc.dst();
-            assert_eq!(dst, &channel_name);
+            // the data channel name is configured in the session layer with
+            // id = Name::DATA_CHANNEL_ID
+            let mut data_channel_name = channel_name.clone();
+            data_channel_name.set_id(Name::DATA_CHANNEL_ID);
+            assert_eq!(dst, &data_channel_name);
 
             total_received_sessions += participant_sessions.len();
         }

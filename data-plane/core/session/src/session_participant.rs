@@ -815,7 +815,7 @@ mod tests {
 
         let participant1 = make_name(&["participant1", "app", "v1"]).with_id(401);
         let participant2 = make_name(&["participant2", "app", "v1"]).with_id(402);
-        let settings = ParticipantSettings::default();
+        let settings = ParticipantSettings::new(true, true);
 
         let welcome_msg = Message::builder()
             .source(moderator.clone())
@@ -888,7 +888,7 @@ mod tests {
                 CommandPayload::builder()
                     .group_add(
                         new_participant.clone(),
-                        ParticipantSettings::default(),
+                        ParticipantSettings::new(true, true),
                         vec![],
                         vec![],
                         None,
@@ -923,9 +923,10 @@ mod tests {
         participant.moderator_name = Some(moderator.clone());
 
         let removed_participant = make_name(&["removed", "app", "v1"]).with_id(500);
-        participant
-            .group_list
-            .insert(removed_participant.clone(), ParticipantSettings::default());
+        participant.group_list.insert(
+            removed_participant.clone(),
+            ParticipantSettings::new(true, true),
+        );
 
         let remove_msg = Message::builder()
             .source(moderator.clone())
@@ -1242,7 +1243,7 @@ mod tests {
 
         // Add endpoint
         let result = participant
-            .add_endpoint(&endpoint, ParticipantSettings::default())
+            .add_endpoint(&endpoint, ParticipantSettings::new(true, true))
             .await;
         assert!(result.is_ok());
         assert_eq!(participant.inner.get_endpoints_added_count().await, 1);
@@ -1444,7 +1445,7 @@ mod tests {
                 CommandPayload::builder()
                     .group_welcome(
                         vec![p1.clone(), p2.clone()],
-                        vec![ParticipantSettings::default()], // wrong: 1 setting for 2 participants
+                        vec![ParticipantSettings::new(true, true)], // wrong: 1 setting for 2 participants
                         None,
                     )
                     .as_content(),

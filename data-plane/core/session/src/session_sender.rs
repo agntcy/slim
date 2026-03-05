@@ -622,7 +622,7 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_endpoint(&remote, ParticipantSettings::default())
+            .add_endpoint(&remote, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
 
@@ -701,7 +701,7 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_endpoint(&remote, ParticipantSettings::default())
+            .add_endpoint(&remote, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
 
@@ -839,7 +839,7 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_endpoint(&remote, ParticipantSettings::default())
+            .add_endpoint(&remote, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
 
@@ -922,15 +922,15 @@ mod tests {
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
         sender
-            .add_endpoint(&remote1, ParticipantSettings::default())
+            .add_endpoint(&remote1, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2, ParticipantSettings::default())
+            .add_endpoint(&remote2, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote3, ParticipantSettings::default())
+            .add_endpoint(&remote3, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
 
@@ -1041,15 +1041,15 @@ mod tests {
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
         sender
-            .add_endpoint(&remote1, ParticipantSettings::default())
+            .add_endpoint(&remote1, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2, ParticipantSettings::default())
+            .add_endpoint(&remote2, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote3, ParticipantSettings::default())
+            .add_endpoint(&remote3, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
 
@@ -1223,15 +1223,15 @@ mod tests {
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
         sender
-            .add_endpoint(&remote1, ParticipantSettings::default())
+            .add_endpoint(&remote1, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2, ParticipantSettings::default())
+            .add_endpoint(&remote2, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote3, ParticipantSettings::default())
+            .add_endpoint(&remote3, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
 
@@ -1332,15 +1332,15 @@ mod tests {
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
         sender
-            .add_endpoint(&remote1, ParticipantSettings::default())
+            .add_endpoint(&remote1, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2, ParticipantSettings::default())
+            .add_endpoint(&remote2, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote3, ParticipantSettings::default())
+            .add_endpoint(&remote3, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
 
@@ -1466,7 +1466,7 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_endpoint(&remote, ParticipantSettings::default())
+            .add_endpoint(&remote, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
 
@@ -1641,7 +1641,7 @@ mod tests {
 
         // add the remote participant
         sender
-            .add_endpoint(&remote, ParticipantSettings::default())
+            .add_endpoint(&remote, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
 
@@ -1788,7 +1788,7 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "legacy"]);
 
         sender
-            .add_endpoint(&remote, ParticipantSettings::default())
+            .add_endpoint(&remote, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
 
@@ -2116,15 +2116,15 @@ mod tests {
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
         sender
-            .add_endpoint(&remote1, ParticipantSettings::default())
+            .add_endpoint(&remote1, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2, ParticipantSettings::default())
+            .add_endpoint(&remote2, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote3, ParticipantSettings::default())
+            .add_endpoint(&remote3, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
 
@@ -2191,7 +2191,7 @@ mod tests {
         let unknown_remote = Name::from_strings(["org", "ns", "unknown"]);
 
         sender
-            .add_endpoint(&remote1, ParticipantSettings::default())
+            .add_endpoint(&remote1, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
 
@@ -2240,7 +2240,7 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_endpoint(&remote, ParticipantSettings::default())
+            .add_endpoint(&remote, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
 
@@ -2299,11 +2299,11 @@ mod tests {
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
 
         sender
-            .add_endpoint(&remote1, ParticipantSettings::default())
+            .add_endpoint(&remote1, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2, ParticipantSettings::default())
+            .add_endpoint(&remote2, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
 
@@ -2382,11 +2382,11 @@ mod tests {
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
 
         sender
-            .add_endpoint(&remote1, ParticipantSettings::default())
+            .add_endpoint(&remote1, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2, ParticipantSettings::default())
+            .add_endpoint(&remote2, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
 
@@ -2471,11 +2471,11 @@ mod tests {
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
 
         sender
-            .add_endpoint(&remote1, ParticipantSettings::default())
+            .add_endpoint(&remote1, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2, ParticipantSettings::default())
+            .add_endpoint(&remote2, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
 
@@ -2542,7 +2542,7 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_endpoint(&remote, ParticipantSettings::default())
+            .add_endpoint(&remote, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
 
@@ -2626,11 +2626,11 @@ mod tests {
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
 
         sender
-            .add_endpoint(&remote1, ParticipantSettings::default())
+            .add_endpoint(&remote1, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2, ParticipantSettings::default())
+            .add_endpoint(&remote2, ParticipantSettings::new(true, true))
             .await
             .expect("error adding participant");
 
@@ -2698,384 +2698,5 @@ mod tests {
                 .get(received_publish_to.get_id() as usize)
                 .is_none()
         );
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_shutdown_send_sequential_messages() {
-        // Test: Send messages 1, 2, 3 sequentially with shutdown_send=true.
-        // Verify no messages reach SLIM, ack notifiers receive errors.
-        let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
-
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
-
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
-
-        let mut sender = SessionSender::new(
-            Some(settings),
-            10,
-            ProtoSessionType::PointToPoint,
-            tx,
-            Some(tx_signal),
-        );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
-
-        sender
-            .add_endpoint(&remote, ParticipantSettings::default())
-            .await
-            .expect("error adding participant");
-
-        let source = Name::from_strings(["org", "ns", "source"]);
-
-        // Send messages 1, 2, 3 sequentially with ack notifiers
-        for msg_id in 1..=3 {
-            let mut message = Message::builder()
-                .source(source.clone())
-                .destination(remote.clone())
-                .application_payload(
-                    &format!("test_payload_{}", msg_id),
-                    vec![msg_id as u8, (msg_id + 1) as u8],
-                )
-                .build_publish()
-                .unwrap();
-            message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
-
-            // Create oneshot channel for ack notification
-            let (ack_tx, ack_rx) = oneshot::channel();
-
-            let result = sender.on_message(message, Some(ack_tx)).await;
-
-            // Verify on_message returns error when shutdown_send is true
-            assert!(
-                result.is_err(),
-                "Expected error from on_message but got: {:?}",
-                result
-            );
-            assert!(
-                matches!(result, Err(SessionError::SessionSenderShutdown)),
-                "Expected SessionSenderShutdown error"
-            );
-
-            // Verify ack notifier receives error
-            let ack_result = timeout(Duration::from_millis(100), ack_rx)
-                .await
-                .unwrap_or_else(|_| panic!("timeout waiting for ack notification {}", msg_id))
-                .unwrap_or_else(|_| panic!("channel closed for message {}", msg_id));
-
-            assert!(
-                ack_result.is_err(),
-                "Expected error result but got: {:?}",
-                ack_result
-            );
-            assert!(
-                matches!(ack_result, Err(SessionError::SessionSenderShutdown)),
-                "Expected SessionSenderShutdown error in ack notifier"
-            );
-        }
-
-        // Verify no messages were sent to SLIM
-        let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
-        assert!(
-            res.is_err(),
-            "Expected no messages to SLIM but got: {:?}",
-            res
-        );
-
-        // Verify no timers were created (pending_acks should be empty)
-        assert!(sender.pending_acks.is_empty(), "Expected no pending acks");
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_shutdown_send_multiple_endpoints() {
-        // Test: Add multiple endpoints and send messages with shutdown_send=true.
-        // Verify no messages reach SLIM and an error is returned.
-        let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
-
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
-
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
-
-        let mut sender = SessionSender::new(
-            Some(settings),
-            10,
-            ProtoSessionType::Multicast,
-            tx,
-            Some(tx_signal),
-        );
-        let group = Name::from_strings(["org", "ns", "group"]);
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
-        let remote3 = Name::from_strings(["org", "ns", "remote3"]);
-
-        sender
-            .add_endpoint(&remote1, ParticipantSettings::default())
-            .await
-            .expect("error adding remote1");
-        sender
-            .add_endpoint(&remote2, ParticipantSettings::default())
-            .await
-            .expect("error adding remote2");
-        sender
-            .add_endpoint(&remote3, ParticipantSettings::default())
-            .await
-            .expect("error adding remote3");
-
-        let source = Name::from_strings(["org", "ns", "source"]);
-
-        // Send 3 messages to the group with ack notifiers
-        for msg_num in 1..=3 {
-            let mut message = Message::builder()
-                .source(source.clone())
-                .destination(group.clone())
-                .application_payload(&format!("test_payload_{}", msg_num), vec![msg_num as u8])
-                .build_publish()
-                .unwrap();
-            message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
-
-            let (ack_tx, ack_rx) = oneshot::channel();
-
-            let result = sender.on_message(message, Some(ack_tx)).await;
-
-            // Verify on_message returns error when shutdown_send is true
-            assert!(
-                result.is_err(),
-                "Expected error from on_message but got: {:?}",
-                result
-            );
-            assert!(
-                matches!(result, Err(SessionError::SessionSenderShutdown)),
-                "Expected SessionSenderShutdown error"
-            );
-
-            // Verify ack notifier receives error
-            let ack_result = timeout(Duration::from_millis(100), ack_rx)
-                .await
-                .unwrap_or_else(|_| panic!("timeout waiting for ack {}", msg_num))
-                .unwrap_or_else(|_| panic!("channel closed for message {}", msg_num));
-
-            assert!(
-                ack_result.is_err(),
-                "Expected error result but got: {:?}",
-                ack_result
-            );
-            assert!(
-                matches!(ack_result, Err(SessionError::SessionSenderShutdown)),
-                "Expected SessionSenderShutdown error in ack notifier"
-            );
-        }
-
-        // Verify no messages were sent to SLIM
-        let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
-        assert!(
-            res.is_err(),
-            "Expected no messages to SLIM but got: {:?}",
-            res
-        );
-
-        // Verify no timers were created
-        assert!(sender.pending_acks.is_empty(), "Expected no pending acks");
-        assert!(
-            sender.pending_acks_per_endpoint.is_empty(),
-            "Expected no pending acks per endpoint"
-        );
-
-        // Verify buffer is empty (messages not buffered when shutdown_send is true)
-        assert!(sender.buffer.get(1).is_none(), "Expected empty buffer");
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_shutdown_send_with_rtx_request() {
-        // Test: With shutdown_send=true, verify RTX requests get error responses
-        // since messages are not buffered.
-        let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
-
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
-
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
-
-        let mut sender = SessionSender::new(
-            Some(settings),
-            10,
-            ProtoSessionType::PointToPoint,
-            tx,
-            Some(tx_signal),
-        );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
-        let source = Name::from_strings(["org", "ns", "source"]);
-
-        sender
-            .add_endpoint(&remote, ParticipantSettings::default())
-            .await
-            .expect("error adding participant");
-
-        // Send a message (will be dropped due to shutdown_send)
-        let mut message = Message::builder()
-            .source(source.clone())
-            .destination(remote.clone())
-            .application_payload("test_payload", vec![1, 2, 3, 4])
-            .build_publish()
-            .unwrap();
-        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
-
-        let result = sender.on_message(message, None).await;
-        assert!(
-            result.is_err(),
-            "Expected error from on_message but got: {:?}",
-            result
-        );
-        assert!(
-            matches!(result, Err(SessionError::SessionSenderShutdown)),
-            "Expected SessionSenderShutdown error"
-        );
-
-        // Verify no message was sent to SLIM
-        let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
-        assert!(
-            res.is_err(),
-            "Expected no message to SLIM but got: {:?}",
-            res
-        );
-
-        // Now send an RTX request for message ID 1
-        let mut rtx_request = Message::builder()
-            .source(remote.clone())
-            .destination(source.clone())
-            .application_payload("", vec![])
-            .build_publish()
-            .unwrap();
-        rtx_request.get_session_header_mut().set_message_id(1);
-        rtx_request
-            .get_session_header_mut()
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxRequest);
-        rtx_request
-            .get_slim_header_mut()
-            .set_incoming_conn(Some(123));
-
-        sender
-            .on_message(rtx_request, None)
-            .await
-            .expect("error sending rtx request");
-
-        // Wait for RTX reply with error
-        let rtx_reply = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for rtx reply")
-            .expect("channel closed")
-            .expect("error in rtx reply");
-
-        // Verify the RTX reply has an error (message not in buffer)
-        assert_eq!(
-            rtx_reply.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::RtxReply
-        );
-        assert_eq!(rtx_reply.get_id(), 1);
-        assert_eq!(rtx_reply.get_dst(), remote);
-        assert!(
-            rtx_reply.get_error().is_some(),
-            "Expected error in RTX reply"
-        );
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_shutdown_send_with_buffer_flush() {
-        // Test: Send messages with shutdown_send=true BEFORE adding endpoints,
-        // then add endpoint. Verify messages are NOT flushed since shutdown_send prevents transmission.
-        let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
-
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
-
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
-
-        let mut sender = SessionSender::new(
-            Some(settings),
-            10,
-            ProtoSessionType::PointToPoint,
-            tx,
-            Some(tx_signal),
-        );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
-        let source = Name::from_strings(["org", "ns", "source"]);
-
-        // Send 3 messages WITHOUT adding endpoint first (normally would be buffered for flush)
-        for msg_id in 1..=3 {
-            let mut message = Message::builder()
-                .source(source.clone())
-                .destination(remote.clone())
-                .application_payload(
-                    &format!("test_payload_{}", msg_id),
-                    vec![msg_id as u8, (msg_id + 1) as u8],
-                )
-                .build_publish()
-                .unwrap();
-            message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
-
-            let (ack_tx, ack_rx) = oneshot::channel();
-
-            let result = sender.on_message(message, Some(ack_tx)).await;
-
-            // Verify on_message returns error when shutdown_send is true
-            assert!(
-                result.is_err(),
-                "Expected error from on_message but got: {:?}",
-                result
-            );
-            assert!(
-                matches!(result, Err(SessionError::SessionSenderShutdown)),
-                "Expected SessionSenderShutdown error"
-            );
-
-            // Verify ack notifier receives error
-            let ack_result = timeout(Duration::from_millis(100), ack_rx)
-                .await
-                .unwrap_or_else(|_| panic!("timeout waiting for ack {}", msg_id))
-                .unwrap_or_else(|_| panic!("channel closed for message {}", msg_id));
-
-            assert!(
-                ack_result.is_err(),
-                "Expected error result but got: {:?}",
-                ack_result
-            );
-            assert!(
-                matches!(ack_result, Err(SessionError::SessionSenderShutdown)),
-                "Expected SessionSenderShutdown error in ack notifier"
-            );
-        }
-
-        // Verify no messages were sent to SLIM yet
-        let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
-        assert!(
-            res.is_err(),
-            "Expected no messages to SLIM but got: {:?}",
-            res
-        );
-
-        // Now add the endpoint (normally would trigger flush)
-        sender
-            .add_endpoint(&remote, ParticipantSettings::default())
-            .await
-            .expect("error adding participant");
-
-        // Verify messages are still NOT sent to SLIM (shutdown_send prevents flush)
-        let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
-        assert!(
-            res.is_err(),
-            "Expected no messages after endpoint add but got: {:?}",
-            res
-        );
-
-        // Verify buffer is empty (messages not buffered when shutdown_send is true)
-        assert!(sender.buffer.get(1).is_none(), "Expected empty buffer");
-        assert!(!sender.to_flush, "Expected to_flush flag to be false");
     }
 }

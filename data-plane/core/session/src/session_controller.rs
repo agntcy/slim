@@ -838,10 +838,18 @@ mod tests {
 
             let tx = SessionTransmitter::new(tx_slim, tx_app);
 
+            let mut control = self.destination.clone();
+            let mut data = self.destination.clone();
+            if self.session_type == ProtoSessionType::Multicast {
+                data.set_id(Name::DATA_CHANNEL_ID);
+                control.set_id(Name::CONTROL_CHANNEL_ID);
+            }
+
             let controller = SessionController::builder()
                 .with_id(self.session_id)
                 .with_source(self.source.clone())
-                .with_destination(self.destination.clone())
+                .with_destination(data)
+                .with_control(control)
                 .with_config(config)
                 .with_identity_provider(SharedSecret::new("test", SHARED_SECRET).unwrap())
                 .with_identity_verifier(SharedSecret::new("test", SHARED_SECRET).unwrap())
@@ -875,7 +883,7 @@ mod tests {
         );
         assert_eq!(
             controller.dst(),
-            &Name::from_strings(["org", "ns", "dest"]).with_id(2)
+            &Name::from_strings(["org", "ns", "dest"]).with_id(Name::DATA_CHANNEL_ID)
         );
         assert_eq!(controller.session_type(), ProtoSessionType::Multicast);
         assert!(controller.is_initiator());
@@ -1235,6 +1243,7 @@ mod tests {
             .with_id(session_id)
             .with_source(moderator_name.clone())
             .with_destination(participant_name.clone())
+            .with_control(participant_name.clone())
             .with_config(moderator_config)
             .with_identity_provider(SharedSecret::new("moderator", SHARED_SECRET).unwrap())
             .with_identity_verifier(SharedSecret::new("moderator", SHARED_SECRET).unwrap())
@@ -1267,6 +1276,7 @@ mod tests {
             .with_id(session_id)
             .with_source(participant_name_id.clone())
             .with_destination(moderator_name.clone())
+            .with_control(moderator_name.clone())
             .with_config(participant_config)
             .with_identity_provider(SharedSecret::new("participant", SHARED_SECRET).unwrap())
             .with_identity_verifier(SharedSecret::new("participant", SHARED_SECRET).unwrap())

@@ -823,8 +823,8 @@ mod tests {
         let payload = CommandPayload::builder().discovery_reply();
 
         let reply = Message::builder()
-            .source(source.clone())
-            .destination(remote.clone())
+            .source(remote.clone())
+            .destination(source.clone())
             .identity("")
             .session_type(ProtoSessionType::Multicast)
             .session_message_type(ProtoSessionMessageType::DiscoveryReply)
@@ -946,11 +946,12 @@ mod tests {
         assert_eq!(received, request);
 
         // Create the join reply
-        let payload = CommandPayload::builder().join_reply(ParticipantSettings::default(), None);
+        let payload =
+            CommandPayload::builder().join_reply(ParticipantSettings::new(true, true), None);
 
         let reply = Message::builder()
-            .source(source.clone())
-            .destination(remote.clone())
+            .source(remote.clone())
+            .destination(source.clone())
             .identity("")
             .session_type(ProtoSessionType::Multicast)
             .session_message_type(ProtoSessionMessageType::JoinReply)
@@ -1069,8 +1070,8 @@ mod tests {
         let payload = CommandPayload::builder().leave_reply();
 
         let reply = Message::builder()
-            .source(source.clone())
-            .destination(remote.clone())
+            .source(remote.clone())
+            .destination(source.clone())
             .identity("")
             .session_type(ProtoSessionType::Multicast)
             .session_message_type(ProtoSessionMessageType::LeaveReply)
@@ -1120,7 +1121,7 @@ mod tests {
 
         // Create a group welcome message
         let participant = Name::from_strings(["org", "ns", "participant"]);
-        let settings = ParticipantSettings::default();
+        let settings = ParticipantSettings::new(true, true);
         let payload = CommandPayload::builder().group_welcome(
             vec![participant.clone(), source.clone()],
             vec![settings, settings],
@@ -1194,8 +1195,8 @@ mod tests {
         let payload = CommandPayload::builder().group_ack();
 
         let ack = Message::builder()
-            .source(source.clone())
-            .destination(remote.clone())
+            .source(remote.clone())
+            .destination(source.clone())
             .identity("")
             .session_type(ProtoSessionType::Multicast)
             .session_message_type(ProtoSessionMessageType::GroupAck)
@@ -1216,7 +1217,8 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_on_group_add_message() {
-        // send a group add with 2 participants, wait for retransmission, then send 2 group acks
+        // send a group add with 2 existing participants, wait for retransmission, then send 2 group acks
+        // Only existing group members (not the newly added participant) send acks
         let settings = TimerSettings::constant(Duration::from_millis(200)).with_max_retries(3);
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
@@ -1226,7 +1228,7 @@ mod tests {
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
         let source = Name::from_strings(["org", "ns", "source"]);
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let group = Name::from_strings(["org", "ns", "group"]);
         let session_id = 1;
 
         let mut sender = ControllerSender::new(
@@ -1241,25 +1243,33 @@ mod tests {
             false,
         );
 
-        // First add participant2 to establish a group with 2 members (source + participant2)
+        // First add participant1 and participant2 to establish a group with 3 members (source + participant1 + participant2)
+        let participant1 = Name::from_strings(["org", "ns", "participant1"]);
         let participant2 = Name::from_strings(["org", "ns", "participant2"]);
+        sender.group_list.insert(participant1.clone());
         sender.group_list.insert(participant2.clone());
 
-        // Now create a group add message to add participant1
-        // This should wait for acks from both participant2 (already in group) and participant1 (being added)
-        let participant1 = Name::from_strings(["org", "ns", "participant1"]);
-        let settings = ParticipantSettings::default();
+        // Now create a group add message to add participant3
+        // This should wait for acks from existing group members: participant1 and participant2
+        // (NOT from participant3 who is being added)
+        let participant3 = Name::from_strings(["org", "ns", "participant3"]);
+        let settings = ParticipantSettings::new(true, true);
         let payload = CommandPayload::builder().group_add(
-            participant1.clone(),
+            participant3.clone(),
             settings,
-            vec![participant1.clone(), participant2.clone(), source.clone()],
-            vec![settings, settings, settings],
+            vec![
+                participant1.clone(),
+                participant2.clone(),
+                participant3.clone(),
+                source.clone(),
+            ],
+            vec![settings, settings, settings, settings],
             None, // mls_commit
         );
 
         let update = Message::builder()
             .source(source.clone())
-            .destination(remote.clone())
+            .destination(group.clone())
             .identity("")
             .session_type(ProtoSessionType::Multicast)
             .session_message_type(ProtoSessionMessageType::GroupAdd)
@@ -1320,7 +1330,7 @@ mod tests {
         // Verify the message received is the right one
         assert_eq!(received, update);
 
-        // Create the first group ack from participant1
+        // Create the first group ack from participant1 (existing member)
         let payload = CommandPayload::builder().group_ack();
 
         let ack1 = Message::builder()
@@ -1344,7 +1354,7 @@ mod tests {
             "Message should still be pending after first ack"
         );
 
-        // Create the second group ack from participant2
+        // Create the second group ack from participant2 (existing member)
         let payload = CommandPayload::builder().group_ack();
 
         let ack2 = Message::builder()
@@ -1370,8 +1380,9 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_on_group_update_duplicate_acks() {
-        // send a group add with 2 participants, receive duplicate acks from same participant
-        // verify timer doesn't stop until we get acks from BOTH different participants
+        // send a group add with 2 existing participants, receive duplicate acks from same participant
+        // verify timer doesn't stop until we get acks from BOTH different existing participants
+        // Only existing group members (not the newly added participant) send acks
         let settings = TimerSettings::constant(Duration::from_millis(200)).with_max_retries(3);
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
@@ -1381,7 +1392,7 @@ mod tests {
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
         let source = Name::from_strings(["org", "ns", "source"]);
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let group = Name::from_strings(["org", "ns", "group"]);
         let session_id = 1;
 
         let mut sender = ControllerSender::new(
@@ -1396,24 +1407,32 @@ mod tests {
             false,
         );
 
-        // First add participant2 to establish a group with 2 members (source + participant2)
-        let participant2 = Name::from_strings(["org", "ns", "participant2"]);
-        sender.group_list.insert(participant2.clone());
-        let settings = ParticipantSettings::default();
-        // Now create a group add message to add participant1
-        // This should wait for acks from both participant2 (already in group) and participant1 (being added)
+        // First add participant1 and participant2 to establish a group with 3 members (source + participant1 + participant2)
         let participant1 = Name::from_strings(["org", "ns", "participant1"]);
+        let participant2 = Name::from_strings(["org", "ns", "participant2"]);
+        sender.group_list.insert(participant1.clone());
+        sender.group_list.insert(participant2.clone());
+        let settings = ParticipantSettings::new(true, true);
+        // Now create a group add message to add participant3
+        // This should wait for acks from existing group members: participant1 and participant2
+        // (NOT from participant3 who is being added)
+        let participant3 = Name::from_strings(["org", "ns", "participant3"]);
         let payload = CommandPayload::builder().group_add(
-            participant1.clone(),
+            participant3.clone(),
             settings,
-            vec![participant1.clone(), participant2.clone(), source.clone()],
-            vec![settings, settings, settings],
+            vec![
+                participant1.clone(),
+                participant2.clone(),
+                participant3.clone(),
+                source.clone(),
+            ],
+            vec![settings, settings, settings, settings],
             None, // mls
         );
 
         let update = Message::builder()
             .source(source.clone())
-            .destination(remote.clone())
+            .destination(group.clone())
             .identity("")
             .session_type(ProtoSessionType::Multicast)
             .session_message_type(ProtoSessionMessageType::GroupAdd)
@@ -1474,7 +1493,7 @@ mod tests {
         // Verify the message received is the right one
         assert_eq!(received, update);
 
-        // Create the first group ack from participant1
+        // Create the first group ack from participant1 (existing member)
         let payload = CommandPayload::builder().group_ack();
 
         let ack1 = Message::builder()
@@ -1499,10 +1518,15 @@ mod tests {
         );
 
         // Send the SAME ack again from participant1 (duplicate)
-        sender
-            .on_message(&ack1)
-            .await
-            .expect("error sending duplicate ack");
+        // This should return an UnexpectedReply error since the ack was already processed
+        let duplicate_result = sender.on_message(&ack1).await;
+        match duplicate_result {
+            Err(SessionError::UnexpectedReply(message_id)) => {
+                assert_eq!(message_id, 1, "Error should reference message id 1");
+            }
+            Ok(_) => panic!("Expected UnexpectedReply error for duplicate ack"),
+            Err(e) => panic!("Expected UnexpectedReply error, got: {:?}", e),
+        }
 
         // Verify the message is STILL pending - duplicate ack should not count
         assert!(
@@ -1543,7 +1567,7 @@ mod tests {
             .expect("error message");
         assert_eq!(received, update);
 
-        // Now send ack from participant2 (the second unique participant)
+        // Now send ack from participant2 (the second existing member)
         let payload = CommandPayload::builder().group_ack();
 
         let ack2 = Message::builder()
@@ -2477,7 +2501,7 @@ mod tests {
 
         // Send join reply to clear pending state
         let reply_payload =
-            CommandPayload::builder().join_reply(ParticipantSettings::default(), None);
+            CommandPayload::builder().join_reply(ParticipantSettings::new(true, true), None);
         let join_reply = Message::builder()
             .source(remote.clone())
             .destination(source.clone())
@@ -2608,15 +2632,17 @@ mod tests {
             .expect("error message");
 
         // Verify group_name was set to the channel name from payload
+        // the sender is sending using the channel id CONTROL_CHANNEL_ID
+        let control_name = channel_name.clone().with_id(Name::CONTROL_CHANNEL_ID);
         assert_eq!(
             sender.group_name,
-            Some(channel_name.clone()),
+            Some(control_name.clone()),
             "Group name should be set to channel name from JoinRequest payload in multicast session"
         );
 
         // Send join reply to clear pending state
         let reply_payload =
-            CommandPayload::builder().join_reply(ParticipantSettings::default(), None);
+            CommandPayload::builder().join_reply(ParticipantSettings::new(true, true), None);
         let join_reply = Message::builder()
             .source(participant.clone())
             .destination(source.clone())
@@ -2676,7 +2702,7 @@ mod tests {
         );
         assert_eq!(
             ping.get_dst(),
-            channel_name,
+            control_name,
             "Ping destination should be the channel/group name in multicast session"
         );
     }
