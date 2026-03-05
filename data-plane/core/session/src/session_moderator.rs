@@ -167,6 +167,11 @@ where
                             .await?;
                     }
 
+                    tracing::info!(
+                        "Receive app message. Direction: {:?}. MSG {:?}",
+                        direction,
+                        message
+                    );
                     self.inner
                         .on_message(SessionMessage::OnMessage {
                             message,
@@ -1367,6 +1372,15 @@ where
                     return Err(e);
                 }
             }
+        }
+
+        // if no legacy perticipant is left in the group we can close the legacy sender
+        if let Some(legacy_sender) = &mut self.common.legacy_sender
+            && !self.participant_settings.values().any(|s| s.is_legacy())
+        {
+            debug!("No legacy participant left in the group, close the legacy sender");
+            legacy_sender.close();
+            self.common.legacy_sender = None;
         }
 
         self.task_done().await

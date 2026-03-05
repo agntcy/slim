@@ -511,6 +511,15 @@ where
                     .delete_route(&name, msg.get_incoming_conn())
                     .await?;
                 self.inner.remove_endpoint(&name);
+
+                // if no legacy perticipant is left in the group we can close the legacy sender
+                if let Some(legacy_sender) = &mut self.common.legacy_sender
+                    && !self.group_list.values().any(|s| s.is_legacy())
+                {
+                    debug!("No legacy participant left in the group, close the legacy sender");
+                    legacy_sender.close();
+                    self.common.legacy_sender = None;
+                }
             }
         }
 

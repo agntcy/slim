@@ -244,6 +244,7 @@ impl Session {
         match message.get_session_message_type() {
             ProtoSessionMessageType::Msg => {
                 if direction == MessageDirection::South {
+                    tracing::info!("received message from the app. MSG {:?}", message);
                     // message from app to slim, give it to the sender with ack
                     if self.sender.is_none() {
                         debug!(message_id = %message.get_id(), "sender is shutdown, drop message");
@@ -253,9 +254,11 @@ impl Session {
                         return Err(SessionError::SessionSenderShutdown);
                     }
                     if let Some(legacy_sender) = self.legacy_sender.as_mut() {
+                        tracing::info!("legacy sender is enabled, send message to legacy sender");
                         // the use th ack_tx only on the standard channel
                         legacy_sender.on_message(message.clone(), None).await?
                     }
+                    tracing::info!("Send message to standard sender");
                     self.sender
                         .as_mut()
                         .unwrap()
@@ -264,6 +267,7 @@ impl Session {
                 } else {
                     // message from slim to the app, give it to the receiver if exists
                     if let Some(receiver) = self.receiver.as_mut() {
+                        tracing::info!("received message from slim. MSG {:?}", message);
                         receiver.on_message(message).await?
                     }
                 }
@@ -272,20 +276,32 @@ impl Session {
             }
             ProtoSessionMessageType::MsgAck | ProtoSessionMessageType::RtxRequest => {
                 // to do check if we need to sent to sender or to the legacy sender
+                tracing::info!(
+                    "got ack or rtx request. Direction: {:?}. MSG {:?}",
+                    direction,
+                    message
+                );
                 if message.contains_metadata(SPLIT_CHANNEL_MESSAGE) {
                     // send to the standard sender
                     if let Some(sender) = self.sender.as_mut() {
+                        tracing::info!("use standandr sender to process the message");
                         sender.on_message(message.clone(), ack_tx).await?
                     }
                 } else {
                     // send to the legacy sender
                     if let Some(legacy_sender) = self.legacy_sender.as_mut() {
+                        tracing::info!("use legacy sender to process the message");
                         legacy_sender.on_message(message.clone(), ack_tx).await?
                     }
                 }
                 Ok(())
             }
             ProtoSessionMessageType::RtxReply => {
+                tracing::info!(
+                    "got rtx reply. Direction: {:?}. MSG {:?}",
+                    direction,
+                    message
+                );
                 if let Some(receiver) = self.receiver.as_mut() {
                     receiver.on_message(message).await?;
                 }
@@ -310,6 +326,12 @@ impl Session {
     ) -> Result<(), SessionError> {
         match message_type {
             ProtoSessionMessageType::Msg => {
+                tracing::info!(
+                    "timer timeout for message. Timer id: {}. Message type: {:?}. Name: {:?}.",
+                    id,
+                    message_type,
+                    name
+                );
                 if let Some(sender) = self.sender.as_mut() {
                     if sender.timer_id_exists(id) {
                         return sender.on_timer_timeout(id).await;
@@ -320,6 +342,12 @@ impl Session {
                 Ok(())
             }
             ProtoSessionMessageType::RtxRequest => {
+                tracing::info!(
+                    "timer timeout for RTX request. Timer id: {}. Message type: {:?}. Name: {:?}.",
+                    id,
+                    message_type,
+                    name
+                );
                 if let Some(receiver) = self.receiver.as_mut() {
                     receiver.on_timer_timeout(id, name.unwrap()).await?
                 }
@@ -337,6 +365,12 @@ impl Session {
     ) -> Result<(), SessionError> {
         match message_type {
             ProtoSessionMessageType::Msg => {
+                tracing::info!(
+                    "timer failure for message. Timer id: {}. Message type: {:?}. Name: {:?}.",
+                    id,
+                    message_type,
+                    name
+                );
                 if let Some(sender) = self.sender.as_mut() {
                     if sender.timer_id_exists(id) {
                         return sender.on_timer_timeout(id).await;
@@ -347,6 +381,12 @@ impl Session {
                 Ok(())
             }
             ProtoSessionMessageType::RtxRequest => {
+                tracing::info!(
+                    "timer failure for RTX request. Timer id: {}. Message type: {:?}. Name: {:?}.",
+                    id,
+                    message_type,
+                    name
+                );
                 if let Some(receiver) = self.receiver.as_mut() {
                     receiver.on_timer_failure(id, name.unwrap()).await?;
                 }

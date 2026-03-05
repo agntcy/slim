@@ -304,6 +304,11 @@ impl ControllerSender {
                     .cloned()
                     .collect::<HashSet<_>>();
 
+                if missing_replies.is_empty() {
+                    debug!("no missing reply for group add, skip sending the message");
+                    return Ok(());
+                }
+
                 self.on_send_message(message, missing_replies).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::GroupRemove => {
@@ -329,6 +334,11 @@ impl ControllerSender {
 
                 self.group_list.remove(&to_remove);
 
+                if missing_replies.is_empty() {
+                    debug!("no missing reply for group remove, skip sending the message");
+                    return Ok(());
+                }
+
                 self.on_send_message(message, missing_replies).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::GroupClose => {
@@ -339,6 +349,11 @@ impl ControllerSender {
                     .filter(|name| *name != &self.local_name)
                     .cloned()
                     .collect::<HashSet<_>>();
+
+                if missing_replies.is_empty() {
+                    debug!("no missing reply for group close, skip sending the message");
+                    return Ok(());
+                }
 
                 self.on_send_message(message, missing_replies).await?;
             }
