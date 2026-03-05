@@ -248,10 +248,8 @@ pub struct Channel {
     /// `true` for GROUP channels (`new_group` / `new_group_with_connection`),
     /// `false` for P2P channels (`new` / `new_with_connection`).
     is_group: bool,
-    /// Members to auto-invite when the GROUP session is first created.
-    ///
-    /// Shared across clones; populated at construction time and never mutated.
-    pending_members: Arc<Vec<Name>>,
+    /// Group members to invite whenever the GROUP session is (re)created.
+    members: Arc<Vec<Name>>,
     connection_id: Option<u64>,
     runtime: tokio::runtime::Handle,
     /// Persistent session (lazily initialised, recreated when dead).
@@ -289,7 +287,7 @@ impl Channel {
             app,
             remote,
             is_group,
-            pending_members: Arc::new(members),
+            members: Arc::new(members),
             connection_id,
             runtime,
             session: Arc::new(tokio::sync::Mutex::new(None)),
@@ -337,7 +335,7 @@ impl Channel {
 
         // Invite all pending members whenever the GROUP session is (re)created.
         if self.is_group {
-            for member in self.pending_members.iter() {
+            for member in self.members.iter() {
                 session_tx
                     .controller()
                     .invite_participant(member)
@@ -348,7 +346,7 @@ impl Channel {
                         RpcError::internal(format!("Failed to invite {}: {}", member, e))
                     })?;
             }
-            if !self.pending_members.is_empty() {
+            if !self.members.is_empty() {
                 tokio::time::sleep(Duration::from_millis(200)).await;
             }
         }
@@ -783,7 +781,7 @@ impl Channel {
             };
             if let Err(e) = send_result { yield Err(e); return; }
 
-            let num_members = channel.pending_members.len();
+            let num_members = channel.members.len();
             let mut eos_count = 0usize;
 
             loop {
@@ -896,7 +894,7 @@ impl Channel {
                     .await
             });
 
-            let num_members = channel.pending_members.len();
+            let num_members = channel.members.len();
             let mut eos_count = 0usize;
             let mut send_completed = false;
 
