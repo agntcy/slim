@@ -600,195 +600,13 @@ impl Channel {
 
     // ── Core streaming methods ────────────────────────────────────────────────
 
-    /// Core streaming method for single-request patterns.
+    /// Core streaming method for single-request patterns (P2P and GROUP).
     ///
-    /// Sends `request` once and streams back every response.
-    /// The stream ends when each member's response stream ends (EOS received from all members).
-    ///
-    /// A `DispatcherGuard` ensures the per-RPC channel is always unregistered,
-    /// even when the stream is abandoned early (e.g. after a single `.next()`).
+    /// Sends `request` once and streams back every response as a `MulticastItem`.
+    /// For P2P (`num_members = 1`) the stream ends on the single server EOS.
+    /// For GROUP the stream ends when all members have sent their EOS.
+    /// Member errors are yielded as `Err` items and count as that member's EOS.
     fn responses_from_request<Req, Res>(
-        &self,
-        service_name: &str,
-        method_name: &str,
-        request: Req,
-        timeout: Option<Duration>,
-        metadata: Option<Metadata>,
-    ) -> impl Stream<Item = Result<Res, RpcError>>
-    where
-        Req: Encoder + Send + 'static,
-        Res: Decoder + Send + 'static,
-    {
-        let service_name = service_name.to_string();
-        let method_name = method_name.to_string();
-        let channel = self.clone();
-
-        stream! {
-            let ctx = channel.create_context_for_rpc(timeout, metadata.clone());
-            let timeout_duration = calculate_timeout_duration(timeout);
-            let mut delay = Delay::new(timeout_duration);
-
-            let (session_tx, dispatcher, _) = match tokio::select! {
-                result = channel.get_or_create_session() => result,
-                _ = &mut delay => Err(RpcError::deadline_exceeded("Client deadline exceeded during session setup")),
-            } {
-                Ok(v) => v,
-                Err(e) => { yield Err(e); return; }
-            };
-
-            let rpc_id = generate_rpc_id();
-            let mut rx = dispatcher.register(&rpc_id);
-            // Ensures dispatcher.unregister is called even on early drop / error.
-            let _guard = DispatcherGuard { dispatcher: dispatcher.clone(), rpc_id: rpc_id.clone() };
-
-            let send_result = tokio::select! {
-                result = channel.send_request_impl(
-                    &session_tx, &ctx, request,
-                    &service_name, &method_name, &rpc_id,
-                ) => result,
-                _ = &mut delay => Err(RpcError::deadline_exceeded("Client deadline exceeded while sending request")),
-            };
-            if let Err(e) = send_result {
-                yield Err(e);
-                return;
-            }
-
-            loop {
-                let received_opt = tokio::select! {
-                    msg = rx.recv() => Ok(msg),
-                    _ = &mut delay => Err(RpcError::deadline_exceeded(
-                        "Client deadline exceeded while receiving response"
-                    )),
-                };
-
-                let received = match received_opt {
-                    Err(e) => { yield Err(e); break; }
-                    Ok(None) => { yield Err(RpcError::internal("Session closed")); break; }
-                    Ok(Some(m)) => m,
-                };
-
-                if msg_is_terminal(&received) { break; }
-
-                let code = match channel.parse_status_code(received.metadata.get(STATUS_CODE_KEY)) {
-                    Ok(c) => c,
-                    Err(e) => { yield Err(e); break; }
-                };
-                if code != RpcCode::Ok {
-                    yield Err(RpcError::new(code, String::from_utf8_lossy(&received.payload).to_string()));
-                    break;
-                }
-
-                let response = match Res::decode(received.payload) {
-                    Ok(r) => r,
-                    Err(e) => { yield Err(e); break; }
-                };
-                yield Ok(response);
-            }
-        }
-    }
-
-    /// Core streaming method for streaming-request patterns (P2P).
-    ///
-    /// Sends `request_stream` concurrently while receiving the single server's
-    /// responses. The stream ends on the server EOS or an error.
-    fn responses_from_stream_input<Req, Res>(
-        &self,
-        service_name: &str,
-        method_name: &str,
-        request_stream: impl Stream<Item = Req> + Send + 'static,
-        timeout: Option<Duration>,
-        metadata: Option<Metadata>,
-    ) -> impl Stream<Item = Result<Res, RpcError>>
-    where
-        Req: Encoder + Send + 'static,
-        Res: Decoder + Send + 'static,
-    {
-        let service_name = service_name.to_string();
-        let method_name = method_name.to_string();
-        let channel = self.clone();
-
-        stream! {
-            let ctx = channel.create_context_for_rpc(timeout, metadata.clone());
-            let timeout_duration = calculate_timeout_duration(timeout);
-            let mut delay = Delay::new(timeout_duration);
-
-            let (session_tx, dispatcher, _) = match tokio::select! {
-                result = channel.get_or_create_session() => result,
-                _ = &mut delay => Err(RpcError::deadline_exceeded("Client deadline exceeded during session setup")),
-            } {
-                Ok(v) => v,
-                Err(e) => { yield Err(e); return; }
-            };
-
-            let rpc_id = generate_rpc_id();
-            let mut rx = dispatcher.register(&rpc_id);
-            let _guard = DispatcherGuard { dispatcher: dispatcher.clone(), rpc_id: rpc_id.clone() };
-
-            let session_tx_for_send = session_tx.clone();
-            let ctx_for_send = ctx.clone();
-            let service_for_send = service_name.clone();
-            let method_for_send = method_name.clone();
-            let rpc_id_for_send = rpc_id.clone();
-            let channel_for_send = channel.clone();
-            let mut send_handle = channel.runtime.spawn(async move {
-                channel_for_send
-                    .send_request_stream_impl(
-                        &session_tx_for_send, &ctx_for_send, request_stream,
-                        &service_for_send, &method_for_send, &rpc_id_for_send,
-                    )
-                    .await
-            });
-
-            let mut send_completed = false;
-            loop {
-                let received_opt = tokio::select! {
-                    msg = rx.recv() => Ok(msg),
-                    send_result = &mut send_handle, if !send_completed => {
-                        send_completed = true;
-                        match send_result {
-                            Ok(Ok(_)) => continue,
-                            Ok(Err(e)) => Err(e),
-                            Err(e) => Err(RpcError::internal(format!("Send task panicked: {}", e))),
-                        }
-                    },
-                    _ = &mut delay => Err(RpcError::deadline_exceeded(
-                        "Client deadline exceeded while receiving response"
-                    )),
-                };
-
-                let received = match received_opt {
-                    Err(e) => { yield Err(e); break; }
-                    Ok(None) => { yield Err(RpcError::internal("Session closed")); break; }
-                    Ok(Some(m)) => m,
-                };
-
-                if msg_is_terminal(&received) { break; }
-
-                let code = match channel.parse_status_code(received.metadata.get(STATUS_CODE_KEY)) {
-                    Ok(c) => c,
-                    Err(e) => { yield Err(e); break; }
-                };
-                if code != RpcCode::Ok {
-                    yield Err(RpcError::new(code, String::from_utf8_lossy(&received.payload).to_string()));
-                    break;
-                }
-
-                let response = match Res::decode(received.payload) {
-                    Ok(r) => r,
-                    Err(e) => { yield Err(e); break; }
-                };
-                yield Ok(response);
-            }
-        }
-    }
-
-    /// Core streaming method for single-request GROUP (multicast) patterns.
-    ///
-    /// Sends `request` once to all group members and streams back every response
-    /// wrapped in a `MulticastItem` that identifies the source member.
-    /// The stream ends when all members have sent their final response (EOS).
-    /// Member errors are yielded as `Err` items (counted as that member's EOS).
-    fn responses_from_request_group<Req, Res>(
         &self,
         service_name: &str,
         method_name: &str,
@@ -886,14 +704,13 @@ impl Channel {
         }
     }
 
-    /// Core streaming method for streaming-request GROUP (multicast) patterns.
+    /// Core streaming method for streaming-request patterns (P2P and GROUP).
     ///
-    /// Broadcasts `request_stream` to all group members concurrently while
-    /// collecting their responses. Each response is wrapped in a `MulticastItem`
-    /// that identifies the source member.
-    /// The stream ends when all members have sent their final response (EOS).
-    /// Member errors are yielded as `Err` items (counted as that member's EOS).
-    fn responses_from_stream_input_group<Req, Res>(
+    /// Broadcasts `request_stream` concurrently while collecting responses.
+    /// For P2P (`num_members = 1`) the stream ends on the single server EOS.
+    /// For GROUP the stream ends when all members have sent their EOS.
+    /// Member errors are yielded as `Err` items and count as that member's EOS.
+    fn responses_from_stream_input<Req, Res>(
         &self,
         service_name: &str,
         method_name: &str,
@@ -1030,6 +847,7 @@ impl Channel {
             .next()
             .await
             .unwrap_or_else(|| Err(RpcError::internal("No response received")))
+            .map(|item| item.message)
     }
 
     /// Unary-stream RPC: single request → stream of responses.
@@ -1046,6 +864,7 @@ impl Channel {
         Res: Decoder + Send + 'static,
     {
         self.responses_from_request(service_name, method_name, request, timeout, metadata)
+            .map(|r| r.map(|item| item.message))
     }
 
     /// Stream-unary RPC: stream of requests → single response.
@@ -1075,6 +894,7 @@ impl Channel {
             .next()
             .await
             .unwrap_or_else(|| Err(RpcError::internal("No response received")))
+            .map(|item| item.message)
     }
 
     /// Stream-stream RPC: stream of requests → stream of responses.
@@ -1097,6 +917,7 @@ impl Channel {
             timeout,
             metadata,
         )
+        .map(|r| r.map(|item| item.message))
     }
 
     /// Multicast unary: broadcast one request, receive one `MulticastItem` per member.
@@ -1115,7 +936,7 @@ impl Channel {
         Req: Encoder + Send + 'static,
         Res: Decoder + Send + 'static,
     {
-        self.responses_from_request_group(service_name, method_name, request, timeout, metadata)
+        self.responses_from_request(service_name, method_name, request, timeout, metadata)
     }
 
     /// Multicast unary-stream: broadcast one request, receive a stream of `MulticastItem`s.
@@ -1138,7 +959,7 @@ impl Channel {
         Req: Encoder + Send + 'static,
         Res: Decoder + Send + 'static,
     {
-        self.responses_from_request_group(service_name, method_name, request, timeout, metadata)
+        self.responses_from_request(service_name, method_name, request, timeout, metadata)
     }
 
     /// Multicast stream-unary: broadcast a request stream, receive one `MulticastItem` per member.
@@ -1158,7 +979,7 @@ impl Channel {
         Req: Encoder + Send + 'static,
         Res: Decoder + Send + 'static,
     {
-        self.responses_from_stream_input_group(
+        self.responses_from_stream_input(
             service_name,
             method_name,
             request_stream,
@@ -1188,7 +1009,7 @@ impl Channel {
         Req: Encoder + Send + 'static,
         Res: Decoder + Send + 'static,
     {
-        self.responses_from_stream_input_group(
+        self.responses_from_stream_input(
             service_name,
             method_name,
             request_stream,
