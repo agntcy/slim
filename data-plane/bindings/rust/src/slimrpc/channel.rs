@@ -274,6 +274,11 @@ impl Channel {
         if members.is_empty() {
             return Err(RpcError::invalid_argument("members must not be empty"));
         }
+        if !is_group && members.len() != 1 {
+            return Err(RpcError::invalid_argument(
+                "P2P channel requires exactly one member",
+            ));
+        }
 
         let runtime = crate::get_runtime().handle().clone();
 
