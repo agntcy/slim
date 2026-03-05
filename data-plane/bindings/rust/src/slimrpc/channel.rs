@@ -227,19 +227,17 @@ fn eos_metadata(rpc_id: &str, routing: Option<(&Context, &str, &str)>) -> Metada
 
 /// Client-side channel for making RPC calls.
 ///
-/// Manages two persistent SLIM sessions to the same remote:
-/// - A `PointToPoint` session for standard unary/stream RPC calls.
-/// - A `Multicast` (GROUP) session for multicast RPC calls that broadcast to
-///   all group members and stream back every individual response.
-///
-/// Both sessions are lazily initialised and recreated when dead.
+/// Manages a single persistent SLIM session: either a `PointToPoint` session
+/// to a single remote server, or a `Multicast` (GROUP) session shared across
+/// multiple remote servers. The session is lazily initialised and recreated
+/// when dead.
 ///
 /// ## Constructor
 ///
 /// - `new_with_members_internal(app, members)` — Smart constructor:
-///   - **1 member**: creates a P2P channel (multicast methods behave as P2P).
-///   - **Many members**: generates a random UUID group name for the GROUP
-///     session and auto-invites all members on the first multicast call.
+///   - **1 member**: creates a P2P channel.
+///   - **Many members**: creates a GROUP channel with a generated session name
+///     and auto-invites all members on the first multicast call.
 #[derive(Clone, uniffi::Object)]
 pub struct Channel {
     app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
