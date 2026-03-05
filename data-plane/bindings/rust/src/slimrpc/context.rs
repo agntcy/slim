@@ -72,6 +72,19 @@ impl Context {
 }
 
 impl Context {
+    /// Create a context for an outbound RPC call.
+    ///
+    /// Sets the deadline from `timeout` (or the default max timeout if `None`)
+    /// and merges any caller-supplied `metadata`.
+    pub fn for_rpc(timeout: Option<Duration>, metadata: Option<Metadata>) -> Self {
+        let mut ctx = Self::new();
+        ctx.set_deadline(calculate_deadline(timeout));
+        if let Some(meta) = metadata {
+            ctx.metadata_mut().extend(meta);
+        }
+        ctx
+    }
+
     /// Create a new empty context with default deadline (now + MAX_TIMEOUT)
     pub fn new() -> Self {
         Self::with_session(SessionContext {

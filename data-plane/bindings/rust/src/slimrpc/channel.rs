@@ -61,7 +61,7 @@ pub struct MulticastItem<T> {
 use super::{
     BidiStreamHandler, Context, METHOD_KEY, Metadata, MulticastBidiStreamHandler,
     MulticastResponseReader, RPC_ID_KEY, ReceivedMessage, RequestStreamWriter,
-    ResponseStreamReader, RpcCode, RpcError, SERVICE_KEY, STATUS_CODE_KEY, calculate_deadline,
+    ResponseStreamReader, RpcCode, RpcError, SERVICE_KEY, STATUS_CODE_KEY,
     calculate_timeout_duration,
     codec::{Decoder, Encoder},
     msg_is_terminal,
@@ -614,7 +614,7 @@ impl Channel {
         let channel = self.clone();
 
         stream! {
-            let ctx = channel.create_context_for_rpc(timeout, metadata.clone());
+            let ctx = Context::for_rpc(timeout, metadata.clone());
             let timeout_duration = calculate_timeout_duration(timeout);
             let mut delay = Delay::new(timeout_duration);
 
@@ -903,22 +903,6 @@ impl Channel {
             timeout,
             metadata,
         )
-    }
-
-    // ── Misc ──────────────────────────────────────────────────────────────────
-
-    fn create_context_for_rpc(
-        &self,
-        timeout: Option<Duration>,
-        metadata: Option<Metadata>,
-    ) -> Context {
-        let deadline = calculate_deadline(timeout);
-        let mut ctx = Context::new();
-        ctx.set_deadline(deadline);
-        if let Some(meta) = metadata {
-            ctx.metadata_mut().extend(meta);
-        }
-        ctx
     }
 
     pub fn app(&self) -> &Arc<SlimApp<AuthProvider, AuthVerifier>> {
