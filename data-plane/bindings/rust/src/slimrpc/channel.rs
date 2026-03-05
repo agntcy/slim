@@ -28,7 +28,7 @@ use futures::future::join_all;
 use futures::stream::Stream;
 use futures_timer::Delay;
 use parking_lot::RwLock as ParkingRwLock;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, unbounded_channel};
 use tokio::task::JoinHandle;
 
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
@@ -923,14 +923,14 @@ impl Channel {
 #[uniffi::export]
 impl Channel {
     #[uniffi::constructor]
-    pub fn new(app: std::sync::Arc<crate::App>, remote: std::sync::Arc<crate::Name>) -> Self {
+    pub fn new(app: Arc<crate::App>, remote: Arc<crate::Name>) -> Self {
         Self::new_with_connection(app, remote, None)
     }
 
     #[uniffi::constructor]
     pub fn new_with_connection(
-        app: std::sync::Arc<crate::App>,
-        remote: std::sync::Arc<crate::Name>,
+        app: Arc<crate::App>,
+        remote: Arc<crate::Name>,
         connection_id: Option<u64>,
     ) -> Self {
         let slim_app = app.inner_app().clone();
@@ -941,16 +941,16 @@ impl Channel {
 
     #[uniffi::constructor]
     pub fn new_group(
-        app: std::sync::Arc<crate::App>,
-        members: Vec<std::sync::Arc<crate::Name>>,
+        app: Arc<crate::App>,
+        members: Vec<Arc<crate::Name>>,
     ) -> Result<Self, RpcError> {
         Self::new_group_with_connection(app, members, None)
     }
 
     #[uniffi::constructor]
     pub fn new_group_with_connection(
-        app: std::sync::Arc<crate::App>,
-        members: Vec<std::sync::Arc<crate::Name>>,
+        app: Arc<crate::App>,
+        members: Vec<Arc<crate::Name>>,
         connection_id: Option<u64>,
     ) -> Result<Self, RpcError> {
         let slim_app = app.inner_app().clone();
@@ -994,7 +994,7 @@ impl Channel {
         request: Vec<u8>,
         timeout: Option<std::time::Duration>,
         metadata: Option<Metadata>,
-    ) -> Result<std::sync::Arc<ResponseStreamReader>, RpcError> {
+    ) -> Result<Arc<ResponseStreamReader>, RpcError> {
         crate::get_runtime().block_on(self.call_unary_stream_async(
             service_name,
             method_name,
@@ -1011,9 +1011,9 @@ impl Channel {
         request: Vec<u8>,
         timeout: Option<std::time::Duration>,
         metadata: Option<Metadata>,
-    ) -> Result<std::sync::Arc<ResponseStreamReader>, RpcError> {
+    ) -> Result<Arc<ResponseStreamReader>, RpcError> {
         let channel = self.clone();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, rx) = unbounded_channel();
         crate::get_runtime().spawn(async move {
             let stream = channel.unary_stream::<Vec<u8>, Vec<u8>>(
                 &service_name,
@@ -1029,7 +1029,7 @@ impl Channel {
                 }
             }
         });
-        Ok(std::sync::Arc::new(ResponseStreamReader::new(rx)))
+        Ok(Arc::new(ResponseStreamReader::new(rx)))
     }
 
     pub fn call_stream_unary(
@@ -1038,8 +1038,8 @@ impl Channel {
         method_name: String,
         timeout: Option<std::time::Duration>,
         metadata: Option<Metadata>,
-    ) -> std::sync::Arc<RequestStreamWriter> {
-        std::sync::Arc::new(RequestStreamWriter::new(
+    ) -> Arc<RequestStreamWriter> {
+        Arc::new(RequestStreamWriter::new(
             self.clone(),
             service_name,
             method_name,
@@ -1054,8 +1054,8 @@ impl Channel {
         method_name: String,
         timeout: Option<std::time::Duration>,
         metadata: Option<HashMap<String, String>>,
-    ) -> std::sync::Arc<BidiStreamHandler> {
-        std::sync::Arc::new(BidiStreamHandler::new(
+    ) -> Arc<BidiStreamHandler> {
+        Arc::new(BidiStreamHandler::new(
             self.clone(),
             service_name,
             method_name,
@@ -1077,7 +1077,7 @@ impl Channel {
         request: Vec<u8>,
         timeout: Option<std::time::Duration>,
         metadata: Option<Metadata>,
-    ) -> Result<std::sync::Arc<MulticastResponseReader>, RpcError> {
+    ) -> Result<Arc<MulticastResponseReader>, RpcError> {
         crate::get_runtime().block_on(self.call_multicast_unary_async(
             service_name,
             method_name,
@@ -1096,9 +1096,9 @@ impl Channel {
         request: Vec<u8>,
         timeout: Option<std::time::Duration>,
         metadata: Option<Metadata>,
-    ) -> Result<std::sync::Arc<MulticastResponseReader>, RpcError> {
+    ) -> Result<Arc<MulticastResponseReader>, RpcError> {
         let channel = self.clone();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, rx) = unbounded_channel();
         crate::get_runtime().spawn(async move {
             let stream = channel.multicast_unary::<Vec<u8>, Vec<u8>>(
                 &service_name,
@@ -1114,7 +1114,7 @@ impl Channel {
                 }
             }
         });
-        Ok(std::sync::Arc::new(MulticastResponseReader::new(rx)))
+        Ok(Arc::new(MulticastResponseReader::new(rx)))
     }
 
     /// Broadcast one request to all GROUP members and stream their responses
@@ -1130,7 +1130,7 @@ impl Channel {
         request: Vec<u8>,
         timeout: Option<std::time::Duration>,
         metadata: Option<Metadata>,
-    ) -> Result<std::sync::Arc<MulticastResponseReader>, RpcError> {
+    ) -> Result<Arc<MulticastResponseReader>, RpcError> {
         crate::get_runtime().block_on(self.call_multicast_unary_stream_async(
             service_name,
             method_name,
@@ -1149,9 +1149,9 @@ impl Channel {
         request: Vec<u8>,
         timeout: Option<std::time::Duration>,
         metadata: Option<Metadata>,
-    ) -> Result<std::sync::Arc<MulticastResponseReader>, RpcError> {
+    ) -> Result<Arc<MulticastResponseReader>, RpcError> {
         let channel = self.clone();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, rx) = unbounded_channel();
         crate::get_runtime().spawn(async move {
             let stream = channel.multicast_unary_stream::<Vec<u8>, Vec<u8>>(
                 &service_name,
@@ -1167,7 +1167,7 @@ impl Channel {
                 }
             }
         });
-        Ok(std::sync::Arc::new(MulticastResponseReader::new(rx)))
+        Ok(Arc::new(MulticastResponseReader::new(rx)))
     }
 
     /// Broadcast a request stream to all GROUP members and collect their
@@ -1183,8 +1183,8 @@ impl Channel {
         method_name: String,
         timeout: Option<std::time::Duration>,
         metadata: Option<Metadata>,
-    ) -> std::sync::Arc<MulticastBidiStreamHandler> {
-        std::sync::Arc::new(MulticastBidiStreamHandler::new(
+    ) -> Arc<MulticastBidiStreamHandler> {
+        Arc::new(MulticastBidiStreamHandler::new(
             self.clone(),
             service_name,
             method_name,
@@ -1205,8 +1205,8 @@ impl Channel {
         method_name: String,
         timeout: Option<std::time::Duration>,
         metadata: Option<Metadata>,
-    ) -> std::sync::Arc<MulticastBidiStreamHandler> {
-        std::sync::Arc::new(MulticastBidiStreamHandler::new(
+    ) -> Arc<MulticastBidiStreamHandler> {
+        Arc::new(MulticastBidiStreamHandler::new(
             self.clone(),
             service_name,
             method_name,

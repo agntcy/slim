@@ -10,7 +10,10 @@
 use futures::StreamExt;
 use parking_lot::Mutex;
 use std::sync::Arc;
-use tokio::sync::Mutex as TokioMutex;
+use tokio::sync::{
+    Mutex as TokioMutex,
+    mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
+};
 
 use super::{Channel, MulticastItem, RpcCode, RpcError};
 
@@ -75,23 +78,20 @@ pub enum StreamMessage {
 #[derive(uniffi::Object)]
 pub struct ResponseSink {
     /// Channel sender for streaming responses (None when closed)
-    sender: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Result<Vec<u8>, RpcError>>>>,
+    sender: Mutex<Option<UnboundedSender<Result<Vec<u8>, RpcError>>>>,
 }
 
 impl ResponseSink {
     /// Create a new response sink wrapper
-    pub fn new(sender: tokio::sync::mpsc::UnboundedSender<Result<Vec<u8>, RpcError>>) -> Self {
+    pub fn new(sender: UnboundedSender<Result<Vec<u8>, RpcError>>) -> Self {
         Self {
             sender: Mutex::new(Some(sender)),
         }
     }
 
     /// Get the receiver side of the channel
-    pub fn receiver() -> (
-        Self,
-        tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, RpcError>>,
-    ) {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    pub fn receiver() -> (Self, UnboundedReceiver<Result<Vec<u8>, RpcError>>) {
+        let (tx, rx) = unbounded_channel();
         let sink = Self::new(tx);
         (sink, rx)
     }
@@ -180,12 +180,12 @@ impl ResponseSink {
 #[derive(uniffi::Object)]
 pub struct ResponseStreamReader {
     /// Inner receiver channel for stream messages
-    inner: TokioMutex<tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, RpcError>>>,
+    inner: TokioMutex<UnboundedReceiver<Result<Vec<u8>, RpcError>>>,
 }
 
 impl ResponseStreamReader {
     /// Create a new response stream reader
-    pub fn new(rx: tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, RpcError>>) -> Self {
+    pub fn new(rx: UnboundedReceiver<Result<Vec<u8>, RpcError>>) -> Self {
         Self {
             inner: TokioMutex::new(rx),
         }
@@ -219,7 +219,7 @@ impl ResponseStreamReader {
 /// Allows sending multiple request messages and getting a final response.
 #[derive(uniffi::Object)]
 pub struct RequestStreamWriter {
-    sender: TokioMutex<Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>,
+    sender: TokioMutex<Option<UnboundedSender<Vec<u8>>>>,
     response: TokioMutex<Option<tokio::task::JoinHandle<Result<Vec<u8>, RpcError>>>>,
 }
 
@@ -231,7 +231,7 @@ impl RequestStreamWriter {
         timeout: Option<std::time::Duration>,
         metadata: Option<std::collections::HashMap<String, String>>,
     ) -> Self {
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, mut rx) = unbounded_channel();
 
         let channel_clone = channel;
         let service_name_clone = service_name;
@@ -329,8 +329,8 @@ impl RequestStreamWriter {
 /// Allows sending and receiving messages concurrently.
 #[derive(uniffi::Object)]
 pub struct BidiStreamHandler {
-    sender: TokioMutex<Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>,
-    receiver: TokioMutex<tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, RpcError>>>,
+    sender: TokioMutex<Option<UnboundedSender<Vec<u8>>>>,
+    receiver: TokioMutex<UnboundedReceiver<Result<Vec<u8>, RpcError>>>,
 }
 
 impl BidiStreamHandler {
@@ -341,8 +341,8 @@ impl BidiStreamHandler {
         timeout: Option<std::time::Duration>,
         metadata: Option<std::collections::HashMap<String, String>>,
     ) -> Self {
-        let (req_tx, mut req_rx) = tokio::sync::mpsc::unbounded_channel();
-        let (resp_tx, resp_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (req_tx, mut req_rx) = unbounded_channel();
+        let (resp_tx, resp_rx) = unbounded_channel();
 
         // Spawn task to handle the stream_stream call
         crate::get_runtime().spawn(async move {
@@ -463,15 +463,12 @@ pub enum MulticastStreamMessage {
 /// time. Each item carries the source member's identity alongside the payload.
 #[derive(uniffi::Object)]
 pub struct MulticastResponseReader {
-    inner:
-        TokioMutex<tokio::sync::mpsc::UnboundedReceiver<Result<MulticastItem<Vec<u8>>, RpcError>>>,
+    inner: TokioMutex<UnboundedReceiver<Result<MulticastItem<Vec<u8>>, RpcError>>>,
 }
 
 impl MulticastResponseReader {
     /// Create a new reader backed by the given mpsc receiver.
-    pub fn new(
-        rx: tokio::sync::mpsc::UnboundedReceiver<Result<MulticastItem<Vec<u8>>, RpcError>>,
-    ) -> Self {
+    pub fn new(rx: UnboundedReceiver<Result<MulticastItem<Vec<u8>>, RpcError>>) -> Self {
         Self {
             inner: TokioMutex::new(rx),
         }
@@ -519,9 +516,8 @@ impl MulticastResponseReader {
 /// response item carries the source member's identity.
 #[derive(uniffi::Object)]
 pub struct MulticastBidiStreamHandler {
-    sender: TokioMutex<Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>,
-    receiver:
-        TokioMutex<tokio::sync::mpsc::UnboundedReceiver<Result<MulticastItem<Vec<u8>>, RpcError>>>,
+    sender: TokioMutex<Option<UnboundedSender<Vec<u8>>>>,
+    receiver: TokioMutex<UnboundedReceiver<Result<MulticastItem<Vec<u8>>, RpcError>>>,
 }
 
 impl MulticastBidiStreamHandler {
@@ -534,8 +530,8 @@ impl MulticastBidiStreamHandler {
         timeout: Option<std::time::Duration>,
         metadata: Option<std::collections::HashMap<String, String>>,
     ) -> Self {
-        let (req_tx, mut req_rx) = tokio::sync::mpsc::unbounded_channel();
-        let (resp_tx, resp_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (req_tx, mut req_rx) = unbounded_channel();
+        let (resp_tx, resp_rx) = unbounded_channel();
 
         crate::get_runtime().spawn(async move {
             use async_stream::stream;
