@@ -15,9 +15,9 @@ services:
   slim/0:
     dataplane:
       clients:
-        - endpoint: "http://localhost:46357"
+        - endpoint: "ws://localhost:46357"
+          transport: websocket
+          websocket_auth_query_param: token
           tls:
             insecure: true
-          transport:
-
       servers: []

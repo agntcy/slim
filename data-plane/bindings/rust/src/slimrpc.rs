@@ -25,21 +25,21 @@
 //! ## Client Example
 //!
 //! ```no_run
-//! # use slim_bindings::{Channel, Context, Status, Encoder, Decoder};
+//! # use slim_bindings::{Channel, Context, RpcError, Encoder, Decoder};
 //! # use slim_bindings::Name;
 //! # use slim_service::app::App;
 //! # use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 //! # use std::sync::Arc;
-//! # async fn example(app: Arc<App<AuthProvider, AuthVerifier>>) -> Result<(), Status> {
+//! # async fn example(app: Arc<App<AuthProvider, AuthVerifier>>) -> Result<(), RpcError> {
 //! # #[derive(Default)]
 //! # struct Request {}
 //! # impl Encoder for Request {
-//! #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
+//! #     fn encode(self) -> Result<Vec<u8>, RpcError> { Ok(vec![]) }
 //! # }
 //! # #[derive(Default)]
 //! # struct Response {}
 //! # impl Decoder for Response {
-//! #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(Response::default()) }
+//! #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, RpcError> { Ok(Response::default()) }
 //! # }
 //! # let request = Request::default();
 //! // Create a channel
@@ -55,7 +55,7 @@
 //! ## Server Example
 //!
 //! ```no_run
-//! # use slim_bindings::{Server, Context, Status, Encoder, Decoder, App, Name, IdentityProviderConfig, IdentityVerifierConfig};
+//! # use slim_bindings::{Server, Context, RpcError, Encoder, Decoder, App, Name, IdentityProviderConfig, IdentityVerifierConfig};
 //! # use std::sync::Arc;
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # let app_name = Arc::new(Name::new("test".to_string(), "app".to_string(), "v1".to_string()));
@@ -67,12 +67,12 @@
 //! # #[derive(Default)]
 //! # struct Request {}
 //! # impl Decoder for Request {
-//! #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(Request::default()) }
+//! #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, RpcError> { Ok(Request::default()) }
 //! # }
 //! # #[derive(Default)]
 //! # struct Response {}
 //! # impl Encoder for Response {
-//! #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
+//! #     fn encode(self) -> Result<Vec<u8>, RpcError> { Ok(vec![]) }
 //! # }
 //! // Register and run server
 //! let base_name = Name::new("org".to_string(), "namespace".to_string(), "service".to_string());

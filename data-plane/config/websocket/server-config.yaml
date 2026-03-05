@@ -1,6 +1,5 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
-
 tracing:
   log_level: info
   display_thread_names: true
@@ -14,10 +13,9 @@ runtime:
 services:
   slim/0:
     dataplane:
-      clients:
-        - endpoint: "http://localhost:46357"
+      servers:
+        - endpoint: "ws://0.0.0.0:46357"
+          transport: websocket
           tls:
             insecure: true
-          transport:
-
-      servers: []
+      clients: []
