@@ -490,7 +490,12 @@ impl Channel {
         let request_bytes = request.encode()?;
         let meta = first_msg_metadata(ctx, service_name, method_name, rpc_id);
         let handle = session
-            .publish(request_bytes, Some("msg".to_string()), Some(meta))
+            .publish(
+                &session.destination(),
+                request_bytes,
+                Some("msg".to_string()),
+                Some(meta),
+            )
             .await?;
         tracing::debug!(%service_name, %method_name, %rpc_id, "Sent request");
         handle.await.map_err(|e| {
@@ -529,7 +534,12 @@ impl Channel {
                 continuation_metadata(rpc_id)
             };
             let handle = session
-                .publish(request_bytes, Some("msg".to_string()), Some(msg_meta))
+                .publish(
+                    &session.destination(),
+                    request_bytes,
+                    Some("msg".to_string()),
+                    Some(msg_meta),
+                )
                 .await?;
             handles.push(handle);
         }
@@ -540,6 +550,7 @@ impl Channel {
         };
         let handle = session
             .publish(
+                &session.destination(),
                 Vec::new(),
                 Some("msg".to_string()),
                 Some(eos_metadata(rpc_id, routing)),

@@ -123,11 +123,11 @@ impl<'a> RpcSession<'a> {
         let response = handler(first_message.payload, ctx).await?;
         match response {
             HandlerResponse::Unary(response_bytes) => {
-                send_message_to(session_tx, &source, response_bytes, RpcCode::Ok, rpc_id).await?;
+                send_message(session_tx, &source, response_bytes, RpcCode::Ok, rpc_id).await?;
                 // Send EOS so GROUP/multicast callers can count per-member stream ends.
                 // P2P callers drop the stream after reading the single item, so the EOS
                 // is harmlessly discarded if the dispatcher has already been unregistered.
-                send_message_to(session_tx, &source, Vec::new(), RpcCode::Ok, rpc_id).await
+                send_message(session_tx, &source, Vec::new(), RpcCode::Ok, rpc_id).await
             }
             _ => Err(RpcError::internal(
                 "Handler returned unexpected response type",
@@ -147,7 +147,7 @@ impl<'a> RpcSession<'a> {
         let response = handler(first_message.payload, ctx).await?;
         match response {
             HandlerResponse::Stream(stream) => {
-                send_response_stream_to(session_tx, stream, rpc_id, &source).await
+                send_response_stream(session_tx, stream, rpc_id, &source).await
             }
             _ => Err(RpcError::internal(
                 "Handler returned unexpected response type",
@@ -324,8 +324,8 @@ impl<'a> StreamRpcSession<'a> {
                     }
                 };
 
-                send_message_to(session_tx, &source, response, RpcCode::Ok, &rpc_id).await?;
-                send_message_to(session_tx, &source, Vec::new(), RpcCode::Ok, &rpc_id).await?;
+                send_message(session_tx, &source, response, RpcCode::Ok, &rpc_id).await?;
+                send_message(session_tx, &source, Vec::new(), RpcCode::Ok, &rpc_id).await?;
             }
             HandlerType::StreamStream => {
                 // Send streaming responses
@@ -338,7 +338,7 @@ impl<'a> StreamRpcSession<'a> {
                     }
                 };
 
-                send_response_stream_to(session_tx, response_stream, &rpc_id, &source).await?;
+                send_response_stream(session_tx, response_stream, &rpc_id, &source).await?;
             }
             _ => {
                 return Err(RpcError::internal(
@@ -367,6 +367,7 @@ pub async fn send_error_for_rpc(
     let metadata = create_status_metadata(error.code(), rpc_id);
     let handle = session
         .publish(
+            &session.destination(),
             message.into_bytes(),
             Some("msg".to_string()),
             Some(metadata),
@@ -391,33 +392,13 @@ fn create_status_metadata(code: RpcCode, rpc_id: &str) -> HashMap<String, String
 
 async fn send_message(
     session_tx: &SessionTx,
-    payload: Vec<u8>,
-    code: RpcCode,
-    rpc_id: &str,
-) -> Result<(), RpcError> {
-    let handle = session_tx
-        .publish(
-            payload,
-            Some("msg".to_string()),
-            Some(create_status_metadata(code, rpc_id)),
-        )
-        .await
-        .map_err(|e| RpcError::internal(format!("Failed to send message: {}", e)))?;
-    handle
-        .await
-        .map_err(|e| RpcError::internal(format!("Failed to complete message send: {}", e)))
-}
-
-/// Send a single message unicast to `target` (bypasses GROUP broadcast).
-async fn send_message_to(
-    session_tx: &SessionTx,
     target: &Name,
     payload: Vec<u8>,
     code: RpcCode,
     rpc_id: &str,
 ) -> Result<(), RpcError> {
     let handle = session_tx
-        .publish_unicast(
+        .publish(
             target,
             payload,
             Some("msg".to_string()),
@@ -434,32 +415,15 @@ async fn send_response_stream(
     session_tx: &SessionTx,
     mut stream: ItemStream,
     rpc_id: &str,
-) -> Result<(), RpcError> {
-    while let Some(result) = stream.next().await {
-        match result {
-            Ok(response_bytes) => {
-                send_message(session_tx, response_bytes, RpcCode::Ok, rpc_id).await?;
-            }
-            Err(e) => return Err(e),
-        }
-    }
-    send_message(session_tx, Vec::new(), RpcCode::Ok, rpc_id).await
-}
-
-/// Send a response stream unicast to `target` (bypasses GROUP broadcast).
-async fn send_response_stream_to(
-    session_tx: &SessionTx,
-    mut stream: ItemStream,
-    rpc_id: &str,
     target: &Name,
 ) -> Result<(), RpcError> {
     while let Some(result) = stream.next().await {
         match result {
             Ok(response_bytes) => {
-                send_message_to(session_tx, target, response_bytes, RpcCode::Ok, rpc_id).await?;
+                send_message(session_tx, target, response_bytes, RpcCode::Ok, rpc_id).await?;
             }
             Err(e) => return Err(e),
         }
     }
-    send_message_to(session_tx, target, Vec::new(), RpcCode::Ok, rpc_id).await
+    send_message(session_tx, target, Vec::new(), RpcCode::Ok, rpc_id).await
 }
