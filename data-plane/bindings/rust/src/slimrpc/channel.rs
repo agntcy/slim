@@ -187,6 +187,16 @@ fn generate_rpc_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
+async fn send_invite(session_tx: &SessionTx, member: &Name) -> Result<(), RpcError> {
+    session_tx
+        .controller()
+        .invite_participant(member)
+        .await
+        .map_err(|e| RpcError::internal(format!("Failed to invite {}: {}", member, e)))?
+        .await
+        .map_err(|e| RpcError::internal(format!("Failed to invite {}: {}", member, e)))
+}
+
 /// Generate a random group session name derived from the client name.
 ///
 /// Uses the first two components of `client_name` and a UUID as the third,
@@ -370,17 +380,7 @@ impl Channel {
         if self.is_group {
             if let Some(ref cs) = **guard {
                 for member in &cs.members {
-                    session_tx
-                        .controller()
-                        .invite_participant(member)
-                        .await
-                        .map_err(|e| {
-                            RpcError::internal(format!("Failed to invite {}: {}", member, e))
-                        })?
-                        .await
-                        .map_err(|e| {
-                            RpcError::internal(format!("Failed to invite {}: {}", member, e))
-                        })?;
+                    send_invite(&session_tx, member).await?;
                 }
             }
         }
@@ -426,14 +426,7 @@ impl Channel {
         let session = guard
             .as_mut()
             .ok_or_else(|| RpcError::internal("session disappeared"))?;
-        session
-            .tx
-            .controller()
-            .invite_participant(&destination)
-            .await
-            .map_err(|e| RpcError::internal(format!("Failed to invite {}: {}", destination, e)))?
-            .await
-            .map_err(|e| RpcError::internal(format!("Failed to invite {}: {}", destination, e)))?;
+        send_invite(&session.tx, &destination).await?;
         session.members.insert(destination);
         Ok(())
     }
@@ -467,17 +460,11 @@ impl Channel {
 
             tracing::debug!(remote = %remote, ?session_type, "Creating persistent session");
 
-            let (max_retries, interval) = if session_type == ProtoSessionType::Multicast {
-                (3, Duration::from_millis(200))
-            } else {
-                (10, Duration::from_secs(1))
-            };
-
             let slim_config = slim_session::session_config::SessionConfig {
                 session_type,
                 mls_enabled: true,
-                max_retries: Some(max_retries),
-                interval: Some(interval),
+                max_retries: Some(10),
+                interval: Some(Duration::from_secs(1)),
                 initiator: true,
                 metadata: HashMap::new(),
             };
