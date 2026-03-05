@@ -36,6 +36,12 @@ use crate::{
     traits::{MessageHandler, ProcessingState},
 };
 
+struct PostponedMessage {
+    message: Message,
+    // true if we need to send the message using the legacy sender, false otherwise
+    legacy: bool,
+}
+
 pub struct SessionModerator<P, V, I>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -63,7 +69,7 @@ where
     common: SessionControllerCommon<P, V>,
 
     /// Postponed message to be sent after current task completion
-    postponed_message: Option<Message>,
+    postponed_message: Option<PostponedMessage>,
 
     /// Subscription status
     subscribed: bool,
@@ -224,7 +230,7 @@ where
                 // We need to close the session for all the participants
                 // Create the leave message
                 let p = CommandPayload::builder().leave_request(None).as_content();
-                let destination = self.common.settings.destination.clone();
+                let destination = self.common.settings.control.clone();
                 let mut leave_msg = self.common.create_control_message(
                     &destination,
                     ProtoSessionMessageType::LeaveRequest,
@@ -479,7 +485,7 @@ where
 
         self.common
             .send_control_message(
-                &self.common.settings.destination.clone(),
+                &self.common.settings.control.clone(),
                 ProtoSessionMessageType::GroupRemove,
                 msg_id,
                 update_payload.clone(),
@@ -775,6 +781,7 @@ where
             id = msg.get_id(),
             "join reply",
         );
+
         // stop the timer for the join request
         // join replies are always handled by the non legacy sender
         self.common.sender.on_message(&msg).await?;
@@ -1030,6 +1037,11 @@ where
         msg.get_slim_header_mut().set_destination(&dst_with_id);
         msg.set_message_id(rand::random::<u32>());
 
+        let is_legacy = self
+            .participant_settings
+            .get(&dst_with_id)
+            .map(|s| s.is_legacy())
+            .ok_or_else(|| SessionError::ParticipantSettingsNotFound(dst_with_id))?;
         let leave_message = msg;
 
         // Remove the participant from the group list and compute MLS payload
@@ -1060,7 +1072,10 @@ where
             // We need to save the leave message and send it after
             // the reception of all the acks for the group update message
             // see on_group_ack for postponed_message handling
-            self.postponed_message = Some(leave_message);
+            self.postponed_message = Some(PostponedMessage {
+                message: leave_message,
+                legacy: is_legacy,
+            });
         } else {
             // no commit message will be sent so update the task state to consider the commit as received
             // the timer id is not important here, it just need to be consistent
@@ -1078,12 +1093,8 @@ where
             } else {
                 // use the right sender based on the participant settings
                 // this is required to remove the participants from the right sender
-                let settings = self.participant_settings.get(&leave_message.get_dst());
-                let use_legacy = settings.map(|s| s.is_legacy()).ok_or_else(|| {
-                    SessionError::ParticipantSettingsNotFound(leave_message.get_dst().clone())
-                })?;
                 self.common
-                    .send_with_timer(leave_message, use_legacy)
+                    .send_with_timer(leave_message, is_legacy)
                     .await?;
             }
 
@@ -1258,7 +1269,7 @@ where
             ack_tx, None,
         )));
 
-        let destination = self.common.settings.destination.clone();
+        let destination = self.common.settings.control.clone();
         let close_id = rand::random::<u32>();
         let close = self.common.create_control_message(
             &destination,
@@ -1370,6 +1381,7 @@ where
 
         // use the default sender first and, in case of error, fallback to the legacy one
         let msg_id = msg.get_id();
+        let mut pending_acks = true;
         match self.common.sender.on_message(&msg).await {
             Ok(()) => {
                 // the message was sent with the default sender, check if we can close the task
@@ -1378,6 +1390,7 @@ where
                         .as_mut()
                         .unwrap()
                         .update_phase_completed(msg_id)?;
+                    pending_acks = false;
                 }
             }
             Err(e) => {
@@ -1393,6 +1406,7 @@ where
                             .as_mut()
                             .unwrap()
                             .update_phase_completed(msg_id)?;
+                        pending_acks = false;
                     }
                 } else {
                     return Err(e);
@@ -1401,7 +1415,7 @@ where
         }
 
         // check if the task is finished.
-        if !self.current_task.as_mut().unwrap().task_complete() {
+        if !pending_acks && !self.current_task.as_mut().unwrap().task_complete() {
             // if the task is not finished yet we may need to send a leave
             // message that was postponed to send all group update first
             if let Some(leave_message) = &self.postponed_message
@@ -1409,30 +1423,28 @@ where
             {
                 // send the leave message and progress
                 // select the right sender based on the participant settings
-                let settings = self.participant_settings.get(&leave_message.get_dst());
-                let use_legacy = settings.map(|s| s.is_legacy()).ok_or_else(|| {
-                    SessionError::ParticipantSettingsNotFound(leave_message.get_dst().clone())
-                })?;
-                if use_legacy {
+                let msg_id = leave_message.message.get_id();
+                if leave_message.legacy {
                     self.common
                         .legacy_sender
                         .as_mut()
                         .ok_or_else(|| SessionError::LegacyChannelNotInitialized)?
-                        .on_message(leave_message)
+                        .on_message(&leave_message.message)
                         .await?;
                 } else {
-                    self.common.sender.on_message(leave_message).await?;
+                    self.common
+                        .sender
+                        .on_message(&leave_message.message)
+                        .await?;
                 }
-                self.current_task
-                    .as_mut()
-                    .unwrap()
-                    .leave_start(leave_message.get_id())?;
+                self.current_task.as_mut().unwrap().leave_start(msg_id)?;
                 // rest the postponed message
                 self.postponed_message = None;
             }
         }
 
-        Ok(())
+        // check if we can progress with another task
+        self.task_done().await
     }
 
     /// task handling functions
