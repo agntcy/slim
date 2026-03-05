@@ -259,7 +259,7 @@ tasks:
     cmds:
       - '[ -n "$MVN_TOKEN_NAME" ] && [ -n "$MVN_TOKEN_PASSWORD" ] && [ -n "$GPG_SIGNING_KEY" ] && [ -n "$GPG_PASSPHRASE" ] || (echo "Error: MVN_TOKEN_NAME, MVN_TOKEN_PASSWORD, GPG_SIGNING_KEY, GPG_PASSPHRASE must be set"; exit 1)'
       - echo "Publishing Java bindings to Maven Central (OSSRH Staging API)..."
-      - mvn deploy -Dproject.version="{{.PUBLISH_VERSION}}" -DskipTests -DaltDeploymentRepository=central::default::https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/
+      - mvn deploy -Drevision="{{.PUBLISH_VERSION}}" -DskipTests -DaltDeploymentRepository=central::default::https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/
       - echo "Transferring deployment to Central Portal..."
       - |
         AUTH=$(echo -n "$MVN_TOKEN_NAME:$MVN_TOKEN_PASSWORD" | base64 | tr -d '\n')

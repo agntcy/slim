@@ -120,7 +120,7 @@ jobs:
           echo "Publishing version: $VERSION"
 
           mvn deploy \
-            -Dproject.version="$VERSION" \
+            -Drevision="$VERSION" \
             -DskipTests
 
           echo "✅ Successfully published to GitHub Packages"
@@ -170,7 +170,7 @@ jobs:
           echo "Publishing version: $VERSION"
 
           mvn deploy \
-            -Dproject.version="$VERSION" \
+            -Drevision="$VERSION" \
             -DskipTests \
             -DaltDeploymentRepository=central::default::https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/
 

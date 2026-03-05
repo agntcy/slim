@@ -6,11 +6,32 @@
 
     <groupId>io.agntcy.slim</groupId>
     <artifactId>slim-bindings-java</artifactId>
-    <version>1.2.0</version>
+    <version>${revision}</version>
     <packaging>jar</packaging>
 
     <name>SLIM Java Bindings</name>
     <description>Java bindings for SLIM (Secure Lightweight Interconnected Messaging)</description>
+    <url>https://github.com/agntcy/slim</url>
+
+    <licenses>
+        <license>
+            <name>Apache-2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <name>AGNTCY Contributors</name>
+            <url>https://github.com/agntcy</url>
+        </developer>
+    </developers>
+
+    <scm>
+        <url>https://github.com/agntcy/slim</url>
+        <connection>scm:git:git://github.com/agntcy/slim.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/agntcy/slim.git</developerConnection>
+    </scm>
 
     <distributionManagement>
         <repository>
@@ -26,6 +47,7 @@
     </distributionManagement>
 
     <properties>
+        <revision>1.2.0</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
@@ -90,6 +112,25 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-resources-plugin</artifactId>
                 <version>3.3.1</version>
+            </plugin>
+
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>flatten-maven-plugin</artifactId>
+                <version>1.5.0</version>
+                <executions>
+                    <execution>
+                        <id>flatten</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>flatten</goal>
+                        </goals>
+                        <configuration>
+                            <updatePomFile>true</updatePomFile>
+                            <flattenMode>resolveCiFriendliesOnly</flattenMode>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
 
             <!-- Sources JAR (required by Maven Central) -->
