@@ -241,14 +241,10 @@ fn eos_metadata(rpc_id: &str, routing: Option<(&Context, &str, &str)>) -> Metada
 #[derive(Clone, uniffi::Object)]
 pub struct Channel {
     app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
-    /// Destination for P2P sessions.
+    /// Session destination: the remote server name for P2P channels, or a
+    /// generated group name (same org/namespace as the client, random UUID)
+    /// for GROUP channels.
     remote: Name,
-    /// Destination name used when creating GROUP (Multicast) sessions.
-    ///
-    /// For GROUP channels this is a randomly-generated UUID name, decoupling
-    /// the session name from any specific service address.  For P2P channels
-    /// it mirrors `remote`.
-    group_remote: Name,
     /// `true` for GROUP channels (`new_group` / `new_group_with_connection`),
     /// `false` for P2P channels (`new` / `new_with_connection`).
     is_group: bool,
@@ -256,11 +252,6 @@ pub struct Channel {
     ///
     /// Shared across clones; populated at construction time and never mutated.
     pending_members: Arc<Vec<Name>>,
-    /// Guards the one-time auto-invite of `pending_members`.
-    ///
-    /// Held for the full duration of invite + join sleep so concurrent callers
-    /// of `get_or_create_session` wait until all members have joined.
-    members_invited: Arc<tokio::sync::Mutex<bool>>,
     connection_id: Option<u64>,
     runtime: tokio::runtime::Handle,
     /// Persistent session (lazily initialised, recreated when dead).
@@ -288,20 +279,17 @@ impl Channel {
 
         let runtime = crate::get_runtime().handle().clone();
 
-        let remote = members[0].clone();
-        let group_remote = if is_group {
+        let remote = if is_group {
             generate_group_name(app.app_name())
         } else {
-            remote.clone()
+            members[0].clone()
         };
 
         Ok(Self {
             app,
             remote,
-            group_remote,
             is_group,
             pending_members: Arc::new(members),
-            members_invited: Arc::new(tokio::sync::Mutex::new(false)),
             connection_id,
             runtime,
             session: Arc::new(tokio::sync::Mutex::new(None)),
@@ -347,27 +335,21 @@ impl Channel {
             task,
         });
 
-        // Auto-invite pending members exactly once for GROUP sessions.
+        // Invite all pending members whenever the GROUP session is (re)created.
         if self.is_group {
-            let mut invited = self.members_invited.lock().await;
-            if !*invited {
-                for member in self.pending_members.iter() {
-                    session_tx
-                        .controller()
-                        .invite_participant(member)
-                        .await
-                        .map_err(|e| {
-                            RpcError::internal(format!("Failed to invite {}: {}", member, e))
-                        })?
-                        .await
-                        .map_err(|e| {
-                            RpcError::internal(format!("Failed to invite {}: {}", member, e))
-                        })?;
-                }
-                if !self.pending_members.is_empty() {
-                    tokio::time::sleep(Duration::from_millis(200)).await;
-                }
-                *invited = true;
+            for member in self.pending_members.iter() {
+                session_tx
+                    .controller()
+                    .invite_participant(member)
+                    .await
+                    .map_err(|e| RpcError::internal(format!("Failed to invite {}: {}", member, e)))?
+                    .await
+                    .map_err(|e| {
+                        RpcError::internal(format!("Failed to invite {}: {}", member, e))
+                    })?;
+            }
+            if !self.pending_members.is_empty() {
+                tokio::time::sleep(Duration::from_millis(200)).await;
             }
         }
 
@@ -401,11 +383,7 @@ impl Channel {
         session_type: ProtoSessionType,
     ) -> Result<(SessionTx, SessionRx), RpcError> {
         let app = self.app.clone();
-        let remote = if session_type == ProtoSessionType::Multicast {
-            self.group_remote.clone()
-        } else {
-            self.remote.clone()
-        };
+        let remote = self.remote.clone();
         let connection_id = self.connection_id;
         let runtime = &self.runtime;
 
