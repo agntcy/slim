@@ -377,11 +377,11 @@ impl Channel {
         });
 
         // Invite all members whenever the GROUP session is (re)created.
-        if self.is_group {
-            if let Some(ref cs) = **guard {
-                for member in &cs.members {
-                    send_invite(&session_tx, member).await?;
-                }
+        if self.is_group
+            && let Some(ref cs) = **guard
+        {
+            for member in &cs.members {
+                send_invite(&session_tx, member).await?;
             }
         }
 
@@ -518,7 +518,7 @@ impl Channel {
         let meta = first_msg_metadata(ctx, service_name, method_name, rpc_id);
         let handle = session
             .publish(
-                &session.destination(),
+                session.destination(),
                 request_bytes,
                 Some("msg".to_string()),
                 Some(meta),
@@ -562,7 +562,7 @@ impl Channel {
             };
             let handle = session
                 .publish(
-                    &session.destination(),
+                    session.destination(),
                     request_bytes,
                     Some("msg".to_string()),
                     Some(msg_meta),
@@ -577,7 +577,7 @@ impl Channel {
         };
         let handle = session
             .publish(
-                &session.destination(),
+                session.destination(),
                 Vec::new(),
                 Some("msg".to_string()),
                 Some(eos_metadata(rpc_id, routing)),

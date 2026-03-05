@@ -105,8 +105,8 @@ impl Context {
     /// Create a new context from a SessionRx wrapper
     pub fn from_session_tx(session: &SessionTx) -> Self {
         let session_id = session.session_id().to_string();
-        let source = session.source();
-        let destination = session.destination();
+        let source = session.source().clone();
+        let destination = session.destination().clone();
         let metadata = session.metadata();
         let deadline = Self::parse_deadline(&metadata).unwrap_or(calculate_deadline(None));
 

@@ -367,7 +367,7 @@ pub async fn send_error_for_rpc(
     let metadata = create_status_metadata(error.code(), rpc_id);
     let handle = session
         .publish(
-            &session.destination(),
+            session.destination(),
             message.into_bytes(),
             Some("msg".to_string()),
             Some(metadata),

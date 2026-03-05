@@ -52,13 +52,13 @@ impl SessionTx {
     }
 
     /// Get the source name
-    pub fn source(&self) -> Name {
-        self.controller.source().clone()
+    pub fn source(&self) -> &Name {
+        self.controller.source()
     }
 
     /// Get the destination name
-    pub fn destination(&self) -> Name {
-        self.controller.dst().clone()
+    pub fn destination(&self) -> &Name {
+        self.controller.dst()
     }
 
     /// Get session metadata
