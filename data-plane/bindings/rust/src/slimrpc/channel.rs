@@ -500,41 +500,6 @@ impl Channel {
 
     // ── Send helpers ──────────────────────────────────────────────────────────
 
-    /// Send a single request message.
-    async fn send_request<Req>(
-        &self,
-        session: &SessionTx,
-        ctx: &Context,
-        request: Req,
-        service_name: &str,
-        method_name: &str,
-        rpc_id: &str,
-    ) -> Result<(), RpcError>
-    where
-        Req: Encoder,
-    {
-        let request_bytes = request.encode()?;
-        let meta = first_msg_metadata(ctx, service_name, method_name, rpc_id);
-        let handle = session
-            .publish(
-                session.destination(),
-                request_bytes,
-                Some("msg".to_string()),
-                Some(meta),
-            )
-            .await?;
-        tracing::debug!(%service_name, %method_name, %rpc_id, "Sent request");
-        handle.await.map_err(|e| {
-            RpcError::internal(format!(
-                "Failed to complete sending {}-{}: {}",
-                service_name,
-                method_name,
-                e.chain()
-            ))
-        })?;
-        Ok(())
-    }
-
     /// Send a stream of request messages.
     async fn send_request_stream<Req>(
         &self,
@@ -602,10 +567,9 @@ impl Channel {
 
     /// Core streaming method for single-request patterns (P2P and GROUP).
     ///
-    /// Sends `request` once and streams back every response as a `MulticastItem`.
-    /// For P2P (`num_members = 1`) the stream ends on the single server EOS.
-    /// For GROUP the stream ends when all members have sent their EOS.
-    /// Member errors are yielded as `Err` items and count as that member's EOS.
+    /// Wraps `responses_from_stream_input` with a one-element stream.
+    /// The trailing EOS emitted by the stream sender is dropped by the server
+    /// for unary handlers (no service key, not in `pending_streams`).
     fn responses_from_request<Req, Res>(
         &self,
         service_name: &str,
@@ -618,90 +582,13 @@ impl Channel {
         Req: Encoder + Send + 'static,
         Res: Decoder + Send + 'static,
     {
-        let service_name = service_name.to_string();
-        let method_name = method_name.to_string();
-        let channel = self.clone();
-
-        stream! {
-            let ctx = channel.create_context_for_rpc(timeout, metadata.clone());
-            let timeout_duration = calculate_timeout_duration(timeout);
-            let mut delay = Delay::new(timeout_duration);
-
-            let (session_tx, dispatcher, num_members) = match tokio::select! {
-                result = channel.get_or_create_session() => result,
-                _ = &mut delay => Err(RpcError::deadline_exceeded("Client deadline exceeded during session setup")),
-            } {
-                Ok(v) => v,
-                Err(e) => { yield Err(e); return; }
-            };
-
-            let rpc_id = generate_rpc_id();
-            let mut rx = dispatcher.register(&rpc_id);
-            let _guard = DispatcherGuard { dispatcher: dispatcher.clone(), rpc_id: rpc_id.clone() };
-
-            let send_result = tokio::select! {
-                result = channel.send_request(
-                    &session_tx, &ctx, request,
-                    &service_name, &method_name, &rpc_id,
-                ) => result,
-                _ = &mut delay => Err(RpcError::deadline_exceeded("Client deadline exceeded while sending request")),
-            };
-            if let Err(e) = send_result { yield Err(e); return; }
-            let mut eos_count = 0usize;
-
-            loop {
-                let received_opt = tokio::select! {
-                    msg = rx.recv() => Ok(msg),
-                    _ = &mut delay => Err(RpcError::deadline_exceeded(
-                        "Client deadline exceeded while receiving response"
-                    )),
-                };
-
-                let received = match received_opt {
-                    Err(e) => { yield Err(e); break; }
-                    Ok(None) => {
-                        if eos_count < num_members {
-                            yield Err(RpcError::internal(format!(
-                                "Session closed after {}/{} EOS markers",
-                                eos_count, num_members
-                            )));
-                        }
-                        break;
-                    }
-                    Ok(Some(m)) => m,
-                };
-
-                if msg_is_terminal(&received) {
-                    eos_count += 1;
-                    if eos_count >= num_members { break; }
-                    continue;
-                }
-
-                let code = match channel.parse_status_code(received.metadata.get(STATUS_CODE_KEY)) {
-                    Ok(c) => c,
-                    Err(e) => { yield Err(e); break; }
-                };
-                if code != RpcCode::Ok {
-                    let msg_text = String::from_utf8_lossy(&received.payload).to_string();
-                    eos_count += 1;
-                    yield Err(RpcError::new(code, msg_text));
-                    if eos_count >= num_members { break; }
-                    continue;
-                }
-
-                let source = received.source.clone();
-                let response = match Res::decode(received.payload) {
-                    Ok(r) => r,
-                    Err(e) => {
-                        eos_count += 1;
-                        yield Err(e);
-                        if eos_count >= num_members { break; }
-                        continue;
-                    }
-                };
-                yield Ok(MulticastItem { context: MessageContext { source }, message: response });
-            }
-        }
+        self.responses_from_stream_input(
+            service_name,
+            method_name,
+            futures::stream::once(std::future::ready(request)),
+            timeout,
+            metadata,
+        )
     }
 
     /// Core streaming method for streaming-request patterns (P2P and GROUP).
