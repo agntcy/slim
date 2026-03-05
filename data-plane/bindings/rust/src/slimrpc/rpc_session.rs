@@ -118,16 +118,29 @@ impl<'a> RpcSession<'a> {
         handler: RpcHandler,
         rpc_id: &str,
     ) -> Result<(), RpcError> {
-        let source = first_message.source.clone();
         let ctx = ctx.with_message_metadata(first_message.metadata);
         let response = handler(first_message.payload, ctx).await?;
         match response {
             HandlerResponse::Unary(response_bytes) => {
-                send_message(session_tx, &source, response_bytes, RpcCode::Ok, rpc_id).await?;
+                send_message(
+                    session_tx,
+                    &first_message.source,
+                    response_bytes,
+                    RpcCode::Ok,
+                    rpc_id,
+                )
+                .await?;
                 // Send EOS so GROUP/multicast callers can count per-member stream ends.
                 // P2P callers drop the stream after reading the single item, so the EOS
                 // is harmlessly discarded if the dispatcher has already been unregistered.
-                send_message(session_tx, &source, Vec::new(), RpcCode::Ok, rpc_id).await
+                send_message(
+                    session_tx,
+                    &first_message.source,
+                    Vec::new(),
+                    RpcCode::Ok,
+                    rpc_id,
+                )
+                .await
             }
             _ => Err(RpcError::internal(
                 "Handler returned unexpected response type",
@@ -142,12 +155,11 @@ impl<'a> RpcSession<'a> {
         handler: RpcHandler,
         rpc_id: &str,
     ) -> Result<(), RpcError> {
-        let source = first_message.source.clone();
         let ctx = ctx.with_message_metadata(first_message.metadata);
         let response = handler(first_message.payload, ctx).await?;
         match response {
             HandlerResponse::Stream(stream) => {
-                send_response_stream(session_tx, stream, rpc_id, &source).await
+                send_response_stream(session_tx, stream, rpc_id, &first_message.source).await
             }
             _ => Err(RpcError::internal(
                 "Handler returned unexpected response type",
@@ -247,7 +259,6 @@ impl<'a> StreamRpcSession<'a> {
         let mut session_rx = self.session_rx;
         let ctx = self.ctx;
         let first_message = self.first_message;
-        let source = first_message.source.clone();
         let rpc_id = self.rpc_id;
 
         let request_stream = stream! {
@@ -324,8 +335,22 @@ impl<'a> StreamRpcSession<'a> {
                     }
                 };
 
-                send_message(session_tx, &source, response, RpcCode::Ok, &rpc_id).await?;
-                send_message(session_tx, &source, Vec::new(), RpcCode::Ok, &rpc_id).await?;
+                send_message(
+                    session_tx,
+                    &first_message.source,
+                    response,
+                    RpcCode::Ok,
+                    &rpc_id,
+                )
+                .await?;
+                send_message(
+                    session_tx,
+                    &first_message.source,
+                    Vec::new(),
+                    RpcCode::Ok,
+                    &rpc_id,
+                )
+                .await?;
             }
             HandlerType::StreamStream => {
                 // Send streaming responses
@@ -338,7 +363,8 @@ impl<'a> StreamRpcSession<'a> {
                     }
                 };
 
-                send_response_stream(session_tx, response_stream, &rpc_id, &source).await?;
+                send_response_stream(session_tx, response_stream, &rpc_id, &first_message.source)
+                    .await?;
             }
             _ => {
                 return Err(RpcError::internal(
