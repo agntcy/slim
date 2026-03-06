@@ -1,0 +1,11 @@
+{
+  "crates": [
+    {
+      "name": "agntcy-slim-bindings",
+      "path": "../adapter"
+    }
+  ],
+  "rust": {
+    "moduleName": "slim_bindings_wasm"
+  }
+}

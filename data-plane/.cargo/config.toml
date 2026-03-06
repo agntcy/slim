@@ -10,6 +10,17 @@ linker="aarch64-linux-gnu-gcc"
 [target.x86_64-unknown-linux-gnu]
 linker="x86_64-linux-gnu-gcc"
 
+# iOS: use linker wrapper to replace rustc's -target arm64-apple-ios10.0.0 with 13.4
+# (needed for ___chkstk_darwin and to match podspec platforms :ios => "13.4")
+# Wrapper must be on PATH when building; bindings/rust Taskfile prepends workspace .cargo to PATH.
+[target.aarch64-apple-ios]
+linker = "clang-ios-linker-wrapper.sh"
+rustflags = ["-C", "link-arg=-mios-version-min=13.4"]
+
+[target.aarch64-apple-ios-sim]
+linker = "clang-ios-linker-wrapper.sh"
+rustflags = ["-C", "link-arg=-mios-simulator-version-min=13.4"]
+
 [env]
 # CFLAGS suppresses macro redefinition warnings that occur when system headers
 # are mixed with Zig's headers (common with Windows cross-compilation).
