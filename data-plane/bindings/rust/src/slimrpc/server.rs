@@ -24,7 +24,7 @@ use slim_session::notification::Notification;
 
 use super::{
     Context, HandlerInfo, METHOD_KEY, RPC_ID_KEY, ReceivedMessage, RequestStream, ResponseSink,
-    RpcCode, RpcError, RpcSession, SERVICE_KEY, StreamRpcSession, StreamStreamHandler,
+    RpcCode, RpcError, RpcSession, SERVICE_KEY, StreamStreamHandler,
     StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler, UniffiRequestStream,
     codec::{Decoder, Encoder},
     send_error_for_rpc,
@@ -306,40 +306,31 @@ fn spawn_handler_task(
     session_tx: SessionTx,
     pending_streams: &mut HashMap<String, mpsc::UnboundedSender<ReceivedMessage>>,
 ) -> JoinHandle<()> {
-    match handler_info {
-        HandlerInfo::Stream(stream_handler, handler_type) => {
+    // For stream-input handlers, create the mpsc channel and register the sender
+    // so that subsequent messages can be routed to the same handler task.
+    // Only register if the first message is not already terminal; otherwise drop
+    // stream_tx immediately so the handler's channel closes after the first message.
+    let stream_rx = match &handler_info {
+        HandlerInfo::Stream(_, _) => {
             let (stream_tx, stream_rx) = mpsc::unbounded_channel();
-            // Only register the sender if the first message is not already terminal; otherwise
-            // drop stream_tx immediately so the handler's channel closes after the first message.
             if !msg.is_eos() {
                 pending_streams.insert(rpc_id.clone(), stream_tx);
             }
-            tokio::spawn(async move {
-                let session = StreamRpcSession::new_with_rpc_id(
-                    &session_tx,
-                    stream_rx,
-                    method_path.clone(),
-                    msg,
-                    rpc_id.clone(),
-                );
-                if let Err(e) = session.handle(stream_handler, handler_type).await {
-                    tracing::error!(%method_path, error = %e, "Error in stream RPC handler");
-                    let _ = send_error_for_rpc(&session_tx, e, &rpc_id).await;
-                }
-            })
+            Some(stream_rx)
         }
-        HandlerInfo::Unary(handler, handler_type) => tokio::spawn(async move {
-            let session =
-                RpcSession::new_with_rpc_id(&session_tx, method_path.clone(), msg, rpc_id.clone());
-            if let Err(e) = session
-                .handle(HandlerInfo::Unary(handler, handler_type))
-                .await
-            {
-                tracing::error!(%method_path, error = %e, "Error in unary RPC handler");
-                let _ = send_error_for_rpc(&session_tx, e, &rpc_id).await;
-            }
-        }),
-    }
+        HandlerInfo::Unary(_, _) => None,
+    };
+
+    tokio::spawn(async move {
+        let session = match stream_rx {
+            Some(rx) => RpcSession::new_stream(&session_tx, rx, &method_path, msg, &rpc_id),
+            None => RpcSession::new_unary(&session_tx, &method_path, msg, &rpc_id),
+        };
+        if let Err(e) = session.handle(handler_info).await {
+            tracing::error!(%method_path, error = %e, "Error in RPC handler");
+            let _ = send_error_for_rpc(&session_tx, e, &rpc_id).await;
+        }
+    })
 }
 
 /// Per-session demultiplexer: routes incoming messages by `rpc-id` and dispatches each new
