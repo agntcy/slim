@@ -23,10 +23,16 @@ pub enum ConfigError {
     UriParse(#[from] http::uri::InvalidUri),
     #[error("invalid endpoint scheme")]
     InvalidEndpointScheme,
+    #[error("websocket transport requires endpoint scheme ws:// or wss://")]
+    InvalidWebSocketEndpointScheme,
 
     // Network / transport
     #[error("transport error")]
     TransportError(#[from] tonic::transport::Error),
+    #[error("gRPC channel builder does not support websocket transport")]
+    GrpcChannelUnsupportedTransport,
+    #[error("gRPC server builder does not support websocket transport")]
+    GrpcServerUnsupportedTransport,
     #[error("bind error")]
     Bind(#[from] std::io::Error),
 
