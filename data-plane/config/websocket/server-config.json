@@ -1,7 +1,0 @@
-{
-  "endpoint": "ws://0.0.0.0:46357",
-  "transport": "websocket",
-  "tls": {
-    "insecure": true
-  }
-}
