@@ -209,7 +209,7 @@ fn generate_group_name(client_name: &Name) -> Name {
     ])
 }
 
-/// Metadata for the first (or only) message of an RPC call.
+/// Metadata for the first message of an RPC call.
 fn first_msg_metadata(ctx: &Context, service: &str, method: &str, rpc_id: &str) -> Metadata {
     let mut meta = ctx.metadata();
     meta.insert(SERVICE_KEY.to_string(), service.to_string());
@@ -353,7 +353,7 @@ impl Channel {
             .unwrap_or_else(|| self.initial_members.clone());
 
         tracing::debug!(?session_type, "no persistent session — recreating");
-        let (session_tx, session_rx) = self.create_raw_session_typed(session_type).await?;
+        let (session_tx, session_rx) = self.create_raw_session(session_type).await?;
         let dispatcher = Arc::new(ResponseDispatcher::new());
         let task = tokio::spawn(response_dispatcher_task(session_rx, dispatcher.clone()));
 
@@ -419,7 +419,7 @@ impl Channel {
     }
 
     /// Create a raw SLIM session to the remote peer.
-    async fn create_raw_session_typed(
+    async fn create_raw_session(
         &self,
         session_type: ProtoSessionType,
     ) -> Result<(SessionTx, SessionRx), RpcError> {
@@ -428,6 +428,7 @@ impl Channel {
         let connection_id = self.connection_id;
         let runtime = &self.runtime;
 
+        // Runs in a tokio task because create_session needs tokio runtime
         let handle = runtime.spawn(async move {
             if let Some(conn_id) = connection_id {
                 tracing::debug!(
