@@ -22,13 +22,13 @@ default-members = [
     "bindings/rust",
     "core/config",
     "core/datapath",
-    "core/slim",
     "core/service",
-    "slimctl",
     "core/signal",
+    "core/slim",
     "core/tracing",
-    "slimrpc-compiler",
     "examples",
+    "slimctl",
+    "slimrpc-compiler",
     "testing",
 ]
 
@@ -150,7 +150,6 @@ repository = "https://github.com/agntcy/slim"
 [workspace.metadata.cargo-machete]
 ignored = [
     "agntcy-slim",
-    "agntcy-slimctl",
     "agntcy-slim-auth",
     "agntcy-slim-bindings",
     "agntcy-slim-config",
@@ -160,7 +159,8 @@ ignored = [
     "agntcy-slim-service",
     "agntcy-slim-session",
     "agntcy-slim-signal",
-    "agntcy-slim-tracing",
     "agntcy-slim-testing",
+    "agntcy-slim-tracing",
+    "agntcy-slimctl",
     "agntcy-slimrpc",
 ]
