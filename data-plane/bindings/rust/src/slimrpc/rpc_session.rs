@@ -7,8 +7,9 @@
 //! including message sending/receiving, timeout handling, and stream processing.
 
 use std::collections::HashMap;
+use std::pin::Pin;
+use std::task::Poll;
 
-use async_stream::stream;
 use futures::StreamExt;
 use tokio::sync::mpsc;
 
@@ -18,6 +19,133 @@ use super::{
     Context, HandlerResponse, RPC_ID_KEY, ReceivedMessage, RpcCode, RpcError, RpcHandler,
     STATUS_CODE_KEY, SessionTx, StreamRpcHandler,
 };
+
+/// Raw byte stream for a stream-input RPC call.
+///
+/// Implements [`Stream`] directly using `poll_recv` — no heap allocation.
+/// All fields are [`Unpin`], so this type is `Unpin` too.
+///
+/// Yielded values:
+/// - `Ok(payload)` — normal message bytes
+/// - `Err(e)` — protocol error (bad status code, channel closed)
+///
+/// The stream ends (returns `None`) on EOS or after yielding an error.
+pub struct RawStream {
+    session_rx: Option<mpsc::UnboundedReceiver<ReceivedMessage>>,
+    payload: Vec<u8>,
+    first_is_eos: bool,
+    first_code: RpcCode,
+    /// `true` once the first message has been yielded or skipped.
+    first_done: bool,
+    /// `true` once the stream has permanently ended (EOS, error, or channel close).
+    done: bool,
+}
+
+impl futures::Stream for RawStream {
+    type Item = Result<Vec<u8>, RpcError>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        if self.done {
+            return Poll::Ready(None);
+        }
+
+        // ── First message ────────────────────────────────────────────────────
+        if !self.first_done {
+            self.first_done = true;
+
+            if self.first_is_eos {
+                self.done = true;
+                return Poll::Ready(None);
+            }
+
+            let first_code = self.first_code;
+            if first_code != RpcCode::Ok {
+                let payload = std::mem::take(&mut self.payload);
+                self.done = true;
+                return Poll::Ready(Some(Err(RpcError::new(
+                    first_code,
+                    String::from_utf8_lossy(&payload).into_owned(),
+                ))));
+            }
+
+            let payload = std::mem::take(&mut self.payload);
+            return Poll::Ready(Some(Ok(payload)));
+        }
+
+        // ── Continuation messages ────────────────────────────────────────────
+        let Some(ref mut rx) = self.session_rx else {
+            self.done = true;
+            return Poll::Ready(None);
+        };
+
+        match rx.poll_recv(cx) {
+            Poll::Ready(Some(msg)) => {
+                tracing::debug!("Received message in stream-based method");
+
+                if msg.is_eos() {
+                    self.done = true;
+                    return Poll::Ready(None);
+                }
+
+                let code = RpcCode::from_metadata_str(
+                    msg.metadata.get(STATUS_CODE_KEY).map(String::as_str),
+                );
+                if code != RpcCode::Ok {
+                    let message = String::from_utf8_lossy(&msg.payload).into_owned();
+                    self.done = true;
+                    return Poll::Ready(Some(Err(RpcError::new(code, message))));
+                }
+
+                Poll::Ready(Some(Ok(msg.payload)))
+            }
+            Poll::Ready(None) => {
+                self.done = true;
+                Poll::Ready(Some(Err(RpcError::internal("Stream channel closed"))))
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+/// A decoded request stream: `RawStream` items mapped through `Req::decode`.
+///
+/// Using a concrete named type (instead of `BoxStream`) lets the compiler
+/// stack-allocate the stream combinator and eliminates the `BoxStream`
+/// allocation that `RequestStream<Req>` required.
+///
+/// Handlers registered via `register_stream_unary_internal` /
+/// `register_stream_stream_internal` receive `DecodedStream<Req>` directly.
+pub type DecodedStream<Req> =
+    futures::stream::Map<RawStream, fn(Result<Vec<u8>, RpcError>) -> Result<Req, RpcError>>;
+
+/// Raw stream components passed to stream-input handlers.
+///
+/// Holding the raw components avoids boxing at the dispatch level. Each typed
+/// wrapper calls [`StreamSource::into_raw_stream`] to get a [`RawStream`], then
+/// maps it to the decoded type — with zero heap allocations.
+pub struct StreamSource {
+    pub session_rx: Option<mpsc::UnboundedReceiver<ReceivedMessage>>,
+    pub payload: Vec<u8>,
+    pub first_is_eos: bool,
+    pub first_code: RpcCode,
+}
+
+impl StreamSource {
+    /// Consume `self` and produce an allocation-free [`RawStream`].
+    pub fn into_raw_stream(self) -> RawStream {
+        RawStream {
+            session_rx: self.session_rx,
+            payload: self.payload,
+            first_is_eos: self.first_is_eos,
+            first_code: self.first_code,
+            first_done: false,
+            done: false,
+        }
+    }
+}
 
 /// Handler information retrieved from registry
 pub enum HandlerInfo {
@@ -117,8 +245,8 @@ impl<'a> RpcSession<'a> {
                         dispatch_response(session_tx, &source, rpc_id, handler_result).await
                     }
                     HandlerInfo::Stream(handler) => {
-                        let request_stream = build_request_stream(session_rx, payload, first_is_eos, first_code);
-                        let handler_result = (handler.as_ref())(request_stream.boxed(), ctx).await?;
+                        let stream_source = StreamSource { session_rx, payload, first_is_eos, first_code };
+                        let handler_result = (handler.as_ref())(stream_source, ctx).await?;
                         dispatch_response(session_tx, &source, rpc_id, handler_result).await
                     }
                 }
@@ -136,62 +264,6 @@ impl<'a> RpcSession<'a> {
         }
 
         result
-    }
-}
-
-/// Build the request stream from the first message and optional continuation channel.
-///
-/// For unary-input methods `session_rx` is `None` — the stream ends after the
-/// first message. For stream-input methods it is `Some` and the loop reads
-/// subsequent messages until EOS or an error.
-fn build_request_stream(
-    session_rx: Option<mpsc::UnboundedReceiver<ReceivedMessage>>,
-    payload: Vec<u8>,
-    first_is_eos: bool,
-    first_code: RpcCode,
-) -> impl futures::Stream<Item = Result<Vec<u8>, RpcError>> {
-    stream! {
-        // Handle the first message. It may be a normal application message,
-        // an error, or an EOS marker (the latter occurs when the client's
-        // request stream was empty and the method metadata was attached to
-        // the EOS rather than a data frame).
-        if first_is_eos {
-            return;
-        }
-        if first_code != RpcCode::Ok {
-            yield Err(RpcError::new(first_code, String::from_utf8_lossy(&payload).to_string()));
-            return;
-        }
-        yield Ok(payload);
-
-        if let Some(mut rx) = session_rx {
-            loop {
-                tracing::debug!("Received message in stream-based method");
-
-                let received = match rx.recv().await {
-                    Some(msg) => msg,
-                    None => {
-                        yield Err(RpcError::internal("Stream channel closed"));
-                        break;
-                    }
-                };
-
-                if received.is_eos() {
-                    break;
-                }
-
-                let code = RpcCode::from_metadata_str(
-                    received.metadata.get(STATUS_CODE_KEY).map(String::as_str)
-                );
-                if code != RpcCode::Ok {
-                    let message = String::from_utf8_lossy(&received.payload).to_string();
-                    yield Err(RpcError::new(code, message));
-                    break;
-                }
-
-                yield Ok(received.payload);
-            }
-        }
     }
 }
 

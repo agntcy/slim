@@ -145,7 +145,10 @@ pub use channel::{Channel, MessageContext, MulticastItem};
 pub use codec::{Codec, Decoder, Encoder};
 pub use context::{Context, Metadata, SessionContext};
 pub use error::{InvalidRpcCode, RpcCode, RpcError};
-pub use rpc_session::{HandlerInfo, RpcSession, send_eos, send_error, send_error_for_rpc};
+pub use rpc_session::{
+    DecodedStream, HandlerInfo, RawStream, RpcSession, StreamSource, send_eos, send_error,
+    send_error_for_rpc,
+};
 pub use server::{HandlerResponse, HandlerType, ItemStream, RpcHandler, Server, StreamRpcHandler};
 pub use session_wrapper::{ReceivedMessage, SessionRx, SessionTx, new_session};
 

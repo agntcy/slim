@@ -15,7 +15,7 @@ use tokio::sync::{
     mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
 };
 
-use super::{Channel, MulticastItem, RpcCode, RpcError};
+use super::{Channel, DecodedStream, MulticastItem, RpcCode, RpcError};
 
 /// Request stream reader
 ///
@@ -25,12 +25,12 @@ use super::{Channel, MulticastItem, RpcCode, RpcError};
 #[derive(uniffi::Object)]
 pub struct RequestStream {
     /// Inner stream wrapped in a mutex for interior mutability
-    inner: TokioMutex<super::RequestStream<Vec<u8>>>,
+    inner: TokioMutex<DecodedStream<Vec<u8>>>,
 }
 
 impl RequestStream {
     /// Create a new request stream wrapper
-    pub fn new(stream: super::RequestStream<Vec<u8>>) -> Self {
+    pub fn new(stream: DecodedStream<Vec<u8>>) -> Self {
         Self {
             inner: TokioMutex::new(stream),
         }
@@ -617,23 +617,50 @@ impl MulticastBidiStreamHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures::stream;
 
     #[tokio::test]
     async fn test_request_stream() {
-        let data = vec![vec![1, 2, 3], vec![4, 5, 6]];
-        let stream = stream::iter(data.clone().into_iter().map(Ok));
-        let request_stream = RequestStream::new(stream.boxed());
+        use crate::slimrpc::{RawStream, ReceivedMessage, StreamSource};
+        use futures::StreamExt;
+        use slim_datapath::messages::Name;
+
+        let dummy_name = Name::from_strings(["", "", ""]);
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ReceivedMessage>();
+
+        // Second message
+        tx.send(ReceivedMessage {
+            metadata: std::collections::HashMap::new(),
+            payload: vec![4, 5, 6],
+            source: dummy_name.clone(),
+        })
+        .unwrap();
+        // EOS: empty payload with default (Ok) status code
+        tx.send(ReceivedMessage {
+            metadata: std::collections::HashMap::new(),
+            payload: vec![],
+            source: dummy_name,
+        })
+        .unwrap();
+
+        let source = StreamSource {
+            session_rx: Some(rx),
+            payload: vec![1, 2, 3],
+            first_is_eos: false,
+            first_code: RpcCode::Ok,
+        };
+        let decode_fn: fn(Result<Vec<u8>, RpcError>) -> Result<Vec<u8>, RpcError> = |res| res;
+        let stream: DecodedStream<Vec<u8>> = source.into_raw_stream().map(decode_fn);
+        let request_stream = RequestStream::new(stream);
 
         let msg1 = request_stream.next_async().await;
         match msg1 {
-            StreamMessage::Data(d) => assert_eq!(d, data[0]),
+            StreamMessage::Data(d) => assert_eq!(d, vec![1, 2, 3]),
             _ => panic!("Expected data"),
         }
 
         let msg2 = request_stream.next_async().await;
         match msg2 {
-            StreamMessage::Data(d) => assert_eq!(d, data[1]),
+            StreamMessage::Data(d) => assert_eq!(d, vec![4, 5, 6]),
             _ => panic!("Expected data"),
         }
 
