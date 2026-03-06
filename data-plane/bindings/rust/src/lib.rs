@@ -58,6 +58,7 @@ mod name;
 mod server_config;
 mod service;
 mod session;
+mod transport_protocol;
 
 // SlimRPC module (unified core + UniFFI bindings)
 pub mod slimrpc;
@@ -99,6 +100,9 @@ pub use service::{
     new_dataplane_config, new_service_configuration,
 };
 pub use session::{Session, SessionConfig, SessionType};
+pub use transport_protocol::TransportProtocol;
+pub use transport_protocol::TransportProtocol as ClientTransportProtocol;
+pub use transport_protocol::TransportProtocol as ServerTransportProtocol;
 
 // SLIMRpc re-exports
 pub use slimrpc::{
