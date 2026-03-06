@@ -450,9 +450,9 @@ pub struct RpcMulticastItem {
 #[derive(uniffi::Enum)]
 pub enum MulticastStreamMessage {
     /// Successfully received response item with source context.
-    Data(RpcMulticastItem),
+    Data { item: RpcMulticastItem },
     /// Error from one member — other members may still be active.
-    Error(RpcError),
+    Error { error: RpcError },
     /// All members have finished — the stream has ended.
     End,
 }
@@ -479,13 +479,15 @@ impl MulticastResponseReader {
         item: Result<MulticastItem<Vec<u8>>, RpcError>,
     ) -> MulticastStreamMessage {
         match item {
-            Ok(mi) => MulticastStreamMessage::Data(RpcMulticastItem {
-                context: RpcMessageContext {
-                    source: Arc::new(crate::Name::from_slim_name(mi.context.source)),
+            Ok(mi) => MulticastStreamMessage::Data {
+                item: RpcMulticastItem {
+                    context: RpcMessageContext {
+                        source: Arc::new(crate::Name::from_slim_name(mi.context.source)),
+                    },
+                    message: mi.message,
                 },
-                message: mi.message,
-            }),
-            Err(e) => MulticastStreamMessage::Error(e),
+            },
+            Err(e) => MulticastStreamMessage::Error { error: e },
         }
     }
 }

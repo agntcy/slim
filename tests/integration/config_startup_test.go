@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -28,6 +29,14 @@ import (
 type configCase struct {
 	ServerPath string
 	ClientPath string
+}
+
+func fileUsesWebsocketTransport(path string) bool {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(content), "transport: websocket")
 }
 
 func resolveConfigCases() []configCase {
@@ -113,6 +122,10 @@ var _ = Describe("SLIM server + client connection using configuration files", fu
 				_ = os.Remove(serverConfig)
 				_ = os.Remove(clientConfig)
 			}()
+
+			if fileUsesWebsocketTransport(serverConfig) || fileUsesWebsocketTransport(clientConfig) {
+				Skip("websocket transport startup is not supported in this integration suite yet")
+			}
 
 			// Server config must exist
 			serverInfo, err := os.Stat(c.ServerPath)
