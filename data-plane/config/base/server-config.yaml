@@ -13,9 +13,15 @@ runtime:
 
 services:
   slim/0:
+    node_id: ${env:SLIM_SVC_ID}
     dataplane:
       servers:
         - endpoint: "0.0.0.0:46357"
           tls:
             insecure: true
       clients: []
+    controller:
+      clients:
+        - endpoint: "http://localhost:50052"  
+          tls:
+            insecure: true
