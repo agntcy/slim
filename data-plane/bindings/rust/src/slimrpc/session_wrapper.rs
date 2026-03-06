@@ -32,6 +32,7 @@ pub struct ReceivedMessage {
 }
 
 /// Session transmitter - used only for sending messages
+#[derive(Clone)]
 pub struct SessionTx {
     /// The underlying session controller
     controller: Arc<slim_session::session_controller::SessionController>,
