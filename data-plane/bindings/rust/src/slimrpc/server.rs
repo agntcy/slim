@@ -24,8 +24,8 @@ use slim_session::notification::Notification;
 
 use super::{
     Context, HandlerInfo, METHOD_KEY, RPC_ID_KEY, ReceivedMessage, RequestStream, ResponseSink,
-    RpcCode, RpcError, RpcSession, SERVICE_KEY, StreamStreamHandler,
-    StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler, UniffiRequestStream,
+    RpcCode, RpcError, RpcSession, SERVICE_KEY, StreamStreamHandler, StreamUnaryHandler,
+    UnaryStreamHandler, UnaryUnaryHandler, UniffiRequestStream,
     codec::{Decoder, Encoder},
     send_error_for_rpc,
     session_wrapper::{SessionRx, SessionTx, new_session},
@@ -66,9 +66,9 @@ pub enum HandlerType {
 #[derive(Clone)]
 struct ServiceRegistry {
     /// Map of method paths to handlers (for unary-input methods)
-    handlers: HashMap<String, (RpcHandler, HandlerType)>,
+    handlers: HashMap<String, RpcHandler>,
     /// Map of method paths to stream handlers (for stream-input methods)
-    stream_handlers: HashMap<String, (StreamRpcHandler, HandlerType)>,
+    stream_handlers: HashMap<String, StreamRpcHandler>,
 }
 
 impl ServiceRegistry {
@@ -105,8 +105,7 @@ impl ServiceRegistry {
             .boxed()
         });
 
-        self.handlers
-            .insert(method_path, (wrapper, HandlerType::UnaryUnary));
+        self.handlers.insert(method_path, wrapper);
     }
 
     /// Register a unary-stream handler
@@ -137,8 +136,7 @@ impl ServiceRegistry {
             .boxed()
         });
 
-        self.handlers
-            .insert(method_path, (wrapper, HandlerType::UnaryStream));
+        self.handlers.insert(method_path, wrapper);
     }
 
     /// Register a stream-unary handler
@@ -167,8 +165,7 @@ impl ServiceRegistry {
             .boxed()
         });
 
-        self.stream_handlers
-            .insert(method_path, (wrapper, HandlerType::StreamUnary));
+        self.stream_handlers.insert(method_path, wrapper);
     }
 
     /// Register a stream-stream handler
@@ -198,20 +195,21 @@ impl ServiceRegistry {
             .boxed()
         });
 
-        self.stream_handlers
-            .insert(method_path, (wrapper, HandlerType::StreamStream));
+        self.stream_handlers.insert(method_path, wrapper);
     }
 
     /// Get handler info (either stream or unary) in one lookup
     fn get_handler_info(&self, method_path: &str) -> Option<HandlerInfo> {
-        if let Some((stream_handler, handler_type)) = self.stream_handlers.get(method_path).cloned()
-        {
-            Some(HandlerInfo::Stream(stream_handler, handler_type))
-        } else if let Some((handler, handler_type)) = self.handlers.get(method_path).cloned() {
-            Some(HandlerInfo::Unary(handler, handler_type))
-        } else {
-            None
-        }
+        self.stream_handlers
+            .get(method_path)
+            .cloned()
+            .map(HandlerInfo::Stream)
+            .or_else(|| {
+                self.handlers
+                    .get(method_path)
+                    .cloned()
+                    .map(HandlerInfo::Unary)
+            })
     }
 
     /// Get all registered method paths
@@ -311,14 +309,14 @@ fn spawn_handler_task(
     // Only register if the first message is not already terminal; otherwise drop
     // stream_tx immediately so the handler's channel closes after the first message.
     let stream_rx = match &handler_info {
-        HandlerInfo::Stream(_, _) => {
+        HandlerInfo::Stream(_) => {
             let (stream_tx, stream_rx) = mpsc::unbounded_channel();
             if !msg.is_eos() {
                 pending_streams.insert(rpc_id.clone(), stream_tx);
             }
             Some(stream_rx)
         }
-        HandlerInfo::Unary(_, _) => None,
+        HandlerInfo::Unary(_) => None,
     };
 
     tokio::spawn(async move {

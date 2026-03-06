@@ -15,14 +15,14 @@ use tokio::sync::mpsc;
 use slim_datapath::messages::Name;
 
 use super::{
-    Context, HandlerResponse, HandlerType, ItemStream, RPC_ID_KEY, ReceivedMessage, RpcCode,
-    RpcError, STATUS_CODE_KEY, SessionTx, StreamRpcHandler,
+    Context, HandlerResponse, RPC_ID_KEY, ReceivedMessage, RpcCode, RpcError, RpcHandler,
+    STATUS_CODE_KEY, SessionTx, StreamRpcHandler,
 };
 
 /// Handler information retrieved from registry
 pub enum HandlerInfo {
-    Stream(StreamRpcHandler, HandlerType),
-    Unary(super::RpcHandler, HandlerType),
+    Stream(StreamRpcHandler),
+    Unary(RpcHandler),
 }
 
 /// RPC session handler for all four interaction patterns.
@@ -50,7 +50,13 @@ impl<'a> RpcSession<'a> {
         first_message: ReceivedMessage,
         rpc_id: &'a str,
     ) -> Self {
-        Self { session_tx, session_rx: None, method_path, first_message, rpc_id }
+        Self {
+            session_tx,
+            session_rx: None,
+            method_path,
+            first_message,
+            rpc_id,
+        }
     }
 
     /// Create a session for a stream-input RPC (stream-unary, stream-stream).
@@ -61,21 +67,40 @@ impl<'a> RpcSession<'a> {
         first_message: ReceivedMessage,
         rpc_id: &'a str,
     ) -> Self {
-        Self { session_tx, session_rx: Some(channel_rx), method_path, first_message, rpc_id }
+        Self {
+            session_tx,
+            session_rx: Some(channel_rx),
+            method_path,
+            first_message,
+            rpc_id,
+        }
     }
 
     /// Handle the session, dispatching to the appropriate interaction pattern.
     pub async fn handle(self, handler_info: HandlerInfo) -> Result<(), RpcError> {
-        let Self { session_tx, session_rx, method_path, first_message, rpc_id } = self;
+        let Self {
+            session_tx,
+            session_rx,
+            method_path,
+            first_message,
+            rpc_id,
+        } = self;
 
         tracing::debug!(%method_path, "Processing RPC");
 
         // Pre-compute first-message status before moving fields into ctx / stream.
         let first_is_eos = first_message.is_eos();
         let first_code = RpcCode::from_metadata_str(
-            first_message.metadata.get(STATUS_CODE_KEY).map(String::as_str),
+            first_message
+                .metadata
+                .get(STATUS_CODE_KEY)
+                .map(String::as_str),
         );
-        let ReceivedMessage { metadata, payload, source } = first_message;
+        let ReceivedMessage {
+            metadata,
+            payload,
+            source,
+        } = first_message;
         let ctx = Context::from_session_tx(session_tx).with_message_metadata(metadata);
 
         if ctx.is_deadline_exceeded() {
@@ -87,14 +112,14 @@ impl<'a> RpcSession<'a> {
         let result = tokio::select! {
             result = async move {
                 match handler_info {
-                    HandlerInfo::Unary(handler, handler_type) => {
+                    HandlerInfo::Unary(handler) => {
                         let handler_result = (handler.as_ref())(payload, ctx).await?;
-                        dispatch_response(session_tx, &source, rpc_id, handler_result, handler_type).await
+                        dispatch_response(session_tx, &source, rpc_id, handler_result).await
                     }
-                    HandlerInfo::Stream(handler, handler_type) => {
+                    HandlerInfo::Stream(handler) => {
                         let request_stream = build_request_stream(session_rx, payload, first_is_eos, first_code);
                         let handler_result = (handler.as_ref())(request_stream.boxed(), ctx).await?;
-                        dispatch_response(session_tx, &source, rpc_id, handler_result, handler_type).await
+                        dispatch_response(session_tx, &source, rpc_id, handler_result).await
                     }
                 }
             } => result,
@@ -170,32 +195,27 @@ fn build_request_stream(
     }
 }
 
-/// Send the handler result to the client based on the handler type.
+/// Send the handler result to the client.
 async fn dispatch_response(
     session_tx: &SessionTx,
     source: &Name,
     rpc_id: &str,
     handler_result: HandlerResponse,
-    handler_type: HandlerType,
 ) -> Result<(), RpcError> {
-    match handler_type {
-        HandlerType::UnaryUnary | HandlerType::StreamUnary => {
-            let bytes = match handler_result {
-                HandlerResponse::Unary(bytes) => bytes,
-                _ => return Err(RpcError::internal("Handler returned unexpected response type")),
-            };
-            send_message(session_tx, source, bytes, RpcCode::Ok, rpc_id).await?;
-            send_eos(session_tx, source, rpc_id, None).await?;
+    match handler_result {
+        HandlerResponse::Unary(bytes) => {
+            send_response_stream(
+                session_tx,
+                futures::stream::once(std::future::ready(Ok(bytes))),
+                rpc_id,
+                source,
+            )
+            .await
         }
-        HandlerType::UnaryStream | HandlerType::StreamStream => {
-            let stream = match handler_result {
-                HandlerResponse::Stream(stream) => stream,
-                _ => return Err(RpcError::internal("Handler returned unexpected response type")),
-            };
-            send_response_stream(session_tx, stream, rpc_id, source).await?;
+        HandlerResponse::Stream(stream) => {
+            send_response_stream(session_tx, stream, rpc_id, source).await
         }
     }
-    Ok(())
 }
 
 /// Send a session-level error response (no rpc_id — used before dispatch)
@@ -287,12 +307,15 @@ async fn send_message(
         .map_err(|e| RpcError::internal(format!("Failed to complete message send: {}", e)))
 }
 
-async fn send_response_stream(
+async fn send_response_stream<S>(
     session_tx: &SessionTx,
-    mut stream: ItemStream,
+    mut stream: S,
     rpc_id: &str,
     target: &Name,
-) -> Result<(), RpcError> {
+) -> Result<(), RpcError>
+where
+    S: futures::Stream<Item = Result<Vec<u8>, RpcError>> + Unpin,
+{
     while let Some(result) = stream.next().await {
         match result {
             Ok(response_bytes) => {
