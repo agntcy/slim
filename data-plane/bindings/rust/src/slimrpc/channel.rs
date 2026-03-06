@@ -6,9 +6,8 @@
 //! Provides a Channel type for making RPC calls to remote services.
 //! Supports all gRPC streaming patterns over SLIM sessions.
 //!
-//! All eight public RPC methods are built on top of two core streaming methods:
-//! - `responses_from_request`: for single-request patterns (unary / unary-stream)
-//! - `responses_from_stream_input`: for streaming-request patterns (stream-unary / stream-stream)
+//! All eight public RPC methods are built on top of `responses_from_stream_input`.
+//! Single-request callers wrap their request in `futures::stream::once`.
 //!
 //! Both core methods dispatch based on `self.is_group`:
 //! - P2P (`is_group = false`): uses a PointToPoint session; stream ends on server EOS
@@ -538,33 +537,7 @@ impl Channel {
 
     // ── Core streaming methods ────────────────────────────────────────────────
 
-    /// Core streaming method for single-request patterns (P2P and GROUP).
-    ///
-    /// Wraps `responses_from_stream_input` with a one-element stream.
-    /// The trailing EOS emitted by the stream sender is dropped by the server
-    /// for unary handlers (no service key, not in `pending_streams`).
-    fn responses_from_request<Req, Res>(
-        &self,
-        service_name: &str,
-        method_name: &str,
-        request: Req,
-        timeout: Option<Duration>,
-        metadata: Option<Metadata>,
-    ) -> impl Stream<Item = Result<MulticastItem<Res>, RpcError>>
-    where
-        Req: Encoder + Send + 'static,
-        Res: Decoder + Send + 'static,
-    {
-        self.responses_from_stream_input(
-            service_name,
-            method_name,
-            futures::stream::once(std::future::ready(request)),
-            timeout,
-            metadata,
-        )
-    }
-
-    /// Core streaming method for streaming-request patterns (P2P and GROUP).
+    /// Core streaming method for all interaction patterns (P2P and GROUP).
     ///
     /// Broadcasts `request_stream` concurrently while collecting responses.
     /// For P2P (`num_members = 1`) the stream ends on the single server EOS.
@@ -699,8 +672,13 @@ impl Channel {
         Req: Encoder + Send + 'static,
         Res: Decoder + Send + 'static,
     {
-        let stream =
-            self.responses_from_request(service_name, method_name, request, timeout, metadata);
+        let stream = self.responses_from_stream_input(
+            service_name,
+            method_name,
+            futures::stream::once(std::future::ready(request)),
+            timeout,
+            metadata,
+        );
         futures::pin_mut!(stream);
         stream
             .next()
@@ -722,8 +700,14 @@ impl Channel {
         Req: Encoder + Send + 'static,
         Res: Decoder + Send + 'static,
     {
-        self.responses_from_request(service_name, method_name, request, timeout, metadata)
-            .map(|r| r.map(|item| item.message))
+        self.responses_from_stream_input(
+            service_name,
+            method_name,
+            futures::stream::once(std::future::ready(request)),
+            timeout,
+            metadata,
+        )
+        .map(|r| r.map(|item| item.message))
     }
 
     /// Stream-unary RPC: stream of requests → single response.
@@ -795,7 +779,13 @@ impl Channel {
         Req: Encoder + Send + 'static,
         Res: Decoder + Send + 'static,
     {
-        self.responses_from_request(service_name, method_name, request, timeout, metadata)
+        self.responses_from_stream_input(
+            service_name,
+            method_name,
+            futures::stream::once(std::future::ready(request)),
+            timeout,
+            metadata,
+        )
     }
 
     /// Multicast unary-stream: broadcast one request, receive a stream of `MulticastItem`s.
@@ -818,7 +808,13 @@ impl Channel {
         Req: Encoder + Send + 'static,
         Res: Decoder + Send + 'static,
     {
-        self.responses_from_request(service_name, method_name, request, timeout, metadata)
+        self.responses_from_stream_input(
+            service_name,
+            method_name,
+            futures::stream::once(std::future::ready(request)),
+            timeout,
+            metadata,
+        )
     }
 
     /// Multicast stream-unary: broadcast a request stream, receive one `MulticastItem` per member.
