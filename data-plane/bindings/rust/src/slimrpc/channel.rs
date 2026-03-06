@@ -64,7 +64,7 @@ use super::{
     ResponseStreamReader, RpcCode, RpcError, SERVICE_KEY, STATUS_CODE_KEY,
     calculate_timeout_duration,
     codec::{Decoder, Encoder},
-    msg_is_terminal,
+    send_eos,
     session_wrapper::{SessionRx, SessionTx, new_session},
 };
 
@@ -223,17 +223,6 @@ fn first_msg_metadata(ctx: &Context, service: &str, method: &str, rpc_id: &str) 
 fn continuation_metadata(rpc_id: &str) -> Metadata {
     let mut meta = HashMap::new();
     meta.insert(RPC_ID_KEY.to_string(), rpc_id.to_string());
-    meta
-}
-
-/// Metadata for an end-of-stream marker.
-fn eos_metadata(rpc_id: &str, routing: Option<(&Context, &str, &str)>) -> Metadata {
-    let mut meta = match routing {
-        Some((ctx, service, method)) => first_msg_metadata(ctx, service, method, rpc_id),
-        None => continuation_metadata(rpc_id),
-    };
-    let code: i32 = RpcCode::Ok.into();
-    meta.insert(STATUS_CODE_KEY.to_string(), code.to_string());
     meta
 }
 
@@ -485,19 +474,6 @@ impl Channel {
             .map_err(|e| RpcError::internal(format!("Session creation task failed: {}", e)))?
     }
 
-    // ── Stream helpers ────────────────────────────────────────────────────────
-
-    fn parse_status_code(&self, code_str: Option<&String>) -> Result<RpcCode, RpcError> {
-        match code_str {
-            Some(s) => s
-                .parse::<i32>()
-                .ok()
-                .and_then(|code| RpcCode::try_from(code).ok())
-                .ok_or(RpcError::internal(format!("Invalid status code: {}", s))),
-            None => Ok(RpcCode::Ok),
-        }
-    }
-
     // ── Send helpers ──────────────────────────────────────────────────────────
 
     /// Send a stream of request messages.
@@ -534,21 +510,6 @@ impl Channel {
                 .await?;
             handles.push(handle);
         }
-        let routing = if first {
-            Some((ctx, service_name, method_name))
-        } else {
-            None
-        };
-        let handle = session
-            .publish(
-                session.destination(),
-                Vec::new(),
-                Some("msg".to_string()),
-                Some(eos_metadata(rpc_id, routing)),
-            )
-            .await?;
-        handles.push(handle);
-
         let results = join_all(handles).await;
         for result in results {
             result.map_err(|e| {
@@ -560,6 +521,18 @@ impl Channel {
                 ))
             })?;
         }
+
+        // When the stream was empty `first` is still true: the EOS must carry
+        // service + method so the server can dispatch without a preceding data frame.
+        let extra = if first {
+            Some(HashMap::from([
+                (SERVICE_KEY.to_string(), service_name.to_string()),
+                (METHOD_KEY.to_string(), method_name.to_string()),
+            ]))
+        } else {
+            None
+        };
+        send_eos(session, session.destination(), rpc_id, extra).await?;
         Ok(())
     }
 
@@ -677,16 +650,15 @@ impl Channel {
                     Ok(Some(m)) => m,
                 };
 
-                if msg_is_terminal(&received) {
+                if received.is_eos() {
                     eos_count += 1;
                     if eos_count >= num_members { break; }
                     continue;
                 }
 
-                let code = match channel.parse_status_code(received.metadata.get(STATUS_CODE_KEY)) {
-                    Ok(c) => c,
-                    Err(e) => { yield Err(e); break; }
-                };
+                let code = RpcCode::from_metadata_str(
+                    received.metadata.get(STATUS_CODE_KEY).map(String::as_str)
+                );
                 if code != RpcCode::Ok {
                     let msg_text = String::from_utf8_lossy(&received.payload).to_string();
                     eos_count += 1;

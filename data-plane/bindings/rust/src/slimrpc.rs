@@ -145,7 +145,9 @@ pub use channel::{Channel, MessageContext, MulticastItem};
 pub use codec::{Codec, Decoder, Encoder};
 pub use context::{Context, Metadata, SessionContext};
 pub use error::{InvalidRpcCode, RpcCode, RpcError};
-pub use rpc_session::{HandlerInfo, RpcSession, StreamRpcSession, send_error, send_error_for_rpc};
+pub use rpc_session::{
+    HandlerInfo, RpcSession, StreamRpcSession, send_eos, send_error, send_error_for_rpc,
+};
 pub use server::{HandlerResponse, HandlerType, ItemStream, RpcHandler, Server, StreamRpcHandler};
 pub use session_wrapper::{ReceivedMessage, SessionRx, SessionTx, new_session};
 
@@ -183,21 +185,6 @@ pub const MAX_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3600
 /// This is the single point of truth for timeout duration calculation in SlimRPC.
 pub fn calculate_timeout_duration(timeout: Option<std::time::Duration>) -> std::time::Duration {
     timeout.unwrap_or(MAX_TIMEOUT)
-}
-
-/// Returns `true` when `msg` is an end-of-stream marker: status code is `Ok`
-/// **and** the payload is empty.
-///
-/// This is the canonical test used by both the client and server to decide
-/// whether a received message terminates the current RPC stream.
-pub(crate) fn msg_is_terminal(msg: &session_wrapper::ReceivedMessage) -> bool {
-    let code = msg
-        .metadata
-        .get(STATUS_CODE_KEY)
-        .and_then(|s| s.parse::<i32>().ok())
-        .and_then(|c| RpcCode::try_from(c).ok())
-        .unwrap_or(RpcCode::Ok);
-    code == RpcCode::Ok && msg.payload.is_empty()
 }
 
 /// Calculate deadline from optional timeout duration

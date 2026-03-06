@@ -19,7 +19,7 @@ use slim_session::context::SessionContext;
 use slim_session::errors::SessionError;
 use slim_session::{AppChannelReceiver, CompletionHandle};
 
-use super::RpcError;
+use super::{RpcCode, RpcError, STATUS_CODE_KEY};
 
 /// Received message from a session
 #[derive(Debug, Clone)]
@@ -30,6 +30,16 @@ pub struct ReceivedMessage {
     pub payload: Vec<u8>,
     /// Name of the app that sent this message (extracted from the SLIM header)
     pub source: Name,
+}
+
+impl ReceivedMessage {
+    /// Returns `true` when this message is an end-of-stream marker:
+    /// status code is `Ok` **and** the payload is empty.
+    pub fn is_eos(&self) -> bool {
+        RpcCode::from_metadata_str(self.metadata.get(STATUS_CODE_KEY).map(String::as_str))
+            == RpcCode::Ok
+            && self.payload.is_empty()
+    }
 }
 
 /// Session transmitter - used only for sending messages

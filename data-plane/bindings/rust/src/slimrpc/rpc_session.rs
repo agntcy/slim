@@ -130,17 +130,7 @@ impl<'a> RpcSession<'a> {
                     rpc_id,
                 )
                 .await?;
-                // Send EOS so GROUP/multicast callers can count per-member stream ends.
-                // P2P callers drop the stream after reading the single item, so the EOS
-                // is harmlessly discarded if the dispatcher has already been unregistered.
-                send_message(
-                    session_tx,
-                    &first_message.source,
-                    Vec::new(),
-                    RpcCode::Ok,
-                    rpc_id,
-                )
-                .await
+                send_eos(session_tx, &first_message.source, rpc_id, None).await
             }
             _ => Err(RpcError::internal(
                 "Handler returned unexpected response type",
@@ -259,6 +249,7 @@ impl<'a> StreamRpcSession<'a> {
         let mut session_rx = self.session_rx;
         let ctx = self.ctx;
         let first_message = self.first_message;
+        let source = first_message.source.clone();
         let rpc_id = self.rpc_id;
 
         let request_stream = stream! {
@@ -267,15 +258,13 @@ impl<'a> StreamRpcSession<'a> {
             // request stream was empty and the method metadata was attached to
             // the EOS rather than a data frame).
             {
-                let code = first_message.metadata.get(STATUS_CODE_KEY)
-                    .and_then(|s| s.parse::<i32>().ok())
-                    .and_then(|code| RpcCode::try_from(code).ok())
-                    .unwrap_or(RpcCode::Ok);
-
-                if code == RpcCode::Ok && first_message.payload.is_empty() {
+                if first_message.is_eos() {
                     // EOS marker — the request stream is empty, nothing to yield.
                     return;
                 }
+                let code = RpcCode::from_metadata_str(
+                    first_message.metadata.get(STATUS_CODE_KEY).map(String::as_str)
+                );
                 if code != RpcCode::Ok {
                     let message = String::from_utf8_lossy(&first_message.payload).to_string();
                     yield Err(RpcError::new(code, message));
@@ -295,16 +284,13 @@ impl<'a> StreamRpcSession<'a> {
                     }
                 };
 
-                // Check for end-of-stream marker
-                let code = received.metadata.get(STATUS_CODE_KEY)
-                    .and_then(|s| s.parse::<i32>().ok())
-                    .and_then(|code| RpcCode::try_from(code).ok())
-                    .unwrap_or(RpcCode::Ok);
-
-                if code == RpcCode::Ok && received.payload.is_empty() {
+                if received.is_eos() {
                     break;
                 }
 
+                let code = RpcCode::from_metadata_str(
+                    received.metadata.get(STATUS_CODE_KEY).map(String::as_str)
+                );
                 if code != RpcCode::Ok {
                     let message = String::from_utf8_lossy(&received.payload).to_string();
                     yield Err(RpcError::new(code, message));
@@ -335,22 +321,8 @@ impl<'a> StreamRpcSession<'a> {
                     }
                 };
 
-                send_message(
-                    session_tx,
-                    &first_message.source,
-                    response,
-                    RpcCode::Ok,
-                    &rpc_id,
-                )
-                .await?;
-                send_message(
-                    session_tx,
-                    &first_message.source,
-                    Vec::new(),
-                    RpcCode::Ok,
-                    &rpc_id,
-                )
-                .await?;
+                send_message(session_tx, &source, response, RpcCode::Ok, &rpc_id).await?;
+                send_eos(session_tx, &source, &rpc_id, None).await?;
             }
             HandlerType::StreamStream => {
                 // Send streaming responses
@@ -363,8 +335,7 @@ impl<'a> StreamRpcSession<'a> {
                     }
                 };
 
-                send_response_stream(session_tx, response_stream, &rpc_id, &first_message.source)
-                    .await?;
+                send_response_stream(session_tx, response_stream, &rpc_id, &source).await?;
             }
             _ => {
                 return Err(RpcError::internal(
@@ -404,6 +375,37 @@ pub async fn send_error_for_rpc(
         tracing::warn!(error = %e, "Failed to send error response");
         RpcError::internal(format!("Failed to complete error send: {}", e))
     })
+}
+
+/// Send an end-of-stream marker to `target`.
+///
+/// An EOS is an empty-payload message with `slimrpc-code = Ok`. Every server
+/// handler must send one after its final response so GROUP/multicast callers
+/// can count per-member stream ends. P2P callers discard it harmlessly.
+///
+/// `service` and `method` are included only when the EOS is also the first
+/// message (empty request stream), so the server can dispatch without a
+/// preceding data frame.
+///
+/// `extra` is merged into the EOS metadata after the status code. Pass
+/// `None` for the common case where no additional metadata is needed.
+pub async fn send_eos(
+    session_tx: &SessionTx,
+    target: &Name,
+    rpc_id: &str,
+    extra: Option<HashMap<String, String>>,
+) -> Result<(), RpcError> {
+    let mut metadata = create_status_metadata(RpcCode::Ok, rpc_id);
+    if let Some(extra) = extra {
+        metadata.extend(extra);
+    }
+    let handle = session_tx
+        .publish(target, Vec::new(), Some("msg".to_string()), Some(metadata))
+        .await
+        .map_err(|e| RpcError::internal(format!("Failed to send EOS: {}", e)))?;
+    handle
+        .await
+        .map_err(|e| RpcError::internal(format!("Failed to complete EOS send: {}", e)))
 }
 
 fn create_status_metadata(code: RpcCode, rpc_id: &str) -> HashMap<String, String> {
@@ -451,5 +453,5 @@ async fn send_response_stream(
             Err(e) => return Err(e),
         }
     }
-    send_message(session_tx, target, Vec::new(), RpcCode::Ok, rpc_id).await
+    send_eos(session_tx, target, rpc_id, None).await
 }

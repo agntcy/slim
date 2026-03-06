@@ -27,7 +27,7 @@ use super::{
     RpcCode, RpcError, RpcSession, SERVICE_KEY, StreamRpcSession, StreamStreamHandler,
     StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler, UniffiRequestStream,
     codec::{Decoder, Encoder},
-    msg_is_terminal, send_error_for_rpc,
+    send_error_for_rpc,
     session_wrapper::{SessionRx, SessionTx, new_session},
 };
 
@@ -311,7 +311,7 @@ fn spawn_handler_task(
             let (stream_tx, stream_rx) = mpsc::unbounded_channel();
             // Only register the sender if the first message is not already terminal; otherwise
             // drop stream_tx immediately so the handler's channel closes after the first message.
-            if !msg_is_terminal(&msg) {
+            if !msg.is_eos() {
                 pending_streams.insert(rpc_id.clone(), stream_tx);
             }
             tokio::spawn(async move {
@@ -391,7 +391,7 @@ async fn run_session_demux(
 
         if let Some(tx) = pending_streams.get(&rpc_id) {
             // Route continuation message to the existing stream-input handler.
-            let is_terminal = msg_is_terminal(&msg);
+            let is_terminal = msg.is_eos();
             let _ = tx.send(msg);
             if is_terminal {
                 pending_streams.remove(&rpc_id);
