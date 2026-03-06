@@ -154,9 +154,10 @@ pub use handler_traits::{
     StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
 };
 pub use stream_types::{
-    BidiStreamHandler, MulticastBidiStreamHandler, MulticastResponseReader, MulticastStreamMessage,
-    RequestStream as UniffiRequestStream, RequestStreamWriter, ResponseSink, ResponseStreamReader,
-    RpcMessageContext, RpcMulticastItem, StreamMessage,
+    BidiStreamHandler, DecodedStream, MulticastBidiStreamHandler, MulticastResponseReader,
+    MulticastStreamMessage, RawStream, RequestStream as UniffiRequestStream, RequestStreamWriter,
+    ResponseSink, ResponseStreamReader, RpcMessageContext, RpcMulticastItem, StreamMessage,
+    StreamSource,
 };
 
 /// Key used in metadata for RPC deadline/timeout

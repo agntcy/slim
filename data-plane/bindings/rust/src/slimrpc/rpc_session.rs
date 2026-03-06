@@ -8,7 +8,6 @@
 
 use std::collections::HashMap;
 
-use async_stream::stream;
 use futures::StreamExt;
 use tokio::sync::mpsc;
 
@@ -16,7 +15,7 @@ use slim_datapath::messages::Name;
 
 use super::{
     Context, HandlerResponse, RPC_ID_KEY, ReceivedMessage, RpcCode, RpcError, RpcHandler,
-    STATUS_CODE_KEY, SessionTx, StreamRpcHandler,
+    STATUS_CODE_KEY, SessionTx, StreamRpcHandler, StreamSource,
 };
 
 /// Handler information retrieved from registry
@@ -117,8 +116,8 @@ impl<'a> RpcSession<'a> {
                         dispatch_response(session_tx, &source, rpc_id, handler_result).await
                     }
                     HandlerInfo::Stream(handler) => {
-                        let request_stream = build_request_stream(session_rx, payload, first_is_eos, first_code);
-                        let handler_result = (handler.as_ref())(request_stream.boxed(), ctx).await?;
+                        let stream_source = StreamSource { session_rx, payload, first_is_eos, first_code };
+                        let handler_result = (handler.as_ref())(stream_source, ctx).await?;
                         dispatch_response(session_tx, &source, rpc_id, handler_result).await
                     }
                 }
@@ -136,62 +135,6 @@ impl<'a> RpcSession<'a> {
         }
 
         result
-    }
-}
-
-/// Build the request stream from the first message and optional continuation channel.
-///
-/// For unary-input methods `session_rx` is `None` — the stream ends after the
-/// first message. For stream-input methods it is `Some` and the loop reads
-/// subsequent messages until EOS or an error.
-fn build_request_stream(
-    session_rx: Option<mpsc::UnboundedReceiver<ReceivedMessage>>,
-    payload: Vec<u8>,
-    first_is_eos: bool,
-    first_code: RpcCode,
-) -> impl futures::Stream<Item = Result<Vec<u8>, RpcError>> {
-    stream! {
-        // Handle the first message. It may be a normal application message,
-        // an error, or an EOS marker (the latter occurs when the client's
-        // request stream was empty and the method metadata was attached to
-        // the EOS rather than a data frame).
-        if first_is_eos {
-            return;
-        }
-        if first_code != RpcCode::Ok {
-            yield Err(RpcError::new(first_code, String::from_utf8_lossy(&payload).to_string()));
-            return;
-        }
-        yield Ok(payload);
-
-        if let Some(mut rx) = session_rx {
-            loop {
-                tracing::debug!("Received message in stream-based method");
-
-                let received = match rx.recv().await {
-                    Some(msg) => msg,
-                    None => {
-                        yield Err(RpcError::internal("Stream channel closed"));
-                        break;
-                    }
-                };
-
-                if received.is_eos() {
-                    break;
-                }
-
-                let code = RpcCode::from_metadata_str(
-                    received.metadata.get(STATUS_CODE_KEY).map(String::as_str)
-                );
-                if code != RpcCode::Ok {
-                    let message = String::from_utf8_lossy(&received.payload).to_string();
-                    yield Err(RpcError::new(code, message));
-                    break;
-                }
-
-                yield Ok(received.payload);
-            }
-        }
     }
 }
 

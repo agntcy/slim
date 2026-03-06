@@ -23,12 +23,13 @@ use slim_session::errors::SessionError;
 use slim_session::notification::Notification;
 
 use super::{
-    Context, HandlerInfo, METHOD_KEY, RPC_ID_KEY, ReceivedMessage, RequestStream, ResponseSink,
-    RpcCode, RpcError, RpcSession, SERVICE_KEY, StreamStreamHandler, StreamUnaryHandler,
-    UnaryStreamHandler, UnaryUnaryHandler, UniffiRequestStream,
+    Context, HandlerInfo, METHOD_KEY, RPC_ID_KEY, ReceivedMessage, ResponseSink, RpcCode, RpcError,
+    RpcSession, SERVICE_KEY, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler,
+    UnaryUnaryHandler, UniffiRequestStream,
     codec::{Decoder, Encoder},
     send_error_for_rpc,
     session_wrapper::{SessionRx, SessionTx, new_session},
+    stream_types::{DecodedStream, StreamSource},
 };
 
 pub type Item = Vec<u8>;
@@ -39,7 +40,7 @@ pub type ResponseStream = BoxFuture<'static, Result<HandlerResponse, RpcError>>;
 pub type RpcHandler = Arc<dyn Fn(Item, Context) -> ResponseStream + Send + Sync>;
 
 /// Handler function type for stream-input RPC methods
-pub type StreamRpcHandler = Arc<dyn Fn(ItemStream, Context) -> ResponseStream + Send + Sync>;
+pub type StreamRpcHandler = Arc<dyn Fn(StreamSource, Context) -> ResponseStream + Send + Sync>;
 
 /// Response from an RPC handler
 pub enum HandlerResponse {
@@ -146,19 +147,20 @@ impl ServiceRegistry {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(RequestStream<Req>, Context) -> Fut + Send + Sync + 'static,
+        F: Fn(DecodedStream<Req>, Context) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
     {
         let method_path = format!("{}/{}", service_name, method_name);
         let handler = Arc::new(handler);
-        let wrapper = Arc::new(move |stream: ItemStream, ctx: Context| {
+        let wrapper = Arc::new(move |source: StreamSource, ctx: Context| {
             let handler = Arc::clone(&handler);
             async move {
-                let mapped = stream.map(|res| res.and_then(|bytes| Req::decode(bytes)));
-                let boxed_stream = mapped.boxed();
-                let response = handler(boxed_stream, ctx).await?;
+                let decode_fn: fn(Result<Vec<u8>, RpcError>) -> Result<Req, RpcError> =
+                    |res| res.and_then(|bytes| Req::decode(bytes));
+                let decoded: DecodedStream<Req> = source.into_raw_stream().map(decode_fn);
+                let response = handler(decoded, ctx).await?;
                 let response_bytes = response.encode()?;
                 Ok(HandlerResponse::Unary(response_bytes))
             }
@@ -175,7 +177,7 @@ impl ServiceRegistry {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(RequestStream<Req>, Context) -> Fut + Send + Sync + 'static,
+        F: Fn(DecodedStream<Req>, Context) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<S, RpcError>> + Send + 'static,
         S: Stream<Item = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
@@ -183,12 +185,13 @@ impl ServiceRegistry {
     {
         let method_path = format!("{}/{}", service_name, method_name);
         let handler = Arc::new(handler);
-        let wrapper = Arc::new(move |stream: ItemStream, ctx: Context| {
+        let wrapper = Arc::new(move |source: StreamSource, ctx: Context| {
             let handler = Arc::clone(&handler);
             async move {
-                let mapped = stream.map(|res| res.and_then(|bytes| Req::decode(bytes)));
-                let boxed_stream = mapped.boxed();
-                let response_stream = handler(boxed_stream, ctx).await?;
+                let decode_fn: fn(Result<Vec<u8>, RpcError>) -> Result<Req, RpcError> =
+                    |res| res.and_then(|bytes| Req::decode(bytes));
+                let decoded: DecodedStream<Req> = source.into_raw_stream().map(decode_fn);
+                let response_stream = handler(decoded, ctx).await?;
                 let byte_mapped = response_stream.map(|res| res.and_then(|r| r.encode()));
                 Ok(HandlerResponse::Stream(byte_mapped.boxed()))
             }
@@ -748,11 +751,11 @@ impl Server {
     /// # impl Encoder for Response {
     /// #     fn encode(self) -> Result<Vec<u8>, RpcError> { Ok(vec![]) }
     /// # }
-    /// # use futures::stream::BoxStream;
+    /// # use slim_bindings::DecodedStream;
     /// server.register_stream_unary_internal(
     ///     "AggregateService",
     ///     "SumNumbers",
-    ///     |mut request_stream: BoxStream<'static, Result<Request, RpcError>>, _ctx: Context| async move {
+    ///     |mut request_stream: DecodedStream<Request>, _ctx: Context| async move {
     ///         let mut sum = 0;
     ///         while let Some(result) = request_stream.next().await {
     ///             let request = result?;
@@ -770,7 +773,7 @@ impl Server {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(RequestStream<Req>, Context) -> Fut + Send + Sync + 'static,
+        F: Fn(DecodedStream<Req>, Context) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
@@ -815,11 +818,11 @@ impl Server {
     /// # impl Encoder for Response {
     /// #     fn encode(self) -> Result<Vec<u8>, RpcError> { Ok(vec![]) }
     /// # }
-    /// # use futures::stream::BoxStream;
+    /// # use slim_bindings::DecodedStream;
     /// server.register_stream_stream_internal(
     ///     "EchoService",
     ///     "Echo",
-    ///     |mut request_stream: BoxStream<'static, Result<Request, RpcError>>, _ctx: Context| async move {
+    ///     |mut request_stream: DecodedStream<Request>, _ctx: Context| async move {
     ///         let responses = stream! {
     ///             while let Some(result) = request_stream.next().await {
     ///                 match result {
@@ -847,7 +850,7 @@ impl Server {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(RequestStream<Req>, Context) -> Fut + Send + Sync + 'static,
+        F: Fn(DecodedStream<Req>, Context) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<S, RpcError>> + Send + 'static,
         S: Stream<Item = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
@@ -1273,11 +1276,11 @@ impl Server {
         self.register_stream_unary_internal(
             &service_name,
             &method_name,
-            move |stream: RequestStream<Vec<u8>>, context: Context| {
+            move |stream: DecodedStream<Vec<u8>>, context: Context| {
                 let handler = handler.clone();
                 let request_stream = Arc::new(UniffiRequestStream::new(stream));
 
-                Box::pin(async move { handler.handle(request_stream, Arc::new(context)).await })
+                async move { handler.handle(request_stream, Arc::new(context)).await }
             },
         );
     }
@@ -1297,11 +1300,11 @@ impl Server {
         self.register_stream_stream_internal(
             &service_name,
             &method_name,
-            move |stream: RequestStream<Vec<u8>>, context: Context| {
+            move |stream: DecodedStream<Vec<u8>>, context: Context| {
                 let handler = handler.clone();
                 let request_stream = Arc::new(UniffiRequestStream::new(stream));
 
-                Box::pin(async move {
+                async move {
                     let (sink, rx) = ResponseSink::receiver();
                     let sink_arc = Arc::new(sink);
 
@@ -1324,7 +1327,7 @@ impl Server {
                     // Convert the receiver to a stream
                     let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
                     Ok(stream)
-                })
+                }
             },
         );
     }
