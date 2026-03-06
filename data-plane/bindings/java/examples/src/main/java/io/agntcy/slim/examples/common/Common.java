@@ -28,23 +28,6 @@ public class Common {
     public static final String DEFAULT_SHARED_SECRET = "demo-shared-secret-min-32-chars!!";
 
     /**
-     * Splits an ID of form organization/namespace/application (or channel).
-     *
-     * @param id String in the canonical 'org/namespace/app-or-stream' format
-     * @return Name object constructed from the ID
-     * @throws IllegalArgumentException if the id cannot be split into exactly three
-     *                                  segments
-     */
-    public static Name splitId(String id) {
-        String[] parts = id.split("/");
-        if (parts.length != 3) {
-            throw new IllegalArgumentException(
-                    "IDs must be in the format organization/namespace/app-or-stream, got: " + id);
-        }
-        return new Name(parts[0], parts[1], parts[2]);
-    }
-
-    /**
      * Result of creating and connecting an app.
      */
     public static class AppConnection {
@@ -78,7 +61,7 @@ public class Common {
         SlimBindings.initializeWithDefaults();
 
         // Parse the local identity string
-        Name appName = splitId(localId);
+        Name appName = Name.fromString(localId);
 
         // Create app with shared secret authentication
         Service globalService = SlimBindings.getGlobalService();

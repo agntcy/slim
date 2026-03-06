@@ -88,9 +88,9 @@ public class Group {
         // Check if we're the moderator
         if (config.isModerator()) {
             // We are the moderator; create the group session now
-            Name chatChannel = Common.splitId(config.remote);
+            Name chatChannel = Name.fromString(config.remote);
             System.out.println(Colors.colored(Colors.CYAN,
-                    "Creating new group session (moderator)... " + Common.splitId(config.local).toString()));
+                    "Creating new group session (moderator)... " + Name.fromString(config.local).toString()));
 
             // Create group session configuration
             SessionConfig sessionConfig = new SessionConfig(
@@ -107,7 +107,7 @@ public class Group {
 
             // Invite each provided participant
             for (String invite : config.invites) {
-                Name inviteName = Common.splitId(invite);
+                Name inviteName = Name.fromString(invite);
                 app.setRoute(inviteName, connId);
                 createdSession.inviteAndWait(inviteName);
                 System.out.println(config.local + " -> add " + inviteName.toString() + " to the group");
@@ -258,7 +258,7 @@ public class Group {
     private static void handleInvite(App app, Long connId, Session session, String inviteId) {
         try {
             System.out.println("Inviting participant: " + inviteId);
-            Name inviteName = Common.splitId(inviteId);
+            Name inviteName = Name.fromString(inviteId);
             app.setRoute(inviteName, connId);
             session.inviteAndWait(inviteName);
             System.out.println("✅ Successfully invited " + inviteId);
@@ -277,7 +277,7 @@ public class Group {
     private static void handleRemove(Session session, String removeId) {
         try {
             System.out.println("Removing participant: " + removeId);
-            Name removeName = Common.splitId(removeId);
+            Name removeName = Name.fromString(removeId);
             session.removeAndWait(removeName);
             System.out.println("✅ Successfully removed " + removeId);
         } catch (Exception e) {

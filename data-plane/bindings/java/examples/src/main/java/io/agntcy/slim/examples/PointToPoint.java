@@ -76,7 +76,7 @@ public class PointToPoint {
 
     private static void runSender(App app, long connId, Config.PointToPointConfig config, long instanceId)
             throws Exception {
-        Name remoteName = Common.splitId(config.remote);
+        Name remoteName = Name.fromString(config.remote);
 
         // Set route to remote via the server connection
         app.setRoute(remoteName, connId);

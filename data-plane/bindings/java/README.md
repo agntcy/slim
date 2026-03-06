@@ -1,6 +1,6 @@
 # SLIM Java Bindings
 
-Java bindings for SLIM (Secure Lightweight Interconnected Messaging) generated via [uniffi-bindgen-java](https://github.com/IronCoreLabs/uniffi-bindgen-java).
+Java bindings for SLIM generated via [uniffi-bindgen-java](https://github.com/IronCoreLabs/uniffi-bindgen-java).
 
 ## Features
 
@@ -136,7 +136,7 @@ Service service = SlimBindings.getGlobalService();
 Name appName = new Name("org", "namespace", "app");
 
 // Create app with shared secret
-App app = service.createAppWithSecret(appName, "my-secret-min-32-chars!!");
+App app = service.createAppWithSecret(appName, "my-secret-min-32-chars!!!!!!!!!!");
 ```
 
 ### Connecting to Server
@@ -222,7 +222,7 @@ See [examples/README.md](examples/README.md) for detailed example documentation.
 | macOS | aarch64 (M1/M2) | ✅ Supported |
 | Linux | x86_64 | ✅ Supported |
 | Linux | aarch64 | ✅ Supported |
-| Windows | x86_64 | 🚧 Experimental |
+| Windows | x86_64 | ✅ Supported |
 
 ## Resources
 
