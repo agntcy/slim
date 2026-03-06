@@ -2372,11 +2372,11 @@ async fn test_uniffi_multicast_unary() {
     let mut items = Vec::new();
     loop {
         match reader.next_async().await {
-            MulticastStreamMessage::Data(item) => {
+            MulticastStreamMessage::Data { item } => {
                 assert_eq!(item.message, request, "Each member should echo the request");
                 items.push(item);
             }
-            MulticastStreamMessage::Error(e) => panic!("Unexpected error: {:?}", e),
+            MulticastStreamMessage::Error { error: e } => panic!("Unexpected error: {:?}", e),
             MulticastStreamMessage::End => break,
         }
     }
@@ -2438,8 +2438,8 @@ async fn test_uniffi_multicast_unary_stream() {
     let mut data_count = 0usize;
     loop {
         match reader.next_async().await {
-            MulticastStreamMessage::Data(_) => data_count += 1,
-            MulticastStreamMessage::Error(e) => panic!("Unexpected error: {:?}", e),
+            MulticastStreamMessage::Data { .. } => data_count += 1,
+            MulticastStreamMessage::Error { error: e } => panic!("Unexpected error: {:?}", e),
             MulticastStreamMessage::End => break,
         }
     }
@@ -2494,8 +2494,8 @@ async fn test_uniffi_multicast_stream_unary() {
     let mut responses = Vec::new();
     loop {
         match handler.recv_async().await {
-            MulticastStreamMessage::Data(item) => responses.push(item),
-            MulticastStreamMessage::Error(e) => panic!("Unexpected error: {:?}", e),
+            MulticastStreamMessage::Data { item } => responses.push(item),
+            MulticastStreamMessage::Error { error: e } => panic!("Unexpected error: {:?}", e),
             MulticastStreamMessage::End => break,
         }
     }
@@ -2571,8 +2571,8 @@ async fn test_uniffi_multicast_stream_stream() {
     let mut received = Vec::new();
     loop {
         match handler.recv_async().await {
-            MulticastStreamMessage::Data(item) => received.push(item),
-            MulticastStreamMessage::Error(e) => panic!("Unexpected error: {:?}", e),
+            MulticastStreamMessage::Data { item } => received.push(item),
+            MulticastStreamMessage::Error { error: e } => panic!("Unexpected error: {:?}", e),
             MulticastStreamMessage::End => break,
         }
     }
