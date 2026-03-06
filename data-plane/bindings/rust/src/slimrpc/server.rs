@@ -27,9 +27,9 @@ use super::{
     RpcSession, SERVICE_KEY, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler,
     UnaryUnaryHandler, UniffiRequestStream,
     codec::{Decoder, Encoder},
-    rpc_session::{DecodedStream, StreamSource},
     send_error_for_rpc,
     session_wrapper::{SessionRx, SessionTx, new_session},
+    stream_types::{DecodedStream, StreamSource},
 };
 
 pub type Item = Vec<u8>;
