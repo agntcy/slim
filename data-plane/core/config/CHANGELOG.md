@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/agntcy/slim/compare/slim-config-v0.6.3...slim-config-v0.7.0) - 2026-03-06
+
+### Added
+
+- *(websocket)* update the config module while making sure backward compatibility ([#1333](https://github.com/agntcy/slim/pull/1333))
+
 ## [0.6.3](https://github.com/agntcy/slim/compare/slim-config-v0.6.2...slim-config-v0.6.3) - 2026-02-27
 
 ### Added

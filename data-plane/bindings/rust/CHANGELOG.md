@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0](https://github.com/agntcy/slim/compare/slim-bindings-v1.2.0...slim-bindings-v1.3.0) - 2026-03-06
+
+### Added
+
+- *(websocket)* update the config module while making sure backward compatibility ([#1333](https://github.com/agntcy/slim/pull/1333))
+- upgrade bindings to uniffi 0.29 ([#1321](https://github.com/agntcy/slim/pull/1321))
+
 ## [1.2.0](https://github.com/agntcy/slim/compare/slim-bindings-v1.1.1...slim-bindings-v1.2.0) - 2026-02-27
 
 ### Added
