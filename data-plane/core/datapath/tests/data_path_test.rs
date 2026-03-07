@@ -17,6 +17,56 @@ mod tests {
     use slim_datapath::errors::DataPathError;
     use slim_datapath::message_processing::MessageProcessor;
 
+    async fn run_transport_roundtrip(
+        server_conf: ServerConfig,
+        client_conf: ClientConfig,
+        connect_addr: Option<SocketAddr>,
+        transport_label: &str,
+    ) -> u64 {
+        let processor = MessageProcessor::new();
+        let server_token = processor
+            .run_server(&server_conf)
+            .await
+            .unwrap_or_else(|e| panic!("failed to start {transport_label} dataplane server: {e}"));
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let (_handle, conn_index) = processor
+            .connect(client_conf, None, connect_addr)
+            .await
+            .unwrap_or_else(|e| panic!("failed to connect {transport_label} client: {e}"));
+
+        for _ in 0..3 {
+            processor
+                .send_msg(make_message("org", "namespace", "type"), conn_index)
+                .await
+                .unwrap_or_else(|e| {
+                    panic!("failed to send message over {transport_label} client transport: {e}")
+                });
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        for _ in 0..3 {
+            processor
+                .send_msg(make_message("org", "namespace", "type"), 0)
+                .await
+                .unwrap_or_else(|e| {
+                    panic!("failed to send message over {transport_label} server transport: {e}")
+                });
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let _ = processor.disconnect(conn_index);
+        server_token.cancel();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        processor
+            .shutdown()
+            .await
+            .unwrap_or_else(|e| panic!("failed to shutdown {transport_label} processor: {e}"));
+
+        conn_index
+    }
+
     #[tokio::test]
     #[traced_test]
     async fn test_connection() {
@@ -211,6 +261,30 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
+    async fn test_transport_roundtrip_grpc() {
+        let server_conf = ServerConfig::with_endpoint("127.0.0.1:51060")
+            .with_tls_settings(TlsServerConfig::insecure());
+
+        let client_conf = ClientConfig::with_endpoint("http://127.0.0.1:51060")
+            .with_tls_setting(TlsClientConfig::insecure());
+
+        let conn_index = run_transport_roundtrip(
+            server_conf,
+            client_conf,
+            Some(SocketAddr::from(([127, 0, 0, 1], 51060))),
+            "grpc",
+        )
+        .await;
+
+        assert!(logs_contain(
+            "received message from connection conn_index=0"
+        ));
+        let expected = format!("received message from connection conn_index={conn_index}");
+        assert!(logs_contain(expected.as_str()));
+    }
+
+    #[tokio::test]
+    #[traced_test]
     async fn test_websocket_connection_ws() {
         let server_conf = ServerConfig::with_endpoint("ws://127.0.0.1:51061")
             .with_transport(TransportProtocol::Websocket)
@@ -219,50 +293,14 @@ mod tests {
         let client_conf = ClientConfig::with_endpoint("ws://127.0.0.1:51061")
             .with_transport(TransportProtocol::Websocket)
             .with_tls_setting(TlsClientConfig::insecure());
+        let conn_index =
+            run_transport_roundtrip(server_conf, client_conf, None, "websocket ws").await;
 
-        let processor = MessageProcessor::new();
-        let server_token = processor
-            .run_server(&server_conf)
-            .await
-            .expect("failed to start websocket dataplane server");
-
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-        let (_handle, conn_index) = processor
-            .connect(client_conf, None, None)
-            .await
-            .expect("failed to connect websocket client");
-
-        for _ in 0..3 {
-            processor
-                .send_msg(make_message("org", "namespace", "type"), conn_index)
-                .await
-                .expect("failed to send message over websocket client transport");
-        }
-
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         assert!(logs_contain(
             "received message from connection conn_index=0"
         ));
-
-        for _ in 0..3 {
-            processor
-                .send_msg(make_message("org", "namespace", "type"), 0)
-                .await
-                .expect("failed to send message over websocket server transport");
-        }
-
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let expected = format!("received message from connection conn_index={conn_index}");
         assert!(logs_contain(expected.as_str()));
-
-        let _ = processor.disconnect(conn_index);
-        server_token.cancel();
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        processor
-            .shutdown()
-            .await
-            .expect("failed to shutdown websocket processor");
     }
 
     #[tokio::test]
@@ -286,50 +324,14 @@ mod tests {
             .with_transport(TransportProtocol::Websocket)
             .with_server_name("example1")
             .with_tls_setting(client_tls);
+        let conn_index =
+            run_transport_roundtrip(server_conf, client_conf, None, "websocket wss").await;
 
-        let processor = MessageProcessor::new();
-        let server_token = processor
-            .run_server(&server_conf)
-            .await
-            .expect("failed to start websocket dataplane server");
-
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-        let (_handle, conn_index) = processor
-            .connect(client_conf, None, None)
-            .await
-            .expect("failed to connect websocket client");
-
-        for _ in 0..3 {
-            processor
-                .send_msg(make_message("org", "namespace", "type"), conn_index)
-                .await
-                .expect("failed to send message over secure websocket client transport");
-        }
-
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         assert!(logs_contain(
             "received message from connection conn_index=0"
         ));
-
-        for _ in 0..3 {
-            processor
-                .send_msg(make_message("org", "namespace", "type"), 0)
-                .await
-                .expect("failed to send message over secure websocket server transport");
-        }
-
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let expected = format!("received message from connection conn_index={conn_index}");
         assert!(logs_contain(expected.as_str()));
-
-        let _ = processor.disconnect(conn_index);
-        server_token.cancel();
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        processor
-            .shutdown()
-            .await
-            .expect("failed to shutdown websocket processor");
     }
 
     fn make_message(org: &str, ns: &str, name: &str) -> Message {

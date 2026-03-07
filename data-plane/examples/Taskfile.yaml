@@ -21,6 +21,18 @@ tasks:
     cmds:
       - cargo run --bin slim -- --config ./config/base/server-config.yaml
 
+  run:slim:websocket:
+    desc: "Run SLIM gateway with WebSocket transport (ws://)"
+    dir: ".."
+    cmds:
+      - cargo run --bin slim -- --config ./config/websocket/server-config.yaml
+
+  run:slim:websocket:wss:
+    desc: "Run SLIM gateway with secure WebSocket transport (wss://)"
+    dir: ".."
+    cmds:
+      - cargo run --bin slim -- --config ./config/websocket/server-config-wss.yaml
+
   run:slim:unix:
     desc: "Run SLIM gateway with Unix domain socket gRPC"
     dir: ".."
@@ -33,11 +45,23 @@ tasks:
     cmds:
       - cargo run --bin sdk-mock -- --config ../../../config/base/client-config.yaml --local-name server --remote-name client
 
+  run:mock-app:server-websocket:
+    desc: "Run the mock app server over WebSocket transport (ws://)"
+    dir: src/sdk-mock
+    cmds:
+      - cargo run --bin sdk-mock -- --config ../../../config/websocket/client-config.yaml --local-name server --remote-name client
+
   run:mock-app:server-unix:
     desc: "Run the mock app server"
     dir: src/sdk-mock
     cmds:
       - cargo run --bin sdk-mock -- --config ../../../config/unix/client-config.yaml --local-name server --remote-name client
+
+  run:mock-app:server-websocket-wss:
+    desc: "Run the mock app server over secure WebSocket transport (wss://)"
+    dir: ".."
+    cmds:
+      - cargo run --manifest-path ./examples/Cargo.toml --bin sdk-mock -- --config ./config/websocket/client-config-wss.yaml --local-name server --remote-name client
 
   run:mock-app:server-mls:
     desc: "Run the mock app server"
@@ -51,11 +75,23 @@ tasks:
     cmds:
       - cargo run --bin sdk-mock -- --config ../../../config/base/client-config.yaml --local-name client --remote-name server --message "hey there!"
 
+  run:mock-app:client-websocket:
+    desc: "Run the mock app client over WebSocket transport (ws://)"
+    dir: src/sdk-mock
+    cmds:
+      - cargo run --bin sdk-mock -- --config ../../../config/websocket/client-config.yaml --local-name client --remote-name server --message "hey there!"
+
   run:mock-app:client-unix:
     desc: "Run the mock app client using Unix domain sockets"
     dir: src/sdk-mock
     cmds:
       - cargo run --bin sdk-mock -- --config ../../../config/unix/client-config.yaml --local-name client --remote-name server --message "hey there!"
+
+  run:mock-app:client-websocket-wss:
+    desc: "Run the mock app client over secure WebSocket transport (wss://)"
+    dir: ".."
+    cmds:
+      - cargo run --manifest-path ./examples/Cargo.toml --bin sdk-mock -- --config ./config/websocket/client-config-wss.yaml --local-name client --remote-name server --message "hey there!"
 
   run:mock-app:client-mls:
     desc: "Run the mock app client"
