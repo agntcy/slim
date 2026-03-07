@@ -107,12 +107,12 @@ pub use transport_protocol::TransportProtocol as ServerTransportProtocol;
 // SLIMRpc re-exports
 pub use slimrpc::{
     BidiStreamHandler, Channel, Codec, Context, DEADLINE_KEY, DecodedStream, Decoder, Encoder,
-    HandlerResponse, HandlerType, InvalidRpcCode, MAX_TIMEOUT, MulticastBidiStreamHandler,
-    MulticastResponseReader, MulticastStreamMessage, RawStream, RequestStreamWriter, ResponseSink,
-    ResponseStream, ResponseStreamReader, RpcCode, RpcError, RpcMessageContext, RpcMulticastItem,
-    STATUS_CODE_KEY, Server, SessionContext as RpcSessionContext, StreamMessage,
-    StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
-    UniffiRequestStream as RequestStream, build_method_subscription_name,
+    HandlerType, InvalidRpcCode, MAX_TIMEOUT, MulticastBidiStreamHandler, MulticastResponseReader,
+    MulticastStreamMessage, RawStream, RequestStreamWriter, ResponseSink, ResponseStreamReader,
+    RpcCode, RpcError, RpcMessageContext, RpcMulticastItem, STATUS_CODE_KEY, Server,
+    SessionContext as RpcSessionContext, StreamMessage, StreamStreamHandler, StreamUnaryHandler,
+    UnaryStreamHandler, UnaryUnaryHandler, UniffiRequestStream as RequestStream,
+    build_method_subscription_name,
 };
 
 // UniFFI scaffolding setup (must be at crate root)

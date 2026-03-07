@@ -7,6 +7,7 @@
 //! including message sending/receiving, timeout handling, and stream processing.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use futures::StreamExt;
 use tokio::sync::mpsc;
@@ -14,8 +15,8 @@ use tokio::sync::mpsc;
 use slim_datapath::messages::Name;
 
 use super::{
-    Context, HandlerResponse, RPC_ID_KEY, ReceivedMessage, RpcCode, RpcError, RpcHandler,
-    STATUS_CODE_KEY, SessionTx, StreamRpcHandler, StreamSource,
+    Context, RPC_ID_KEY, ReceivedMessage, RpcCode, RpcError, RpcHandler, STATUS_CODE_KEY,
+    SessionTx, StreamRpcHandler, StreamSource,
 };
 
 /// Handler information retrieved from registry
@@ -36,9 +37,6 @@ pub struct RpcSession<'a> {
     method_path: &'a str,
     /// First message read from the wire, carrying the request payload and metadata.
     first_message: ReceivedMessage,
-    /// RPC call identifier, included in every response message so the client
-    /// can route the response to the correct waiting caller over a shared session.
-    rpc_id: &'a str,
 }
 
 impl<'a> RpcSession<'a> {
@@ -47,14 +45,12 @@ impl<'a> RpcSession<'a> {
         session_tx: &'a SessionTx,
         method_path: &'a str,
         first_message: ReceivedMessage,
-        rpc_id: &'a str,
     ) -> Self {
         Self {
             session_tx,
             session_rx: None,
             method_path,
             first_message,
-            rpc_id,
         }
     }
 
@@ -64,25 +60,22 @@ impl<'a> RpcSession<'a> {
         channel_rx: mpsc::UnboundedReceiver<ReceivedMessage>,
         method_path: &'a str,
         first_message: ReceivedMessage,
-        rpc_id: &'a str,
     ) -> Self {
         Self {
             session_tx,
             session_rx: Some(channel_rx),
             method_path,
             first_message,
-            rpc_id,
         }
     }
 
     /// Handle the session, dispatching to the appropriate interaction pattern.
-    pub async fn handle(self, handler_info: HandlerInfo) -> Result<(), RpcError> {
+    pub async fn handle(self, handler_info: HandlerInfo, rpc_id: Arc<str>) -> Result<(), RpcError> {
         let Self {
             session_tx,
             session_rx,
             method_path,
             first_message,
-            rpc_id,
         } = self;
 
         tracing::debug!(%method_path, "Processing RPC");
@@ -110,15 +103,13 @@ impl<'a> RpcSession<'a> {
 
         let result = tokio::select! {
             result = async move {
-                match handler_info {
+                match &handler_info {
                     HandlerInfo::Unary(handler) => {
-                        let handler_result = (handler.as_ref())(payload, ctx).await?;
-                        dispatch_response(session_tx, &source, rpc_id, handler_result).await
+                        handler(payload, ctx, session_tx.clone(), source, rpc_id).await
                     }
                     HandlerInfo::Stream(handler) => {
                         let stream_source = StreamSource { session_rx, payload, first_is_eos, first_code };
-                        let handler_result = (handler.as_ref())(stream_source, ctx).await?;
-                        dispatch_response(session_tx, &source, rpc_id, handler_result).await
+                        handler(stream_source, ctx, session_tx.clone(), source, rpc_id).await
                     }
                 }
             } => result,
@@ -135,29 +126,6 @@ impl<'a> RpcSession<'a> {
         }
 
         result
-    }
-}
-
-/// Send the handler result to the client.
-async fn dispatch_response(
-    session_tx: &SessionTx,
-    source: &Name,
-    rpc_id: &str,
-    handler_result: HandlerResponse,
-) -> Result<(), RpcError> {
-    match handler_result {
-        HandlerResponse::Unary(bytes) => {
-            send_response_stream(
-                session_tx,
-                futures::stream::once(std::future::ready(Ok(bytes))),
-                rpc_id,
-                source,
-            )
-            .await
-        }
-        HandlerResponse::Stream(stream) => {
-            send_response_stream(session_tx, stream, rpc_id, source).await
-        }
     }
 }
 
@@ -250,15 +218,16 @@ async fn send_message(
         .map_err(|e| RpcError::internal(format!("Failed to complete message send: {}", e)))
 }
 
-async fn send_response_stream<S>(
+pub async fn send_response_stream<S>(
     session_tx: &SessionTx,
-    mut stream: S,
+    stream: S,
     rpc_id: &str,
     target: &Name,
 ) -> Result<(), RpcError>
 where
-    S: futures::Stream<Item = Result<Vec<u8>, RpcError>> + Unpin,
+    S: futures::Stream<Item = Result<Vec<u8>, RpcError>>,
 {
+    futures::pin_mut!(stream);
     while let Some(result) = stream.next().await {
         match result {
             Ok(response_bytes) => {

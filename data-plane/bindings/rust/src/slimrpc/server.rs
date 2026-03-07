@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use futures::future::join_all;
 use futures::stream::Stream;
-use futures::{FutureExt, StreamExt, future::BoxFuture, stream::BoxStream};
+use futures::{FutureExt, StreamExt, future::BoxFuture, stream};
 use parking_lot::RwLock;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -27,28 +27,21 @@ use super::{
     RpcSession, SERVICE_KEY, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler,
     UnaryUnaryHandler, UniffiRequestStream,
     codec::{Decoder, Encoder},
-    send_error_for_rpc,
+    send_error_for_rpc, send_response_stream,
     session_wrapper::{SessionRx, SessionTx, new_session},
     stream_types::{DecodedStream, StreamSource},
 };
 
 pub type Item = Vec<u8>;
-pub type ItemStream = BoxStream<'static, Result<Vec<u8>, RpcError>>;
-pub type ResponseStream = BoxFuture<'static, Result<HandlerResponse, RpcError>>;
+pub type ResponseStream = BoxFuture<'static, Result<(), RpcError>>;
 
 /// Handler function type for RPC methods (unary input)
-pub type RpcHandler = Arc<dyn Fn(Item, Context) -> ResponseStream + Send + Sync>;
+pub type RpcHandler =
+    Arc<dyn Fn(Item, Context, SessionTx, Name, Arc<str>) -> ResponseStream + Send + Sync>;
 
 /// Handler function type for stream-input RPC methods
-pub type StreamRpcHandler = Arc<dyn Fn(StreamSource, Context) -> ResponseStream + Send + Sync>;
-
-/// Response from an RPC handler
-pub enum HandlerResponse {
-    /// Single response message
-    Unary(Item),
-    /// Stream of response messages
-    Stream(ItemStream),
-}
+pub type StreamRpcHandler =
+    Arc<dyn Fn(StreamSource, Context, SessionTx, Name, Arc<str>) -> ResponseStream + Send + Sync>;
 
 /// Type of RPC handler
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,17 +87,26 @@ impl ServiceRegistry {
         Res: Encoder + Send + 'static,
     {
         let method_path = format!("{}/{}", service_name, method_name);
-        let handler = Arc::new(handler);
-        let wrapper = Arc::new(move |bytes: Vec<u8>, ctx: Context| {
-            let handler = Arc::clone(&handler);
-            async move {
-                let request = Req::decode(bytes)?;
-                let response = handler(request, ctx).await?;
-                let response_bytes = response.encode()?;
-                Ok(HandlerResponse::Unary(response_bytes))
-            }
-            .boxed()
-        });
+        let wrapper = Arc::new(
+            move |bytes: Vec<u8>,
+                  ctx: Context,
+                  session_tx: SessionTx,
+                  source: Name,
+                  rpc_id: Arc<str>| {
+                let fut = Req::decode(bytes).map(|req| handler(req, ctx));
+                async move {
+                    let encoded = fut?.await?.encode()?;
+                    send_response_stream(
+                        &session_tx,
+                        stream::once(std::future::ready(Ok(encoded))),
+                        &rpc_id,
+                        &source,
+                    )
+                    .await
+                }
+                .boxed()
+            },
+        );
 
         self.handlers.insert(method_path, wrapper);
     }
@@ -123,19 +125,21 @@ impl ServiceRegistry {
         Res: Encoder + Send + 'static,
     {
         let method_path = format!("{}/{}", service_name, method_name);
-        let handler = Arc::new(handler);
-        let wrapper = Arc::new(move |bytes: Vec<u8>, ctx: Context| {
-            let handler = Arc::clone(&handler);
-            async move {
-                let request = Req::decode(bytes)?;
-                let response_stream = handler(request, ctx).await?;
-                let byte_mapped = response_stream
-                    .map(|res| res.and_then(|r| r.encode()))
-                    .boxed();
-                Ok(HandlerResponse::Stream(byte_mapped))
-            }
-            .boxed()
-        });
+        let wrapper = Arc::new(
+            move |bytes: Vec<u8>,
+                  ctx: Context,
+                  session_tx: SessionTx,
+                  source: Name,
+                  rpc_id: Arc<str>| {
+                let fut = Req::decode(bytes).map(|req| handler(req, ctx));
+                async move {
+                    let response_stream = fut?.await?;
+                    let byte_mapped = response_stream.map(|res| res.and_then(|r| r.encode()));
+                    send_response_stream(&session_tx, byte_mapped, &rpc_id, &source).await
+                }
+                .boxed()
+            },
+        );
 
         self.handlers.insert(method_path, wrapper);
     }
@@ -153,19 +157,29 @@ impl ServiceRegistry {
         Res: Encoder + Send + 'static,
     {
         let method_path = format!("{}/{}", service_name, method_name);
-        let handler = Arc::new(handler);
-        let wrapper = Arc::new(move |source: StreamSource, ctx: Context| {
-            let handler = Arc::clone(&handler);
-            async move {
+        let wrapper = Arc::new(
+            move |source: StreamSource,
+                  ctx: Context,
+                  session_tx: SessionTx,
+                  target: Name,
+                  rpc_id: Arc<str>| {
                 let decode_fn: fn(Result<Vec<u8>, RpcError>) -> Result<Req, RpcError> =
                     |res| res.and_then(|bytes| Req::decode(bytes));
                 let decoded: DecodedStream<Req> = source.into_raw_stream().map(decode_fn);
-                let response = handler(decoded, ctx).await?;
-                let response_bytes = response.encode()?;
-                Ok(HandlerResponse::Unary(response_bytes))
-            }
-            .boxed()
-        });
+                let fut = handler(decoded, ctx);
+                async move {
+                    let encoded = fut.await?.encode()?;
+                    send_response_stream(
+                        &session_tx,
+                        stream::once(std::future::ready(Ok(encoded))),
+                        &rpc_id,
+                        &target,
+                    )
+                    .await
+                }
+                .boxed()
+            },
+        );
 
         self.stream_handlers.insert(method_path, wrapper);
     }
@@ -184,19 +198,24 @@ impl ServiceRegistry {
         Res: Encoder + Send + 'static,
     {
         let method_path = format!("{}/{}", service_name, method_name);
-        let handler = Arc::new(handler);
-        let wrapper = Arc::new(move |source: StreamSource, ctx: Context| {
-            let handler = Arc::clone(&handler);
-            async move {
+        let wrapper = Arc::new(
+            move |source: StreamSource,
+                  ctx: Context,
+                  session_tx: SessionTx,
+                  target: Name,
+                  rpc_id: Arc<str>| {
                 let decode_fn: fn(Result<Vec<u8>, RpcError>) -> Result<Req, RpcError> =
                     |res| res.and_then(|bytes| Req::decode(bytes));
                 let decoded: DecodedStream<Req> = source.into_raw_stream().map(decode_fn);
-                let response_stream = handler(decoded, ctx).await?;
-                let byte_mapped = response_stream.map(|res| res.and_then(|r| r.encode()));
-                Ok(HandlerResponse::Stream(byte_mapped.boxed()))
-            }
-            .boxed()
-        });
+                let fut = handler(decoded, ctx);
+                async move {
+                    let response_stream = fut.await?;
+                    let byte_mapped = response_stream.map(|res| res.and_then(|r| r.encode()));
+                    send_response_stream(&session_tx, byte_mapped, &rpc_id, &target).await
+                }
+                .boxed()
+            },
+        );
 
         self.stream_handlers.insert(method_path, wrapper);
     }
@@ -302,10 +321,10 @@ pub struct Server {
 fn spawn_handler_task(
     handler_info: HandlerInfo,
     msg: ReceivedMessage,
-    rpc_id: String,
+    rpc_id: Arc<str>,
     method_path: String,
     session_tx: SessionTx,
-    pending_streams: &mut HashMap<String, mpsc::UnboundedSender<ReceivedMessage>>,
+    pending_streams: &mut HashMap<Arc<str>, mpsc::UnboundedSender<ReceivedMessage>>,
 ) -> JoinHandle<()> {
     // For stream-input handlers, create the mpsc channel and register the sender
     // so that subsequent messages can be routed to the same handler task.
@@ -324,10 +343,10 @@ fn spawn_handler_task(
 
     tokio::spawn(async move {
         let session = match stream_rx {
-            Some(rx) => RpcSession::new_stream(&session_tx, rx, &method_path, msg, &rpc_id),
-            None => RpcSession::new_unary(&session_tx, &method_path, msg, &rpc_id),
+            Some(rx) => RpcSession::new_stream(&session_tx, rx, &method_path, msg),
+            None => RpcSession::new_unary(&session_tx, &method_path, msg),
         };
-        if let Err(e) = session.handle(handler_info).await {
+        if let Err(e) = session.handle(handler_info, rpc_id.clone()).await {
             tracing::error!(%method_path, error = %e, "Error in RPC handler");
             let _ = send_error_for_rpc(&session_tx, e, &rpc_id).await;
         }
@@ -345,10 +364,10 @@ async fn run_session_demux(
     drain_watch: drain::Watch,
 ) {
     // Map rpc_id → mpsc sender for live stream-input handlers.
-    let mut pending_streams: HashMap<String, mpsc::UnboundedSender<ReceivedMessage>> =
+    let mut pending_streams: HashMap<Arc<str>, mpsc::UnboundedSender<ReceivedMessage>> =
         HashMap::new();
     // Map rpc_id → JoinHandle for all active handler tasks (lazily pruned).
-    let mut active_tasks: HashMap<String, JoinHandle<()>> = HashMap::new();
+    let mut active_tasks: HashMap<Arc<str>, JoinHandle<()>> = HashMap::new();
 
     let mut drain_fut = std::pin::pin!(drain_watch.signaled());
 
@@ -379,29 +398,39 @@ async fn run_session_demux(
         };
 
         active_tasks.retain(|_, h| !h.is_finished());
-        let rpc_id = msg.metadata.get(RPC_ID_KEY).cloned().unwrap_or_default();
+        let Some(rpc_id_str) = msg.metadata.get(RPC_ID_KEY).filter(|s| !s.is_empty()) else {
+            tracing::trace!("Skipping message with missing or empty rpc-id");
+            continue;
+        };
 
-        if let Some(tx) = pending_streams.get(&rpc_id) {
+        if let Some(tx) = pending_streams.get(rpc_id_str.as_str()).cloned() {
             // Route continuation message to the existing stream-input handler.
+            // Remove before send so rpc_id_str (borrows msg.metadata) is last used
+            // before msg is moved — NLL lets the borrow end here.
             let is_terminal = msg.is_eos();
-            let _ = tx.send(msg);
             if is_terminal {
-                pending_streams.remove(&rpc_id);
+                pending_streams.remove(rpc_id_str.as_str());
             }
+            let _ = tx.send(msg);
             continue;
         }
 
-        // New RPC call — resolve handler and dispatch.
-        let service = msg.metadata.get(SERVICE_KEY).cloned().unwrap_or_default();
-        let method = msg.metadata.get(METHOD_KEY).cloned().unwrap_or_default();
+        // New RPC call — create Arc now that we know we need it.
+        let rpc_id: Arc<str> = Arc::from(rpc_id_str.as_str());
 
-        // Skip messages that are not inbound RPC requests (e.g., responses from other
-        // members circulating through a GROUP/multicast session). A valid request always
-        // carries a SERVICE_KEY; responses and other protocol messages do not.
-        if service.is_empty() {
-            tracing::trace!(%rpc_id, "Skipping non-request message (no service key)");
+        let (Some(service), Some(method)) = (
+            msg.metadata
+                .get(SERVICE_KEY)
+                .filter(|s| !s.is_empty())
+                .map(|s| s.as_str()),
+            msg.metadata
+                .get(METHOD_KEY)
+                .filter(|s| !s.is_empty())
+                .map(|s| s.as_str()),
+        ) else {
+            tracing::trace!(%rpc_id, "Skipping message missing service or method key");
             continue;
-        }
+        };
 
         let method_path = format!("{}/{}", service, method);
 
@@ -438,8 +467,8 @@ async fn run_session_demux(
 ///
 /// Called from `run_session_demux` on both the drain and session-close exit paths.
 async fn cleanup_handler_tasks(
-    pending_streams: HashMap<String, mpsc::UnboundedSender<ReceivedMessage>>,
-    active_tasks: HashMap<String, JoinHandle<()>>,
+    pending_streams: HashMap<Arc<str>, mpsc::UnboundedSender<ReceivedMessage>>,
+    active_tasks: HashMap<Arc<str>, JoinHandle<()>>,
 ) {
     // Drop senders first: stream-input handlers whose stream_rx.recv() is waiting will see
     // the channel close and can exit cleanly at their next await point.
@@ -1208,9 +1237,7 @@ impl Server {
                 let handler = handler.clone();
                 tracing::debug!(service = %service_clone, method = %method_clone, "Handling unary-unary request");
 
-                Box::pin(async move {
-                    handler.handle(request, Arc::new(context)).await
-                })
+                async move { handler.handle(request, Arc::new(context)).await }
             },
         );
     }
@@ -1233,7 +1260,7 @@ impl Server {
             move |request: Vec<u8>, context: Context| {
                 let handler = handler.clone();
 
-                Box::pin(async move {
+                async move {
                     let (sink, rx) = ResponseSink::receiver();
                     let sink_arc = Arc::new(sink);
 
@@ -1256,7 +1283,7 @@ impl Server {
                     // Convert the receiver to a stream
                     let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
                     Ok(stream)
-                })
+                }
             },
         );
     }
@@ -1389,7 +1416,7 @@ mod tests {
         let t2 = tokio::spawn(std::future::pending::<()>());
         cleanup_handler_tasks(
             HashMap::new(),
-            HashMap::from([("rpc-1".to_string(), t1), ("rpc-2".to_string(), t2)]),
+            HashMap::from([(Arc::from("rpc-1"), t1), (Arc::from("rpc-2"), t2)]),
         )
         .await;
         // reaching here without hanging proves both tasks were freed
@@ -1408,8 +1435,8 @@ mod tests {
         });
 
         cleanup_handler_tasks(
-            HashMap::from([("rpc-1".to_string(), tx)]),
-            HashMap::from([("rpc-1".to_string(), task)]),
+            HashMap::from([(Arc::from("rpc-1"), tx)]),
+            HashMap::from([(Arc::from("rpc-1"), task)]),
         )
         .await;
         // reaching here proves the task was freed (channel close or abort)
