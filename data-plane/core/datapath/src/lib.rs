@@ -11,5 +11,6 @@ mod connection;
 mod forwarder;
 mod recovery;
 pub(crate) mod subscription_ack;
+mod websocket;
 
 pub use tonic::Status;
