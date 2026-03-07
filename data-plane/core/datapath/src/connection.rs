@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::api::proto::dataplane::v1::Message;
-use slim_config::grpc::client::ClientConfig;
+use slim_config::client::ClientConfig;
 use std::net::SocketAddr;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
