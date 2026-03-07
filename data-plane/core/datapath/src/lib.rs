@@ -10,5 +10,6 @@ pub mod tables;
 mod connection;
 mod forwarder;
 pub(crate) mod subscription_ack;
+mod websocket;
 
 pub use tonic::Status;
