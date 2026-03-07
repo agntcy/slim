@@ -10,7 +10,7 @@ use std::vec;
 
 use display_error_chain::ErrorChainExt;
 use slim_config::component::id::ID;
-use slim_config::grpc::server::ServerConfig;
+use slim_config::server::ServerConfig;
 use slim_session::SessionMessage;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -33,7 +33,7 @@ use crate::errors::ControllerError;
 use prost_types::Struct;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::traits::TokenProvider;
-use slim_config::grpc::client::ClientConfig;
+use slim_config::client::ClientConfig;
 use slim_datapath::api::{
     CommandPayload, Content, MessageType::Publish, MessageType::Subscribe,
     MessageType::Unsubscribe, ProtoMessage as DataPlaneMessage,
@@ -1715,7 +1715,7 @@ impl ControllerService {
     ) -> Result<mpsc::Sender<Result<ControlMessage, Status>>, ControllerError> {
         info!(%config.endpoint, "connecting to control plane");
 
-        let channel = config.to_channel().await?;
+        let channel = config.to_grpc_channel().await?;
 
         let mut client = ControllerServiceClient::new(channel.clone());
         let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(128);
