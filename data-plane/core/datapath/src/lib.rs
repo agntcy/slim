@@ -9,5 +9,6 @@ pub mod tables;
 
 mod connection;
 mod forwarder;
+mod websocket;
 
 pub use tonic::Status;
