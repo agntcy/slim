@@ -25,6 +25,12 @@ pub enum ConfigError {
     InvalidEndpointScheme,
     #[error("websocket transport requires endpoint scheme ws:// or wss://")]
     InvalidWebSocketEndpointScheme,
+    #[error("websocket client builder requires websocket transport")]
+    WebSocketClientUnsupportedTransport,
+    #[error("websocket server builder requires websocket transport")]
+    WebSocketServerUnsupportedTransport,
+    #[error("websocket transport TLS configuration is invalid")]
+    WebSocketTlsConfiguration,
 
     // Network / transport
     #[error("transport error")]
@@ -35,6 +41,12 @@ pub enum ConfigError {
     GrpcServerUnsupportedTransport,
     #[error("bind error")]
     Bind(#[from] std::io::Error),
+    #[error("websocket connection error")]
+    WebSocketConnection(#[source] std::io::Error),
+    #[error("websocket handshake error")]
+    WebSocketHandshake(#[source] fastwebsockets::WebSocketError),
+    #[error("websocket request error")]
+    WebSocketRequest(#[source] http::Error),
 
     // Unix domain sockets
     #[error("unix domain sockets are unsupported on this platform")]

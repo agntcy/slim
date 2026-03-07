@@ -89,7 +89,7 @@ pub async fn get_control_plane_client(
     >,
 > {
     let channel = build_client_config(opts)?
-        .to_channel()
+        .to_grpc_channel()
         .await
         .context("failed to connect to server")?;
     Ok(ControlPlaneServiceClient::new(channel))
@@ -111,7 +111,7 @@ pub async fn get_controller_client(
     >,
 > {
     let channel = build_client_config(opts)?
-        .to_channel()
+        .to_grpc_channel()
         .await
         .context("failed to connect to server")?;
     Ok(ControllerServiceClient::new(channel))
