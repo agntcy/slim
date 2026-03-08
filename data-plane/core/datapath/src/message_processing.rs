@@ -391,7 +391,7 @@ impl MessageProcessor {
         };
 
         let connection = match channel {
-            TransportChannel::Websocket(channel) => channel,
+            TransportChannel::Websocket(channel) => *channel,
             TransportChannel::Grpc(_) => return Err(DataPathError::ConnectionError),
         };
 

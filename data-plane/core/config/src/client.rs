@@ -145,7 +145,7 @@ enum ConnectionType {
 
 pub enum TransportChannel<G> {
     Grpc(G),
-    Websocket(WebSocketClientChannel),
+    Websocket(Box<WebSocketClientChannel>),
 }
 
 /// Keepalive configuration for the client.
@@ -413,6 +413,50 @@ impl Configuration for ClientConfig {
     }
 }
 
+/// Implements configuration methods for creating and connecting gRPC/WebSocket clients.
+///
+/// This impl block provides a builder pattern API for `ClientConfig`, allowing fluent
+/// configuration of client connections. It handles multiple transport protocols (gRPC over
+/// TCP/Unix sockets, WebSocket), TLS/security, proxies, authentication, and advanced
+/// networking options like keepalive, rate limiting, and custom headers.
+///
+/// # Builder Methods
+///
+/// Methods prefixed with `with_` follow the builder pattern:
+/// - `with_endpoint()`: Sets the target server endpoint (required)
+/// - `with_transport()`: Selects gRPC or WebSocket protocol
+/// - `with_origin()`, `with_server_name()`: Sets HTTP/TLS metadata
+/// - `with_tls_setting()`, `with_auth()`: Configures security
+/// - `with_keepalive()`, `with_connect_timeout()`: Network tuning
+/// - `with_proxy()`, `with_rate_limit()`: Advanced networking options
+///
+/// # Channel Creation
+///
+/// - `to_channel()`: Main entry point for creating a transport channel
+/// - `to_channel_internal()`: Internal implementation supporting lazy connection
+/// - Methods like `connect_tcp_channel()`, `connect_unix_channel()`: Protocol-specific connections
+/// - Automatic retry with exponential backoff on transport errors
+///
+/// # Connection Handling
+///
+/// Supports direct connections, HTTP proxies, and HTTPS proxies with configurable:
+/// - TLS/mTLS for both client-to-server and client-to-proxy paths
+/// - Proxy authentication and custom proxy headers
+/// - Unix domain socket connections (Unix-only systems)
+/// - Lazy vs eager channel initialization
+///
+/// # Validation & Parsing
+///
+/// - `validate_endpoint()`: Ensures endpoint is set and non-empty
+/// - `parse_endpoint_uri()`: Converts endpoint strings to URIs (handles special unix:// scheme)
+/// - `parse_headers()`: Converts custom headers to HTTP HeaderMap
+///
+/// # Internal Helpers
+///
+/// - `create_channel_builder()`: Applies all channel-level settings (buffers, keepalive, rate limits)
+/// - `create_http_connector()`: Configures TCP/TLS connector with timeouts
+/// - `apply_tunnel_config()`: Sets up proxy authentication and headers
+/// - `apply_auth_and_headers()`: Wraps channel with authentication layers
 impl ClientConfig {
     /// Creates a new client configuration with the given endpoint.
     /// This function will return a ClientConfig with the endpoint set
@@ -544,9 +588,9 @@ impl ClientConfig {
     > {
         match self.transport {
             TransportProtocol::Grpc => Ok(TransportChannel::Grpc(self.to_grpc_channel().await?)),
-            TransportProtocol::Websocket => Ok(TransportChannel::Websocket(
+            TransportProtocol::Websocket => Ok(TransportChannel::Websocket(Box::new(
                 self.to_websocket_channel().await?,
-            )),
+            ))),
         }
     }
 
