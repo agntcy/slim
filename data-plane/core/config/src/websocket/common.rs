@@ -15,7 +15,7 @@ use tracing::warn;
 
 use crate::client::{AuthenticationConfig as ClientAuthConfig, ClientConfig};
 use crate::grpc::errors::ConfigError;
-use crate::server::{AuthenticationConfig as ServerAuthConfig, ServerConfig};
+use crate::server::AuthenticationConfig as ServerAuthConfig;
 
 pub type UpgradedWebSocket = WebSocket<TokioIo<Upgraded>>;
 
@@ -33,13 +33,6 @@ pub struct WebSocketEndpoint {
 pub struct ClientHandshakeAuth {
     pub authorization_header: Option<String>,
     pub bearer_token: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub enum ServerHandshakeAuth {
-    None,
-    Basic { username: String, password: String },
-    Jwt { config: crate::auth::jwt::Config },
 }
 
 impl WebSocketEndpoint {
@@ -150,76 +143,64 @@ pub async fn build_client_handshake_auth(
     }
 }
 
-pub fn build_server_handshake_auth(config: &ServerConfig) -> ServerHandshakeAuth {
-    match &config.auth {
-        ServerAuthConfig::None => ServerHandshakeAuth::None,
-        ServerAuthConfig::Basic(basic) => ServerHandshakeAuth::Basic {
-            username: basic.username().to_string(),
-            password: basic.password().as_str().to_string(),
-        },
-        ServerAuthConfig::Jwt(jwt) => ServerHandshakeAuth::Jwt {
-            config: jwt.clone(),
-        },
-    }
-}
+pub async fn authorize_server_handshake(
+    auth: &ServerAuthConfig,
+    request: &Request<Incoming>,
+) -> bool {
+    match auth {
+        ServerAuthConfig::None => true,
+        ServerAuthConfig::Basic(basic) => {
+            let auth = match request
+                .headers()
+                .get(http::header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+            {
+                Some(value) => value,
+                None => return false,
+            };
 
-impl ServerHandshakeAuth {
-    pub async fn authorize(&self, request: &Request<Incoming>) -> bool {
-        match self {
-            ServerHandshakeAuth::None => true,
-            ServerHandshakeAuth::Basic { username, password } => {
-                let auth = match request
-                    .headers()
-                    .get(http::header::AUTHORIZATION)
-                    .and_then(|v| v.to_str().ok())
-                {
-                    Some(value) => value,
-                    None => return false,
-                };
+            let Some(encoded) = auth.strip_prefix("Basic ") else {
+                return false;
+            };
 
-                let Some(encoded) = auth.strip_prefix("Basic ") else {
-                    return false;
-                };
+            let decoded = match BASE64_STANDARD.decode(encoded.as_bytes()) {
+                Ok(bytes) => bytes,
+                Err(_) => return false,
+            };
 
-                let decoded = match BASE64_STANDARD.decode(encoded.as_bytes()) {
-                    Ok(bytes) => bytes,
-                    Err(_) => return false,
-                };
+            let credentials = match std::str::from_utf8(&decoded) {
+                Ok(credentials) => credentials,
+                Err(_) => return false,
+            };
 
-                let credentials = match std::str::from_utf8(&decoded) {
-                    Ok(credentials) => credentials,
-                    Err(_) => return false,
-                };
+            credentials == format!("{}:{}", basic.username(), basic.password().as_str())
+        }
+        ServerAuthConfig::Jwt(jwt) => {
+            let token = request
+                .headers()
+                .get(http::header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|header| header.strip_prefix("Bearer "))
+                .map(str::to_string)
+                .or_else(|| extract_query_param(request.uri().query(), "token"));
 
-                credentials == format!("{username}:{password}")
-            }
-            ServerHandshakeAuth::Jwt { config } => {
-                let token = request
-                    .headers()
-                    .get(http::header::AUTHORIZATION)
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(|header| header.strip_prefix("Bearer "))
-                    .map(str::to_string)
-                    .or_else(|| extract_query_param(request.uri().query(), "token"));
+            let Some(token) = token else {
+                return false;
+            };
 
-                let Some(token) = token else {
-                    return false;
-                };
-
-                let mut verifier = match config.get_verifier() {
-                    Ok(verifier) => verifier,
-                    Err(err) => {
-                        warn!(error = %err, "failed to create websocket JWT verifier");
-                        return false;
-                    }
-                };
-
-                if verifier.initialize().await.is_err() {
+            let mut verifier = match jwt.get_verifier() {
+                Ok(verifier) => verifier,
+                Err(err) => {
+                    warn!(error = %err, "failed to create websocket JWT verifier");
                     return false;
                 }
+            };
 
-                verifier.verify(token).await.is_ok()
+            if verifier.initialize().await.is_err() {
+                return false;
             }
+
+            verifier.verify(token).await.is_ok()
         }
     }
 }
