@@ -28,9 +28,7 @@ use crate::server::ServerConfig;
 use crate::tls::common::RustlsConfigLoader;
 use crate::transport::TransportProtocol;
 
-use super::common::{
-    ServerHandshakeAuth, UpgradedWebSocket, WebSocketEndpoint, build_server_handshake_auth,
-};
+use super::common::{UpgradedWebSocket, WebSocketEndpoint, authorize_server_handshake};
 
 pub struct AcceptedWebSocketConnection {
     pub websocket: UpgradedWebSocket,
@@ -63,7 +61,7 @@ impl ServerConfig {
             (false, None) => None,
         };
 
-        let auth = build_server_handshake_auth(self);
+        let auth = self.auth.clone();
         let expected_path = endpoint.path.clone();
 
         let cancellation_token = CancellationToken::new();
@@ -140,7 +138,7 @@ impl ServerConfig {
 
 async fn serve_connection<S>(
     stream: S,
-    auth: ServerHandshakeAuth,
+    auth: crate::server::AuthenticationConfig,
     expected_path: String,
     on_accepted: OnAcceptedWebSocket,
     remote_addr: SocketAddr,
@@ -167,7 +165,7 @@ async fn serve_connection<S>(
                 ));
             }
 
-            if !auth.authorize(&request).await {
+            if !authorize_server_handshake(&auth, &request).await {
                 return Ok::<Response<Empty<Bytes>>, Infallible>(response_with_status(
                     StatusCode::UNAUTHORIZED,
                 ));
