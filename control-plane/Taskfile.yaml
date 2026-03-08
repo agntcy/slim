@@ -28,7 +28,7 @@ vars:
         tr '\n' ' '
 
 env:
-  GOTOOLCHAIN: "go1.25.0+auto"
+  GOTOOLCHAIN: "go1.26.1+auto"
 
 tasks:
   control-plane:foreach-module:
