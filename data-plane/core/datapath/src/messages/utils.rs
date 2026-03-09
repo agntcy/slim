@@ -22,6 +22,7 @@ use crate::api::{
         command_payload::CommandPayloadType, content::ContentType,
     },
 };
+use crate::build_info::version_string;
 
 use thiserror::Error;
 
@@ -272,6 +273,7 @@ impl SlimHeader {
             forward_to: flags.forward_to,
             incoming_conn: flags.incoming_conn,
             error: flags.error,
+            version: Some(version_string().clone()),
         }
     }
 
@@ -316,6 +318,10 @@ impl SlimHeader {
 
     pub fn get_identity(&self) -> String {
         self.identity.clone()
+    }
+
+    pub fn get_version(&self) -> Option<String> {
+        self.version.clone()
     }
 
     pub fn set_source(&mut self, source: &Name) {
@@ -1946,6 +1952,7 @@ mod tests {
             forward_to: None,
             incoming_conn: None,
             error: None,
+            version: None,
         };
 
         // the operations to retrieve source and destination should fail with panic
