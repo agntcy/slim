@@ -591,7 +591,7 @@ where
 
         // reply to the ping
         let header = msg.get_slim_header_mut();
-        let src = header.get_source();
+        let src = header.get_source(); 
         header.set_source(&self.common.settings.source);
         header.set_destination(&src);
         self.common.send_to_slim(msg).await

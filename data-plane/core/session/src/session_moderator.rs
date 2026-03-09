@@ -300,7 +300,7 @@ where
                 .common
                 .legacy_sender
                 .as_ref()
-                .map_or(true, |s| s.drain_completed())
+                .is_none_or(|s| s.drain_completed())
             && !self.inner.needs_drain()
             && self.tasks_todo.is_empty())
     }
@@ -320,7 +320,9 @@ where
         self.subscribed = false;
         self.common.sender.close();
         let legacy_is_set = self.common.legacy_sender.is_some();
-        self.common.legacy_sender.as_mut().map(|s| s.close());
+        if let Some(s) = self.common.legacy_sender.as_mut() {
+            s.close()
+        }
 
         // Remove route and subscription for multicast sessions
         if self.common.settings.config.session_type == ProtoSessionType::Multicast
@@ -446,7 +448,9 @@ where
         self.tasks_todo.clear();
         // clear all pending timers
         self.common.sender.clear_timers();
-        self.common.legacy_sender.as_mut().map(|s| s.clear_timers());
+        if let Some(s) = self.common.legacy_sender.as_mut() {
+            s.clear_timers()
+        }
         // signal start drain everywhere
         self.inner
             .on_message(SessionMessage::StartDrain {
@@ -454,7 +458,9 @@ where
             })
             .await?;
         self.common.sender.start_drain();
-        self.common.legacy_sender.as_mut().map(|s| s.start_drain());
+        if let Some(s) = self.common.legacy_sender.as_mut() {
+            s.start_drain()
+        }
         Ok(())
     }
 

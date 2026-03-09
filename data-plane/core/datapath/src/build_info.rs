@@ -51,7 +51,7 @@ impl BuildInfo {
             if after_dash
                 .chars()
                 .next()
-                .map_or(false, |c| c.is_ascii_digit())
+                .is_some_and(|c| c.is_ascii_digit())
             {
                 &version_str[..dash_pos]
             } else {
@@ -166,7 +166,7 @@ mod tests {
             Some(Ordering::Equal)
         );
 
-        // None for unparseable version
+        // None for unparsable version
         assert_eq!(build_info.compare_version(Some("invalid")), None);
 
         // None for missing version (legacy)
@@ -194,7 +194,7 @@ mod tests {
             Some(false)
         );
 
-        // None for unparseable
+        // None for unparsable
         assert_eq!(build_info.is_compatible_with(Some("invalid")), None);
     }
 

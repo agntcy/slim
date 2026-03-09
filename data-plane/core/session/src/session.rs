@@ -425,7 +425,6 @@ mod tests {
 
     use super::*;
     use slim_datapath::api::ProtoSessionType;
-    use slim_datapath::messages::utils::TRUE_VAL;
     use std::{collections::HashMap, time::Duration};
     use tokio::time::timeout;
     use tracing_test::traced_test;
