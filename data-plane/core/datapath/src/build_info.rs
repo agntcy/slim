@@ -36,21 +36,23 @@ impl BuildInfo {
     /// - "slim-v1.2.3" (exact tag match)
     /// - "slim-v1.2.3-30-g26599324" (30 commits after tag slim-v1.2.3, at commit g26599324)
     /// - "26599324" (commit hash only when no tags exist)
-    /// 
+    ///
     /// For version comparison, only the semver part (1.2.3) is used, ignoring commit count and hash.
     pub fn parse_version(version_str: &str) -> Option<Version> {
         let version_str = version_str.trim();
-        
+
         // Strip "slim-v" prefix if present
-        let version_str = version_str
-            .strip_prefix("slim-v")
-            .unwrap_or(version_str);
-        
+        let version_str = version_str.strip_prefix("slim-v").unwrap_or(version_str);
+
         // Handle "v1.2.3-10-gabcdef" format - take only the semver part
         let semver_part = if let Some(dash_pos) = version_str.find('-') {
             // Check if what follows is a number (commit count)
             let after_dash = &version_str[dash_pos + 1..];
-            if after_dash.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+            if after_dash
+                .chars()
+                .next()
+                .map_or(false, |c| c.is_ascii_digit())
+            {
                 &version_str[..dash_pos]
             } else {
                 version_str
@@ -58,11 +60,11 @@ impl BuildInfo {
         } else {
             version_str
         };
-        
+
         // Try to parse as semver
         Version::parse(semver_part).ok()
     }
-    
+
     /// Compare current version with another version string.
     /// Returns:
     /// - Some(Ordering::Equal) if versions are equal
@@ -73,20 +75,20 @@ impl BuildInfo {
         let current_version = Self::parse_version(self.version)?;
         let other_str = other?;
         let other_version = Self::parse_version(other_str)?;
-        
+
         Some(current_version.cmp(&other_version))
     }
-    
+
     /// Check if another version is compatible (same major version for semver).
     /// Returns None if either version cannot be parsed.
     pub fn is_compatible_with(&self, other: Option<&str>) -> Option<bool> {
         let current_version = Self::parse_version(self.version)?;
         let other_str = other?;
         let other_version = Self::parse_version(other_str)?;
-        
+
         Some(current_version.major == other_version.major)
     }
-    
+
     /// Check if the current version is newer than or equal to another version.
     /// Returns true if current >= other, false otherwise.
     /// Returns None if versions cannot be compared.
@@ -117,20 +119,20 @@ mod tests {
         assert_eq!(v.major, 1);
         assert_eq!(v.minor, 2);
         assert_eq!(v.patch, 3);
-        
+
         // Tag with commits after
         let v = BuildInfo::parse_version("slim-v1.2.3-10-gabcdef").unwrap();
         assert_eq!(v.major, 1);
         assert_eq!(v.minor, 2);
         assert_eq!(v.patch, 3);
-        
+
         // Without prefix
         let v = BuildInfo::parse_version("1.2.3").unwrap();
         assert_eq!(v.major, 1);
         assert_eq!(v.minor, 2);
         assert_eq!(v.patch, 3);
     }
-    
+
     #[test]
     fn test_compare_version() {
         let build_info = BuildInfo {
@@ -139,38 +141,38 @@ mod tests {
             profile: "",
             version: "slim-v1.2.3",
         };
-        
+
         // Equal versions
         assert_eq!(
             build_info.compare_version(Some("slim-v1.2.3")),
             Some(Ordering::Equal)
         );
-        
+
         // Current is newer
         assert_eq!(
             build_info.compare_version(Some("slim-v1.2.2")),
             Some(Ordering::Greater)
         );
-        
+
         // Current is older
         assert_eq!(
             build_info.compare_version(Some("slim-v1.2.4")),
             Some(Ordering::Less)
         );
-        
+
         // With commits after tag
         assert_eq!(
             build_info.compare_version(Some("slim-v1.2.3-5-gabcdef")),
             Some(Ordering::Equal)
         );
-        
+
         // None for unparseable version
         assert_eq!(build_info.compare_version(Some("invalid")), None);
-        
+
         // None for missing version (legacy)
         assert_eq!(build_info.compare_version(None), None);
     }
-    
+
     #[test]
     fn test_is_compatible() {
         let build_info = BuildInfo {
@@ -179,17 +181,23 @@ mod tests {
             profile: "",
             version: "slim-v1.2.3",
         };
-        
+
         // Same major version
-        assert_eq!(build_info.is_compatible_with(Some("slim-v1.5.0")), Some(true));
-        
+        assert_eq!(
+            build_info.is_compatible_with(Some("slim-v1.5.0")),
+            Some(true)
+        );
+
         // Different major version
-        assert_eq!(build_info.is_compatible_with(Some("slim-v2.0.0")), Some(false));
-        
+        assert_eq!(
+            build_info.is_compatible_with(Some("slim-v2.0.0")),
+            Some(false)
+        );
+
         // None for unparseable
         assert_eq!(build_info.is_compatible_with(Some("invalid")), None);
     }
-    
+
     #[test]
     fn test_is_at_least() {
         let build_info = BuildInfo {
@@ -198,26 +206,26 @@ mod tests {
             profile: "",
             version: "slim-v1.2.3",
         };
-        
+
         // Current is equal
         assert_eq!(build_info.is_at_least(Some("slim-v1.2.3")), Some(true));
-        
+
         // Current is newer
         assert_eq!(build_info.is_at_least(Some("slim-v1.2.2")), Some(true));
-        
+
         // Current is older
         assert_eq!(build_info.is_at_least(Some("slim-v1.2.4")), Some(false));
     }
-    
+
     #[test]
     fn test_version_string_caching() {
         // Get the version string twice
         let v1 = version_string();
         let v2 = version_string();
-        
+
         // Verify they point to the same memory location (cached)
         assert_eq!(v1.as_ptr(), v2.as_ptr());
-        
+
         // Verify the content is correct
         assert_eq!(v1, BUILD_INFO.version);
     }

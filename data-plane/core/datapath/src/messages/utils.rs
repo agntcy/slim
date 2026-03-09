@@ -74,11 +74,6 @@ pub const FALSE_VAL: &str = "FALSE";
 /// Value: Half of u32::MAX to allow a separate ID space for out-of-band messages.
 pub const MAX_PUBLISH_ID: u32 = u32::MAX / 2;
 
-/// SPLIT_CHANNEL_MESSAGE is used in application ACKs an RTXs to indicate messages
-/// coming from and application that uses a data and control channel. If this is
-/// not present the sender in assumed to be a legacy sender.
-pub const SPLIT_CHANNEL_MESSAGE: &str = "SPLIT_CHANNEL_MESSAGE";
-
 #[derive(Error, Debug, PartialEq)]
 pub enum MessageError {
     #[error("SLIM header not found")]
@@ -322,6 +317,10 @@ impl SlimHeader {
 
     pub fn get_version(&self) -> Option<String> {
         self.version.clone()
+    }
+
+    pub fn has_version(&self) -> bool {
+        self.version.is_some()
     }
 
     pub fn set_source(&mut self, source: &Name) {

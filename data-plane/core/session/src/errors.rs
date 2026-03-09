@@ -52,8 +52,8 @@ pub enum SessionError {
     InvalidParticipantSettingsLength,
     #[error("legacy channel not initialized")]
     LegacyChannelNotInitialized,
-    #[error("unexpected reply message id: {0}")]
-    UnexpectedReply(u32),
+    #[error("missing sender for ack or rtx message: {0}")]
+    MissingSenderForAckOrRtx(u32),
     #[error("unexpected error")]
     UnexpectedError { source: Box<SessionError> },
 

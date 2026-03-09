@@ -9,7 +9,7 @@ use slim_datapath::messages::utils::{MAX_PUBLISH_ID, PUBLISH_TO};
 use slim_datapath::{api::ProtoMessage as Message, messages::Name};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
-use tracing::debug;
+use tracing::{Instrument, debug};
 
 use crate::common::new_message_from_session_fields;
 use crate::transmitter::SessionTransmitter;

@@ -298,6 +298,11 @@ where
     }
 
     async fn process_control_message(&mut self, message: Message) -> Result<(), SessionError> {
+        if message.get_dst().is_legacy() {
+            debug!("Received control message on legacy channel drop it");
+            return Ok(());
+        }
+
         match message.get_session_message_type() {
             ProtoSessionMessageType::JoinRequest => self.on_join_request(message).await,
             ProtoSessionMessageType::GroupWelcome => self.on_welcome(message).await,
@@ -436,6 +441,9 @@ where
             }
         }
 
+        // if legacy is true subscribe also to the legacy channel
+        // notice that this is used only for application messages
+        // coming from legacy participants
         self.join(&msg, legacy).await?;
 
         let ack = self.common.create_control_message(

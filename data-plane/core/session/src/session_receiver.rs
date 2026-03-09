@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
 use slim_datapath::api::ProtoSessionType;
-use slim_datapath::messages::utils::{PUBLISH_TO, SPLIT_CHANNEL_MESSAGE, TRUE_VAL};
+use slim_datapath::messages::utils::{PUBLISH_TO, TRUE_VAL};
 use slim_datapath::{api::ProtoMessage as Message, messages::Name};
 use tokio::sync::mpsc::Sender;
 use tracing::debug;
@@ -197,11 +197,10 @@ impl SessionReceiver {
             return Ok(());
         }
 
-        let mut publish_meta = HashMap::new();
-        publish_meta.insert(SPLIT_CHANNEL_MESSAGE.to_string(), TRUE_VAL.to_string());
-        if message.contains_metadata(PUBLISH_TO) {
-            publish_meta.insert(PUBLISH_TO.to_string(), TRUE_VAL.to_string());
-        }
+        let publish_meta = message.contains_metadata(PUBLISH_TO).then(|| {
+            std::iter::once((PUBLISH_TO.to_string(), TRUE_VAL.to_string()))
+                .collect::<std::collections::HashMap<_, _>>()
+        });
 
         let ack = new_message_from_session_fields(
             &self.local_name,
@@ -212,7 +211,7 @@ impl SessionReceiver {
             slim_datapath::api::ProtoSessionMessageType::MsgAck,
             message.get_session_header().session_id,
             message.get_id(),
-            Some(publish_meta),
+            publish_meta,
         )?;
 
         self.tx.send_to_slim(Ok(ack)).await
@@ -290,8 +289,6 @@ impl SessionReceiver {
                 source = %source,
                 "send rtx");
 
-            let mut publish_meta = HashMap::new();
-            publish_meta.insert(SPLIT_CHANNEL_MESSAGE.to_string(), TRUE_VAL.to_string());
             let rtx = new_message_from_session_fields(
                 &self.local_name,
                 &source,
@@ -301,7 +298,7 @@ impl SessionReceiver {
                 slim_datapath::api::ProtoSessionMessageType::RtxRequest,
                 self.session_id,
                 rtx_id,
-                Some(publish_meta),
+                None,
             )?;
 
             // for each RTX start a timer

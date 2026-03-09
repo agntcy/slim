@@ -6,7 +6,7 @@ use slim_datapath::{
     api::{
         ParticipantSettings, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType,
     },
-    messages::{Name, utils::SPLIT_CHANNEL_MESSAGE},
+    messages::Name,
 };
 
 use tokio::sync::mpsc::{self};
@@ -271,19 +271,25 @@ impl Session {
                 Ok(())
             }
             ProtoSessionMessageType::MsgAck | ProtoSessionMessageType::RtxRequest => {
-                // to do check if we need to sent to sender or to the legacy sender
-                if message.contains_metadata(SPLIT_CHANNEL_MESSAGE) {
+                if message.get_slim_header().has_version() {
                     // send to the standard sender
                     if let Some(sender) = self.sender.as_mut() {
-                        sender.on_message(message.clone(), ack_tx).await?
+                        return sender.on_message(message.clone(), ack_tx).await;
                     }
                 } else {
                     // send to the legacy sender
                     if let Some(legacy_sender) = self.legacy_sender.as_mut() {
-                        legacy_sender.on_message(message.clone(), ack_tx).await?
+                        return legacy_sender.on_message(message.clone(), ack_tx).await;
                     }
                 }
-                Ok(())
+                // if we are here the message was not process correctly, return an error
+                debug!(message_id = %message.get_id(), "no sender available for ack/rtx message");
+                if let Some(tx) = ack_tx {
+                    let _ = tx.send(Err(SessionError::MissingSenderForAckOrRtx(
+                        message.get_id(),
+                    )));
+                }
+                Err(SessionError::MissingSenderForAckOrRtx(message.get_id()))
             }
             ProtoSessionMessageType::RtxReply => {
                 if let Some(receiver) = self.receiver.as_mut() {
@@ -546,9 +552,6 @@ mod tests {
             .get_session_header_mut()
             .set_session_id(session_id);
         ack_message.get_slim_header_mut().set_incoming_conn(Some(1));
-        ack_message
-            .metadata
-            .insert(SPLIT_CHANNEL_MESSAGE.to_string(), TRUE_VAL.to_string());
 
         // Send the ack to the session
         session

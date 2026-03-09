@@ -285,13 +285,13 @@ impl ControllerSender {
             | slim_datapath::api::ProtoSessionMessageType::JoinReply
             | slim_datapath::api::ProtoSessionMessageType::LeaveReply
             | slim_datapath::api::ProtoSessionMessageType::GroupAck => {
-                self.on_reply_message(message)?;
+                self.on_reply_message(message);
             }
             slim_datapath::api::ProtoSessionMessageType::GroupNack => {
                 // in case on Nack we stop the timer as for the Acks
                 // and we leave the application/controller decide what
                 // to do to handle it
-                self.on_reply_message(message)?;
+                self.on_reply_message(message);
             }
             slim_datapath::api::ProtoSessionMessageType::Ping => self.on_ping_message(message),
             slim_datapath::api::ProtoSessionMessageType::GroupAdd => {
@@ -391,7 +391,7 @@ impl ControllerSender {
         self.tx.send_to_slim(Ok(message.clone())).await
     }
 
-    fn on_reply_message(&mut self, message: &Message) -> Result<(), SessionError> {
+    fn on_reply_message(&mut self, message: &Message) {
         let id = message.get_id();
         debug!(
             %id,
@@ -408,9 +408,7 @@ impl ControllerSender {
             {
                 name.reset_id();
             }
-            if !pending.missing_replies.remove(&name) {
-                return Err(SessionError::UnexpectedReply(message.get_id()));
-            }
+
             if pending.missing_replies.is_empty() {
                 debug!("all replies received, remove timer");
                 pending.timer.stop();
@@ -421,7 +419,6 @@ impl ControllerSender {
         if delete {
             self.pending_replies.remove(&id);
         }
-        Ok(())
     }
 
     fn on_ping_message(&mut self, message: &Message) {
@@ -1518,15 +1515,11 @@ mod tests {
         );
 
         // Send the SAME ack again from participant1 (duplicate)
-        // This should return an UnexpectedReply error since the ack was already processed
-        let duplicate_result = sender.on_message(&ack1).await;
-        match duplicate_result {
-            Err(SessionError::UnexpectedReply(message_id)) => {
-                assert_eq!(message_id, 1, "Error should reference message id 1");
-            }
-            Ok(_) => panic!("Expected UnexpectedReply error for duplicate ack"),
-            Err(e) => panic!("Expected UnexpectedReply error, got: {:?}", e),
-        }
+        // Duplicate acks are now silently handled and should return Ok without error
+        sender
+            .on_message(&ack1)
+            .await
+            .expect("duplicate ack should be silently handled");
 
         // Verify the message is STILL pending - duplicate ack should not count
         assert!(

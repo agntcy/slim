@@ -153,6 +153,10 @@ impl Name {
     pub fn match_prefix(&self, other: &Name) -> bool {
         self.components[0..3] == other.components[0..3]
     }
+
+    pub fn is_legacy(&self) -> bool {
+        self.components[3] == Self::NULL_COMPONENT
+    }
 }
 
 pub fn calculate_hash<T: Hash + ?Sized>(t: &T) -> u64 {
