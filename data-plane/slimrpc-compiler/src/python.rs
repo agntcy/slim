@@ -128,6 +128,119 @@ const STREAM_STREAM_STUB_METHOD_TEMPLATE: &str = r#"    async def {{METHOD_NAME}
 
 "#;
 
+const GROUP_STUB_TEMPLATE: &str = r#"
+class {{SERVICE_NAME}}GroupStub:
+    """Multicast (group) client stub for {{SERVICE_NAME}}.
+
+    Requires a channel created with ``Channel.new_group*`` targeting multiple
+    server instances. All methods are async generators that yield
+    ``(source, response)`` tuples — one pair per incoming message.
+    """
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A slim_bindings.Channel created with Channel.new_group*.
+        """
+        self._channel = channel
+
+{{GROUP_METHOD_STUBS}}
+"#;
+
+const UNARY_UNARY_GROUP_METHOD_TEMPLATE: &str = r#"    async def {{METHOD_NAME}}(self, request: {{INPUT_TYPE_FULL_PATH}}, timeout: Optional[timedelta] = None, metadata: Optional[dict[str, str]] = None):
+        """Multicast {{METHOD_NAME}}: one response per server."""
+        reader = await self._channel.call_multicast_unary_async(
+            "{{PACKAGE_NAME}}.{{SERVICE_NAME}}",
+            "{{METHOD_NAME}}",
+            {{INPUT_TYPE_FULL_PATH}}.SerializeToString(request),
+            timeout,
+            metadata,
+        )
+        while True:
+            msg = await reader.next_async()
+            if msg.is_end():
+                break
+            if msg.is_error():
+                raise msg.error
+            if msg.is_data():
+                yield msg.item.context, {{OUTPUT_TYPE_FULL_PATH}}.FromString(msg.item.message)
+
+"#;
+
+const UNARY_STREAM_GROUP_METHOD_TEMPLATE: &str = r#"    async def {{METHOD_NAME}}(self, request: {{INPUT_TYPE_FULL_PATH}}, timeout: Optional[timedelta] = None, metadata: Optional[dict[str, str]] = None):
+        """Multicast {{METHOD_NAME}}: streaming responses per server."""
+        reader = await self._channel.call_multicast_unary_stream_async(
+            "{{PACKAGE_NAME}}.{{SERVICE_NAME}}",
+            "{{METHOD_NAME}}",
+            {{INPUT_TYPE_FULL_PATH}}.SerializeToString(request),
+            timeout,
+            metadata,
+        )
+        while True:
+            msg = await reader.next_async()
+            if msg.is_end():
+                break
+            if msg.is_error():
+                raise msg.error
+            if msg.is_data():
+                yield msg.item.context, {{OUTPUT_TYPE_FULL_PATH}}.FromString(msg.item.message)
+
+"#;
+
+const STREAM_UNARY_GROUP_METHOD_TEMPLATE: &str = r#"    async def {{METHOD_NAME}}(self, request_iterator, timeout: Optional[timedelta] = None, metadata: Optional[dict[str, str]] = None):
+        """Multicast {{METHOD_NAME}}: one response per server after streaming requests."""
+        handler = self._channel.call_multicast_stream_unary(
+            "{{PACKAGE_NAME}}.{{SERVICE_NAME}}",
+            "{{METHOD_NAME}}",
+            timeout,
+            metadata,
+        )
+        async for request in request_iterator:
+            await handler.send_async({{INPUT_TYPE_FULL_PATH}}.SerializeToString(request))
+        await handler.close_send_async()
+        while True:
+            msg = await handler.recv_async()
+            if msg.is_end():
+                break
+            if msg.is_error():
+                raise msg.error
+            if msg.is_data():
+                yield msg.item.context, {{OUTPUT_TYPE_FULL_PATH}}.FromString(msg.item.message)
+
+"#;
+
+const STREAM_STREAM_GROUP_METHOD_TEMPLATE: &str = r#"    async def {{METHOD_NAME}}(self, request_iterator, timeout: Optional[timedelta] = None, metadata: Optional[dict[str, str]] = None):
+        """Multicast {{METHOD_NAME}}: streaming requests and responses."""
+        handler = self._channel.call_multicast_stream_stream(
+            "{{PACKAGE_NAME}}.{{SERVICE_NAME}}",
+            "{{METHOD_NAME}}",
+            timeout,
+            metadata,
+        )
+
+        async def send_requests():
+            async for request in request_iterator:
+                await handler.send_async({{INPUT_TYPE_FULL_PATH}}.SerializeToString(request))
+            await handler.close_send_async()
+
+        import asyncio
+        send_task = asyncio.create_task(send_requests())
+
+        try:
+            while True:
+                msg = await handler.recv_async()
+                if msg.is_end():
+                    break
+                if msg.is_error():
+                    raise msg.error
+                if msg.is_data():
+                    yield msg.item.context, {{OUTPUT_TYPE_FULL_PATH}}.FromString(msg.item.message)
+        finally:
+            await send_task
+
+"#;
+
 const SERVICE_SERVICER_TEMPLATE: &str = r#"
 class {{SERVICE_NAME}}Servicer:
     """Server servicer for {{SERVICE_NAME}}. Implement this class to provide your service logic."""
@@ -408,6 +521,7 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
             let service_name = service.name.context("Service name missing")?;
 
             let mut method_stub_methods_content = String::new();
+            let mut group_method_stubs_content = String::new();
             let mut method_servicers_content = String::new();
             let mut handler_classes_for_service = String::new();
             let mut register_methods_content = String::new();
@@ -460,6 +574,21 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
                     .replace("{{OUTPUT_TYPE_FULL_PATH}}", &output_type_full_path);
                 method_stub_methods_content.push_str(&current_method_stub_method);
 
+                // Populate group method stub template
+                let group_method_template = match (is_client_streaming, is_server_streaming) {
+                    (false, false) => UNARY_UNARY_GROUP_METHOD_TEMPLATE,
+                    (false, true) => UNARY_STREAM_GROUP_METHOD_TEMPLATE,
+                    (true, false) => STREAM_UNARY_GROUP_METHOD_TEMPLATE,
+                    (true, true) => STREAM_STREAM_GROUP_METHOD_TEMPLATE,
+                };
+                let current_group_method = group_method_template
+                    .replace("{{METHOD_NAME}}", &method_name)
+                    .replace("{{PACKAGE_NAME}}", &package_name)
+                    .replace("{{SERVICE_NAME}}", &service_name)
+                    .replace("{{INPUT_TYPE_FULL_PATH}}", &input_type_full_path)
+                    .replace("{{OUTPUT_TYPE_FULL_PATH}}", &output_type_full_path);
+                group_method_stubs_content.push_str(&current_group_method);
+
                 // Populate method servicer template
                 let current_method_servicer = method_template
                     .replace("{{METHOD_NAME}}", &method_name)
@@ -488,6 +617,12 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
                 .replace("{{SERVICE_NAME}}", &service_name)
                 .replace("{{METHOD_STUB_METHODS}}", &method_stub_methods_content);
             service_definitions_content.push_str(&current_service_stub);
+
+            // Populate group stub template
+            let current_group_stub = GROUP_STUB_TEMPLATE
+                .replace("{{SERVICE_NAME}}", &service_name)
+                .replace("{{GROUP_METHOD_STUBS}}", &group_method_stubs_content);
+            service_definitions_content.push_str(&current_group_stub);
 
             // Populate service servicer template
             let current_service_servicer = SERVICE_SERVICER_TEMPLATE
@@ -1026,5 +1161,63 @@ mod tests {
         assert!(content.contains("pb2.Request"));
         assert!(content.contains("pb2.Request.FromString"));
         assert!(content.contains("class DataServiceStub:"));
+    }
+
+    #[test]
+    fn test_generate_group_channel_stub() {
+        // Test that GroupStub is generated with all four multicast method types
+        let methods = vec![
+            create_test_method(
+                "UnaryUnary",
+                ".test.Request",
+                ".test.Response",
+                false,
+                false,
+            ),
+            create_test_method(
+                "UnaryStream",
+                ".test.Request",
+                ".test.Response",
+                false,
+                true,
+            ),
+            create_test_method(
+                "StreamUnary",
+                ".test.Request",
+                ".test.Response",
+                true,
+                false,
+            ),
+            create_test_method(
+                "StreamStream",
+                ".test.Request",
+                ".test.Response",
+                true,
+                true,
+            ),
+        ];
+        let service = create_test_service("Test", methods);
+        let file_descriptor =
+            create_test_file_descriptor("example.proto", "test", vec![service]);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["example.proto".to_string()],
+            parameter: None,
+            proto_file: vec![file_descriptor],
+            compiler_version: None,
+        };
+
+        let response = generate(request).unwrap();
+
+        assert_eq!(response.file.len(), 1);
+        let content = response.file[0].content.as_ref().unwrap();
+
+        // Verify TestGroupStub class is generated
+        assert!(content.contains("class TestGroupStub:"));
+        // Verify all four multicast channel method calls are present
+        assert!(content.contains("call_multicast_unary_async"));
+        assert!(content.contains("call_multicast_unary_stream_async"));
+        assert!(content.contains("call_multicast_stream_unary"));
+        assert!(content.contains("call_multicast_stream_stream"));
     }
 }

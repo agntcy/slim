@@ -965,6 +965,7 @@ where
         // sent toward the participant that was disconnected. Otherwise the leave message is sent
         // from the participant that wants to disconnect
         let disconnected = if msg.contains_metadata(LEAVING_SESSION) {
+            println!("leaving session");
             msg.get_source()
         } else {
             msg.get_dst()
@@ -986,7 +987,7 @@ where
 
         // Send error notification to the application
         let error = SessionError::ParticipantDisconnected(disconnected.clone());
-        self.common.send_to_app(error).await?;
+        let _ = self.common.send_to_app(error).await;
 
         // if the disconnection was detected nothing to do here,
         // otherwise we need to reply, change the metadata and swap

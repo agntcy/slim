@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import logging
 from collections.abc import AsyncIterable
@@ -76,7 +77,7 @@ class TestService(TestServicer):
             )
 
 
-async def amain() -> None:
+async def amain(instance: str) -> None:
     slim_bindings.uniffi_set_event_loop(asyncio.get_running_loop())  # type: ignore[arg-type]
 
     # Initialize service
@@ -94,8 +95,8 @@ async def amain() -> None:
 
     service = slim_bindings.get_global_service()
 
-    # Create local name
-    local_name = slim_bindings.Name("agntcy", "grpc", "server")
+    # Create local name (instance allows running multiple servers, e.g. server1, server2)
+    local_name = slim_bindings.Name("agntcy", "grpc", instance)
 
     # Connect to SLIM
     client_config = slim_bindings.new_insecure_client_config("http://localhost:46357")
@@ -116,7 +117,7 @@ async def amain() -> None:
     add_TestServicer_to_server(TestService(), server)
 
     # Run server
-    logger.info("Server starting...")
+    logger.info(f"Server '{instance}' starting...")
     await server.serve_async()
 
 
@@ -124,8 +125,17 @@ def main() -> None:
     """
     Main entry point for the server.
     """
+    parser = argparse.ArgumentParser(description="SlimRPC example server")
+    parser.add_argument(
+        "--instance",
+        default="server",
+        help="Instance name used as the SLIM app name (default: server). "
+             "Use server1/server2 when running alongside client_group.py.",
+    )
+    args = parser.parse_args()
+
     logging.basicConfig(level=logging.DEBUG)
     try:
-        asyncio.run(amain())
+        asyncio.run(amain(args.instance))
     except KeyboardInterrupt:
         print("Server interrupted by user.")

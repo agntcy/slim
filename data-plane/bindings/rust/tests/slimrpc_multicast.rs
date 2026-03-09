@@ -172,8 +172,11 @@ impl MulticastTestEnv {
 
     async fn shutdown(&mut self) {
         for server in &self.member_servers {
+            println!("Shutting down");
             server.shutdown_internal().await;
         }
+
+        println!("Shutting down2");
         self.service.shutdown().await.unwrap();
     }
 }
@@ -270,6 +273,8 @@ async fn test_multicast_unary() {
     }
     env.start_all_servers().await;
 
+    println!("Servers started");
+
     let stream = env.channel.multicast_unary::<TestRequest, TestResponse>(
         "TestService",
         "Echo",
@@ -281,6 +286,8 @@ async fn test_multicast_unary() {
         None,
     );
 
+    println!("Things sent");
+
     let mut responses = collect_n_multicast(
         stream,
         NUM_MEMBERS,
@@ -288,6 +295,9 @@ async fn test_multicast_unary() {
         "multicast_unary",
     )
     .await;
+
+    println!("responses received");
+
     responses.sort_by_key(|r| r.message.member_id);
 
     assert_eq!(responses.len(), NUM_MEMBERS);
@@ -304,6 +314,8 @@ async fn test_multicast_unary() {
         responses[1].context.source,
         Name::from_strings(["org", "ns", "member-1"])
     );
+
+    println!("Ook");
 
     env.shutdown().await;
 }
@@ -733,6 +745,106 @@ async fn test_multicast_partial_error_unary_stream() {
         .filter(|r| r.as_ref().unwrap().message.member_id == 1)
         .collect();
     assert_eq!(m1_items.len(), M1_OK_ITEMS, "M1 should deliver all items");
+
+    env.shutdown().await;
+}
+
+// ============================================================================
+// Test 7 — channel close: idle (no session)
+// ============================================================================
+
+/// `close_async` on a channel that has never been used must succeed immediately
+/// without panicking or blocking.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_channel_close_no_session() {
+    let mut env = MulticastTestEnv::new("test-channel-close-no-session", 1).await;
+
+    env.member_servers[0].register_unary_unary_internal(
+        "TestService",
+        "Echo",
+        move |req: TestRequest, _ctx: Context| async move {
+            Ok(TestResponse {
+                member_id: 0,
+                result: req.message,
+                count: req.value,
+            })
+        },
+    );
+    env.start_all_servers().await;
+
+    // No RPC has been made — no underlying session exists yet.
+    env.channel
+        .close_async(None)
+        .await
+        .expect("close on idle channel must succeed");
+
+    env.shutdown().await;
+}
+
+// ============================================================================
+// Test 8 — channel close: active session, then reuse
+// ============================================================================
+
+/// After `close_async` on a channel with an active session the channel must
+/// still be usable: the next RPC call re-creates the session transparently.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_channel_close_after_rpc() {
+    const NUM_MEMBERS: usize = 2;
+    let mut env = MulticastTestEnv::new("test-channel-close-after-rpc", NUM_MEMBERS).await;
+
+    for (i, server) in env.member_servers.iter().enumerate() {
+        server.register_unary_unary_internal(
+            "TestService",
+            "Echo",
+            move |req: TestRequest, _ctx: Context| async move {
+                Ok(TestResponse {
+                    member_id: i,
+                    result: req.message,
+                    count: req.value,
+                })
+            },
+        );
+    }
+    env.start_all_servers().await;
+
+    // First call — establishes the persistent GROUP session.
+    let stream = env.channel.multicast_unary::<TestRequest, TestResponse>(
+        "TestService",
+        "Echo",
+        TestRequest {
+            message: "first".to_string(),
+            value: 1,
+        },
+        Some(Duration::from_secs(10)),
+        None,
+    );
+    let responses =
+        collect_n_multicast(stream, NUM_MEMBERS, Duration::from_secs(10), "first call").await;
+    assert_eq!(responses.len(), NUM_MEMBERS);
+
+    // Close the session — the dispatcher task must exit naturally.
+    env.channel
+        .close_async(None)
+        .await
+        .expect("close must succeed with an active session");
+
+    // Second call — channel must re-create the session transparently.
+    let stream = env.channel.multicast_unary::<TestRequest, TestResponse>(
+        "TestService",
+        "Echo",
+        TestRequest {
+            message: "second".to_string(),
+            value: 2,
+        },
+        Some(Duration::from_secs(10)),
+        None,
+    );
+    let responses =
+        collect_n_multicast(stream, NUM_MEMBERS, Duration::from_secs(10), "second call").await;
+    assert_eq!(responses.len(), NUM_MEMBERS);
+    assert!(responses.iter().all(|r| r.message.result == "second"));
 
     env.shutdown().await;
 }

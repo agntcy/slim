@@ -369,6 +369,16 @@ impl Channel {
             && let Some(ref cs) = **guard
         {
             for member in &cs.members {
+                if let Some(conn_id) = self.connection_id {
+                    if let Err(e) = self.app.set_route(member, conn_id).await {
+                        tracing::warn!(
+                            member = %member,
+                            connection_id = conn_id,
+                            error = %e,
+                            "Failed to set route for group member"
+                        );
+                    }
+                }
                 send_invite(&session_tx, member).await?;
             }
         }
@@ -533,6 +543,7 @@ impl Channel {
             None
         };
         send_eos(session, session.destination(), rpc_id, extra).await?;
+
         Ok(())
     }
 
@@ -1182,6 +1193,55 @@ impl Channel {
             timeout,
             metadata,
         ))
+    }
+
+    /// Close the persistent SLIM session held by this channel, if any.
+    ///
+    /// `timeout` optionally bounds how long to wait for the session layer to
+    /// confirm the close before giving up and proceeding with cleanup anyway.
+    /// Pass `None` to wait indefinitely.
+    ///
+    /// After this call the channel can still be used; a new session will be
+    /// created automatically on the next RPC call.
+    pub fn close(&self, timeout: Option<Duration>) -> Result<(), RpcError> {
+        crate::get_runtime().block_on(self.close_async(timeout))
+    }
+
+    /// Async version of [`close`](Self::close).
+    pub async fn close_async(&self, timeout: Option<Duration>) -> Result<(), RpcError> {
+        let mut guard = self.session.lock().await;
+        let Some(cs) = guard.take() else {
+            return Ok(());
+        };
+
+        let close_future = cs.tx.close(self.app.as_ref());
+        futures::pin_mut!(close_future);
+
+        if let Some(duration) = timeout {
+            // Bound the wait with a futures-timer delay so this works across
+            // all async runtimes exposed by the bindings.
+            let delay = Delay::new(duration);
+            futures::pin_mut!(delay);
+            match futures::future::select(close_future, delay).await {
+                futures::future::Either::Left((Err(e), _)) => {
+                    tracing::warn!(error = %e, "Error closing session");
+                }
+                futures::future::Either::Right(_) => {
+                    tracing::warn!("Timeout waiting for session close");
+                }
+                _ => {}
+            }
+        } else {
+            if let Err(e) = close_future.await {
+                tracing::warn!(error = %e, "Error closing session");
+            }
+        }
+
+        // Closing the session tx drops the underlying receive channel; the
+        // dispatcher task detects the closed channel and exits naturally.
+        let _ = cs.task.await;
+
+        Ok(())
     }
 }
 

@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use futures::StreamExt;
+use slim_session::CompletionHandle;
 use tokio::sync::mpsc;
 
 use slim_datapath::messages::Name;
@@ -173,18 +174,15 @@ pub async fn send_eos(
     target: &Name,
     rpc_id: &str,
     extra: Option<HashMap<String, String>>,
-) -> Result<(), RpcError> {
+) -> Result<CompletionHandle, RpcError> {
     let mut metadata = create_status_metadata(RpcCode::Ok, rpc_id);
     if let Some(extra) = extra {
         metadata.extend(extra);
     }
-    let handle = session_tx
+    session_tx
         .publish(target, Vec::new(), Some("msg".to_string()), Some(metadata))
         .await
-        .map_err(|e| RpcError::internal(format!("Failed to send EOS: {}", e)))?;
-    handle
-        .await
-        .map_err(|e| RpcError::internal(format!("Failed to complete EOS send: {}", e)))
+        .map_err(|e| RpcError::internal(format!("Failed to send EOS: {}", e)))
 }
 
 fn create_status_metadata(code: RpcCode, rpc_id: &str) -> HashMap<String, String> {
@@ -197,27 +195,6 @@ fn create_status_metadata(code: RpcCode, rpc_id: &str) -> HashMap<String, String
     metadata
 }
 
-async fn send_message(
-    session_tx: &SessionTx,
-    target: &Name,
-    payload: Vec<u8>,
-    code: RpcCode,
-    rpc_id: &str,
-) -> Result<(), RpcError> {
-    let handle = session_tx
-        .publish(
-            target,
-            payload,
-            Some("msg".to_string()),
-            Some(create_status_metadata(code, rpc_id)),
-        )
-        .await
-        .map_err(|e| RpcError::internal(format!("Failed to send message: {}", e)))?;
-    handle
-        .await
-        .map_err(|e| RpcError::internal(format!("Failed to complete message send: {}", e)))
-}
-
 pub async fn send_response_stream<S>(
     session_tx: &SessionTx,
     stream: S,
@@ -228,13 +205,38 @@ where
     S: futures::Stream<Item = Result<Vec<u8>, RpcError>>,
 {
     futures::pin_mut!(stream);
+
+    // Publish every response message without awaiting its CompletionHandle,
+    // collecting all handles so we can wait for them in a single batch once
+    // the stream is exhausted.  This avoids a per-message round-trip delay
+    // caused by the session layer's reliable-delivery acknowledgement protocol.
+    let mut handles: Vec<CompletionHandle> = Vec::new();
+
     while let Some(result) = stream.next().await {
         match result {
             Ok(response_bytes) => {
-                send_message(session_tx, target, response_bytes, RpcCode::Ok, rpc_id).await?;
+                let handle = session_tx
+                    .publish(
+                        target,
+                        response_bytes,
+                        Some("msg".to_string()),
+                        Some(create_status_metadata(RpcCode::Ok, rpc_id)),
+                    )
+                    .await
+                    .map_err(|e| RpcError::internal(format!("Failed to send response: {}", e)))?;
+                handles.push(handle);
             }
             Err(e) => return Err(e),
         }
     }
-    send_eos(session_tx, target, rpc_id, None).await
+
+    // Queue the EOS marker and collect its handle too.
+    handles.push(send_eos(session_tx, target, rpc_id, None).await?);
+
+    // Wait for all in-flight sends to be acknowledged by the session layer.
+    futures::future::try_join_all(handles)
+        .await
+        .map_err(|e| RpcError::internal(format!("Failed to complete sending: {}", e)))?;
+
+    Ok(())
 }

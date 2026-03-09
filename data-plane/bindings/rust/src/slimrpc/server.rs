@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::future::join_all;
 use futures::stream::Stream;
@@ -459,7 +460,11 @@ async fn run_session_demux(
     }
 
     cleanup_handler_tasks(pending_streams, active_tasks).await;
-    let _ = session_tx.close(app.as_ref()).await;
+    let _ = tokio::time::timeout(
+        Duration::from_secs(10),
+        session_tx.close(app.as_ref()),
+    )
+    .await;
 }
 
 /// Drop stream senders (unblocking any handlers blocked on `recv()`), then abort and join all
@@ -1030,7 +1035,7 @@ impl Server {
                 }
                 // Handle incoming sessions
                 session_result = Server::listen_for_session(&mut rx) => {
-                    tracing::debug!("Received session notification");
+                    tracing::info!("Received session notification");
 
                     let session_ctx = match session_result {
                         Ok(ctx) => ctx,
@@ -1114,9 +1119,7 @@ impl Server {
 
         // Signal all session handlers to terminate
         if let Some(signal) = drain_signal {
-            tracing::debug!("Draining active sessions");
             signal.drain().await;
-            tracing::info!("All sessions drained successfully");
         }
 
         // Recreate drain signal and watch so the server can be restarted
