@@ -7,7 +7,6 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use fastwebsockets::WebSocket;
 use hyper::Request;
-use hyper::body::Incoming;
 use hyper::upgrade::Upgraded;
 use hyper_util::rt::TokioIo;
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -145,8 +144,10 @@ pub async fn build_client_handshake_auth(
 
 pub async fn authorize_server_handshake(
     auth: &ServerAuthConfig,
-    request: &Request<Incoming>,
+    request: &Request<impl Send + Sync>,
 ) -> bool {
+    // TODO(hackeramitkumar): Return structured rejection reasons so websocket server can
+    // report auth failures through existing connection-state reporting hooks.
     match auth {
         ServerAuthConfig::None => true,
         ServerAuthConfig::Basic(basic) => {
@@ -219,4 +220,305 @@ fn extract_query_param(query: Option<&str>, name: &str) -> Option<String> {
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    use http::header::AUTHORIZATION;
+
+    use super::*;
+    use crate::auth::basic::Config as BasicConfig;
+    use crate::auth::jwt::{Claims, Config as JwtConfig, JwtKey};
+    use crate::auth::static_jwt::Config as StaticJwtConfig;
+    use crate::client::AuthenticationConfig as ClientAuthenticationConfig;
+    use crate::server::AuthenticationConfig as ServerAuthenticationConfig;
+    use slim_auth::jwt::{Algorithm, Key, KeyData, KeyFormat};
+    use slim_auth::traits::TokenProvider;
+
+    fn unique_temp_file(prefix: &str) -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("{prefix}_{nanos}.jwt"))
+    }
+
+    fn hs256_key(secret: &str) -> Key {
+        Key {
+            algorithm: Algorithm::HS256,
+            format: KeyFormat::Pem,
+            key: KeyData::Data(secret.to_string()),
+        }
+    }
+
+    fn default_claims() -> Claims {
+        Claims::default().with_subject("websocket-test-subject")
+    }
+
+    #[test]
+    fn websocket_endpoint_parse_ws() {
+        let endpoint = WebSocketEndpoint::parse("ws://example.com:8080/socket")
+            .expect("ws endpoint should parse");
+        assert!(!endpoint.secure);
+        assert_eq!(endpoint.host, "example.com");
+        assert_eq!(endpoint.authority, "example.com:8080");
+        assert_eq!(endpoint.port, 8080);
+        assert_eq!(endpoint.path, "/socket");
+        assert_eq!(endpoint.socket_address(), "example.com:8080");
+    }
+
+    #[test]
+    fn websocket_endpoint_parse_wss_default_port() {
+        let endpoint =
+            WebSocketEndpoint::parse("wss://example.com/").expect("wss endpoint should parse");
+        assert!(endpoint.secure);
+        assert_eq!(endpoint.port, 443);
+        assert_eq!(endpoint.path, "/");
+        assert_eq!(endpoint.socket_address(), "example.com:443");
+    }
+
+    #[test]
+    fn websocket_endpoint_parse_rejects_non_ws_scheme() {
+        let err = WebSocketEndpoint::parse("http://example.com").expect_err("must fail");
+        assert!(matches!(err, ConfigError::InvalidWebSocketEndpointScheme));
+    }
+
+    #[test]
+    fn websocket_endpoint_request_uri_appends_query_param() {
+        let endpoint =
+            WebSocketEndpoint::parse("ws://localhost:9000/ws?existing=1").expect("must parse");
+        let uri = endpoint
+            .request_uri(Some(("token", "abc")))
+            .expect("request uri should build");
+        assert_eq!(
+            uri.to_string(),
+            "ws://localhost:9000/ws?existing=1&token=abc"
+        );
+    }
+
+    #[test]
+    fn websocket_endpoint_request_uri_ignores_empty_query_param() {
+        let endpoint = WebSocketEndpoint::parse("ws://localhost:9000/ws").expect("must parse");
+        let uri = endpoint
+            .request_uri(Some(("token", "")))
+            .expect("request uri should build");
+        assert_eq!(uri.to_string(), "ws://localhost:9000/ws");
+    }
+
+    #[test]
+    fn websocket_endpoint_request_uri_rejects_invalid_query_value() {
+        let endpoint = WebSocketEndpoint::parse("ws://localhost:9000/ws").expect("must parse");
+        let err = endpoint
+            .request_uri(Some(("token", "a b")))
+            .expect_err("must fail invalid URI");
+        assert!(matches!(err, ConfigError::UriParse(_)));
+    }
+
+    #[test]
+    fn extract_query_param_returns_expected_value() {
+        let token = extract_query_param(Some("foo=bar&token=abc123"), "token");
+        assert_eq!(token, Some("abc123".to_string()));
+    }
+
+    #[test]
+    fn extract_query_param_returns_none_for_missing_or_empty() {
+        assert_eq!(extract_query_param(Some("foo=bar"), "token"), None);
+        assert_eq!(extract_query_param(Some("token="), "token"), None);
+        assert_eq!(extract_query_param(None, "token"), None);
+    }
+
+    #[tokio::test]
+    async fn build_client_handshake_auth_none() {
+        let cfg = ClientConfig::with_endpoint("ws://localhost:46357");
+        let auth = build_client_handshake_auth(&cfg)
+            .await
+            .expect("none auth should succeed");
+        assert_eq!(auth.authorization_header, None);
+        assert_eq!(auth.bearer_token, None);
+    }
+
+    #[tokio::test]
+    async fn build_client_handshake_auth_basic() {
+        let cfg = ClientConfig::with_endpoint("ws://localhost:46357").with_auth(
+            ClientAuthenticationConfig::Basic(BasicConfig::new("alice", "secret")),
+        );
+        let auth = build_client_handshake_auth(&cfg)
+            .await
+            .expect("basic auth should succeed");
+        assert_eq!(auth.bearer_token, None);
+        assert_eq!(
+            auth.authorization_header,
+            Some("Basic YWxpY2U6c2VjcmV0".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn build_client_handshake_auth_static_jwt() {
+        let path = unique_temp_file("ws_static_token");
+        std::fs::write(&path, "STATIC_TOKEN").expect("must write token file");
+        let cfg = ClientConfig::with_endpoint("ws://localhost:46357").with_auth(
+            ClientAuthenticationConfig::StaticJwt(StaticJwtConfig::with_file(
+                path.to_string_lossy().to_string(),
+            )),
+        );
+
+        let auth = build_client_handshake_auth(&cfg)
+            .await
+            .expect("static jwt auth should succeed");
+        assert_eq!(auth.bearer_token.as_deref(), Some("STATIC_TOKEN"));
+        assert_eq!(
+            auth.authorization_header.as_deref(),
+            Some("Bearer STATIC_TOKEN")
+        );
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn build_client_handshake_auth_jwt() {
+        let cfg = ClientConfig::with_endpoint("ws://localhost:46357").with_auth(
+            ClientAuthenticationConfig::Jwt(JwtConfig::new(
+                default_claims(),
+                Duration::from_secs(60),
+                JwtKey::Encoding(hs256_key("shared-secret")),
+            )),
+        );
+
+        let auth = build_client_handshake_auth(&cfg)
+            .await
+            .expect("jwt auth should succeed");
+        let token = auth
+            .bearer_token
+            .as_ref()
+            .expect("jwt token should be present");
+        assert!(!token.is_empty());
+        assert_eq!(
+            auth.authorization_header.as_deref(),
+            Some(format!("Bearer {token}").as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn authorize_server_handshake_none_allows_request() {
+        let req = Request::builder().uri("/ws").body(()).expect("request");
+        let allowed = authorize_server_handshake(&ServerAuthenticationConfig::None, &req).await;
+        assert!(allowed);
+    }
+
+    #[tokio::test]
+    async fn authorize_server_handshake_basic_accepts_valid_credentials() {
+        let req = Request::builder()
+            .uri("/ws")
+            .header(AUTHORIZATION, "Basic YWxpY2U6c2VjcmV0")
+            .body(())
+            .expect("request");
+        let auth = ServerAuthenticationConfig::Basic(BasicConfig::new("alice", "secret"));
+        let allowed = authorize_server_handshake(&auth, &req).await;
+        assert!(allowed);
+    }
+
+    #[tokio::test]
+    async fn authorize_server_handshake_basic_rejects_bad_header() {
+        let req = Request::builder()
+            .uri("/ws")
+            .header(AUTHORIZATION, "Bearer token")
+            .body(())
+            .expect("request");
+        let auth = ServerAuthenticationConfig::Basic(BasicConfig::new("alice", "secret"));
+        let allowed = authorize_server_handshake(&auth, &req).await;
+        assert!(!allowed);
+    }
+
+    #[tokio::test]
+    async fn authorize_server_handshake_basic_rejects_bad_base64() {
+        let req = Request::builder()
+            .uri("/ws")
+            .header(AUTHORIZATION, "Basic !!!not-base64!!!")
+            .body(())
+            .expect("request");
+        let auth = ServerAuthenticationConfig::Basic(BasicConfig::new("alice", "secret"));
+        let allowed = authorize_server_handshake(&auth, &req).await;
+        assert!(!allowed);
+    }
+
+    #[tokio::test]
+    async fn authorize_server_handshake_jwt_rejects_when_token_missing() {
+        let auth = ServerAuthenticationConfig::Jwt(JwtConfig::new(
+            default_claims(),
+            Duration::from_secs(60),
+            JwtKey::Decoding(hs256_key("shared-secret")),
+        ));
+        let req = Request::builder().uri("/ws").body(()).expect("request");
+        let allowed = authorize_server_handshake(&auth, &req).await;
+        assert!(!allowed);
+    }
+
+    #[tokio::test]
+    async fn authorize_server_handshake_jwt_rejects_invalid_verifier_config() {
+        let auth = ServerAuthenticationConfig::Jwt(JwtConfig::new(
+            default_claims(),
+            Duration::from_secs(60),
+            JwtKey::Encoding(hs256_key("shared-secret")),
+        ));
+        let req = Request::builder()
+            .uri("/ws")
+            .header(AUTHORIZATION, "Bearer test-token")
+            .body(())
+            .expect("request");
+        let allowed = authorize_server_handshake(&auth, &req).await;
+        assert!(!allowed);
+    }
+
+    #[tokio::test]
+    async fn authorize_server_handshake_jwt_accepts_valid_bearer_header() {
+        let claims = default_claims();
+        let signer_cfg = JwtConfig::new(
+            claims.clone(),
+            Duration::from_secs(60),
+            JwtKey::Encoding(hs256_key("shared-secret")),
+        );
+        let mut signer = signer_cfg.get_provider().expect("signer");
+        signer.initialize().await.expect("signer init");
+        let token = signer.get_token().expect("token");
+
+        let auth = ServerAuthenticationConfig::Jwt(JwtConfig::new(
+            claims,
+            Duration::from_secs(60),
+            JwtKey::Decoding(hs256_key("shared-secret")),
+        ));
+        let req = Request::builder()
+            .uri("/ws")
+            .header(AUTHORIZATION, format!("Bearer {token}"))
+            .body(())
+            .expect("request");
+        let allowed = authorize_server_handshake(&auth, &req).await;
+        assert!(allowed);
+    }
+
+    #[tokio::test]
+    async fn authorize_server_handshake_jwt_accepts_query_param_token() {
+        let claims = default_claims();
+        let signer_cfg = JwtConfig::new(
+            claims.clone(),
+            Duration::from_secs(60),
+            JwtKey::Encoding(hs256_key("shared-secret")),
+        );
+        let mut signer = signer_cfg.get_provider().expect("signer");
+        signer.initialize().await.expect("signer init");
+        let token = signer.get_token().expect("token");
+
+        let auth = ServerAuthenticationConfig::Jwt(JwtConfig::new(
+            claims,
+            Duration::from_secs(60),
+            JwtKey::Decoding(hs256_key("shared-secret")),
+        ));
+        let req = Request::builder()
+            .uri(format!("/ws?token={token}"))
+            .body(())
+            .expect("request");
+        let allowed = authorize_server_handshake(&auth, &req).await;
+        assert!(allowed);
+    }
 }

@@ -39,6 +39,8 @@ impl ClientConfig {
         let endpoint = WebSocketEndpoint::parse(self.endpoint.as_str())?;
         let auth = build_client_handshake_auth(self).await?;
 
+        // TODO(hackeramitkumar): In query-param mode we should suppress Authorization headers
+        // for browser-compat behavior and rely only on the configured query parameter.
         let query_param = self
             .websocket_auth_query_param
             .as_deref()
@@ -111,6 +113,7 @@ fn build_handshake_request(
         headers.insert(ORIGIN, HeaderValue::from_str(origin)?);
     }
 
+    // TODO(hackeramitkumar): Skip this header when websocket_auth_query_param is active.
     if let Some(auth_header) = auth.authorization_header.as_deref() {
         headers.insert(AUTHORIZATION, HeaderValue::from_str(auth_header)?);
     }
@@ -151,5 +154,159 @@ where
 {
     fn execute(&self, fut: Fut) {
         tokio::task::spawn(fut);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::time::Duration;
+
+    use super::*;
+
+    #[test]
+    fn build_handshake_request_sets_required_and_optional_headers() {
+        let endpoint = WebSocketEndpoint::parse("ws://localhost:8080/ws").expect("endpoint");
+        let uri = endpoint.request_uri(None).expect("uri");
+
+        let mut headers = HashMap::new();
+        headers.insert("x-test-header".to_string(), "x-value".to_string());
+        let config = ClientConfig::with_endpoint("ws://localhost:8080/ws")
+            .with_transport(TransportProtocol::Websocket)
+            .with_origin("https://example.com")
+            .with_headers(headers);
+
+        let auth = ClientHandshakeAuth {
+            authorization_header: Some("Bearer test-token".to_string()),
+            bearer_token: Some("test-token".to_string()),
+        };
+
+        let request = build_handshake_request(&config, &endpoint, uri, &auth).expect("request");
+        assert_eq!(request.method(), http::Method::GET);
+        assert_eq!(request.uri().to_string(), "ws://localhost:8080/ws");
+
+        let headers = request.headers();
+        assert_eq!(
+            headers.get(HOST).and_then(|v| v.to_str().ok()),
+            Some("localhost:8080")
+        );
+        assert_eq!(
+            headers.get(UPGRADE).and_then(|v| v.to_str().ok()),
+            Some("websocket")
+        );
+        assert_eq!(
+            headers.get(CONNECTION).and_then(|v| v.to_str().ok()),
+            Some("upgrade")
+        );
+        assert_eq!(
+            headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok()),
+            Some("Bearer test-token")
+        );
+        assert_eq!(
+            headers.get(ORIGIN).and_then(|v| v.to_str().ok()),
+            Some("https://example.com")
+        );
+        assert_eq!(
+            headers.get("x-test-header").and_then(|v| v.to_str().ok()),
+            Some("x-value")
+        );
+        assert!(headers.contains_key("Sec-WebSocket-Key"));
+        assert_eq!(
+            headers
+                .get("Sec-WebSocket-Version")
+                .and_then(|v| v.to_str().ok()),
+            Some("13")
+        );
+    }
+
+    #[test]
+    fn build_handshake_request_rejects_invalid_origin_header() {
+        let endpoint = WebSocketEndpoint::parse("ws://localhost:8080/ws").expect("endpoint");
+        let uri = endpoint.request_uri(None).expect("uri");
+        let config = ClientConfig::with_endpoint("ws://localhost:8080/ws")
+            .with_transport(TransportProtocol::Websocket)
+            .with_origin("https://example.com\ninvalid");
+
+        let err = build_handshake_request(&config, &endpoint, uri, &ClientHandshakeAuth::default())
+            .expect_err("invalid origin must fail");
+        assert!(matches!(err, ConfigError::HeaderValueParse(_)));
+    }
+
+    #[test]
+    fn build_handshake_request_rejects_invalid_custom_header_name() {
+        let endpoint = WebSocketEndpoint::parse("ws://localhost:8080/ws").expect("endpoint");
+        let uri = endpoint.request_uri(None).expect("uri");
+        let mut headers = HashMap::new();
+        headers.insert("bad header".to_string(), "value".to_string());
+        let config = ClientConfig::with_endpoint("ws://localhost:8080/ws")
+            .with_transport(TransportProtocol::Websocket)
+            .with_headers(headers);
+
+        let err = build_handshake_request(&config, &endpoint, uri, &ClientHandshakeAuth::default())
+            .expect_err("invalid header name must fail");
+        assert!(matches!(err, ConfigError::HeaderNameParse(_)));
+    }
+
+    #[test]
+    fn build_handshake_request_rejects_invalid_auth_header() {
+        let endpoint = WebSocketEndpoint::parse("ws://localhost:8080/ws").expect("endpoint");
+        let uri = endpoint.request_uri(None).expect("uri");
+        let config = ClientConfig::with_endpoint("ws://localhost:8080/ws")
+            .with_transport(TransportProtocol::Websocket);
+        let auth = ClientHandshakeAuth {
+            authorization_header: Some("Bearer invalid\nvalue".to_string()),
+            bearer_token: None,
+        };
+
+        let err = build_handshake_request(&config, &endpoint, uri, &auth)
+            .expect_err("invalid auth header must fail");
+        assert!(matches!(err, ConfigError::HeaderValueParse(_)));
+    }
+
+    #[tokio::test]
+    async fn connect_tcp_with_zero_timeout_connects_successfully() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("listener bind");
+        let port = listener.local_addr().expect("local addr").port();
+
+        let accept_task = tokio::spawn(async move {
+            let _ = listener.accept().await.expect("accept");
+        });
+
+        let endpoint =
+            WebSocketEndpoint::parse(&format!("ws://127.0.0.1:{port}/ws")).expect("endpoint parse");
+        let config = ClientConfig::with_endpoint(&format!("ws://127.0.0.1:{port}/ws"))
+            .with_transport(TransportProtocol::Websocket)
+            .with_connect_timeout(Duration::ZERO);
+
+        let stream = connect_tcp(&config, &endpoint).await.expect("connect");
+        assert!(stream.peer_addr().is_ok());
+        drop(stream);
+        accept_task.await.expect("accept task");
+    }
+
+    #[tokio::test]
+    async fn to_websocket_channel_rejects_non_websocket_transport() {
+        let config = ClientConfig::with_endpoint("http://127.0.0.1:12345");
+        let err = match config.to_websocket_channel().await {
+            Ok(_) => panic!("must reject grpc transport"),
+            Err(err) => err,
+        };
+        assert!(matches!(
+            err,
+            ConfigError::WebSocketClientUnsupportedTransport
+        ));
+    }
+
+    #[tokio::test]
+    async fn to_websocket_channel_rejects_invalid_endpoint_scheme() {
+        let config = ClientConfig::with_endpoint("http://127.0.0.1:12345")
+            .with_transport(TransportProtocol::Websocket);
+        let err = match config.to_websocket_channel().await {
+            Ok(_) => panic!("must reject non ws scheme"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, ConfigError::InvalidWebSocketEndpointScheme));
     }
 }
