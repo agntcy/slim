@@ -8,6 +8,7 @@ use slim_config::grpc::server::KeepaliveServerParameters as CoreKeepaliveServerP
 use slim_config::grpc::server::ServerConfig as CoreServerConfig;
 
 use crate::common_config::{ServerAuthenticationConfig, TlsServerConfig, TlsSource};
+use crate::transport_protocol::TransportProtocol;
 
 /// Keepalive configuration for the server
 #[derive(uniffi::Record, Clone, Debug, PartialEq)]
@@ -71,6 +72,10 @@ pub struct ServerConfig {
     /// Endpoint address to listen on (e.g., "0.0.0.0:50051" or "[::]:50051")
     pub endpoint: String,
 
+    /// Transport protocol to use (defaults to gRPC in core config when omitted)
+    #[uniffi(default = None)]
+    pub transport: Option<TransportProtocol>,
+
     /// TLS server configuration
     pub tls: TlsServerConfig,
 
@@ -116,6 +121,7 @@ impl Default for ServerConfig {
         let core_defaults = CoreServerConfig::default();
         ServerConfig {
             endpoint: core_defaults.endpoint,
+            transport: None,
             tls: core_defaults.tls_setting.into(),
             http2_only: None,
             max_frame_size: None,
@@ -135,6 +141,10 @@ impl From<ServerConfig> for CoreServerConfig {
         let core_defaults = CoreServerConfig::default();
         CoreServerConfig {
             endpoint: config.endpoint,
+            transport: config
+                .transport
+                .map(Into::into)
+                .unwrap_or(core_defaults.transport),
             tls_setting: config.tls.into(),
             http2_only: config.http2_only.unwrap_or(core_defaults.http2_only),
             max_frame_size: config.max_frame_size.or(core_defaults.max_frame_size),
@@ -168,6 +178,7 @@ impl From<CoreServerConfig> for ServerConfig {
     fn from(config: CoreServerConfig) -> Self {
         ServerConfig {
             endpoint: config.endpoint,
+            transport: Some(config.transport.into()),
             tls: config.tls_setting.into(),
             http2_only: Some(config.http2_only),
             max_frame_size: config.max_frame_size,
@@ -222,6 +233,7 @@ pub fn new_secure_server_config(endpoint: String, tls_source: TlsSource) -> Serv
 mod tests {
     use super::*;
     use crate::common_config::{CaSource, TlsSource};
+    use slim_config::transport::TransportProtocol as CoreTransportProtocol;
 
     #[test]
     fn test_server_config_creation() {
@@ -254,6 +266,7 @@ mod tests {
 
         // Verify defaults are all None (core defaults applied during conversion)
         assert_eq!(config.endpoint, "");
+        assert_eq!(config.transport, None);
         assert_eq!(config.http2_only, None);
         assert_eq!(config.max_frame_size, None);
         assert_eq!(config.max_concurrent_streams, None);
@@ -328,6 +341,7 @@ mod tests {
     fn test_server_config_to_core_conversion() {
         let ffi_config = ServerConfig {
             endpoint: "127.0.0.1:8080".to_string(),
+            transport: Some(TransportProtocol::Websocket),
             tls: TlsServerConfig::default(),
             http2_only: Some(false),
             max_frame_size: Some(8),
@@ -343,6 +357,7 @@ mod tests {
         let core_config: CoreServerConfig = ffi_config.into();
 
         assert_eq!(core_config.endpoint, "127.0.0.1:8080");
+        assert_eq!(core_config.transport, CoreTransportProtocol::Websocket);
         assert!(!core_config.http2_only);
         assert_eq!(core_config.max_frame_size, Some(8));
         assert_eq!(core_config.max_concurrent_streams, Some(200));
@@ -361,6 +376,7 @@ mod tests {
         let ffi_config: ServerConfig = core_config.clone().into();
 
         assert_eq!(ffi_config.endpoint, core_config.endpoint);
+        assert_eq!(ffi_config.transport, Some(core_config.transport.into()));
         assert_eq!(ffi_config.http2_only, Some(core_config.http2_only));
         assert_eq!(ffi_config.max_frame_size, core_config.max_frame_size);
         assert_eq!(
@@ -377,6 +393,7 @@ mod tests {
     fn test_server_config_roundtrip_conversion() {
         let original = ServerConfig {
             endpoint: "localhost:9090".to_string(),
+            transport: Some(TransportProtocol::Grpc),
             tls: TlsServerConfig::default(),
             http2_only: Some(true),
             max_frame_size: Some(16),
@@ -394,6 +411,7 @@ mod tests {
         let roundtrip: ServerConfig = core.into();
 
         assert_eq!(roundtrip.endpoint, original.endpoint);
+        assert_eq!(roundtrip.transport, original.transport);
         assert_eq!(roundtrip.http2_only, original.http2_only);
         assert_eq!(roundtrip.max_frame_size, original.max_frame_size);
         assert_eq!(

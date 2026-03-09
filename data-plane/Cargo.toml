@@ -22,13 +22,13 @@ default-members = [
     "bindings/rust",
     "core/config",
     "core/datapath",
-    "core/slim",
     "core/service",
-    "slimctl",
     "core/signal",
+    "core/slim",
     "core/tracing",
-    "slimrpc-compiler",
     "examples",
+    "slimctl",
+    "slimrpc-compiler",
     "testing",
 ]
 
@@ -136,6 +136,7 @@ tracing-opentelemetry = "0.32.0"
 tracing-subscriber = "0.3.19"
 tracing-test = { version = "0.2.5" }
 twox-hash = "2.1.1"
+uniffi = { version = "0.29.5", features = ["cli"] }
 url = "2.5.0"
 uuid = { version = "1.15.1", features = ["v4"] }
 
@@ -149,7 +150,6 @@ repository = "https://github.com/agntcy/slim"
 [workspace.metadata.cargo-machete]
 ignored = [
     "agntcy-slim",
-    "agntcy-slimctl",
     "agntcy-slim-auth",
     "agntcy-slim-bindings",
     "agntcy-slim-config",
@@ -159,7 +159,8 @@ ignored = [
     "agntcy-slim-service",
     "agntcy-slim-session",
     "agntcy-slim-signal",
-    "agntcy-slim-tracing",
     "agntcy-slim-testing",
+    "agntcy-slim-tracing",
+    "agntcy-slimctl",
     "agntcy-slimrpc",
 ]
