@@ -23,6 +23,8 @@ import io.agntcy.slim.bindings.RequestStream;
 import io.agntcy.slim.bindings.RequestStreamWriter;
 import io.agntcy.slim.bindings.ResponseSink;
 import io.agntcy.slim.bindings.ResponseStreamReader;
+import io.agntcy.slim.bindings.RpcCode;
+import io.agntcy.slim.bindings.RpcException;
 import io.agntcy.slim.bindings.Server;
 import io.agntcy.slim.bindings.StreamMessage;
 import io.agntcy.slim.bindings.UnaryStreamHandler;
@@ -51,6 +53,10 @@ const SERVICE_TEMPLATE: &str = r#"public final class {{SERVICE_NAME}}Slimrpc {
 {{CLIENT_METHODS}}
     }
 
+    public interface {{SERVICE_NAME}}ClientSync {
+{{CLIENT_SYNC_METHODS}}
+    }
+
     public static final class {{SERVICE_NAME}}ClientImpl implements {{SERVICE_NAME}}Client {
         private final Channel channel;
 
@@ -59,6 +65,16 @@ const SERVICE_TEMPLATE: &str = r#"public final class {{SERVICE_NAME}}Slimrpc {
         }
 
 {{CLIENT_METHOD_IMPLS}}
+    }
+
+    public static final class {{SERVICE_NAME}}ClientSyncImpl implements {{SERVICE_NAME}}ClientSync {
+        private final Channel channel;
+
+        public {{SERVICE_NAME}}ClientSyncImpl(Channel channel) {
+            this.channel = channel;
+        }
+
+{{CLIENT_SYNC_METHOD_IMPLS}}
     }
 
     public interface {{SERVICE_NAME}}Server {
@@ -81,6 +97,25 @@ const SERVICE_TEMPLATE: &str = r#"public final class {{SERVICE_NAME}}Slimrpc {
         } catch (InvalidProtocolBufferException e) {
             throw new CompletionException(e);
         }
+    }
+
+    private static RpcException toRpcException(Throwable error, RpcCode defaultCode) {
+        Throwable unwrapped = unwrap(error);
+        if (unwrapped instanceof RpcException rpc) {
+            return rpc;
+        }
+        String message = unwrapped.getMessage();
+        if (message == null || message.isBlank()) {
+            message = unwrapped.toString();
+        }
+        return new RpcException.Rpc(defaultCode, message, null);
+    }
+
+    private static Throwable unwrap(Throwable error) {
+        if (error instanceof CompletionException ce && ce.getCause() != null) {
+            return ce.getCause();
+        }
+        return error;
     }
 
     public static final class ClientRequestStream<ReqT, ResT> {
@@ -125,29 +160,191 @@ const SERVICE_TEMPLATE: &str = r#"public final class {{SERVICE_NAME}}Slimrpc {
         }
     }
 
-    public static void setRouteForMethods(App app, Name remoteName, long connId) throws Exception {
-        String appComponent = remoteName.components().get(2);
-        String[] methods = {
-{{METHOD_LIST}}
-        };
+    public static final class ClientRequestStreamSync<ReqT, ResT> {
+        private final RequestStreamWriter inner;
+        private final Function<ReqT, byte[]> serializer;
+        private final Function<byte[], ResT> parser;
 
-        for (String method : methods) {
-            String appWithMethod = appComponent + "-" + SERVICE_NAME + "-" + method;
-            Name route = new Name(remoteName.components().get(0), remoteName.components().get(1), appWithMethod);
-            app.setRoute(route, connId).get();
+        public ClientRequestStreamSync(RequestStreamWriter inner, Function<ReqT, byte[]> serializer, Function<byte[], ResT> parser) {
+            this.inner = inner;
+            this.serializer = serializer;
+            this.parser = parser;
+        }
+
+        public void send(ReqT request) throws RpcException {
+            inner.sendAsync(serializer.apply(request)).join();
+        }
+
+        public ResT finalizeStream() throws RpcException {
+            return parser.apply(inner.finalizeStreamAsync().join());
         }
     }
 
-    public static void subscribeForMethods(App app, Name baseName, long connId) throws Exception {
-        String appComponent = baseName.components().get(2);
-        String[] methods = {
-{{METHOD_LIST}}
-        };
+    public static final class ClientBidiStreamSync<ReqT> {
+        private final BidiStreamHandler inner;
+        private final Function<ReqT, byte[]> serializer;
 
-        for (String method : methods) {
-            String appWithMethod = appComponent + "-" + SERVICE_NAME + "-" + method;
-            Name subscription = new Name(baseName.components().get(0), baseName.components().get(1), appWithMethod);
-            app.subscribe(subscription, connId);
+        public ClientBidiStreamSync(BidiStreamHandler inner, Function<ReqT, byte[]> serializer) {
+            this.inner = inner;
+            this.serializer = serializer;
+        }
+
+        public void send(ReqT request) throws RpcException {
+            inner.sendAsync(serializer.apply(request)).join();
+        }
+
+        public void closeSend() throws RpcException {
+            inner.closeSendAsync().join();
+        }
+
+        public StreamMessage recv() {
+            return inner.recvAsync().join();
+        }
+    }
+
+    public static final class ClientResponseStreamSync<RespT> {
+        private final ResponseStreamReader inner;
+        private final Function<byte[], RespT> parser;
+
+        public ClientResponseStreamSync(ResponseStreamReader inner, Function<byte[], RespT> parser) {
+            this.inner = inner;
+            this.parser = parser;
+        }
+
+        public RespT recv() throws RpcException {
+            StreamMessage message = inner.nextAsync().join();
+            if (message instanceof StreamMessage.End) {
+                return null;
+            }
+            if (message instanceof StreamMessage.Error err) {
+                throw err.v1();
+            }
+            if (message instanceof StreamMessage.Data data) {
+                return parser.apply(data.v1());
+            }
+            throw new IllegalStateException("unknown stream message type");
+        }
+    }
+
+    public static <RespT> ClientResponseStreamSync<RespT> newClientResponseStreamSync(
+            ResponseStreamReader reader,
+            Function<byte[], RespT> parser
+    ) {
+        return new ClientResponseStreamSync<>(reader, parser);
+    }
+
+    public interface ServerResponseStreamSync<ReqT> {
+        ReqT recv() throws RpcException;
+    }
+
+    public interface ServerRequestStreamSync<RespT> {
+        void send(RespT response) throws RpcException;
+    }
+
+    public interface ServerBidiStreamSync<ReqT, RespT> {
+        ReqT recv() throws RpcException;
+        void send(RespT response) throws RpcException;
+    }
+
+    public static <ReqT> ServerResponseStreamSync<ReqT> newServerResponseStreamSync(
+            RequestStream stream,
+            Function<byte[], ReqT> parser
+    ) {
+        return new ServerResponseStreamSyncImpl<>(stream, parser);
+    }
+
+    public static <RespT> ServerRequestStreamSync<RespT> newServerRequestStreamSync(
+            ResponseSink sink,
+            Function<RespT, byte[]> serializer
+    ) {
+        return new ServerRequestStreamSyncImpl<>(sink, serializer);
+    }
+
+    public static <ReqT, RespT> ServerBidiStreamSync<ReqT, RespT> newServerBidiStreamSync(
+            RequestStream stream,
+            ResponseSink sink,
+            Function<byte[], ReqT> parser,
+            Function<RespT, byte[]> serializer
+    ) {
+        return new ServerBidiStreamSyncImpl<>(stream, sink, parser, serializer);
+    }
+
+    private static final class ServerResponseStreamSyncImpl<ReqT> implements ServerResponseStreamSync<ReqT> {
+        private final RequestStream inner;
+        private final Function<byte[], ReqT> parser;
+
+        private ServerResponseStreamSyncImpl(RequestStream inner, Function<byte[], ReqT> parser) {
+            this.inner = inner;
+            this.parser = parser;
+        }
+
+        @Override
+        public ReqT recv() throws RpcException {
+            StreamMessage message = inner.nextAsync().join();
+            if (message instanceof StreamMessage.End) {
+                return null;
+            }
+            if (message instanceof StreamMessage.Error err) {
+                throw err.v1();
+            }
+            if (message instanceof StreamMessage.Data data) {
+                return parser.apply(data.v1());
+            }
+            throw new IllegalStateException("unknown stream message type");
+        }
+    }
+
+    private static final class ServerRequestStreamSyncImpl<RespT> implements ServerRequestStreamSync<RespT> {
+        private final ResponseSink inner;
+        private final Function<RespT, byte[]> serializer;
+
+        private ServerRequestStreamSyncImpl(ResponseSink inner, Function<RespT, byte[]> serializer) {
+            this.inner = inner;
+            this.serializer = serializer;
+        }
+
+        @Override
+        public void send(RespT response) throws RpcException {
+            inner.sendAsync(serializer.apply(response)).join();
+        }
+    }
+
+    private static final class ServerBidiStreamSyncImpl<ReqT, RespT> implements ServerBidiStreamSync<ReqT, RespT> {
+        private final RequestStream stream;
+        private final ResponseSink sink;
+        private final Function<byte[], ReqT> parser;
+        private final Function<RespT, byte[]> serializer;
+
+        private ServerBidiStreamSyncImpl(
+                RequestStream stream,
+                ResponseSink sink,
+                Function<byte[], ReqT> parser,
+                Function<RespT, byte[]> serializer
+        ) {
+            this.stream = stream;
+            this.sink = sink;
+            this.parser = parser;
+            this.serializer = serializer;
+        }
+
+        @Override
+        public ReqT recv() throws RpcException {
+            StreamMessage message = stream.nextAsync().join();
+            if (message instanceof StreamMessage.End) {
+                return null;
+            }
+            if (message instanceof StreamMessage.Error err) {
+                throw err.v1();
+            }
+            if (message instanceof StreamMessage.Data data) {
+                return parser.apply(data.v1());
+            }
+            throw new IllegalStateException("unknown stream message type");
+        }
+
+        @Override
+        public void send(RespT response) throws RpcException {
+            sink.sendAsync(serializer.apply(response)).join();
         }
     }
 }
@@ -213,6 +410,71 @@ const CLIENT_STREAM_STREAM_IMPL: &str = r#"        @Override
                     metadata
             );
             return new ClientBidiStream<>(handler, {{INPUT_TYPE}}::toByteArray);
+        }
+
+"#;
+
+const CLIENT_SYNC_UNARY_UNARY_METHOD: &str = r#"        {{OUTPUT_TYPE}} {{METHOD_NAME}}({{INPUT_TYPE}} request, Duration timeout, Map<String, String> metadata) throws RpcException;
+"#;
+
+const CLIENT_SYNC_UNARY_STREAM_METHOD: &str = r#"        ResponseStreamReader {{METHOD_NAME}}({{INPUT_TYPE}} request, Duration timeout, Map<String, String> metadata) throws RpcException;
+"#;
+
+const CLIENT_SYNC_STREAM_UNARY_METHOD: &str = r#"        ClientRequestStreamSync<{{INPUT_TYPE}}, {{OUTPUT_TYPE}}> {{METHOD_NAME}}(Duration timeout, Map<String, String> metadata) throws RpcException;
+"#;
+
+const CLIENT_SYNC_STREAM_STREAM_METHOD: &str = r#"        ClientBidiStreamSync<{{INPUT_TYPE}}> {{METHOD_NAME}}(Duration timeout, Map<String, String> metadata) throws RpcException;
+"#;
+
+const CLIENT_SYNC_UNARY_UNARY_IMPL: &str = r#"        @Override
+        public {{OUTPUT_TYPE}} {{METHOD_NAME}}({{INPUT_TYPE}} request, Duration timeout, Map<String, String> metadata) throws RpcException {
+            byte[] bytes = channel.callUnaryAsync(
+                SERVICE_NAME,
+                "{{METHOD_NAME}}",
+                request.toByteArray(),
+                timeout,
+                metadata
+            ).join();
+            return parse(bytes, {{OUTPUT_TYPE}}.parser());
+        }
+
+"#;
+
+const CLIENT_SYNC_UNARY_STREAM_IMPL: &str = r#"        @Override
+        public ResponseStreamReader {{METHOD_NAME}}({{INPUT_TYPE}} request, Duration timeout, Map<String, String> metadata) throws RpcException {
+            return channel.callUnaryStreamAsync(
+                SERVICE_NAME,
+                "{{METHOD_NAME}}",
+                request.toByteArray(),
+                timeout,
+                metadata
+            ).join();
+        }
+
+"#;
+
+const CLIENT_SYNC_STREAM_UNARY_IMPL: &str = r#"        @Override
+        public ClientRequestStreamSync<{{INPUT_TYPE}}, {{OUTPUT_TYPE}}> {{METHOD_NAME}}(Duration timeout, Map<String, String> metadata) throws RpcException {
+            RequestStreamWriter writer = channel.callStreamUnary(
+                    SERVICE_NAME,
+                    "{{METHOD_NAME}}",
+                    timeout,
+                    metadata
+            );
+            return new ClientRequestStreamSync<>(writer, {{INPUT_TYPE}}::toByteArray, bytes -> parse(bytes, {{OUTPUT_TYPE}}.parser()));
+        }
+
+"#;
+
+const CLIENT_SYNC_STREAM_STREAM_IMPL: &str = r#"        @Override
+        public ClientBidiStreamSync<{{INPUT_TYPE}}> {{METHOD_NAME}}(Duration timeout, Map<String, String> metadata) throws RpcException {
+            BidiStreamHandler handler = channel.callStreamStream(
+                    SERVICE_NAME,
+                    "{{METHOD_NAME}}",
+                    timeout,
+                    metadata
+            );
+            return new ClientBidiStreamSync<>(handler, {{INPUT_TYPE}}::toByteArray);
         }
 
 "#;
@@ -301,9 +563,24 @@ const HANDLER_UNARY_STREAM: &str = r#"    private static final class {{SERVICE_N
         public CompletableFuture<Void> handle(byte[] request, Context context, ResponseSink sink) {
             try {
                 {{INPUT_TYPE}} parsed = parse(request, {{INPUT_TYPE}}.parser());
-                return impl.{{METHOD_NAME}}(parsed, context, sink);
+                return impl.{{METHOD_NAME}}(parsed, context, sink)
+                        .handle((ignored, error) -> {
+                            if (error != null) {
+                                RpcException rpcErr = toRpcException(error, RpcCode.INTERNAL);
+                                return (java.util.concurrent.CompletionStage<Void>) sink.sendErrorAsync(rpcErr)
+                                    .thenCompose(v -> CompletableFuture.<Void>failedFuture(rpcErr));
+                            }
+                            return (java.util.concurrent.CompletionStage<Void>) sink.closeAsync();
+                        })
+                        .thenCompose((java.util.concurrent.CompletionStage<Void> stage) -> stage);
             } catch (Exception e) {
-                return CompletableFuture.failedFuture(e);
+                RpcException rpcErr = new RpcException.Rpc(
+                        RpcCode.INVALID_ARGUMENT,
+                        e.getMessage() == null ? "invalid request" : e.getMessage(),
+                        null
+                );
+                return sink.sendErrorAsync(rpcErr)
+                    .thenCompose(v -> CompletableFuture.<Void>failedFuture(rpcErr));
             }
         }
     }
@@ -320,7 +597,17 @@ const HANDLER_STREAM_UNARY: &str = r#"    private static final class {{SERVICE_N
         @Override
         public CompletableFuture<byte[]> handle(RequestStream stream, Context context) {
             return impl.{{METHOD_NAME}}(stream, context)
-                    .thenApply(resp -> resp.toByteArray());
+                    .handle((resp, error) -> {
+                        if (error != null) {
+                            return (java.util.concurrent.CompletionStage<byte[]>) CompletableFuture.<byte[]>failedFuture(
+                                toRpcException(error, RpcCode.INTERNAL)
+                            );
+                        }
+                        return (java.util.concurrent.CompletionStage<byte[]>) CompletableFuture.completedFuture(
+                                resp.toByteArray()
+                        );
+                    })
+                    .thenCompose((java.util.concurrent.CompletionStage<byte[]> stage) -> stage);
         }
     }
 
@@ -335,13 +622,19 @@ const HANDLER_STREAM_STREAM: &str = r#"    private static final class {{SERVICE_
 
         @Override
         public CompletableFuture<Void> handle(RequestStream stream, Context context, ResponseSink sink) {
-            return impl.{{METHOD_NAME}}(stream, context, sink);
+            return impl.{{METHOD_NAME}}(stream, context, sink)
+                    .handle((ignored, error) -> {
+                        if (error != null) {
+                            RpcException rpcErr = toRpcException(error, RpcCode.INTERNAL);
+                            return (java.util.concurrent.CompletionStage<Void>) sink.sendErrorAsync(rpcErr)
+                                    .thenCompose(v -> CompletableFuture.<Void>failedFuture(rpcErr));
+                        }
+                        return (java.util.concurrent.CompletionStage<Void>) sink.closeAsync();
+                    })
+                    .thenCompose((java.util.concurrent.CompletionStage<Void> stage) -> stage);
         }
     }
 
-"#;
-
-const METHOD_LIST_ENTRY: &str = r#"            "{{METHOD_NAME}}",
 "#;
 
 #[derive(Clone)]
@@ -526,11 +819,12 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
 
             let mut client_methods = String::new();
             let mut client_method_impls = String::new();
+            let mut client_sync_methods = String::new();
+            let mut client_sync_method_impls = String::new();
             let mut server_methods = String::new();
             let mut unimplemented_methods = String::new();
             let mut register_methods = String::new();
             let mut handler_impls = String::new();
-            let mut method_list = String::new();
 
             for method in service.method {
                 let method_name = method.name.clone().context("Method name missing")?;
@@ -585,6 +879,20 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
                                 .replace("{{SERVICE_NAME}}", &service_name)
                                 .replace("{{INPUT_TYPE}}", &input_java),
                         );
+
+                        client_sync_methods.push_str(
+                            &CLIENT_SYNC_UNARY_UNARY_METHOD
+                                .replace("{{METHOD_NAME}}", &method_name)
+                                .replace("{{INPUT_TYPE}}", &input_java)
+                                .replace("{{OUTPUT_TYPE}}", &output_java),
+                        );
+
+                        client_sync_method_impls.push_str(
+                            &CLIENT_SYNC_UNARY_UNARY_IMPL
+                                .replace("{{METHOD_NAME}}", &method_name)
+                                .replace("{{INPUT_TYPE}}", &input_java)
+                                .replace("{{OUTPUT_TYPE}}", &output_java),
+                        );
                     }
                     (false, true) => {
                         client_methods.push_str(
@@ -621,6 +929,18 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
                             &HANDLER_UNARY_STREAM
                                 .replace("{{METHOD_NAME}}", &method_name)
                                 .replace("{{SERVICE_NAME}}", &service_name)
+                                .replace("{{INPUT_TYPE}}", &input_java),
+                        );
+
+                        client_sync_methods.push_str(
+                            &CLIENT_SYNC_UNARY_STREAM_METHOD
+                                .replace("{{METHOD_NAME}}", &method_name)
+                                .replace("{{INPUT_TYPE}}", &input_java),
+                        );
+
+                        client_sync_method_impls.push_str(
+                            &CLIENT_SYNC_UNARY_STREAM_IMPL
+                                .replace("{{METHOD_NAME}}", &method_name)
                                 .replace("{{INPUT_TYPE}}", &input_java),
                         );
                     }
@@ -660,7 +980,22 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
                         handler_impls.push_str(
                             &HANDLER_STREAM_UNARY
                                 .replace("{{METHOD_NAME}}", &method_name)
-                                .replace("{{SERVICE_NAME}}", &service_name),
+                                .replace("{{SERVICE_NAME}}", &service_name)
+                                .replace("{{OUTPUT_TYPE}}", &output_java),
+                        );
+
+                        client_sync_methods.push_str(
+                            &CLIENT_SYNC_STREAM_UNARY_METHOD
+                                .replace("{{METHOD_NAME}}", &method_name)
+                                .replace("{{INPUT_TYPE}}", &input_java)
+                                .replace("{{OUTPUT_TYPE}}", &output_java),
+                        );
+
+                        client_sync_method_impls.push_str(
+                            &CLIENT_SYNC_STREAM_UNARY_IMPL
+                                .replace("{{METHOD_NAME}}", &method_name)
+                                .replace("{{INPUT_TYPE}}", &input_java)
+                                .replace("{{OUTPUT_TYPE}}", &output_java),
                         );
                     }
                     (true, true) => {
@@ -695,10 +1030,20 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
                                 .replace("{{METHOD_NAME}}", &method_name)
                                 .replace("{{SERVICE_NAME}}", &service_name),
                         );
+
+                        client_sync_methods.push_str(
+                            &CLIENT_SYNC_STREAM_STREAM_METHOD
+                                .replace("{{METHOD_NAME}}", &method_name)
+                                .replace("{{INPUT_TYPE}}", &input_java),
+                        );
+
+                        client_sync_method_impls.push_str(
+                            &CLIENT_SYNC_STREAM_STREAM_IMPL
+                                .replace("{{METHOD_NAME}}", &method_name)
+                                .replace("{{INPUT_TYPE}}", &input_java),
+                        );
                     }
                 }
-
-                method_list.push_str(&METHOD_LIST_ENTRY.replace("{{METHOD_NAME}}", &method_name));
             }
 
             let service_content = SERVICE_TEMPLATE
@@ -706,11 +1051,12 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
                 .replace("{{FULL_SERVICE_NAME}}", &full_service_name)
                 .replace("{{CLIENT_METHODS}}", &client_methods)
                 .replace("{{CLIENT_METHOD_IMPLS}}", &client_method_impls)
+                .replace("{{CLIENT_SYNC_METHODS}}", &client_sync_methods)
+                .replace("{{CLIENT_SYNC_METHOD_IMPLS}}", &client_sync_method_impls)
                 .replace("{{SERVER_METHODS}}", &server_methods)
                 .replace("{{UNIMPLEMENTED_METHODS}}", &unimplemented_methods)
                 .replace("{{REGISTER_METHODS}}", register_methods.trim_end())
-                .replace("{{HANDLER_IMPLS}}", &handler_impls)
-                .replace("{{METHOD_LIST}}", method_list.trim_end());
+                .replace("{{HANDLER_IMPLS}}", &handler_impls);
 
             let output_file_name = format!("{}Slimrpc.java", service_name);
             let output_path = if java_package.is_empty() {
