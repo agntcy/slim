@@ -29,6 +29,7 @@ use crate::auth::ServerAuthenticator;
 use crate::auth::basic::Config as BasicAuthenticationConfig;
 use crate::auth::jwt::Config as JwtAuthenticationConfig;
 use crate::component::configuration::Configuration;
+use crate::transport::TransportProtocol;
 use slim_auth::metadata::MetadataMap;
 
 use crate::tls::{common::RustlsConfigLoader, server::TlsServerConfig as TLSSetting};
@@ -78,6 +79,10 @@ pub enum AuthenticationConfig {
 pub struct ServerConfig {
     /// Endpoint is the address to listen on.
     pub endpoint: String,
+
+    /// Transport protocol to use for dataplane communication.
+    #[serde(default)]
+    pub transport: TransportProtocol,
 
     /// Configures the protocol to use TLS.
     #[serde(default, rename = "tls")]
@@ -154,6 +159,7 @@ impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             endpoint: String::new(),
+            transport: TransportProtocol::default(),
             tls_setting: TLSSetting::default(),
             http2_only: default_http2_only(),
             max_frame_size: Some(4),
@@ -178,8 +184,9 @@ impl std::fmt::Display for ServerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ServerConfig {{ endpoint: {}, tls_setting: {}, http2_only: {}, max_frame_size: {:?}, max_concurrent_streams: {:?}, max_header_list_size: {:?}, read_buffer_size: {:?}, write_buffer_size: {:?}, keepalive: {:?}, auth: {:?}, metadata: {:?} }}",
+            "ServerConfig {{ endpoint: {}, transport: {:?}, tls_setting: {}, http2_only: {}, max_frame_size: {:?}, max_concurrent_streams: {:?}, max_header_list_size: {:?}, read_buffer_size: {:?}, write_buffer_size: {:?}, keepalive: {:?}, auth: {:?}, metadata: {:?} }}",
             self.endpoint,
+            self.transport,
             self.tls_setting,
             self.http2_only,
             self.max_frame_size,
@@ -250,6 +257,10 @@ impl ServerConfig {
             tls_setting,
             ..self
         }
+    }
+
+    pub fn with_transport(self, transport: TransportProtocol) -> Self {
+        Self { transport, ..self }
     }
 
     pub fn with_http2_only(self, http2_only: bool) -> Self {
@@ -425,6 +436,10 @@ impl ServerConfig {
             return Err(ConfigError::MissingServices);
         }
 
+        if self.transport == TransportProtocol::Websocket {
+            return Err(ConfigError::GrpcServerUnsupportedTransport);
+        }
+
         if self.endpoint.is_empty() {
             return Err(ConfigError::MissingEndpoint);
         }
@@ -547,6 +562,7 @@ mod tests {
     fn test_default_server_config() {
         let server_config = ServerConfig::default();
         assert_eq!(server_config.endpoint, String::new());
+        assert_eq!(server_config.transport, TransportProtocol::Grpc);
         assert_eq!(server_config.tls_setting, TLSSetting::default());
         assert_eq!(server_config.http2_only, default_http2_only());
         assert_eq!(server_config.max_frame_size, Some(4));
@@ -608,6 +624,20 @@ mod tests {
             .to_server_future(&[GreeterServer::from_arc(empty_service.clone())])
             .await;
         assert!(ret.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_to_server_future_rejects_websocket_transport() {
+        let empty_service = Arc::new(Empty::new());
+        let server_config = ServerConfig::with_endpoint("0.0.0.0:12345")
+            .with_transport(TransportProtocol::Websocket);
+        let ret = server_config
+            .to_server_future(&[GreeterServer::from_arc(empty_service)])
+            .await;
+        assert!(matches!(
+            ret,
+            Err(ConfigError::GrpcServerUnsupportedTransport)
+        ));
     }
 
     #[test]

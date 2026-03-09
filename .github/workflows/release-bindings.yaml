@@ -170,3 +170,19 @@ jobs:
       MVN_TOKEN_PASSWORD: ${{ secrets.MVN_TOKEN_PASSWORD }}
       GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
       GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+
+  # ==========================================================================
+  # Job 7: Release Java bindings to GitHub Packages and Maven Central
+  # ==========================================================================
+  release-java-bindings:
+    name: "Release Java Bindings"
+    needs: build-and-test-bindings
+    uses: ./.github/workflows/reusable-java-bindings-release.yaml
+    permissions:
+      contents: read
+      packages: write
+    secrets:
+      MVN_TOKEN_NAME: ${{ secrets.MVN_TOKEN_NAME }}
+      MVN_TOKEN_PASSWORD: ${{ secrets.MVN_TOKEN_PASSWORD }}
+      GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+      GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
