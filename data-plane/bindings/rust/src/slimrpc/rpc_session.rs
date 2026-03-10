@@ -235,7 +235,6 @@ where
     handles.push(send_eos(session_tx, target, rpc_id, None).await?);
 
     // Wait for all in-flight sends to be acknowledged by the session layer.
-    // Wait for all in-flight sends to be acknowledged by the session layer.
     futures::future::try_join_all(handles)
         .await
         .map_err(|e| RpcError::internal(format!("Failed to complete sending: {}", e)))?;
