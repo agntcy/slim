@@ -106,6 +106,7 @@ impl<'a> RpcSession<'a> {
             result = async move {
                 match &handler_info {
                     HandlerInfo::Unary(handler) => {
+                        tracing::info!("entering handler");
                         handler(payload, ctx, session_tx.clone(), source, rpc_id).await
                     }
                     HandlerInfo::Stream(handler) => {
@@ -119,6 +120,8 @@ impl<'a> RpcSession<'a> {
                 Err(RpcError::deadline_exceeded("Deadline exceeded during RPC execution"))
             }
         };
+
+        tracing::info!("Finished handler");
 
         if let Err(e) = &result {
             tracing::error!(%method_path, error = %e, "Error handling RPC");
@@ -213,9 +216,11 @@ where
     let mut handles: Vec<CompletionHandle> = Vec::new();
 
     while let Some(result) = stream.next().await {
+        tracing::info!("New item in the stream");
+
         match result {
             Ok(response_bytes) => {
-                let handle = session_tx
+                let res = session_tx
                     .publish(
                         target,
                         response_bytes,
@@ -223,12 +228,19 @@ where
                         Some(create_status_metadata(RpcCode::Ok, rpc_id)),
                     )
                     .await
-                    .map_err(|e| RpcError::internal(format!("Failed to send response: {}", e)))?;
-                handles.push(handle);
+                    .map_err(|e| RpcError::internal(format!("Failed to send response: {}", e)));
+
+                if res.is_err() {
+                    tracing::error!("Error!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+                }
+
+                handles.push(res?);
             }
             Err(e) => return Err(e),
         }
     }
+
+    tracing::info!("Stream finished");
 
     // Queue the EOS marker and collect its handle too.
     handles.push(send_eos(session_tx, target, rpc_id, None).await?);

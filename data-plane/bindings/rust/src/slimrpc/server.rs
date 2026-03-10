@@ -23,6 +23,8 @@ use slim_service::app::App as SlimApp;
 use slim_session::errors::SessionError;
 use slim_session::notification::Notification;
 
+use crate::STATUS_CODE_KEY;
+
 use super::{
     Context, HandlerInfo, METHOD_KEY, RPC_ID_KEY, ReceivedMessage, ResponseSink, RpcCode, RpcError,
     RpcSession, SERVICE_KEY, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler,
@@ -375,7 +377,7 @@ async fn run_session_demux(
     loop {
         let msg = tokio::select! {
             _ = &mut drain_fut => {
-                tracing::debug!(
+                tracing::info!(
                     "Session demux task: server shutdown — cancelling {} active RPCs",
                     active_tasks.len()
                 );
@@ -391,18 +393,36 @@ async fn run_session_demux(
             }
             result = session_rx.get_message(None) => match result {
                 Ok(m) => m,
+                Err(SessionError::ParticipantDisconnected(name)) => {
+                    tracing::error!(%name, "Group member disconnected, continuing");
+                    continue;
+                }
                 Err(e) => {
-                    tracing::debug!(error = %e, "Session closed by peer");
+                    tracing::error!(error = %e, "Session closed by peer");
+                    tracing::error!("adios");
                     break;
                 }
             }
         };
+
+        tracing::error!("ok1");
 
         active_tasks.retain(|_, h| !h.is_finished());
         let Some(rpc_id_str) = msg.metadata.get(RPC_ID_KEY).filter(|s| !s.is_empty()) else {
             tracing::trace!("Skipping message with missing or empty rpc-id");
             continue;
         };
+
+        // If the message contains an error code, it is likely coming from another server.
+        // Ignore them for now
+        if msg.metadata.contains_key(STATUS_CODE_KEY) {
+            tracing::error!("Skipping message with RPC_CODE_KEY set");
+            continue;
+        }
+
+        tracing::error!("ok2");
+
+        tracing::info!("{pending_streams:?}");
 
         if let Some(tx) = pending_streams.get(rpc_id_str.as_str()).cloned() {
             // Route continuation message to the existing stream-input handler.
@@ -413,8 +433,11 @@ async fn run_session_demux(
                 pending_streams.remove(rpc_id_str.as_str());
             }
             let _ = tx.send(msg);
+            tracing::error!("adios2");
             continue;
         }
+
+        tracing::error!("ok3");
 
         // New RPC call — create Arc now that we know we need it.
         let rpc_id: Arc<str> = Arc::from(rpc_id_str.as_str());
@@ -429,13 +452,17 @@ async fn run_session_demux(
                 .filter(|s| !s.is_empty())
                 .map(|s| s.as_str()),
         ) else {
-            tracing::trace!(%rpc_id, "Skipping message missing service or method key");
+            tracing::error!(%rpc_id, "Skipping message missing service or method key");
             continue;
         };
+
+        tracing::error!("ok4");
 
         let method_path = format!("{}/{}", service, method);
 
         tracing::debug!(%method_path, %rpc_id, "Dispatching new RPC call");
+
+        tracing::error!("ok5");
 
         let Some(handler_info) = registry.get_handler_info(&method_path) else {
             tracing::error!(%method_path, "No handler registered");
@@ -448,6 +475,8 @@ async fn run_session_demux(
             continue;
         };
 
+        tracing::error!("ok6");
+
         let task = spawn_handler_task(
             handler_info,
             msg,
@@ -456,6 +485,9 @@ async fn run_session_demux(
             session_tx.clone(),
             &mut pending_streams,
         );
+
+        tracing::error!("ok7");
+
         active_tasks.insert(rpc_id, task);
     }
 

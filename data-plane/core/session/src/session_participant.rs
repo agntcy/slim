@@ -17,6 +17,7 @@ use slim_mls::mls::Mls;
 use tracing::debug;
 
 use crate::{
+    MessageDirection,
     common::SessionMessage,
     errors::SessionError,
     mls_state::MlsState,
@@ -118,6 +119,12 @@ where
                     // Apply MLS encryption/decryption if enabled
                     if let Some(mls_state) = &mut self.mls_state {
                         mls_state.process_message(&mut message, direction).await?;
+                    }
+
+                    if direction == MessageDirection::North
+                    && message.get_session_message_type() == ProtoSessionMessageType::MsgAck
+                    {
+                        tracing::info!(dst = ?message, "Received ack message");
                     }
 
                     self.inner
@@ -561,7 +568,13 @@ where
             .await?;
         self.common
             .add_subscription(&self.common.settings.destination, msg.get_incoming_conn())
-            .await
+            .await?;
+
+        tracing::info!("Starting to sleep");
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        tracing::info!("Slept");
+
+        Ok(())
     }
 
     async fn disconnect_from_group(&self) -> Result<(), SessionError> {

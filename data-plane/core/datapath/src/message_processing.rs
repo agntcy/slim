@@ -542,15 +542,6 @@ impl MessageProcessor {
             if add { "" } else { "un" }
         );
 
-        println!(
-            "processing {}subscription: {} src:{} dst:{} {}",
-            if add { "" } else { "un" },
-            conn,
-            msg.get_source(),
-            dst,
-            is_local,
-        );
-
         self.forwarder()
             .on_subscription_msg(dst.clone(), conn, is_local, add)?;
 

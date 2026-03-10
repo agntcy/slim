@@ -106,15 +106,18 @@ impl SessionTx {
     /// # Arguments
     /// * `app` - The SLIM app instance to delete the session from
     pub async fn close(&self, app: &SlimApp<AuthProvider, AuthVerifier>) -> Result<(), RpcError> {
-        tracing::debug!(session_id = %self.controller.id(), "Closing session");
+        tracing::info!(session_id = %self.controller.id(), "Closing session");
 
-        if let Ok(handle) = app.delete_session(self.controller.as_ref()) {
-            handle.await.map_err(|e| {
-                RpcError::internal(format!("Failed to delete session: {}", e.chain()))
-            })?;
-            tracing::debug!(session_id = %self.controller.id(), "Successfully deleted session");
-        } else {
-            tracing::warn!(session_id = %self.controller.id(), "Failed to delete session");
+        match app.delete_session(self.controller.as_ref()) {
+            Ok(handle) => {
+                handle.await.map_err(|e| {
+                    RpcError::internal(format!("Failed to delete session: {}", e.chain()))
+                })?;
+                tracing::info!(session_id = %self.controller.id(), "Successfully deleted session");
+            }
+            Err(e) => {
+                tracing::warn!(session_id = %self.controller.id(), error = %e, "Failed to delete session");
+            }
         }
 
         Ok(())
@@ -122,24 +125,22 @@ impl SessionTx {
 }
 
 impl SessionRx {
-    /// Receive a message from the session with optional timeout
+    /// Receive a message from the session with optional timeout.
+    ///
+    /// Returns `Err(SessionError::SessionClosed)` when the channel is gone,
+    /// `Err(SessionError::ReceiveTimeout)` on timeout, and the raw
+    /// `SessionError` for all other session-level errors (e.g.
+    /// `ParticipantDisconnected`).  Callers can therefore distinguish
+    /// transient membership events from fatal failures.
     pub async fn get_message(
         &mut self,
         timeout: Option<Duration>,
-    ) -> Result<ReceivedMessage, RpcError> {
+    ) -> Result<ReceivedMessage, SessionError> {
         let recv_future = async {
-            let msg = self
-                .rx
-                .recv()
-                .await
-                .ok_or_else(|| RpcError::internal("Session closed"))?
-                .map_err(|e: SessionError| {
-                    RpcError::internal(format!("Receive error: {}", e.chain()))
-                })?;
+            let msg = self.rx.recv().await.ok_or(SessionError::SessionClosed)??;
 
             // Extract payload from the proto message
             let payload = if let Some(content) = msg.get_payload() {
-                // Use the helper method to extract application payload
                 if let Ok(app_payload) = content.as_application_payload() {
                     app_payload.blob.clone()
                 } else {
@@ -149,7 +150,6 @@ impl SessionRx {
                 Vec::new()
             };
 
-            // Extract metadata and payload from the proto message
             let source = msg.get_source();
             Ok(ReceivedMessage {
                 metadata: msg.metadata,
@@ -159,16 +159,13 @@ impl SessionRx {
         };
 
         if let Some(timeout_duration) = timeout {
-            // Use futures-timer for timeout
             futures::pin_mut!(recv_future);
             let delay = Delay::new(timeout_duration);
             futures::pin_mut!(delay);
 
             match futures::future::select(recv_future, delay).await {
                 futures::future::Either::Left((result, _)) => result,
-                futures::future::Either::Right(_) => {
-                    Err(RpcError::deadline_exceeded("Receive timeout"))
-                }
+                futures::future::Either::Right(_) => Err(SessionError::ReceiveTimeout),
             }
         } else {
             recv_future.await

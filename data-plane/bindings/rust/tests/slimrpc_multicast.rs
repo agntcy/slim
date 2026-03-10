@@ -317,6 +317,8 @@ async fn test_multicast_unary() {
 
     println!("Ook");
 
+    env.channel.close_async(None).await.unwrap();
+
     env.shutdown().await;
 }
 
@@ -396,6 +398,8 @@ async fn test_multicast_unary_stream() {
             "member {mid} items have wrong source"
         );
     }
+
+    env.channel.close_async(None).await.unwrap();
 
     env.shutdown().await;
 }

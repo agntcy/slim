@@ -34,6 +34,7 @@ use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_datapath::api::ProtoSessionType;
 use slim_datapath::messages::Name;
 use slim_service::app::App as SlimApp;
+use slim_session::errors::SessionError;
 
 // ── Multicast response types ──────────────────────────────────────────────────
 
@@ -150,6 +151,9 @@ async fn response_dispatcher_task(mut session_rx: SessionRx, dispatcher: Arc<Res
                     tracing::trace!(%rpc_id, "Received message for unknown rpc-id, dropping");
                 }
             }
+            Err(SessionError::ParticipantDisconnected(name)) => {
+                tracing::debug!(%name, "Response dispatcher: group member disconnected, continuing");
+            }
             Err(e) => {
                 tracing::debug!(error = %e, "Response dispatcher: session closed");
                 dispatcher.close_all();
@@ -193,7 +197,11 @@ async fn send_invite(session_tx: &SessionTx, member: &Name) -> Result<(), RpcErr
         .await
         .map_err(|e| RpcError::internal(format!("Failed to invite {}: {}", member, e)))?
         .await
-        .map_err(|e| RpcError::internal(format!("Failed to invite {}: {}", member, e)))
+        .map_err(|e| RpcError::internal(format!("Failed to invite {}: {}", member, e)))?;
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    Ok(())
 }
 
 /// Generate a random group session name derived from the client name.
