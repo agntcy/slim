@@ -1,5 +1,3 @@
-//go:build slim_multicast
-
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
@@ -171,7 +169,10 @@ func main() {
 	}
 
 	// Group channel targeting all server instances
-	channel := slim_bindings.ChannelNewGroupWithConnection(app, serverNames, &connId)
+	channel, err := slim_bindings.ChannelNewGroupWithConnection(app, serverNames, &connId)
+	if err != nil {
+		log.Fatalf("Failed to create group channel: %v", err)
+	}
 
 	client := pb.NewTestGroupClient(channel)
 
@@ -180,5 +181,9 @@ func main() {
 	runMulticastStreamUnary(client)
 	runMulticastStreamStream(client)
 
-	time.Sleep(1 * time.Second)
+	// time.Sleep(2*time.Second)
+
+	if err := channel.CloseAsync(nil); err != nil {
+		log.Printf("Failed to close channel: %v", err)
+	}
 }

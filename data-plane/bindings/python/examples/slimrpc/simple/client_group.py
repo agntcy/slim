@@ -100,9 +100,7 @@ async def amain() -> None:
         logger.error(f"RPC error: {e}")
 
     # Close the channel
-    print("closing")
     await channel.close_async(timeout=None)
-    print("closed")
 
 
 def main() -> None:
