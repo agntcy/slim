@@ -125,6 +125,9 @@ pub struct ControllerSender {
 
     /// set to true if it is used to send messages to legacy participants
     is_legacy: bool,
+
+    /// id of the timer associated to the ping if used
+    ping_timer_id: Option<u32>,
 }
 
 impl ControllerSender {
@@ -143,13 +146,16 @@ impl ControllerSender {
         let mut list = HashSet::new();
         list.insert(local_name.clone());
 
+        let mut ping_timer_id = None;
         let ping_state = if let Some(interval) = ping_interval {
             // we need to setup the timer for the ping
             let settings =
                 TimerSettings::new(interval, None, None, crate::timer::TimerType::Constant);
             let ping_timer_factory = TimerFactory::new(settings, tx_signals.clone());
+            let id = rand::random::<u32>();
+            ping_timer_id = Some(id);
             let ping_timer = ping_timer_factory.create_and_start_timer(
-                rand::random::<u32>(),
+                id,
                 slim_datapath::api::ProtoSessionMessageType::Ping,
                 None,
             );
@@ -178,6 +184,7 @@ impl ControllerSender {
             tx_session: tx_signals,
             draining_state: ControllerSenderDrainStatus::NotDraining,
             is_legacy,
+            ping_timer_id,
         }
     }
 
@@ -409,6 +416,7 @@ impl ControllerSender {
                 name.reset_id();
             }
 
+            pending.missing_replies.remove(&name);
             if pending.missing_replies.is_empty() {
                 debug!("all replies received, remove timer");
                 pending.timer.stop();
@@ -447,8 +455,11 @@ impl ControllerSender {
         debug!(id = %message.get_id(), "received a ping but the state is not set, ignore the message");
     }
 
+    // the message id is pending or is related to the timer id used for
+    // the ping messages
     pub fn is_still_pending(&self, message_id: u32) -> bool {
         self.pending_replies.contains_key(&message_id)
+            || self.ping_timer_id.is_some_and(|id| id == message_id)
     }
 
     pub(crate) async fn on_timer_timeout(
@@ -571,7 +582,7 @@ impl ControllerSender {
                 }
             }
         } else {
-            // most likely the timeout is related to the ping message itself so
+            // the timeout is related to the ping message itself so
             // we need to send it again
             let message_to_send = self
                 .ping_state
