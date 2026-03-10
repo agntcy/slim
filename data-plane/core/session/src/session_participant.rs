@@ -122,7 +122,7 @@ where
                     }
 
                     if direction == MessageDirection::North
-                    && message.get_session_message_type() == ProtoSessionMessageType::MsgAck
+                        && message.get_session_message_type() == ProtoSessionMessageType::MsgAck
                     {
                         tracing::info!(dst = ?message, "Received ack message");
                     }

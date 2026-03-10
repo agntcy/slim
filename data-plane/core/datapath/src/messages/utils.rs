@@ -4,8 +4,6 @@
 use std::fmt::Display;
 use std::{collections::HashMap, time::Duration};
 
-use tracing::debug;
-
 use super::encoder::Name;
 use crate::api::proto::dataplane::v1::{GroupClosePayload, GroupNackPayload, PingPayload};
 use crate::api::{

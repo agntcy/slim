@@ -607,7 +607,7 @@ impl MessageProcessor {
 
         // get in and out connections
         let (in_conn, recv_from, forward) = header.get_connections();
-        let in_conn = recv_from.clone().unwrap_or(in_conn);
+        let in_conn = recv_from.unwrap_or(in_conn);
 
         // As connection is deleted only after processing, at this point it must exist.
         let connection = self.forwarder().get_connection(in_conn).ok_or(

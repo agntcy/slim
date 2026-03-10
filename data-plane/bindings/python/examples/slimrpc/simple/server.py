@@ -130,7 +130,7 @@ def main() -> None:
         "--instance",
         default="server",
         help="Instance name used as the SLIM app name (default: server). "
-             "Use server1/server2 when running alongside client_group.py.",
+        "Use server1/server2 when running alongside client_group.py.",
     )
     args = parser.parse_args()
 

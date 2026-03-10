@@ -377,15 +377,15 @@ impl Channel {
             && let Some(ref cs) = **guard
         {
             for member in &cs.members {
-                if let Some(conn_id) = self.connection_id {
-                    if let Err(e) = self.app.set_route(member, conn_id).await {
-                        tracing::warn!(
-                            member = %member,
-                            connection_id = conn_id,
-                            error = %e,
-                            "Failed to set route for group member"
-                        );
-                    }
+                if let Some(conn_id) = self.connection_id
+                    && let Err(e) = self.app.set_route(member, conn_id).await
+                {
+                    tracing::warn!(
+                        member = %member,
+                        connection_id = conn_id,
+                        error = %e,
+                        "Failed to set route for group member"
+                    );
                 }
                 send_invite(&session_tx, member).await?;
             }
@@ -1239,10 +1239,8 @@ impl Channel {
                 }
                 _ => {}
             }
-        } else {
-            if let Err(e) = close_future.await {
-                tracing::warn!(error = %e, "Error closing session");
-            }
+        } else if let Err(e) = close_future.await {
+            tracing::warn!(error = %e, "Error closing session");
         }
 
         // Closing the session tx drops the underlying receive channel; the

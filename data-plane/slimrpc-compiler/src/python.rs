@@ -1197,8 +1197,7 @@ mod tests {
             ),
         ];
         let service = create_test_service("Test", methods);
-        let file_descriptor =
-            create_test_file_descriptor("example.proto", "test", vec![service]);
+        let file_descriptor = create_test_file_descriptor("example.proto", "test", vec![service]);
 
         let request = CodeGeneratorRequest {
             file_to_generate: vec!["example.proto".to_string()],
