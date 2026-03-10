@@ -181,7 +181,8 @@ func main() {
 	runMulticastStreamUnary(client)
 	runMulticastStreamStream(client)
 
-	// time.Sleep(2*time.Second)
+	// Give time for messages to be sent
+	time.Sleep(1 * time.Second)
 
 	if err := channel.CloseAsync(nil); err != nil {
 		log.Printf("Failed to close channel: %v", err)

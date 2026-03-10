@@ -413,7 +413,6 @@ const REGISTER_STREAM_UNARY_METHOD: &str = r#"	server.RegisterStreamUnary("{{PAC
 const REGISTER_STREAM_STREAM_METHOD: &str = r#"	server.RegisterStreamStream("{{PACKAGE_NAME}}.{{SERVICE_NAME}}", "{{METHOD_NAME}}", &{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler{impl: impl})
 "#;
 
-
 const GROUP_CLIENT_INTERFACE_TEMPLATE: &str = r#"
 // {{SERVICE_NAME}}GroupClient is the multicast (group) client API for {{SERVICE_NAME}} service.
 // Requires a *slim_bindings.Channel created with ChannelNewGroup* targeting multiple server instances.
@@ -984,7 +983,6 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
                         .replace("{{OUTPUT_TYPE}}", &output_type)
                         .replace("{{PACKAGE_NAME}}", &package_name),
                 );
-
             }
 
             // Generate client interface
@@ -1040,7 +1038,6 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
                 content: Some(content),
                 generated_code_info: None,
             });
-
         }
     }
 
