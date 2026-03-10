@@ -1,0 +1,13 @@
+version: v2
+managed:
+  enabled: true
+plugins:
+  # Generates standard .pb.cs files for C#
+  - remote: buf.build/protocolbuffers/csharp
+    out: Generated
+    opt: base_namespace=ExampleService
+
+  # Generates _slimrpc.cs files
+  - local: ../../../target/release/protoc-gen-slimrpc-csharp
+    out: Generated
+    opt: base_namespace=ExampleService,types_namespace=ExampleService

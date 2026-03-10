@@ -9,6 +9,7 @@ slimrpc framework.
 
 - **Python**: `protoc-gen-slimrpc-python`
 - **Go**: `protoc-gen-slimrpc-go`
+- **C#**: `protoc-gen-slimrpc-csharp`
 
 ## Features
 
@@ -38,6 +39,7 @@ cargo build --release
 3. The compiled binaries will be available at:
    - `target/release/protoc-gen-slimrpc-python`
    - `target/release/protoc-gen-slimrpc-go`
+   - `target/release/protoc-gen-slimrpc-csharp`
 
 ## Usage
 
@@ -94,6 +96,27 @@ plugins:
       - paths=source_relative
 ```
 
+#### C# Example
+
+Create a `buf.gen.yaml` file in your project:
+
+```yaml
+version: v2
+managed:
+  enabled: true
+plugins:
+  # Generate standard .pb.cs files
+  - remote: buf.build/protocolbuffers/csharp
+    out: Generated
+    opt: base_namespace=MyApp.Types
+  # Generate slimrpc stubs
+  - local: /path/to/target/release/protoc-gen-slimrpc-csharp
+    out: Generated
+    opt: base_namespace=MyApp.Types,types_namespace=MyApp.Types
+```
+
+**Output file naming**: For `example.proto`, the C# plugin generates `example_slimrpc.cs` (alongside the standard protobuf `Example.cs` from the csharp plugin).
+
 #### Generate Code
 
 ```bash
@@ -103,6 +126,7 @@ buf generate
 This will generate:
 - **Python**: `*_pb2.py` (protobuf types) and `*_pb2_slimrpc.py` (slimrpc stubs)
 - **Go**: `*.pb.go` (protobuf types) and `*_slimrpc.pb.go` (slimrpc stubs)
+- **C#**: `*.cs` (protobuf types from csharp plugin) and `*_slimrpc.cs` (slimrpc stubs)
 
 ### Using with protoc (Alternative)
 
@@ -126,6 +150,16 @@ protoc \
   --go_out=. \
   --plugin=protoc-gen-slimrpc-go=/path/to/protoc-gen-slimrpc-go \
   --slimrpc-go_out=. \
+  example.proto
+```
+
+#### C#
+
+```bash
+protoc \
+  --csharp_out=Generated \
+  --plugin=protoc-gen-slimrpc-csharp=/path/to/protoc-gen-slimrpc-csharp \
+  --slimrpc-csharp_out=Generated \
   example.proto
 ```
 
@@ -213,14 +247,53 @@ func RegisterTestServer(server slim_bindings.ServerInterface, handler TestServer
 }
 ```
 
+### C#
+
+For a service definition, the generated `*_slimrpc.cs` contains:
+
+#### Client Stub
+
+```csharp
+public sealed class TestClient
+{
+    private readonly Channel _channel;
+
+    public TestClient(Channel channel) => _channel = channel;
+
+    public async Task<ExampleResponse> ExampleUnaryUnaryAsync(ExampleRequest request, ...) { ... }
+    public async IAsyncEnumerable<ExampleResponse> ExampleUnaryStreamAsync(ExampleRequest request, ...) { ... }
+    public async Task<ExampleResponse> ExampleStreamUnaryAsync(IAsyncEnumerable<ExampleRequest> requestStream, ...) { ... }
+    public async IAsyncEnumerable<ExampleResponse> ExampleStreamStreamAsync(IAsyncEnumerable<ExampleRequest> requestStream, ...) { ... }
+}
+```
+
+#### Server Interface
+
+```csharp
+public interface ITestServer
+{
+    Task<ExampleResponse> ExampleUnaryUnary(ExampleRequest request, SlimRpcContext context);
+    IAsyncEnumerable<ExampleResponse> ExampleUnaryStream(ExampleRequest request, SlimRpcContext context);
+    Task<ExampleResponse> ExampleStreamUnary(IAsyncEnumerable<ExampleRequest> requestStream, SlimRpcContext context);
+    IAsyncEnumerable<ExampleResponse> ExampleStreamStream(IAsyncEnumerable<ExampleRequest> requestStream, SlimRpcContext context);
+}
+```
+
+#### Registration
+
+```csharp
+TestServerRegistration.RegisterTestServer(server, impl);
+```
+
 ## Examples
 
 Complete working examples are available in the repository:
 
 - **Python**: [`bindings/python/examples/slimrpc/simple`](../bindings/python/examples/slimrpc/simple)
 - **Go**: [`bindings/go/examples/slimrpc/simple`](../bindings/go/examples/slimrpc/simple)
+- **C#**: [`bindings/dotnet/Slim.Examples.SlimRpc`](../bindings/dotnet/Slim.Examples.SlimRpc)
 
-Both examples demonstrate all four RPC patterns with comprehensive client and
+All examples demonstrate all four RPC patterns with comprehensive client and
 server implementations.
 
 ## Plugin Parameters
@@ -246,6 +319,18 @@ server implementations.
   Only valid when `types_import` is also set.
   - Example: `types_alias=pb`
   - Default: last path component of `types_import` (e.g., `"types"` for `.../types`)
+
+### C# Plugin
+
+- `base_namespace`: C# namespace for generated code.
+  - Example: `base_namespace=MyApp.Types`
+  - Default: derived from proto `package`
+
+- `types_namespace`: C# namespace for resolving protobuf types (when different from base).
+  - Example: `types_namespace=MyApp.Types`
+  - Default: same as base_namespace
+
+- `file_extension`: Output file suffix (default: `_slimrpc.cs`)
 
 ## Troubleshooting
 
