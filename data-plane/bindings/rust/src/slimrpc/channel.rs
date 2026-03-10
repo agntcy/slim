@@ -528,18 +528,6 @@ impl Channel {
                 .await?;
             handles.push(handle);
         }
-        let results = join_all(handles).await;
-        for result in results {
-            result.map_err(|e| {
-                RpcError::internal(format!(
-                    "Failed to complete sending {}-{}: {}",
-                    service_name,
-                    method_name,
-                    ErrorChainExt::chain(&e)
-                ))
-            })?;
-        }
-
         // When the stream was empty `first` is still true: the EOS must carry
         // service + method so the server can dispatch without a preceding data frame.
         let extra = if first {
@@ -550,7 +538,19 @@ impl Channel {
         } else {
             None
         };
-        send_eos(session, session.destination(), rpc_id, extra).await?;
+        handles.push(send_eos(session, session.destination(), rpc_id, extra).await?);
+
+        // Wait for all (data + EOS) acks in a single batch.
+        for result in join_all(handles).await {
+            result.map_err(|e| {
+                RpcError::internal(format!(
+                    "Failed to complete sending {}-{}: {}",
+                    service_name,
+                    method_name,
+                    ErrorChainExt::chain(&e)
+                ))
+            })?;
+        }
 
         Ok(())
     }

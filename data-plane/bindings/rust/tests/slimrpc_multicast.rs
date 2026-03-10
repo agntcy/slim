@@ -171,6 +171,8 @@ impl MulticastTestEnv {
     }
 
     async fn shutdown(&mut self) {
+        self.channel.close_async(None).await.unwrap();
+
         for server in &self.member_servers {
             println!("Shutting down");
             server.shutdown_internal().await;
@@ -317,8 +319,6 @@ async fn test_multicast_unary() {
 
     println!("Ook");
 
-    env.channel.close_async(None).await.unwrap();
-
     env.shutdown().await;
 }
 
@@ -398,8 +398,6 @@ async fn test_multicast_unary_stream() {
             "member {mid} items have wrong source"
         );
     }
-
-    env.channel.close_async(None).await.unwrap();
 
     env.shutdown().await;
 }
@@ -596,7 +594,7 @@ async fn test_multicast_stream_stream() {
 /// (mix of Ok and Err) and then drops the stream.
 #[tokio::test]
 #[tracing_test::traced_test]
-async fn test_multicast_partial_error_unary() {
+async fn test_multicast_partial_error_unarys() {
     const NUM_MEMBERS: usize = 3;
     let mut env = MulticastTestEnv::new("test-multicast-partial-error-unary", NUM_MEMBERS).await;
 
