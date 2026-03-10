@@ -494,11 +494,7 @@ async fn run_session_demux(
     // Fire the session drain and wait: resolves once every handler task drops its Watch,
     // i.e., once all tasks have exited their select! branch.
     session_drain_signal.drain().await;
-    let _ = tokio::time::timeout(
-        Duration::from_secs(10),
-        session_tx.close(app.as_ref()),
-    )
-    .await;
+    let _ = tokio::time::timeout(Duration::from_secs(10), session_tx.close(app.as_ref())).await;
 }
 
 impl Server {

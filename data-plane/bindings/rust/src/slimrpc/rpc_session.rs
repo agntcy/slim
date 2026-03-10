@@ -224,7 +224,9 @@ where
                             Some(create_status_metadata(RpcCode::Ok, rpc_id)),
                         )
                         .await
-                        .map_err(|e| RpcError::internal(format!("Failed to send response: {}", e)))?,
+                        .map_err(|e| {
+                            RpcError::internal(format!("Failed to send response: {}", e))
+                        })?,
                 );
             }
             Err(e) => return Err(e),
