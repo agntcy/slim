@@ -174,11 +174,9 @@ impl MulticastTestEnv {
         self.channel.close_async(None).await.unwrap();
 
         for server in &self.member_servers {
-            println!("Shutting down");
             server.shutdown_internal().await;
         }
 
-        println!("Shutting down2");
         self.service.shutdown().await.unwrap();
     }
 }
@@ -275,8 +273,6 @@ async fn test_multicast_unary() {
     }
     env.start_all_servers().await;
 
-    println!("Servers started");
-
     let stream = env.channel.multicast_unary::<TestRequest, TestResponse>(
         "TestService",
         "Echo",
@@ -288,8 +284,6 @@ async fn test_multicast_unary() {
         None,
     );
 
-    println!("Things sent");
-
     let mut responses = collect_n_multicast(
         stream,
         NUM_MEMBERS,
@@ -297,8 +291,6 @@ async fn test_multicast_unary() {
         "multicast_unary",
     )
     .await;
-
-    println!("responses received");
 
     responses.sort_by_key(|r| r.message.member_id);
 
@@ -316,8 +308,6 @@ async fn test_multicast_unary() {
         responses[1].context.source,
         Name::from_strings(["org", "ns", "member-1"])
     );
-
-    println!("Ook");
 
     env.shutdown().await;
 }
@@ -594,7 +584,7 @@ async fn test_multicast_stream_stream() {
 /// (mix of Ok and Err) and then drops the stream.
 #[tokio::test]
 #[tracing_test::traced_test]
-async fn test_multicast_partial_error_unarys() {
+async fn test_multicast_partial_error_unary() {
     const NUM_MEMBERS: usize = 3;
     let mut env = MulticastTestEnv::new("test-multicast-partial-error-unary", NUM_MEMBERS).await;
 

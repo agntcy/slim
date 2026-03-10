@@ -746,8 +746,6 @@ impl SubscriptionTable for SubscriptionTableImpl {
                     all_connections.extend(remote_out);
                 }
 
-                tracing::info!(length = all_connections.len(), %name, "Forwarding to all connections");
-
                 if all_connections.is_empty() {
                     debug!(%name, "no connection available (local/remote)");
                     Err(DataPathError::NoMatch(name.clone()))

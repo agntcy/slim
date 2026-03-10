@@ -292,18 +292,6 @@ async fn main() {
                 tokio::time::sleep(tokio::time::Duration::from_millis(frequency as u64)).await;
             }
         }
-
-        // Close the session: notifies all participants and waits for the group to shut down.
-        info!("moderator: closing session");
-        match app.delete_session(session_arc.as_ref()) {
-            Ok(handle) => {
-                if let Err(e) = handle.await {
-                    error!("error waiting for session close: {}", e);
-                }
-            }
-            Err(e) => error!("error closing session: {}", e),
-        }
-        info!("moderator: session closed");
     } else {
         // participant
         if moderator_name.is_empty() && !is_moderator {

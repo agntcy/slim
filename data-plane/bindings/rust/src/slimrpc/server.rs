@@ -401,7 +401,7 @@ async fn run_session_demux(
                     break;
                 }
                 Err(e) => {
-                    tracing::error!(error = %e, "Session closed by peer");
+                    tracing::debug!(error = %e, "Session closed by peer");
                     break;
                 }
             }
@@ -456,7 +456,7 @@ async fn run_session_demux(
                 .filter(|s| !s.is_empty())
                 .map(|s| s.as_str()),
         ) else {
-            tracing::error!(%rpc_id, "Skipping message missing service or method key");
+            tracing::trace!(%rpc_id, "Skipping message missing service or method key");
             continue;
         };
 
@@ -1046,7 +1046,7 @@ impl Server {
                 }
                 // Handle incoming sessions
                 session_result = Server::listen_for_session(&mut rx) => {
-                    tracing::info!("Received session notification");
+                    tracing::debug!("Received session notification");
 
                     let session_ctx = match session_result {
                         Ok(ctx) => ctx,
@@ -1070,7 +1070,6 @@ impl Server {
             }
         }
 
-        // Wait for all tasks to finish
         // Wait for all tasks to finish
         tracing::debug!("Waiting for {} session tasks to complete", tasks.len());
         let results = join_all(tasks).await;

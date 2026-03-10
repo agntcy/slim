@@ -172,8 +172,6 @@ where
                 name,
                 timeouts,
             } => {
-                tracing::error!(?message_type, ?name, %message_id, "timeout!!!!!!!!!!!!!!!!!!!!!!!!!!");
-
                 if message_type.is_command_message() {
                     self.common
                         .sender
@@ -967,7 +965,6 @@ where
         // sent toward the participant that was disconnected. Otherwise the leave message is sent
         // from the participant that wants to disconnect
         let disconnected = if msg.contains_metadata(LEAVING_SESSION) {
-            println!("leaving session");
             msg.get_source()
         } else {
             msg.get_dst()

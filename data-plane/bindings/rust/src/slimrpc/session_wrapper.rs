@@ -106,14 +106,14 @@ impl SessionTx {
     /// # Arguments
     /// * `app` - The SLIM app instance to delete the session from
     pub async fn close(&self, app: &SlimApp<AuthProvider, AuthVerifier>) -> Result<(), RpcError> {
-        tracing::info!(session_id = %self.controller.id(), "Closing session");
+        tracing::debug!(session_id = %self.controller.id(), "Closing session");
 
         match app.delete_session(self.controller.as_ref()) {
             Ok(handle) => {
                 handle.await.map_err(|e| {
                     RpcError::internal(format!("Failed to delete session: {}", e.chain()))
                 })?;
-                tracing::info!(session_id = %self.controller.id(), "Successfully deleted session");
+                tracing::debug!(session_id = %self.controller.id(), "Successfully deleted session");
             }
             Err(e) => {
                 tracing::warn!(session_id = %self.controller.id(), error = %e, "Failed to delete session");

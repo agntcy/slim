@@ -22,8 +22,6 @@ struct ReliableTimerObserver {
 #[async_trait]
 impl TimerObserver for ReliableTimerObserver {
     async fn on_timeout(&self, message_id: u32, timeouts: u32) {
-        tracing::error!("Tmeout!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-
         if let Err(e) = self
             .tx
             .send(SessionMessage::TimerTimeout {
