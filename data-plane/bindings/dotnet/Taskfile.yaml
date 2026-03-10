@@ -7,6 +7,10 @@ includes:
   rust:
     taskfile: ../rust/Taskfile.yaml
     internal: true
+  tools:
+    taskfile: ../../../tasks/tools.yaml
+    internal: true
+    flatten: true
 
 vars:
   # Rust bindings directory
@@ -261,5 +265,30 @@ tasks:
         echo "Cleaning build artifacts..."
         dotnet clean Slim.sln 2>/dev/null || true
         rm -rf {{.RUNTIMES_DIR}} {{.GENERATED_DIR}} nupkg/ Slim/bin/ Slim/obj/ Slim.Tests/bin/ Slim.Tests/obj/
+        rm -rf Slim.SlimRpc/bin/ Slim.SlimRpc/obj/
+        rm -rf Slim.Examples.SlimRpc/bin/ Slim.Examples.SlimRpc/obj/ Slim.Examples.SlimRpc/Generated/
         echo "✅ Clean completed"
+    silent: true
+
+  slimrpc:generate-proto:
+    desc: "Build protoc-gen-slimrpc-csharp and run buf generate for Slim.Examples.SlimRpc"
+    cmds:
+      - |
+        echo "Building protoc-gen-slimrpc-csharp..."
+        cd {{.TASKFILE_DIR}}/../../slimrpc-compiler
+        cargo build --release --bin protoc-gen-slimrpc-csharp --target-dir ../target
+        echo "✅ Plugin built"
+      - task: buf
+      - |
+        echo "Running buf generate for Slim.Examples.SlimRpc..."
+        cd {{.TASKFILE_DIR}}/Slim.Examples.SlimRpc
+        {{.TOOLS_INSTALL_DIR}}/buf generate
+        echo "✅ Proto code generated"
+    silent: true
+
+  slimrpc:build:
+    desc: "Build the slimrpc example project"
+    cmds:
+      - task: slimrpc:generate-proto
+      - task: build
     silent: true
