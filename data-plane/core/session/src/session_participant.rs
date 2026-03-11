@@ -110,12 +110,14 @@ where
                 direction,
                 ack_tx,
             } => {
+                println!("part: get message {:?}", message.get_session_message_type());
                 if message.get_session_message_type().is_command_message() {
                     debug!(
                         message = ?message.get_session_message_type(),
                         source = %message.get_source(),
                         "received message",
                     );
+                    println!("part: got process control message");
                     self.process_control_message(message).await
                 } else {
                     // Apply MLS encryption/decryption if enabled
@@ -299,6 +301,7 @@ where
 
     async fn process_control_message(&mut self, message: Message) -> Result<(), SessionError> {
         if message.get_dst().is_legacy() {
+            println!("received control message on legacy channel, drop it");
             debug!("Received control message on legacy channel drop it");
             return Ok(());
         }
@@ -346,6 +349,7 @@ where
     }
 
     async fn on_join_request(&mut self, msg: Message) -> Result<(), SessionError> {
+        println!("part: join request");
         debug!(
             name = %self.common.settings.source,
             id = %msg.get_id(),
@@ -386,6 +390,7 @@ where
     }
 
     async fn on_welcome(&mut self, msg: Message) -> Result<(), SessionError> {
+        println!("part: welcome");
         debug!(
             name = %self.common.settings.source,
             id = %msg.get_id(),

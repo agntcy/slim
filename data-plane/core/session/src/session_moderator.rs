@@ -747,6 +747,7 @@ where
     }
 
     async fn on_discovery_reply(&mut self, msg: Message) -> Result<(), SessionError> {
+        println!("discovery reply");
         debug!(
             source = %msg.get_source(),
             id = msg.get_id(),
@@ -763,6 +764,7 @@ where
             .unwrap()
             .discovery_complete(msg.get_id())?;
 
+        println!("send join request!!!");
         // join the channel if needed
         self.join(msg.get_source(), msg.get_incoming_conn()).await?;
 
@@ -804,6 +806,7 @@ where
             )
             .as_content();
 
+        println!("send join request for real!!!");
         debug!(
             dst = %msg.get_slim_header().get_source(),
             id = msg_id,
@@ -827,6 +830,7 @@ where
     }
 
     async fn on_join_reply(&mut self, msg: Message) -> Result<(), SessionError> {
+        println!("join reply");
         debug!(
             source = %msg.get_source(),
             id = msg.get_id(),
@@ -1436,6 +1440,7 @@ where
     }
 
     async fn on_group_ack(&mut self, msg: Message) -> Result<(), SessionError> {
+        println!("group ack");
         debug!(
             from = %msg.get_source(),
             id = %msg.get_id(),

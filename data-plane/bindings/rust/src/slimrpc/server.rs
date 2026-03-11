@@ -85,14 +85,14 @@ impl ServiceRegistry {
 
     /// Register a subscription name mapping
     fn register_subscription(&mut self, mut subscription_name: Name, method_path: String) {
-        subscription_name.set_id(Name::NULL_COMPONENT);
+        subscription_name.set_id(1);
         self.subscription_to_method
             .insert(subscription_name, method_path);
     }
 
     /// Get method path from subscription name
     fn get_method_from_subscription(&self, subscription_name: &mut Name) -> Option<String> {
-        subscription_name.set_id(Name::NULL_COMPONENT);
+        subscription_name.set_id(1);
         self.subscription_to_method.get(subscription_name).cloned()
     }
 
@@ -342,6 +342,7 @@ impl Server {
         base_name: Name,
         notification_rx: mpsc::Receiver<Result<Notification, SessionError>>,
     ) -> Self {
+        println!("creating server with base name {}", base_name);
         Self::construct_internal(
             app,
             base_name,

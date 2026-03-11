@@ -434,8 +434,12 @@ impl SessionController {
         &self,
         destination: &Name,
     ) -> Result<CompletionHandle, SessionError> {
+        println!("invite {}", destination);
         let msg = self.create_discovery_request(destination)?;
-        self.publish_message(msg).await
+        println!("discovery request {:?}", msg);
+        let res =self.publish_message(msg).await;
+        println!("publish done {:?}", res);
+        res
     }
 
     pub async fn invite_participant(
@@ -717,6 +721,8 @@ where
         if let Some(m) = metadata {
             msg.set_metadata_map(m);
         }
+
+        println!("send control message {:?}, legacy: {}", msg, legacy);
         self.send_with_timer(msg, legacy).await
     }
 }

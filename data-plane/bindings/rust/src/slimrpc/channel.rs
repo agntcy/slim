@@ -196,7 +196,7 @@ impl Channel {
         Req: Encoder,
         Res: Decoder,
     {
-        tracing::debug!(%service_name, %method_name, "Creating session for unary RPC");
+        println!("Creating session for unary RPC");
 
         // Calculate timeout duration
         let timeout_duration = calculate_timeout_duration(timeout);
@@ -644,6 +644,7 @@ impl Channel {
                 }
             }
 
+            println!("creating session");
             // Create the session with optional connection ID for propagation
             tracing::debug!(
                 %service_name,
