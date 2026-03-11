@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 
+#[cfg(feature = "grpc")]
 use hyper_util::client::proxy::matcher::{Intercept, Matcher};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -57,6 +58,7 @@ impl ProxyConfig {
     }
 
     /// Checks if the given host should bypass the proxy
+    #[cfg(feature = "grpc")]
     pub fn should_use_proxy(&self, uri: impl Into<String>) -> Option<Intercept> {
         let uri = uri.into();
 
@@ -77,7 +79,7 @@ impl ProxyConfig {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "grpc"))]
 mod test {
     use super::*;
 

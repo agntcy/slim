@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::auth::ConfigAuthError;
+#[cfg(any(feature = "grpc", feature = "websocket-native"))]
 use slim_auth::errors::AuthError;
 use thiserror::Error;
 
@@ -31,10 +32,26 @@ pub enum ConfigError {
     WebSocketServerUnsupportedTransport,
     #[error("websocket transport TLS configuration is invalid")]
     WebSocketTlsConfiguration,
+    #[error("websocket support is disabled at compile time")]
+    WebSocketFeatureDisabled,
+    #[error(
+        "browser websocket cannot set Authorization header; configure websocket_auth_query_param"
+    )]
+    WebSocketWasmAuthorizationHeaderUnsupported,
+    #[error("websocket wasm connection error: {0}")]
+    WebSocketWasmConnection(String),
+    #[error("websocket wasm client is only supported on wasm32 target")]
+    WebSocketWasmUnsupportedTarget,
 
     // Network / transport
+    #[cfg(feature = "grpc")]
     #[error("transport error")]
     TransportError(#[from] tonic::transport::Error),
+    #[cfg(not(feature = "grpc"))]
+    #[error("transport error")]
+    TransportError,
+    #[error("gRPC support is disabled at compile time")]
+    GrpcFeatureDisabled,
     #[error("gRPC channel builder does not support websocket transport")]
     GrpcChannelUnsupportedTransport,
     #[error("gRPC server builder does not support websocket transport")]
@@ -44,7 +61,11 @@ pub enum ConfigError {
     #[error("websocket connection error")]
     WebSocketConnection(#[source] std::io::Error),
     #[error("websocket handshake error")]
+    #[cfg(feature = "websocket-native")]
     WebSocketHandshake(#[source] fastwebsockets::WebSocketError),
+    #[error("websocket handshake error: {0}")]
+    #[cfg(not(feature = "websocket-native"))]
+    WebSocketHandshake(String),
     #[error("websocket request error")]
     WebSocketRequest(#[source] http::Error),
 
@@ -77,6 +98,7 @@ pub enum ConfigError {
     TlsConfig(#[from] crate::tls::errors::ConfigError),
 
     // Authentication
+    #[cfg(any(feature = "grpc", feature = "websocket-native"))]
     #[error("auth error")]
     AuthError(#[from] AuthError),
     #[error("auth config error")]
