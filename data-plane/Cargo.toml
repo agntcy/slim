@@ -104,12 +104,12 @@ pyo3-async-runtimes = { version = "0.26", features = ["tokio-runtime"] }
 pyo3-stub-gen = "0.14"
 rand = "0.9.0"
 regex = "1.11.1"
-
 reqwest = { version = "0.12", features = ["json", "rustls-tls-no-provider", "charset", "http2", "system-proxy", "blocking"], default-features = false }
 rustls = { version = "0.23.31" }
 rustls-native-certs = "0.8"
 rustls-pki-types = "1.10.0"
 schemars = "1.0.3"
+semver = "1.0"
 serde = "1.0.217"
 serde-pyobject = "0.7"
 serde_json = "1.0"

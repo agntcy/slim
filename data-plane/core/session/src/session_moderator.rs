@@ -36,6 +36,12 @@ use crate::{
     traits::{MessageHandler, ProcessingState},
 };
 
+struct PostponedMessage {
+    message: Message,
+    // true if we need to send the message using the legacy sender, false otherwise
+    legacy: bool,
+}
+
 pub struct SessionModerator<P, V, I>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -63,7 +69,7 @@ where
     common: SessionControllerCommon<P, V>,
 
     /// Postponed message to be sent after current task completion
-    postponed_message: Option<Message>,
+    postponed_message: Option<PostponedMessage>,
 
     /// Subscription status
     subscribed: bool,
@@ -160,7 +166,6 @@ where
                             .process_message(&mut message, direction)
                             .await?;
                     }
-
                     self.inner
                         .on_message(SessionMessage::OnMessage {
                             message,
@@ -178,10 +183,20 @@ where
                 timeouts,
             } => {
                 if message_type.is_command_message() {
-                    self.common
-                        .sender
-                        .on_timer_timeout(message_id, message_type)
-                        .await
+                    // check if the message was sent with the standard sender the the legacy one
+                    if self.common.sender.is_still_pending(message_id) {
+                        self.common
+                            .sender
+                            .on_timer_timeout(message_id, message_type)
+                            .await
+                    } else {
+                        self.common
+                            .legacy_sender
+                            .as_mut()
+                            .ok_or_else(|| SessionError::LegacyChannelNotInitialized)?
+                            .on_timer_timeout(message_id, message_type)
+                            .await
+                    }
                 } else {
                     self.inner
                         .on_message(SessionMessage::TimerTimeout {
@@ -224,7 +239,7 @@ where
                 // We need to close the session for all the participants
                 // Create the leave message
                 let p = CommandPayload::builder().leave_request(None).as_content();
-                let destination = self.common.settings.destination.clone();
+                let destination = self.common.settings.control.clone();
                 let mut leave_msg = self.common.create_control_message(
                     &destination,
                     ProtoSessionMessageType::LeaveRequest,
@@ -281,6 +296,11 @@ where
 
     fn needs_drain(&self) -> bool {
         !(self.common.sender.drain_completed()
+            && self
+                .common
+                .legacy_sender
+                .as_ref()
+                .is_none_or(|s| s.drain_completed())
             && !self.inner.needs_drain()
             && self.tasks_todo.is_empty())
     }
@@ -299,6 +319,10 @@ where
         // Moderator-specific cleanup
         self.subscribed = false;
         self.common.sender.close();
+        let legacy_is_set = self.common.legacy_sender.is_some();
+        if let Some(s) = self.common.legacy_sender.as_mut() {
+            s.close()
+        }
 
         // Remove route and subscription for multicast sessions
         if self.common.settings.config.session_type == ProtoSessionType::Multicast
@@ -310,6 +334,13 @@ where
             self.common
                 .delete_subscription(&self.common.settings.destination, conn)
                 .await?;
+
+            if legacy_is_set {
+                let mut channel = self.common.settings.destination.clone();
+                channel.reset_id();
+                self.common.delete_route(&channel, conn).await?;
+                self.common.delete_subscription(&channel, conn).await?;
+            }
         }
 
         // Shutdown inner layer
@@ -361,7 +392,15 @@ where
         message_type: ProtoSessionMessageType,
         error: SessionError,
     ) -> Result<(), SessionError> {
-        self.common.sender.on_failure(message_id, message_type);
+        if self.common.sender.is_still_pending(message_id) {
+            self.common.sender.on_failure(message_id, message_type);
+        } else {
+            self.common
+                .legacy_sender
+                .as_mut()
+                .ok_or_else(|| SessionError::LegacyChannelNotInitialized)?
+                .on_failure(message_id, message_type);
+        }
 
         // the task should always exist at this point
         if let Some(task) = self.current_task.as_mut()
@@ -409,6 +448,9 @@ where
         self.tasks_todo.clear();
         // clear all pending timers
         self.common.sender.clear_timers();
+        if let Some(s) = self.common.legacy_sender.as_mut() {
+            s.clear_timers()
+        }
         // signal start drain everywhere
         self.inner
             .on_message(SessionMessage::StartDrain {
@@ -416,6 +458,9 @@ where
             })
             .await?;
         self.common.sender.start_drain();
+        if let Some(s) = self.common.legacy_sender.as_mut() {
+            s.start_drain()
+        }
         Ok(())
     }
 
@@ -471,7 +516,7 @@ where
         removed_participant: Name,
         participants: Vec<Name>,
         mls_payload: Option<MlsPayload>,
-    ) -> Result<u32, SessionError> {
+    ) -> Result<(u32, Option<u32>), SessionError> {
         let update_payload = CommandPayload::builder()
             .group_remove(removed_participant, participants, mls_payload)
             .as_content();
@@ -479,16 +524,33 @@ where
 
         self.common
             .send_control_message(
-                &self.common.settings.destination.clone(),
+                &self.common.settings.control.clone(),
                 ProtoSessionMessageType::GroupRemove,
                 msg_id,
-                update_payload,
+                update_payload.clone(),
                 None,
                 true,
+                false,
             )
             .await?;
 
-        Ok(msg_id)
+        let mut legacy_msg_id = None;
+        if let Some(legacy) = self.common.settings.legacy.clone() {
+            legacy_msg_id = Some(rand::random::<u32>());
+            self.common
+                .send_control_message(
+                    &legacy,
+                    ProtoSessionMessageType::GroupAdd,
+                    legacy_msg_id.unwrap(),
+                    update_payload,
+                    None,
+                    true,
+                    true,
+                )
+                .await?;
+        }
+
+        Ok((msg_id, legacy_msg_id))
     }
 
     async fn process_control_message(
@@ -558,7 +620,19 @@ where
             }
             ProtoSessionMessageType::LeaveReply => self.on_leave_reply(message).await,
             ProtoSessionMessageType::GroupAck => self.on_group_ack(message).await,
-            ProtoSessionMessageType::Ping => self.common.sender.on_message(&message).await,
+            ProtoSessionMessageType::Ping => {
+                if message.get_slim_header().has_version() {
+                    return self.common.sender.on_message(&message).await;
+                } else {
+                    return self
+                        .common
+                        .legacy_sender
+                        .as_mut()
+                        .ok_or_else(|| SessionError::LegacyChannelNotInitialized)?
+                        .on_message(&message)
+                        .await;
+                }
+            }
             ProtoSessionMessageType::GroupProposal => todo!(),
             ProtoSessionMessageType::GroupAdd
             | ProtoSessionMessageType::GroupRemove
@@ -593,6 +667,8 @@ where
 
         // now the moderator is busy - create the task first
         debug!("Create AddParticipant task with ack_tx");
+        self.current_task = Some(ModeratorTask::Add(AddParticipant::new(ack_tx, None)));
+
         // check if there is a destination name in the payload. If yes recreate the message
         // with the right destination and send it out
         let payload = msg.extract_discovery_request().map_err(|e| {
@@ -636,7 +712,11 @@ where
                 (msg, None)
             }
         };
-        self.current_task = Some(ModeratorTask::Add(AddParticipant::new(ack_tx, ack)));
+
+        // set the ack message in the task if required
+        if let Some(ack_msg) = ack {
+            self.current_task.as_mut().unwrap().set_ack_msg(ack_msg);
+        }
 
         // check if the participant is already part of the group
         let new_participant_name = discovery.get_dst();
@@ -659,19 +739,22 @@ where
             id = discovery.get_id(),
             "send discovery request",
         );
+        // for discovery messages always use the standard sender
         self.common
-            .send_with_timer(discovery)
+            .send_with_timer(discovery, false)
             .await
             .map_err(|e| self.handle_task_error(e))
     }
 
     async fn on_discovery_reply(&mut self, msg: Message) -> Result<(), SessionError> {
+        println!("discovery reply");
         debug!(
             source = %msg.get_source(),
             id = msg.get_id(),
             "discovery reply",
         );
         // update sender status to stop timers
+        // this is expected on the standard sender
         self.common.sender.on_message(&msg).await?;
 
         // evolve the current task state
@@ -681,6 +764,7 @@ where
             .unwrap()
             .discovery_complete(msg.get_id())?;
 
+        println!("send join request!!!");
         // join the channel if needed
         self.join(msg.get_source(), msg.get_incoming_conn()).await?;
 
@@ -692,10 +776,13 @@ where
         // if this is a multicast session we need to add a route for the channel
         // on the connection from where we received the message. This has to be done
         // all the times because the messages from the remote endpoints may come from
-        // different connections. In case the route exists already it will be just ignored
+        // different connections.
         if self.common.settings.config.session_type == ProtoSessionType::Multicast {
             self.common
                 .add_route(&self.common.settings.destination, msg.get_incoming_conn())
+                .await?;
+            self.common
+                .add_route(&self.common.settings.control, msg.get_incoming_conn())
                 .await?;
         }
 
@@ -704,6 +791,7 @@ where
         let msg_id = rand::random::<u32>();
 
         let channel = if self.common.settings.config.session_type == ProtoSessionType::Multicast {
+            // using the destination as channel name, the control name can be recreated by the participants
             Some(self.common.settings.destination.clone())
         } else {
             None
@@ -718,6 +806,7 @@ where
             )
             .as_content();
 
+        println!("send join request for real!!!");
         debug!(
             dst = %msg.get_slim_header().get_source(),
             id = msg_id,
@@ -731,6 +820,7 @@ where
                 payload,
                 Some(self.common.settings.config.metadata.clone()),
                 false,
+                false, // join request are always handled by the standard sender
             )
             .await?;
 
@@ -740,12 +830,15 @@ where
     }
 
     async fn on_join_reply(&mut self, msg: Message) -> Result<(), SessionError> {
+        println!("join reply");
         debug!(
             source = %msg.get_source(),
             id = msg.get_id(),
             "join reply",
         );
+
         // stop the timer for the join request
+        // join replies are always handled by the standard sender
         self.common.sender.on_message(&msg).await?;
 
         // evolve the current task state
@@ -763,11 +856,36 @@ where
             .insert(new_participant_name, new_participant_id);
 
         // get the new participant settings from the join reply.
-        // None means old sender (pre-settings version)
+        // None means legacy sender (pre-settings version)
         let payload = msg.extract_join_reply()?;
         let new_participant_settings = payload.settings.unwrap_or_default();
         self.participant_settings
             .insert(msg.get_source().clone(), new_participant_settings);
+        if new_participant_settings.is_legacy()
+            && self.common.settings.config.session_type == ProtoSessionType::Multicast
+        {
+            // this is a legacy participant so we need to use the legacy channel
+            debug!("The new participant is a legacy one, setup the legacy channel");
+            // the legacy channel name is the same ad the destination with null id.
+            if self.common.settings.legacy.is_none() {
+                let mut legacy_name = self.common.settings.destination.clone();
+                legacy_name.reset_id();
+                self.common.settings.legacy = Some(legacy_name.clone());
+                // create the legacy sender
+                self.common.add_legacy_sender();
+                // also add a subscription for the legacy channel
+                self.common
+                    .add_subscription(&legacy_name, msg.get_incoming_conn())
+                    .await?;
+            }
+            // for every participant add the route as we do for the standard channel
+            self.common
+                .add_route(
+                    self.common.settings.legacy.as_ref().unwrap(),
+                    msg.get_incoming_conn(),
+                )
+                .await?;
+        }
 
         // notify the local session that a new participant was added to the group
         debug!(session_name = %msg.get_source(), "add endpoint");
@@ -828,18 +946,38 @@ where
             debug!(id = %add_msg_id, "send add update to channel");
             self.common
                 .send_control_message(
-                    &self.common.settings.destination.clone(),
+                    &self.common.settings.control.clone(),
                     ProtoSessionMessageType::GroupAdd,
                     add_msg_id,
-                    update_payload,
+                    update_payload.clone(),
                     None,
                     true,
+                    false, // by default use the standard sender
                 )
                 .await?;
             self.current_task
                 .as_mut()
                 .unwrap()
                 .commit_start(add_msg_id)?;
+            if let Some(legacy) = self.common.settings.legacy.clone() {
+                let legacy_id = rand::random::<u32>();
+                debug!(id = %legacy_id, "also send the group update to the legacy channel");
+                self.common
+                    .send_control_message(
+                        &legacy,
+                        ProtoSessionMessageType::GroupAdd,
+                        legacy_id,
+                        update_payload,
+                        None,
+                        true,
+                        true, // use the legacy sender
+                    )
+                    .await?;
+                self.current_task
+                    .as_mut()
+                    .unwrap()
+                    .commit_legacy_start(legacy_id)?;
+            }
         } else {
             // no commit message will be sent so update the task state to consider the commit as received
             // the timer id is not important here, it just need to be consistent
@@ -861,6 +999,8 @@ where
             id = %welcome_msg_id,
             "send welcome message",
         );
+        // here we need to use the right sender as the message is used to create the
+        // list of participant in the channel.
         self.common
             .send_control_message(
                 &msg.get_slim_header().get_source(),
@@ -869,6 +1009,7 @@ where
                 welcome_payload,
                 None,
                 false,
+                new_participant_settings.is_legacy(), // must use the right sender
             )
             .await?;
 
@@ -893,6 +1034,8 @@ where
             self.tasks_todo.push_back((msg, ack_tx));
             return Ok(());
         }
+
+        self.current_task = Some(ModeratorTask::Remove(RemoveParticipant::new(ack_tx, None)));
 
         debug!("Create RemoveParticipant task with ack_tx");
         // adjust the message according to the sender:
@@ -930,7 +1073,10 @@ where
             None => (msg.get_dst(), None),
         };
 
-        self.current_task = Some(ModeratorTask::Remove(RemoveParticipant::new(ack_tx, ack)));
+        // set the ack message in the task if required
+        if let Some(ack_msg) = ack {
+            self.current_task.as_mut().unwrap().set_ack_msg(ack_msg);
+        }
 
         // Look up participant ID in group list
         let id = match self.group_list.get(&dst_without_id) {
@@ -946,6 +1092,11 @@ where
         msg.get_slim_header_mut().set_destination(&dst_with_id);
         msg.set_message_id(rand::random::<u32>());
 
+        let is_legacy = self
+            .participant_settings
+            .get(&dst_with_id)
+            .map(|s| s.is_legacy())
+            .ok_or_else(|| SessionError::ParticipantSettingsNotFound(dst_with_id))?;
         let leave_message = msg;
 
         // Remove the participant from the group list and compute MLS payload
@@ -960,15 +1111,26 @@ where
 
         if participants_vec.len() > 2 {
             // in this case we need to send first the group update and later the leave message
-            let msg_id = self
+            let (msg_id, legacy_msg_id) = self
                 .send_group_remove(leave_message.get_dst(), participants_vec, mls_payload)
                 .await?;
             self.current_task.as_mut().unwrap().commit_start(msg_id)?;
 
+            // update the task with legacy message if needed
+            if let Some(legacy_id) = legacy_msg_id {
+                self.current_task
+                    .as_mut()
+                    .unwrap()
+                    .commit_legacy_start(legacy_id)?;
+            }
+
             // We need to save the leave message and send it after
             // the reception of all the acks for the group update message
             // see on_group_ack for postponed_message handling
-            self.postponed_message = Some(leave_message);
+            self.postponed_message = Some(PostponedMessage {
+                message: leave_message,
+                legacy: is_legacy,
+            });
         } else {
             // no commit message will be sent so update the task state to consider the commit as received
             // the timer id is not important here, it just need to be consistent
@@ -979,12 +1141,19 @@ where
                 .update_phase_completed(12345)?;
 
             // just send the leave message in this case
-            self.common.sender.on_message(&leave_message).await?;
+            let msg_id = leave_message.get_id();
+            if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
+                // in case of p2p session the legacy sender is never used
+                self.common.send_with_timer(leave_message, false).await?;
+            } else {
+                // use the right sender based on the participant settings
+                // this is required to remove the participants from the right sender
+                self.common
+                    .send_with_timer(leave_message, is_legacy)
+                    .await?;
+            }
 
-            self.current_task
-                .as_mut()
-                .unwrap()
-                .leave_start(leave_message.get_id())?;
+            self.current_task.as_mut().unwrap().leave_start(msg_id)?;
         }
 
         Ok(())
@@ -1039,7 +1208,24 @@ where
             )?;
             // the participant will be removed from the group so we need to remove
             // it from the local sender.
-            self.common.sender.remove_participant(&disconnected);
+            if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
+                // in case of p2p session the legacy sender is never used
+                self.common.sender.remove_participant(&disconnected);
+            } else {
+                let settings = self.participant_settings.get(&disconnected);
+                let use_legacy = settings.map(|s| s.is_legacy()).ok_or_else(|| {
+                    SessionError::ParticipantSettingsNotFound(disconnected.clone())
+                })?;
+                if use_legacy {
+                    self.common
+                        .legacy_sender
+                        .as_mut()
+                        .ok_or_else(|| SessionError::LegacyChannelNotInitialized)?
+                        .remove_participant(&disconnected);
+                } else {
+                    self.common.sender.remove_participant(&disconnected);
+                }
+            }
             self.common.send_to_slim(reply).await?;
 
             // replace LEAVING_SESSION with DISCONNECTION_DETECTED so that if the process of the
@@ -1096,10 +1282,17 @@ where
             .await?;
 
         // Notify all the participants left and update the MLS state if needed
-        let msg_id = self
+        let (msg_id, legacy_msg_id) = self
             .send_group_remove(disconnected, participants_vec, mls_payload)
             .await?;
-        self.current_task.as_mut().unwrap().commit_start(msg_id)
+        self.current_task.as_mut().unwrap().commit_start(msg_id)?;
+        if let Some(id) = legacy_msg_id {
+            self.current_task
+                .as_mut()
+                .unwrap()
+                .commit_legacy_start(id)?;
+        }
+        Ok(())
     }
 
     async fn delete_all(
@@ -1126,14 +1319,19 @@ where
             return Ok(());
         }
 
-        let destination = self.common.settings.destination.clone();
+        // create the close task
+        self.current_task = Some(ModeratorTask::CloseOrDisconnect(NotifyParticipants::new(
+            ack_tx, None,
+        )));
+
+        let destination = self.common.settings.control.clone();
         let close_id = rand::random::<u32>();
         let close = self.common.create_control_message(
             &destination,
             ProtoSessionMessageType::GroupClose,
             close_id,
             CommandPayload::builder()
-                .group_close(participants)
+                .group_close(participants.clone())
                 .as_content(),
             true,
         )?;
@@ -1150,14 +1348,41 @@ where
             None
         };
 
-        // create the close task
-        self.current_task = Some(ModeratorTask::CloseOrDisconnect(NotifyParticipants::new(
-            ack_tx, ack,
-        )));
+        // set message ack if needed
+        if let Some(ack_msg) = ack {
+            self.current_task.as_mut().unwrap().set_ack_msg(ack_msg);
+        }
+
         self.current_task.as_mut().unwrap().commit_start(close_id)?;
 
         // sent the message
-        self.common.sender.on_message(&close).await
+        self.common.sender.on_message(&close).await?;
+
+        // check if we need to send the message also on the legacy channel
+        if let Some(legacy) = self.common.settings.legacy.clone() {
+            let legacy_id = rand::random::<u32>();
+            debug!(id = %legacy_id, "also send the group close message to the legacy channel");
+            let legacy_close = self.common.create_control_message(
+                &legacy,
+                ProtoSessionMessageType::GroupClose,
+                legacy_id,
+                CommandPayload::builder()
+                    .group_close(participants)
+                    .as_content(),
+                true,
+            )?;
+            self.common
+                .legacy_sender
+                .as_mut()
+                .ok_or_else(|| SessionError::LegacyChannelNotInitialized)?
+                .on_message(&legacy_close)
+                .await?;
+            self.current_task
+                .as_mut()
+                .unwrap()
+                .commit_legacy_start(legacy_id)?;
+        }
+        Ok(())
     }
 
     async fn on_leave_reply(&mut self, msg: Message) -> Result<(), SessionError> {
@@ -1174,65 +1399,126 @@ where
             .await?;
 
         // notify the sender and see if we can pick another task
-        self.common.sender.on_message(&msg).await?;
-        if !self.common.sender.is_still_pending(msg_id) {
-            self.current_task.as_mut().unwrap().leave_complete(msg_id)?;
+        match msg.get_slim_header().get_version() {
+            Some(_) => {
+                // use the default sender
+                self.common.sender.on_message(&msg).await?;
+                if !self.common.sender.is_still_pending(msg_id) {
+                    self.current_task.as_mut().unwrap().leave_complete(msg_id)?;
+                }
+            }
+            None => {
+                // use the legacy sender
+                self.common
+                    .legacy_sender
+                    .as_mut()
+                    .ok_or_else(|| SessionError::LegacyChannelNotInitialized)?
+                    .on_message(&msg)
+                    .await?;
+                if !self
+                    .common
+                    .legacy_sender
+                    .as_mut()
+                    .unwrap()
+                    .is_still_pending(msg_id)
+                {
+                    self.current_task.as_mut().unwrap().leave_complete(msg_id)?;
+                }
+            }
+        }
+
+        // if no legacy perticipant is left in the group we can close the legacy sender
+        if let Some(legacy_sender) = &mut self.common.legacy_sender
+            && !self.participant_settings.values().any(|s| s.is_legacy())
+        {
+            debug!("No legacy participant left in the group, close the legacy sender");
+            legacy_sender.close();
+            self.common.legacy_sender = None;
         }
 
         self.task_done().await
     }
 
     async fn on_group_ack(&mut self, msg: Message) -> Result<(), SessionError> {
+        println!("group ack");
         debug!(
             from = %msg.get_source(),
             id = %msg.get_id(),
             "received group ack",
         );
-        // notify the sender
-        self.common.sender.on_message(&msg).await?;
 
-        // check if the timer is done
+        // use the default sender first and, in case of error, fallback to the legacy one
         let msg_id = msg.get_id();
-        if !self.common.sender.is_still_pending(msg_id) {
-            debug!(
-                id = %msg_id,
-                "process group ack. try to close task",
-            );
-            // we received all the messages related to this timer
-            // check if we are done and move on
-            self.current_task
-                .as_mut()
-                .unwrap()
-                .update_phase_completed(msg_id)?;
+        let mut pending_acks = true;
 
-            // check if the task is finished.
-            if !self.current_task.as_mut().unwrap().task_complete() {
-                // if the task is not finished yet we may need to send a leave
-                // message that was postponed to send all group update first
-                if let Some(leave_message) = &self.postponed_message
-                    && matches!(self.current_task, Some(ModeratorTask::Remove(_)))
-                {
-                    // send the leave message an progress
-                    self.common.sender.on_message(leave_message).await?;
+        // notify the sender and see if we can pick another task
+        match msg.get_slim_header().get_version() {
+            Some(_) => {
+                // use the default sender
+                self.common.sender.on_message(&msg).await?;
+                if !self.common.sender.is_still_pending(msg_id) {
                     self.current_task
                         .as_mut()
                         .unwrap()
-                        .leave_start(leave_message.get_id())?;
-                    // rest the postponed message
-                    self.postponed_message = None;
+                        .update_phase_completed(msg_id)?;
+                    pending_acks = false;
                 }
             }
-
-            // check if we can progress with another task
-            self.task_done().await?;
-        } else {
-            debug!(
-                id = %msg_id,
-                "timer for message still pending, do not close the task",
-            );
+            None => {
+                // use the legacy sender
+                self.common
+                    .legacy_sender
+                    .as_mut()
+                    .ok_or_else(|| SessionError::LegacyChannelNotInitialized)?
+                    .on_message(&msg)
+                    .await?;
+                if !self
+                    .common
+                    .legacy_sender
+                    .as_mut()
+                    .unwrap()
+                    .is_still_pending(msg_id)
+                {
+                    self.current_task
+                        .as_mut()
+                        .unwrap()
+                        .update_phase_completed(msg_id)?;
+                    pending_acks = false;
+                }
+            }
         }
 
-        Ok(())
+        // check if the task is finished.
+        if !pending_acks && !self.current_task.as_mut().unwrap().task_complete() {
+            // if the task is not finished yet we may need to send a leave
+            // message that was postponed to send all group update first
+            if let Some(leave_message) = &self.postponed_message
+                && matches!(self.current_task, Some(ModeratorTask::Remove(_)))
+            {
+                // send the leave message and progress
+                // select the right sender based on the participant settings
+                let msg_id = leave_message.message.get_id();
+                if leave_message.legacy {
+                    self.common
+                        .legacy_sender
+                        .as_mut()
+                        .ok_or_else(|| SessionError::LegacyChannelNotInitialized)?
+                        .on_message(&leave_message.message)
+                        .await?;
+                } else {
+                    self.common
+                        .sender
+                        .on_message(&leave_message.message)
+                        .await?;
+                }
+                self.current_task.as_mut().unwrap().leave_start(msg_id)?;
+                // rest the postponed message
+                self.postponed_message = None;
+            }
+        }
+
+        // check if we can progress with another task
+        self.task_done().await
     }
 
     /// task handling functions
@@ -1303,11 +1589,15 @@ where
         // if this is a point to point connection set the remote name so that we
         // can add also the right id to the message destination name
         if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
-            self.common.settings.destination = remote;
+            self.common.settings.destination = remote.clone();
+            self.common.settings.control = remote;
         } else {
             // if this is a multicast session we need to subscribe for the channel name
             self.common
                 .add_subscription(&self.common.settings.destination, conn)
+                .await?;
+            self.common
+                .add_subscription(&self.common.settings.control, conn)
                 .await?;
         }
 
@@ -1366,7 +1656,7 @@ mod tests {
     use crate::session_settings::SessionSettings;
     use crate::test_utils::{MockInnerHandler, MockTokenProvider, MockVerifier};
     use slim_datapath::Status;
-    use slim_datapath::api::{CommandPayload, ProtoSessionType};
+    use slim_datapath::api::{CommandPayload, ParticipantSettings, ProtoSessionType};
     use slim_datapath::messages::Name;
     use tokio::sync::mpsc;
 
@@ -1382,7 +1672,8 @@ mod tests {
         mpsc::Receiver<Result<SessionMessage, SessionError>>,
     ) {
         let source = make_name(&["local", "moderator", "v1"]).with_id(100);
-        let destination = make_name(&["channel", "name", "v1"]).with_id(200);
+        let destination = make_name(&["channel", "name", "v1"]).with_id(Name::DATA_CHANNEL_ID);
+        let control = make_name(&["channel", "name", "v1"]).with_id(Name::DATA_CHANNEL_ID);
 
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;
@@ -1407,6 +1698,8 @@ mod tests {
             id: 1,
             source,
             destination,
+            control,
+            legacy: None,
             config,
             direction: Direction::Bidirectional,
             tx,
@@ -1628,7 +1921,7 @@ mod tests {
 
         // Add endpoint
         let result = moderator
-            .add_endpoint(&endpoint, ParticipantSettings::default())
+            .add_endpoint(&endpoint, ParticipantSettings::new(true, true))
             .await;
         assert!(result.is_ok());
         assert_eq!(moderator.inner.get_endpoints_added_count().await, 1);
@@ -1661,15 +1954,26 @@ mod tests {
 
         let remote = make_name(&["remote", "app", "v1"]).with_id(200);
 
-        // First join
+        // First join - for Multicast, this sends 2 subscription messages (data + control)
         moderator.join(remote.clone(), 12345).await.unwrap();
         let first_subscribe = rx_slim.try_recv();
-        assert!(first_subscribe.is_ok());
-
-        // Second join should do nothing
-        moderator.join(remote, 12345).await.unwrap();
+        assert!(
+            first_subscribe.is_ok(),
+            "First subscription message should be sent"
+        );
         let second_subscribe = rx_slim.try_recv();
-        assert!(second_subscribe.is_err()); // No message should be sent
+        assert!(
+            second_subscribe.is_ok(),
+            "Second subscription message should be sent"
+        );
+
+        // Second join should do nothing (early return due to subscribed=true)
+        moderator.join(remote, 12345).await.unwrap();
+        let third_subscribe = rx_slim.try_recv();
+        assert!(
+            third_subscribe.is_err(),
+            "No message should be sent on second join"
+        ); // No message should be sent
     }
 
     #[tokio::test]
@@ -1768,7 +2072,8 @@ mod tests {
     #[tokio::test]
     async fn test_moderator_point_to_point_destination_update() {
         let source = make_name(&["local", "app", "v1"]).with_id(100);
-        let destination = make_name(&["remote", "app", "v1"]).with_id(200);
+        let destination = make_name(&["remote", "app", "v1"]).with_id(Name::DATA_CHANNEL_ID);
+        let control = make_name(&["remote", "app", "v1"]).with_id(Name::CONTROL_CHANNEL_ID);
 
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;
@@ -1793,6 +2098,8 @@ mod tests {
             id: 1,
             source: source.clone(),
             destination: destination.clone(),
+            control: control.clone(),
+            legacy: None,
             config,
             direction: Direction::Bidirectional,
             tx,
@@ -1842,7 +2149,10 @@ mod tests {
 
         // Create moderator with agntcy/ns/moderator naming
         let source = Name::from_strings(["agntcy", "ns", "moderator"]).with_id(100);
-        let destination = Name::from_strings(["agntcy", "ns", "chat"]);
+        let destination =
+            Name::from_strings(["agntcy", "ns", "chat"]).with_id(Name::DATA_CHANNEL_ID);
+        let control =
+            Name::from_strings(["agntcy", "ns", "chat"]).with_id(Name::CONTROL_CHANNEL_ID);
 
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;
@@ -1867,6 +2177,8 @@ mod tests {
             id: 1,
             source: source.clone(),
             destination: destination.clone(),
+            control: control.clone(),
+            legacy: None,
             config,
             direction: Direction::Bidirectional,
             tx,
@@ -1893,6 +2205,12 @@ mod tests {
         moderator
             .group_list
             .insert(participant.clone(), participant_id);
+
+        // Add participant settings (required by on_disconnection_detected)
+        moderator.participant_settings.insert(
+            participant.clone().with_id(participant_id),
+            ParticipantSettings::new(true, true),
+        );
 
         // Verify we have exactly 2 participants (moderator + participant)
         assert_eq!(
@@ -1966,7 +2284,10 @@ mod tests {
 
         // Create moderator with agntcy/ns/moderator naming
         let source = Name::from_strings(["agntcy", "ns", "moderator"]).with_id(100);
-        let destination = Name::from_strings(["agntcy", "ns", "chat"]);
+        let destination =
+            Name::from_strings(["agntcy", "ns", "chat"]).with_id(Name::DATA_CHANNEL_ID);
+        let control =
+            Name::from_strings(["agntcy", "ns", "chat"]).with_id(Name::CONTROL_CHANNEL_ID);
 
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;
@@ -1991,6 +2312,8 @@ mod tests {
             id: 1,
             source: source.clone(),
             destination: destination.clone(),
+            control: control.clone(),
+            legacy: None,
             config,
             direction: Direction::Bidirectional,
             tx,
@@ -2021,6 +2344,20 @@ mod tests {
         moderator.group_list.insert(participant1.clone(), 401);
         moderator.group_list.insert(participant2.clone(), 402);
         moderator.group_list.insert(participant3.clone(), 403);
+
+        // Add participant settings for each participant (required by on_disconnection_detected)
+        moderator.participant_settings.insert(
+            participant1.clone().with_id(401),
+            ParticipantSettings::new(true, true),
+        );
+        moderator.participant_settings.insert(
+            participant2.clone().with_id(402),
+            ParticipantSettings::new(true, true),
+        );
+        moderator.participant_settings.insert(
+            participant3.clone().with_id(403),
+            ParticipantSettings::new(true, true),
+        );
 
         // Create first leave request coming directly from participant1 with LEAVING_SESSION metadata
         let participant1_with_id = participant1.clone().with_id(401);

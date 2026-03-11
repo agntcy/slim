@@ -3,7 +3,9 @@
 
 use async_trait::async_trait;
 use slim_datapath::{
-    api::{ParticipantSettings, ProtoMessage as Message, ProtoSessionMessageType},
+    api::{
+        ParticipantSettings, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType,
+    },
     messages::Name,
 };
 
@@ -21,10 +23,20 @@ use crate::{
     transmitter::SessionTransmitter,
 };
 
+struct SessionSenderConfig {
+    timer_settings: Option<crate::timer_factory::TimerSettings>,
+    session_id: u32,
+    session_type: ProtoSessionType,
+    tx: SessionTransmitter,
+    tx_signal: Option<tokio::sync::mpsc::Sender<SessionMessage>>,
+}
+
 pub(crate) struct Session {
     local_name: Name,
-    sender: SessionSender,
-    receiver: SessionReceiver,
+    sender_config: Option<SessionSenderConfig>,
+    sender: Option<SessionSender>,
+    legacy_sender: Option<SessionSender>,
+    receiver: Option<SessionReceiver>,
     processing_state: ProcessingState,
 }
 
@@ -49,27 +61,45 @@ impl Session {
 
         let (shutdown_send, shutdown_receive) = direction.to_flags();
 
-        let sender = SessionSender::new(
-            timer_settings.clone(),
-            session_id,
-            session_config.session_type,
-            tx.clone(),
-            Some(tx_signals.clone()),
-            shutdown_send,
-        );
-        let receiver = SessionReceiver::new(
-            timer_settings,
-            session_id,
-            local_name.clone(),
-            session_config.session_type,
-            tx.clone(),
-            Some(tx_signals.clone()),
-            shutdown_receive,
-        );
+        let mut sender = None;
+        let mut sender_config = None;
+        let mut receiver = None;
+        if !shutdown_send {
+            debug!(session_id, "sender enabled for session");
+            sender_config = Some(SessionSenderConfig {
+                timer_settings: timer_settings.clone(),
+                session_id,
+                session_type: session_config.session_type,
+                tx: tx.clone(),
+                tx_signal: Some(tx_signals.clone()),
+            });
+
+            sender = Some(SessionSender::new(
+                timer_settings.clone(),
+                session_id,
+                session_config.session_type,
+                tx.clone(),
+                Some(tx_signals.clone()),
+            ));
+        }
+        if !shutdown_receive {
+            debug!(session_id, "receiver enabled for session");
+            receiver = Some(SessionReceiver::new(
+                timer_settings,
+                session_id,
+                local_name.clone(),
+                session_config.session_type,
+                tx.clone(),
+                Some(tx_signals.clone()),
+                shutdown_receive,
+            ));
+        }
 
         Session {
             local_name: local_name.clone(),
+            sender_config,
             sender,
+            legacy_sender: None,
             receiver,
             processing_state: ProcessingState::Active,
         }
@@ -100,7 +130,11 @@ impl Session {
                     "received message error: {:?}", error,
                 );
 
-                self.sender.on_slim_failure(error)
+                if let Some(sender) = self.sender.as_mut() {
+                    sender.on_slim_failure(error)
+                } else {
+                    Err(SessionError::SessionSenderShutdown)
+                }
             }
             SessionMessage::TimerTimeout {
                 message_id,
@@ -116,8 +150,15 @@ impl Session {
             } => self.on_timer_failure(message_id, message_type, name).await,
             SessionMessage::StartDrain { grace_period: _ } => {
                 self.processing_state = ProcessingState::Draining;
-                self.sender.start_drain();
-                self.receiver.start_drain();
+                if let Some(sender) = self.sender.as_mut() {
+                    sender.start_drain();
+                }
+                if let Some(legacy_sender) = self.legacy_sender.as_mut() {
+                    legacy_sender.start_drain();
+                }
+                if let Some(receiver) = self.receiver.as_mut() {
+                    receiver.start_drain();
+                }
                 Ok(())
             }
             _ => Err(SessionError::SessionMessageInternalUnexpected(Box::new(
@@ -132,18 +173,66 @@ impl Session {
         settings: ParticipantSettings,
     ) -> Result<(), SessionError> {
         debug!(%endpoint, local_name = %self.local_name, "add participant");
-        self.sender.add_endpoint(endpoint, settings).await
+        if self.sender.is_none() {
+            // the sender is not set so we don't need to take care of new endpoints
+            return Ok(());
+        }
+
+        if settings.is_legacy() {
+            if self.legacy_sender.is_none() {
+                let config = self.sender_config.as_ref().unwrap(); // unwrap is safe here
+                // create the sender legacy
+                self.legacy_sender = Some(SessionSender::new(
+                    config.timer_settings.clone(),
+                    config.session_id,
+                    config.session_type,
+                    config.tx.clone(),
+                    config.tx_signal.clone(),
+                ));
+            }
+            self.legacy_sender
+                .as_mut()
+                .unwrap()
+                .add_endpoint(endpoint, settings)
+                .await
+        } else {
+            // unwrap is safe here
+            self.sender
+                .as_mut()
+                .unwrap()
+                .add_endpoint(endpoint, settings)
+                .await
+        }
     }
 
     pub fn remove_endpoint(&mut self, endpoint: &Name) {
         debug!(%endpoint, local_name = %self.local_name, "remove participant");
-        self.sender.remove_endpoint(endpoint);
-        self.receiver.remove_endpoint(endpoint);
+        if let Some(sender) = self.sender.as_mut() {
+            sender.remove_endpoint(endpoint);
+        }
+        if let Some(legacy_sender) = self.legacy_sender.as_mut() {
+            legacy_sender.remove_endpoint(endpoint);
+            if legacy_sender.has_no_endpoints() {
+                // if no more legacy participant, remove the legacy sender
+                legacy_sender.close();
+                self.legacy_sender = None;
+            }
+        }
+        if let Some(receiver) = self.receiver.as_mut() {
+            receiver.remove_endpoint(endpoint);
+        }
     }
 
     pub fn close(&mut self) {
-        self.sender.close();
-        self.receiver.close();
+        if let Some(sender) = self.sender.as_mut() {
+            sender.close();
+        }
+        if let Some(legacy_sender) = self.legacy_sender.as_mut() {
+            legacy_sender.close();
+        }
+        if let Some(receiver) = self.receiver.as_mut() {
+            receiver.close();
+        }
     }
 
     async fn on_application_message(
@@ -156,16 +245,58 @@ impl Session {
             ProtoSessionMessageType::Msg => {
                 if direction == MessageDirection::South {
                     // message from app to slim, give it to the sender with ack
-                    self.sender.on_message(message, ack_tx).await
+                    if self.sender.is_none() {
+                        debug!(message_id = %message.get_id(), "sender is shutdown, drop message");
+                        if let Some(tx) = ack_tx {
+                            let _ = tx.send(Err(SessionError::SessionSenderShutdown));
+                        }
+                        return Err(SessionError::SessionSenderShutdown);
+                    }
+                    if let Some(legacy_sender) = self.legacy_sender.as_mut() {
+                        // the use th ack_tx only on the standard channel
+                        legacy_sender.on_message(message.clone(), None).await?
+                    }
+                    self.sender
+                        .as_mut()
+                        .unwrap()
+                        .on_message(message, ack_tx)
+                        .await?
                 } else {
-                    // message from slim to the app, give it to the receiver
-                    self.receiver.on_message(message).await
+                    // message from slim to the app, give it to the receiver if exists
+                    if let Some(receiver) = self.receiver.as_mut() {
+                        receiver.on_message(message).await?
+                    }
                 }
+
+                Ok(())
             }
             ProtoSessionMessageType::MsgAck | ProtoSessionMessageType::RtxRequest => {
-                self.sender.on_message(message, ack_tx).await
+                if message.get_slim_header().has_version() {
+                    // send to the standard sender
+                    if let Some(sender) = self.sender.as_mut() {
+                        return sender.on_message(message.clone(), ack_tx).await;
+                    }
+                } else {
+                    // send to the legacy sender
+                    if let Some(legacy_sender) = self.legacy_sender.as_mut() {
+                        return legacy_sender.on_message(message.clone(), ack_tx).await;
+                    }
+                }
+                // if we are here the message was not process correctly, return an error
+                debug!(message_id = %message.get_id(), "no sender available for ack/rtx message");
+                if let Some(tx) = ack_tx {
+                    let _ = tx.send(Err(SessionError::MissingSenderForAckOrRtx(
+                        message.get_id(),
+                    )));
+                }
+                Err(SessionError::MissingSenderForAckOrRtx(message.get_id()))
             }
-            ProtoSessionMessageType::RtxReply => self.receiver.on_message(message).await,
+            ProtoSessionMessageType::RtxReply => {
+                if let Some(receiver) = self.receiver.as_mut() {
+                    receiver.on_message(message).await?;
+                }
+                Ok(())
+            }
             _ => {
                 if let Some(tx) = ack_tx {
                     let _ = tx.send(Ok(()));
@@ -184,9 +315,21 @@ impl Session {
         name: Option<Name>,
     ) -> Result<(), SessionError> {
         match message_type {
-            ProtoSessionMessageType::Msg => self.sender.on_timer_timeout(id).await,
+            ProtoSessionMessageType::Msg => {
+                if let Some(sender) = self.sender.as_mut() {
+                    if sender.timer_id_exists(id) {
+                        return sender.on_timer_timeout(id).await;
+                    } else if let Some(legacy_sender) = self.legacy_sender.as_mut() {
+                        return legacy_sender.on_timer_timeout(id).await;
+                    }
+                }
+                Ok(())
+            }
             ProtoSessionMessageType::RtxRequest => {
-                self.receiver.on_timer_timeout(id, name.unwrap()).await
+                if let Some(receiver) = self.receiver.as_mut() {
+                    receiver.on_timer_timeout(id, name.unwrap()).await?
+                }
+                Ok(())
             }
             _ => Err(SessionError::SessionMessageTypeUnexpected(message_type)),
         }
@@ -199,9 +342,21 @@ impl Session {
         name: Option<Name>,
     ) -> Result<(), SessionError> {
         match message_type {
-            ProtoSessionMessageType::Msg => self.sender.on_timer_failure(id),
+            ProtoSessionMessageType::Msg => {
+                if let Some(sender) = self.sender.as_mut() {
+                    if sender.timer_id_exists(id) {
+                        return sender.on_timer_timeout(id).await;
+                    } else if let Some(legacy_sender) = self.legacy_sender.as_mut() {
+                        return legacy_sender.on_timer_timeout(id).await;
+                    }
+                }
+                Ok(())
+            }
             ProtoSessionMessageType::RtxRequest => {
-                self.receiver.on_timer_failure(id, name.unwrap()).await
+                if let Some(receiver) = self.receiver.as_mut() {
+                    receiver.on_timer_failure(id, name.unwrap()).await?;
+                }
+                Ok(())
             }
             _ => Err(SessionError::SessionMessageTypeUnexpected(message_type)),
         }
@@ -236,7 +391,22 @@ impl MessageHandler for Session {
     }
 
     fn needs_drain(&self) -> bool {
-        !(self.sender.drain_completed() && self.receiver.drain_completed())
+        if let Some(sender) = self.sender.as_ref()
+            && !sender.drain_completed()
+        {
+            return true;
+        }
+        if let Some(legacy_sender) = self.legacy_sender.as_ref()
+            && !legacy_sender.drain_completed()
+        {
+            return true;
+        }
+        if let Some(receiver) = self.receiver.as_ref()
+            && !receiver.drain_completed()
+        {
+            return true;
+        }
+        false
     }
 
     fn processing_state(&self) -> ProcessingState {
@@ -292,8 +462,12 @@ mod tests {
         );
 
         // Add the remote endpoint to the session sender
+        let settings = ParticipantSettings {
+            sends_data: Some(true),
+            receives_data: Some(true),
+        };
         session
-            .add_endpoint(&remote_name, ParticipantSettings::default())
+            .add_endpoint(&remote_name, settings)
             .await
             .expect("error adding participant");
 
@@ -642,8 +816,12 @@ mod tests {
         );
 
         // Add receiver as endpoint for sender
+        let settings = ParticipantSettings {
+            sends_data: Some(true),
+            receives_data: Some(true),
+        };
         sender_session
-            .add_endpoint(&receiver_name, ParticipantSettings::default())
+            .add_endpoint(&receiver_name, settings)
             .await
             .expect("error adding participant");
 
@@ -674,8 +852,12 @@ mod tests {
         );
 
         // Add sender as endpoint for receiver
+        let settings = ParticipantSettings {
+            sends_data: Some(true),
+            receives_data: Some(true),
+        };
         receiver_session
-            .add_endpoint(&sender_name, ParticipantSettings::default())
+            .add_endpoint(&sender_name, settings)
             .await
             .expect("error adding participant");
 

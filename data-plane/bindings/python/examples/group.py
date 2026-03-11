@@ -222,7 +222,7 @@ async def keyboard_loop(
             # Run blocking input() in a worker thread so we do not block the event loop.
             user_input = await prompt_session.prompt_async(f"{source_name} > ")
 
-            if user_input.lower() in ("exit", "quit") and created_session:
+            if user_input.lower() in ("exit", "quit"):
                 # Delete the session
                 handle = await local_app.delete_session_async(
                     shared_session_container[0]

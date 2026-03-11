@@ -111,6 +111,7 @@ where
     id: Option<u32>,
     source: Option<Name>,
     destination: Option<Name>,
+    control: Option<Name>,
     config: Option<SessionConfig>,
     identity_provider: Option<P>,
     identity_verifier: Option<V>,
@@ -133,6 +134,7 @@ where
             id: None,
             source: None,
             destination: None,
+            control: None,
             config: None,
             identity_provider: None,
             identity_verifier: None,
@@ -157,6 +159,11 @@ where
 
     pub fn with_destination(mut self, destination: Name) -> Self {
         self.destination = Some(destination);
+        self
+    }
+
+    pub fn with_control(mut self, control: Name) -> Self {
+        self.control = Some(control);
         self
     }
 
@@ -203,6 +210,7 @@ where
         if self.id.is_none()
             || self.source.is_none()
             || self.destination.is_none()
+            || self.control.is_none()
             || self.config.is_none()
             || self.identity_provider.is_none()
             || self.identity_verifier.is_none()
@@ -216,6 +224,7 @@ where
             id: self.id,
             source: self.source,
             destination: self.destination,
+            control: self.control,
             config: self.config,
             identity_provider: self.identity_provider,
             identity_verifier: self.identity_verifier,
@@ -339,9 +348,12 @@ where
             id: self.id.unwrap(),
             source: self.source.unwrap(),
             destination: self.destination.unwrap(),
+            control: self.control.unwrap(),
+            legacy: None,
             config: self.config.unwrap(),
             direction: self.direction,
             tx: self.tx.unwrap(),
+
             tx_session: tx_session.clone(),
             tx_to_session_layer: self.tx_to_session_layer.unwrap(),
             identity_provider: self.identity_provider.unwrap(),
@@ -442,6 +454,15 @@ mod tests {
     }
 
     #[test]
+    fn test_builder_with_control() {
+        let control = create_test_name("control");
+        let builder =
+            SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
+                .with_control(control.clone());
+        assert_eq!(builder.control, Some(control));
+    }
+
+    #[test]
     fn test_builder_with_config() {
         let config = create_test_config(true);
         let builder =
@@ -495,6 +516,7 @@ mod tests {
                 .with_id(1)
                 .with_source(create_test_name("source"))
                 .with_destination(create_test_name("dest"))
+                .with_control(create_test_name("control"))
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -512,6 +534,7 @@ mod tests {
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
                 .with_source(create_test_name("source"))
                 .with_destination(create_test_name("dest"))
+                .with_control(create_test_name("control"))
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -529,6 +552,7 @@ mod tests {
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
                 .with_id(1)
                 .with_destination(create_test_name("dest"))
+                .with_control(create_test_name("control"))
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -545,6 +569,25 @@ mod tests {
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
                 .with_id(1)
                 .with_source(create_test_name("source"))
+                .with_control(create_test_name("control"))
+                .with_config(create_test_config(true))
+                .with_identity_provider(MockTokenProvider)
+                .with_identity_verifier(MockVerifier)
+                .with_tx(create_test_transmitter())
+                .with_tx_to_session_layer(tx_to_session);
+
+        let ready_result = builder.ready();
+        assert!(ready_result.is_err());
+    }
+
+    #[test]
+    fn test_builder_ready_missing_control() {
+        let (tx_to_session, _) = mpsc::channel(10);
+        let builder =
+            SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
+                .with_id(1)
+                .with_source(create_test_name("source"))
+                .with_destination(create_test_name("dest"))
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -563,6 +606,7 @@ mod tests {
                 .with_id(1)
                 .with_source(create_test_name("source"))
                 .with_destination(create_test_name("dest"))
+                .with_control(create_test_name("control"))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_tx(create_test_transmitter())
@@ -580,6 +624,7 @@ mod tests {
                 .with_id(1)
                 .with_source(create_test_name("source"))
                 .with_destination(create_test_name("dest"))
+                .with_control(create_test_name("control"))
                 .with_config(create_test_config(true))
                 .with_identity_verifier(MockVerifier)
                 .with_tx(create_test_transmitter())
@@ -597,6 +642,7 @@ mod tests {
                 .with_id(1)
                 .with_source(create_test_name("source"))
                 .with_destination(create_test_name("dest"))
+                .with_control(create_test_name("control"))
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
                 .with_tx(create_test_transmitter())
@@ -614,6 +660,7 @@ mod tests {
                 .with_id(1)
                 .with_source(create_test_name("source"))
                 .with_destination(create_test_name("dest"))
+                .with_control(create_test_name("control"))
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -630,6 +677,7 @@ mod tests {
                 .with_id(1)
                 .with_source(create_test_name("source"))
                 .with_destination(create_test_name("dest"))
+                .with_control(create_test_name("control"))
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -647,6 +695,7 @@ mod tests {
                 .with_id(123)
                 .with_source(create_test_name("src"))
                 .with_destination(create_test_name("dst"))
+                .with_control(create_test_name("ctrl"))
                 .with_config(create_test_config(false))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -656,6 +705,7 @@ mod tests {
         assert_eq!(builder.id, Some(123));
         assert!(builder.source.is_some());
         assert!(builder.destination.is_some());
+        assert!(builder.control.is_some());
         assert!(builder.config.is_some());
         assert!(builder.identity_provider.is_some());
         assert!(builder.identity_verifier.is_some());
@@ -671,6 +721,7 @@ mod tests {
                 .with_id(1)
                 .with_source(create_test_name("source"))
                 .with_destination(create_test_name("dest"))
+                .with_control(create_test_name("control"))
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -683,6 +734,7 @@ mod tests {
         assert_eq!(ready_builder.id, Some(1));
         assert!(ready_builder.source.is_some());
         assert!(ready_builder.destination.is_some());
+        assert!(ready_builder.control.is_some());
         assert!(ready_builder.config.is_some());
         assert!(ready_builder.identity_provider.is_some());
         assert!(ready_builder.identity_verifier.is_some());
@@ -833,6 +885,7 @@ mod tests {
         let builder = builder
             .with_source(create_test_name("source"))
             .with_destination(create_test_name("dest"))
+            .with_control(create_test_name("control"))
             .with_config(create_test_config(true))
             .with_identity_provider(MockTokenProvider)
             .with_identity_verifier(MockVerifier)
@@ -854,6 +907,7 @@ mod tests {
         builder.id = Some(1);
         builder.source = Some(create_test_name("source"));
         builder.destination = Some(create_test_name("dest"));
+        builder.control = Some(create_test_name("control"));
         builder.config = Some(create_test_config(true));
         builder.identity_provider = Some(MockTokenProvider);
         builder.identity_verifier = Some(MockVerifier);
@@ -1041,6 +1095,7 @@ mod tests {
                 .with_id(1)
                 .with_source(create_test_name("participant"))
                 .with_destination(create_test_name("moderator"))
+                .with_control(create_test_name("control"))
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -1071,6 +1126,7 @@ mod tests {
                 .with_id(2)
                 .with_source(create_test_name("moderator"))
                 .with_destination(create_test_name("participant"))
+                .with_control(create_test_name("control"))
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -1107,6 +1163,7 @@ mod tests {
                 .with_id(3)
                 .with_source(create_test_name("moderator"))
                 .with_destination(create_test_name("group"))
+                .with_control(create_test_name("control"))
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -1140,6 +1197,7 @@ mod tests {
                 .with_id(4)
                 .with_source(create_test_name("source"))
                 .with_destination(create_test_name("dest"))
+                .with_control(create_test_name("control"))
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -1162,6 +1220,7 @@ mod tests {
                 .with_id(5)
                 .with_source(create_test_name("source"))
                 .with_destination(create_test_name("dest"))
+                .with_control(create_test_name("control"))
                 .with_config(config.clone())
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -1194,6 +1253,7 @@ mod tests {
                 .with_id(6)
                 .with_source(create_test_name("source"))
                 .with_destination(create_test_name("dest"))
+                .with_control(create_test_name("control"))
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -1223,6 +1283,7 @@ mod tests {
                 .with_id(7)
                 .with_source(source.clone())
                 .with_destination(destination.clone())
+                .with_control(create_test_name("control"))
                 .with_config(create_test_config(false))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -1247,6 +1308,7 @@ mod tests {
                 .with_id(100)
                 .with_source(create_test_name("source1"))
                 .with_destination(create_test_name("dest1"))
+                .with_control(create_test_name("control1"))
                 .with_config(create_test_config(false))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -1258,6 +1320,7 @@ mod tests {
                 .with_id(200)
                 .with_source(create_test_name("source2"))
                 .with_destination(create_test_name("dest2"))
+                .with_control(create_test_name("control2"))
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -1289,6 +1352,7 @@ mod tests {
                 .with_id(8)
                 .with_source(create_test_name("source"))
                 .with_destination(create_test_name("dest"))
+                .with_control(create_test_name("control"))
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)

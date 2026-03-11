@@ -434,8 +434,12 @@ impl SessionController {
         &self,
         destination: &Name,
     ) -> Result<CompletionHandle, SessionError> {
+        println!("invite {}", destination);
         let msg = self.create_discovery_request(destination)?;
-        self.publish_message(msg).await
+        println!("discovery request {:?}", msg);
+        let res =self.publish_message(msg).await;
+        println!("publish done {:?}", res);
+        res
     }
 
     pub async fn invite_participant(
@@ -536,6 +540,9 @@ where
     /// sender for command messages
     pub(crate) sender: ControllerSender,
 
+    /// sender for command messages on legacy group
+    pub(crate) legacy_sender: Option<ControllerSender>,
+
     /// processing state
     pub(crate) processing_state: ProcessingState,
 }
@@ -558,13 +565,38 @@ where
             settings.tx.clone(),
             // send signal to the controller
             settings.tx_session.clone(),
+            false, // not legacy
         );
 
         SessionControllerCommon {
             settings,
             sender: controller_sender,
+            legacy_sender: None,
             processing_state: ProcessingState::Active,
         }
+    }
+
+    pub(crate) fn add_legacy_sender(&mut self) {
+        if self.legacy_sender.is_some() {
+            return;
+        }
+
+        // Create the controller sender for legacy channel.
+        let legacy_sender = ControllerSender::new(
+            self.settings.config.get_timer_settings(),
+            self.settings.source.clone(),
+            self.settings.config.session_type,
+            self.settings.id,
+            Some(PING_INTERVAL),
+            self.settings.config.initiator,
+            // send messages to slim/app
+            self.settings.tx.clone(),
+            // send signal to the controller
+            self.settings.tx_session.clone(),
+            true, // legacy
+        );
+
+        self.legacy_sender = Some(legacy_sender);
     }
 
     /// internal and helper functions
@@ -578,7 +610,18 @@ where
     }
 
     /// Send control message without creating ack channel (for internal use by moderator)
-    pub(crate) async fn send_with_timer(&mut self, message: Message) -> Result<(), SessionError> {
+    pub(crate) async fn send_with_timer(
+        &mut self,
+        message: Message,
+        legacy: bool,
+    ) -> Result<(), SessionError> {
+        if legacy {
+            if let Some(legacy_sender) = &mut self.legacy_sender {
+                return legacy_sender.on_message(&message).await;
+            } else {
+                return Err(SessionError::LegacyChannelNotInitialized);
+            }
+        }
         self.sender.on_message(&message).await
     }
 
@@ -662,6 +705,7 @@ where
     }
 
     /// Send control message without creating ack channel (for internal use by moderator)
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn send_control_message(
         &mut self,
         dst: &Name,
@@ -670,13 +714,16 @@ where
         payload: Content,
         metadata: Option<HashMap<String, String>>,
         broadcast: bool,
+        legacy: bool,
     ) -> Result<(), SessionError> {
         let mut msg =
             self.create_control_message(dst, message_type, message_id, payload, broadcast)?;
         if let Some(m) = metadata {
             msg.set_metadata_map(m);
         }
-        self.send_with_timer(msg).await
+
+        println!("send control message {:?}, legacy: {}", msg, legacy);
+        self.send_with_timer(msg, legacy).await
     }
 }
 
@@ -797,10 +844,18 @@ mod tests {
 
             let tx = SessionTransmitter::new(tx_slim, tx_app);
 
+            let mut control = self.destination.clone();
+            let mut data = self.destination.clone();
+            if self.session_type == ProtoSessionType::Multicast {
+                data.set_id(Name::DATA_CHANNEL_ID);
+                control.set_id(Name::CONTROL_CHANNEL_ID);
+            }
+
             let controller = SessionController::builder()
                 .with_id(self.session_id)
                 .with_source(self.source.clone())
-                .with_destination(self.destination.clone())
+                .with_destination(data)
+                .with_control(control)
                 .with_config(config)
                 .with_identity_provider(SharedSecret::new("test", SHARED_SECRET).unwrap())
                 .with_identity_verifier(SharedSecret::new("test", SHARED_SECRET).unwrap())
@@ -834,7 +889,7 @@ mod tests {
         );
         assert_eq!(
             controller.dst(),
-            &Name::from_strings(["org", "ns", "dest"]).with_id(2)
+            &Name::from_strings(["org", "ns", "dest"]).with_id(Name::DATA_CHANNEL_ID)
         );
         assert_eq!(controller.session_type(), ProtoSessionType::Multicast);
         assert!(controller.is_initiator());
@@ -1194,6 +1249,7 @@ mod tests {
             .with_id(session_id)
             .with_source(moderator_name.clone())
             .with_destination(participant_name.clone())
+            .with_control(participant_name.clone())
             .with_config(moderator_config)
             .with_identity_provider(SharedSecret::new("moderator", SHARED_SECRET).unwrap())
             .with_identity_verifier(SharedSecret::new("moderator", SHARED_SECRET).unwrap())
@@ -1226,6 +1282,7 @@ mod tests {
             .with_id(session_id)
             .with_source(participant_name_id.clone())
             .with_destination(moderator_name.clone())
+            .with_control(moderator_name.clone())
             .with_config(participant_config)
             .with_identity_provider(SharedSecret::new("participant", SHARED_SECRET).unwrap())
             .with_identity_verifier(SharedSecret::new("participant", SHARED_SECRET).unwrap())
@@ -1703,7 +1760,9 @@ mod tests {
         let settings = SessionSettings {
             id: 999,
             source: Name::from_strings(["org", "ns", "source"]).with_id(1),
-            destination: Name::from_strings(["org", "ns", "dest"]).with_id(2),
+            destination: Name::from_strings(["org", "ns", "dest"]).with_id(Name::DATA_CHANNEL_ID),
+            control: Name::from_strings(["org", "ns", "control"]).with_id(Name::CONTROL_CHANNEL_ID),
+            legacy: None,
             config: SessionConfig {
                 session_type: ProtoSessionType::PointToPoint,
                 max_retries: Some(3),
@@ -1871,7 +1930,9 @@ mod tests {
         SessionSettings {
             id: 1,
             source: Name::from_strings(["org", "ns", "test"]).with_id(1),
-            destination: Name::from_strings(["org", "ns", "test"]).with_id(2),
+            destination: Name::from_strings(["org", "ns", "test"]).with_id(Name::DATA_CHANNEL_ID),
+            control: Name::from_strings(["org", "ns", "test"]).with_id(Name::CONTROL_CHANNEL_ID),
+            legacy: None,
             config: SessionConfig {
                 session_type: ProtoSessionType::PointToPoint,
                 max_retries: Some(5),
