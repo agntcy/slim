@@ -5,7 +5,6 @@ use duration_string::DurationString;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use tokio_retry::strategy::{ExponentialBackoff, jitter};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(default)]
@@ -52,12 +51,37 @@ impl Default for Config {
 
 impl Strategy for Config {
     fn get_strategy(&self) -> Box<dyn Iterator<Item = Duration> + Send> {
-        let ret = ExponentialBackoff::from_millis(self.base)
-            .factor(self.factor)
-            .max_delay(self.max_delay.into())
-            .take(self.max_attempts);
-        let jitter_flag = self.jitter;
+        let base = self.base;
+        let factor = self.factor;
+        let max_delay: Duration = self.max_delay.into();
+        let max_attempts = self.max_attempts;
+        let jitter = self.jitter;
 
-        Box::new(ret.map(move |d| if jitter_flag { jitter(d) } else { d }))
+        Box::new((0..max_attempts).scan(base, move |current, _| {
+            let delay_ms = (*current).min(max_delay.as_millis() as u64);
+            let next = if factor == 0 {
+                0
+            } else {
+                current.saturating_mul(factor)
+            };
+            *current = next.max(base);
+
+            let delay = Duration::from_millis(delay_ms);
+            Some(if jitter { apply_jitter(delay) } else { delay })
+        }))
     }
+}
+
+fn apply_jitter(delay: Duration) -> Duration {
+    if delay.is_zero() {
+        return delay;
+    }
+
+    // Keep jitter deterministic and dependency-free while still avoiding lockstep retries.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .subsec_nanos() as u64;
+    let cap = delay.as_millis() as u64;
+    Duration::from_millis(now % (cap + 1))
 }
