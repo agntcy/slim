@@ -60,8 +60,8 @@ pub struct MulticastItem<T> {
 
 use super::{
     BidiStreamHandler, Context, METHOD_KEY, Metadata, MulticastBidiStreamHandler,
-    MulticastResponseReader, RPC_ID_KEY, ReceivedMessage, RequestStreamWriter,
-    ResponseStreamReader, RpcCode, RpcError, SERVICE_KEY, STATUS_CODE_KEY,
+    MulticastResponseReader, RPC_DIR_KEY, RPC_DIR_REQ, RPC_ID_KEY, ReceivedMessage,
+    RequestStreamWriter, ResponseStreamReader, RpcCode, RpcError, SERVICE_KEY, STATUS_CODE_KEY,
     calculate_timeout_duration,
     codec::{Decoder, Encoder},
     send_eos,
@@ -223,6 +223,7 @@ fn first_msg_metadata(ctx: &Context, service: &str, method: &str, rpc_id: &str) 
     meta.insert(SERVICE_KEY.to_string(), service.to_string());
     meta.insert(METHOD_KEY.to_string(), method.to_string());
     meta.insert(RPC_ID_KEY.to_string(), rpc_id.to_string());
+    meta.insert(RPC_DIR_KEY.to_string(), RPC_DIR_REQ.to_string());
     meta
 }
 
@@ -230,6 +231,7 @@ fn first_msg_metadata(ctx: &Context, service: &str, method: &str, rpc_id: &str) 
 fn continuation_metadata(rpc_id: &str) -> Metadata {
     let mut meta = HashMap::new();
     meta.insert(RPC_ID_KEY.to_string(), rpc_id.to_string());
+    meta.insert(RPC_DIR_KEY.to_string(), RPC_DIR_REQ.to_string());
     meta
 }
 
@@ -379,15 +381,12 @@ impl Channel {
             && let Some(ref cs) = **guard
         {
             for member in &cs.members {
-                if let Some(conn_id) = self.connection_id
-                    && let Err(e) = self.app.set_route(member, conn_id).await
-                {
-                    tracing::warn!(
-                        member = %member,
-                        connection_id = conn_id,
-                        error = %e,
-                        "Failed to set route for group member"
-                    );
+                if let Some(conn_id) = self.connection_id {
+                    self.app.set_route(member, conn_id).await.map_err(|e| {
+                        RpcError::internal(format!(
+                            "Failed to set route for group member {member}: {e}"
+                        ))
+                    })?;
                 }
                 send_invite(&session_tx, member).await?;
             }
@@ -530,17 +529,15 @@ impl Channel {
                 .await?;
             handles.push(handle);
         }
-        // When the stream was empty `first` is still true: the EOS must carry
-        // service + method so the server can dispatch without a preceding data frame.
-        let extra = if first {
-            Some(HashMap::from([
-                (SERVICE_KEY.to_string(), service_name.to_string()),
-                (METHOD_KEY.to_string(), method_name.to_string()),
-            ]))
-        } else {
-            None
-        };
-        handles.push(send_eos(session, session.destination(), rpc_id, extra).await?);
+        // The client EOS always carries RPC_DIR_KEY so the server can distinguish
+        // it from an echoed server EOS.  When the request stream was empty we also
+        // include service + method so the server can dispatch without a data frame.
+        let mut eos_meta = HashMap::from([(RPC_DIR_KEY.to_string(), RPC_DIR_REQ.to_string())]);
+        if first {
+            eos_meta.insert(SERVICE_KEY.to_string(), service_name.to_string());
+            eos_meta.insert(METHOD_KEY.to_string(), method_name.to_string());
+        }
+        handles.push(send_eos(session, session.destination(), rpc_id, Some(eos_meta)).await?);
 
         // Wait for all (data + EOS) acks in a single batch.
         for result in join_all(handles).await {

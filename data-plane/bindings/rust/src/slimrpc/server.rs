@@ -23,6 +23,7 @@ use slim_service::app::App as SlimApp;
 use slim_session::errors::SessionError;
 use slim_session::notification::Notification;
 
+use super::{RPC_DIR_KEY, RPC_DIR_REQ};
 use crate::STATUS_CODE_KEY;
 
 use super::{
@@ -413,17 +414,14 @@ async fn run_session_demux(
         };
 
         if let Some(tx) = pending_streams.get(rpc_id_str.as_str()).cloned() {
-            // Route continuation message (or client-side EOS) to the existing stream-input handler.
+            // Route client request messages (data or EOS) to the existing stream-input handler.
             //
-            // The client's request EOS carries STATUS_CODE_KEY=Ok and an empty payload, which
-            // is identical in structure to an echoed server-response EOS.  To distinguish:
-            //   • Echoed server DATA responses have STATUS_CODE_KEY but non-empty payload
-            //     → is_eos() is false → drop them here.
-            //   • A proper EOS (STATUS_CODE_KEY=0 + empty payload) that arrives while a stream
-            //     is still live is the client's request EOS; server response EOSes arrive only
-            //     after the client EOS has already closed and removed the pending-stream entry.
-            if msg.metadata.contains_key(STATUS_CODE_KEY) && !msg.is_eos() {
-                tracing::trace!(%rpc_id_str, "Skipping echoed server response for active stream");
+            // All client-originated messages carry RPC_DIR_KEY="req".  Server responses
+            // (data frames, EOSes, and error replies — including echoes of this server's own
+            // responses in a GROUP session and responses from peer servers) do not carry
+            // this key.  Drop anything that isn't tagged as a client request.
+            if msg.metadata.get(RPC_DIR_KEY).map(String::as_str) != Some(RPC_DIR_REQ) {
+                tracing::trace!(%rpc_id_str, "Skipping server response for active stream");
                 continue;
             }
             // Remove before send so rpc_id_str (borrows msg.metadata) is last used
@@ -488,12 +486,13 @@ async fn run_session_demux(
 
     // Drop mpsc senders so stream-input handlers see channel close at their next recv.
     drop(pending_streams);
-    // Must drop the original Watch before calling drain().await — otherwise drain()
-    // would wait for this very Watch to be released, causing a deadlock.
+    // Drop watch otherwise next call to drain would also wait for this
     drop(session_drain_watch);
     // Fire the session drain and wait: resolves once every handler task drops its Watch,
-    // i.e., once all tasks have exited their select! branch.
+    // so when each task completes
     session_drain_signal.drain().await;
+
+    // Close session_tx. This might fail if session was already dropped by the channel endpoint
     let _ = tokio::time::timeout(Duration::from_secs(10), session_tx.close(app.as_ref())).await;
 }
 
