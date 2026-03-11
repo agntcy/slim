@@ -92,9 +92,9 @@ async def amain() -> None:
     stub = TestGroupStub(channel)
 
     try:
-        # await run_multicast_unary(stub)
-        # await run_multicast_unary_stream(stub)
-        # await run_multicast_stream_unary(stub)
+        await run_multicast_unary(stub)
+        await run_multicast_unary_stream(stub)
+        await run_multicast_stream_unary(stub)
         await run_multicast_stream_stream(stub)
     except slim_bindings.RpcError as e:
         logger.error(f"RPC error: {e}")
