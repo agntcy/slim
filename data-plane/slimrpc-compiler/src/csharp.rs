@@ -112,9 +112,7 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
             .clone()
             .unwrap_or_else(|| package_to_namespace(&package_name));
 
-        let file_base = file_name
-            .strip_suffix(".proto")
-            .unwrap_or(file_name);
+        let file_base = file_name.strip_suffix(".proto").unwrap_or(file_name);
         let output_file = format!("{}_slimrpc.cs", file_base);
 
         let mut usings: HashMap<String, String> = HashMap::new();
@@ -130,10 +128,7 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
             "Google.Protobuf".to_string(),
             "using Google.Protobuf;".to_string(),
         );
-        usings.insert(
-            "System".to_string(),
-            "using System;".to_string(),
-        );
+        usings.insert("System".to_string(), "using System;".to_string());
         usings.insert(
             "System.Collections.Generic".to_string(),
             "using System.Collections.Generic;".to_string(),
@@ -444,13 +439,7 @@ fn generate_unary_unary_client(
             return {}.Parser.ParseFrom(respBytes);
         }}
 "#,
-        output_type,
-        method_name,
-        input_type,
-        package_name,
-        service_name,
-        method_name,
-        output_type
+        output_type, method_name, input_type, package_name, service_name, method_name, output_type
     )
 }
 
@@ -473,13 +462,7 @@ fn generate_unary_stream_client(
             }}
         }}
 "#,
-        output_type,
-        method_name,
-        input_type,
-        package_name,
-        service_name,
-        method_name,
-        output_type
+        output_type, method_name, input_type, package_name, service_name, method_name, output_type
     )
 }
 
@@ -503,13 +486,7 @@ fn generate_stream_unary_client(
             return {}.Parser.ParseFrom(respBytes);
         }}
 "#,
-        output_type,
-        method_name,
-        input_type,
-        package_name,
-        service_name,
-        method_name,
-        output_type
+        output_type, method_name, input_type, package_name, service_name, method_name, output_type
     )
 }
 
@@ -540,13 +517,7 @@ fn generate_stream_stream_client(
             await sendTask;
         }}
 "#,
-        output_type,
-        method_name,
-        input_type,
-        package_name,
-        service_name,
-        method_name,
-        output_type
+        output_type, method_name, input_type, package_name, service_name, method_name, output_type
     )
 }
 
