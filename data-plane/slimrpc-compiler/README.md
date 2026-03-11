@@ -141,7 +141,6 @@ plugins:
 ```
 
 **Output file naming**: For `example.proto`, the C# plugin generates `example_slimrpc.cs` (alongside the standard protobuf `Example.cs` from the csharp plugin).
-
 #### Generate Code
 
 ```bash
@@ -366,6 +365,15 @@ Complete working examples are available in the repository:
 
 All examples demonstrate all four RPC patterns with comprehensive client and
 server implementations.
+
+### Running Examples
+
+All slimrpc examples require a **running SLIM server** (default: `localhost:46357`).
+Start it before running any example:
+
+```bash
+cd data-plane && cargo run --bin slim -- --config ./config/base/server-config.yaml
+```
 
 ## Plugin Parameters
 
