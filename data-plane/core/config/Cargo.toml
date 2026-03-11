@@ -12,45 +12,104 @@ name = "slim_config"
 name = "generate-schema"
 path = "src/schema/generate_schema.rs"
 
+[features]
+default = ["grpc", "websocket-native"]
+grpc = [
+    "dep:agntcy-slim-auth",
+    "dep:display-error-chain",
+    "dep:drain",
+    "dep:futures",
+    "hyper-util/client-proxy-system",
+    "dep:hyper-rustls",
+    "dep:hyper-util",
+    "dep:parking_lot",
+    "dep:prost",
+    "dep:rustls",
+    "dep:rustls-native-certs",
+    "dep:rustls-pki-types",
+    "dep:tokio",
+    "tokio/io-util",
+    "tokio/macros",
+    "tokio/net",
+    "tokio/rt",
+    "tokio/rt-multi-thread",
+    "tokio/sync",
+    "tokio/time",
+    "dep:tokio-retry",
+    "dep:tokio-rustls",
+    "dep:tokio-stream",
+    "dep:tokio-util",
+    "dep:tonic",
+    "dep:tonic-prost",
+    "dep:tonic-tls",
+    "dep:tower-layer",
+    "dep:tower-service",
+]
+websocket-native = [
+    "dep:agntcy-slim-auth",
+    "dep:bytes",
+    "dep:drain",
+    "dep:fastwebsockets",
+    "dep:http-body-util",
+    "dep:hyper",
+    "dep:hyper-util",
+    "dep:parking_lot",
+    "dep:rustls",
+    "dep:rustls-native-certs",
+    "dep:rustls-pki-types",
+    "dep:tokio",
+    "tokio/io-util",
+    "tokio/macros",
+    "tokio/net",
+    "tokio/rt",
+    "tokio/rt-multi-thread",
+    "tokio/sync",
+    "tokio/time",
+    "dep:tokio-rustls",
+    "dep:tokio-util",
+]
+websocket-wasm = ["dep:gloo-net"]
+
 [dependencies]
-agntcy-slim-auth = { workspace = true }
+agntcy-slim-auth = { workspace = true, optional = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
-bytes = { workspace = true }
-display-error-chain = { workspace = true }
-drain = { workspace = true }
+bytes = { workspace = true, optional = true }
+display-error-chain = { workspace = true, optional = true }
+drain = { workspace = true, optional = true }
 duration-string = { workspace = true }
-fastwebsockets = { workspace = true }
-futures = { workspace = true }
+fastwebsockets = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
+gloo-net = { version = "0.6", optional = true }
 http = { workspace = true }
-http-body-util = { workspace = true }
-hyper = { workspace = true }
-hyper-rustls = { workspace = true }
-hyper-util = { workspace = true, features = ["client-proxy-system"] }
+http-body-util = { workspace = true, optional = true }
+hyper = { workspace = true, optional = true }
+hyper-rustls = { workspace = true, optional = true }
+hyper-util = { workspace = true, optional = true }
 lazy_static = { workspace = true }
-parking_lot = { workspace = true }
-prost = { workspace = true }
+parking_lot = { workspace = true, optional = true }
+prost = { workspace = true, optional = true }
 regex = { workspace = true }
-rustls = { workspace = true }
-rustls-native-certs = { workspace = true }
-rustls-pki-types = { workspace = true }
+rustls = { workspace = true, optional = true }
+rustls-native-certs = { workspace = true, optional = true }
+rustls-pki-types = { workspace = true, optional = true }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
-tokio-retry = { workspace = true }
-tokio-rustls = { workspace = true }
-tokio-stream = { workspace = true }
-tokio-util = { workspace = true }
-tonic = { workspace = true }
-tonic-prost = { workspace = true }
-tonic-tls = { workspace = true }
+tokio = { workspace = true, optional = true }
+tokio-retry = { workspace = true, optional = true }
+tokio-rustls = { workspace = true, optional = true }
+tokio-stream = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true }
+tonic = { workspace = true, optional = true }
+tonic-prost = { workspace = true, optional = true }
+tonic-tls = { workspace = true, optional = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
-tower-layer = { workspace = true }
-tower-service = { workspace = true }
+tower-layer = { workspace = true, optional = true }
+tower-service = { workspace = true, optional = true }
 tracing = { workspace = true }
 tracing-test = { workspace = true }
 

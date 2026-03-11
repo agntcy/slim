@@ -2,13 +2,23 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use duration_string::DurationString;
+#[cfg(feature = "grpc")]
 use rustls_pki_types::ServerName;
+#[cfg(feature = "grpc")]
 use tokio_retry::RetryIf;
 
+#[cfg(feature = "grpc")]
 use display_error_chain::ErrorChainExt;
-use std::{collections::HashMap, str::FromStr, time::Duration};
+#[cfg(any(
+    feature = "grpc",
+    feature = "websocket-native",
+    feature = "websocket-wasm"
+))]
+use std::str::FromStr;
+use std::{collections::HashMap, time::Duration};
+#[cfg(feature = "grpc")]
 use tower::ServiceExt;
-#[cfg(target_family = "unix")]
+#[cfg(all(feature = "grpc", target_family = "unix"))]
 use {
     hyper_util::rt::TokioIo,
     std::{error::Error as StdErrorTrait, path::PathBuf, sync::Arc},
@@ -16,23 +26,38 @@ use {
     tower::service_fn,
 };
 
+#[cfg(feature = "grpc")]
 use base64::prelude::*;
+#[cfg(feature = "grpc")]
 use http::header::{HeaderMap, HeaderName, HeaderValue};
+#[cfg(feature = "grpc")]
 use hyper_rustls;
+#[cfg(feature = "grpc")]
 use hyper_util::client::legacy::connect::HttpConnector;
+#[cfg(feature = "grpc")]
 use hyper_util::client::legacy::connect::proxy::Tunnel;
+#[cfg(feature = "grpc")]
 use hyper_util::client::proxy::matcher::Intercept;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "grpc")]
 use tonic::codegen::{Body, Bytes, StdError};
+#[cfg(feature = "grpc")]
 use tonic::transport::{Channel, Uri};
+#[cfg(feature = "grpc")]
 use tracing::warn;
 
+#[cfg(any(feature = "grpc", feature = "websocket-native"))]
 use slim_auth::metadata::MetadataMap;
+#[cfg(not(any(feature = "grpc", feature = "websocket-native")))]
+type MetadataMap = HashMap<String, serde_json::Value>;
 
+#[cfg(feature = "grpc")]
 use crate::auth::ClientAuthenticator;
 use crate::auth::basic::Config as BasicAuthenticationConfig;
+#[cfg(any(feature = "grpc", feature = "websocket-native"))]
 use crate::auth::jwt::Config as JwtAuthenticationConfig;
+#[cfg(any(feature = "grpc", feature = "websocket-native"))]
 use crate::auth::static_jwt::Config as BearerAuthenticationConfig;
 use crate::backoff::Strategy;
 use crate::backoff::exponential::Config as ExponentialBackoff;
@@ -40,13 +65,18 @@ use crate::backoff::fixedinterval::Config as FixedIntervalBackoff;
 use crate::component::configuration::Configuration;
 use crate::grpc::compression::CompressionType;
 use crate::grpc::errors::ConfigError;
+#[cfg(feature = "grpc")]
 use crate::grpc::headers_middleware::SetRequestHeaderLayer;
 use crate::grpc::proxy::ProxyConfig;
-use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoader};
+use crate::tls::client::TlsClientConfig as TLSSetting;
+#[cfg(feature = "grpc")]
+use crate::tls::common::RustlsConfigLoader;
 use crate::transport::TransportProtocol;
+#[cfg(any(feature = "websocket-native", feature = "websocket-wasm"))]
 use crate::websocket::client::WebSocketClientChannel;
 
 /// Creates an HTTPS connector with optional SNI based on the origin
+#[cfg(feature = "grpc")]
 fn https_connector<S>(
     s: S,
     tls: &rustls::ClientConfig,
@@ -71,6 +101,7 @@ where
 /// Macro to create TLS-enabled or plain connectors based on TLS configuration,
 /// applying the optional origin (for SNI) when TLS is enabled.
 /// Supports both lazy and eager connection modes.
+#[cfg(feature = "grpc")]
 macro_rules! create_connector {
     ($builder:expr, $base_connector:expr, $tls_config:expr, $server_name:expr, $lazy:expr) => {
         match ($tls_config, $lazy) {
@@ -101,6 +132,7 @@ macro_rules! create_connector {
 }
 
 /// Macro to create authenticated service layers for auth types that don't need initialization
+#[cfg(feature = "grpc")]
 macro_rules! create_auth_service_no_init {
     ($self:expr, $auth_config:expr, $header_map:expr, $channel:expr) => {{
         let auth_layer = $auth_config.get_client_layer()?;
@@ -116,6 +148,7 @@ macro_rules! create_auth_service_no_init {
 }
 
 /// Macro to create authenticated service layers for auth types that need initialization
+#[cfg(feature = "grpc")]
 macro_rules! create_auth_service_with_init {
     ($self:expr, $auth_config:expr, $header_map:expr, $channel:expr) => {{
         let mut auth_layer = $auth_config.get_client_layer()?;
@@ -134,6 +167,7 @@ macro_rules! create_auth_service_with_init {
 }
 
 /// Enum to handle all connection types: direct connections and proxy tunnels
+#[cfg(feature = "grpc")]
 enum ConnectionType {
     /// Direct HTTP connection without proxy
     Direct(HttpConnector),
@@ -143,8 +177,17 @@ enum ConnectionType {
     ProxyHttps(Tunnel<hyper_rustls::HttpsConnector<HttpConnector>>),
 }
 
+#[cfg(feature = "grpc")]
 pub enum TransportChannel<G> {
+    #[cfg(feature = "grpc")]
     Grpc(G),
+    #[cfg(any(feature = "websocket-native", feature = "websocket-wasm"))]
+    Websocket(Box<WebSocketClientChannel>),
+}
+
+#[cfg(not(feature = "grpc"))]
+pub enum TransportChannel {
+    #[cfg(any(feature = "websocket-native", feature = "websocket-wasm"))]
     Websocket(Box<WebSocketClientChannel>),
 }
 
@@ -209,8 +252,10 @@ pub enum AuthenticationConfig {
     /// Basic authentication configuration.
     Basic(BasicAuthenticationConfig),
     /// Bearer authentication configuration.
+    #[cfg(any(feature = "grpc", feature = "websocket-native"))]
     StaticJwt(BearerAuthenticationConfig),
     /// JWT authentication configuration.
+    #[cfg(any(feature = "grpc", feature = "websocket-native"))]
     Jwt(JwtAuthenticationConfig),
     /// None
     #[default]
@@ -567,6 +612,7 @@ impl ClientConfig {
 
     /// Converts the client configuration to a transport channel.
     /// Returns either a gRPC channel or websocket channel based on `transport`.
+    #[cfg(feature = "grpc")]
     pub async fn to_channel(
         &self,
     ) -> Result<
@@ -588,13 +634,46 @@ impl ClientConfig {
     > {
         match self.transport {
             TransportProtocol::Grpc => Ok(TransportChannel::Grpc(self.to_grpc_channel().await?)),
-            TransportProtocol::Websocket => Ok(TransportChannel::Websocket(Box::new(
-                self.to_websocket_channel().await?,
-            ))),
+            TransportProtocol::Websocket => {
+                #[cfg(any(feature = "websocket-native", feature = "websocket-wasm"))]
+                {
+                    return Ok(TransportChannel::Websocket(Box::new(
+                        self.to_websocket_channel().await?,
+                    )));
+                }
+
+                #[cfg(not(any(feature = "websocket-native", feature = "websocket-wasm")))]
+                {
+                    return Err(ConfigError::WebSocketFeatureDisabled);
+                }
+            }
+        }
+    }
+
+    /// Converts the client configuration to a transport channel.
+    /// When `grpc` feature is disabled only websocket transport is available.
+    #[cfg(not(feature = "grpc"))]
+    pub async fn to_channel(&self) -> Result<TransportChannel, ConfigError> {
+        match self.transport {
+            TransportProtocol::Grpc => Err(ConfigError::GrpcFeatureDisabled),
+            TransportProtocol::Websocket => {
+                #[cfg(any(feature = "websocket-native", feature = "websocket-wasm"))]
+                {
+                    return Ok(TransportChannel::Websocket(Box::new(
+                        self.to_websocket_channel().await?,
+                    )));
+                }
+
+                #[cfg(not(any(feature = "websocket-native", feature = "websocket-wasm")))]
+                {
+                    return Err(ConfigError::WebSocketFeatureDisabled);
+                }
+            }
         }
     }
 
     /// Internal implementation for channel creation with optional lazy flag.
+    #[cfg(feature = "grpc")]
     pub(crate) async fn to_channel_internal(
         &self,
         lazy: bool,
@@ -638,6 +717,7 @@ impl ClientConfig {
     }
 
     /// Validates that the endpoint is set and not empty
+    #[cfg(feature = "grpc")]
     fn validate_endpoint(&self) -> Result<(), ConfigError> {
         if self.endpoint.is_empty() {
             return Err(ConfigError::MissingEndpoint);
@@ -650,14 +730,23 @@ impl ClientConfig {
             return Ok(());
         }
 
-        let endpoint = Uri::from_str(self.endpoint.as_str())?;
-        match endpoint.scheme_str() {
-            Some("ws") | Some("wss") => Ok(()),
-            _ => Err(ConfigError::InvalidWebSocketEndpointScheme),
+        #[cfg(any(feature = "websocket-native", feature = "websocket-wasm"))]
+        {
+            let endpoint = http::Uri::from_str(self.endpoint.as_str())?;
+            return match endpoint.scheme_str() {
+                Some("ws") | Some("wss") => Ok(()),
+                _ => Err(ConfigError::InvalidWebSocketEndpointScheme),
+            };
+        }
+
+        #[cfg(not(any(feature = "websocket-native", feature = "websocket-wasm")))]
+        {
+            Err(ConfigError::WebSocketFeatureDisabled)
         }
     }
 
     /// Parses the endpoint string into a URI for TCP/HTTP, Unix domain socket endpoints.
+    #[cfg(feature = "grpc")]
     fn parse_endpoint_uri(&self) -> Result<Uri, ConfigError> {
         // Special case for the unix scheme because it doesn't have an
         // authority in the URI and the Uri parser doesn't like this today,
@@ -680,6 +769,7 @@ impl ClientConfig {
     }
 
     /// Creates and configures the HTTP connector
+    #[cfg(feature = "grpc")]
     fn create_http_connector(&self) -> Result<HttpConnector, ConfigError> {
         let mut http = HttpConnector::new();
 
@@ -702,6 +792,7 @@ impl ClientConfig {
     }
 
     /// Creates the channel builder with all configuration settings
+    #[cfg(feature = "grpc")]
     fn create_channel_builder(&self, uri: Uri) -> Result<tonic::transport::Endpoint, ConfigError> {
         let mut builder = Channel::builder(uri);
 
@@ -744,11 +835,13 @@ impl ClientConfig {
     }
 
     /// Parses headers from the configuration
+    #[cfg(feature = "grpc")]
     fn parse_headers(&self) -> Result<HeaderMap, ConfigError> {
         Self::parse_header_map(&self.headers)
     }
 
     /// Generic helper to parse a HashMap<String, String> into HeaderMap
+    #[cfg(feature = "grpc")]
     fn parse_header_map(headers: &HashMap<String, String>) -> Result<HeaderMap, ConfigError> {
         let mut header_map = HeaderMap::new();
         for (key, value) in headers {
@@ -759,7 +852,7 @@ impl ClientConfig {
         Ok(header_map)
     }
 
-    #[cfg(target_family = "unix")]
+    #[cfg(all(feature = "grpc", target_family = "unix"))]
     fn map_transport_error(err: tonic::transport::Error) -> ConfigError {
         #[cfg(target_family = "unix")]
         {
@@ -777,6 +870,7 @@ impl ClientConfig {
     }
 
     /// Helper to create basic auth header for proxy authentication
+    #[cfg(feature = "grpc")]
     fn create_proxy_auth_header(
         username: &str,
         password: &str,
@@ -786,6 +880,7 @@ impl ClientConfig {
     }
 
     /// Helper to apply authentication and headers to a tunnel
+    #[cfg(feature = "grpc")]
     fn apply_tunnel_config<T>(
         &self,
         mut tunnel: Tunnel<T>,
@@ -812,12 +907,13 @@ impl ClientConfig {
     }
 
     /// Loads TLS configuration
+    #[cfg(feature = "grpc")]
     async fn load_tls_config(&self) -> Result<Option<rustls::ClientConfig>, ConfigError> {
         let tls = self.tls_setting.load_rustls_config().await?;
         Ok(tls)
     }
 
-    #[cfg(target_family = "unix")]
+    #[cfg(all(feature = "grpc", target_family = "unix"))]
     async fn connect_unix_channel(&self, uri: Uri, lazy: bool) -> Result<Channel, ConfigError> {
         if !self.tls_setting.insecure {
             // TLS handshakes are unnecessary over local UDS and currently unsupported
@@ -876,11 +972,12 @@ impl ClientConfig {
         }
     }
 
-    #[cfg(not(target_family = "unix"))]
+    #[cfg(all(feature = "grpc", not(target_family = "unix")))]
     async fn connect_unix_channel(&self, _uri: Uri, _lazy: bool) -> Result<Channel, ConfigError> {
         Err(ConfigError::UnixSocketUnsupported)
     }
 
+    #[cfg(feature = "grpc")]
     async fn connect_tcp_channel(&self, uri: Uri, lazy: bool) -> Result<Channel, ConfigError> {
         let http_connector = self.create_http_connector()?;
         let builder = self.create_channel_builder(uri.clone())?;
@@ -924,6 +1021,7 @@ impl ClientConfig {
 
     /// Creates the channel with the appropriate connector (proxy or direct)
     /// Creates a channel with the provided connector and TLS configuration.
+    #[cfg(feature = "grpc")]
     async fn create_channel_with_connector(
         &self,
         uri: Uri,
@@ -937,6 +1035,7 @@ impl ClientConfig {
     }
 
     /// Creates the appropriate connection type based on proxy configuration
+    #[cfg(feature = "grpc")]
     async fn create_connection(
         &self,
         uri: Uri,
@@ -954,6 +1053,7 @@ impl ClientConfig {
     }
 
     /// Creates a proxy connection
+    #[cfg(feature = "grpc")]
     async fn create_proxy_connection(
         &self,
         intercept: Intercept,
@@ -988,6 +1088,7 @@ impl ClientConfig {
     }
 
     /// Creates a channel from any connection type with TLS support
+    #[cfg(feature = "grpc")]
     async fn create_channel_from_connection(
         &self,
         builder: tonic::transport::Endpoint,
@@ -1027,6 +1128,7 @@ impl ClientConfig {
     }
 
     /// Parses proxy headers
+    #[cfg(feature = "grpc")]
     fn parse_proxy_headers(
         &self,
         headers: &HashMap<String, String>,
@@ -1035,6 +1137,7 @@ impl ClientConfig {
     }
 
     /// Applies authentication and headers to the channel
+    #[cfg(feature = "grpc")]
     async fn apply_auth_and_headers(
         &self,
         channel: Channel,
@@ -1072,6 +1175,7 @@ impl ClientConfig {
     }
 
     /// Warns if authentication is enabled without TLS
+    #[cfg(feature = "grpc")]
     fn warn_insecure_auth(&self) {
         if self.tls_setting.insecure {
             warn!("Auth is enabled without TLS. This is not recommended.");
@@ -1101,6 +1205,7 @@ mod metadata_tests {
 /// with duration expressed in seconds.
 /// This function will return a Result with the limit and duration if the
 /// rate limit is valid.
+#[cfg(feature = "grpc")]
 fn parse_rate_limit(rate_limit: &str) -> Result<(u64, Duration), ConfigError> {
     let parts: Vec<&str> = rate_limit.split('/').collect();
 
@@ -1115,7 +1220,7 @@ fn parse_rate_limit(rate_limit: &str) -> Result<(u64, Duration), ConfigError> {
     Ok((limit, duration))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "grpc"))]
 mod test {
     #[allow(unused_imports)]
     use super::*;
