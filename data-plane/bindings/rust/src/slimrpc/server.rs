@@ -351,20 +351,24 @@ fn spawn_handler_task(
             Some(rx) => RpcSession::new_stream(&session_tx, rx, &method_path, msg),
             None => RpcSession::new_unary(&session_tx, &method_path, msg),
         };
-        // Wrap the full handler + error-reply in a single select so the drain
-        // signal can cancel even the post-handler send_error_for_rpc await.
         let handler_fut = async {
-            let result = session.handle(handler_info, rpc_id.clone()).await;
-            if let Err(e) = result {
-                tracing::error!(%method_path, error = %e, "Error in RPC handler");
-                let _ = send_error_for_rpc(&session_tx, e, &rpc_id).await;
+            match session.handle(handler_info, rpc_id.clone()).await {
+                Ok(_) => None,
+                Err(e) => {
+                    tracing::error!(%method_path, error = %e, "Error in RPC handler");
+                    Some(e)
+                }
             }
         };
-        tokio::select! {
-            _ = handler_fut => {}
+        let error = tokio::select! {
+            err = handler_fut => err,
             _ = session_drain_watch.signaled() => {
                 tracing::debug!(%method_path, %rpc_id, "Session closed, aborting handler");
+                Some(RpcError::cancelled("Server shutting down"))
             }
+        };
+        if let Some(e) = error {
+            let _ = send_error_for_rpc(&session_tx, e, &rpc_id).await;
         }
     });
 }
@@ -435,9 +439,13 @@ async fn run_session_demux(
         }
 
         // No active stream for this rpc_id.
-        // Responses from other group servers carry STATUS_CODE_KEY — drop them.
-        if msg.metadata.contains_key(STATUS_CODE_KEY) {
-            tracing::trace!("Skipping message with status code set");
+        // Drop server responses: they have STATUS_CODE_KEY but are NOT tagged as client
+        // requests.  An empty-stream client EOS also has STATUS_CODE_KEY but carries
+        // RPC_DIR_KEY="req", so it passes through and is dispatched as a new RPC call.
+        if msg.metadata.contains_key(STATUS_CODE_KEY)
+            && msg.metadata.get(RPC_DIR_KEY).map(String::as_str) != Some(RPC_DIR_REQ)
+        {
+            tracing::trace!("Skipping server response (no pending stream)");
             continue;
         }
 

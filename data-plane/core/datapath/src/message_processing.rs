@@ -610,18 +610,25 @@ impl MessageProcessor {
         let in_conn = recv_from.unwrap_or(in_conn);
 
         // As connection is deleted only after processing, at this point it must exist.
-        let connection = self.forwarder().get_connection(in_conn).ok_or(
-            DataPathError::MessageProcessingError {
+        let result = match self.forwarder().get_connection(in_conn) {
+            None => Err(DataPathError::MessageProcessingError {
                 source: Box::new(DataPathError::ConnectionNotFound(in_conn)),
                 msg: Box::new(msg.clone()),
-            },
-        )?;
-
-        let result = if recv_from.is_none() || !connection.is_local_connection() {
-            self.process_subscription_update_and_forward(msg, in_conn, &connection, forward, add)
-                .await
-        } else {
-            Ok(())
+            }),
+            Some(connection) => {
+                if recv_from.is_none() || !connection.is_local_connection() {
+                    self.process_subscription_update_and_forward(
+                        msg,
+                        in_conn,
+                        &connection,
+                        forward,
+                        add,
+                    )
+                    .await
+                } else {
+                    Ok(())
+                }
+            }
         };
 
         if let (Some(ack_id), Some(source), Some(destination)) =
