@@ -21,7 +21,7 @@ func main() {
 
 	// Create local and remote names
 	localName := slim_bindings.NewName("agntcy", "grpc", "client")
-	remoteName := slim_bindings.NewName("agntcy", "grpc", "server1")
+	remoteName := slim_bindings.NewName("agntcy", "grpc", "server")
 
 	// Create app with shared secret
 	app, err := service.CreateAppWithSecret(localName, "my_shared_secret_for_testing_purposes_only")
