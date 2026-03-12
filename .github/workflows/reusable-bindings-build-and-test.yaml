@@ -15,7 +15,7 @@ on:
         description: Git tag name for version extraction (e.g., slim-bindings-1.2.3)
         required: false
         type: string
-        default: ''
+        default: ""
       rust-workspace:
         description: Rust workspace directory for caching
         required: false
@@ -137,7 +137,7 @@ jobs:
 
   build-libraries:
     needs: generate-matrix
-    name: '${{ matrix.platform.target }}'
+    name: "${{ matrix.platform.target }}"
     runs-on: ${{ matrix.platform.runner }}
     defaults:
       run:
@@ -422,7 +422,7 @@ jobs:
           echo "The wheel can be safely published."
 
   dotnet-bindings-build-and-test:
-    name: 'Dotnet Bindings Build and Test'
+    name: "Dotnet Bindings Build and Test"
     needs:
       - generate-matrix
       - build-libraries
@@ -434,7 +434,7 @@ jobs:
       tag-name: ${{ inputs.tag-name }}
 
   kotlin-bindings-build-and-test:
-    name: 'Kotlin Bindings Build and Test'
+    name: "Kotlin Bindings Build and Test"
     needs:
       - generate-matrix
       - build-libraries
@@ -444,7 +444,7 @@ jobs:
       rust-workspace: ${{ inputs.rust-workspace }}
 
   java-bindings-build-and-test:
-    name: 'Java Bindings Build and Test'
+    name: "Java Bindings Build and Test"
     needs:
       - generate-matrix
       - build-libraries
