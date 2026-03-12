@@ -19,6 +19,9 @@ import io.agntcy.slim.bindings.slimrpc.ClientRequestStream;
 import io.agntcy.slim.bindings.slimrpc.ClientResponseStream;
 
 import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public final class SlimrpcClientMain {
     private static final String SERVER_ADDR = "127.0.0.1:46357";
@@ -89,14 +92,26 @@ public final class SlimrpcClientMain {
 
         System.out.println("=== Stream-Stream ===");
         ClientBidiStream<ExampleRequest> streamStream = client.ExampleStreamStream(Duration.ofSeconds(10), null);
-        for (int i = 0; i < names.length; i++) {
-            ExampleRequest req = ExampleRequest.newBuilder()
-                    .setExampleString(names[i])
-                    .setExampleInteger((i + 1) * 10)
-                    .build();
-            streamStream.send(req);
-        }
-        streamStream.closeSend();
+
+        CompletableFuture<Void> sendFuture = CompletableFuture.runAsync(() -> {
+            try {
+                for (int i = 0; i < names.length; i++) {
+                    ExampleRequest req = ExampleRequest.newBuilder()
+                            .setExampleString(names[i])
+                            .setExampleInteger((i + 1) * 10)
+                            .build();
+                    streamStream.send(req);
+                    System.out.println("Sent request " + names[i]);
+                    Thread.sleep(50);
+                }
+                streamStream.closeSend();
+                System.out.println("Send stream closed");
+            } catch (Exception e) {
+                System.out.println("Send error: " + e.getMessage());
+                throw new RuntimeException(e);
+            }
+        });
+
         while (true) {
             StreamMessage msg = streamStream.recv();
             if (msg instanceof StreamMessage.End) {
@@ -111,5 +126,7 @@ public final class SlimrpcClientMain {
                 System.out.println("Stream Stream Response: " + streamResp);
             }
         }
+
+        sendFuture.join();
     }
 }
