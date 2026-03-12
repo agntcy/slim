@@ -752,7 +752,10 @@ mod tests {
         }
     }
 
-    fn create_test_service(name: &str, methods: Vec<MethodDescriptorProto>) -> ServiceDescriptorProto {
+    fn create_test_service(
+        name: &str,
+        methods: Vec<MethodDescriptorProto>,
+    ) -> ServiceDescriptorProto {
         ServiceDescriptorProto {
             name: Some(name.to_string()),
             method: methods,
@@ -763,10 +766,7 @@ mod tests {
     #[test]
     fn test_package_to_namespace() {
         assert_eq!(package_to_namespace("example_service"), "ExampleService");
-        assert_eq!(
-            package_to_namespace("foo.bar.example"),
-            "Foo.Bar.Example"
-        );
+        assert_eq!(package_to_namespace("foo.bar.example"), "Foo.Bar.Example");
     }
 
     #[test]
@@ -792,10 +792,7 @@ mod tests {
     #[test]
     fn test_resolve_csharp_type_different_package() {
         let mut type_to_ns = HashMap::new();
-        type_to_ns.insert(
-            "other.pkg.OtherRequest".to_string(),
-            "OtherPkg".to_string(),
-        );
+        type_to_ns.insert("other.pkg.OtherRequest".to_string(), "OtherPkg".to_string());
         let (ty, using) = resolve_csharp_type(
             ".other.pkg.OtherRequest",
             "example_service",
@@ -897,8 +894,7 @@ mod tests {
             ),
         ];
         let service = create_test_service("StreamService", methods);
-        let file_descriptor =
-            create_test_file_descriptor("stream.proto", "pkg", vec![service]);
+        let file_descriptor = create_test_file_descriptor("stream.proto", "pkg", vec![service]);
 
         let request = CodeGeneratorRequest {
             file_to_generate: vec!["stream.proto".to_string()],
@@ -927,8 +923,7 @@ mod tests {
             false,
         );
         let service = create_test_service("EchoService", vec![method]);
-        let file_descriptor =
-            create_test_file_descriptor("echo.proto", "pkg", vec![service]);
+        let file_descriptor = create_test_file_descriptor("echo.proto", "pkg", vec![service]);
 
         let request = CodeGeneratorRequest {
             file_to_generate: vec!["echo.proto".to_string()],
