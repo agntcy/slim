@@ -128,7 +128,7 @@ tasks:
         # Fall back to local build: build Rust library, then use its output
         if [[ -z "$lib_file" || ! -f "$lib_file" ]]; then
           echo "No CI artifacts found, building Rust library locally..."
-          task rust:bindings:build:all PROFILE="{{.PROFILE}}"
+          (cd {{.BINDINGS_DIR}} && task bindings:build:all PROFILE="{{.PROFILE}}")
 
           local_lib="{{.LIB_PATH}}/lib{{.LIB_NAME}}.a"
           if [[ -f "$local_lib" ]]; then
