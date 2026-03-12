@@ -1,2 +1,0 @@
-# Generated code - run `buf generate` (or task slimrpc:generate-proto) to generate.
-# Requires: buf CLI, protoc-gen-slimrpc-csharp (build from slimrpc-compiler)
