@@ -706,3 +706,241 @@ fn generate_stream_stream_handler(
         method_name
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use prost_types::compiler::CodeGeneratorRequest;
+    use prost_types::{FileDescriptorProto, MethodDescriptorProto, ServiceDescriptorProto};
+    use std::collections::HashMap;
+
+    fn create_test_file_descriptor(
+        name: &str,
+        package: &str,
+        services: Vec<ServiceDescriptorProto>,
+    ) -> FileDescriptorProto {
+        FileDescriptorProto {
+            name: Some(name.to_string()),
+            package: Some(package.to_string()),
+            service: services,
+            message_type: vec![],
+            enum_type: vec![],
+            dependency: vec![],
+            public_dependency: vec![],
+            weak_dependency: vec![],
+            extension: vec![],
+            options: None,
+            source_code_info: None,
+            syntax: None,
+        }
+    }
+
+    fn create_test_method(
+        name: &str,
+        input_type: &str,
+        output_type: &str,
+        client_streaming: bool,
+        server_streaming: bool,
+    ) -> MethodDescriptorProto {
+        MethodDescriptorProto {
+            name: Some(name.to_string()),
+            input_type: Some(input_type.to_string()),
+            output_type: Some(output_type.to_string()),
+            client_streaming: Some(client_streaming),
+            server_streaming: Some(server_streaming),
+            options: None,
+        }
+    }
+
+    fn create_test_service(name: &str, methods: Vec<MethodDescriptorProto>) -> ServiceDescriptorProto {
+        ServiceDescriptorProto {
+            name: Some(name.to_string()),
+            method: methods,
+            options: None,
+        }
+    }
+
+    #[test]
+    fn test_package_to_namespace() {
+        assert_eq!(package_to_namespace("example_service"), "ExampleService");
+        assert_eq!(
+            package_to_namespace("foo.bar.example"),
+            "Foo.Bar.Example"
+        );
+    }
+
+    #[test]
+    fn test_bare_type_name() {
+        assert_eq!(bare_type_name(".pkg.Request"), "Request");
+        assert_eq!(bare_type_name("Request"), "Request");
+        assert_eq!(bare_type_name(".foo.bar.Response"), "Response");
+    }
+
+    #[test]
+    fn test_resolve_csharp_type_same_package() {
+        let type_to_ns: HashMap<String, String> = HashMap::new();
+        let (ty, using) = resolve_csharp_type(
+            ".example_service.GetUserRequest",
+            "example_service",
+            &Some("ExampleService.Types".to_string()),
+            &type_to_ns,
+        );
+        assert_eq!(ty, "ExampleService.Types.GetUserRequest");
+        assert_eq!(using, None);
+    }
+
+    #[test]
+    fn test_resolve_csharp_type_different_package() {
+        let mut type_to_ns = HashMap::new();
+        type_to_ns.insert(
+            "other.pkg.OtherRequest".to_string(),
+            "OtherPkg".to_string(),
+        );
+        let (ty, using) = resolve_csharp_type(
+            ".other.pkg.OtherRequest",
+            "example_service",
+            &Some("ExampleService.Types".to_string()),
+            &type_to_ns,
+        );
+        assert_eq!(ty, "OtherPkg.OtherRequest");
+        assert_eq!(using, Some("using OtherPkg;".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_csharp_type_google_protobuf() {
+        let type_to_ns: HashMap<String, String> = HashMap::new();
+        let (ty, using) = resolve_csharp_type(
+            ".google.protobuf.Empty",
+            "example_service",
+            &None,
+            &type_to_ns,
+        );
+        assert_eq!(ty, "Google.Protobuf.WellKnownTypes.Empty");
+        assert!(using.is_some());
+    }
+
+    #[test]
+    fn test_generate_no_services() {
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test.proto".to_string()],
+            parameter: None,
+            proto_file: vec![create_test_file_descriptor(
+                "test.proto",
+                "test.package",
+                vec![],
+            )],
+            compiler_version: None,
+        };
+
+        let response = generate(request).unwrap();
+        assert_eq!(response.file.len(), 0);
+    }
+
+    #[test]
+    fn test_generate_with_unary_unary_method() {
+        let method = create_test_method(
+            "GetUser",
+            ".example_service.GetUserRequest",
+            ".example_service.GetUserResponse",
+            false,
+            false,
+        );
+        let service = create_test_service("UserService", vec![method]);
+        let file_descriptor =
+            create_test_file_descriptor("user.proto", "example_service", vec![service]);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["user.proto".to_string()],
+            parameter: None,
+            proto_file: vec![file_descriptor],
+            compiler_version: None,
+        };
+
+        let response = generate(request).unwrap();
+
+        assert_eq!(response.file.len(), 1);
+        let generated_file = &response.file[0];
+        assert_eq!(generated_file.name.as_ref().unwrap(), "user_slimrpc.cs");
+
+        let content = generated_file.content.as_ref().unwrap();
+        assert!(content.contains("UserServiceClient"));
+        assert!(content.contains("IUserServiceServer"));
+        assert!(content.contains("GetUserAsync"));
+        assert!(content.contains("GetUserResponse"));
+        assert!(content.contains("GetUser("));
+        assert!(content.contains("RegisterUnaryUnary"));
+    }
+
+    #[test]
+    fn test_generate_with_streaming_methods() {
+        let methods = vec![
+            create_test_method(
+                "UnaryToStream",
+                ".pkg.Request",
+                ".pkg.Response",
+                false,
+                true,
+            ),
+            create_test_method(
+                "StreamToUnary",
+                ".pkg.Request",
+                ".pkg.Response",
+                true,
+                false,
+            ),
+            create_test_method(
+                "StreamToStream",
+                ".pkg.Request",
+                ".pkg.Response",
+                true,
+                true,
+            ),
+        ];
+        let service = create_test_service("StreamService", methods);
+        let file_descriptor =
+            create_test_file_descriptor("stream.proto", "pkg", vec![service]);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["stream.proto".to_string()],
+            parameter: None,
+            proto_file: vec![file_descriptor],
+            compiler_version: None,
+        };
+
+        let response = generate(request).unwrap();
+
+        assert_eq!(response.file.len(), 1);
+        let content = response.file[0].content.as_ref().unwrap();
+        assert!(content.contains("IAsyncEnumerable"));
+        assert!(content.contains("RegisterUnaryStream"));
+        assert!(content.contains("RegisterStreamUnary"));
+        assert!(content.contains("RegisterStreamStream"));
+    }
+
+    #[test]
+    fn test_generate_with_base_namespace_param() {
+        let method = create_test_method(
+            "Echo",
+            ".pkg.EchoRequest",
+            ".pkg.EchoResponse",
+            false,
+            false,
+        );
+        let service = create_test_service("EchoService", vec![method]);
+        let file_descriptor =
+            create_test_file_descriptor("echo.proto", "pkg", vec![service]);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["echo.proto".to_string()],
+            parameter: Some(r#"base_namespace="Custom.Namespace""#.to_string()),
+            proto_file: vec![file_descriptor],
+            compiler_version: None,
+        };
+
+        let response = generate(request).unwrap();
+
+        assert_eq!(response.file.len(), 1);
+        let content = response.file[0].content.as_ref().unwrap();
+        assert!(content.contains("namespace Custom.Namespace"));
+    }
+}
