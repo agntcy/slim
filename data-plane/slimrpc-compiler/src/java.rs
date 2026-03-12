@@ -309,7 +309,7 @@ struct JavaFileInfo {
 fn file_name_base(file_name: &str) -> String {
     file_name
         .split('/')
-        .last()
+        .next_back()
         .unwrap_or(file_name)
         .strip_suffix(".proto")
         .unwrap_or(file_name)
