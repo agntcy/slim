@@ -34,10 +34,10 @@ public static class SlimRpcStreams
             switch (msg)
             {
                 case uniffi.slim_bindings.StreamMessage.Data data:
-                    yield return parser.ParseFrom(data.V1);
+                    yield return parser.ParseFrom(data.v1);
                     break;
                 case uniffi.slim_bindings.StreamMessage.Error err:
-                    throw err.V1;
+                    throw err.v1;
                 case uniffi.slim_bindings.StreamMessage.End:
                     yield break;
             }
@@ -64,10 +64,10 @@ public static class SlimRpcStreams
             switch (msg)
             {
                 case uniffi.slim_bindings.StreamMessage.Data data:
-                    yield return parser.ParseFrom(data.V1);
+                    yield return parser.ParseFrom(data.v1);
                     break;
                 case uniffi.slim_bindings.StreamMessage.Error err:
-                    throw err.V1;
+                    throw err.v1;
                 case uniffi.slim_bindings.StreamMessage.End:
                     yield break;
             }
@@ -94,10 +94,10 @@ public static class SlimRpcStreams
             switch (msg)
             {
                 case uniffi.slim_bindings.StreamMessage.Data data:
-                    yield return parser.ParseFrom(data.V1);
+                    yield return parser.ParseFrom(data.v1);
                     break;
                 case uniffi.slim_bindings.StreamMessage.Error err:
-                    throw err.V1;
+                    throw err.v1;
                 case uniffi.slim_bindings.StreamMessage.End:
                     yield break;
             }

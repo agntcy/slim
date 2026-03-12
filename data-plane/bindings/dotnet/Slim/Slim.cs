@@ -60,7 +60,7 @@ public static class Slim
         get
         {
             var info = Internal.SlimBindingsMethods.GetBuildInfo();
-            return new SlimBuildInfo(info.Version, info.GitSha);
+            return new SlimBuildInfo(info.version, info.gitSha);
         }
     }
 
@@ -228,13 +228,13 @@ public sealed class SlimSessionConfig
     internal Internal.SessionConfig ToInternal()
     {
         return new Internal.SessionConfig(
-            SessionType: SessionType == SlimSessionType.PointToPoint
+            sessionType: SessionType == SlimSessionType.PointToPoint
                 ? Internal.SessionType.PointToPoint
                 : Internal.SessionType.Group,
-            EnableMls: EnableMls,
-            MaxRetries: MaxRetries,
-            Interval: RetryInterval,
-            Metadata: Metadata ?? new Dictionary<string, string>()
+            enableMls: EnableMls,
+            maxRetries: MaxRetries,
+            interval: RetryInterval,
+            metadata: Metadata ?? new Dictionary<string, string>()
         );
     }
 }
@@ -261,8 +261,8 @@ public sealed class SlimMessage
 
     internal SlimMessage(Internal.ReceivedMessage msg)
     {
-        _context = msg.Context;
-        Payload = msg.Payload;
+        _context = msg.context;
+        Payload = msg.payload;
     }
 
     /// <summary>Raw payload bytes.</summary>

@@ -40,6 +40,10 @@ vars:
   # Output directory for NuGet packages
   OUTPUT_DIR: '{{.OUTPUT_DIR | default "./nupkg"}}'
 
+  # CI artifacts (optional; when set, generate uses pre-built bindings from artifacts)
+  ARTIFACTS_DIR: '{{.ARTIFACTS_DIR | default ""}}'
+  BINDGEN_TARGET: '{{.BINDGEN_TARGET | default .TARGET}}'
+
   # Supported platforms for NuGet packaging
   # Format: TARGET|RID|LIB_EXT
   # Note: x86_64-pc-windows-gnu is excluded due to RID collision with MSVC.
@@ -108,10 +112,51 @@ tasks:
           TARGET: "{{.TARGET}}"
       - install-uniffi-bindgen-cs
     cmds:
-      - 'echo "Generating C# bindings from: {{.LIB_PATH}}"'
-      - rm -rf {{.GENERATED_DIR}}
-      - mkdir -p {{.GENERATED_DIR}}
-      - uniffi-bindgen-cs --library --out-dir {{.GENERATED_DIR}} "{{.LIB_PATH}}"
+      - |
+        ARTIFACTS_DIR="{{.ARTIFACTS_DIR}}"
+        BINDGEN_TARGET="{{.BINDGEN_TARGET}}"
+
+        lib_file=""
+
+        # Try CI artifacts directory first (when ARTIFACTS_DIR is set)
+        if [[ -n "$ARTIFACTS_DIR" ]]; then
+          artifact_dir="$ARTIFACTS_DIR/bindings-${BINDGEN_TARGET}"
+          if [[ -d "$artifact_dir" ]]; then
+            lib_file=$(find "$artifact_dir" -maxdepth 1 -name "lib{{.LIB_NAME}}*.a" -type f | head -1)
+          fi
+        fi
+
+        # Fall back to local build: build Rust library, then use its output
+        if [[ -z "$lib_file" || ! -f "$lib_file" ]]; then
+          echo "No CI artifacts found, building Rust library locally..."
+          (cd {{.BINDINGS_DIR}} && task bindings:build:all PROFILE="{{.PROFILE}}")
+
+          local_lib="{{.LIB_PATH}}"
+          if [[ -f "$local_lib" ]]; then
+            echo "Using local build output: $local_lib"
+            lib_file="$local_lib"
+          fi
+        fi
+
+        if [[ -z "$lib_file" || ! -f "$lib_file" ]]; then
+          echo "ERROR: Static library (.a) not found."
+          [[ -n "$ARTIFACTS_DIR" ]] && echo "Checked CI artifacts dir: $ARTIFACTS_DIR/bindings-${BINDGEN_TARGET}"
+          echo "Checked local build path: {{.LIB_PATH}}"
+          exit 1
+        fi
+
+        echo "Generating C# bindings from: $lib_file"
+
+        rm -rf {{.GENERATED_DIR}}
+        mkdir -p {{.GENERATED_DIR}}
+        uniffi-bindgen-cs --library --out-dir {{.GENERATED_DIR}} "$lib_file"
+
+        if [[ ! -f "{{.GENERATED_DIR}}/slim_bindings.cs" ]]; then
+          echo "ERROR: Failed to generate slim_bindings.cs"
+          exit 1
+        fi
+
+        echo "✅ C# bindings generated successfully"
       - task: copy:runtimes
     silent: true
 
