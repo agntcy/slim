@@ -114,25 +114,25 @@ public final class TestSlimrpc {
 
         @Override
         public ExampleResponse ExampleUnaryUnary(ExampleRequest request, Duration timeout, Map<String, String> metadata) throws RpcException {
-            byte[] bytes = channel.callUnaryAsync(
+            byte[] bytes = channel.callUnary(
                 SERVICE_NAME,
                 "ExampleUnaryUnary",
                 request.toByteArray(),
                 timeout,
                 metadata
-            ).join();
+            );
             return parse(bytes, ExampleResponse.parser());
         }
 
         @Override
         public ResponseStreamReader ExampleUnaryStream(ExampleRequest request, Duration timeout, Map<String, String> metadata) throws RpcException {
-            return channel.callUnaryStreamAsync(
+            return channel.callUnaryStream(
                 SERVICE_NAME,
                 "ExampleUnaryStream",
                 request.toByteArray(),
                 timeout,
                 metadata
-            ).join();
+            );
         }
 
         @Override
@@ -380,11 +380,11 @@ public final class TestSlimrpc {
         }
 
         public void send(ReqT request) throws RpcException {
-            inner.sendAsync(serializer.apply(request)).join();
+            inner.send(serializer.apply(request));
         }
 
         public ResT finalizeStream() throws RpcException {
-            return parser.apply(inner.finalizeStreamAsync().join());
+            return parser.apply(inner.finalizeStream());
         }
     }
 
@@ -398,15 +398,15 @@ public final class TestSlimrpc {
         }
 
         public void send(ReqT request) throws RpcException {
-            inner.sendAsync(serializer.apply(request)).join();
+            inner.send(serializer.apply(request));
         }
 
         public void closeSend() throws RpcException {
-            inner.closeSendAsync().join();
+            inner.closeSend();
         }
 
         public StreamMessage recv() {
-            return inner.recvAsync().join();
+            return inner.recv();
         }
     }
 
@@ -420,7 +420,7 @@ public final class TestSlimrpc {
         }
 
         public RespT recv() throws RpcException {
-            StreamMessage message = inner.nextAsync().join();
+            StreamMessage message = inner.next();
             if (message instanceof StreamMessage.End) {
                 return null;
             }
@@ -488,7 +488,7 @@ public final class TestSlimrpc {
 
         @Override
         public ReqT recv() throws RpcException {
-            StreamMessage message = inner.nextAsync().join();
+            StreamMessage message = inner.next();
             if (message instanceof StreamMessage.End) {
                 return null;
             }
@@ -513,7 +513,7 @@ public final class TestSlimrpc {
 
         @Override
         public void send(RespT response) throws RpcException {
-            inner.sendAsync(serializer.apply(response)).join();
+            inner.send(serializer.apply(response));
         }
     }
 
@@ -537,7 +537,7 @@ public final class TestSlimrpc {
 
         @Override
         public ReqT recv() throws RpcException {
-            StreamMessage message = stream.nextAsync().join();
+            StreamMessage message = stream.next();
             if (message instanceof StreamMessage.End) {
                 return null;
             }
@@ -552,7 +552,7 @@ public final class TestSlimrpc {
 
         @Override
         public void send(RespT response) throws RpcException {
-            sink.sendAsync(serializer.apply(response)).join();
+            sink.send(serializer.apply(response));
         }
     }
 }

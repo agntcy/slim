@@ -20,17 +20,24 @@ import io.agntcy.slim.bindings.Service;
 import io.agntcy.slim.bindings.SlimBindings;
 import io.agntcy.slim.bindings.TracingConfig;
 
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.concurrent.CompletableFuture;
 
 public final class SlimrpcServerMain {
     private static final String SERVER_ADDR = "127.0.0.1:46357";
     private static final String SHARED_SECRET = "my_shared_secret_for_testing_purposes_only";
+    private static final DateTimeFormatter TS_FMT = DateTimeFormatter.ofPattern("mm:ss.nnnnnnnnn");
+
+    private static String ts() {
+        return "[" + LocalTime.now().format(TS_FMT) + "] ";
+    }
 
     public static void main(String[] args) throws Exception {
         // SlimBindings.initializeWithDefaults();
         RuntimeConfig runtime = SlimBindings.newRuntimeConfig();
         TracingConfig tracing = SlimBindings.newTracingConfigWith(
-                "debug",
+                "info",
                 Boolean.TRUE,   // displayThreadNames
                 Boolean.FALSE,  // displayThreadIds
                 java.util.List.of() // filters
@@ -44,9 +51,6 @@ public final class SlimrpcServerMain {
         Service service = SlimBindings.getGlobalService();
 
         // Start SLIM server
-        ServerConfig serverConfig = SlimBindings.newInsecureServerConfig(SERVER_ADDR);
-        service.runServer(serverConfig);
-
         Name localName = new Name("agntcy", "slimrpc", "server");
         App app = service.createAppWithSecret(localName, SHARED_SECRET);
 
@@ -141,6 +145,7 @@ public final class SlimrpcServerMain {
                     if (req == null) {
                         break;
                     }
+                    System.out.println(ts() + "Echoing back request: " + req);
                     ExampleResponse response = ExampleResponse.newBuilder()
                             .setExampleString("echo " + req.getExampleString())
                             .setExampleInteger(req.getExampleInteger() * 100)
@@ -155,7 +160,7 @@ public final class SlimrpcServerMain {
             }
         });
 
-        System.out.println("SlimRPC server ready on " + SERVER_ADDR);
+        System.out.println(ts() + "SlimRPC server ready on " + SERVER_ADDR);
         rpcServer.serve();
     }
 }

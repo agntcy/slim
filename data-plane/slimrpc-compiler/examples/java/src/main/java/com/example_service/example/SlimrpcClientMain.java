@@ -16,10 +16,20 @@ import io.agntcy.slim.bindings.SlimBindings;
 import io.agntcy.slim.bindings.StreamMessage;
 
 import java.time.Duration;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public final class SlimrpcClientMain {
     private static final String SERVER_ADDR = "127.0.0.1:46357";
     private static final String SHARED_SECRET = "my_shared_secret_for_testing_purposes_only";
+    private static final DateTimeFormatter TS_FMT = DateTimeFormatter.ofPattern("mm:ss.nnnnnnnnn");
+
+    private static String ts() {
+        return "[" + LocalTime.now().format(TS_FMT) + "] ";
+    }
 
     public static void main(String[] args) throws Exception {
         SlimBindings.initializeWithDefaults();
@@ -42,11 +52,11 @@ public final class SlimrpcClientMain {
                 .setExampleInteger(41)
                 .build();
 
-        System.out.println("=== Unary-Unary ===");
+        System.out.println(ts() + "=== Unary-Unary ===");
         ExampleResponse response = client.ExampleUnaryUnary(request, Duration.ofSeconds(10), null);
-        System.out.println("Response: " + response);
+        System.out.println(ts() + "Response: " + response);
 
-        System.out.println("=== Unary-Stream ===");
+        System.out.println(ts() + "=== Unary-Stream ===");
         ResponseStreamReader streamReader = client.ExampleUnaryStream(request, Duration.ofSeconds(10), null);
         TestSlimrpc.ClientResponseStreamSync<ExampleResponse> responseStream =
                 TestSlimrpc.newClientResponseStreamSync(streamReader, bytes -> {
@@ -64,13 +74,13 @@ public final class SlimrpcClientMain {
                 throw e;
             }
             if (streamResp == null) {
-                System.out.println("Stream ended");
+                System.out.println(ts() + "Stream ended");
                 break;
             }
-            System.out.println("Stream Response: " + streamResp);
+            System.out.println(ts() + "Stream Response: " + streamResp);
         }
 
-        System.out.println("=== Stream-Unary ===");
+        System.out.println(ts() + "=== Stream-Unary ===");
         TestSlimrpc.ClientRequestStreamSync<ExampleRequest, ExampleResponse> streamUnary =
                 client.ExampleStreamUnary(Duration.ofSeconds(10), null);
         for (long i = 0; i < 5; i++) {
@@ -81,23 +91,37 @@ public final class SlimrpcClientMain {
             streamUnary.send(req);
         }
         ExampleResponse streamUnaryResp = streamUnary.finalizeStream();
-        System.out.println("Stream Unary Response: " + streamUnaryResp);
+        System.out.println(ts() + "Stream Unary Response: " + streamUnaryResp);
 
-        System.out.println("=== Stream-Stream ===");
+        System.out.println(ts() + "=== Stream-Stream ===");
         TestSlimrpc.ClientBidiStreamSync<ExampleRequest> streamStream =
                 client.ExampleStreamStream(Duration.ofSeconds(10), null);
-        for (long i = 0; i < 5; i++) {
-            ExampleRequest req = ExampleRequest.newBuilder()
-                    .setExampleString("request " + i)
-                    .setExampleInteger(i)
-                    .build();
-            streamStream.send(req);
-        }
-        streamStream.closeSend();
+
+        ExecutorService sendExecutor = Executors.newSingleThreadExecutor();
+        CompletableFuture<Void> sendFuture = CompletableFuture.runAsync(() -> {
+            try {
+                for (long i = 0; i < 30; i++) {
+                    ExampleRequest req = ExampleRequest.newBuilder()
+                            .setExampleString("request " + i)
+                            .setExampleInteger(i)
+                            .build();
+                    streamStream.send(req);
+                    System.out.println(ts() + "Sent request " + i);
+                    Thread.sleep(10);
+                }
+                streamStream.closeSend();
+                System.out.println(ts() + "Send stream closed");
+            } catch (Exception e) {
+                System.out.println(ts() + "Send error: " + e.getMessage());
+                throw new RuntimeException(e);
+            }
+        }, sendExecutor);
+
         while (true) {
+            System.out.println(ts() + "Waiting for response stream message");
             StreamMessage msg = streamStream.recv();
             if (msg instanceof StreamMessage.End) {
-                System.out.println("Stream Stream ended");
+                System.out.println(ts() + "Stream Stream ended");
                 break;
             }
             if (msg instanceof StreamMessage.Error err) {
@@ -105,8 +129,11 @@ public final class SlimrpcClientMain {
             }
             if (msg instanceof StreamMessage.Data data) {
                 ExampleResponse streamResp = ExampleResponse.parseFrom(data.v1());
-                System.out.println("Stream Stream Response: " + streamResp);
+                System.out.println(ts() + "Stream Stream Response: " + streamResp);
             }
         }
+
+        sendFuture.join();
+        sendExecutor.shutdown();
     }
 }
