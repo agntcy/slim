@@ -30,7 +30,7 @@ on:
         description: .NET SDK version
         required: false
         type: string
-        default: "8.0.x"
+        default: '8.0.x'
       rust-target:
         description: Rust target triple for building libraries
         required: false
@@ -40,7 +40,7 @@ on:
         description: Git tag name for version extraction (e.g., slim-bindings-1.2.3)
         required: false
         type: string
-        default: ""
+        default: ''
 
 env:
   LIBRARY_NAME: slim_bindings
@@ -61,6 +61,7 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           workspace: ${{ inputs.rust-workspace }}
+          cache-enabled: false
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4

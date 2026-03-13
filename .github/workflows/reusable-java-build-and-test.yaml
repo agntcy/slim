@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-name: reusable-kotlin-build-and-test
+name: reusable-java-build-and-test
 on:
   workflow_call:
     inputs:
@@ -25,11 +25,11 @@ on:
         description: The working directory to run the task
         required: false
         type: string
-        default: ./data-plane/bindings/kotlin
+        default: ./data-plane/bindings/java
 
 jobs:
-  kotlin-bindings-build-and-test:
-    name: Kotlin Bindings Build and Test
+  java-bindings-build-and-test:
+    name: Java Bindings Build and Test
     runs-on: ${{ inputs.runner }}
 
     defaults:
@@ -68,25 +68,31 @@ jobs:
       - name: Generate bindings and run tests
         run: |
           echo "Generate bindings and run tests..."
-          # First, copy-libraries will run (inside generate task) and create jniLibs structure
-          # Then point LIB_PATH to the correctly-named library in jniLibs
-          LIB_FILE="generated/jniLibs/linux-x86-64/libslim_bindings.so"
+          # First, copy-libraries will run (inside generate task) and create generated/native structure (JNA format: linux-x86-64)
+          # LIB_PATH points to the library for uniffi-bindgen and is passed to mvn test for uniffi.component.slim_bindings.libraryOverride
+          LIB_FILE="generated/native/linux-x86-64/libslim_bindings.so"
           echo "Using library: $LIB_FILE"
           task test SKIP_BUILD=true ARTIFACTS_DIR=./artifacts LIB_PATH="$LIB_FILE"
+
+      - name: Install LLVM
+        run: |
+          curl -L https://apt.llvm.org/llvm.sh -o /tmp/llvm.sh
+          chmod +x /tmp/llvm.sh
+          sudo /tmp/llvm.sh 19
 
       - name: Strip shared libraries
         run: |
           echo "✂️  Stripping shared libraries using llvm-strip-19..."
-          find ./generated/jniLibs -type f \( -name "*.so" -o -name "*.dylib" -o -name "*.dll" \) | while read -r lib; do
+          find ./generated/native -type f \( -name "*.so" -o -name "*.dylib" -o -name "*.dll" \) 2>/dev/null | while read -r lib; do
             echo "  Stripping: $lib"
             llvm-strip-19 "$lib"
           done
 
-      - name: Upload generated Kotlin code and JNI libraries
+      - name: Upload generated Java code and native libraries
         uses: actions/upload-artifact@v4
         with:
-          name: kotlin-bindings-generated-code
+          name: java-bindings-generated-code
           path: |
-            ${{ inputs.working-directory }}/generated/**/*.kt
-            ${{ inputs.working-directory }}/generated/jniLibs/**/*
+            ${{ inputs.working-directory }}/generated/uniffi/**/*.java
+            ${{ inputs.working-directory }}/generated/native/**/*
           if-no-files-found: error
