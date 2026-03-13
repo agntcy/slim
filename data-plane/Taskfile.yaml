@@ -118,6 +118,68 @@ tasks:
     cmds:
       - cargo run --bin generate-schema
 
+  # Feature-specific build tasks for agntcy-slim-config
+  data-plane:check:no-default-features:
+    desc: "Check agntcy-slim-config compiles with no default features"
+    cmds:
+      - cargo check --package agntcy-slim-config --no-default-features --locked
+
+  data-plane:check:grpc:
+    desc: "Check agntcy-slim-config compiles with grpc feature only"
+    cmds:
+      - cargo check --package agntcy-slim-config --no-default-features --features grpc --locked
+
+  data-plane:check:websocket-native:
+    desc: "Check agntcy-slim-config compiles with websocket-native feature only"
+    cmds:
+      - cargo check --package agntcy-slim-config --no-default-features --features websocket-native --locked
+
+  data-plane:check:websocket-wasm:
+    desc: "Check agntcy-slim-config compiles with websocket-wasm feature for wasm target"
+    cmds:
+      - cargo check --package agntcy-slim-config --no-default-features --features websocket-wasm --target wasm32-unknown-unknown --locked
+
+  data-plane:check:features:
+    desc: "Check all feature combinations compile"
+    cmds:
+      - task: data-plane:check:no-default-features
+      - task: data-plane:check:grpc
+      - task: data-plane:check:websocket-native
+      - task: data-plane:check:websocket-wasm
+
+  # Feature-specific test tasks
+  data-plane:test:grpc:
+    desc: "Run tests with grpc feature only"
+    cmds:
+      - cargo test --package agntcy-slim-config --no-default-features --features grpc --locked
+
+  data-plane:test:websocket-native:
+    desc: "Run tests with websocket-native feature only"
+    cmds:
+      - cargo test --package agntcy-slim-config --no-default-features --features websocket-native --locked
+
+  data-plane:test:features:
+    desc: "Run tests for each feature individually"
+    cmds:
+      - task: data-plane:test:grpc
+      - task: data-plane:test:websocket-native
+
+  # Build tasks for specific features
+  data-plane:build:grpc:
+    desc: "Build with grpc feature only"
+    cmds:
+      - cargo build --package agntcy-slim-config --no-default-features --features grpc --locked
+
+  data-plane:build:websocket-native:
+    desc: "Build with websocket-native feature only"
+    cmds:
+      - cargo build --package agntcy-slim-config --no-default-features --features websocket-native --locked
+
+  data-plane:build:websocket-wasm:
+    desc: "Build with websocket-wasm feature for wasm target"
+    cmds:
+      - cargo build --package agntcy-slim-config --no-default-features --features websocket-wasm --target wasm32-unknown-unknown --locked
+
   # Enhanced coverage task that includes Python bindings coverage
   data-plane:coverage-full:
     desc: "Run full tests coverage including Python bindings"
