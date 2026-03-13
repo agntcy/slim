@@ -58,6 +58,16 @@ impl RpcCode {
     pub fn is_err(&self) -> bool {
         !self.is_ok()
     }
+
+    /// Parse an optional metadata value into an `RpcCode`.
+    ///
+    /// Returns `RpcCode::Ok` when the string is absent or cannot be parsed,
+    /// mirroring the wire convention where a missing status key means success.
+    pub fn from_metadata_str(s: Option<&str>) -> Self {
+        s.and_then(|s| s.parse::<i32>().ok())
+            .and_then(|code| RpcCode::try_from(code).ok())
+            .unwrap_or(RpcCode::Ok)
+    }
 }
 
 impl fmt::Display for RpcCode {
