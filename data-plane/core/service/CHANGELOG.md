@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.8](https://github.com/agntcy/slim/compare/slim-service-v0.8.7...slim-service-v0.8.8) - 2026-03-13
+
+### Fixed
+
+- node_id override in slim service config ([#1348](https://github.com/agntcy/slim/pull/1348))
+
 ## [0.8.7](https://github.com/agntcy/slim/compare/slim-service-v0.8.6...slim-service-v0.8.7) - 2026-02-27
 
 ### Added
