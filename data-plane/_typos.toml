@@ -11,4 +11,5 @@ extend-exclude = [
     "**/*.pem",
     "**/*.yaml",
     "bindings/go/generated/**",
+    "bindings/java/examples/**/types/**",
 ]
