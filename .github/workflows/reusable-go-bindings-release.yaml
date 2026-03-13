@@ -61,6 +61,7 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           workspace: ./data-plane
+          cache-enabled: false
 
       # Download all library artifacts
       - name: Download Generated Go Binding Artifacts
@@ -373,7 +374,7 @@ jobs:
           echo "✅ Updated tag $VERSION to point to main"
 
       - name: Cleanup pre-release branch
-        if: always()  # Run even if previous steps fail
+        if: always() # Run even if previous steps fail
         run: |
           cd ./target-repo
 

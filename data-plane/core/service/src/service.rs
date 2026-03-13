@@ -119,6 +119,10 @@ impl ServiceConfiguration {
     }
 
     pub fn build_server(&self, id: ID) -> Result<Service, ServiceError> {
+        let id = match &self.node_id {
+            Some(node_id) => ID::new_with_name(id.kind().clone(), node_id)?,
+            None => id,
+        };
         let service = Service::new_with_config(id, self.clone());
         Ok(service)
     }
@@ -537,9 +541,7 @@ impl ComponentBuilder for ServiceBuilder {
         name: &str,
         config: &Self::Config,
     ) -> Result<Self::Component, ServiceError> {
-        let node_name = config.node_id.clone().unwrap_or(name.to_string());
-        let id = ID::new_with_name(ServiceBuilder::kind(), &node_name)?;
-
+        let id = ID::new_with_name(ServiceBuilder::kind(), name)?;
         config.build_server(id)
     }
 }
@@ -565,6 +567,28 @@ mod tests {
         let config = ServiceConfiguration::new();
         assert_eq!(config.dataplane_servers(), &[]);
         assert_eq!(config.dataplane_clients(), &[]);
+    }
+
+    #[test]
+    fn test_build_server_uses_node_id_when_set() {
+        let mut config = ServiceConfiguration::new();
+        config.node_id = Some("custom-node".to_string());
+
+        let original_id = ID::new_with_name(Kind::new(KIND).unwrap(), "original").unwrap();
+        let service = config.build_server(original_id).unwrap();
+
+        assert_eq!(service.identifier().name(), "custom-node");
+        assert_eq!(service.identifier().kind(), &Kind::new(KIND).unwrap());
+    }
+
+    #[test]
+    fn test_build_server_preserves_id_when_node_id_is_none() {
+        let config = ServiceConfiguration::new();
+
+        let original_id = ID::new_with_name(Kind::new(KIND).unwrap(), "original").unwrap();
+        let service = config.build_server(original_id).unwrap();
+
+        assert_eq!(service.identifier().name(), "original");
     }
 
     #[tokio::test]
