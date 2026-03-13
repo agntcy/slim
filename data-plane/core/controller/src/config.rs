@@ -7,10 +7,10 @@ use serde::Deserialize;
 
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_config::auth::identity::{IdentityProviderConfig, IdentityVerifierConfig};
+use slim_config::client::ClientConfig;
 use slim_config::component::configuration::Configuration;
 use slim_config::component::id::ID;
-use slim_config::grpc::client::ClientConfig;
-use slim_config::grpc::server::ServerConfig;
+use slim_config::server::ServerConfig;
 use slim_datapath::message_processing::MessageProcessor;
 
 use crate::errors::ControllerError;
@@ -180,9 +180,9 @@ mod tests {
     use super::*;
     use slim_config::auth::jwt::Config as JwtConfig;
     use slim_config::auth::static_jwt::Config as StaticJwtConfig;
+    use slim_config::client::ClientConfig;
     use slim_config::component::id::{ID, Kind};
-    use slim_config::grpc::client::ClientConfig;
-    use slim_config::grpc::server::ServerConfig;
+    use slim_config::server::ServerConfig;
     use slim_datapath::message_processing::MessageProcessor;
     use slim_testing::utils::TEST_VALID_SECRET;
     use std::sync::Arc;

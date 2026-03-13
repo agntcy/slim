@@ -12,11 +12,11 @@ use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
+use slim_config::client::ClientConfig;
 use slim_config::component::configuration::Configuration;
 use slim_config::component::id::{ID, Kind};
 use slim_config::component::{Component, ComponentBuilder};
-use slim_config::grpc::client::ClientConfig;
-use slim_config::grpc::server::ServerConfig;
+use slim_config::server::ServerConfig;
 use slim_controller::config::Config as ControllerConfig;
 use slim_controller::config::Config as DataplaneConfig;
 use slim_controller::service::ControlPlane;
@@ -550,7 +550,7 @@ mod tests {
 
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
-    use slim_config::grpc::server::ServerConfig;
+    use slim_config::server::ServerConfig;
     use slim_config::tls::server::TlsServerConfig;
     use slim_datapath::api::MessageType;
     use slim_datapath::messages::Name;
@@ -689,7 +689,7 @@ mod tests {
 
         // build client configuration and connect
         let mut client_conf =
-            slim_config::grpc::client::ClientConfig::with_endpoint("http://0.0.0.0:12346");
+            slim_config::client::ClientConfig::with_endpoint("http://0.0.0.0:12346");
         client_conf.tls_setting.insecure = true;
         let conn_id = service
             .connect(&client_conf)
