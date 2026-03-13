@@ -102,6 +102,7 @@ jobs:
           fi
 
           task copy:runtimes ARTIFACTS_DIR=./artifacts
+          task slimrpc:generate-proto
           task build
           task test
           task pack OUTPUT_DIR=./nupkg $TAG_NAME_PARAM
