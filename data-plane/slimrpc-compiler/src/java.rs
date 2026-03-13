@@ -299,6 +299,68 @@ const HANDLER_STREAM_STREAM: &str = r#"    private static final class {{SERVICE_
 
 "#;
 
+struct RpcTemplates {
+    client_method: &'static str,
+    client_impl: &'static str,
+    server_method: &'static str,
+    unimplemented: &'static str,
+    register: &'static str,
+    handler: &'static str,
+}
+
+const UNARY_UNARY_TEMPLATES: RpcTemplates = RpcTemplates {
+    client_method: CLIENT_UNARY_UNARY_METHOD,
+    client_impl: CLIENT_UNARY_UNARY_IMPL,
+    server_method: SERVER_UNARY_UNARY_METHOD,
+    unimplemented: UNIMPLEMENTED_UNARY_UNARY,
+    register: REGISTER_UNARY_UNARY,
+    handler: HANDLER_UNARY_UNARY,
+};
+
+const UNARY_STREAM_TEMPLATES: RpcTemplates = RpcTemplates {
+    client_method: CLIENT_UNARY_STREAM_METHOD,
+    client_impl: CLIENT_UNARY_STREAM_IMPL,
+    server_method: SERVER_UNARY_STREAM_METHOD,
+    unimplemented: UNIMPLEMENTED_UNARY_STREAM,
+    register: REGISTER_UNARY_STREAM,
+    handler: HANDLER_UNARY_STREAM,
+};
+
+const STREAM_UNARY_TEMPLATES: RpcTemplates = RpcTemplates {
+    client_method: CLIENT_STREAM_UNARY_METHOD,
+    client_impl: CLIENT_STREAM_UNARY_IMPL,
+    server_method: SERVER_STREAM_UNARY_METHOD,
+    unimplemented: UNIMPLEMENTED_STREAM_UNARY,
+    register: REGISTER_STREAM_UNARY,
+    handler: HANDLER_STREAM_UNARY,
+};
+
+const STREAM_STREAM_TEMPLATES: RpcTemplates = RpcTemplates {
+    client_method: CLIENT_STREAM_STREAM_METHOD,
+    client_impl: CLIENT_STREAM_STREAM_IMPL,
+    server_method: SERVER_STREAM_STREAM_METHOD,
+    unimplemented: UNIMPLEMENTED_STREAM_STREAM,
+    register: REGISTER_STREAM_STREAM,
+    handler: HANDLER_STREAM_STREAM,
+};
+
+fn rpc_templates(client_streaming: bool, server_streaming: bool) -> &'static RpcTemplates {
+    match (client_streaming, server_streaming) {
+        (false, false) => &UNARY_UNARY_TEMPLATES,
+        (false, true) => &UNARY_STREAM_TEMPLATES,
+        (true, false) => &STREAM_UNARY_TEMPLATES,
+        (true, true) => &STREAM_STREAM_TEMPLATES,
+    }
+}
+
+fn apply(template: &str, vars: &[(&str, &str)]) -> String {
+    let mut result = template.to_string();
+    for (key, value) in vars {
+        result = result.replace(key, value);
+    }
+    result
+}
+
 #[derive(Clone)]
 struct JavaFileInfo {
     java_package: String,
@@ -419,21 +481,21 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
     let mut file_map: HashMap<String, FileDescriptorProto> = HashMap::new();
     let mut file_info_map: HashMap<String, JavaFileInfo> = HashMap::new();
 
-    for file in request.proto_file.iter() {
-        if let Some(name) = file.name.clone() {
+    for file in &request.proto_file {
+        if let Some(name) = &file.name {
             file_map.insert(name.clone(), file.clone());
-            file_info_map.insert(name, java_file_info(file));
+            file_info_map.insert(name.clone(), java_file_info(file));
         }
     }
 
     let mut type_map: HashMap<String, String> = HashMap::new();
 
-    for file in request.proto_file.iter() {
+    for file in &request.proto_file {
         let Some(file_name) = file.name.as_ref() else {
             continue;
         };
         let info = file_info_map
-            .get(file_name)
+            .get(file_name.as_str())
             .cloned()
             .unwrap_or_else(|| java_file_info(file));
 
@@ -449,29 +511,25 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
         collect_message_types(proto_prefix, java_prefix, &file.message_type, &mut type_map);
     }
 
-    for file_name in request.file_to_generate {
+    for file_name in &request.file_to_generate {
         let file_descriptor = file_map
-            .get(&file_name)
-            .cloned()
+            .remove(file_name)
             .context("File descriptor not found")?;
 
         let info = file_info_map
-            .get(&file_name)
-            .cloned()
+            .remove(file_name)
             .unwrap_or_else(|| java_file_info(&file_descriptor));
 
         let java_package = info.java_package;
         let package_decl = if java_package.is_empty() {
-            "".to_string()
+            String::new()
         } else {
             format!("package {};", java_package)
         };
 
         let package_name = file_descriptor.package.clone().unwrap_or_default();
-        let mut services_found = false;
 
         for service in file_descriptor.service {
-            services_found = true;
             let service_name = service.name.context("Service name missing")?;
             let full_service_name = if package_name.is_empty() {
                 service_name.clone()
@@ -487,171 +545,33 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
             let mut handler_impls = String::new();
 
             for method in service.method {
-                let method_name = method.name.clone().context("Method name missing")?;
-                let input_type = method.input_type.clone().context("Input type missing")?;
-                let output_type = method.output_type.clone().context("Output type missing")?;
+                let method_name = method.name.as_deref().context("Method name missing")?;
+                let input_type = method.input_type.as_deref().context("Input type missing")?;
+                let output_type = method
+                    .output_type
+                    .as_deref()
+                    .context("Output type missing")?;
 
-                let input_java = resolve_java_type(&input_type, &java_package, &type_map);
-                let output_java = resolve_java_type(&output_type, &java_package, &type_map);
+                let input_java = resolve_java_type(input_type, &java_package, &type_map);
+                let output_java = resolve_java_type(output_type, &java_package, &type_map);
 
-                let is_client_streaming = method.client_streaming.unwrap_or(false);
-                let is_server_streaming = method.server_streaming.unwrap_or(false);
+                let t = rpc_templates(
+                    method.client_streaming.unwrap_or(false),
+                    method.server_streaming.unwrap_or(false),
+                );
+                let vars = &[
+                    ("{{METHOD_NAME}}", method_name),
+                    ("{{SERVICE_NAME}}", service_name.as_str()),
+                    ("{{INPUT_TYPE}}", input_java.as_str()),
+                    ("{{OUTPUT_TYPE}}", output_java.as_str()),
+                ];
 
-                match (is_client_streaming, is_server_streaming) {
-                    (false, false) => {
-                        server_methods.push_str(
-                            &SERVER_UNARY_UNARY_METHOD
-                                .replace("{{METHOD_NAME}}", &method_name)
-                                .replace("{{INPUT_TYPE}}", &input_java)
-                                .replace("{{OUTPUT_TYPE}}", &output_java),
-                        );
-
-                        unimplemented_methods.push_str(
-                            &UNIMPLEMENTED_UNARY_UNARY
-                                .replace("{{METHOD_NAME}}", &method_name)
-                                .replace("{{INPUT_TYPE}}", &input_java)
-                                .replace("{{OUTPUT_TYPE}}", &output_java),
-                        );
-
-                        register_methods.push_str(
-                            &REGISTER_UNARY_UNARY
-                                .replace("{{METHOD_NAME}}", &method_name)
-                                .replace("{{SERVICE_NAME}}", &service_name),
-                        );
-
-                        handler_impls.push_str(
-                            &HANDLER_UNARY_UNARY
-                                .replace("{{METHOD_NAME}}", &method_name)
-                                .replace("{{SERVICE_NAME}}", &service_name)
-                                .replace("{{INPUT_TYPE}}", &input_java),
-                        );
-
-                        client_methods.push_str(
-                            &CLIENT_UNARY_UNARY_METHOD
-                                .replace("{{METHOD_NAME}}", &method_name)
-                                .replace("{{INPUT_TYPE}}", &input_java)
-                                .replace("{{OUTPUT_TYPE}}", &output_java),
-                        );
-
-                        client_method_impls.push_str(
-                            &CLIENT_UNARY_UNARY_IMPL
-                                .replace("{{METHOD_NAME}}", &method_name)
-                                .replace("{{INPUT_TYPE}}", &input_java)
-                                .replace("{{OUTPUT_TYPE}}", &output_java),
-                        );
-                    }
-                    (false, true) => {
-                        server_methods.push_str(
-                            &SERVER_UNARY_STREAM_METHOD
-                                .replace("{{METHOD_NAME}}", &method_name)
-                                .replace("{{INPUT_TYPE}}", &input_java),
-                        );
-
-                        unimplemented_methods.push_str(
-                            &UNIMPLEMENTED_UNARY_STREAM
-                                .replace("{{METHOD_NAME}}", &method_name)
-                                .replace("{{INPUT_TYPE}}", &input_java),
-                        );
-
-                        register_methods.push_str(
-                            &REGISTER_UNARY_STREAM
-                                .replace("{{METHOD_NAME}}", &method_name)
-                                .replace("{{SERVICE_NAME}}", &service_name),
-                        );
-
-                        handler_impls.push_str(
-                            &HANDLER_UNARY_STREAM
-                                .replace("{{METHOD_NAME}}", &method_name)
-                                .replace("{{SERVICE_NAME}}", &service_name)
-                                .replace("{{INPUT_TYPE}}", &input_java),
-                        );
-
-                        client_methods.push_str(
-                            &CLIENT_UNARY_STREAM_METHOD
-                                .replace("{{METHOD_NAME}}", &method_name)
-                                .replace("{{INPUT_TYPE}}", &input_java),
-                        );
-
-                        client_method_impls.push_str(
-                            &CLIENT_UNARY_STREAM_IMPL
-                                .replace("{{METHOD_NAME}}", &method_name)
-                                .replace("{{INPUT_TYPE}}", &input_java),
-                        );
-                    }
-                    (true, false) => {
-                        server_methods.push_str(
-                            &SERVER_STREAM_UNARY_METHOD
-                                .replace("{{METHOD_NAME}}", &method_name)
-                                .replace("{{OUTPUT_TYPE}}", &output_java),
-                        );
-
-                        unimplemented_methods.push_str(
-                            &UNIMPLEMENTED_STREAM_UNARY
-                                .replace("{{METHOD_NAME}}", &method_name)
-                                .replace("{{OUTPUT_TYPE}}", &output_java),
-                        );
-
-                        register_methods.push_str(
-                            &REGISTER_STREAM_UNARY
-                                .replace("{{METHOD_NAME}}", &method_name)
-                                .replace("{{SERVICE_NAME}}", &service_name),
-                        );
-
-                        handler_impls.push_str(
-                            &HANDLER_STREAM_UNARY
-                                .replace("{{METHOD_NAME}}", &method_name)
-                                .replace("{{SERVICE_NAME}}", &service_name)
-                                .replace("{{OUTPUT_TYPE}}", &output_java),
-                        );
-
-                        client_methods.push_str(
-                            &CLIENT_STREAM_UNARY_METHOD
-                                .replace("{{METHOD_NAME}}", &method_name)
-                                .replace("{{INPUT_TYPE}}", &input_java)
-                                .replace("{{OUTPUT_TYPE}}", &output_java),
-                        );
-
-                        client_method_impls.push_str(
-                            &CLIENT_STREAM_UNARY_IMPL
-                                .replace("{{METHOD_NAME}}", &method_name)
-                                .replace("{{INPUT_TYPE}}", &input_java)
-                                .replace("{{OUTPUT_TYPE}}", &output_java),
-                        );
-                    }
-                    (true, true) => {
-                        server_methods.push_str(
-                            &SERVER_STREAM_STREAM_METHOD.replace("{{METHOD_NAME}}", &method_name),
-                        );
-
-                        unimplemented_methods.push_str(
-                            &UNIMPLEMENTED_STREAM_STREAM.replace("{{METHOD_NAME}}", &method_name),
-                        );
-
-                        register_methods.push_str(
-                            &REGISTER_STREAM_STREAM
-                                .replace("{{METHOD_NAME}}", &method_name)
-                                .replace("{{SERVICE_NAME}}", &service_name),
-                        );
-
-                        handler_impls.push_str(
-                            &HANDLER_STREAM_STREAM
-                                .replace("{{METHOD_NAME}}", &method_name)
-                                .replace("{{SERVICE_NAME}}", &service_name),
-                        );
-
-                        client_methods.push_str(
-                            &CLIENT_STREAM_STREAM_METHOD
-                                .replace("{{METHOD_NAME}}", &method_name)
-                                .replace("{{INPUT_TYPE}}", &input_java),
-                        );
-
-                        client_method_impls.push_str(
-                            &CLIENT_STREAM_STREAM_IMPL
-                                .replace("{{METHOD_NAME}}", &method_name)
-                                .replace("{{INPUT_TYPE}}", &input_java),
-                        );
-                    }
-                }
+                client_methods.push_str(&apply(t.client_method, vars));
+                client_method_impls.push_str(&apply(t.client_impl, vars));
+                server_methods.push_str(&apply(t.server_method, vars));
+                unimplemented_methods.push_str(&apply(t.unimplemented, vars));
+                register_methods.push_str(&apply(t.register, vars));
+                handler_impls.push_str(&apply(t.handler, vars));
             }
 
             let service_content = SERVICE_TEMPLATE
@@ -672,7 +592,7 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
             };
 
             let final_content = FILE_TEMPLATE
-                .replace("{{PROTO_FILE}}", &file_name)
+                .replace("{{PROTO_FILE}}", file_name)
                 .replace("{{PACKAGE_DECL}}", &package_decl)
                 .replace("{{SERVICE_DEFINITION}}", &service_content);
 
@@ -682,11 +602,361 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
                 ..Default::default()
             });
         }
-
-        if !services_found {
-            continue;
-        }
     }
 
     Ok(response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use prost_types::{
+        DescriptorProto, FileDescriptorProto, FileOptions, MethodDescriptorProto,
+        ServiceDescriptorProto,
+    };
+
+    fn create_test_file(
+        name: &str,
+        package: &str,
+        services: Vec<ServiceDescriptorProto>,
+        messages: Vec<DescriptorProto>,
+    ) -> FileDescriptorProto {
+        FileDescriptorProto {
+            name: Some(name.to_string()),
+            package: Some(package.to_string()),
+            service: services,
+            message_type: messages,
+            ..Default::default()
+        }
+    }
+
+    fn create_method(
+        name: &str,
+        input: &str,
+        output: &str,
+        client_streaming: bool,
+        server_streaming: bool,
+    ) -> MethodDescriptorProto {
+        MethodDescriptorProto {
+            name: Some(name.to_string()),
+            input_type: Some(input.to_string()),
+            output_type: Some(output.to_string()),
+            client_streaming: Some(client_streaming),
+            server_streaming: Some(server_streaming),
+            ..Default::default()
+        }
+    }
+
+    fn create_service(name: &str, methods: Vec<MethodDescriptorProto>) -> ServiceDescriptorProto {
+        ServiceDescriptorProto {
+            name: Some(name.to_string()),
+            method: methods,
+            ..Default::default()
+        }
+    }
+
+    fn create_message(name: &str) -> DescriptorProto {
+        DescriptorProto {
+            name: Some(name.to_string()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_generate_no_services() {
+        let file = create_test_file("test.proto", "test", vec![], vec![]);
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test.proto".to_string()],
+            proto_file: vec![file],
+            ..Default::default()
+        };
+
+        let response = generate(request).unwrap();
+        assert_eq!(response.file.len(), 0);
+    }
+
+    #[test]
+    fn test_generate_unary_unary() {
+        let method = create_method(
+            "GetItem",
+            ".test.GetItemRequest",
+            ".test.GetItemResponse",
+            false,
+            false,
+        );
+        let service = create_service("ItemService", vec![method]);
+        let messages = vec![
+            create_message("GetItemRequest"),
+            create_message("GetItemResponse"),
+        ];
+        let file = create_test_file("test.proto", "test", vec![service], messages);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test.proto".to_string()],
+            proto_file: vec![file],
+            ..Default::default()
+        };
+
+        let response = generate(request).unwrap();
+        assert_eq!(response.file.len(), 1);
+
+        let content = response.file[0].content.as_ref().unwrap();
+        assert!(content.contains("public interface ItemServiceClient"));
+        assert!(content.contains("public interface ItemServiceServer"));
+        assert!(
+            content.contains("TestProto.GetItemResponse GetItem(TestProto.GetItemRequest request,")
+        );
+        assert!(content.contains(
+            "CompletableFuture<TestProto.GetItemResponse> GetItem(TestProto.GetItemRequest request, Context context)"
+        ));
+        assert!(content.contains("registerUnaryUnary"));
+        assert!(content.contains("implements UnaryUnaryHandler"));
+    }
+
+    #[test]
+    fn test_generate_all_streaming_types() {
+        let methods = vec![
+            create_method("Unary", ".pkg.Req", ".pkg.Res", false, false),
+            create_method("ServerStream", ".pkg.Req", ".pkg.Res", false, true),
+            create_method("ClientStream", ".pkg.Req", ".pkg.Res", true, false),
+            create_method("BidiStream", ".pkg.Req", ".pkg.Res", true, true),
+        ];
+        let service = create_service("TestService", methods);
+        let messages = vec![create_message("Req"), create_message("Res")];
+        let file = create_test_file("test.proto", "pkg", vec![service], messages);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test.proto".to_string()],
+            proto_file: vec![file],
+            ..Default::default()
+        };
+
+        let response = generate(request).unwrap();
+        assert_eq!(response.file.len(), 1);
+
+        let content = response.file[0].content.as_ref().unwrap();
+        assert!(content.contains("registerUnaryUnary"));
+        assert!(content.contains("implements UnaryUnaryHandler"));
+        assert!(content.contains("registerUnaryStream"));
+        assert!(content.contains("implements UnaryStreamHandler"));
+        assert!(content.contains("ResponseStreamReader ServerStream(TestProto.Req request,"));
+        assert!(content.contains("registerStreamUnary"));
+        assert!(content.contains("implements StreamUnaryHandler"));
+        assert!(
+            content.contains("ClientRequestStream<TestProto.Req, TestProto.Res> ClientStream(")
+        );
+        assert!(content.contains("registerStreamStream"));
+        assert!(content.contains("implements StreamStreamHandler"));
+        assert!(content.contains("ClientBidiStream<TestProto.Req> BidiStream("));
+    }
+
+    #[test]
+    fn test_generate_multiple_services() {
+        let service1 = create_service(
+            "ServiceA",
+            vec![create_method(
+                "MethodA", ".pkg.Req", ".pkg.Res", false, false,
+            )],
+        );
+        let service2 = create_service(
+            "ServiceB",
+            vec![create_method(
+                "MethodB", ".pkg.Req", ".pkg.Res", false, false,
+            )],
+        );
+        let messages = vec![create_message("Req"), create_message("Res")];
+        let file = create_test_file("test.proto", "pkg", vec![service1, service2], messages);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test.proto".to_string()],
+            proto_file: vec![file],
+            ..Default::default()
+        };
+
+        let response = generate(request).unwrap();
+        assert_eq!(response.file.len(), 2);
+
+        let content_a = response.file[0].content.as_ref().unwrap();
+        assert!(content_a.contains("class ServiceASlimrpc"));
+        assert!(content_a.contains("ServiceAClient"));
+
+        let content_b = response.file[1].content.as_ref().unwrap();
+        assert!(content_b.contains("class ServiceBSlimrpc"));
+        assert!(content_b.contains("ServiceBClient"));
+    }
+
+    #[test]
+    fn test_generate_empty_package() {
+        let method = create_method("Call", ".Request", ".Response", false, false);
+        let service = create_service("MyService", vec![method]);
+        let messages = vec![create_message("Request"), create_message("Response")];
+        let file = create_test_file("test.proto", "", vec![service], messages);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test.proto".to_string()],
+            proto_file: vec![file],
+            ..Default::default()
+        };
+
+        let response = generate(request).unwrap();
+        assert_eq!(response.file.len(), 1);
+
+        let content = response.file[0].content.as_ref().unwrap();
+        assert!(!content.contains("package "));
+        assert!(content.contains("SERVICE_NAME = \"MyService\""));
+        assert_eq!(
+            response.file[0].name.as_ref().unwrap(),
+            "MyServiceSlimrpc.java"
+        );
+    }
+
+    #[test]
+    fn test_generate_google_protobuf_type() {
+        let method = create_method(
+            "Delete",
+            ".test.DeleteRequest",
+            ".google.protobuf.Empty",
+            false,
+            false,
+        );
+        let service = create_service("TestService", vec![method]);
+        let messages = vec![create_message("DeleteRequest")];
+        let file = create_test_file("test.proto", "test", vec![service], messages);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test.proto".to_string()],
+            proto_file: vec![file],
+            ..Default::default()
+        };
+
+        let response = generate(request).unwrap();
+        assert_eq!(response.file.len(), 1);
+
+        let content = response.file[0].content.as_ref().unwrap();
+        assert!(content.contains("com.google.protobuf.Empty"));
+    }
+
+    #[test]
+    fn test_generate_nested_message_types() {
+        let inner = DescriptorProto {
+            name: Some("Inner".to_string()),
+            ..Default::default()
+        };
+        let outer = DescriptorProto {
+            name: Some("Outer".to_string()),
+            nested_type: vec![inner],
+            ..Default::default()
+        };
+        let method = create_method(
+            "DoSomething",
+            ".test.Outer.Inner",
+            ".test.Outer",
+            false,
+            false,
+        );
+        let service = create_service("TestService", vec![method]);
+        let file = FileDescriptorProto {
+            name: Some("test.proto".to_string()),
+            package: Some("test".to_string()),
+            service: vec![service],
+            message_type: vec![outer],
+            ..Default::default()
+        };
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test.proto".to_string()],
+            proto_file: vec![file],
+            ..Default::default()
+        };
+
+        let response = generate(request).unwrap();
+        assert_eq!(response.file.len(), 1);
+
+        let content = response.file[0].content.as_ref().unwrap();
+        assert!(
+            content.contains("TestProto.Outer.Inner request"),
+            "content was:\n{}",
+            content
+        );
+        assert!(
+            content.contains("CompletableFuture<TestProto.Outer>"),
+            "content was:\n{}",
+            content
+        );
+    }
+
+    #[test]
+    fn test_generate_java_multiple_files() {
+        let method = create_method("GetItem", ".test.Request", ".test.Response", false, false);
+        let service = create_service("ItemService", vec![method]);
+        let messages = vec![create_message("Request"), create_message("Response")];
+        let file = FileDescriptorProto {
+            name: Some("test.proto".to_string()),
+            package: Some("test".to_string()),
+            service: vec![service],
+            message_type: messages,
+            options: Some(FileOptions {
+                java_multiple_files: Some(true),
+                java_package: Some("com.example.test".to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test.proto".to_string()],
+            proto_file: vec![file],
+            ..Default::default()
+        };
+
+        let response = generate(request).unwrap();
+        assert_eq!(response.file.len(), 1);
+
+        let content = response.file[0].content.as_ref().unwrap();
+        assert!(
+            content.contains("Request request"),
+            "content was:\n{}",
+            content
+        );
+        assert!(
+            content.contains("CompletableFuture<Response>"),
+            "content was:\n{}",
+            content
+        );
+        let path = response.file[0].name.as_ref().unwrap();
+        assert!(path.starts_with("com/example/test/"), "path was: {}", path);
+    }
+
+    #[test]
+    fn test_generate_java_package_option() {
+        let method = create_method("Call", ".test.Request", ".test.Response", false, false);
+        let service = create_service("TestService", vec![method]);
+        let messages = vec![create_message("Request"), create_message("Response")];
+        let file = FileDescriptorProto {
+            name: Some("test.proto".to_string()),
+            package: Some("test".to_string()),
+            service: vec![service],
+            message_type: messages,
+            options: Some(FileOptions {
+                java_package: Some("com.example.myapp".to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test.proto".to_string()],
+            proto_file: vec![file],
+            ..Default::default()
+        };
+
+        let response = generate(request).unwrap();
+        assert_eq!(response.file.len(), 1);
+
+        let content = response.file[0].content.as_ref().unwrap();
+        assert!(content.contains("package com.example.myapp;"));
+
+        let path = response.file[0].name.as_ref().unwrap();
+        assert!(path.starts_with("com/example/myapp/"), "path was: {}", path);
+    }
 }
