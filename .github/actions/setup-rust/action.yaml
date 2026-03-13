@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-
 name: Setup Environment
 description: setup environment to build/test/lint rust applications
 inputs:
@@ -14,19 +13,33 @@ inputs:
     description: 'Cargo workspace to cache'
     required: false
     default: '.'
+  cache-directories:
+    description: 'Additional cache directories (whitespace-separated)'
+    required: false
+    default: |
+      ~/.cargo/bin
+      ~/.cargo/.crates.toml
+      ~/.cargo/.crates2.json
+  cache-enabled:
+    description: 'Enable rust cache'
+    required: false
+    default: 'true'
 runs:
-  using: "composite"
+  using: 'composite'
   steps:
     - name: Setup Rust
       id: setup-rust
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
         components: rustc, clippy, rustfmt
-        rustflags: ""
+        rustflags: ''
+        cache: ${{ inputs.cache-enabled }}
         cache-workspaces: ${{ inputs.workspace }}
         cache-on-failure: false
         cache-shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
         cache-all-crates: true
+        cache-bin: false # cache-bin has a bug at the swatinem cache level, if it's enabled, it will cause the bin cache to be cleared
+        cache-directories: ${{ inputs.cache-directories }}
 
     - name: Setup Taskfile
       uses: ./.github/actions/setup-task

@@ -153,6 +153,7 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           workspace: ./data-plane
+          cache-enabled: false
       - name: Build library
         working-directory: ./data-plane/bindings/rust
         run: |
@@ -234,6 +235,7 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           workspace: ${{ inputs.rust-workspace }}
+          cache-enabled: false
 
       - name: Setup Go
         uses: ./.github/actions/setup-go
