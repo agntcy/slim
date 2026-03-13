@@ -145,8 +145,10 @@ pub use channel::{Channel, MessageContext, MulticastItem};
 pub use codec::{Codec, Decoder, Encoder};
 pub use context::{Context, Metadata, SessionContext};
 pub use error::{InvalidRpcCode, RpcCode, RpcError};
-pub use rpc_session::{HandlerInfo, RpcSession, send_eos, send_error, send_error_for_rpc};
-pub use server::{HandlerResponse, HandlerType, ItemStream, RpcHandler, Server, StreamRpcHandler};
+pub use rpc_session::{
+    HandlerInfo, RpcSession, send_eos, send_error, send_error_for_rpc, send_response_stream,
+};
+pub use server::{HandlerType, RpcHandler, Server, StreamRpcHandler};
 pub use session_wrapper::{ReceivedMessage, SessionRx, SessionTx, new_session};
 
 // UniFFI handler traits and stream types
@@ -154,9 +156,10 @@ pub use handler_traits::{
     StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
 };
 pub use stream_types::{
-    BidiStreamHandler, MulticastBidiStreamHandler, MulticastResponseReader, MulticastStreamMessage,
-    RequestStream as UniffiRequestStream, RequestStreamWriter, ResponseSink, ResponseStreamReader,
-    RpcMessageContext, RpcMulticastItem, StreamMessage,
+    BidiStreamHandler, DecodedStream, MulticastBidiStreamHandler, MulticastResponseReader,
+    MulticastStreamMessage, RawStream, RequestStream as UniffiRequestStream, RequestStreamWriter,
+    ResponseSink, ResponseStreamReader, RpcMessageContext, RpcMulticastItem, StreamMessage,
+    StreamSource,
 };
 
 /// Key used in metadata for RPC deadline/timeout
