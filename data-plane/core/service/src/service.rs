@@ -119,6 +119,10 @@ impl ServiceConfiguration {
     }
 
     pub fn build_server(&self, id: ID) -> Result<Service, ServiceError> {
+        let id = match &self.node_id {
+            Some(node_id) => ID::new_with_name(id.kind().clone(), node_id)?,
+            None => id,
+        };
         let service = Service::new_with_config(id, self.clone());
         Ok(service)
     }
@@ -537,9 +541,7 @@ impl ComponentBuilder for ServiceBuilder {
         name: &str,
         config: &Self::Config,
     ) -> Result<Self::Component, ServiceError> {
-        let node_name = config.node_id.clone().unwrap_or(name.to_string());
-        let id = ID::new_with_name(ServiceBuilder::kind(), &node_name)?;
-
+        let id = ID::new_with_name(ServiceBuilder::kind(), name)?;
         config.build_server(id)
     }
 }
