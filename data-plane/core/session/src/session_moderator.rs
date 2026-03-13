@@ -986,7 +986,7 @@ where
 
         // Send error notification to the application
         let error = SessionError::ParticipantDisconnected(disconnected.clone());
-        self.common.send_to_app(error).await?;
+        let _ = self.common.send_to_app(error).await;
 
         // if the disconnection was detected nothing to do here,
         // otherwise we need to reply, change the metadata and swap

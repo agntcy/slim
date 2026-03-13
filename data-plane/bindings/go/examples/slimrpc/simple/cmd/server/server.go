@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -106,13 +107,17 @@ func (s *TestServiceImpl) ExampleStreamStream(ctx context.Context, stream slimrp
 }
 
 func main() {
+	// instance allows running multiple servers (e.g. server1, server2 for group example)
+	instance := flag.String("instance", "server", "Instance name used as the SLIM app name")
+	flag.Parse()
+
 	// Initialize SLIM with defaults
 	slim_bindings.InitializeWithDefaults()
 
 	service := slim_bindings.GetGlobalService()
 
 	// Create local name
-	localName := slim_bindings.NewName("agntcy", "grpc", "server")
+	localName := slim_bindings.NewName("agntcy", "grpc", *instance)
 
 	// Create app with shared secret
 	app, err := service.CreateAppWithSecret(localName, "my_shared_secret_for_testing_purposes_only")
@@ -144,7 +149,7 @@ func main() {
 
 	// Start server in a goroutine
 	go func() {
-		log.Println("Server starting...")
+		log.Printf("Server '%s' starting...", *instance)
 		if err := server.Serve(); err != nil {
 			log.Printf("Server error: %v", err)
 		}

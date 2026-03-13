@@ -511,8 +511,6 @@ pub fn handle_channel_discovery_message(
         Some(SlimHeaderFlags::default().with_forward_to(message.get_incoming_conn())),
     );
 
-    debug!("Received discovery request, reply to the msg source");
-
     let msg = Message::builder()
         .with_slim_header(slim_header)
         .session_type(session_type)

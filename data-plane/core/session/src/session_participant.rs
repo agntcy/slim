@@ -490,30 +490,41 @@ where
     async fn on_leave_request(&mut self, msg: Message) -> Result<(), SessionError> {
         debug!("close session");
         self.common.processing_state = ProcessingState::Draining;
-        self.inner
-            .on_message(SessionMessage::StartDrain {
-                grace_period: Duration::from_secs(60), // not used in session
-            })
-            .await?;
-        self.common.sender.start_drain();
 
-        let reply = if msg.get_session_message_type() == ProtoSessionMessageType::LeaveRequest {
-            self.common.create_control_message(
-                &msg.get_source(),
-                ProtoSessionMessageType::LeaveReply,
-                msg.get_id(),
-                CommandPayload::builder().leave_reply().as_content(),
-                false,
-            )?
-        } else {
-            self.common.create_control_message(
-                &msg.get_source(),
-                ProtoSessionMessageType::GroupAck,
-                msg.get_id(),
-                CommandPayload::builder().group_ack().as_content(),
-                false,
-            )?
+        let (reply_type, reply_content) = match msg.get_session_message_type() {
+            ProtoSessionMessageType::GroupClose => {
+                // The group is being destroyed — no acks will ever arrive.
+                // Close immediately so all pending CompletionHandles resolve
+                // with SessionClosed rather than waiting for the retry timer (~9 s).
+                self.on_shutdown().await?;
+                self.common.sender.close();
+                (
+                    ProtoSessionMessageType::GroupAck,
+                    CommandPayload::builder().group_ack().as_content(),
+                )
+            }
+            _ => {
+                // LeaveRequest: drain gracefully, waiting for in-flight acks.
+                self.inner
+                    .on_message(SessionMessage::StartDrain {
+                        grace_period: Duration::from_secs(60), // not used in session
+                    })
+                    .await?;
+                self.common.sender.start_drain();
+                (
+                    ProtoSessionMessageType::LeaveReply,
+                    CommandPayload::builder().leave_reply().as_content(),
+                )
+            }
         };
+
+        let reply = self.common.create_control_message(
+            &msg.get_source(),
+            reply_type,
+            msg.get_id(),
+            reply_content,
+            false,
+        )?;
 
         self.common.send_to_slim(reply).await?;
 
@@ -561,7 +572,9 @@ where
             .await?;
         self.common
             .add_subscription(&self.common.settings.destination, msg.get_incoming_conn())
-            .await
+            .await?;
+
+        Ok(())
     }
 
     async fn disconnect_from_group(&self) -> Result<(), SessionError> {

@@ -4,8 +4,6 @@
 use std::fmt::Display;
 use std::{collections::HashMap, time::Duration};
 
-use tracing::debug;
-
 use super::encoder::Name;
 use crate::api::proto::dataplane::v1::{GroupClosePayload, GroupNackPayload, PingPayload};
 use crate::api::{
@@ -322,30 +320,13 @@ impl SlimHeader {
     // returns the connection to use to process correctly the message
     // first connection is from where we received the packet
     // the second is where to forward the packet if needed
-    pub(crate) fn get_in_out_connections(&self) -> (u64, Option<u64>) {
+    pub(crate) fn get_connections(&self) -> (u64, Option<u64>, Option<u64>) {
         // when calling this function, incoming connection is set
         let incoming = self
             .get_incoming_conn()
             .expect("incoming connection not found");
 
-        if let Some(val) = self.get_recv_from() {
-            debug!(
-                conn = %val,
-                "received recv_from command, update state on connection",
-            );
-            return (val, None);
-        }
-
-        if let Some(val) = self.get_forward_to() {
-            debug!(
-                conn = %val,
-                "received forward_to command, update state and forward to connection",
-            );
-            return (incoming, Some(val));
-        }
-
-        // by default, return the incoming connection and None
-        (incoming, None)
+        (incoming, self.get_recv_from(), self.get_forward_to())
     }
 }
 

@@ -11,7 +11,6 @@ import (
 	slim_bindings "github.com/agntcy/slim-bindings-go"
 	"github.com/agntcy/slim-bindings-go/slimrpc"
 	"google.golang.org/protobuf/proto"
-
 )
 
 
@@ -421,6 +420,131 @@ func (h *Test_ExampleStreamStream_Handler) Handle(stream *slim_bindings.RequestS
 	}
 
 	return nil
+}
+
+
+// TestGroupClient is the multicast (group) client API for Test service.
+// Requires a *slim_bindings.Channel created with ChannelNewGroup* targeting multiple server instances.
+type TestGroupClient interface {
+	ExampleUnaryUnary(ctx context.Context, req *ExampleRequest) (slimrpc.MulticastResponseStream[*ExampleResponse], error)
+	ExampleUnaryStream(ctx context.Context, req *ExampleRequest) (slimrpc.MulticastResponseStream[*ExampleResponse], error)
+	ExampleUnaryStreamTwo(ctx context.Context, req *ExampleRequest) (slimrpc.MulticastResponseStream[*ExampleResponse], error)
+	ExampleStreamUnary(ctx context.Context) (slimrpc.MulticastClientBidiStream[*ExampleRequest, *ExampleResponse], error)
+	ExampleStreamStream(ctx context.Context) (slimrpc.MulticastClientBidiStream[*ExampleRequest, *ExampleResponse], error)
+}
+
+type TestGroupClientImpl struct {
+	channel *slim_bindings.Channel
+}
+
+// NewTestGroupClient creates a new multicast Test client.
+func NewTestGroupClient(channel *slim_bindings.Channel) TestGroupClient {
+	return &TestGroupClientImpl{channel: channel}
+}
+
+
+func (c *TestGroupClientImpl) ExampleUnaryUnary(ctx context.Context, req *ExampleRequest) (slimrpc.MulticastResponseStream[*ExampleResponse], error) {
+	reqBytes, err := proto.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var timeout *time.Duration
+	if deadline, ok := ctx.Deadline(); ok {
+		t := time.Until(deadline)
+		timeout = &t
+	}
+
+	var metadata *map[string]string
+	if md, ok := slimrpc.MetadataFromContext(ctx); ok {
+		metadata = &md
+	}
+
+	reader, err := c.channel.CallMulticastUnaryAsync("example_service.Test", "ExampleUnaryUnary", reqBytes, timeout, metadata)
+	if err != nil {
+		return nil, err
+	}
+	return slimrpc.NewMulticastResponseStream[*ExampleResponse](reader), nil
+}
+
+func (c *TestGroupClientImpl) ExampleUnaryStream(ctx context.Context, req *ExampleRequest) (slimrpc.MulticastResponseStream[*ExampleResponse], error) {
+	reqBytes, err := proto.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var timeout *time.Duration
+	if deadline, ok := ctx.Deadline(); ok {
+		t := time.Until(deadline)
+		timeout = &t
+	}
+
+	var metadata *map[string]string
+	if md, ok := slimrpc.MetadataFromContext(ctx); ok {
+		metadata = &md
+	}
+
+	reader, err := c.channel.CallMulticastUnaryStreamAsync("example_service.Test", "ExampleUnaryStream", reqBytes, timeout, metadata)
+	if err != nil {
+		return nil, err
+	}
+	return slimrpc.NewMulticastResponseStream[*ExampleResponse](reader), nil
+}
+
+func (c *TestGroupClientImpl) ExampleUnaryStreamTwo(ctx context.Context, req *ExampleRequest) (slimrpc.MulticastResponseStream[*ExampleResponse], error) {
+	reqBytes, err := proto.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var timeout *time.Duration
+	if deadline, ok := ctx.Deadline(); ok {
+		t := time.Until(deadline)
+		timeout = &t
+	}
+
+	var metadata *map[string]string
+	if md, ok := slimrpc.MetadataFromContext(ctx); ok {
+		metadata = &md
+	}
+
+	reader, err := c.channel.CallMulticastUnaryStreamAsync("example_service.Test", "ExampleUnaryStreamTwo", reqBytes, timeout, metadata)
+	if err != nil {
+		return nil, err
+	}
+	return slimrpc.NewMulticastResponseStream[*ExampleResponse](reader), nil
+}
+
+func (c *TestGroupClientImpl) ExampleStreamUnary(ctx context.Context) (slimrpc.MulticastClientBidiStream[*ExampleRequest, *ExampleResponse], error) {
+	var timeout *time.Duration
+	if deadline, ok := ctx.Deadline(); ok {
+		t := time.Until(deadline)
+		timeout = &t
+	}
+
+	var metadata *map[string]string
+	if md, ok := slimrpc.MetadataFromContext(ctx); ok {
+		metadata = &md
+	}
+
+	handler := c.channel.CallMulticastStreamUnary("example_service.Test", "ExampleStreamUnary", timeout, metadata)
+	return slimrpc.NewMulticastClientBidiStream[*ExampleRequest, *ExampleResponse](handler), nil
+}
+
+func (c *TestGroupClientImpl) ExampleStreamStream(ctx context.Context) (slimrpc.MulticastClientBidiStream[*ExampleRequest, *ExampleResponse], error) {
+	var timeout *time.Duration
+	if deadline, ok := ctx.Deadline(); ok {
+		t := time.Until(deadline)
+		timeout = &t
+	}
+
+	var metadata *map[string]string
+	if md, ok := slimrpc.MetadataFromContext(ctx); ok {
+		metadata = &md
+	}
+
+	handler := c.channel.CallMulticastStreamStream("example_service.Test", "ExampleStreamStream", timeout, metadata)
+	return slimrpc.NewMulticastClientBidiStream[*ExampleRequest, *ExampleResponse](handler), nil
 }
 
 

@@ -526,35 +526,24 @@ impl MessageProcessor {
         &self,
         msg: Message,
         conn: u64,
+        connection: &Connection,
         forward: Option<u64>,
         add: bool,
     ) -> Result<(), DataPathError> {
         let dst = msg.get_dst();
 
-        // As connection is deleted only after processing, at this point it must exist.
-        let connection = if let Some(c) = self.forwarder().get_connection(conn) {
-            c
-        } else {
-            return Err(DataPathError::MessageProcessingError {
-                source: Box::new(DataPathError::ConnectionNotFound(conn)),
-                msg: Box::new(msg),
-            });
-        };
+        let is_local = connection.is_local_connection();
 
         debug!(
             %conn,
             %dst,
-            is_local = connection.is_local_connection(),
+            is_local,
             "processing {}subscription",
             if add { "" } else { "un" }
         );
 
-        self.forwarder().on_subscription_msg(
-            dst.clone(),
-            conn,
-            connection.is_local_connection(),
-            add,
-        )?;
+        self.forwarder()
+            .on_subscription_msg(dst.clone(), conn, is_local, add)?;
 
         match forward {
             None => Ok(()),
@@ -617,11 +606,30 @@ impl MessageProcessor {
         let header = msg.get_slim_header();
 
         // get in and out connections
-        let (conn, forward) = header.get_in_out_connections();
+        let (in_conn, recv_from, forward) = header.get_connections();
+        let in_conn = recv_from.unwrap_or(in_conn);
 
-        let result = self
-            .process_subscription_update_and_forward(msg, conn, forward, add)
-            .await;
+        // As connection is deleted only after processing, at this point it must exist.
+        let result = match self.forwarder().get_connection(in_conn) {
+            None => Err(DataPathError::MessageProcessingError {
+                source: Box::new(DataPathError::ConnectionNotFound(in_conn)),
+                msg: Box::new(msg.clone()),
+            }),
+            Some(connection) => {
+                if recv_from.is_none() || !connection.is_local_connection() {
+                    self.process_subscription_update_and_forward(
+                        msg,
+                        in_conn,
+                        &connection,
+                        forward,
+                        add,
+                    )
+                    .await
+                } else {
+                    Ok(())
+                }
+            }
+        };
 
         if let (Some(ack_id), Some(source), Some(destination)) =
             (ack_id, ack_source, ack_destination)
