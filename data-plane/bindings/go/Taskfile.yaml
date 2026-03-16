@@ -215,7 +215,9 @@ tasks:
       - which uniffi-bindgen-go
     cmds:
       - echo "📦 Installing uniffi-bindgen-go..."
-      - cargo install uniffi-bindgen-go --git https://github.com/NordSecurity/uniffi-bindgen-go.git --tag v0.5.0+v0.29.5 --config net.git-fetch-with-cli=true
+      # PR #88: uniffi v0.30 support - https://github.com/NordSecurity/uniffi-bindgen-go/pull/88
+      # Revert to released tag when merged: --tag v0.5.0+v0.29.5 (or v0.6.0+v0.30 when released)
+      - cargo install uniffi-bindgen-go --git https://github.com/tnull/uniffi-bindgen-go.git --branch 2026-02-upgrade-to-uniffi-0.30 --config net.git-fetch-with-cli=true
     silent: true
 
   copy-library:

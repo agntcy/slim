@@ -54,7 +54,7 @@ anyhow = "1.0.98"
 
 async-stream = "0.3"
 async-trait = "0.1.88"
-aws-lc-rs = "1.13"
+aws-lc-rs = { version = "1.13", features = ["bindgen"] }
 base64 = "0.22"
 bincode = "2.0.1"
 bit-vec = "0.8"
