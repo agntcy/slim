@@ -15,7 +15,9 @@ bincode = { workspace = true }
 bit-vec = { workspace = true }
 display-error-chain = { workspace = true }
 drain = { workspace = true }
+fastwebsockets = { workspace = true }
 h2 = { workspace = true }
+http = { workspace = true }
 opentelemetry = { workspace = true }
 parking_lot = { workspace = true }
 prost = { workspace = true }
