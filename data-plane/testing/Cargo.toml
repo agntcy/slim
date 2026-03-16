@@ -20,6 +20,14 @@ path = "src/bin/test_group.rs"
 name = "test-p2p"
 path = "src/bin/test_p2p.rs"
 
+[[bin]]
+name = "workload-gen"
+path = "src/bin/workload_gen.rs"
+
+[[bin]]
+name = "publisher"
+path = "src/bin/publisher.rs"
+
 [dependencies]
 agntcy-slim = { workspace = true }
 agntcy-slim-auth = { workspace = true }
@@ -33,6 +41,7 @@ base64 = { workspace = true }
 bollard = { version = "0.17" }
 clap = { workspace = true }
 futures = { workspace = true }
+indicatif.workspace = true
 jsonwebtoken-aws-lc = { workspace = true }
 libc = { version = "0.2.177" }
 parking_lot = { workspace = true }
@@ -41,6 +50,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["fs"] }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 wiremock = { workspace = true }
