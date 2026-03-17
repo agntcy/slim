@@ -21,7 +21,7 @@ public static class SlimRpcStreams
     /// <param name="reader">The response stream reader.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Async enumerable of parsed messages.</returns>
-    internal static async IAsyncEnumerable<T> ReadResponseStreamAsync<T>(
+    public static async IAsyncEnumerable<T> ReadResponseStreamAsync<T>(
         uniffi.slim_bindings.ResponseStreamReader reader,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
         where T : IMessage<T>, new()
@@ -51,7 +51,7 @@ public static class SlimRpcStreams
     /// <param name="stream">The request stream.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Async enumerable of parsed messages.</returns>
-    internal static async IAsyncEnumerable<T> ReadRequestStreamAsync<T>(
+    public static async IAsyncEnumerable<T> ReadRequestStreamAsync<T>(
         uniffi.slim_bindings.RequestStream stream,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
         where T : IMessage<T>, new()
@@ -81,7 +81,7 @@ public static class SlimRpcStreams
     /// <param name="bidi">The bidirectional stream handler.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Async enumerable of parsed messages.</returns>
-    internal static async IAsyncEnumerable<T> ReadBidiStreamAsync<T>(
+    public static async IAsyncEnumerable<T> ReadBidiStreamAsync<T>(
         uniffi.slim_bindings.BidiStreamHandler bidi,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
         where T : IMessage<T>, new()

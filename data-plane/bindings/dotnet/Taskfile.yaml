@@ -156,6 +156,15 @@ tasks:
           exit 1
         fi
 
+        # Make all bindings types public so SlimRpc CreateChannel/CreateServer/SlimRpcStreams can be public.
+        # uniffi-bindgen-cs generates internal by default; a few public types cascade to the whole API.
+        sed -i.bak -e 's/^internal class /public class /' \
+            -e 's/^internal interface /public interface /' \
+            -e 's/^internal record /public record /' \
+            -e 's/^internal enum /public enum /' \
+            "{{.GENERATED_DIR}}/slim_bindings.cs"
+        rm -f "{{.GENERATED_DIR}}/slim_bindings.cs.bak"
+
         echo "✅ C# bindings generated successfully"
       - task: copy:runtimes
     silent: true
@@ -268,9 +277,10 @@ tasks:
 
         mkdir -p "$OUTPUT_DIR"
         dotnet pack Slim/Slim.csproj --configuration Release --output "$OUTPUT_DIR" -p:Version="$VERSION"
+        dotnet pack Slim.SlimRpc/Slim.SlimRpc.csproj --configuration Release --output "$OUTPUT_DIR" -p:Version="$VERSION"
 
         echo ""
-        echo "✅ Successfully created NuGet package:"
+        echo "✅ Successfully created NuGet packages:"
         ls -lh "$OUTPUT_DIR"/*.nupkg
     silent: true
 

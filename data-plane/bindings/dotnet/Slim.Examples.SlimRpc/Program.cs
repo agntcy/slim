@@ -70,12 +70,7 @@ class Program
         TestServerRegistration.RegisterTestServer(slimServer, impl);
 
         Console.WriteLine("Server starting... (Ctrl+C to stop)");
-        var cts = new CancellationTokenSource();
-        Console.CancelKeyPress += (_, e) =>
-        {
-            e.Cancel = true;
-            cts.Cancel();
-        };
+        Console.CancelKeyPress += (_, _) => Console.WriteLine("Server stopping...");
 
         try
         {
@@ -119,6 +114,35 @@ class Program
         catch (Exception ex)
         {
             Console.WriteLine($"Unary-Stream failed: {ex.Message}");
+        }
+
+        Console.WriteLine("\n=== Stream-Unary ===");
+        async IAsyncEnumerable<ExampleRequest> StreamRequests()
+        {
+            for (var i = 0; i < 10; i++)
+                yield return new ExampleRequest { ExampleInteger = i, ExampleString = $"Request {i}" };
+        }
+        try
+        {
+            var streamUnaryResp = await client.ExampleStreamUnaryAsync(StreamRequests());
+            Console.WriteLine($"Stream-Unary: {streamUnaryResp}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Stream-Unary failed: {ex.Message}");
+        }
+
+        Console.WriteLine("\n=== Stream-Stream ===");
+        try
+        {
+            await foreach (var r in client.ExampleStreamStreamAsync(StreamRequests()))
+            {
+                Console.WriteLine($"  Stream-Stream: {r}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Stream-Stream failed: {ex.Message}");
         }
 
         Console.WriteLine("\nDone.");

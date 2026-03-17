@@ -19,6 +19,8 @@
     <RepositoryUrl>https://github.com/agntcy/slim</RepositoryUrl>
     <PackageProjectUrl>https://github.com/agntcy/slim/tree/main/data-plane/bindings/dotnet</PackageProjectUrl>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
 
   <ItemGroup>

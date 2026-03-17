@@ -17,7 +17,7 @@ public static class SlimRpcServerFactory
     /// <param name="baseName">The base name for the server.</param>
     /// <param name="connectionId">Optional connection ID to use.</param>
     /// <returns>A server for handling RPC requests.</returns>
-    internal static uniffi.slim_bindings.Server CreateServer(
+    public static uniffi.slim_bindings.Server CreateServer(
         SlimApp app,
         SlimName baseName,
         ulong? connectionId = null)

@@ -17,7 +17,7 @@ public static class SlimRpcChannelFactory
     /// <param name="remote">The remote service name.</param>
     /// <param name="connectionId">Optional connection ID to use.</param>
     /// <returns>A channel for making RPC calls.</returns>
-    internal static uniffi.slim_bindings.Channel CreateChannel(
+    public static uniffi.slim_bindings.Channel CreateChannel(
         SlimApp app,
         SlimName remote,
         ulong? connectionId = null)

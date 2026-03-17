@@ -67,11 +67,17 @@ namespace ExampleService;
                 }
                 await bidi.CloseSendAsync();
             });
-            await foreach (var msg in SlimRpcStreams.ReadBidiStreamAsync<ExampleService.ExampleResponse>(bidi))
+            try
             {
-                yield return msg;
+                await foreach (var msg in SlimRpcStreams.ReadBidiStreamAsync<ExampleService.ExampleResponse>(bidi))
+                {
+                    yield return msg;
+                }
             }
-            await sendTask;
+            finally
+            {
+                await sendTask;
+            }
         }
     }
 

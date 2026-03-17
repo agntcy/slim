@@ -510,11 +510,17 @@ fn generate_stream_stream_client(
                 }}
                 await bidi.CloseSendAsync();
             }});
-            await foreach (var msg in SlimRpcStreams.ReadBidiStreamAsync<{}>(bidi))
+            try
             {{
-                yield return msg;
+                await foreach (var msg in SlimRpcStreams.ReadBidiStreamAsync<{}>(bidi))
+                {{
+                    yield return msg;
+                }}
             }}
-            await sendTask;
+            finally
+            {{
+                await sendTask;
+            }}
         }}
 "#,
         output_type, method_name, input_type, package_name, service_name, method_name, output_type
