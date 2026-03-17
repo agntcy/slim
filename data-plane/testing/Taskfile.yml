@@ -120,3 +120,33 @@ tasks:
           BIN: "test-p2p"
           ARGS: ""
           BIN_ARGS: "--disable-mls --multiple-remotes"
+  
+  test:benchmark:workload-gen:
+    desc: "Generate workload file for load test (run first)"
+    dir: ".."
+    cmds:
+      - task: testing:run
+        vars:
+          BIN: "workload-gen"
+          ARGS: ""
+          BIN_ARGS: "--subscriptions 10 --publications 20 --instances 1 --apps 1 --output workload_debug.dat"
+
+  test:benchmark:subscriber:
+    desc: "Start subscriber for load test (use --id 0 with default workload)"
+    dir: ".."
+    cmds:
+      - task: testing:run
+        vars:
+          BIN: "subscriber"
+          ARGS: ""
+          BIN_ARGS: "--config ../config/base/client-config.yaml --id 0 --workload workload_debug.dat"
+
+  test:benchmark:publisher:
+    desc: "Start publisher for load test (run after SLIM and subscriber)"
+    dir: ".."
+    cmds:
+      - task: testing:run
+        vars:
+          BIN: "publisher"
+          ARGS: ""
+          BIN_ARGS: "--config ../config/base/client-config.yaml --id 1 --workload workload_debug.dat --msg-size 1024 --frequency 0"

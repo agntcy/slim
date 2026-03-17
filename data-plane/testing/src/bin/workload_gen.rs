@@ -130,8 +130,6 @@ struct Publication {
 }
 
 fn main() {
-    println!("SZIA ZSOFIKA");
-
     // parse command line arguments
     let mut args = Args::parse();
 

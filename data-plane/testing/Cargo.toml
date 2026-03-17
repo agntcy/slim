@@ -28,6 +28,10 @@ path = "src/bin/workload_gen.rs"
 name = "publisher"
 path = "src/bin/publisher.rs"
 
+[[bin]]
+name = "subscriber"
+path = "src/bin/subscriber.rs"
+
 [dependencies]
 agntcy-slim = { workspace = true }
 agntcy-slim-auth = { workspace = true }
