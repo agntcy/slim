@@ -38,7 +38,7 @@ In another terminal, start the rpc server:
 task examples:rpc:server
 ```
 
-In another terminal, run the rpc client:
+In the third terminal, run the rpc client:
 
 ```bash
 task examples:rpc:client
