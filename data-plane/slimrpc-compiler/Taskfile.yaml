@@ -13,13 +13,6 @@ tasks:
     cmds:
       - task -l
 
-  build:csharp:
-    desc: Build protoc-gen-slimrpc-csharp for local use
-    dir: "{{.TASKFILE_DIR}}"
-    cmds:
-      - cargo build --release --bin protoc-gen-slimrpc-csharp
-    silent: true
-
   crossbuild:
     desc: Cross-compile the slimrpc-compiler
     dir: "{{.TASKFILE_DIR}}"

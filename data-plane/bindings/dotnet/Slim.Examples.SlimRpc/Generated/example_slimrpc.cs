@@ -4,6 +4,7 @@
 using Agntcy.Slim.SlimRpc;
 using Google.Protobuf;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Threading;
 using System;
@@ -20,6 +21,7 @@ namespace ExampleService;
 
         public async Task<ExampleService.ExampleResponse> ExampleUnaryUnaryAsync(ExampleService.ExampleRequest request, TimeSpan? timeout = null, IReadOnlyDictionary<string, string>? metadata = null, CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var reqBytes = request.ToByteString().ToByteArray();
             var respBytes = await _channel.CallUnaryAsync("example_service.Test", "ExampleUnaryUnary", reqBytes, timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
             return ExampleService.ExampleResponse.Parser.ParseFrom(respBytes);
@@ -29,7 +31,7 @@ namespace ExampleService;
         {
             var reqBytes = request.ToByteString().ToByteArray();
             var stream = await _channel.CallUnaryStreamAsync("example_service.Test", "ExampleUnaryStream", reqBytes, timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
-            await foreach (var msg in SlimRpcStreams.ReadResponseStreamAsync<ExampleService.ExampleResponse>(stream))
+            await foreach (var msg in SlimRpcStreams.ReadResponseStreamAsync<ExampleService.ExampleResponse>(stream, cancellationToken))
             {
                 yield return msg;
             }
@@ -39,7 +41,7 @@ namespace ExampleService;
         {
             var reqBytes = request.ToByteString().ToByteArray();
             var stream = await _channel.CallUnaryStreamAsync("example_service.Test", "ExampleUnaryStreamTwo", reqBytes, timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
-            await foreach (var msg in SlimRpcStreams.ReadResponseStreamAsync<ExampleService.ExampleResponse>(stream))
+            await foreach (var msg in SlimRpcStreams.ReadResponseStreamAsync<ExampleService.ExampleResponse>(stream, cancellationToken))
             {
                 yield return msg;
             }
@@ -48,7 +50,7 @@ namespace ExampleService;
         public async Task<ExampleService.ExampleResponse> ExampleStreamUnaryAsync(IAsyncEnumerable<ExampleService.ExampleRequest> requestStream, TimeSpan? timeout = null, IReadOnlyDictionary<string, string>? metadata = null, CancellationToken cancellationToken = default)
         {
             var writer = _channel.CallStreamUnary("example_service.Test", "ExampleStreamUnary", timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
-            await foreach (var req in requestStream)
+            await foreach (var req in requestStream.WithCancellation(cancellationToken))
             {
                 await writer.SendAsync(req.ToByteString().ToByteArray());
             }
@@ -61,7 +63,7 @@ namespace ExampleService;
             var bidi = _channel.CallStreamStream("example_service.Test", "ExampleStreamStream", timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
             var sendTask = Task.Run(async () =>
             {
-                await foreach (var req in requestStream)
+                await foreach (var req in requestStream.WithCancellation(cancellationToken))
                 {
                     await bidi.SendAsync(req.ToByteString().ToByteArray());
                 }
@@ -69,7 +71,7 @@ namespace ExampleService;
             });
             try
             {
-                await foreach (var msg in SlimRpcStreams.ReadBidiStreamAsync<ExampleService.ExampleResponse>(bidi))
+                await foreach (var msg in SlimRpcStreams.ReadBidiStreamAsync<ExampleService.ExampleResponse>(bidi, cancellationToken))
                 {
                     yield return msg;
                 }

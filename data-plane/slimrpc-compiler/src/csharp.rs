@@ -141,6 +141,10 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
             "System.Threading.Tasks".to_string(),
             "using System.Threading.Tasks;".to_string(),
         );
+        usings.insert(
+            "System.Runtime.CompilerServices".to_string(),
+            "using System.Runtime.CompilerServices;".to_string(),
+        );
 
         let mut services_found = false;
         let mut service_definitions = String::new();
@@ -434,6 +438,7 @@ fn generate_unary_unary_client(
         r#"
         public async Task<{}> {}Async({} request, TimeSpan? timeout = null, IReadOnlyDictionary<string, string>? metadata = null, CancellationToken cancellationToken = default)
         {{
+            cancellationToken.ThrowIfCancellationRequested();
             var reqBytes = request.ToByteString().ToByteArray();
             var respBytes = await _channel.CallUnaryAsync("{}.{}", "{}", reqBytes, timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
             return {}.Parser.ParseFrom(respBytes);
@@ -456,7 +461,7 @@ fn generate_unary_stream_client(
         {{
             var reqBytes = request.ToByteString().ToByteArray();
             var stream = await _channel.CallUnaryStreamAsync("{}.{}", "{}", reqBytes, timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
-            await foreach (var msg in SlimRpcStreams.ReadResponseStreamAsync<{}>(stream))
+            await foreach (var msg in SlimRpcStreams.ReadResponseStreamAsync<{}>(stream, cancellationToken))
             {{
                 yield return msg;
             }}
@@ -478,7 +483,7 @@ fn generate_stream_unary_client(
         public async Task<{}> {}Async(IAsyncEnumerable<{}> requestStream, TimeSpan? timeout = null, IReadOnlyDictionary<string, string>? metadata = null, CancellationToken cancellationToken = default)
         {{
             var writer = _channel.CallStreamUnary("{}.{}", "{}", timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
-            await foreach (var req in requestStream)
+            await foreach (var req in requestStream.WithCancellation(cancellationToken))
             {{
                 await writer.SendAsync(req.ToByteString().ToByteArray());
             }}
@@ -504,7 +509,7 @@ fn generate_stream_stream_client(
             var bidi = _channel.CallStreamStream("{}.{}", "{}", timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
             var sendTask = Task.Run(async () =>
             {{
-                await foreach (var req in requestStream)
+                await foreach (var req in requestStream.WithCancellation(cancellationToken))
                 {{
                     await bidi.SendAsync(req.ToByteString().ToByteArray());
                 }}
@@ -512,7 +517,7 @@ fn generate_stream_stream_client(
             }});
             try
             {{
-                await foreach (var msg in SlimRpcStreams.ReadBidiStreamAsync<{}>(bidi))
+                await foreach (var msg in SlimRpcStreams.ReadBidiStreamAsync<{}>(bidi, cancellationToken))
                 {{
                     yield return msg;
                 }}

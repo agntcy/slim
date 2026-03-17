@@ -119,6 +119,7 @@ class Program
         Console.WriteLine("\n=== Stream-Unary ===");
         async IAsyncEnumerable<ExampleRequest> StreamRequests()
         {
+            await Task.Yield();
             for (var i = 0; i < 10; i++)
                 yield return new ExampleRequest { ExampleInteger = i, ExampleString = $"Request {i}" };
         }
@@ -166,6 +167,7 @@ class TestServerImpl : ITestServer
 
     public async IAsyncEnumerable<ExampleResponse> ExampleUnaryStream(ExampleRequest request, SlimRpcContext context)
     {
+        await Task.Yield();
         Console.WriteLine($"Received unary-stream: {request}");
         for (var i = 0; i < 5; i++)
         {
