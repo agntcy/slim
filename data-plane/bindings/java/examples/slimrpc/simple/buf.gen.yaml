@@ -10,5 +10,5 @@ inputs:
 plugins:
   - remote: buf.build/protocolbuffers/java:v29.3
     out: types
-  - local: ../../../../../slimrpc-compiler/target/release/protoc-gen-slimrpc-java
+  - local: ../../../../../target/release/protoc-gen-slimrpc-java
     out: slimrpc

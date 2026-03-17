@@ -22,16 +22,26 @@ This generates:
 
 ## Run the Example
 
-In one terminal, start the server:
-
 ```bash
-mvn exec:java@server
+cd data-plane/bindings/java
 ```
 
-In another terminal, run the client:
+In the first terminal, start a SLIM instance:
 
 ```bash
-mvn exec:java@client
+task examples:server
+```
+
+In another terminal, start the rpc server:
+
+```bash
+task examples:rpc:server
+```
+
+In another terminal, run the rpc client:
+
+```bash
+task examples:rpc:client
 ```
 
 ## Code Structure

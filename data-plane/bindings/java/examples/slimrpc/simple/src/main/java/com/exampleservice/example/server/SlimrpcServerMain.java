@@ -35,16 +35,12 @@ public final class SlimrpcServerMain {
                 "debug",
                 Boolean.TRUE,
                 Boolean.FALSE,
-                java.util.List.of()
-        );
+                java.util.List.of());
 
         ServiceConfig serviceConfig = SlimBindings.newServiceConfig();
         SlimBindings.initializeWithConfigs(runtime, tracing, java.util.List.of(serviceConfig));
 
         Service service = SlimBindings.getGlobalService();
-
-        ServerConfig serverConfig = SlimBindings.newInsecureServerConfig(SERVER_ADDR);
-        service.runServer(serverConfig);
 
         Name localName = new Name("agntcy", "slimrpc", "server");
         App app = service.createAppWithSecret(localName, SHARED_SECRET);
