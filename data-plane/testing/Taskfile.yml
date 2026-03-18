@@ -129,7 +129,7 @@ tasks:
         vars:
           BIN: "workload-gen"
           ARGS: ""
-          BIN_ARGS: "--subscriptions 10 --publications 20 --instances 1 --apps 1 --output workload_debug.dat"
+          BIN_ARGS: "--subscriptions 1000 --publications 200 --instances 3 --apps 3 --output workload_debug.dat"
 
   test:benchmark:subscriber:
     desc: "Start subscriber for load test (use --id 0 with default workload)"
