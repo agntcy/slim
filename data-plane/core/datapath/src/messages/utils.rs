@@ -562,64 +562,70 @@ impl ProtoMessage {
         }
     }
 
-    // validate message
-    pub fn validate(&self) -> Result<(), MessageError> {
-        // make sure the message type is set
-        if self.message_type.is_none() {
-            return Err(MessageError::MessageTypeNotFound);
+    fn validate_link(link: &ProtoLink) -> Result<(), MessageError> {
+        if link.link_type.is_none() {
+            return Err(MessageError::LinkTypeNotSet);
         }
+        Ok(())
+    }
 
-        // Link messages are link-local: no SLIM header, source, destination, or session required.
-        if let Some(ProtoLinkMessageType(link)) = &self.message_type {
-            if link.link_type.is_none() {
-                return Err(MessageError::LinkTypeNotSet);
-            }
-            return Ok(());
-        }
-
-        // make sure SLIM header is set
-        if self.try_get_slim_header().is_none() {
-            return Err(MessageError::SlimHeaderNotFound);
-        }
-
-        // Get SLIM header
-        let slim_header = self.get_slim_header();
-
-        // make sure source and destination are set
+    fn validate_routed_header(slim_header: &SlimHeader) -> Result<(), MessageError> {
         if slim_header.source.is_none() {
             return Err(MessageError::SourceNotFound);
         }
         if slim_header.destination.is_none() {
             return Err(MessageError::DestinationNotFound);
         }
+        Ok(())
+    }
 
+    fn validate_publish(p: &ProtoPublish) -> Result<(), MessageError> {
+        if p.session.is_none() {
+            return Err(MessageError::SessionHeaderNotFound);
+        }
+        Ok(())
+    }
+
+    fn validate_subscribe(_s: &ProtoSubscribe) -> Result<(), MessageError> {
+        Ok(())
+    }
+
+    fn validate_unsubscribe(_u: &ProtoUnsubscribe) -> Result<(), MessageError> {
+        Ok(())
+    }
+
+    // validate message
+    pub fn validate(&self) -> Result<(), MessageError> {
         match &self.message_type {
-            Some(ProtoPublishType(p)) => {
-                // SLIM Header
-                if p.header.is_none() {
-                    return Err(MessageError::SlimHeaderNotFound);
-                }
+            None => Err(MessageError::MessageTypeNotFound),
 
-                // Publish message should have the session header
-                if p.session.is_none() {
-                    return Err(MessageError::SessionHeaderNotFound);
-                }
+            // Link messages are link-local: no SLIM header, source, destination, or session required.
+            Some(ProtoLinkMessageType(link)) => Self::validate_link(link),
+
+            // Routed messages: require a SLIM header with source and destination, then type-specific checks.
+            // Use try_get_slim_header() to avoid panicking before returning a proper error.
+            Some(ProtoPublishType(p)) => {
+                let hdr = self
+                    .try_get_slim_header()
+                    .ok_or(MessageError::SlimHeaderNotFound)?;
+                Self::validate_routed_header(hdr)?;
+                Self::validate_publish(p)
             }
             Some(ProtoSubscribeType(s)) => {
-                if s.header.is_none() {
-                    return Err(MessageError::SlimHeaderNotFound);
-                }
+                let hdr = self
+                    .try_get_slim_header()
+                    .ok_or(MessageError::SlimHeaderNotFound)?;
+                Self::validate_routed_header(hdr)?;
+                Self::validate_subscribe(s)
             }
             Some(ProtoUnsubscribeType(u)) => {
-                if u.header.is_none() {
-                    return Err(MessageError::SlimHeaderNotFound);
-                }
+                let hdr = self
+                    .try_get_slim_header()
+                    .ok_or(MessageError::SlimHeaderNotFound)?;
+                Self::validate_routed_header(hdr)?;
+                Self::validate_unsubscribe(u)
             }
-            Some(ProtoLinkMessageType(_)) => unreachable!("handled above"),
-            None => return Err(MessageError::MessageTypeNotFound),
         }
-
-        Ok(())
     }
 
     // add metadata key in the map assigning the value val

@@ -320,7 +320,7 @@ pub struct PingPayload {}
 /// Link Negotiation
 /// Sent upon connection establishment to negotiate a common link identifier
 /// and exchange SLIM version information. Not routed; handled locally by
-/// the receiving SLIM instance. Backwards compatible: old nodes silently drop it.
+/// the receiving SLIM instance.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct LinkNegotiationPayload {
     /// Common link identifier agreed upon by both peers.
