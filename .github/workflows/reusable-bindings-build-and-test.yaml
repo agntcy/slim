@@ -153,6 +153,7 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           workspace: ./data-plane
+          cache-enabled: false
       - name: Build library
         working-directory: ./data-plane/bindings/rust
         run: |
@@ -234,6 +235,7 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           workspace: ${{ inputs.rust-workspace }}
+          cache-enabled: false
 
       - name: Setup Go
         uses: ./.github/actions/setup-go
@@ -437,6 +439,16 @@ jobs:
       - generate-matrix
       - build-libraries
     uses: ./.github/workflows/reusable-kotlin-build-and-test.yaml
+    with:
+      runner: ${{ inputs.runner }}
+      rust-workspace: ${{ inputs.rust-workspace }}
+
+  java-bindings-build-and-test:
+    name: "Java Bindings Build and Test"
+    needs:
+      - generate-matrix
+      - build-libraries
+    uses: ./.github/workflows/reusable-java-build-and-test.yaml
     with:
       runner: ${{ inputs.runner }}
       rust-workspace: ${{ inputs.rust-workspace }}
