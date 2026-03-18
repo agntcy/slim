@@ -91,14 +91,12 @@ jobs:
 
       - name: Generate C# bindings
         run: |
-          task generate \
-            ARTIFACTS_DIR=./artifacts \
-            BINDGEN_TARGET=${{ inputs.rust-target }}
+          task generate PROFILE=release
 
       - name: Strip shared libraries
         run: |
           echo "✂️  Stripping shared libraries using llvm-strip-19..."
-          find ./artifacts -type f \( -name "*.so" -o -name "*.dylib" -o -name "*.dll" \) | while read -r lib; do
+          find ./runtimes -type f \( -name "*.so" -o -name "*.dylib" -o -name "*.dll" \) | while read -r lib; do
             echo "  Stripping: $lib"
             llvm-strip-19 "$lib"
           done
@@ -110,7 +108,6 @@ jobs:
             TAG_NAME_PARAM="TAG_NAME=${{ inputs.tag-name }}"
           fi
 
-          task copy:runtimes ARTIFACTS_DIR=./artifacts
           task build
           task test
           task pack OUTPUT_DIR=./nupkg $TAG_NAME_PARAM
