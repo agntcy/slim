@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(task build:*)",
+      "Bash(cargo install:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(cargo build:*)",
+      "Bash(task generate:*)"
+    ]
+  }
+}

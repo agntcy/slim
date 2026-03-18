@@ -137,3 +137,7 @@ artifacts
 
 libslim_bindings.dylib
 libslim_bindings.a
+
+**/.claude*
+
+asdasdas

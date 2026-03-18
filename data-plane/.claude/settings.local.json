@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo test:*)",
+      "Bash(cargo build:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(grep:*)",
+      "WebSearch",
+      "Bash(curl -s https://raw.githubusercontent.com/arduino/setup-task/main/action.yml 2>/dev/null || curl -s https://raw.githubusercontent.com/arduino/setup-task/main/action.yaml 2>/dev/null)",
+      "Bash(curl:*)"
+    ]
+  }
+}
