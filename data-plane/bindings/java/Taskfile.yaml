@@ -385,6 +385,35 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
+  examples:rpc:compile:
+    desc: Compile SlimRPC Java examples
+    deps:
+      - examples:install:bindings
+    cmds:
+      - echo "🔨 Compiling SlimRPC Java examples..."
+      - cd examples/slimrpc/simple && mvn clean compile
+      - echo "✅ SlimRPC compilation complete"
+
+  examples:rpc:server:
+    desc: Run the SlimRPC server example
+    deps:
+      - examples:rpc:compile
+    cmds:
+      - echo "🚀 Starting SlimRPC server..."
+      - cd examples/slimrpc/simple && mvn exec:java@server
+    vars:
+      CLI_ARGS: '{{.CLI_ARGS | default ""}}'
+
+  examples:rpc:client:
+    desc: Run the SlimRPC client example
+    deps:
+      - examples:rpc:compile
+    cmds:
+      - echo "🚀 Starting SlimRPC client..."
+      - cd examples/slimrpc/simple && mvn exec:java@client
+    vars:
+      CLI_ARGS: '{{.CLI_ARGS | default ""}}'
+
   examples:clean:
     desc: Clean Maven build artifacts for examples
     cmds:
