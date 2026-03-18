@@ -140,3 +140,5 @@ libslim_bindings.a
 
 # Maven
 .flattened-pom.xml
+
+**/.claude
