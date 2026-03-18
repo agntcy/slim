@@ -559,13 +559,16 @@ impl MessageProcessor {
         };
 
         // Role check: clients must only receive replies; servers must only receive requests.
-        if conn.is_outgoing() && !payload.is_reply {
-            debug!(%in_connection, "ignoring link negotiation request received on outgoing connection");
-            return Ok(());
-        }
-        if !conn.is_outgoing() && payload.is_reply {
-            debug!(%in_connection, "ignoring link negotiation reply received on incoming connection");
-            return Ok(());
+        match (conn.is_outgoing(), payload.is_reply) {
+            (true, false) => {
+                debug!(%in_connection, "ignoring link negotiation request received on outgoing connection");
+                return Ok(());
+            }
+            (false, true) => {
+                debug!(%in_connection, "ignoring link negotiation reply received on incoming connection");
+                return Ok(());
+            }
+            _ => {}
         }
 
         // Parse the remote version before any state mutation.
