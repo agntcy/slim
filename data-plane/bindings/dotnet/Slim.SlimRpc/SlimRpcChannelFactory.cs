@@ -22,6 +22,8 @@ public static class SlimRpcChannelFactory
         SlimName remote,
         ulong? connectionId = null)
     {
+        ArgumentNullException.ThrowIfNull(app);
+        ArgumentNullException.ThrowIfNull(remote);
         return uniffi.slim_bindings.Channel.NewWithConnection(app._inner, remote._inner, connectionId);
     }
 }

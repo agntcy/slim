@@ -26,6 +26,7 @@ public static class SlimRpcStreams
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
         where T : IMessage<T>, new()
     {
+        ArgumentNullException.ThrowIfNull(reader);
         var parser = new MessageParser<T>(() => new T());
         while (true)
         {
@@ -56,6 +57,7 @@ public static class SlimRpcStreams
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
         where T : IMessage<T>, new()
     {
+        ArgumentNullException.ThrowIfNull(stream);
         var parser = new MessageParser<T>(() => new T());
         while (true)
         {
@@ -86,6 +88,7 @@ public static class SlimRpcStreams
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
         where T : IMessage<T>, new()
     {
+        ArgumentNullException.ThrowIfNull(bidi);
         var parser = new MessageParser<T>(() => new T());
         while (true)
         {

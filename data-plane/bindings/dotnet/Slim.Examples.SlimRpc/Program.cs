@@ -27,8 +27,9 @@ class Program
 
         var sharedSecretOption = new Option<string>(
             name: "--shared-secret",
-            getDefaultValue: () => CommonHelpers.DefaultSharedSecret,
-            description: "Shared secret (min 32 chars)");
+            getDefaultValue: () => Environment.GetEnvironmentVariable("SLIM_SHARED_SECRET")
+                ?? CommonHelpers.DefaultSharedSecret,
+            description: "Shared secret (min 32 chars). Default: SLIM_SHARED_SECRET env var or demo value.");
 
         var rootCommand = new RootCommand("SLIM slimrpc Example");
         rootCommand.AddOption(modeOption);
@@ -62,91 +63,100 @@ class Program
     static async Task RunServerAsync(string serverEndpoint, string sharedSecret)
     {
         var (app, connId) = CommonHelpers.CreateAndConnectApp("agntcy/grpc/server", serverEndpoint, sharedSecret);
-
-        using var localName = SlimName.Parse("agntcy/grpc/server");
-        var slimServer = SlimRpcServerFactory.CreateServer(app, localName, connId);
-
-        var impl = new TestServerImpl();
-        TestServerRegistration.RegisterTestServer(slimServer, impl);
-
-        Console.WriteLine("Server starting... (Ctrl+C to stop)");
-        Console.CancelKeyPress += (_, _) => Console.WriteLine("Server stopping...");
-
-        try
+        using (app)
         {
-            await slimServer.ServeAsync();
-        }
-        catch (OperationCanceledException)
-        {
-            Console.WriteLine("Server stopped.");
+            using var localName = SlimName.Parse("agntcy/grpc/server");
+            using var slimServer = SlimRpcServerFactory.CreateServer(app, localName, connId);
+
+            var impl = new TestServerImpl();
+            TestServerRegistration.RegisterTestServer(slimServer, impl);
+
+            Console.WriteLine("Server starting... (Ctrl+C to stop)");
+            var serveTask = slimServer.ServeAsync();
+            Console.CancelKeyPress += (_, e) =>
+            {
+                e.Cancel = true;
+                _ = slimServer.ShutdownAsync();
+            };
+
+            try
+            {
+                await serveTask;
+            }
+            catch (OperationCanceledException)
+            {
+                Console.WriteLine("Server stopped.");
+            }
         }
     }
 
     static async Task RunClientAsync(string serverEndpoint, string sharedSecret)
     {
         var (app, connId) = CommonHelpers.CreateAndConnectApp("agntcy/grpc/client", serverEndpoint, sharedSecret);
-
-        using var remoteName = SlimName.Parse("agntcy/grpc/server");
-        var channel = SlimRpcChannelFactory.CreateChannel(app, remoteName, connId);
-        var client = new TestClient(channel);
-
-        var request = new ExampleRequest { ExampleString = "hello", ExampleInteger = 1 };
-
-        Console.WriteLine("=== Unary-Unary ===");
-        try
+        using (app)
         {
-            var response = await client.ExampleUnaryUnaryAsync(request);
-            Console.WriteLine($"Response: {response}");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Unary-Unary failed: {ex.Message}");
-        }
+            using var remoteName = SlimName.Parse("agntcy/grpc/server");
+            using var channel = SlimRpcChannelFactory.CreateChannel(app, remoteName, connId);
+            var client = new TestClient(channel);
 
-        Console.WriteLine("\n=== Unary-Stream ===");
-        try
-        {
-            await foreach (var resp in client.ExampleUnaryStreamAsync(request))
+            var request = new ExampleRequest { ExampleString = "hello", ExampleInteger = 1 };
+
+            Console.WriteLine("=== Unary-Unary ===");
+            try
             {
-                Console.WriteLine($"  Stream response: {resp}");
+                var response = await client.ExampleUnaryUnaryAsync(request);
+                Console.WriteLine($"Response: {response}");
             }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Unary-Stream failed: {ex.Message}");
-        }
-
-        Console.WriteLine("\n=== Stream-Unary ===");
-        async IAsyncEnumerable<ExampleRequest> StreamRequests()
-        {
-            await Task.Yield();
-            for (var i = 0; i < 10; i++)
-                yield return new ExampleRequest { ExampleInteger = i, ExampleString = $"Request {i}" };
-        }
-        try
-        {
-            var streamUnaryResp = await client.ExampleStreamUnaryAsync(StreamRequests());
-            Console.WriteLine($"Stream-Unary: {streamUnaryResp}");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Stream-Unary failed: {ex.Message}");
-        }
-
-        Console.WriteLine("\n=== Stream-Stream ===");
-        try
-        {
-            await foreach (var r in client.ExampleStreamStreamAsync(StreamRequests()))
+            catch (Exception ex)
             {
-                Console.WriteLine($"  Stream-Stream: {r}");
+                Console.WriteLine($"Unary-Unary failed: {ex.Message}");
             }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Stream-Stream failed: {ex.Message}");
-        }
 
-        Console.WriteLine("\nDone.");
+            Console.WriteLine("\n=== Unary-Stream ===");
+            try
+            {
+                await foreach (var resp in client.ExampleUnaryStreamAsync(request))
+                {
+                    Console.WriteLine($"  Stream response: {resp}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Unary-Stream failed: {ex.Message}");
+            }
+
+            Console.WriteLine("\n=== Stream-Unary ===");
+            async IAsyncEnumerable<ExampleRequest> StreamRequests()
+            {
+                await Task.Yield();
+                for (var i = 0; i < 10; i++)
+                    yield return new ExampleRequest { ExampleInteger = i, ExampleString = $"Request {i}" };
+            }
+            try
+            {
+                var streamUnaryResp = await client.ExampleStreamUnaryAsync(StreamRequests());
+                Console.WriteLine($"Stream-Unary: {streamUnaryResp}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Stream-Unary failed: {ex.Message}");
+            }
+
+            Console.WriteLine("\n=== Stream-Stream ===");
+            try
+            {
+                await foreach (var r in client.ExampleStreamStreamAsync(StreamRequests()))
+                {
+                    Console.WriteLine($"  Stream-Stream: {r}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Stream-Stream failed: {ex.Message}");
+            }
+
+            Console.WriteLine("\nDone.");
+        }
     }
 }
 

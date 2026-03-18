@@ -33,7 +33,7 @@ public sealed class SlimRpcContext
     /// <summary>
     /// Get the deadline for this RPC call.
     /// </summary>
-    public System.DateTime Deadline => _inner.Deadline();
+    public DateTime Deadline => _inner.Deadline();
 
     /// <summary>
     /// Check if the deadline has been exceeded.
@@ -44,7 +44,7 @@ public sealed class SlimRpcContext
     /// Get the remaining time until deadline.
     /// Returns TimeSpan.Zero if the deadline has already passed.
     /// </summary>
-    public System.TimeSpan RemainingTime => _inner.RemainingTime();
+    public TimeSpan RemainingTime => _inner.RemainingTime();
 
     /// <summary>
     /// Get the session ID.

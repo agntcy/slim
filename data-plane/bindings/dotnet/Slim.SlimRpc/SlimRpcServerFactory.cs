@@ -22,6 +22,8 @@ public static class SlimRpcServerFactory
         SlimName baseName,
         ulong? connectionId = null)
     {
+        ArgumentNullException.ThrowIfNull(app);
+        ArgumentNullException.ThrowIfNull(baseName);
         return uniffi.slim_bindings.Server.NewWithConnection(app._inner, baseName._inner, connectionId);
     }
 }
