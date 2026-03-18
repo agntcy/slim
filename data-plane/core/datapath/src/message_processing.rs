@@ -1189,6 +1189,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+    use tonic::Status;
 
     async fn assert_failed_subscription_ack_is_sent(add: bool) {
         let processor = MessageProcessor::new();
@@ -1260,5 +1261,311 @@ mod tests {
     #[tokio::test]
     async fn test_process_subscription_sends_failed_ack_on_unsubscribe_error() {
         assert_failed_subscription_ack_is_sent(false).await;
+    }
+
+    #[test]
+    fn test_is_valid_uuid_v4_accepts_v4() {
+        let id = uuid::Uuid::new_v4().to_string();
+        assert!(is_valid_uuid_v4(&id));
+    }
+
+    #[test]
+    fn test_is_valid_uuid_v4_rejects_non_uuid_string() {
+        assert!(!is_valid_uuid_v4("not-a-uuid"));
+        assert!(!is_valid_uuid_v4(""));
+    }
+
+    #[test]
+    fn test_is_valid_uuid_v4_rejects_non_v4_uuid() {
+        // Version 1 UUID (time-based).
+        assert!(!is_valid_uuid_v4("00000000-0000-1000-8000-000000000000"));
+    }
+
+    // ── handle_link_message ───────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_handle_link_message_is_local_ignored() {
+        let processor = MessageProcessor::new();
+        let link = ProtoLink { link_type: None };
+        assert!(processor.handle_link_message(link, 0, true).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_handle_link_message_none_link_type_ignored() {
+        let processor = MessageProcessor::new();
+        let link = ProtoLink { link_type: None };
+        assert!(processor.handle_link_message(link, 0, false).await.is_ok());
+    }
+
+    // ── handle_link_negotiation ───────────────────────────────────────────────
+
+    fn make_server_conn(
+        processor: &MessageProcessor,
+    ) -> (u64, tokio::sync::mpsc::Receiver<Result<Message, Status>>) {
+        let (tx, rx) = mpsc::channel(16);
+        let conn = Connection::new(ConnectionType::Remote, Channel::Server(tx));
+        let conn_id = processor
+            .forwarder()
+            .on_connection_established(conn, None)
+            .unwrap();
+        (conn_id, rx)
+    }
+
+    fn make_client_conn(
+        processor: &MessageProcessor,
+    ) -> (u64, tokio::sync::mpsc::Receiver<Message>) {
+        let (tx, rx) = mpsc::channel(16);
+        let conn = Connection::new(ConnectionType::Remote, Channel::Client(tx));
+        let conn_id = processor
+            .forwarder()
+            .on_connection_established(conn, None)
+            .unwrap();
+        (conn_id, rx)
+    }
+
+    #[tokio::test]
+    async fn test_handle_link_negotiation_unknown_connection_ignored() {
+        let processor = MessageProcessor::new();
+        let payload = LinkNegotiationPayload {
+            link_id: uuid::Uuid::new_v4().to_string(),
+            slim_version: "1.0.0".into(),
+            is_reply: false,
+        };
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, u64::MAX)
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_handle_link_negotiation_role_outgoing_receives_request_ignored() {
+        let processor = MessageProcessor::new();
+        let (conn_id, _rx) = make_client_conn(&processor);
+        let payload = LinkNegotiationPayload {
+            link_id: uuid::Uuid::new_v4().to_string(),
+            slim_version: "1.0.0".into(),
+            is_reply: false, // request on outgoing connection → ignored
+        };
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, conn_id)
+                .await
+                .is_ok()
+        );
+        assert!(
+            processor
+                .forwarder()
+                .get_connection(conn_id)
+                .unwrap()
+                .remote_slim_version()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_handle_link_negotiation_role_incoming_receives_reply_ignored() {
+        let processor = MessageProcessor::new();
+        let (conn_id, _rx) = make_server_conn(&processor);
+        let payload = LinkNegotiationPayload {
+            link_id: uuid::Uuid::new_v4().to_string(),
+            slim_version: "1.0.0".into(),
+            is_reply: true, // reply on incoming connection → ignored
+        };
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, conn_id)
+                .await
+                .is_ok()
+        );
+        assert!(
+            processor
+                .forwarder()
+                .get_connection(conn_id)
+                .unwrap()
+                .remote_slim_version()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_handle_link_negotiation_unparsable_version_ignored() {
+        let processor = MessageProcessor::new();
+        let (conn_id, _rx) = make_server_conn(&processor);
+        let payload = LinkNegotiationPayload {
+            link_id: uuid::Uuid::new_v4().to_string(),
+            slim_version: "not-semver".into(),
+            is_reply: false,
+        };
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, conn_id)
+                .await
+                .is_ok()
+        );
+        assert!(
+            processor
+                .forwarder()
+                .get_connection(conn_id)
+                .unwrap()
+                .remote_slim_version()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_handle_link_negotiation_server_invalid_uuid_ignored() {
+        let processor = MessageProcessor::new();
+        let (conn_id, _rx) = make_server_conn(&processor);
+        let payload = LinkNegotiationPayload {
+            link_id: "not-a-uuid".into(),
+            slim_version: "1.0.0".into(),
+            is_reply: false,
+        };
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, conn_id)
+                .await
+                .is_ok()
+        );
+        assert!(
+            processor
+                .forwarder()
+                .get_connection(conn_id)
+                .unwrap()
+                .remote_slim_version()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_handle_link_negotiation_server_happy_path() {
+        let processor = MessageProcessor::new();
+        let (conn_id, mut rx) = make_server_conn(&processor);
+        let link_id = uuid::Uuid::new_v4().to_string();
+        let payload = LinkNegotiationPayload {
+            link_id: link_id.clone(),
+            slim_version: "1.2.3".into(),
+            is_reply: false,
+        };
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, conn_id)
+                .await
+                .is_ok()
+        );
+        let conn = processor.forwarder().get_connection(conn_id).unwrap();
+        assert_eq!(conn.link_id(), Some(link_id));
+        assert_eq!(
+            conn.remote_slim_version(),
+            Some(semver::Version::parse("1.2.3").unwrap())
+        );
+        // A reply must have been sent.
+        let reply = rx.try_recv().expect("reply should be sent").unwrap();
+        assert!(reply.is_link());
+    }
+
+    #[tokio::test]
+    async fn test_handle_link_negotiation_server_replay_protection() {
+        let processor = MessageProcessor::new();
+        let (conn_id, mut rx) = make_server_conn(&processor);
+        let link_id = uuid::Uuid::new_v4().to_string();
+        let payload = LinkNegotiationPayload {
+            link_id: link_id.clone(),
+            slim_version: "1.0.0".into(),
+            is_reply: false,
+        };
+        // First request: accepted, reply sent.
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, conn_id)
+                .await
+                .is_ok()
+        );
+        assert!(rx.try_recv().is_ok());
+        // Second request: replay protection must suppress it, no reply.
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, conn_id)
+                .await
+                .is_ok()
+        );
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_handle_link_negotiation_client_happy_path() {
+        let processor = MessageProcessor::new();
+        let (conn_id, _rx) = make_client_conn(&processor);
+        let link_id = uuid::Uuid::new_v4().to_string();
+        let conn = processor.forwarder().get_connection(conn_id).unwrap();
+        conn.set_link_id(link_id.clone());
+        let payload = LinkNegotiationPayload {
+            link_id: link_id.clone(),
+            slim_version: "2.0.0".into(),
+            is_reply: true,
+        };
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, conn_id)
+                .await
+                .is_ok()
+        );
+        assert_eq!(
+            conn.remote_slim_version(),
+            Some(semver::Version::parse("2.0.0").unwrap())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_handle_link_negotiation_client_link_id_mismatch_ignored() {
+        let processor = MessageProcessor::new();
+        let (conn_id, _rx) = make_client_conn(&processor);
+        let conn = processor.forwarder().get_connection(conn_id).unwrap();
+        conn.set_link_id("correct-id".to_string());
+        let payload = LinkNegotiationPayload {
+            link_id: "wrong-id".into(),
+            slim_version: "1.0.0".into(),
+            is_reply: true,
+        };
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, conn_id)
+                .await
+                .is_ok()
+        );
+        assert!(conn.remote_slim_version().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_handle_link_negotiation_client_replay_protection() {
+        let processor = MessageProcessor::new();
+        let (conn_id, _rx) = make_client_conn(&processor);
+        let link_id = uuid::Uuid::new_v4().to_string();
+        let conn = processor.forwarder().get_connection(conn_id).unwrap();
+        conn.set_link_id(link_id.clone());
+        let payload = LinkNegotiationPayload {
+            link_id: link_id.clone(),
+            slim_version: "1.0.0".into(),
+            is_reply: true,
+        };
+        // First reply: accepted.
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, conn_id)
+                .await
+                .is_ok()
+        );
+        let stored = conn.remote_slim_version();
+        assert!(stored.is_some());
+        // Second reply: replay protection must reject it; version unchanged.
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, conn_id)
+                .await
+                .is_ok()
+        );
+        assert_eq!(conn.remote_slim_version(), stored);
     }
 }

@@ -1511,4 +1511,26 @@ mod test {
         assert_eq!(ka.timeout, Duration::from_secs(3));
         assert!(ka.keep_alive_while_idle);
     }
+
+    #[test]
+    fn test_validate_rejects_non_uuid_link_id() {
+        let mut config = ClientConfig::with_endpoint("http://localhost:1234");
+        config.link_id = "not-a-uuid".to_string();
+        assert!(matches!(config.validate(), Err(ConfigError::InvalidLinkId)));
+    }
+
+    #[test]
+    fn test_validate_rejects_non_v4_uuid() {
+        let mut config = ClientConfig::with_endpoint("http://localhost:1234");
+        // Version 1 UUID.
+        config.link_id = "00000000-0000-1000-8000-000000000000".to_string();
+        assert!(matches!(config.validate(), Err(ConfigError::InvalidLinkId)));
+    }
+
+    #[test]
+    fn test_validate_accepts_default_v4_link_id() {
+        // default_link_id() generates a v4 UUID; validation must pass.
+        let config = ClientConfig::with_endpoint("http://localhost:1234");
+        assert!(config.validate().is_ok());
+    }
 }

@@ -2180,4 +2180,40 @@ mod tests {
         let extracted = msg.extract_discovery_request().unwrap();
         assert!(extracted.destination.is_some());
     }
+
+    #[test]
+    fn test_validate_link_without_link_type() {
+        let link = ProtoLink { link_type: None };
+        let msg = ProtoMessage::new(HashMap::new(), ProtoLinkMessageType(link));
+        assert!(matches!(msg.validate(), Err(MessageError::LinkTypeNotSet)));
+    }
+
+    #[test]
+    fn test_validate_link_with_link_type() {
+        let link = ProtoLink {
+            link_type: Some(ProtoLinkType::LinkNegotiation(LinkNegotiationPayload {
+                link_id: "abc".into(),
+                slim_version: "1.0.0".into(),
+                is_reply: false,
+            })),
+        };
+        let msg = ProtoMessage::new(HashMap::new(), ProtoLinkMessageType(link));
+        assert!(msg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_build_link_negotiation_request() {
+        let msg = ProtoMessage::builder().build_link_negotiation("my-id", "1.2.3", false);
+        assert!(msg.is_link());
+        assert!(!msg.is_publish());
+        assert!(!msg.is_subscribe());
+        assert!(msg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_build_link_negotiation_reply() {
+        let msg = ProtoMessage::builder().build_link_negotiation("my-id", "1.2.3", true);
+        assert!(msg.is_link());
+        assert!(msg.validate().is_ok());
+    }
 }

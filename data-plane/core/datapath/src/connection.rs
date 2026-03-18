@@ -188,3 +188,73 @@ impl Connection {
         true
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::sync::mpsc;
+
+    fn server_conn() -> Connection {
+        let (tx, _rx) = mpsc::channel(1);
+        Connection::new(Type::Remote, Channel::Server(tx))
+    }
+
+    fn client_conn() -> Connection {
+        let (tx, _rx) = mpsc::channel(1);
+        Connection::new(Type::Remote, Channel::Client(tx))
+    }
+
+    #[test]
+    fn test_is_outgoing_client() {
+        assert!(client_conn().is_outgoing());
+    }
+
+    #[test]
+    fn test_is_outgoing_server() {
+        assert!(!server_conn().is_outgoing());
+    }
+
+    #[test]
+    fn test_link_id_initially_none() {
+        assert!(server_conn().link_id().is_none());
+    }
+
+    #[test]
+    fn test_set_and_get_link_id() {
+        let conn = server_conn();
+        conn.set_link_id("my-link".to_string());
+        assert_eq!(conn.link_id(), Some("my-link".to_string()));
+    }
+
+    #[test]
+    fn test_remote_slim_version_initially_none() {
+        assert!(server_conn().remote_slim_version().is_none());
+    }
+
+    #[test]
+    fn test_complete_negotiation_first_call_stores_state() {
+        let conn = server_conn();
+        let v = Version::parse("1.2.3").unwrap();
+        assert!(conn.complete_negotiation(Some("id".to_string()), v.clone()));
+        assert_eq!(conn.link_id(), Some("id".to_string()));
+        assert_eq!(conn.remote_slim_version(), Some(v));
+    }
+
+    #[test]
+    fn test_complete_negotiation_replay_returns_false() {
+        let conn = server_conn();
+        let v1 = Version::parse("1.0.0").unwrap();
+        assert!(conn.complete_negotiation(None, v1.clone()));
+        // Second call must be rejected; state must not change.
+        assert!(!conn.complete_negotiation(None, Version::parse("2.0.0").unwrap()));
+        assert_eq!(conn.remote_slim_version(), Some(v1));
+    }
+
+    #[test]
+    fn test_complete_negotiation_none_link_id_preserves_existing() {
+        let conn = server_conn();
+        conn.set_link_id("original".to_string());
+        assert!(conn.complete_negotiation(None, Version::parse("1.0.0").unwrap()));
+        assert_eq!(conn.link_id(), Some("original".to_string()));
+    }
+}
