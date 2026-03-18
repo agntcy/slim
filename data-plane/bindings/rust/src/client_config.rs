@@ -360,6 +360,7 @@ impl From<ClientConfig> for CoreClientConfig {
             metadata: config
                 .metadata
                 .and_then(|json| serde_json::from_str::<MetadataMap>(&json).ok()),
+            link_id: core_defaults.link_id,
         }
     }
 }

@@ -20,6 +20,7 @@ opentelemetry = { workspace = true }
 parking_lot = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
+semver = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -31,6 +32,7 @@ tonic-prost = { workspace = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 twox-hash = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
 
 [build-dependencies]
 protoc-bin-vendored = { workspace = true }

@@ -329,6 +329,11 @@ pub struct ClientConfig {
 
     /// Arbitrary user-provided metadata.
     pub metadata: Option<MetadataMap>,
+
+    /// Link identifier for this connection, used during link negotiation.
+    /// Must be a valid UUID v4. Defaults to a randomly generated UUID v4.
+    #[serde(default = "default_link_id")]
+    pub link_id: String,
 }
 
 /// Defaults for ClientConfig
@@ -352,8 +357,13 @@ impl Default for ClientConfig {
             auth: AuthenticationConfig::None,
             backoff: BackoffConfig::default(),
             metadata: None,
+            link_id: default_link_id(),
         }
     }
+}
+
+fn default_link_id() -> String {
+    uuid::Uuid::new_v4().to_string()
 }
 
 fn default_connect_timeout() -> DurationString {
@@ -369,7 +379,7 @@ impl std::fmt::Display for ClientConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ClientConfig {{ endpoint: {}, transport: {:?}, websocket_auth_query_param: {:?}, origin: {:?}, server_name: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?}, backoff: {:?}, metadata: {:?} }}",
+            "ClientConfig {{ endpoint: {}, transport: {:?}, websocket_auth_query_param: {:?}, origin: {:?}, server_name: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?}, backoff: {:?}, metadata: {:?}, link_id: {:?} }}",
             self.endpoint,
             self.transport,
             self.websocket_auth_query_param,
@@ -386,7 +396,8 @@ impl std::fmt::Display for ClientConfig {
             self.headers,
             self.auth,
             self.backoff,
-            self.metadata
+            self.metadata,
+            self.link_id
         )
     }
 }
@@ -397,6 +408,12 @@ impl Configuration for ClientConfig {
     fn validate(&self) -> Result<(), Self::Error> {
         if self.endpoint.is_empty() {
             return Err(ConfigError::MissingEndpoint);
+        }
+
+        // Validate link_id is a UUID v4
+        match uuid::Uuid::parse_str(&self.link_id) {
+            Ok(id) if id.get_version() == Some(uuid::Version::Random) => {}
+            _ => return Err(ConfigError::InvalidLinkId),
         }
 
         // Validate the client configuration

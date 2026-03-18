@@ -48,6 +48,7 @@ tower-layer = { workspace = true }
 tower-service = { workspace = true }
 tracing = { workspace = true }
 tracing-test = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
 
 [build-dependencies]
 protoc-bin-vendored = { workspace = true }

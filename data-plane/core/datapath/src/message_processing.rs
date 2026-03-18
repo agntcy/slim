@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::net::SocketAddr;
+use std::sync::OnceLock;
 use std::{pin::Pin, sync::Arc};
 
 use crate::api::DataPlaneServiceServer;
@@ -9,6 +10,7 @@ use display_error_chain::ErrorChainExt;
 use opentelemetry::propagation::{Extractor, Injector};
 use opentelemetry::trace::TraceContextExt;
 use parking_lot::RwLock;
+use slim_config::component::configuration::Configuration;
 use slim_config::grpc::client::ClientConfig;
 use slim_config::grpc::server::ServerConfig;
 use slim_tracing::utils::INSTANCE_ID;
@@ -22,10 +24,16 @@ use tonic::{Request, Response, Status};
 use tracing::{Span, debug, error, info};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
+use crate::api::ProtoMessage;
 use crate::api::ProtoPublishType as PublishType;
 use crate::api::ProtoSubscribeType as SubscribeType;
 use crate::api::ProtoUnsubscribeType as UnsubscribeType;
 use crate::api::proto::dataplane::v1::Message;
+use crate::api::{
+    LinkNegotiationPayload, ProtoLink, ProtoLinkMessageType as LinkType, ProtoLinkType,
+};
+use semver;
+use uuid::Uuid;
 
 use crate::api::proto::dataplane::v1::data_plane_service_client::DataPlaneServiceClient;
 use crate::api::proto::dataplane::v1::data_plane_service_server::DataPlaneService;
@@ -112,6 +120,32 @@ fn create_span(function: &str, out_conn: u64, msg: &Message) -> Span {
     span
 }
 
+/// Process-wide SLIM version advertised to peers during link negotiation.
+/// Set once at startup by the embedding binary (e.g. the `slim` crate) via
+/// `set_local_version`.  Falls back to the datapath crate version if never set.
+static LOCAL_VERSION: OnceLock<&'static str> = OnceLock::new();
+
+/// Set the SLIM version string advertised to remote peers during link negotiation.
+/// Must be called before any connections are established.
+/// Has no effect if called more than once.
+pub fn set_local_version(version: &'static str) {
+    LOCAL_VERSION.set(version).ok();
+}
+
+fn local_version() -> &'static str {
+    LOCAL_VERSION
+        .get()
+        .copied()
+        .unwrap_or(env!("CARGO_PKG_VERSION"))
+}
+
+fn is_valid_uuid_v4(s: &str) -> bool {
+    match Uuid::parse_str(s) {
+        Ok(id) => id.get_version() == Some(uuid::Version::Random),
+        Err(_) => false,
+    }
+}
+
 #[derive(Debug)]
 struct MessageProcessorInternal {
     /// The forwarder to handle processing events
@@ -135,16 +169,14 @@ pub struct MessageProcessor {
 impl Default for MessageProcessor {
     fn default() -> Self {
         let (signal, watch) = drain::channel();
-        let forwarder = Forwarder::new();
-        let forwarder = MessageProcessorInternal {
-            forwarder,
+        let internal = MessageProcessorInternal {
+            forwarder: Forwarder::new(),
             drain_signal: RwLock::new(Some(signal)),
             drain_watch: RwLock::new(Some(watch)),
             tx_control_plane: RwLock::new(None),
         };
-
         Self {
-            internal: Arc::new(forwarder),
+            internal: Arc::new(internal),
         }
     }
 }
@@ -218,6 +250,7 @@ impl MessageProcessor {
         remote: Option<SocketAddr>,
         existing_conn_index: Option<u64>,
     ) -> Result<(JoinHandle<()>, u64), DataPathError> {
+        client_config.validate()?;
         let mut watch = std::pin::pin!(self.get_drain_watch()?.signaled());
 
         let channel = tokio::select! {
@@ -265,11 +298,30 @@ impl MessageProcessor {
         let handle = self.process_stream(
             stream.into_inner(),
             conn_index,
-            Some(client_config),
+            Some(client_config.clone()),
             cancellation_token,
             false,
             false,
         )?;
+
+        // Perform link negotiation: generate or use the configured link_id, store it
+        // in the connection, and send a negotiation message to the remote peer.
+        // Old SLIM instances that do not understand this message will silently drop it.
+        let link_id = client_config.link_id.clone();
+
+        if let Some(conn) = self.forwarder().get_connection(conn_index) {
+            conn.set_link_id(link_id.clone());
+        }
+
+        let negotiation_msg =
+            ProtoMessage::builder().build_link_negotiation(&link_id, local_version(), false);
+        if let Err(e) = self.send_msg(negotiation_msg, conn_index).await {
+            debug!(
+                %conn_index,
+                error = %e.chain(),
+                "failed to send link negotiation (remote may be an older SLIM instance)",
+            );
+        }
 
         Ok((handle, conn_index))
     }
@@ -367,22 +419,24 @@ impl MessageProcessor {
         let connection = self.forwarder().get_connection(out_conn);
         match connection {
             Some(conn) => {
-                // reset header fields
-                msg.clear_slim_header();
+                if !msg.is_link() {
+                    // reset header fields
+                    msg.clear_slim_header();
 
-                // telemetry ////////////////////////////////////////////////////////
-                let parent_context = extract_parent_context(&msg);
-                let span = create_span("send_message", out_conn, &msg);
+                    // telemetry ////////////////////////////////////////////////////////
+                    let parent_context = extract_parent_context(&msg);
+                    let span = create_span("send_message", out_conn, &msg);
 
-                if let Some(ctx) = parent_context
-                    && let Err(e) = span.set_parent(ctx)
-                {
-                    // log the error but don't fail the message sending
-                    error!(error = %e.chain(), "error setting parent context");
+                    if let Some(ctx) = parent_context
+                        && let Err(e) = span.set_parent(ctx)
+                    {
+                        // log the error but don't fail the message sending
+                        error!(error = %e.chain(), "error setting parent context");
+                    }
+                    let _guard = span.enter();
+                    inject_current_context(&mut msg);
+                    ///////////////////////////////////////////////////////////////////
                 }
-                let _guard = span.enter();
-                inject_current_context(&mut msg);
-                ///////////////////////////////////////////////////////////////////
 
                 match conn.channel() {
                     Channel::Server(s) => {
@@ -447,6 +501,116 @@ impl MessageProcessor {
                 msg: Box::new(msg),
             }),
         }
+    }
+
+    /// Dispatch an inbound Link message to the appropriate handler.
+    ///
+    /// Link messages are link-local and must never be processed for local connections
+    /// (they are only exchanged between SLIM nodes).
+    async fn handle_link_message(
+        &self,
+        link: ProtoLink,
+        conn_index: u64,
+        is_local: bool,
+    ) -> Result<(), DataPathError> {
+        if is_local {
+            debug!(%conn_index, "ignoring link message received on local connection");
+            return Ok(());
+        }
+        match link.link_type {
+            Some(ProtoLinkType::LinkNegotiation(payload)) => {
+                self.handle_link_negotiation(&payload, conn_index).await
+            }
+            None => {
+                debug!(%conn_index, "received link message with unset link_type");
+                Ok(())
+            }
+        }
+    }
+
+    /// Handle an inbound link negotiation message.
+    ///
+    /// On request (`is_reply == false`): validate the client-provided `link_id` as UUID v4,
+    /// atomically store both fields under one lock, then echo back a reply.
+    ///
+    /// On reply (`is_reply == true`): verify the echoed `link_id` matches what we sent, then
+    /// atomically store the remote version.  No further reply is sent, preventing echo loops.
+    ///
+    /// Both paths use `complete_negotiation` which holds a single write lock for the
+    /// check-and-set, eliminating TOCTOU races.
+    async fn handle_link_negotiation(
+        &self,
+        payload: &LinkNegotiationPayload,
+        in_connection: u64,
+    ) -> Result<(), DataPathError> {
+        let link_id = &payload.link_id;
+        let remote_version = &payload.slim_version;
+
+        debug!(
+            %in_connection,
+            %link_id,
+            %remote_version,
+            is_reply = payload.is_reply,
+            "received link negotiation",
+        );
+
+        let Some(conn) = self.forwarder().get_connection(in_connection) else {
+            return Ok(());
+        };
+
+        // Role check: clients must only receive replies; servers must only receive requests.
+        if conn.is_outgoing() && !payload.is_reply {
+            debug!(%in_connection, "ignoring link negotiation request received on outgoing connection");
+            return Ok(());
+        }
+        if !conn.is_outgoing() && payload.is_reply {
+            debug!(%in_connection, "ignoring link negotiation reply received on incoming connection");
+            return Ok(());
+        }
+
+        // Parse the remote version before any state mutation.
+        let version = match semver::Version::parse(remote_version) {
+            Ok(v) => v,
+            Err(e) => {
+                debug!(%in_connection, %remote_version, error = %e, "ignoring link negotiation with unparsable remote SLIM version");
+                return Ok(());
+            }
+        };
+
+        if payload.is_reply {
+            // Client path: verify the server echoed back the link_id we sent.
+            if conn.link_id().as_deref() != Some(link_id.as_str()) {
+                debug!(%in_connection, %link_id, "ignoring link negotiation reply with mismatched link_id");
+                return Ok(());
+            }
+            // Atomically check-and-set; returns false if already negotiated (replay protection).
+            if !conn.complete_negotiation(None, version) {
+                debug!(%in_connection, "ignoring link negotiation on already-negotiated connection");
+            }
+        } else {
+            // Server path: validate the client-provided link_id as UUID v4 before storing.
+            if !is_valid_uuid_v4(link_id) {
+                debug!(%in_connection, %link_id, "ignoring link negotiation with invalid link_id (expected UUID v4)");
+                return Ok(());
+            }
+            // Atomically check-and-set; returns false if already negotiated (replay protection).
+            if !conn.complete_negotiation(Some(link_id.clone()), version) {
+                debug!(%in_connection, "ignoring link negotiation on already-negotiated connection");
+                return Ok(());
+            }
+            // Send reply only after state is committed.
+            let reply =
+                ProtoMessage::builder().build_link_negotiation(link_id, local_version(), true);
+            if let Err(e) = self.send_msg(reply, in_connection).await {
+                debug!(
+                    %in_connection,
+                    error = %e.chain(),
+                    "failed to send link negotiation reply",
+                );
+            }
+        }
+
+        Ok(())
     }
 
     async fn process_publish(&self, msg: Message, in_connection: u64) -> Result<(), DataPathError> {
@@ -643,6 +807,7 @@ impl MessageProcessor {
             SubscribeType(_) => self.process_subscription(msg, in_connection, true).await,
             UnsubscribeType(_) => self.process_subscription(msg, in_connection, false).await,
             PublishType(_) => self.process_publish(msg, in_connection).await,
+            LinkType(_) => unreachable!("Link messages are intercepted before process_message"),
         }
     }
 
@@ -672,6 +837,15 @@ impl MessageProcessor {
             };
 
             return Err(ret_err);
+        }
+
+        // Link messages are link-local: they have no SLIM header and are never routed.
+        // Handle them immediately before any SLIM-header-dependent processing.
+        if msg.is_link() {
+            return match msg.message_type {
+                Some(LinkType(link)) => self.handle_link_message(link, conn_index, is_local).await,
+                _ => Ok(()), // unreachable: is_link() guarantees the variant
+            };
         }
 
         // add incoming connection to the SLIM header
@@ -839,9 +1013,9 @@ impl MessageProcessor {
                                         // 3. the control plane exists
                                         if !is_local && !from_control_plane && let Some(txcp) = &tx_cp {
                                             match msg.get_type() {
-                                                PublishType(_) => {/* do nothing */}
+                                                PublishType(_) | LinkType(_) => {/* do nothing */}
                                                 _ => {
-                                                    // send subscriptions and unsupcriptions
+                                                    // send subscriptions and unsubscriptions
                                                     // to the control plane
                                                     let _ = txcp.send(Ok(msg.clone())).await;
                                                 }

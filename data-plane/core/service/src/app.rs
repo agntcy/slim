@@ -436,7 +436,7 @@ where
                                                 .await;
                                                 continue;
                                             }
-                                            None => {
+                                            Some(MessageType::Link(_)) | None => {
                                                 continue;
                                             }
                                         }

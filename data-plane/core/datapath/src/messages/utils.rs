@@ -9,9 +9,9 @@ use tracing::debug;
 use super::encoder::Name;
 use crate::api::proto::dataplane::v1::{GroupClosePayload, GroupNackPayload, PingPayload};
 use crate::api::{
-    Content, MessageType, ProtoMessage, ProtoName, ProtoPublish, ProtoPublishType,
-    ProtoSessionType, ProtoSubscribe, ProtoSubscribeType, ProtoUnsubscribe, ProtoUnsubscribeType,
-    SessionHeader, SlimHeader,
+    Content, LinkNegotiationPayload, MessageType, ProtoLink, ProtoLinkMessageType, ProtoLinkType,
+    ProtoMessage, ProtoName, ProtoPublish, ProtoPublishType, ProtoSessionType, ProtoSubscribe,
+    ProtoSubscribeType, ProtoUnsubscribe, ProtoUnsubscribeType, SessionHeader, SlimHeader,
     proto::dataplane::v1::{
         ApplicationPayload, CommandPayload, DiscoveryReplyPayload, DiscoveryRequestPayload,
         EncodedName, GroupAckPayload, GroupAddPayload, GroupProposalPayload, GroupRemovePayload,
@@ -91,6 +91,8 @@ pub enum MessageError {
     NotApplicationPayload,
     #[error("content is not a command payload")]
     NotCommandPayload,
+    #[error("link type is not set")]
+    LinkTypeNotSet,
     #[error("invalid command payload type: expected {expected}, got {got}")]
     InvalidCommandPayloadType {
         expected: Box<String>,
@@ -130,6 +132,7 @@ impl Display for MessageType {
             MessageType::Publish(_) => write!(f, "publish"),
             MessageType::Subscribe(_) => write!(f, "subscribe"),
             MessageType::Unsubscribe(_) => write!(f, "unsubscribe"),
+            MessageType::Link(_) => write!(f, "link"),
         }
     }
 }
@@ -566,6 +569,14 @@ impl ProtoMessage {
             return Err(MessageError::MessageTypeNotFound);
         }
 
+        // Link messages are link-local: no SLIM header, source, destination, or session required.
+        if let Some(ProtoLinkMessageType(link)) = &self.message_type {
+            if link.link_type.is_none() {
+                return Err(MessageError::LinkTypeNotSet);
+            }
+            return Ok(());
+        }
+
         // make sure SLIM header is set
         if self.try_get_slim_header().is_none() {
             return Err(MessageError::SlimHeaderNotFound);
@@ -604,6 +615,7 @@ impl ProtoMessage {
                     return Err(MessageError::SlimHeaderNotFound);
                 }
             }
+            Some(ProtoLinkMessageType(_)) => unreachable!("handled above"),
             None => return Err(MessageError::MessageTypeNotFound),
         }
 
@@ -644,7 +656,7 @@ impl ProtoMessage {
             Some(ProtoPublishType(publish)) => publish.header.as_ref().unwrap(),
             Some(ProtoSubscribeType(sub)) => sub.header.as_ref().unwrap(),
             Some(ProtoUnsubscribeType(unsub)) => unsub.header.as_ref().unwrap(),
-            None => panic!("SLIM header not found"),
+            Some(ProtoLinkMessageType(_)) | None => panic!("SLIM header not found"),
         }
     }
 
@@ -653,7 +665,7 @@ impl ProtoMessage {
             Some(ProtoPublishType(publish)) => publish.header.as_mut().unwrap(),
             Some(ProtoSubscribeType(sub)) => sub.header.as_mut().unwrap(),
             Some(ProtoUnsubscribeType(unsub)) => unsub.header.as_mut().unwrap(),
-            None => panic!("SLIM header not found"),
+            Some(ProtoLinkMessageType(_)) | None => panic!("SLIM header not found"),
         }
     }
 
@@ -662,43 +674,47 @@ impl ProtoMessage {
             Some(ProtoPublishType(publish)) => publish.header.as_ref(),
             Some(ProtoSubscribeType(sub)) => sub.header.as_ref(),
             Some(ProtoUnsubscribeType(unsub)) => unsub.header.as_ref(),
-            None => None,
+            Some(ProtoLinkMessageType(_)) | None => None,
         }
     }
 
     pub fn get_session_header(&self) -> &SessionHeader {
         match &self.message_type {
             Some(ProtoPublishType(publish)) => publish.session.as_ref().unwrap(),
-            Some(ProtoSubscribeType(_)) => panic!("session header not found"),
-            Some(ProtoUnsubscribeType(_)) => panic!("session header not found"),
-            None => panic!("session header not found"),
+            Some(ProtoSubscribeType(_))
+            | Some(ProtoUnsubscribeType(_))
+            | Some(ProtoLinkMessageType(_))
+            | None => panic!("session header not found"),
         }
     }
 
     pub fn get_session_header_mut(&mut self) -> &mut SessionHeader {
         match &mut self.message_type {
             Some(ProtoPublishType(publish)) => publish.session.as_mut().unwrap(),
-            Some(ProtoSubscribeType(_)) => panic!("session header not found"),
-            Some(ProtoUnsubscribeType(_)) => panic!("session header not found"),
-            None => panic!("session header not found"),
+            Some(ProtoSubscribeType(_))
+            | Some(ProtoUnsubscribeType(_))
+            | Some(ProtoLinkMessageType(_))
+            | None => panic!("session header not found"),
         }
     }
 
     pub fn try_get_session_header(&self) -> Option<&SessionHeader> {
         match &self.message_type {
             Some(ProtoPublishType(publish)) => publish.session.as_ref(),
-            Some(ProtoSubscribeType(_)) => None,
-            Some(ProtoUnsubscribeType(_)) => None,
-            None => None,
+            Some(ProtoSubscribeType(_))
+            | Some(ProtoUnsubscribeType(_))
+            | Some(ProtoLinkMessageType(_))
+            | None => None,
         }
     }
 
     pub fn try_get_session_header_mut(&mut self) -> Option<&mut SessionHeader> {
         match &mut self.message_type {
             Some(ProtoPublishType(publish)) => publish.session.as_mut(),
-            Some(ProtoSubscribeType(_)) => None,
-            Some(ProtoUnsubscribeType(_)) => None,
-            None => None,
+            Some(ProtoSubscribeType(_))
+            | Some(ProtoUnsubscribeType(_))
+            | Some(ProtoLinkMessageType(_))
+            | None => None,
         }
     }
 
@@ -754,6 +770,7 @@ impl ProtoMessage {
             Some(ProtoPublishType(p)) => p.msg.as_ref(),
             Some(ProtoSubscribeType(_)) => panic!("payload not found"),
             Some(ProtoUnsubscribeType(_)) => panic!("payload not found"),
+            Some(ProtoLinkMessageType(_)) => panic!("payload not found"),
             None => panic!("payload not found"),
         }
     }
@@ -763,6 +780,7 @@ impl ProtoMessage {
             Some(ProtoPublishType(p)) => p.set_payload(payload),
             Some(ProtoSubscribeType(_)) => panic!("no payload allowed"),
             Some(ProtoUnsubscribeType(_)) => panic!("no payload allowed"),
+            Some(ProtoLinkMessageType(_)) => panic!("no payload allowed"),
             None => panic!("no payload allowed"),
         }
     }
@@ -775,6 +793,9 @@ impl ProtoMessage {
     }
 
     pub fn clear_slim_header(&mut self) {
+        if self.is_link() {
+            return;
+        }
         self.get_slim_header_mut().clear_flags();
     }
 
@@ -829,6 +850,10 @@ impl ProtoMessage {
 
     pub fn is_unsubscribe(&self) -> bool {
         matches!(self.get_type(), MessageType::Unsubscribe(_))
+    }
+
+    pub fn is_link(&self) -> bool {
+        matches!(self.get_type(), MessageType::Link(_))
     }
 
     /// Extracts the command payload from the message.
@@ -1544,6 +1569,24 @@ impl ProtoMessageBuilder {
             self.metadata,
             ProtoUnsubscribeType(unsubscribe),
         ))
+    }
+
+    /// Builds a link negotiation message.
+    /// Link messages are link-local and never routed; they carry no SLIM header.
+    pub fn build_link_negotiation(
+        self,
+        link_id: impl Into<String>,
+        slim_version: impl Into<String>,
+        is_reply: bool,
+    ) -> ProtoMessage {
+        let link = ProtoLink {
+            link_type: Some(ProtoLinkType::LinkNegotiation(LinkNegotiationPayload {
+                link_id: link_id.into(),
+                slim_version: slim_version.into(),
+                is_reply,
+            })),
+        };
+        ProtoMessage::new(self.metadata, ProtoLinkMessageType(link))
     }
 }
 

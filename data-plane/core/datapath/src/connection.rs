@@ -2,11 +2,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::api::proto::dataplane::v1::Message;
+use parking_lot::RwLock;
+use semver::Version;
 use slim_config::grpc::client::ClientConfig;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tonic::Status;
+
+/// Negotiation state shared between link negotiation fields.
+/// Kept under one lock so that the check-and-set is atomic.
+#[derive(Debug, Default)]
+struct NegotiationState {
+    link_id: Option<String>,
+    remote_slim_version: Option<Version>,
+}
 
 #[derive(Debug, Clone)]
 pub(crate) enum Channel {
@@ -49,6 +60,9 @@ pub struct Connection {
 
     /// cancellation token to stop the receiving loop on this connection
     cancellation_token: Option<CancellationToken>,
+
+    /// Link negotiation state (link_id + remote_slim_version) under one lock for atomic check-and-set.
+    negotiation: Arc<RwLock<NegotiationState>>,
 }
 
 /// Implementation of Connection
@@ -62,6 +76,7 @@ impl Connection {
             config_data: None,
             connection_type,
             cancellation_token: None,
+            negotiation: Arc::new(RwLock::new(NegotiationState::default())),
         }
     }
 
@@ -116,6 +131,12 @@ impl Connection {
         matches!(self.connection_type, Type::Local)
     }
 
+    /// Return true if this node initiated the connection (client side).
+    /// False means the remote peer connected to us (server side).
+    pub(crate) fn is_outgoing(&self) -> bool {
+        matches!(self.channel, Channel::Client(_))
+    }
+
     /// Set cancellation token
     pub(crate) fn with_cancellation_token(
         self,
@@ -130,5 +151,40 @@ impl Connection {
     /// Get cancellation token
     pub(crate) fn cancellation_token(&self) -> Option<&CancellationToken> {
         self.cancellation_token.as_ref()
+    }
+
+    /// Set the shared link identifier for this connection.
+    /// Used by the client before sending the initial negotiation request.
+    pub fn set_link_id(&self, link_id: String) {
+        self.negotiation.write().link_id = Some(link_id);
+    }
+
+    /// Get the shared link identifier for this connection.
+    pub fn link_id(&self) -> Option<String> {
+        self.negotiation.read().link_id.clone()
+    }
+
+    /// Get the SLIM version of the remote peer.
+    pub fn remote_slim_version(&self) -> Option<Version> {
+        self.negotiation.read().remote_slim_version.clone()
+    }
+
+    /// Atomically complete link negotiation.
+    ///
+    /// If negotiation is already complete (`remote_slim_version` is `Some`), returns `false`
+    /// without modifying any state (replay protection).
+    ///
+    /// Otherwise, optionally stores `link_id` and stores `version`, then returns `true`.
+    /// The check and set happen under a single write lock, eliminating TOCTOU races.
+    pub fn complete_negotiation(&self, link_id: Option<String>, version: Version) -> bool {
+        let mut state = self.negotiation.write();
+        if state.remote_slim_version.is_some() {
+            return false;
+        }
+        if let Some(id) = link_id {
+            state.link_id = Some(id);
+        }
+        state.remote_slim_version = Some(version);
+        true
     }
 }
