@@ -804,13 +804,19 @@ impl MessageProcessor {
         &self,
         msg: Message,
         in_connection: u64,
+        is_local: bool,
     ) -> Result<(), DataPathError> {
-        // process each kind of message in a different path
-        match msg.get_type() {
-            SubscribeType(_) => self.process_subscription(msg, in_connection, true).await,
-            UnsubscribeType(_) => self.process_subscription(msg, in_connection, false).await,
-            PublishType(_) => self.process_publish(msg, in_connection).await,
-            LinkType(_) => unreachable!("Link messages are intercepted before process_message"),
+        match msg.message_type {
+            Some(SubscribeType(_)) => self.process_subscription(msg, in_connection, true).await,
+            Some(UnsubscribeType(_)) => self.process_subscription(msg, in_connection, false).await,
+            Some(PublishType(_)) => self.process_publish(msg, in_connection).await,
+            Some(LinkType(link)) => {
+                self.handle_link_message(link, in_connection, is_local)
+                    .await
+            }
+            None => unreachable!(
+                "message type not set; validate() must be called before process_message"
+            ),
         }
     }
 
@@ -842,47 +848,31 @@ impl MessageProcessor {
             return Err(ret_err);
         }
 
-        // Link messages are link-local: they have no SLIM header and are never routed.
-        // Handle them immediately before any SLIM-header-dependent processing.
-        if msg.is_link() {
-            return match msg.message_type {
-                Some(LinkType(link)) => self.handle_link_message(link, conn_index, is_local).await,
-                _ => Ok(()), // unreachable: is_link() guarantees the variant
-            };
-        }
+        // Link messages are link-local: no SLIM header, no routing, no telemetry span.
+        if !msg.is_link() {
+            // add incoming connection to the SLIM header
+            msg.set_incoming_conn(Some(conn_index));
 
-        // add incoming connection to the SLIM header
-        msg.set_incoming_conn(Some(conn_index));
-
-        // message is valid - from now on we access the field without checking for None
-
-        // telemetry /////////////////////////////////////////
-        if is_local {
-            // handling the message from the local application
-            let span = create_span("process_local", conn_index, &msg);
-
-            let _guard = span.enter();
-
-            inject_current_context(&mut msg);
-        } else {
-            // handling the message from a remote SLIM instance
-            let parent_context = extract_parent_context(&msg);
-
-            let span = create_span("process_local", conn_index, &msg);
-
-            if let Some(ctx) = parent_context
-                && let Err(e) = span.set_parent(ctx)
-            {
-                // log the error but don't fail the message processing
-                error!(error = %e.chain(), "error setting parent context");
+            // telemetry /////////////////////////////////////////
+            if is_local {
+                let span = create_span("process_local", conn_index, &msg);
+                let _guard = span.enter();
+                inject_current_context(&mut msg);
+            } else {
+                let parent_context = extract_parent_context(&msg);
+                let span = create_span("process_local", conn_index, &msg);
+                if let Some(ctx) = parent_context
+                    && let Err(e) = span.set_parent(ctx)
+                {
+                    error!(error = %e.chain(), "error setting parent context");
+                }
+                let _guard = span.enter();
+                inject_current_context(&mut msg);
             }
-            let _guard = span.enter();
-
-            inject_current_context(&mut msg);
+            //////////////////////////////////////////////////////
         }
-        //////////////////////////////////////////////////////
 
-        match self.process_message(msg, conn_index).await {
+        match self.process_message(msg, conn_index, is_local).await {
             Ok(_) => Ok(()),
             Err(e) => {
                 // telemetry /////////////////////////////////////////
