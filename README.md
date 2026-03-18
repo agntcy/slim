@@ -160,7 +160,7 @@ instructions in the golang website.
 - 📚 [Documentation](https://docs.agntcy.org/slim/overview)
 - 📖 [IETF Specification](https://datatracker.ietf.org/doc/draft-slim-protocol/)
 - 💬 [Slack Community](https://join.slack.com/t/agntcy/shared_invite/)
-- 🎥 [YouTube Channel](https://www.youtube.com/@agntcy)
+- 🎥 [YouTube Channel](https://www.youtube.com/@agntcy-lf)
 
 ## License
 
