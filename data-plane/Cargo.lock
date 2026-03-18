@@ -107,6 +107,7 @@ dependencies = [
  "tracing",
  "tracing-test",
  "uniffi",
+ "uuid",
 ]
 
 [[package]]
