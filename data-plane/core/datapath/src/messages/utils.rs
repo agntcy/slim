@@ -580,51 +580,32 @@ impl ProtoMessage {
     }
 
     fn validate_publish(p: &ProtoPublish) -> Result<(), MessageError> {
+        let hdr = p.header.as_ref().ok_or(MessageError::SlimHeaderNotFound)?;
+        Self::validate_routed_header(hdr)?;
         if p.session.is_none() {
             return Err(MessageError::SessionHeaderNotFound);
         }
         Ok(())
     }
 
-    fn validate_subscribe(_s: &ProtoSubscribe) -> Result<(), MessageError> {
-        Ok(())
+    fn validate_subscribe(s: &ProtoSubscribe) -> Result<(), MessageError> {
+        let hdr = s.header.as_ref().ok_or(MessageError::SlimHeaderNotFound)?;
+        Self::validate_routed_header(hdr)
     }
 
-    fn validate_unsubscribe(_u: &ProtoUnsubscribe) -> Result<(), MessageError> {
-        Ok(())
+    fn validate_unsubscribe(u: &ProtoUnsubscribe) -> Result<(), MessageError> {
+        let hdr = u.header.as_ref().ok_or(MessageError::SlimHeaderNotFound)?;
+        Self::validate_routed_header(hdr)
     }
 
     // validate message
     pub fn validate(&self) -> Result<(), MessageError> {
         match &self.message_type {
             None => Err(MessageError::MessageTypeNotFound),
-
-            // Link messages are link-local: no SLIM header, source, destination, or session required.
             Some(ProtoLinkMessageType(link)) => Self::validate_link(link),
-
-            // Routed messages: require a SLIM header with source and destination, then type-specific checks.
-            // Use try_get_slim_header() to avoid panicking before returning a proper error.
-            Some(ProtoPublishType(p)) => {
-                let hdr = self
-                    .try_get_slim_header()
-                    .ok_or(MessageError::SlimHeaderNotFound)?;
-                Self::validate_routed_header(hdr)?;
-                Self::validate_publish(p)
-            }
-            Some(ProtoSubscribeType(s)) => {
-                let hdr = self
-                    .try_get_slim_header()
-                    .ok_or(MessageError::SlimHeaderNotFound)?;
-                Self::validate_routed_header(hdr)?;
-                Self::validate_subscribe(s)
-            }
-            Some(ProtoUnsubscribeType(u)) => {
-                let hdr = self
-                    .try_get_slim_header()
-                    .ok_or(MessageError::SlimHeaderNotFound)?;
-                Self::validate_routed_header(hdr)?;
-                Self::validate_unsubscribe(u)
-            }
+            Some(ProtoPublishType(p)) => Self::validate_publish(p),
+            Some(ProtoSubscribeType(s)) => Self::validate_subscribe(s),
+            Some(ProtoUnsubscribeType(u)) => Self::validate_unsubscribe(u),
         }
     }
 
