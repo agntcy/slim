@@ -37,6 +37,7 @@ tasks:
         trap 'git worktree remove --force "$WORKTREE"' EXIT
         git worktree add "$WORKTREE" {{.LEGACY_TAG}}
         cargo build --manifest-path "$WORKTREE/data-plane/Cargo.toml" \
+          --config data-plane/.cargo/config.toml \
           -p agntcy-slim --target-dir data-plane/target
         mkdir -p .dist/bin
         cp data-plane/target/debug/slim .dist/bin/slim-legacy

@@ -132,11 +132,16 @@ pub fn set_local_version(version: &'static str) {
     LOCAL_VERSION.set(version).ok();
 }
 
-fn local_version() -> &'static str {
-    LOCAL_VERSION
+fn local_version() -> String {
+    let raw = LOCAL_VERSION
         .get()
         .copied()
-        .unwrap_or(env!("CARGO_PKG_VERSION"))
+        .unwrap_or(env!("CARGO_PKG_VERSION"));
+    let trimmed = raw.trim();
+    trimmed
+        .strip_prefix("slim-v")
+        .unwrap_or(trimmed)
+        .to_string()
 }
 
 fn is_valid_uuid_v4(s: &str) -> bool {
