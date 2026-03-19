@@ -149,7 +149,7 @@ async fn main() {
         .unwrap();
 
     let local_app_name = app.app_name();
-    app.subscribe(&local_app_name, Some(conn_id)).await.unwrap();
+    app.subscribe(local_app_name, Some(conn_id)).await.unwrap();
 
     // Set a route for the remote app
     let remote_app_name = Name::from_strings(["org", "default", remote_name]);
