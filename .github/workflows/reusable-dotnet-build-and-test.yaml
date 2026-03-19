@@ -30,7 +30,7 @@ on:
         description: .NET SDK version
         required: false
         type: string
-        default: "8.0.x"
+        default: '8.0.x'
       rust-target:
         description: Rust target triple for building libraries
         required: false
@@ -40,7 +40,7 @@ on:
         description: Git tag name for version extraction (e.g., slim-bindings-1.2.3)
         required: false
         type: string
-        default: ""
+        default: ''
 
 env:
   LIBRARY_NAME: slim_bindings
@@ -61,6 +61,7 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           workspace: ${{ inputs.rust-workspace }}
+          cache-enabled: false
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -72,23 +73,30 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: bindings-*
-          path: ${{ inputs.dotnet-bindings-dir }}/artifacts/
+          path: ${{ github.workspace }}/target-artifacts/
 
-      - name: List downloaded artifacts
+      - name: Restore libraries to target folder
         run: |
-          echo "📦 Downloaded artifacts:"
-          find ./artifacts -type f -name "*.so" -o -name "*.dll" -o -name "*.dylib" -o -name "*.a" | sort
+          echo "📦 Restoring artifacts to target folder..."
+          for artifact_dir in "$GITHUB_WORKSPACE/target-artifacts/bindings-"*; do
+            [ -d "$artifact_dir" ] || continue
+            target=$(basename "$artifact_dir" | sed 's/^bindings-//')
+            mkdir -p "$GITHUB_WORKSPACE/data-plane/target/$target/release/"
+            find "$artifact_dir" -maxdepth 1 -type f -exec cp {} "$GITHUB_WORKSPACE/data-plane/target/$target/release/" \;
+            echo "  Restored $target"
+          done
+          echo "📁 Restored libraries:"
+          find "$GITHUB_WORKSPACE/data-plane/target" -name "*slim_bindings*" -type f | sort
+          rm -rf "$GITHUB_WORKSPACE/target-artifacts"
 
       - name: Generate C# bindings
         run: |
-          task generate \
-            ARTIFACTS_DIR=./artifacts \
-            BINDGEN_TARGET=${{ inputs.rust-target }}
+          task generate PROFILE=release
 
       - name: Strip shared libraries
         run: |
           echo "✂️  Stripping shared libraries using llvm-strip-19..."
-          find ./artifacts -type f \( -name "*.so" -o -name "*.dylib" -o -name "*.dll" \) | while read -r lib; do
+          find ./runtimes -type f \( -name "*.so" -o -name "*.dylib" -o -name "*.dll" \) | while read -r lib; do
             echo "  Stripping: $lib"
             llvm-strip-19 "$lib"
           done
@@ -100,7 +108,6 @@ jobs:
             TAG_NAME_PARAM="TAG_NAME=${{ inputs.tag-name }}"
           fi
 
-          task copy:runtimes ARTIFACTS_DIR=./artifacts
           task build
           task test
           task pack OUTPUT_DIR=./nupkg $TAG_NAME_PARAM

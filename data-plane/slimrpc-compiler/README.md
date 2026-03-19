@@ -9,6 +9,7 @@ slimrpc framework.
 
 - **Python**: `protoc-gen-slimrpc-python`
 - **Go**: `protoc-gen-slimrpc-go`
+- **Java**: `protoc-gen-slimrpc-java`
 
 ## Features
 
@@ -38,11 +39,13 @@ cargo build --release
 3. The compiled binaries will be available at:
    - `target/release/protoc-gen-slimrpc-python`
    - `target/release/protoc-gen-slimrpc-go`
+   - `target/release/protoc-gen-slimrpc-java`
+
 
 ## Usage
 
-The recommended way to use the slimrpc compiler is through `buf`. Both Python
-and Go examples use this approach.
+The recommended way to use the slimrpc compiler is through `buf`. The Python,
+Go, and Java examples all use this approach.
 
 ### Using with buf (Recommended)
 
@@ -94,6 +97,29 @@ plugins:
       - paths=source_relative
 ```
 
+#### Java Example
+
+Create a `buf.gen.yaml` file in your project:
+
+```yaml
+version: v2
+clean: true
+managed:
+  enabled: true
+  override:
+    - file_option: java_package_prefix
+      value: com
+inputs:
+  - proto_file: example.proto
+plugins:
+  # Generate standard protobuf Java classes
+  - remote: buf.build/protocolbuffers/java:v29.3
+    out: types
+  # Generate slimrpc stubs
+  - local: /path/to/target/release/protoc-gen-slimrpc-java
+    out: slimrpc
+```
+
 #### Generate Code
 
 ```bash
@@ -103,6 +129,7 @@ buf generate
 This will generate:
 - **Python**: `*_pb2.py` (protobuf types) and `*_pb2_slimrpc.py` (slimrpc stubs)
 - **Go**: `*.pb.go` (protobuf types) and `*_slimrpc.pb.go` (slimrpc stubs)
+- **Java**: Standard protobuf Java classes and `*Slimrpc.java` (slimrpc stubs)
 
 ### Using with protoc (Alternative)
 
@@ -126,6 +153,16 @@ protoc \
   --go_out=. \
   --plugin=protoc-gen-slimrpc-go=/path/to/protoc-gen-slimrpc-go \
   --slimrpc-go_out=. \
+  example.proto
+```
+
+#### Java
+
+```bash
+protoc \
+  --java_out=. \
+  --plugin=protoc-gen-slimrpc-java=/path/to/protoc-gen-slimrpc-java \
+  --slimrpc-java_out=. \
   example.proto
 ```
 
@@ -213,14 +250,49 @@ func RegisterTestServer(server slim_bindings.ServerInterface, handler TestServer
 }
 ```
 
+### Java
+
+For a service definition, the generated `*Slimrpc.java` contains:
+
+#### Client Interface
+
+```java
+public interface TestClient {
+    ExampleResponse ExampleUnaryUnary(ExampleRequest request, Duration timeout, Map<String, String> metadata) throws RpcException;
+    ResponseStreamReader ExampleUnaryStream(ExampleRequest request, Duration timeout, Map<String, String> metadata) throws RpcException;
+    ClientRequestStream<ExampleRequest, ExampleResponse> ExampleStreamUnary(Duration timeout, Map<String, String> metadata) throws RpcException;
+    ClientBidiStream<ExampleRequest> ExampleStreamStream(Duration timeout, Map<String, String> metadata) throws RpcException;
+}
+```
+
+#### Server Interface
+
+```java
+public interface TestServer {
+    CompletableFuture<ExampleResponse> ExampleUnaryUnary(ExampleRequest request, Context context);
+    CompletableFuture<Void> ExampleUnaryStream(ExampleRequest request, Context context, ResponseSink sink);
+    CompletableFuture<ExampleResponse> ExampleStreamUnary(RequestStream stream, Context context);
+    CompletableFuture<Void> ExampleStreamStream(RequestStream stream, Context context, ResponseSink sink);
+}
+```
+
+#### Registration Function
+
+```java
+public static void registerTestServer(Server server, TestServer impl) {
+    // Registers all service methods with type-safe handlers
+}
+```
+
 ## Examples
 
 Complete working examples are available in the repository:
 
 - **Python**: [`bindings/python/examples/slimrpc/simple`](../bindings/python/examples/slimrpc/simple)
 - **Go**: [`bindings/go/examples/slimrpc/simple`](../bindings/go/examples/slimrpc/simple)
+- **Java**: [`bindings/java/examples/slimrpc/simple`](../bindings/java/examples/slimrpc/simple)
 
-Both examples demonstrate all four RPC patterns with comprehensive client and
+All examples demonstrate all four RPC patterns with comprehensive client and
 server implementations.
 
 ## Plugin Parameters
@@ -263,6 +335,8 @@ If you encounter import errors:
 - Make sure the generated files are in your module path
 - For Python: Verify the `types_import` parameter matches your project structure
 - For Go: Ensure `go.mod` is properly configured with correct module paths
+- For Java: Ensure the `java_package` option (or `buf` managed `java_package_prefix`)
+  produces a package that matches your project layout
 
 ### Build Errors
 

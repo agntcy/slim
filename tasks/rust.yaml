@@ -106,7 +106,7 @@ tasks:
   clippy:
     desc: "Run clippy"
     deps:
-      - task: install-target
+      - task: check
     cmds:
       - cargo clippy {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}} -- -D warnings
     vars:
@@ -324,7 +324,17 @@ tasks:
   install-cargo-components:
     desc: "Install cargo components"
     internal: true
+    deps:
+      - task: install-cargo-binstall
     cmds:
-      - cargo install {{.COMPONENTS}}
+      - cargo binstall --no-confirm {{.COMPONENTS}}
     vars:
       COMPONENTS: '{{ .COMPONENTS | default "" }}'
+
+  install-cargo-binstall:
+    desc: "Install cargo-binstall"
+    internal: true
+    status:
+      - cargo binstall --help >/dev/null 2>&1
+    cmds:
+      - cargo install cargo-binstall

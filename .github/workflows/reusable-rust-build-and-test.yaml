@@ -190,6 +190,7 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           workspace: ${{ inputs.working-directory }}
+          cache-enabled: ${{ matrix.profile != 'release' }}
 
       - name: Build
         run: |
