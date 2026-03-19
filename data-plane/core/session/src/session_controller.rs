@@ -718,7 +718,6 @@ where
             msg.set_metadata_map(m);
         }
 
-        println!("send control message {:?}, legacy: {}", msg, legacy);
         self.send_with_timer(msg, legacy).await
     }
 }

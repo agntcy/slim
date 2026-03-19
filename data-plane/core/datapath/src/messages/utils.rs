@@ -22,7 +22,7 @@ use crate::api::{
         command_payload::CommandPayloadType, content::ContentType,
     },
 };
-use crate::build_info::version_string;
+use slim_version::version;
 
 use thiserror::Error;
 
@@ -268,7 +268,7 @@ impl SlimHeader {
             forward_to: flags.forward_to,
             incoming_conn: flags.incoming_conn,
             error: flags.error,
-            version: Some(version_string().clone()),
+            version: Some(version().to_string()),
         }
     }
 
