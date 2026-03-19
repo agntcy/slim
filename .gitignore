@@ -141,4 +141,5 @@ libslim_bindings.a
 # Maven
 .flattened-pom.xml
 
-**/.claude
+# TaskFile temporary files
+.task
