@@ -1605,6 +1605,7 @@ async fn test_context_remaining_time() {
 // ============================================================================
 
 #[tokio::test]
+#[tracing_test::traced_test]
 async fn test_client_deadline_unary_unary() {
     let env = TestEnv::new("client-deadline-unary").await;
 
@@ -1645,6 +1646,7 @@ async fn test_client_deadline_unary_unary() {
 }
 
 #[tokio::test]
+#[tracing_test::traced_test]
 async fn test_client_deadline_unary_stream() {
     let env = TestEnv::new("client-deadline-unary-stream").await;
 
@@ -1733,6 +1735,7 @@ async fn test_client_deadline_unary_stream() {
 // ============================================================================
 
 #[tokio::test]
+#[tracing_test::traced_test]
 async fn test_server_deadline_unary_unary() {
     let env = TestEnv::new("server-deadline-unary").await;
 
@@ -1773,6 +1776,7 @@ async fn test_server_deadline_unary_unary() {
 }
 
 #[tokio::test]
+#[tracing_test::traced_test]
 async fn test_server_deadline_unary_stream() {
     let env = TestEnv::new("server-deadline-unary-stream").await;
 
@@ -1835,6 +1839,7 @@ async fn test_server_deadline_unary_stream() {
 }
 
 #[tokio::test]
+#[tracing_test::traced_test]
 async fn test_server_deadline_stream_unary() {
     let env = TestEnv::new("server-deadline-stream-unary").await;
 
@@ -1900,6 +1905,7 @@ async fn test_server_deadline_stream_unary() {
 }
 
 #[tokio::test]
+#[tracing_test::traced_test]
 async fn test_server_deadline_stream_stream() {
     let env = TestEnv::new("server-deadline-stream-stream").await;
 
@@ -1968,6 +1974,7 @@ async fn test_server_deadline_stream_stream() {
 // ============================================================================
 
 #[tokio::test]
+#[tracing_test::traced_test]
 async fn test_server_enforces_deadline_during_handler_execution() {
     let env = TestEnv::new("server-enforces-deadline").await;
 
@@ -2030,6 +2037,7 @@ async fn test_server_enforces_deadline_during_handler_execution() {
 // ============================================================================
 
 #[tokio::test]
+#[tracing_test::traced_test]
 async fn test_deadline_propagation() {
     let env = TestEnv::new("deadline-propagation").await;
 

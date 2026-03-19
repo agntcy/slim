@@ -8,6 +8,12 @@ git_tag_name = "{{ package | replace(from='agntcy-', to='') }}-v{{ version }}"
 git_release_name = "{{ package | replace(from='agntcy-', to='') }} v{{ version }}"
 
 [[package]]
+name = "agntcy-slim-version"
+publish = true
+release = true
+changelog_update = true
+
+[[package]]
 name = "agntcy-slim-config"
 publish = true
 release = true

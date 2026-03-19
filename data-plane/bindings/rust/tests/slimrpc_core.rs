@@ -898,13 +898,13 @@ async fn test_concurrent_unary_calls() {
 }
 
 // ============================================================================
-// Session Caching Tests
+// Session Reuse Tests
 // ============================================================================
 
 #[tokio::test]
 #[tracing_test::traced_test]
-async fn test_one_session_per_rpc() {
-    let mut env = TestEnv::new("test-one-session-per-rpc").await;
+async fn test_session_reused_across_rpcs() {
+    let mut env = TestEnv::new("test-session-reused-across-rpcs").await;
 
     let call_count = Arc::new(Mutex::new(0));
     let session_ids = Arc::new(Mutex::new(Vec::new()));
@@ -919,7 +919,7 @@ async fn test_one_session_per_rpc() {
 
     env.start_server().await;
 
-    // First call - creates session
+    // First call — establishes the persistent session
     let request1 = TestRequest {
         message: "first".to_string(),
         value: 1,
@@ -931,7 +931,7 @@ async fn test_one_session_per_rpc() {
         .expect("First RPC call failed");
     assert_eq!(response1.count, 1);
 
-    // Second call - creates new session (no session reuse)
+    // Second call — reuses the same session
     let request2 = TestRequest {
         message: "second".to_string(),
         value: 2,
@@ -943,29 +943,7 @@ async fn test_one_session_per_rpc() {
         .expect("Second RPC call failed");
     assert_eq!(response2.count, 2);
 
-    // Get the session IDs from first two calls
-    let id_list = session_ids.lock().await;
-    assert_eq!(
-        id_list.len(),
-        2,
-        "Should have 2 session IDs recorded so far"
-    );
-    let first_session_id = id_list[0].clone();
-    let second_session_id = id_list[1].clone();
-    drop(id_list);
-
-    // Each call should use different session (one session per RPC)
-    assert_ne!(
-        first_session_id, second_session_id,
-        "Each RPC call should use different session"
-    );
-    tracing::info!("✓ First call used session: {}", first_session_id);
-    tracing::info!(
-        "✓ Second call used different session: {}",
-        second_session_id
-    );
-
-    // Third call - creates another new session
+    // Third call — still reuses the same session
     let request3 = TestRequest {
         message: "third".to_string(),
         value: 3,
@@ -977,37 +955,34 @@ async fn test_one_session_per_rpc() {
         .expect("Third RPC call failed");
     assert_eq!(response3.count, 3);
 
-    // Get all session IDs
-    let id_list = session_ids.lock().await;
-    assert_eq!(id_list.len(), 3, "Should have 3 session IDs recorded");
-    let third_session_id = id_list[2].clone();
-    drop(id_list);
-
-    // Third call should use DIFFERENT session from both previous calls
-    assert_ne!(
-        third_session_id, first_session_id,
-        "Third call should use different session"
-    );
-    assert_ne!(
-        third_session_id, second_session_id,
-        "Third call should use different session"
-    );
-    tracing::info!(
-        "✓ Third call used yet another different session: {}",
-        third_session_id
-    );
-
     // All 3 calls should have been processed
     let final_count = *call_count.lock().await;
     assert_eq!(final_count, 3);
+
+    // All calls share the same persistent session
+    let id_list = session_ids.lock().await;
+    assert_eq!(id_list.len(), 3, "Should have 3 session IDs recorded");
+    let first_session_id = &id_list[0];
+    let second_session_id = &id_list[1];
+    let third_session_id = &id_list[2];
+
+    assert_eq!(
+        first_session_id, second_session_id,
+        "Session should be reused: first and second calls should share the same session"
+    );
+    assert_eq!(
+        second_session_id, third_session_id,
+        "Session should be reused: second and third calls should share the same session"
+    );
+    tracing::info!("✓ All three RPC calls reused session: {}", first_session_id);
 
     env.shutdown().await;
 }
 
 #[tokio::test]
 #[tracing_test::traced_test]
-async fn test_session_per_rpc_even_after_error() {
-    let mut env = TestEnv::new("test-session-per-rpc-after-error").await;
+async fn test_session_reused_after_handler_error() {
+    let mut env = TestEnv::new("test-session-reused-after-error").await;
 
     let call_count = Arc::new(Mutex::new(0));
     let session_ids = Arc::new(Mutex::new(Vec::new()));
@@ -1066,7 +1041,7 @@ async fn test_session_per_rpc_even_after_error() {
     assert!(result1.is_err());
     assert_eq!(result1.unwrap_err().code(), RpcCode::Internal);
 
-    // Second call should succeed using a NEW session (each RPC gets its own session)
+    // Second call should succeed — the session is reused even after a handler error
     let request2 = TestRequest {
         message: "second".to_string(),
         value: 2,
@@ -1082,20 +1057,18 @@ async fn test_session_per_rpc_even_after_error() {
     let final_count = *call_count.lock().await;
     assert_eq!(final_count, 2);
 
-    // Get all session IDs
+    // Both calls should share the same persistent session
     let id_list = session_ids.lock().await;
     assert_eq!(id_list.len(), 2, "Should have 2 session IDs recorded");
-    let first_session_id = id_list[0].clone();
-    let second_session_id = id_list[1].clone();
-    drop(id_list);
+    let first_session_id = &id_list[0];
+    let second_session_id = &id_list[1];
 
-    // Both calls should use DIFFERENT sessions (one session per RPC)
-    assert_ne!(
+    assert_eq!(
         first_session_id, second_session_id,
-        "Each RPC should get its own session, even after error"
+        "Session should be reused even after a handler error"
     );
     tracing::info!(
-        "✓ Each RPC got its own session: first={}, second={}",
+        "✓ Session reused after error: first={}, second={}",
         first_session_id,
         second_session_id
     );
@@ -1191,8 +1164,8 @@ async fn test_different_methods_different_sessions() {
 
 #[tokio::test]
 #[tracing_test::traced_test]
-async fn test_separate_sessions_for_streaming() {
-    let mut env = TestEnv::new("test-separate-sessions-streaming").await;
+async fn test_session_reused_for_streaming() {
+    let mut env = TestEnv::new("test-session-reused-streaming").await;
 
     let call_count = Arc::new(Mutex::new(0));
     let session_ids = Arc::new(Mutex::new(Vec::new()));
@@ -1257,7 +1230,7 @@ async fn test_separate_sessions_for_streaming() {
         assert_eq!(results1.len(), 3);
     } // stream1 dropped here
 
-    // Second streaming call in a scope - should create a 2nd session
+    // Second streaming call in a scope - reuses the same session
     {
         let request2 = TestRequest {
             message: "second".to_string(),
@@ -1287,15 +1260,14 @@ async fn test_separate_sessions_for_streaming() {
     let second_session_id = id_list[1].clone();
     drop(id_list);
 
-    // Both calls should use DIFFERENT sessions (one session per RPC)
-    assert_ne!(
+    // Both calls share the same persistent session
+    assert_eq!(
         first_session_id, second_session_id,
-        "Each streaming RPC should get its own session"
+        "Streaming RPCs should share the same persistent session"
     );
     tracing::info!(
-        "✓ Each streaming RPC got its own session: first={}, second={}",
-        first_session_id,
-        second_session_id
+        "✓ Both streaming RPCs reused the same session: {}",
+        first_session_id
     );
 
     env.shutdown().await;

@@ -12,8 +12,10 @@
 //!
 //! ## Architecture
 //!
-//! SlimRPC uses SLIM sessions as the underlying transport mechanism. Each RPC call creates
-//! a new session, exchanges messages, and closes the session upon completion.
+//! SlimRPC uses SLIM sessions as the underlying transport mechanism. A persistent session
+//! is maintained per remote peer and shared across concurrent RPC calls. Each call is
+//! identified by a unique `rpc-id` in message metadata, which allows the server to
+//! demultiplex concurrent calls over the shared session.
 //!
 //! ## Core Types
 //!
@@ -143,7 +145,7 @@ pub use channel::Channel;
 pub use codec::{Codec, Decoder, Encoder};
 pub use context::{Context, Metadata, SessionContext};
 pub use error::{InvalidRpcCode, RpcCode, RpcError};
-pub use rpc_session::{HandlerInfo, RpcSession, StreamRpcSession, send_error};
+pub use rpc_session::{HandlerInfo, RpcSession, StreamRpcSession, send_error, send_error_for_rpc};
 pub use server::{HandlerResponse, HandlerType, ItemStream, RpcHandler, Server, StreamRpcHandler};
 pub use session_wrapper::{ReceivedMessage, SessionRx, SessionTx, new_session};
 
@@ -162,6 +164,15 @@ pub const DEADLINE_KEY: &str = "slimrpc-timeout";
 /// Key used in metadata for RPC status code
 pub const STATUS_CODE_KEY: &str = "slimrpc-code";
 
+/// Key used in metadata for RPC call ID (used for session multiplexing)
+pub const RPC_ID_KEY: &str = "rpc-id";
+
+/// Key used in metadata for the RPC service name
+pub const SERVICE_KEY: &str = "service";
+
+/// Key used in metadata for the RPC method name
+pub const METHOD_KEY: &str = "method";
+
 /// Maximum timeout in seconds (10 hours)
 pub const MAX_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(36000);
 
@@ -171,6 +182,21 @@ pub const MAX_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3600
 /// This is the single point of truth for timeout duration calculation in SlimRPC.
 pub fn calculate_timeout_duration(timeout: Option<std::time::Duration>) -> std::time::Duration {
     timeout.unwrap_or(MAX_TIMEOUT)
+}
+
+/// Returns `true` when `msg` is an end-of-stream marker: status code is `Ok`
+/// **and** the payload is empty.
+///
+/// This is the canonical test used by both the client and server to decide
+/// whether a received message terminates the current RPC stream.
+pub(crate) fn msg_is_terminal(msg: &session_wrapper::ReceivedMessage) -> bool {
+    let code = msg
+        .metadata
+        .get(STATUS_CODE_KEY)
+        .and_then(|s| s.parse::<i32>().ok())
+        .and_then(|c| RpcCode::try_from(c).ok())
+        .unwrap_or(RpcCode::Ok);
+    code == RpcCode::Ok && msg.payload.is_empty()
 }
 
 /// Calculate deadline from optional timeout duration

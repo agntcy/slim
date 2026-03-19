@@ -9,5 +9,6 @@ description = "Small library to handle OS signals."
 name = "slim_signal"
 
 [dependencies]
+agntcy-slim-version = { workspace = true }
 tokio = { version = "1", features = ["macros", "signal"] }
 tracing = { workspace = true }
