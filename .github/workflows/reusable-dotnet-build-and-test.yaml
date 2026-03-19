@@ -108,7 +108,6 @@ jobs:
             TAG_NAME_PARAM="TAG_NAME=${{ inputs.tag-name }}"
           fi
 
-          task copy:runtimes ARTIFACTS_DIR=./artifacts
           task slimrpc:generate-proto
           task build
           task test
