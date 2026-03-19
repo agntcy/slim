@@ -434,11 +434,8 @@ impl SessionController {
         &self,
         destination: &Name,
     ) -> Result<CompletionHandle, SessionError> {
-        println!("invite {}", destination);
         let msg = self.create_discovery_request(destination)?;
-        println!("discovery request {:?}", msg);
         let res =self.publish_message(msg).await;
-        println!("publish done {:?}", res);
         res
     }
 
