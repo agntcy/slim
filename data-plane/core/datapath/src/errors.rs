@@ -56,6 +56,13 @@ pub enum DataPathError {
     #[error("configuration error")]
     ConfigurationError(#[from] ConfigError),
 
+    // Remote subscription ACK errors
+    #[error("remote subscription ack timed out after {0} retries")]
+    RemoteSubscriptionAckTimeout(u32),
+
+    #[error("remote subscription ack returned error: {0}")]
+    RemoteSubscriptionAckError(String),
+
     // Shutdown errors
     #[error("data path is already closed")]
     AlreadyClosedError,

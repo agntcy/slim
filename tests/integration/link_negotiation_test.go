@@ -112,6 +112,56 @@ var _ = Describe("Link Negotiation", func() {
 		})
 	})
 
+	// two new nodes (both v1.2.0): both complete link negotiation and each
+	// advertises the new version, which is the prerequisite for remote
+	// subscription ACKs to be used between them.
+	Describe("two new nodes advertise v1.2.0 during link negotiation", func() {
+		It("logs remote_version=1.2.0 after link negotiation", func() {
+			serverPort := reservePort()
+			nodeBPort := reservePort()
+
+			replacements := map[string]string{
+				"0.0.0.0:46480":         fmt.Sprintf("0.0.0.0:%d", serverPort),
+				"0.0.0.0:46481":         fmt.Sprintf("0.0.0.0:%d", nodeBPort),
+				"http://localhost:46480": fmt.Sprintf("http://localhost:%d", serverPort),
+			}
+			serverConfig := writeTempConfig(tempDir, "./testdata/link-neg-server-config.yaml", "server-v120.yaml", replacements)
+			nodeBConfig := writeTempConfig(tempDir, "./testdata/link-neg-node-with-client-config.yaml", "node-b-v120.yaml", replacements)
+
+			serverSession, err := gexec.Start(
+				exec.Command(slimPath, "--config", serverConfig),
+				GinkgoWriter, GinkgoWriter,
+			)
+			Expect(err).NotTo(HaveOccurred())
+			defer terminateSession(serverSession, 5*time.Second)
+
+			Eventually(serverSession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
+
+			nodeBSession, err := gexec.Start(
+				exec.Command(slimPath, "--config", nodeBConfig),
+				GinkgoWriter, GinkgoWriter,
+			)
+			Expect(err).NotTo(HaveOccurred())
+			defer terminateSession(nodeBSession, 5*time.Second)
+
+			// Server receives the negotiation request; the log line is
+			// "received link negotiation ... remote_version=1.2.0 ..."
+			// ANSI colour codes prevent matching "remote_version=1.2.0" as a
+			// literal string, so we assert the message text and then the version
+			// number (which appears later in the same line, after the message).
+			Eventually(serverSession.Out, 10*time.Second).Should(gbytes.Say("received link negotiation"))
+			Eventually(serverSession.Out, 10*time.Second).Should(gbytes.Say("1.2.0"))
+
+			// Client receives the reply and logs the remote version.
+			Eventually(nodeBSession.Out, 10*time.Second).Should(gbytes.Say("received link negotiation"))
+			Eventually(nodeBSession.Out, 10*time.Second).Should(gbytes.Say("1.2.0"))
+
+			// Both processes must keep running.
+			Consistently(serverSession, 500*time.Millisecond).ShouldNot(gexec.Exit())
+			Consistently(nodeBSession, 500*time.Millisecond).ShouldNot(gexec.Exit())
+		})
+	})
+
 	// old client <--> new server: the old client (slim-v1.1.0) connects but
 	// never sends link negotiation.  The new server must accept the connection
 	// and remain stable without ever receiving a negotiation message.

@@ -4,11 +4,17 @@
 pub struct Subscribe {
     #[prost(message, optional, tag = "1")]
     pub header: ::core::option::Option<SlimHeader>,
+    /// Non-empty when the sender wants a SubscriptionAck back.
+    #[prost(string, tag = "2")]
+    pub ack_id: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Unsubscribe {
     #[prost(message, optional, tag = "1")]
     pub header: ::core::option::Option<SlimHeader>,
+    /// Non-empty when the sender wants a SubscriptionAck back.
+    #[prost(string, tag = "2")]
+    pub ack_id: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Publish {
@@ -26,7 +32,7 @@ pub struct Message {
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
-    #[prost(oneof = "message::MessageType", tags = "1, 2, 3, 5")]
+    #[prost(oneof = "message::MessageType", tags = "1, 2, 3, 5, 6")]
     pub message_type: ::core::option::Option<message::MessageType>,
 }
 /// Nested message and enum types in `Message`.
@@ -41,6 +47,8 @@ pub mod message {
         Publish(super::Publish),
         #[prost(message, tag = "5")]
         Link(super::Link),
+        #[prost(message, tag = "6")]
+        SubscriptionAck(super::SubscriptionAck),
     }
 }
 /// Link is a link-local message exchanged only between directly connected SLIM nodes.
@@ -317,6 +325,21 @@ pub struct GroupNackPayload {}
 /// Ping
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct PingPayload {}
+/// SubscriptionAck is delivered directly to the requesting connection in response
+/// to a Subscribe or Unsubscribe that carried a SUBSCRIPTION_ACK_ID metadata entry.
+/// It is never routed through the subscription table.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SubscriptionAck {
+    /// Echoes the SUBSCRIPTION_ACK_ID from the originating request.
+    #[prost(string, tag = "1")]
+    pub ack_id: ::prost::alloc::string::String,
+    /// True if the subscription operation succeeded.
+    #[prost(bool, tag = "2")]
+    pub success: bool,
+    /// Non-empty only when success == false.
+    #[prost(string, tag = "3")]
+    pub error: ::prost::alloc::string::String,
+}
 /// Link Negotiation
 /// Sent upon connection establishment to negotiate a common link identifier
 /// and exchange SLIM version information. Not routed; handled locally by

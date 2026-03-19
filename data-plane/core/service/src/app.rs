@@ -16,13 +16,10 @@ use tracing::{debug, error};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::Status;
-use slim_datapath::api::MessageType;
+use slim_datapath::api::{MessageType, ProtoSubscriptionAck};
 use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::messages::Name;
-use slim_datapath::messages::utils::{
-    SUBSCRIPTION_ACK_ERROR, SUBSCRIPTION_ACK_ID, SUBSCRIPTION_ACK_SUCCESS, SlimHeaderFlags,
-    TRUE_VAL,
-};
+use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_session::{SessionConfig, session_controller::SessionController};
 
 // Local crate
@@ -159,38 +156,32 @@ where
         format!("sub-{}", next)
     }
 
-    async fn handle_subscription_ack_message(
+    fn handle_subscription_ack_message(
         pending_subscription_acks: &Arc<
             Mutex<HashMap<String, oneshot::Sender<Result<(), SubscriptionAckError>>>>,
         >,
-        msg: &Message,
+        ack: &ProtoSubscriptionAck,
     ) {
-        let Some(ack_id) = msg.get_metadata(SUBSCRIPTION_ACK_ID).cloned() else {
-            return;
-        };
-
-        let success = msg
-            .get_metadata(SUBSCRIPTION_ACK_SUCCESS)
-            .map(|val| val == TRUE_VAL)
-            .unwrap_or(false);
-        let error_msg = msg.get_metadata(SUBSCRIPTION_ACK_ERROR).cloned();
-
         let sender = {
             let mut pending = pending_subscription_acks.lock();
-            pending.remove(&ack_id)
+            pending.remove(&ack.ack_id)
         };
 
         if let Some(sender) = sender {
-            let _ = sender.send(if success {
+            let _ = sender.send(if ack.success {
                 Ok(())
             } else {
                 Err(SubscriptionAckError::Rejected {
-                    message: error_msg.unwrap_or_else(|| "subscription ack failed".to_string()),
+                    message: if ack.error.is_empty() {
+                        "subscription ack failed".to_string()
+                    } else {
+                        ack.error.clone()
+                    },
                 })
             });
         } else {
             debug!(
-                ack_id = %ack_id,
+                ack_id = %ack.ack_id,
                 "received subscription ack with no pending waiter"
             );
         }
@@ -294,7 +285,7 @@ where
         self.send_with_subscription_ack(
             |ack_id| {
                 builder
-                    .metadata(SUBSCRIPTION_ACK_ID, ack_id)
+                    .subscription_ack_id(ack_id)
                     .build_subscribe()
                     .unwrap()
             },
@@ -328,7 +319,7 @@ where
         self.send_with_subscription_ack(
             |ack_id| {
                 builder
-                    .metadata(SUBSCRIPTION_ACK_ID, ack_id)
+                    .subscription_ack_id(ack_id)
                     .build_unsubscribe()
                     .unwrap()
             },
@@ -427,16 +418,17 @@ where
                                         // filter only the messages of type publish
                                         match msg.message_type.as_ref() {
                                             Some(MessageType::Publish(_)) => {},
-                                            Some(MessageType::Subscribe(_))
-                                            | Some(MessageType::Unsubscribe(_)) => {
+                                            Some(MessageType::SubscriptionAck(ack)) => {
                                                 Self::handle_subscription_ack_message(
                                                     &pending_subscription_acks,
-                                                    &msg,
-                                                )
-                                                .await;
+                                                    ack,
+                                                );
                                                 continue;
                                             }
-                                            Some(MessageType::Link(_)) | None => {
+                                            Some(MessageType::Subscribe(_))
+                                            | Some(MessageType::Unsubscribe(_))
+                                            | Some(MessageType::Link(_))
+                                            | None => {
                                                 continue;
                                             }
                                         }
@@ -623,30 +615,12 @@ mod tests {
         ack_id: &str,
         success: bool,
         error_msg: Option<&str>,
-        add: bool,
     ) -> ProtoMessage {
-        let mut builder = ProtoMessage::builder()
-            .source(create_test_name("ack-src"))
-            .destination(create_test_name("ack-dst"))
-            .metadata(SUBSCRIPTION_ACK_ID, ack_id.to_string())
-            .metadata(
-                SUBSCRIPTION_ACK_SUCCESS,
-                if success {
-                    TRUE_VAL
-                } else {
-                    slim_datapath::messages::utils::FALSE_VAL
-                },
-            );
-
-        if let Some(err) = error_msg {
-            builder = builder.metadata(SUBSCRIPTION_ACK_ERROR, err.to_string());
-        }
-
-        if add {
-            builder.build_subscribe().unwrap()
-        } else {
-            builder.build_unsubscribe().unwrap()
-        }
+        ProtoMessage::builder().build_subscription_ack(
+            ack_id,
+            success,
+            error_msg.unwrap_or(""),
+        )
     }
 
     #[tokio::test]
@@ -655,9 +629,11 @@ mod tests {
         let (tx, rx) = oneshot::channel();
         pending.lock().insert("ack-default".to_string(), tx);
 
-        let ack_msg = build_subscription_ack_message("ack-default", false, None, true);
-        App::<SharedSecret, SharedSecret>::handle_subscription_ack_message(&pending, &ack_msg)
-            .await;
+        let ack_msg = build_subscription_ack_message("ack-default", false, None);
+        App::<SharedSecret, SharedSecret>::handle_subscription_ack_message(
+            &pending,
+            ack_msg.get_subscription_ack(),
+        );
 
         let ack_result = rx.await.expect("ack sender dropped unexpectedly");
         match ack_result {
@@ -681,16 +657,15 @@ mod tests {
         };
 
         let ack_id = outbound
-            .get_metadata(SUBSCRIPTION_ACK_ID)
-            .cloned()
+            .get_subscription_ack_id()
+            .map(str::to_owned)
             .expect("missing ack id in outbound subscribe message");
 
-        let ack_msg = build_subscription_ack_message(&ack_id, true, None, true);
+        let ack_msg = build_subscription_ack_message(&ack_id, true, None);
         App::<SharedSecret, SharedSecret>::handle_subscription_ack_message(
             &app.pending_subscription_acks,
-            &ack_msg,
-        )
-        .await;
+            ack_msg.get_subscription_ack(),
+        );
 
         subscribe_fut.await.expect("subscribe should succeed");
     }
@@ -707,17 +682,16 @@ mod tests {
         };
 
         let ack_id = outbound
-            .get_metadata(SUBSCRIPTION_ACK_ID)
-            .cloned()
+            .get_subscription_ack_id()
+            .map(str::to_owned)
             .expect("missing ack id in outbound subscribe message");
 
         let ack_msg =
-            build_subscription_ack_message(&ack_id, false, Some("forwarding update failed"), true);
+            build_subscription_ack_message(&ack_id, false, Some("forwarding update failed"));
         App::<SharedSecret, SharedSecret>::handle_subscription_ack_message(
             &app.pending_subscription_acks,
-            &ack_msg,
-        )
-        .await;
+            ack_msg.get_subscription_ack(),
+        );
 
         let err = subscribe_fut.await.expect_err("subscribe should fail");
         match err {
@@ -740,8 +714,8 @@ mod tests {
         };
 
         let ack_id = outbound
-            .get_metadata(SUBSCRIPTION_ACK_ID)
-            .cloned()
+            .get_subscription_ack_id()
+            .map(str::to_owned)
             .expect("missing ack id in outbound unsubscribe message");
 
         {

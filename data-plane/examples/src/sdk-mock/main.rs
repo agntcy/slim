@@ -149,6 +149,12 @@ async fn main() {
         .get_connection_id(&svc.config().dataplane_clients()[0].endpoint)
         .unwrap();
 
+    // Wait for link negotiation so that the remote-ack path can be taken when
+    // the upstream peer supports it (v≥1.2.0).  For legacy peers the timeout
+    // elapses silently and the default path is used instead.
+    svc.wait_for_link_negotiation(conn_id, std::time::Duration::from_millis(500))
+        .await;
+
     let local_app_name = Name::from_strings(["org", "default", local_name]).with_id(id);
     app.subscribe(&local_app_name, Some(conn_id)).await.unwrap();
 

@@ -483,6 +483,37 @@ impl Service {
         connections
     }
 
+    /// Poll until the connection identified by `conn_id` has completed link
+    /// negotiation (i.e. the remote peer's SLIM version is known), or until
+    /// `timeout` elapses.
+    ///
+    /// Returns `true` if negotiation completed within the deadline.  Returns
+    /// `false` if the connection was not found or if the remote peer is a
+    /// legacy node that does not perform link negotiation.
+    pub async fn wait_for_link_negotiation(
+        &self,
+        conn_id: u64,
+        timeout: std::time::Duration,
+    ) -> bool {
+        let check_interval = std::time::Duration::from_millis(10);
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            let negotiated = self
+                .message_processor
+                .connection_table()
+                .get(conn_id as usize)
+                .map_or(false, |c| c.remote_slim_version().is_some());
+            if negotiated {
+                return true;
+            }
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                return false;
+            }
+            tokio::time::sleep(check_interval.min(remaining)).await;
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn message_processor(&self) -> &Arc<MessageProcessor> {
         &self.message_processor
