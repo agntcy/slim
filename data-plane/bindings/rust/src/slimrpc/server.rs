@@ -342,7 +342,6 @@ impl Server {
         base_name: Name,
         notification_rx: mpsc::Receiver<Result<Notification, SessionError>>,
     ) -> Self {
-        println!("creating server with base name {}", base_name);
         Self::construct_internal(
             app,
             base_name,

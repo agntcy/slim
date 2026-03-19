@@ -227,7 +227,6 @@ where
         destination: Name,
         id: Option<u32>,
     ) -> Result<(SessionContext, CompletionHandle), SessionError> {
-        println!("create session in sesssion layer");
         // Sanity check
         session_config.initiator = true;
 
@@ -240,7 +239,6 @@ where
         // If session is p2p, initiate the discovery request now and return the ack
         // Otherwise, return an immediately resolved future
         let init_ack = if is_p2p {
-            println!("create p2p session");
             session
                 .session()
                 .upgrade()
@@ -249,7 +247,6 @@ where
                 .await
                 .inspect_err(|_| {
                     // If invite_participant_internal fails, remove the session from the pool
-                    println!("invite failed, removing session");
                     let _ = self.remove_session(session.session_id());
                 })?
         } else {
@@ -273,7 +270,6 @@ where
     ) -> Result<SessionContext, SessionError> {
         // Retry loop to handle race conditions when generating random IDs
         loop {
-            println!("create session internal {:?}", id);
             // get a lock on the session pool
             let session_id = {
                 let pool = self.pool.read();
@@ -305,8 +301,6 @@ where
                 }
             }; // lock is dropped here
 
-            println!("session id created {}", session_id);
-
             // Create a new transmitter with identity interceptors
             let (app_tx, app_rx) = tokio::sync::mpsc::unbounded_channel();
             let tx = SessionTransmitter::new(self.tx_slim.clone(), app_tx);
@@ -327,7 +321,6 @@ where
                     let control_name = destination.clone().with_id(Name::CONTROL_CHANNEL_ID);
                     (data_name, control_name)
                 };
-            println!("dst and control {:?}, {:?}", data_name, control_name); 
             // Build the session controller (this is async, so no locks are held)
             let builder = SessionController::builder()
                 .with_id(session_id)
@@ -342,7 +335,6 @@ where
                 .with_direction(self.direction)
                 .ready()?;
 
-            println!("builder ready");
             // Perform the async build operation without holding any lock
             let session_controller = Arc::new(builder.build()?);
 
@@ -369,8 +361,6 @@ where
                 );
                 return Err(SessionError::SessionIdAlreadyUsed(session_id));
             }
-
-            println!("session is created! done!");
 
             return Ok(SessionContext::new(session_controller, app_rx));
         }
@@ -569,17 +559,14 @@ where
 
         let new_session = match session_message_type {
             ProtoSessionMessageType::JoinRequest => {
-                println!("session layer got join request");
                 match message.get_session_header().session_type() {
                     ProtoSessionType::PointToPoint => {
-                        println!("is p2p");
                         let conf = crate::SessionConfig::from_join_request(
                             ProtoSessionType::PointToPoint,
                             message.extract_command_payload()?,
                             message.get_metadata_map(),
                             false,
                         )?;
-                        println!("conf created");
 
                         self.create_session_internal(
                             conf,
@@ -642,7 +629,6 @@ where
             | ProtoSessionMessageType::MsgAck
             | ProtoSessionMessageType::RtxRequest
             | ProtoSessionMessageType::RtxReply => {
-                println!("drop message {:?}", message);
                 tracing::debug!(?message, "received channel message with unknown session id",);
                 // We can ignore these messages
                 return Ok(());
@@ -661,7 +647,6 @@ where
             .ok_or(SessionError::SessionClosed)?;
 
         let message_type = message.get_session_message_type();
-        println!("process message on the session");
         session_controller.on_message_from_slim(message).await?;
 
         // if the message received is a join request and we are the initiator
@@ -692,7 +677,6 @@ where
         session_type: ProtoSessionType,
         session_message_type: ProtoSessionMessageType,
     ) -> Result<(), SessionError> {
-        println!("received discovery message for session id {}: checking if session exists", id);
         // received a discovery message
         let controller = self.pool.read().get(&id).cloned();
         if let Some(controller) = controller
@@ -711,7 +695,6 @@ where
             // Handle the discovery request without creating a local session.
             let local_name =
                 self.get_local_name_for_session(message.get_slim_header().get_dst())?;
-            println!("part: local name = {}", local_name);
 
             self.handle_message_from_slim_without_session(
                 &local_name,

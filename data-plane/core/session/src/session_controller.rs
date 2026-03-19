@@ -435,8 +435,7 @@ impl SessionController {
         destination: &Name,
     ) -> Result<CompletionHandle, SessionError> {
         let msg = self.create_discovery_request(destination)?;
-        let res =self.publish_message(msg).await;
-        res
+        self.publish_message(msg).await
     }
 
     pub async fn invite_participant(

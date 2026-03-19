@@ -117,18 +117,21 @@ where
         let app_name_with_id = match identity_provider.get_id() {
             Ok(token_id) => {
                 // Use a hash of the token ID to convert to u64 for name generation
-                use std::hash::{Hash, Hasher};
                 use std::collections::hash_map::DefaultHasher;
-                
+                use std::hash::{Hash, Hasher};
+
                 let mut hasher = DefaultHasher::new();
                 token_id.hash(&mut hasher);
                 let id_hash = hasher.finish();
-                
+
                 app_name.clone().with_id(id_hash)
             }
             Err(e) => {
                 // If we can't get the token ID, log a warning and use the name as-is
-                tracing::warn!("Failed to get identity token ID: {}, using name without ID", e);
+                tracing::warn!(
+                    "Failed to get identity token ID: {}, using name without ID",
+                    e
+                );
                 app_name.clone()
             }
         };
@@ -250,7 +253,6 @@ where
         destination: Name,
         id: Option<u32>,
     ) -> Result<(SessionContext, slim_session::CompletionHandle), SessionError> {
-        println!("crate session");
         self.session_layer
             .create_session(session_config, self.app_name.clone(), destination, id)
             .await
@@ -1077,8 +1079,7 @@ mod tests {
     async fn run_p2p_subscription_test(config: P2PTestConfig) {
         let service = create_test_service(config.test_name);
 
-        let subscriber_name =
-            Name::from_strings(["org", "ns", config.subscriber_suffix]);
+        let subscriber_name = Name::from_strings(["org", "ns", config.subscriber_suffix]);
         let publisher_name = Name::from_strings(["org", "ns", config.publisher_suffix]);
 
         let (subscriber_app, mut subscriber_notifications) =
@@ -1097,7 +1098,10 @@ mod tests {
             config
                 .subscription_names
                 .iter()
-                .map(|suffix| Name::from_strings(["org", "ns", suffix]).with_id(subscriber_app.app_name().id()))
+                .map(|suffix| {
+                    Name::from_strings(["org", "ns", suffix])
+                        .with_id(subscriber_app.app_name().id())
+                })
                 .collect()
         };
 
@@ -1158,8 +1162,6 @@ mod tests {
 
             // Check that the source matches is in sub_names_set
             let src = session_arc.source();
-            println!("SRC = {}", src);
-            println!("SUB NAMES = {:?}", subscription_names);
             assert!(sub_names_set.contains(src));
 
             // Verify it's a point-to-point session

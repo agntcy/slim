@@ -491,9 +491,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // if multiple-remotes is set we expect messages from exactly 2 clients,
     // otherwise all messages must come from client_1_name.with_id(0)
     if multiple_remotes {
-        let name_1 = found_sender.iter().find(|n| n.components_strings() == client_1_name.clone().components_strings());
-        let name_2 = found_sender.iter().find(|n| n.components_strings() == client_2_name.clone().components_strings());
-        if  found_sender.len() != 2 || name_1.is_none() || name_2.is_none() {
+        let name_1 = found_sender
+            .iter()
+            .find(|n| n.components_strings() == client_1_name.clone().components_strings());
+        let name_2 = found_sender
+            .iter()
+            .find(|n| n.components_strings() == client_2_name.clone().components_strings());
+        if found_sender.len() != 2 || name_1.is_none() || name_2.is_none() {
             println!(
                 "expected messages from 2 clients, but got messages from {} clients. test failed",
                 found_sender.len(),
@@ -501,7 +505,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::process::exit(1);
         }
     } else {
-        let name = found_sender.iter().find(|n| n.components_strings() == client_1_name.clone().components_strings());
+        let name = found_sender
+            .iter()
+            .find(|n| n.components_strings() == client_1_name.clone().components_strings());
         if name.is_none() || found_sender.len() != 1 {
             println!(
                 "expected messages only from {}, but got messages from {:?}. test failed",
