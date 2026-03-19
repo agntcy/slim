@@ -12,6 +12,7 @@ members = [
     "core/signal",
     "core/slim",
     "core/tracing",
+    "core/version",
     "examples",
     "slimctl",
     "slimrpc-compiler",
@@ -26,6 +27,7 @@ default-members = [
     "core/signal",
     "core/slim",
     "core/tracing",
+    "core/version",
     "examples",
     "slimctl",
     "slimrpc-compiler",
@@ -48,6 +50,7 @@ agntcy-slim-session = { path = "core/session", version = "0.1.7" }
 agntcy-slim-signal = { path = "core/signal", version = "0.1.4" }
 agntcy-slim-testing = { path = "testing" }
 agntcy-slim-tracing = { path = "core/tracing", version = "0.3.4" }
+agntcy-slim-version = { path = "core/version", version = "1.1.0" }
 agntcy-slimctl = { path = "slimctl", version = "1.2.0" }
 
 anyhow = "1.0.98"
@@ -144,6 +147,7 @@ uuid = { version = "1.15.1", features = ["v4"] }
 wiremock = "0.6"
 
 [workspace.package]
+version = "1.1.0"
 license = "Apache-2.0"
 edition = "2024"
 repository = "https://github.com/agntcy/slim"
@@ -162,6 +166,7 @@ ignored = [
     "agntcy-slim-signal",
     "agntcy-slim-testing",
     "agntcy-slim-tracing",
+    "agntcy-slim-version",
     "agntcy-slimctl",
     "agntcy-slimrpc",
 ]
