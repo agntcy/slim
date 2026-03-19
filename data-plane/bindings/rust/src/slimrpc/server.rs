@@ -24,10 +24,10 @@ use slim_session::notification::Notification;
 
 use super::{
     Context, HandlerInfo, METHOD_KEY, RPC_ID_KEY, ReceivedMessage, RequestStream, ResponseSink,
-    RpcCode, RpcError, RpcSession, SERVICE_KEY, StreamRpcSession, StreamStreamHandler,
-    StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler, UniffiRequestStream,
+    RpcCode, RpcError, RpcSession, SERVICE_KEY, StreamStreamHandler, StreamUnaryHandler,
+    UnaryStreamHandler, UnaryUnaryHandler, UniffiRequestStream,
     codec::{Decoder, Encoder},
-    msg_is_terminal, send_error_for_rpc,
+    send_error_for_rpc,
     session_wrapper::{SessionRx, SessionTx, new_session},
 };
 
@@ -66,9 +66,9 @@ pub enum HandlerType {
 #[derive(Clone)]
 struct ServiceRegistry {
     /// Map of method paths to handlers (for unary-input methods)
-    handlers: HashMap<String, (RpcHandler, HandlerType)>,
+    handlers: HashMap<String, RpcHandler>,
     /// Map of method paths to stream handlers (for stream-input methods)
-    stream_handlers: HashMap<String, (StreamRpcHandler, HandlerType)>,
+    stream_handlers: HashMap<String, StreamRpcHandler>,
 }
 
 impl ServiceRegistry {
@@ -105,8 +105,7 @@ impl ServiceRegistry {
             .boxed()
         });
 
-        self.handlers
-            .insert(method_path, (wrapper, HandlerType::UnaryUnary));
+        self.handlers.insert(method_path, wrapper);
     }
 
     /// Register a unary-stream handler
@@ -137,8 +136,7 @@ impl ServiceRegistry {
             .boxed()
         });
 
-        self.handlers
-            .insert(method_path, (wrapper, HandlerType::UnaryStream));
+        self.handlers.insert(method_path, wrapper);
     }
 
     /// Register a stream-unary handler
@@ -167,8 +165,7 @@ impl ServiceRegistry {
             .boxed()
         });
 
-        self.stream_handlers
-            .insert(method_path, (wrapper, HandlerType::StreamUnary));
+        self.stream_handlers.insert(method_path, wrapper);
     }
 
     /// Register a stream-stream handler
@@ -198,20 +195,21 @@ impl ServiceRegistry {
             .boxed()
         });
 
-        self.stream_handlers
-            .insert(method_path, (wrapper, HandlerType::StreamStream));
+        self.stream_handlers.insert(method_path, wrapper);
     }
 
     /// Get handler info (either stream or unary) in one lookup
     fn get_handler_info(&self, method_path: &str) -> Option<HandlerInfo> {
-        if let Some((stream_handler, handler_type)) = self.stream_handlers.get(method_path).cloned()
-        {
-            Some(HandlerInfo::Stream(stream_handler, handler_type))
-        } else if let Some((handler, handler_type)) = self.handlers.get(method_path).cloned() {
-            Some(HandlerInfo::Unary(handler, handler_type))
-        } else {
-            None
-        }
+        self.stream_handlers
+            .get(method_path)
+            .cloned()
+            .map(HandlerInfo::Stream)
+            .or_else(|| {
+                self.handlers
+                    .get(method_path)
+                    .cloned()
+                    .map(HandlerInfo::Unary)
+            })
     }
 
     /// Get all registered method paths
@@ -306,40 +304,31 @@ fn spawn_handler_task(
     session_tx: SessionTx,
     pending_streams: &mut HashMap<String, mpsc::UnboundedSender<ReceivedMessage>>,
 ) -> JoinHandle<()> {
-    match handler_info {
-        HandlerInfo::Stream(stream_handler, handler_type) => {
+    // For stream-input handlers, create the mpsc channel and register the sender
+    // so that subsequent messages can be routed to the same handler task.
+    // Only register if the first message is not already terminal; otherwise drop
+    // stream_tx immediately so the handler's channel closes after the first message.
+    let stream_rx = match &handler_info {
+        HandlerInfo::Stream(_) => {
             let (stream_tx, stream_rx) = mpsc::unbounded_channel();
-            // Only register the sender if the first message is not already terminal; otherwise
-            // drop stream_tx immediately so the handler's channel closes after the first message.
-            if !msg_is_terminal(&msg) {
+            if !msg.is_eos() {
                 pending_streams.insert(rpc_id.clone(), stream_tx);
             }
-            tokio::spawn(async move {
-                let session = StreamRpcSession::new_with_rpc_id(
-                    &session_tx,
-                    stream_rx,
-                    method_path.clone(),
-                    msg,
-                    rpc_id.clone(),
-                );
-                if let Err(e) = session.handle(stream_handler, handler_type).await {
-                    tracing::error!(%method_path, error = %e, "Error in stream RPC handler");
-                    let _ = send_error_for_rpc(&session_tx, e, &rpc_id).await;
-                }
-            })
+            Some(stream_rx)
         }
-        HandlerInfo::Unary(handler, handler_type) => tokio::spawn(async move {
-            let session =
-                RpcSession::new_with_rpc_id(&session_tx, method_path.clone(), msg, rpc_id.clone());
-            if let Err(e) = session
-                .handle(HandlerInfo::Unary(handler, handler_type))
-                .await
-            {
-                tracing::error!(%method_path, error = %e, "Error in unary RPC handler");
-                let _ = send_error_for_rpc(&session_tx, e, &rpc_id).await;
-            }
-        }),
-    }
+        HandlerInfo::Unary(_) => None,
+    };
+
+    tokio::spawn(async move {
+        let session = match stream_rx {
+            Some(rx) => RpcSession::new_stream(&session_tx, rx, &method_path, msg, &rpc_id),
+            None => RpcSession::new_unary(&session_tx, &method_path, msg, &rpc_id),
+        };
+        if let Err(e) = session.handle(handler_info).await {
+            tracing::error!(%method_path, error = %e, "Error in RPC handler");
+            let _ = send_error_for_rpc(&session_tx, e, &rpc_id).await;
+        }
+    })
 }
 
 /// Per-session demultiplexer: routes incoming messages by `rpc-id` and dispatches each new
@@ -391,7 +380,7 @@ async fn run_session_demux(
 
         if let Some(tx) = pending_streams.get(&rpc_id) {
             // Route continuation message to the existing stream-input handler.
-            let is_terminal = msg_is_terminal(&msg);
+            let is_terminal = msg.is_eos();
             let _ = tx.send(msg);
             if is_terminal {
                 pending_streams.remove(&rpc_id);
@@ -402,6 +391,15 @@ async fn run_session_demux(
         // New RPC call — resolve handler and dispatch.
         let service = msg.metadata.get(SERVICE_KEY).cloned().unwrap_or_default();
         let method = msg.metadata.get(METHOD_KEY).cloned().unwrap_or_default();
+
+        // Skip messages that are not inbound RPC requests (e.g., responses from other
+        // members circulating through a GROUP/multicast session). A valid request always
+        // carries a SERVICE_KEY; responses and other protocol messages do not.
+        if service.is_empty() {
+            tracing::trace!(%rpc_id, "Skipping non-request message (no service key)");
+            continue;
+        }
+
         let method_path = format!("{}/{}", service, method);
 
         tracing::debug!(%method_path, %rpc_id, "Dispatching new RPC call");
