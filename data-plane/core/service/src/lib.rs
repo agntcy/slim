@@ -41,7 +41,6 @@ pub mod service;
 pub mod app;
 
 // Third-party crates
-pub use slim_datapath::message_processing::set_local_version;
 pub use slim_datapath::messages::utils::SlimHeaderFlags;
 
 // Local crate

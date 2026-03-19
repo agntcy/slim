@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::net::SocketAddr;
-use std::sync::OnceLock;
 use std::{pin::Pin, sync::Arc};
 
 use crate::api::DataPlaneServiceServer;
@@ -120,28 +119,8 @@ fn create_span(function: &str, out_conn: u64, msg: &Message) -> Span {
     span
 }
 
-/// Process-wide SLIM version advertised to peers during link negotiation.
-/// Set once at startup by the embedding binary (e.g. the `slim` crate) via
-/// `set_local_version`.  Falls back to the datapath crate version if never set.
-static LOCAL_VERSION: OnceLock<&'static str> = OnceLock::new();
-
-/// Set the SLIM version string advertised to remote peers during link negotiation.
-/// Must be called before any connections are established.
-/// Has no effect if called more than once.
-pub fn set_local_version(version: &'static str) {
-    LOCAL_VERSION.set(version).ok();
-}
-
-fn local_version() -> String {
-    let raw = LOCAL_VERSION
-        .get()
-        .copied()
-        .unwrap_or(env!("CARGO_PKG_VERSION"));
-    let trimmed = raw.trim();
-    trimmed
-        .strip_prefix("slim-v")
-        .unwrap_or(trimmed)
-        .to_string()
+fn local_version() -> &'static str {
+    slim_version::version()
 }
 
 fn is_valid_uuid_v4(s: &str) -> bool {

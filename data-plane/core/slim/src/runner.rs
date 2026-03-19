@@ -9,15 +9,11 @@ use crate::config::ConfigLoader;
 use crate::runtime;
 use slim_config::component::Component;
 use slim_config::tls::provider;
-use slim_service::set_local_version;
 
 /// Async body: tracing setup, service lifecycle, graceful shutdown.
 /// Assumes the crypto provider has already been initialized and the caller
 /// provides a Tokio runtime.
 pub async fn run_services(mut config: ConfigLoader) -> Result<()> {
-    // Advertise the slim binary version (not the datapath library version) to peers.
-    set_local_version(build_info::BUILD_INFO.version);
-
     // Setup tracing
     let tracing_conf = config.tracing().context("invalid tracing configuration")?;
     let _guard = tracing_conf.setup_tracing_subscriber();
