@@ -17,6 +17,7 @@ agntcy-slim-datapath = { workspace = true }
 agntcy-slim-session = { workspace = true }
 agntcy-slim-signal = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
+agntcy-slim-version = { workspace = true }
 display-error-chain = { workspace = true }
 drain = { workspace = true }
 h2 = { workspace = true }

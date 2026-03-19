@@ -20,6 +20,7 @@ dependencies = [
  "agntcy-slim-service",
  "agntcy-slim-signal",
  "agntcy-slim-tracing",
+ "agntcy-slim-version",
  "anyhow",
  "clap",
  "duration-string",
@@ -42,6 +43,7 @@ version = "0.5.1"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-testing",
+ "agntcy-slim-version",
  "async-trait",
  "aws-lc-rs",
  "base64",
@@ -88,6 +90,7 @@ dependencies = [
  "agntcy-slim-signal",
  "agntcy-slim-testing",
  "agntcy-slim-tracing",
+ "agntcy-slim-version",
  "async-stream",
  "async-trait",
  "bincode",
@@ -116,6 +119,7 @@ version = "0.6.3"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-testing",
+ "agntcy-slim-version",
  "async-trait",
  "base64",
  "display-error-chain",
@@ -166,6 +170,7 @@ dependencies = [
  "agntcy-slim-signal",
  "agntcy-slim-testing",
  "agntcy-slim-tracing",
+ "agntcy-slim-version",
  "display-error-chain",
  "drain",
  "h2",
@@ -194,6 +199,7 @@ version = "0.11.4"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-tracing",
+ "agntcy-slim-version",
  "bincode",
  "bit-vec",
  "criterion",
@@ -226,6 +232,7 @@ version = "0.1.10"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
+ "agntcy-slim-version",
  "async-trait",
  "base64",
  "hex",
@@ -250,6 +257,7 @@ dependencies = [
  "agntcy-slim-mls",
  "agntcy-slim-session",
  "agntcy-slim-testing",
+ "agntcy-slim-version",
  "async-trait",
  "display-error-chain",
  "futures",
@@ -271,6 +279,7 @@ dependencies = [
  "agntcy-slim-datapath",
  "agntcy-slim-mls",
  "agntcy-slim-testing",
+ "agntcy-slim-version",
  "async-trait",
  "display-error-chain",
  "parking_lot",
@@ -288,6 +297,7 @@ dependencies = [
 name = "agntcy-slim-signal"
 version = "0.1.4"
 dependencies = [
+ "agntcy-slim-version",
  "tokio",
  "tracing",
 ]
@@ -326,6 +336,7 @@ name = "agntcy-slim-tracing"
 version = "0.3.4"
 dependencies = [
  "agntcy-slim-config",
+ "agntcy-slim-version",
  "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -341,6 +352,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "agntcy-slim-version"
+version = "1.1.0"
+
+[[package]]
 name = "agntcy-slimctl"
 version = "1.2.0"
 dependencies = [
@@ -350,6 +365,7 @@ dependencies = [
  "agntcy-slim-service",
  "agntcy-slim-signal",
  "agntcy-slim-tracing",
+ "agntcy-slim-version",
  "anyhow",
  "chrono",
  "clap",

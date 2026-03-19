@@ -1,6 +1,6 @@
 [package]
 name = "agntcy-slim"
-version = "1.1.0"
+version.workspace = true
 edition = { workspace = true }
 license = { workspace = true }
 description = "The main SLIM executable."
@@ -21,6 +21,7 @@ agntcy-slim-config = { workspace = true }
 agntcy-slim-service = { workspace = true }
 agntcy-slim-signal = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
+agntcy-slim-version = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 duration-string = { workspace = true }
@@ -35,6 +36,9 @@ tracing = { workspace = true }
 
 [target.x86_64-unknown-linux-gnu.dependencies]
 jemallocator = { workspace = true }
+
+[build-dependencies]
+agntcy-slim-version = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

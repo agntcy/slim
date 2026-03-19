@@ -28,6 +28,7 @@ agntcy-slim-datapath = { workspace = true }
 agntcy-slim-service = { workspace = true }
 agntcy-slim-signal = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
+agntcy-slim-version = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true }
@@ -58,6 +59,7 @@ url = { workspace = true }
 uuid = { workspace = true }
 
 [build-dependencies]
+agntcy-slim-version = { workspace = true }
 protoc-bin-vendored = { workspace = true }
 tonic-prost-build = { workspace = true }
 
