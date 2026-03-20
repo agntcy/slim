@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8](https://github.com/agntcy/slim/compare/slim-session-v0.1.7...slim-session-v0.1.8) - 2026-03-20
+
+### Added
+
+- add agntcy-slim-version crate as single source of truth for version and build info ([#1360](https://github.com/agntcy/slim/pull/1360))
+
 ## [0.1.7](https://github.com/agntcy/slim/compare/slim-session-v0.1.6...slim-session-v0.1.7) - 2026-02-27
 
 ### Other

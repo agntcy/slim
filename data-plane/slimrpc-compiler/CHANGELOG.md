@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0](https://github.com/agntcy/slim/compare/protoc-slimrpc-plugin-v1.1.0...protoc-slimrpc-plugin-v1.2.0) - 2026-03-20
+
+### Added
+
+- java plugin for slimrpc compiler ([#1342](https://github.com/agntcy/slim/pull/1342))
+
 ## [1.1.0](https://github.com/agntcy/slim/compare/protoc-slimrpc-plugin-v1.0.2...protoc-slimrpc-plugin-v1.1.0) - 2026-02-27
 
 ### Added
