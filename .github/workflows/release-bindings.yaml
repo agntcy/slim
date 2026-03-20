@@ -32,6 +32,7 @@ jobs:
   # ==========================================================================
   release-libraries:
     name: Release Libraries
+    if: false
     runs-on: ubuntu-latest
     needs: build-and-test-bindings
     permissions:
@@ -111,6 +112,7 @@ jobs:
   # ==========================================================================
   release-go-bindings:
     name: "Release Go Bindings"
+    if: false
     needs: build-and-test-bindings
     uses: ./.github/workflows/reusable-go-bindings-release.yaml
     secrets:
@@ -121,6 +123,7 @@ jobs:
   # ==========================================================================
   release-python-bindings:
     name: Upload release to PyPI
+    if: false
     runs-on: ubuntu-latest
     needs:
       - build-and-test-bindings
@@ -160,6 +163,7 @@ jobs:
   # ==========================================================================
   release-kotlin-bindings:
     name: "Release Kotlin Bindings"
+    if: false
     needs: build-and-test-bindings
     uses: ./.github/workflows/reusable-kotlin-bindings-release.yaml
     permissions:
@@ -176,6 +180,7 @@ jobs:
   # ==========================================================================
   release-java-bindings:
     name: "Release Java Bindings"
+    if: false
     needs: build-and-test-bindings
     uses: ./.github/workflows/reusable-java-bindings-release.yaml
     permissions:
