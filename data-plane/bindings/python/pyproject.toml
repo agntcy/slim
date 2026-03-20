@@ -43,6 +43,7 @@ examples = [
     "tomli>=2.4.0",
     "protobuf>=6.33.4",
     "googleapis-common-protos>=1.72.0",
+    "requests>=2.31.0",
 ]
 
 [project.scripts]

@@ -46,7 +46,19 @@ slim:
                   type: spire
                   socket_path: unix:/tmp/spire-agent/public/api.sock
                   # trust_domains:
-                  #   - example.local                          
+                  #   - example.local
+            # HTTP + JWT endpoint for OIDC-authenticated clients (no TLS)
+            - endpoint: "0.0.0.0:{{ .Values.slim.service.oidc.port }}"
+              tls:
+                insecure: true
+              auth:
+                type: jwt
+                claims:
+                  audiences: ["alice", "bob"]
+                  issuer: "https://dev.idp.ads.outshift.io"
+                duration: 1h
+                key:
+                  type: autoresolve
           clients: []
         controller:
           clients:
@@ -66,10 +78,12 @@ slim:
   # This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
   service:
     # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
-    type: ClusterIP
+    type: LoadBalancer
     headless: false
     data:
       port: 46357
+    oidc:
+      port: 46359
     control:
       port: 46358
 

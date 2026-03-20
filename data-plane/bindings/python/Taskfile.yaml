@@ -22,6 +22,8 @@ includes:
 
 env:
   SHARED_SECRET: "demo-secret-key-for-examples012345"
+  OIDC_ISSUER_URL: '{{.OIDC_ISSUER_URL | default "https://dev.idp.ads.outshift.io"}}'
+  OIDC_AUDIENCE: '{{.OIDC_AUDIENCE | default "slim-api"}}'
 
 tasks:
   default:
@@ -309,6 +311,51 @@ tasks:
           --remote agntcy/ns/alice                                                    \
           --message "hey there"                                                       \
           --enable-mls                                                                \
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  slim:port-forward:oidc:
+    desc: "Port-forward SLIM OIDC endpoint from Kind cluster to localhost:46359"
+    cmds:
+      - kubectl port-forward svc/slim -n slim 46359:46359
+
+  python:example:p2p:oidc:alice:
+    desc: "Point to Point OIDC example - Alice listens for messages via OIDC-authenticated SLIM endpoint"
+    deps:
+      - python:bindings:install-examples
+    cmds:
+      - |
+        uv run slim-bindings-p2p                                                      \
+          --local agntcy/ns/alice                                                     \
+          --slim http://172.18.0.3:46359                                              \
+          --auth-mode oidc                                                            \
+          --shared-secret $SHARED_SECRET                                              \
+          --oidc-issuer-url $OIDC_ISSUER_URL                                          \
+          --oidc-client-id alice                                                      \
+          --oidc-client-secret 4JgxknQnGcaMDkuNTbD4ivuq6DEVnPlaQdRuyJ2lungy8eKAxW0LsXjwucKpm0xb \
+          --oidc-audience alice {{.EXTRA_ARGS}}
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  python:example:p2p:oidc:bob:
+    desc: "Point to Point OIDC example - Bob sends messages to Alice via OIDC-authenticated SLIM endpoint"
+    deps:
+      - python:bindings:install-examples
+    env:
+      SLIM_INSTANCE_ID: bob
+    cmds:
+      - |
+        uv run slim-bindings-p2p                                                      \
+          --local agntcy/ns/bob                                                       \
+          --remote agntcy/ns/alice                                                    \
+          --message "hey there"                                                       \
+          --slim http://172.18.0.3:46359                                              \
+          --auth-mode oidc                                                            \
+          --shared-secret $SHARED_SECRET                                              \
+          --oidc-issuer-url $OIDC_ISSUER_URL                                          \
+          --oidc-client-id bob                                                        \
+          --oidc-client-secret IK6MocMwlfILKFmScyU7FXIYXCLbLkCIXMbOXF4hHtiZDgfweF1bZ2LJQeDHVoYb \
+          --oidc-audience $OIDC_AUDIENCE {{.EXTRA_ARGS}}
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 

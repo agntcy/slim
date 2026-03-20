@@ -92,6 +92,8 @@ slim:
     headless: false
     data:
       port: 46357
+    oidc:
+      port: 0
     control:
       port: 46358
 

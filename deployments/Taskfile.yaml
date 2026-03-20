@@ -13,7 +13,7 @@ version: "3"
 vars:
   SPIRE_NAMESPACE: '{{ .SPIRE_NAMESPACE | default "spire" }}'
   SLIM_NAMESPACE: '{{ .SLIM_NAMESPACE | default "slim" }}'
-  SLIM_IMAGE_TAG: '{{ .SLIM_IMAGE_TAG | default "1.1.0" }}'
+  SLIM_IMAGE_TAG: '{{ .SLIM_IMAGE_TAG | default "1.1.1-dev01" }}'
   SLIM_CONTROLLER_IMAGE_TAG: '{{ .SLIM_CONTROLLER_IMAGE_TAG | default "1.0.0" }}'
 
 
@@ -104,7 +104,7 @@ tasks:
     desc: Remove SPIRE server
     cmds:
       - helm delete spire -n {{ .SPIRE_NAMESPACE }}
-      - helm delete spire-crds -n {{ .SPIRE_NAMESPACE }}          
+      - helm delete spire-crds -n {{ .SPIRE_NAMESPACE }}
 
   slim:check:prerequisites:
     desc: Check availability of docker, kubectl, and kind on the host

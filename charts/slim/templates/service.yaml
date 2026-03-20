@@ -19,6 +19,12 @@ spec:
       targetPort: data-plane
       protocol: TCP
       name: data-plane
+{{- if gt (int .Values.slim.service.oidc.port) 0 }}
+    - port: {{ .Values.slim.service.oidc.port }}
+      targetPort: oidc
+      protocol: TCP
+      name: oidc
+{{- end }}
     - port: {{ .Values.slim.service.control.port }}
       targetPort: controller
       protocol: TCP
@@ -42,6 +48,12 @@ spec:
       targetPort: data-plane
       protocol: TCP
       name: data-plane
+{{- if gt (int .Values.slim.service.oidc.port) 0 }}
+    - port: {{ .Values.slim.service.oidc.port }}
+      targetPort: oidc
+      protocol: TCP
+      name: oidc
+{{- end }}
     - port: {{ .Values.slim.service.control.port }}
       targetPort: controller
       protocol: TCP

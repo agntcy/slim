@@ -68,6 +68,11 @@ spec:
             - name: data-plane
               containerPort: {{ .Values.slim.service.data.port }}
               protocol: TCP
+{{- if gt (int .Values.slim.service.oidc.port) 0 }}
+            - name: oidc
+              containerPort: {{ .Values.slim.service.oidc.port }}
+              protocol: TCP
+{{- end }}
             - name: controller
               containerPort: {{ .Values.slim.service.control.port }}
               protocol: TCP

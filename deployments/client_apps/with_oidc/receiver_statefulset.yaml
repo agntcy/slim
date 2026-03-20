@@ -1,0 +1,57 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+#
+# OIDC-authenticated receiver (alice).
+# Credentials must be populated after ZITADEL setup:
+#   kubectl create secret generic alice-oidc-credentials \
+#     --from-literal=client_id=<ID> --from-literal=client_secret=<SECRET>
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alice-oidc-credentials
+type: Opaque
+stringData:
+  client_id: "<set-after-zitadel-setup>"
+  client_secret: "<set-after-zitadel-setup>"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: alice
+  labels:
+    app.kubernetes.io/name: slim-client
+    app.kubernetes.io/component: alice
+spec:
+  containers:
+  - args:
+    - p2p
+    - --local
+    - org/ns/alice
+    - --slim
+    - "http://slim.slim.svc.cluster.local:46359"
+    - --oidc-issuer-url
+    - "http://zitadel.zitadel.svc.cluster.local:8080"
+    - --oidc-client-id
+    - "$(OIDC_CLIENT_ID)"
+    - --oidc-client-secret
+    - "$(OIDC_CLIENT_SECRET)"
+    - --oidc-audience
+    - "slim-api"
+    env:
+    - name: PYTHONUNBUFFERED
+      value: "1"
+    - name: OIDC_CLIENT_ID
+      valueFrom:
+        secretKeyRef:
+          name: alice-oidc-credentials
+          key: client_id
+    - name: OIDC_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: alice-oidc-credentials
+          key: client_secret
+    image: bindings-examples:1.2.0-dev.1
+    imagePullPolicy: Never
+    name: client
+  restartPolicy: OnFailure

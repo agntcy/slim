@@ -17,6 +17,7 @@ import argparse
 import base64  # Used to decode base64-encoded JWKS content (when provided).
 import datetime  # Used for timedelta in JWT configs
 import json  # Used for parsing JWKS JSON and dynamic option values.
+import os
 from typing import Any
 
 import slim_bindings  # The Python bindings package we are demonstrating.
@@ -173,6 +174,83 @@ def spire_identity(
     return provider_config, verifier_config
 
 
+def fetch_oidc_token(
+    issuer_url: str,
+    client_id: str,
+    client_secret: str,
+    scope: str = "openid profile",
+) -> str:
+    """
+    Fetch a JWT from an OIDC provider using client_credentials grant and
+    write it to a local file.
+
+    Returns:
+        Absolute path to the file containing the JWT access token.
+    """
+    import requests
+
+    discovery = requests.get(
+        f"{issuer_url.rstrip('/')}/.well-known/openid-configuration",
+        timeout=10,
+    ).json()
+    token_endpoint = discovery["token_endpoint"]
+
+    resp = requests.post(
+        token_endpoint,
+        data={
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "scope": scope,
+        },
+        timeout=10,
+    )
+    resp.raise_for_status()
+    access_token = resp.json()["access_token"]
+
+    token_path = os.path.join(os.path.dirname(__file__), "oidc_token.jwt")
+    print(f"Writing OIDC token to: {token_path}")
+    with open(token_path, "w") as f:
+        f.write(access_token)
+
+    return token_path
+
+
+def oidc_identity(
+    token_path: str,
+    issuer_url: str,
+    audience: str,
+):
+    """
+    Construct a StaticJwt identity provider and JWT verifier from
+    a pre-fetched OIDC token file.
+
+    Args:
+        token_path: Path to the file containing the JWT access token.
+        issuer_url: OIDC issuer URL used for JWKS auto-resolution.
+        audience: Expected audience for JWT tokens.
+    """
+    provider_config = slim_bindings.IdentityProviderConfig.STATIC_JWT(
+        config=slim_bindings.StaticJwtAuth(
+            token_file=token_path,
+            duration=datetime.timedelta(seconds=3600),
+        )
+    )
+    
+    print(f"Audience: {audience}")
+    verifier_config = slim_bindings.IdentityVerifierConfig.JWT(
+        config=slim_bindings.JwtAuth(
+            key=slim_bindings.JwtKeyType.AUTORESOLVE(),
+            audience=[audience],
+            issuer=issuer_url,
+            subject=None,
+            duration=datetime.timedelta(seconds=3600),
+        )
+    )
+
+    return provider_config, verifier_config
+
+
 def setup_service(enable_opentelemetry: bool = False) -> slim_bindings.Service:
     # Initialize tracing and global state
     tracing_config = slim_bindings.new_tracing_config()
@@ -220,37 +298,63 @@ async def create_local_app(config: BaseConfig) -> tuple[slim_bindings.App, int]:
     # Convert local identifier to a strongly typed Name.
     local_name = slim_bindings.Name.from_string(config.local)
 
-    client_config = slim_bindings.new_insecure_client_config(config.slim)
-    conn_id = await service.connect_async(client_config)
-
     # Determine authentication mode
     auth_mode = config.get_auth_mode()
 
-    if auth_mode == AuthMode.SPIRE:
-        print("Using SPIRE dynamic identity authentication.")
-        provider_config, verifier_config = spire_identity(
-            socket_path=config.spire_socket_path,
-            target_spiffe_id=config.spire_target_spiffe_id,
-            jwt_audiences=config.spire_jwt_audience,
-        )
-        local_app = service.create_app(local_name, provider_config, verifier_config)
-    elif auth_mode == AuthMode.JWT:
-        print("Using JWT + JWKS authentication.")
-        # These should always be set if auth_mode is JWT
-        if not config.jwt or not config.spire_trust_bundle:
+    client_config = slim_bindings.new_insecure_client_config(config.slim)
+
+    if auth_mode == AuthMode.OIDC:
+        print("Using OIDC authentication.")
+        if not config.oidc_issuer_url or not config.oidc_client_id or not config.oidc_client_secret:
             raise ValueError(
-                "JWT and SPIRE trust bundle are required for JWT auth mode"
+                "OIDC issuer URL, client ID, and client secret are required for OIDC auth mode"
             )
-        provider_config, verifier_config = jwt_identity(
-            config.jwt,
-            config.spire_trust_bundle,
-            str(local_name),
-            aud=config.audience,
+        token_path = fetch_oidc_token(
+            issuer_url=config.oidc_issuer_url,
+            client_id=config.oidc_client_id,
+            client_secret=config.oidc_client_secret,
+            scope=config.oidc_scope or "openid profile",
         )
-        local_app = service.create_app(local_name, provider_config, verifier_config)
-    else:
-        print("Using shared-secret authentication.")
-        local_app = service.create_app_with_secret(local_name, config.shared_secret)
+        client_config.auth = slim_bindings.ClientAuthenticationConfig.STATIC_JWT(
+            config=slim_bindings.StaticJwtAuth(
+                token_file=token_path,
+                duration=datetime.timedelta(seconds=3600),
+            )
+        )
+
+    conn_id = await service.connect_async(client_config)
+
+    # if auth_mode == AuthMode.SPIRE:
+    #     print("Using SPIRE dynamic identity authentication.")
+    #     provider_config, verifier_config = spire_identity(
+    #         socket_path=config.spire_socket_path,
+    #         target_spiffe_id=config.spire_target_spiffe_id,
+    #         jwt_audiences=config.spire_jwt_audience,
+    #     )
+    #     local_app = service.create_app(local_name, provider_config, verifier_config)
+    # elif auth_mode == AuthMode.OIDC:
+    #     provider_config, verifier_config = oidc_identity(
+    #         token_path=token_path,
+    #         issuer_url=config.oidc_issuer_url,
+    #         audience=config.oidc_audience,
+    #     )
+    #     local_app = service.create_app(local_name, provider_config, verifier_config)
+    # elif auth_mode == AuthMode.JWT:
+    #     print("Using JWT + JWKS authentication.")
+    #     # These should always be set if auth_mode is JWT
+    #     if not config.jwt or not config.spire_trust_bundle:
+    #         raise ValueError(
+    #             "JWT and SPIRE trust bundle are required for JWT auth mode"
+    #         )
+    #     provider_config, verifier_config = jwt_identity(
+    #         config.jwt,
+    #         config.spire_trust_bundle,
+    #         str(local_name),
+    #         aud=config.audience,
+    #     )
+    #     local_app = service.create_app(local_name, provider_config, verifier_config)
+    # else:
+    local_app = service.create_app_with_secret(local_name, config.shared_secret)
 
     # Provide feedback to user (instance numeric id).
     format_message_print(f"{local_app.id()}", "Created app")
@@ -357,6 +461,49 @@ def create_base_parser(description: str) -> argparse.ArgumentParser:
         action="append",
         dest="spire_jwt_audience",
         help="Audience(s) for SPIRE JWT SVID requests (can be specified multiple times)",
+    )
+
+    # OIDC authentication
+    parser.add_argument(
+        "--oidc-issuer-url",
+        type=str,
+        help="OIDC issuer URL (e.g. http://zitadel.zitadel.svc.cluster.local:8080)",
+    )
+
+    parser.add_argument(
+        "--oidc-client-id",
+        type=str,
+        help="OAuth2 client ID for OIDC client-credentials grant",
+    )
+
+    parser.add_argument(
+        "--oidc-client-secret",
+        type=str,
+        help="OAuth2 client secret for OIDC client-credentials grant",
+    )
+
+    parser.add_argument(
+        "--oidc-audience",
+        type=str,
+        default="slim-api",
+        help="Expected audience for OIDC JWT tokens (default: slim-api)",
+    )
+
+    parser.add_argument(
+        "--oidc-scope",
+        type=str,
+        default="openid profile",
+        help='OAuth2 scope for OIDC token request (default: "openid profile")',
+    )
+
+    # Explicit auth mode
+    parser.add_argument(
+        "--auth-mode",
+        type=str,
+        choices=["shared_secret", "jwt", "spire", "oidc"],
+        default=None,
+        dest="auth_mode",
+        help="Explicitly select authentication mode (default: auto-detect)",
     )
 
     # Config file

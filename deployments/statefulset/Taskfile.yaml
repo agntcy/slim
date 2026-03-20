@@ -20,6 +20,7 @@ silent: true
 
 vars:
   STRATEGY: "statefulset"
+  ZITADEL_NAMESPACE: '{{ .ZITADEL_NAMESPACE | default "zitadel" }}'
 
 tasks:
   default:
@@ -63,6 +64,79 @@ tasks:
           --create-namespace \
           --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" \
           --values statefulset-values.yaml
+
+  zitadel:postgresql:deploy:
+    desc: Deploy PostgreSQL for ZITADEL (ephemeral, no persistence)
+    cmds:
+      - |
+        helm upgrade --install \
+        zitadel-postgresql \
+        oci://registry-1.docker.io/bitnamicharts/postgresql \
+        --namespace {{ .ZITADEL_NAMESPACE }} \
+        --create-namespace \
+        --set image.registry=docker.io \
+        --set image.repository=bitnamilegacy/postgresql \
+        --set image.tag=17.6.0 \
+        --set auth.database=zitadel \
+        --set auth.username=zitadel \
+        --set auth.password=zitadel \
+        --set auth.postgresPassword=zitadel \
+        --set primary.persistence.enabled=false \
+        --wait \
+        --timeout 5m
+
+  zitadel:postgresql:delete:
+    desc: Remove PostgreSQL deployment for ZITADEL
+    cmds:
+      - helm delete zitadel-postgresql -n {{ .ZITADEL_NAMESPACE }}
+
+  zitadel:deploy:
+    desc: Deploy ZITADEL OIDC identity provider (requires zitadel:postgresql:deploy first)
+    deps:
+      - zitadel:postgresql:deploy
+    cmds:
+      - |
+        helm upgrade --install \
+        zitadel \
+        ./zitadel \
+        -f zitadel-values.yaml \
+        --namespace {{ .ZITADEL_NAMESPACE }} \
+        --create-namespace \
+        --wait \
+        --timeout 15m
+
+  zitadel:delete:
+    desc: Remove ZITADEL and PostgreSQL deployments
+    cmds:
+      - helm delete zitadel -n {{ .ZITADEL_NAMESPACE }} || true
+      - helm delete zitadel-postgresql -n {{ .ZITADEL_NAMESPACE }} || true
+
+  zitadel:port-forward:
+    desc: Port-forward ZITADEL API and Login UI to localhost
+    cmds:
+      - kubectl port-forward svc/zitadel -n {{ .ZITADEL_NAMESPACE }} 8080:8080     
+
+  multi-cluster:lb:up:
+    desc: Start cloud provider for LoadBalancer support
+    status:
+    # Only start the processes if they are not running
+      - ps aux | grep '[c]loud-provider-kind' >/dev/null;
+
+    cmds:
+      - |
+        echo "Starting Kind cloud provider for LoadBalancer support..."
+        bash -c "go run sigs.k8s.io/cloud-provider-kind@latest >/dev/null 2>&1 &"
+
+  multi-cluster:lb:down:
+    desc: Stop cloud provider for LoadBalancer support
+    status:
+    # Only kill the processes if they are running
+      - test -z $(ps aux | grep '[c]loud-provider-kind') >/dev/null;
+
+    cmds:
+      - |
+        echo "Stopping Kind cloud provider for LoadBalancer support..."
+        kill -9 $(ps aux | grep [c]loud-provider-kind | awk '{print $2}')             
 
   test.sender:deploy:
     desc: Deploy sender application

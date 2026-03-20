@@ -27,6 +27,7 @@ class AuthMode(str, Enum):
     SHARED_SECRET = "shared_secret"
     JWT = "jwt"
     SPIRE = "spire"
+    OIDC = "oidc"
 
 
 class BaseConfig(BaseSettings):
@@ -111,6 +112,38 @@ class BaseConfig(BaseSettings):
         description="Audience(s) for SPIRE JWT SVID requests",
     )
 
+    # OIDC authentication (e.g. ZITADEL)
+    oidc_issuer_url: str | None = Field(
+        None,
+        description="OIDC issuer URL (e.g. http://zitadel.zitadel.svc.cluster.local:8080)",
+    )
+
+    oidc_client_id: str | None = Field(
+        None,
+        description="OAuth2 client ID for OIDC client-credentials grant",
+    )
+
+    oidc_client_secret: str | None = Field(
+        None,
+        description="OAuth2 client secret for OIDC client-credentials grant",
+    )
+
+    oidc_audience: str | None = Field(
+        default="slim-api",
+        description="Expected audience for OIDC JWT tokens",
+    )
+
+    oidc_scope: str | None = Field(
+        default="openid profile",
+        description="OAuth2 scope for OIDC token request",
+    )
+
+    # Explicit auth mode override (auto-detected from other fields when not set)
+    auth_mode: AuthMode | None = Field(
+        default=None,
+        description="Explicitly select authentication mode instead of auto-detecting",
+    )
+
     @field_validator("audience", mode="before")
     @classmethod
     def parse_audience(cls, v: Any) -> list[str] | None:
@@ -130,13 +163,17 @@ class BaseConfig(BaseSettings):
         return v
 
     def get_auth_mode(self) -> AuthMode:
-        """Determine which authentication mode to use based on provided config."""
+        """Return explicit auth_mode if set, otherwise auto-detect from fields."""
+        if self.auth_mode is not None:
+            return self.auth_mode
         if (
             self.spire_socket_path
             or self.spire_target_spiffe_id
             or self.spire_jwt_audience
         ):
             return AuthMode.SPIRE
+        elif self.oidc_issuer_url and self.oidc_client_id and self.oidc_client_secret:
+            return AuthMode.OIDC
         elif self.jwt and self.spire_trust_bundle and self.audience:
             return AuthMode.JWT
         else:

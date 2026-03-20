@@ -64,6 +64,12 @@ spec:
               containerPort: {{ .Values.slim.service.data.port }}
               protocol: TCP
               hostPort: {{ .Values.slim.service.data.port }}
+{{- if gt (int .Values.slim.service.oidc.port) 0 }}
+            - name: oidc
+              containerPort: {{ .Values.slim.service.oidc.port }}
+              protocol: TCP
+              hostPort: {{ .Values.slim.service.oidc.port }}
+{{- end }}
             - name: controller
               containerPort: {{ .Values.slim.service.control.port }}
               protocol: TCP

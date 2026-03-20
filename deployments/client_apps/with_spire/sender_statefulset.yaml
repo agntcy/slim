@@ -55,8 +55,8 @@ spec:
     env:
     - name: PYTHONUNBUFFERED
       value: "1"
-    image: agntcy/slim/bindings-examples:1.2.0-dev.1
-    imagePullPolicy: Always
+    image: bindings-examples:1.2.0-dev.1
+    imagePullPolicy: Never
     name: client
     volumeMounts:
     - name: spire-agent-socket
