@@ -129,8 +129,7 @@ async fn main() {
     let svc = services.shift_remove(&id).unwrap();
 
     // create local app
-    let id = 0;
-    let name = Name::from_strings(["org", "default", local_name]).with_id(id);
+    let name = Name::from_strings(["org", "default", local_name]);
     let (app, mut rx) = svc
         .create_app(
             &name,
@@ -149,8 +148,8 @@ async fn main() {
         .get_connection_id(&svc.config().dataplane_clients()[0].endpoint)
         .unwrap();
 
-    let local_app_name = Name::from_strings(["org", "default", local_name]).with_id(id);
-    app.subscribe(&local_app_name, Some(conn_id)).await.unwrap();
+    let local_app_name = app.app_name();
+    app.subscribe(local_app_name, Some(conn_id)).await.unwrap();
 
     // Set a route for the remote app
     let remote_app_name = Name::from_strings(["org", "default", remote_name]);

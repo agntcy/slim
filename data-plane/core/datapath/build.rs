@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 fn main() {
-    // Get protoc path
+    // Compile protobuf files
     let protoc_path = protoc_bin_vendored::protoc_bin_path().unwrap();
 
     // export PROTOC to the environment

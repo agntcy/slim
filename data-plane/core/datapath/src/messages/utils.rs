@@ -22,6 +22,7 @@ use crate::api::{
         command_payload::CommandPayloadType, content::ContentType,
     },
 };
+use slim_version::version;
 
 use thiserror::Error;
 
@@ -140,6 +141,13 @@ impl Display for MessageType {
 }
 
 impl ParticipantSettings {
+    pub fn new(sends_data: bool, receives_data: bool) -> Self {
+        Self {
+            sends_data: Some(sends_data),
+            receives_data: Some(receives_data),
+        }
+    }
+
     /// Returns `true` if both fields are `None`, meaning this entry was generated
     /// for an old participant that does not support `ParticipantSettings`.
     /// New participants always set both fields explicitly to `Some(true)` or `Some(false)`.
@@ -263,6 +271,7 @@ impl SlimHeader {
             forward_to: flags.forward_to,
             incoming_conn: flags.incoming_conn,
             error: flags.error,
+            version: Some(version().to_string()),
         }
     }
 
@@ -307,6 +316,14 @@ impl SlimHeader {
 
     pub fn get_identity(&self) -> String {
         self.identity.clone()
+    }
+
+    pub fn get_version(&self) -> Option<String> {
+        self.version.clone()
+    }
+
+    pub fn has_version(&self) -> bool {
+        self.version.is_some()
     }
 
     pub fn set_source(&mut self, source: &Name) {
@@ -1964,6 +1981,7 @@ mod tests {
             forward_to: None,
             incoming_conn: None,
             error: None,
+            version: None,
         };
 
         // the operations to retrieve source and destination should fail with panic
@@ -2147,7 +2165,7 @@ mod tests {
 
         // Test join reply
         let payload = CommandPayload::builder()
-            .join_reply(ParticipantSettings::default(), Some(vec![1, 2, 3]));
+            .join_reply(ParticipantSettings::new(true, true), Some(vec![1, 2, 3]));
         let extracted = payload.as_join_reply_payload().unwrap();
         assert_eq!(extracted.key_package, Some(vec![1, 2, 3]));
 
@@ -2161,10 +2179,10 @@ mod tests {
 
         // Test group add
         let participants = vec![dest.clone()];
-        let settings = vec![ParticipantSettings::default()];
+        let settings = vec![ParticipantSettings::new(true, true)];
         let payload = CommandPayload::builder().group_add(
             dest.clone(),
-            ParticipantSettings::default(),
+            ParticipantSettings::new(true, true),
             participants.clone(),
             settings.clone(),
             None,

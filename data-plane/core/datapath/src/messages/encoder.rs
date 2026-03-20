@@ -85,6 +85,20 @@ impl From<&ProtoName> for Name {
 impl Name {
     // NULL_COMPONENT is used to represent a component that is not set
     pub const NULL_COMPONENT: u64 = u64::MAX;
+    // Channels gets two different names: one for data and one for control
+    // messages. The first 3 components are the same for both. Only the 4th
+    // component (id) is different.
+    // DATA_CHANNEL_ID is the id for the data channel name
+    pub const DATA_CHANNEL_ID: u64 = u64::MAX - 2; // ends with 0xfd (data)
+    // CONTROL_CHANNEL_ID is the id for the control channel name.
+    pub const CONTROL_CHANNEL_ID: u64 = u64::MAX - 3; // ends with 0xfc (control))
+
+    /// Returns true if `id` is one of the reserved values
+    /// Notice that u64::MAX - 1 (ends with 0xfe) is not used at the moment
+    /// and it reserved for future use.
+    pub const fn is_reserved_id(id: u64) -> bool {
+        id >= Self::CONTROL_CHANNEL_ID
+    }
 
     pub fn from_strings(components: [impl Into<String>; 3]) -> Self {
         let strings = components.map(Into::into);
@@ -138,6 +152,10 @@ impl Name {
 
     pub fn match_prefix(&self, other: &Name) -> bool {
         self.components[0..3] == other.components[0..3]
+    }
+
+    pub fn is_legacy(&self) -> bool {
+        self.components[3] == Self::NULL_COMPONENT
     }
 }
 

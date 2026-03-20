@@ -24,7 +24,10 @@ pub(crate) trait TaskUpdate {
     fn leave_start(&mut self, timer_id: u32) -> Result<(), SessionError>;
     fn leave_complete(&mut self, timer_id: u32) -> Result<(), SessionError>;
     fn welcome_start(&mut self, timer_id: u32) -> Result<(), SessionError>;
+    // used on commit send message to the control channel name
     fn commit_start(&mut self, timer_id: u32) -> Result<(), SessionError>;
+    // used on commit send message to the legacy channel name
+    fn commit_legacy_start(&mut self, timer_id: u32) -> Result<(), SessionError>;
     #[allow(dead_code)]
     fn proposal_start(&mut self, timer_id: u32) -> Result<(), SessionError>;
     fn update_phase_completed(&mut self, timer_id: u32) -> Result<(), SessionError>;
@@ -56,6 +59,15 @@ impl ModeratorTask {
             ModeratorTask::Remove(t) => t.ack_tx.take(),
             ModeratorTask::CloseOrDisconnect(t) => t.ack_tx.take(),
             ModeratorTask::Update(t) => t.ack_tx.take(),
+        }
+    }
+
+    pub(crate) fn set_ack_msg(&mut self, msg: Message) {
+        match self {
+            ModeratorTask::Add(t) => t.ack_msg = Some(msg),
+            ModeratorTask::Remove(t) => t.ack_msg = Some(msg),
+            ModeratorTask::CloseOrDisconnect(t) => t.ack_msg = Some(msg),
+            ModeratorTask::Update(t) => t.ack_msg = Some(msg),
         }
     }
 
@@ -144,6 +156,15 @@ impl TaskUpdate for ModeratorTask {
         }
     }
 
+    fn commit_legacy_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
+        match self {
+            ModeratorTask::Add(task) => task.commit_legacy_start(timer_id),
+            ModeratorTask::Remove(task) => task.commit_legacy_start(timer_id),
+            ModeratorTask::Update(task) => task.commit_legacy_start(timer_id),
+            ModeratorTask::CloseOrDisconnect(task) => task.commit_legacy_start(timer_id),
+        }
+    }
+
     fn proposal_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         match self {
             ModeratorTask::Update(task) => task.proposal_start(timer_id),
@@ -176,6 +197,7 @@ pub struct AddParticipant {
     join: State,
     welcome: State,
     commit: State,
+    commit_legacy: Option<State>,
     /// Optional ack message to send back to the control plane upon completion
     ack_msg: Option<Message>,
     /// Optional ack notifier to signal when the invite operation completes (after JoinReply)
@@ -192,6 +214,7 @@ impl AddParticipant {
             join: Default::default(),
             welcome: Default::default(),
             commit: Default::default(),
+            commit_legacy: None,
             ack_msg,
             ack_tx,
         }
@@ -202,7 +225,7 @@ impl TaskUpdate for AddParticipant {
     fn discovery_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         debug!(
             %timer_id,
-            "start discovery on AddParticipan task",
+            "start discovery on AddParticipant task",
         );
         self.discovery.received = false;
         self.discovery.timer_id = timer_id;
@@ -214,7 +237,7 @@ impl TaskUpdate for AddParticipant {
             self.discovery.received = true;
             debug!(
                 %timer_id,
-                "discovery completed on AddParticipan task"
+                "discovery completed on AddParticipant task"
             );
             Ok(())
         } else {
@@ -223,7 +246,7 @@ impl TaskUpdate for AddParticipant {
     }
 
     fn join_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        debug!(%timer_id, "start join on AddParticipan task");
+        debug!(%timer_id, "start join on AddParticipant task");
         self.join.received = false;
         self.join.timer_id = timer_id;
         Ok(())
@@ -234,7 +257,7 @@ impl TaskUpdate for AddParticipant {
             self.join.received = true;
             debug!(
                 %timer_id,
-                "join completed on AddParticipan task"
+                "join completed on AddParticipant task"
             );
 
             // Signal success to the ack notifier if present (invite operation complete)
@@ -257,16 +280,24 @@ impl TaskUpdate for AddParticipant {
     }
 
     fn welcome_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        debug!(%timer_id, "start welcome on AddParticipan task");
+        debug!(%timer_id, "start welcome on AddParticipant task");
         self.welcome.received = false;
         self.welcome.timer_id = timer_id;
         Ok(())
     }
 
     fn commit_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        debug!(%timer_id, "start commit on AddParticipan task");
+        debug!(%timer_id, "start commit on AddParticipant task");
         self.commit.received = false;
         self.commit.timer_id = timer_id;
+        Ok(())
+    }
+
+    fn commit_legacy_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
+        debug!(%timer_id, "start commit legacy on AddParticipant task");
+        let legacy_commit = self.commit_legacy.get_or_insert(State::default());
+        legacy_commit.received = false;
+        legacy_commit.timer_id = timer_id;
         Ok(())
     }
 
@@ -279,15 +310,24 @@ impl TaskUpdate for AddParticipant {
             self.welcome.received = true;
             debug!(
                 %timer_id,
-                "welcome completed on AddParticipan task",
+                "welcome completed on AddParticipant task",
             );
             Ok(())
         } else if self.commit.timer_id == timer_id {
             self.commit.received = true;
             debug!(
                 %timer_id,
-                "commit completed on AddParticipan task",
+                "commit completed on AddParticipant task",
             );
+            Ok(())
+        } else if let Some(legacy_commit) = &mut self.commit_legacy
+            && legacy_commit.timer_id == timer_id
+        {
+            debug!(
+                %timer_id,
+                "commit legacy completed on AddParticipant task",
+            );
+            legacy_commit.received = true;
             Ok(())
         } else {
             Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id))
@@ -299,12 +339,15 @@ impl TaskUpdate for AddParticipant {
             && self.join.received
             && self.welcome.received
             && self.commit.received
+            && self.commit_legacy.as_ref().is_none_or(|c| c.received)
     }
 }
 
 #[derive(Debug, Default)]
 pub struct RemoveParticipant {
     commit: State,
+    // use to track messages on the legacy channel
+    commit_legacy: Option<State>,
     leave: State,
     /// Optional ack message to send back to the control plane upon completion
     ack_msg: Option<Message>,
@@ -319,6 +362,7 @@ impl RemoveParticipant {
     ) -> Self {
         Self {
             commit: Default::default(),
+            commit_legacy: None,
             leave: Default::default(),
             ack_msg,
             ack_tx,
@@ -386,6 +430,17 @@ impl TaskUpdate for RemoveParticipant {
         Ok(())
     }
 
+    fn commit_legacy_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
+        debug!(
+            %timer_id,
+            "start commit legacy on RemoveParticipanMls task",
+        );
+        let legacy_commit = self.commit_legacy.get_or_insert(State::default());
+        legacy_commit.received = false;
+        legacy_commit.timer_id = timer_id;
+        Ok(())
+    }
+
     fn proposal_start(&mut self, _timer_id: u32) -> Result<(), SessionError> {
         Err(unsupported_phase())
     }
@@ -398,19 +453,31 @@ impl TaskUpdate for RemoveParticipant {
                 "commit completed on RemoveParticipanMls task",
             );
             Ok(())
+        } else if let Some(legacy_commit) = &mut self.commit_legacy
+            && legacy_commit.timer_id == timer_id
+        {
+            legacy_commit.received = true;
+            debug!(
+                %timer_id,
+                "legacy commit completed on RemoveParticipanMls task",
+            );
+            Ok(())
         } else {
             Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id))
         }
     }
 
     fn task_complete(&self) -> bool {
-        self.commit.received && self.leave.received
+        self.commit.received
+            && self.leave.received
+            && self.commit_legacy.as_ref().is_none_or(|c| c.received)
     }
 }
 
 #[derive(Debug, Default)]
 pub struct NotifyParticipants {
     notify: State,
+    notify_legacy: Option<State>,
     /// Optional ack message to send back to the control plane upon completion
     ack_msg: Option<Message>,
     /// Optional ack notifier to signal when the notify operation completes
@@ -424,6 +491,7 @@ impl NotifyParticipants {
     ) -> Self {
         Self {
             notify: Default::default(),
+            notify_legacy: None,
             ack_msg,
             ack_tx,
         }
@@ -466,6 +534,14 @@ impl TaskUpdate for NotifyParticipants {
         Ok(())
     }
 
+    fn commit_legacy_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
+        debug!(%timer_id, "start notify participants legacy task");
+        let legacy_notify = self.notify_legacy.get_or_insert(State::default());
+        legacy_notify.received = false;
+        legacy_notify.timer_id = timer_id;
+        Ok(())
+    }
+
     fn proposal_start(&mut self, _timer_id: u32) -> Result<(), SessionError> {
         Err(unsupported_phase())
     }
@@ -477,16 +553,28 @@ impl TaskUpdate for NotifyParticipants {
                 %timer_id,
                 "notify participants completed on NotifyParticipants task",
             );
+        } else if let Some(legacy_notify) = &mut self.notify_legacy
+            && legacy_notify.timer_id == timer_id
+        {
+            legacy_notify.received = true;
+            debug!(
+                %timer_id,
+                "notify participants legacy completed on NotifyParticipants task",
+            );
+        } else {
+            return Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id));
+        }
 
+        if self.notify.received
+            && (self.notify_legacy.is_none() || self.notify_legacy.as_ref().unwrap().received)
+        {
             // Signal success to the ack notifier if present (notify operation complete)
             if let Some(tx) = self.ack_tx.take() {
                 let _ = tx.send(Ok(()));
             }
-
-            Ok(())
-        } else {
-            Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id))
         }
+
+        Ok(())
     }
 
     fn task_complete(&self) -> bool {
@@ -498,6 +586,7 @@ impl TaskUpdate for NotifyParticipants {
 pub struct UpdateParticipant {
     proposal: State,
     commit: State,
+    commit_legacy: Option<State>,
     /// Optional ack message to send back to the control plane upon completion
     ack_msg: Option<Message>,
     /// Optional ack notifier to signal when the update operation completes
@@ -543,6 +632,17 @@ impl TaskUpdate for UpdateParticipant {
         Ok(())
     }
 
+    fn commit_legacy_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
+        debug!(
+            %timer_id,
+            "start commit legacy on UpdateParticipanMls task",
+        );
+        let legacy_commit = self.commit_legacy.get_or_insert(State::default());
+        legacy_commit.received = false;
+        legacy_commit.timer_id = timer_id;
+        Ok(())
+    }
+
     fn proposal_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         debug!(%timer_id,
             "start proposal on UpdateParticipanMls task",
@@ -567,13 +667,24 @@ impl TaskUpdate for UpdateParticipant {
                 "commit completed on UpdateParticipanMls task",
             );
             Ok(())
+        } else if let Some(legacy_commit) = &mut self.commit_legacy
+            && legacy_commit.timer_id == timer_id
+        {
+            legacy_commit.received = true;
+            debug!(
+                %timer_id,
+                "legacy commit completed on UpdateParticipanMls task",
+            );
+            Ok(())
         } else {
             Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id))
         }
     }
 
     fn task_complete(&self) -> bool {
-        self.proposal.received && self.commit.received
+        self.proposal.received
+            && self.commit.received
+            && self.commit_legacy.as_ref().is_none_or(|c| c.received)
     }
 }
 
