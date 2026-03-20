@@ -36,16 +36,14 @@ use slim_auth::traits::TokenProvider;
 use slim_config::grpc::client::ClientConfig;
 use slim_datapath::api::{
     CommandPayload, Content, MessageType::Link as LinkType, MessageType::Publish,
-    MessageType::Subscribe, MessageType::Unsubscribe, ProtoMessage as DataPlaneMessage,
+    MessageType::Subscribe, MessageType::SubscriptionAck as SubscriptionAckType,
+    MessageType::Unsubscribe, ProtoMessage as DataPlaneMessage,
 };
-use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType};
+use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType, ProtoSubscriptionAck};
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::Name;
 use slim_datapath::messages::encoder::calculate_hash;
-use slim_datapath::messages::utils::{
-    DELETE_GROUP, IS_MODERATOR, SUBSCRIPTION_ACK_ERROR, SUBSCRIPTION_ACK_ID,
-    SUBSCRIPTION_ACK_SUCCESS, SlimHeaderFlags, TRUE_VAL,
-};
+use slim_datapath::messages::utils::{DELETE_GROUP, IS_MODERATOR, SlimHeaderFlags, TRUE_VAL};
 use slim_datapath::tables::SubscriptionTable;
 
 use slim_session::timer::{Timer, TimerType};
@@ -383,12 +381,6 @@ impl ControlPlane {
                                 match res {
                                     Ok(msg) => {
                                         debug!("Send sub/unsub/ack to control plane for message: {:?}", msg);
-                                        // These ACKs correspond to subscribe/unsubscribe operations initiated by
-                                        // the controller itself. They are consumed here and must not be forwarded
-                                        // back like subscribe/unsubscribe messages that originate from remote peers.
-                                        if controller.handle_subscription_ack_message(&msg) {
-                                            continue;
-                                        }
                                         match msg.get_type() {
                                             Subscribe(_) => {
                                                 controller.handle_subscribe_message(msg.get_dst(), &clients).await;
@@ -405,6 +397,9 @@ impl ControlPlane {
                                             }
                                             LinkType(_) => {
                                                 debug!("received link message from dataplane - this should not happen");
+                                            }
+                                            SubscriptionAckType(_) => {
+                                                controller.handle_subscription_ack(msg.get_subscription_ack());
                                             }
                                         }
                                     }
@@ -1403,32 +1398,28 @@ impl ControllerService {
         self.inner.pending_subscription_acks.lock().remove(ack_id);
     }
 
-    fn handle_subscription_ack_message(&self, msg: &DataPlaneMessage) -> bool {
-        let Some(ack_id) = msg.get_metadata(SUBSCRIPTION_ACK_ID).cloned() else {
-            return false;
-        };
-
-        let success = msg
-            .get_metadata(SUBSCRIPTION_ACK_SUCCESS)
-            .map(|val| val == TRUE_VAL)
-            .unwrap_or(false);
-        let error_msg = msg.get_metadata(SUBSCRIPTION_ACK_ERROR).cloned();
-
-        let sender = self.inner.pending_subscription_acks.lock().remove(&ack_id);
+    fn handle_subscription_ack(&self, ack: &ProtoSubscriptionAck) {
+        let sender = self
+            .inner
+            .pending_subscription_acks
+            .lock()
+            .remove(&ack.ack_id);
         if let Some(sender) = sender {
-            let _ = sender.send(if success {
+            let _ = sender.send(if ack.success {
                 Ok(())
             } else {
-                Err(error_msg.unwrap_or_else(|| "subscription ack failed".to_string()))
+                Err(if ack.error.is_empty() {
+                    "subscription ack failed".to_string()
+                } else {
+                    ack.error.clone()
+                })
             });
         } else {
             debug!(
-                ack_id = %ack_id,
+                ack_id = %ack.ack_id,
                 "received subscription ack with no pending waiter"
             );
         }
-
-        true
     }
 
     async fn send_subscription_message_with_ack(
@@ -1437,7 +1428,7 @@ impl ControllerService {
         ack_id: String,
     ) -> Result<(), String> {
         let ack_rx = self.register_subscription_ack(ack_id.clone());
-        msg.insert_metadata(SUBSCRIPTION_ACK_ID.to_string(), ack_id.clone());
+        msg.set_subscription_ack_id(ack_id.clone());
 
         if let Err(e) = self.send_control_message(msg).await {
             self.remove_subscription_ack(&ack_id);

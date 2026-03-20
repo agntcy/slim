@@ -11,10 +11,14 @@ service DataPlaneService {
 // SLIM messages
 message Subscribe {
   SLIMHeader header = 1;
+  // Non-empty when the sender wants a SubscriptionAck back.
+  string ack_id = 2;
 }
 
 message Unsubscribe {
   SLIMHeader header = 1;
+  // Non-empty when the sender wants a SubscriptionAck back.
+  string ack_id = 2;
 }
 
 message Publish {
@@ -29,6 +33,7 @@ message Message {
     Unsubscribe unsubscribe = 2;
     Publish publish = 3;
     Link link = 5;
+    SubscriptionAck subscription_ack = 6;
   }
   map<string, string> metadata = 4;
 }
@@ -254,6 +259,18 @@ message GroupNackPayload {}
 
 // Ping
 message PingPayload {}
+
+// SubscriptionAck is delivered directly to the requesting connection in response
+// to a Subscribe or Unsubscribe that carried a non-empty ack_id field.
+// It is never routed through the subscription table.
+message SubscriptionAck {
+  // Echoes the ack_id from the originating Subscribe or Unsubscribe request.
+  string ack_id = 1;
+  // True if the subscription operation succeeded.
+  bool success = 2;
+  // Non-empty only when success == false.
+  string error = 3;
+}
 
 // Link Negotiation
 // Sent upon connection establishment to negotiate a common link identifier
