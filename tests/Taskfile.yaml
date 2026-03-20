@@ -42,6 +42,33 @@ tasks:
         mkdir -p .dist/bin
         cp data-plane/target/debug/slim .dist/bin/slim-legacy
 
+  tests:build-legacy-test-apps:
+    desc: "Build receiver and sender test apps from v1.0.0-test-apps branch for backward-compat testing"
+    dir: ".."
+    vars:
+      LEGACY_BRANCH: "v1.0.0-test-apps"
+    status:
+      - test -f .dist/bin/receiver-legacy
+      - test -f .dist/bin/sender-legacy
+    cmds:
+      - |
+        WORKTREE=$(mktemp -d)
+        trap 'git worktree remove --force "$WORKTREE"' EXIT
+        git worktree add "$WORKTREE" {{.LEGACY_BRANCH}}
+        cargo build --manifest-path "$WORKTREE/data-plane/Cargo.toml" \
+          --config data-plane/.cargo/config.toml \
+          -p agntcy-slim-bindings \
+          --examples
+        mkdir -p .dist/bin
+        cp data-plane/target/debug/examples/receiver .dist/bin/receiver-legacy
+        cp data-plane/target/debug/examples/sender .dist/bin/sender-legacy
+
+  tests:build-current-test-apps:
+    desc: "Build receiver and sender test apps from current branch"
+    dir: ".."
+    cmds:
+      - cargo build --manifest-path data-plane/Cargo.toml --config data-plane/.cargo/config.toml -p agntcy-slim-bindings --examples
+
   tests:integration:
     desc: "Run integration tests"
     vars:
@@ -51,6 +78,8 @@ tasks:
       - data-plane:build
       - data-plane:slimctl:build
       - tests:build-legacy-slim
+      - tests:build-legacy-test-apps
+      - tests:build-current-test-apps
       - task: control-plane:build
         vars:
           USE_LOCAL_BINDINGS: "{{.USE_LOCAL_BINDINGS}}"
