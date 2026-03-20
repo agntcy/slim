@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0-rc.1](https://github.com/agntcy/slim/compare/slim-bindings-v1.3.0-rc.0...slim-bindings-v1.3.0-rc.1) - 2026-03-20
+
+### Added
+
+- add link negotiation protocol between SLIM nodes ([#1353](https://github.com/agntcy/slim/pull/1353))
+
 ## [1.3.0-rc.0](https://github.com/agntcy/slim/compare/slim-bindings-v1.2.0...slim-bindings-v1.3.0-rc.0) - 2026-03-20
 
 ### Added
