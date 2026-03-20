@@ -525,6 +525,135 @@ pub fn handle_channel_discovery_message(
     Ok(msg)
 }
 
+pub(crate) struct ControlMessageSender {
+    /// sender for command messages
+    pub(crate) sender: ControllerSender,
+
+    /// sender for command messages on legacy group
+    pub(crate) legacy_sender: Option<ControllerSender>,
+}
+
+impl ControlMessageSender {
+    // return true if the message is still pending after processing the incoming message, false otherwise
+    pub(crate) async fn on_message(
+        &mut self,
+        message: &Message,
+        check_legacy: bool,
+    ) -> Result<bool, SessionError> {
+        let msg_id = message.get_id();
+        if !check_legacy || message.get_slim_header().has_version() {
+            self.sender.on_message(message).await?;
+            Ok(self.sender.is_still_pending(msg_id))
+        } else if let Some(legacy) = self.legacy_sender.as_mut() {
+            legacy.on_message(message).await?;
+            Ok(legacy.is_still_pending(msg_id))
+        } else {
+            Err(SessionError::LegacyChannelNotInitialized)
+        }
+    }
+
+    pub(crate) async fn send_with_timer(
+        &mut self,
+        message: Message,
+        legacy: bool,
+    ) -> Result<(), SessionError> {
+        if legacy {
+            self.legacy_sender
+                .as_mut()
+                .ok_or(SessionError::LegacyChannelNotInitialized)?
+                .on_message(&message)
+                .await
+        } else {
+            self.sender.on_message(&message).await
+        }
+    }
+
+    pub(crate) fn remove_participant(
+        &mut self,
+        name: &Name,
+        legacy: bool,
+    ) -> Result<(), SessionError> {
+        if legacy {
+            self.legacy_sender
+                .as_mut()
+                .ok_or(SessionError::LegacyChannelNotInitialized)?
+                .remove_participant(name);
+        } else {
+            self.sender.remove_participant(name);
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn on_timeout(
+        &mut self,
+        message_id: u32,
+        message_type: ProtoSessionMessageType,
+    ) -> Result<(), SessionError> {
+        // check if the message was sent with the standard sender the the legacy one
+        if self.sender.is_still_pending(message_id) {
+            self.sender.on_timer_timeout(message_id, message_type).await
+        } else if let Some(legacy) = self.legacy_sender.as_mut() {
+            legacy.on_timer_timeout(message_id, message_type).await
+        } else {
+            // If message is not found in either sender, just return Ok (already handled or never sent)
+            Ok(())
+        }
+    }
+
+    pub(crate) fn on_failure(
+        &mut self,
+        message_id: u32,
+        message_type: ProtoSessionMessageType,
+    ) -> Result<(), SessionError> {
+        // check if the message was sent with the standard sender the the legacy one
+        if self.sender.is_still_pending(message_id) {
+            self.sender.on_failure(message_id, message_type);
+        } else if let Some(legacy) = self.legacy_sender.as_mut() {
+            legacy.on_failure(message_id, message_type);
+        }
+        // If message is not found in either sender, just return Ok (already handled or never sent)
+        Ok(())
+    }
+
+    pub(crate) fn clear_timers(&mut self) {
+        self.sender.clear_timers();
+        if let Some(s) = self.legacy_sender.as_mut() {
+            s.clear_timers()
+        }
+    }
+
+    pub(crate) fn start_drain(&mut self) {
+        self.sender.start_drain();
+        if let Some(s) = self.legacy_sender.as_mut() {
+            s.start_drain()
+        }
+    }
+
+    pub(crate) fn drain_completed(&self) -> bool {
+        self.sender.drain_completed()
+            && self
+                .legacy_sender
+                .as_ref()
+                .is_none_or(|s| s.drain_completed())
+    }
+
+    pub(crate) fn close_legacy(&mut self) {
+        if let Some(s) = self.legacy_sender.as_mut() {
+            s.close();
+            self.legacy_sender = None;
+        }
+    }
+
+    pub(crate) fn close(&mut self) -> bool {
+        self.sender.close();
+        if let Some(s) = self.legacy_sender.as_mut() {
+            s.close();
+            return true;
+        }
+        false
+    }
+}
+
 pub(crate) struct SessionControllerCommon<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -534,10 +663,7 @@ where
     pub(crate) settings: SessionSettings<P, V>,
 
     /// sender for command messages
-    pub(crate) sender: ControllerSender,
-
-    /// sender for command messages on legacy group
-    pub(crate) legacy_sender: Option<ControllerSender>,
+    pub(crate) sender: ControlMessageSender,
 
     /// processing state
     pub(crate) processing_state: ProcessingState,
@@ -564,16 +690,20 @@ where
             false, // not legacy
         );
 
-        SessionControllerCommon {
-            settings,
+        let sender = ControlMessageSender {
             sender: controller_sender,
             legacy_sender: None,
+        };
+
+        SessionControllerCommon {
+            settings,
+            sender,
             processing_state: ProcessingState::Active,
         }
     }
 
     pub(crate) fn add_legacy_sender(&mut self) {
-        if self.legacy_sender.is_some() {
+        if self.sender.legacy_sender.is_some() {
             return;
         }
 
@@ -592,7 +722,7 @@ where
             true, // legacy
         );
 
-        self.legacy_sender = Some(legacy_sender);
+        self.sender.legacy_sender = Some(legacy_sender);
     }
 
     /// internal and helper functions
@@ -611,14 +741,7 @@ where
         message: Message,
         legacy: bool,
     ) -> Result<(), SessionError> {
-        if legacy {
-            if let Some(legacy_sender) = &mut self.legacy_sender {
-                return legacy_sender.on_message(&message).await;
-            } else {
-                return Err(SessionError::LegacyChannelNotInitialized);
-            }
-        }
-        self.sender.on_message(&message).await
+        self.sender.send_with_timer(message, legacy).await
     }
 
     pub(crate) async fn add_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {

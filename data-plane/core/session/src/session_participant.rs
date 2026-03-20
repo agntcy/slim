@@ -142,7 +142,7 @@ where
                 if message_type.is_command_message() {
                     self.common
                         .sender
-                        .on_timer_timeout(message_id, message_type)
+                        .on_timeout(message_id, message_type)
                         .await
                 } else {
                     self.inner
@@ -162,7 +162,7 @@ where
                 timeouts,
             } => {
                 if message_type.is_command_message() {
-                    self.common.sender.on_failure(message_id, message_type);
+                    self.common.sender.on_failure(message_id, message_type)?;
                     Ok(())
                 } else {
                     self.inner
@@ -197,7 +197,7 @@ where
                     // to avoid to get broadcast messages from the moderator
                     self.disconnect_from_group().await?;
 
-                    self.common.sender.on_message(&msg).await?;
+                    self.common.sender.on_message(&msg, false).await?;
                 }
 
                 // propagate draining state
@@ -287,7 +287,7 @@ where
             self.common.sender.on_failure(
                 session_ctx.message_id,
                 session_ctx.get_session_message_type(),
-            );
+            )?;
             Ok(())
         } else {
             // Pass non-command errors to inner handler
@@ -319,7 +319,7 @@ where
                 // reception of the leave request sent on Drain start
                 // if the participant in not on drain state drop the message
                 if self.common.processing_state == ProcessingState::Draining {
-                    self.common.sender.on_message(&message).await?;
+                    self.common.sender.on_message(&message, false).await?;
                 }
                 Ok(())
             }
@@ -521,12 +521,9 @@ where
                 self.inner.remove_endpoint(&name);
 
                 // if no legacy perticipant is left in the group we can close the legacy sender
-                if let Some(legacy_sender) = &mut self.common.legacy_sender
-                    && !self.group_list.values().any(|s| s.is_legacy())
-                {
+                if !self.group_list.values().any(|s| s.is_legacy()) {
                     debug!("No legacy participant left in the group, close the legacy sender");
-                    legacy_sender.close();
-                    self.common.legacy_sender = None;
+                    self.common.sender.close_legacy();
                 }
             }
         }
@@ -587,7 +584,7 @@ where
     async fn on_ping(&mut self, mut msg: Message) -> Result<(), SessionError> {
         debug!("received ping message, reply");
         // send ping to the local sender to register the reception
-        self.common.sender.on_message(&msg).await?;
+        self.common.sender.on_message(&msg, false).await?;
 
         // reply to the ping
         let header = msg.get_slim_header_mut();
