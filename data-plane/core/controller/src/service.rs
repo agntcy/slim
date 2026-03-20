@@ -37,9 +37,9 @@ use slim_config::grpc::client::ClientConfig;
 use slim_datapath::api::{
     CommandPayload, Content, MessageType::Link as LinkType, MessageType::Publish,
     MessageType::Subscribe, MessageType::SubscriptionAck as SubscriptionAckType,
-    MessageType::Unsubscribe, ProtoMessage as DataPlaneMessage, ProtoSubscriptionAck,
+    MessageType::Unsubscribe, ProtoMessage as DataPlaneMessage,
 };
-use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType};
+use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType, ProtoSubscriptionAck};
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::Name;
 use slim_datapath::messages::encoder::calculate_hash;
@@ -396,7 +396,7 @@ impl ControlPlane {
                                                 }
                                             }
                                             LinkType(_) => {
-                                                debug!("Ignoring link message received by controller");
+                                                debug!("received link message from dataplane - this should not happen");
                                             }
                                             SubscriptionAckType(_) => {
                                                 controller.handle_subscription_ack(msg.get_subscription_ack());

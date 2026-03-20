@@ -4,7 +4,7 @@
 use crate::api::proto::dataplane::v1::Message;
 use parking_lot::RwLock;
 use semver::Version;
-use slim_config::grpc::client::ClientConfig;
+use slim_config::grpc::client::{ClientConfig, is_valid_uuid_v4};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -169,20 +169,36 @@ impl Connection {
         self.negotiation.read().remote_slim_version.clone()
     }
 
-    /// Atomically complete link negotiation.
+    /// Atomically complete link negotiation on the server (incoming) path.
     ///
-    /// If negotiation is already complete (`remote_slim_version` is `Some`), returns `false`
-    /// without modifying any state (replay protection).
-    ///
-    /// Otherwise, optionally stores `link_id` and stores `version`, then returns `true`.
-    /// The check and set happen under a single write lock, eliminating TOCTOU races.
-    pub fn complete_negotiation(&self, link_id: Option<String>, version: Version) -> bool {
+    /// Validates `link_id` as a UUID v4 and stores it together with `version` under one lock.
+    /// Returns `false` if `link_id` is not a valid UUID v4 or negotiation is already complete
+    /// (replay protection).
+    pub fn complete_negotiation_as_server(&self, link_id: &str, version: Version) -> bool {
         let mut state = self.negotiation.write();
         if state.remote_slim_version.is_some() {
             return false;
         }
-        if let Some(id) = link_id {
-            state.link_id = Some(id);
+        if !is_valid_uuid_v4(link_id) {
+            return false;
+        }
+        state.link_id = Some(link_id.to_string());
+        state.remote_slim_version = Some(version);
+        true
+    }
+
+    /// Atomically complete link negotiation on the client (outgoing) path.
+    ///
+    /// Verifies the echoed `link_id` matches what was stored by `set_link_id`, then stores
+    /// `version`, all under one lock.  Returns `false` if there is a mismatch or negotiation
+    /// is already complete (replay protection).
+    pub fn complete_negotiation_as_client(&self, link_id: &str, version: Version) -> bool {
+        let mut state = self.negotiation.write();
+        if state.remote_slim_version.is_some() {
+            return false;
+        }
+        if state.link_id.as_deref() != Some(link_id) {
+            return false;
         }
         state.remote_slim_version = Some(version);
         true
@@ -232,29 +248,63 @@ mod tests {
     }
 
     #[test]
-    fn test_complete_negotiation_first_call_stores_state() {
+    fn test_complete_negotiation_as_server_stores_valid_uuid() {
         let conn = server_conn();
+        let id = uuid::Uuid::new_v4().to_string();
         let v = Version::parse("1.2.3").unwrap();
-        assert!(conn.complete_negotiation(Some("id".to_string()), v.clone()));
-        assert_eq!(conn.link_id(), Some("id".to_string()));
+        assert!(conn.complete_negotiation_as_server(&id, v.clone()));
+        assert_eq!(conn.link_id(), Some(id));
         assert_eq!(conn.remote_slim_version(), Some(v));
     }
 
     #[test]
-    fn test_complete_negotiation_replay_returns_false() {
+    fn test_complete_negotiation_as_server_rejects_invalid_uuid() {
         let conn = server_conn();
+        assert!(
+            !conn.complete_negotiation_as_server("not-a-uuid", Version::parse("1.0.0").unwrap())
+        );
+        assert!(conn.link_id().is_none());
+        assert!(conn.remote_slim_version().is_none());
+    }
+
+    #[test]
+    fn test_complete_negotiation_as_server_replay_returns_false() {
+        let conn = server_conn();
+        let id = uuid::Uuid::new_v4().to_string();
         let v1 = Version::parse("1.0.0").unwrap();
-        assert!(conn.complete_negotiation(None, v1.clone()));
+        assert!(conn.complete_negotiation_as_server(&id, v1.clone()));
         // Second call must be rejected; state must not change.
-        assert!(!conn.complete_negotiation(None, Version::parse("2.0.0").unwrap()));
+        assert!(!conn.complete_negotiation_as_server(&id, Version::parse("2.0.0").unwrap()));
         assert_eq!(conn.remote_slim_version(), Some(v1));
     }
 
     #[test]
-    fn test_complete_negotiation_none_link_id_preserves_existing() {
-        let conn = server_conn();
-        conn.set_link_id("original".to_string());
-        assert!(conn.complete_negotiation(None, Version::parse("1.0.0").unwrap()));
-        assert_eq!(conn.link_id(), Some("original".to_string()));
+    fn test_complete_negotiation_as_client_accepts_matching_link_id() {
+        let conn = client_conn();
+        let id = uuid::Uuid::new_v4().to_string();
+        conn.set_link_id(id.clone());
+        let v = Version::parse("1.0.0").unwrap();
+        assert!(conn.complete_negotiation_as_client(&id, v.clone()));
+        assert_eq!(conn.remote_slim_version(), Some(v));
+    }
+
+    #[test]
+    fn test_complete_negotiation_as_client_rejects_mismatched_link_id() {
+        let conn = client_conn();
+        conn.set_link_id(uuid::Uuid::new_v4().to_string());
+        assert!(!conn.complete_negotiation_as_client("wrong-id", Version::parse("1.0.0").unwrap()));
+        assert!(conn.remote_slim_version().is_none());
+    }
+
+    #[test]
+    fn test_complete_negotiation_as_client_replay_returns_false() {
+        let conn = client_conn();
+        let id = uuid::Uuid::new_v4().to_string();
+        conn.set_link_id(id.clone());
+        let v1 = Version::parse("1.0.0").unwrap();
+        assert!(conn.complete_negotiation_as_client(&id, v1.clone()));
+        // Second call must be rejected; state must not change.
+        assert!(!conn.complete_negotiation_as_client(&id, Version::parse("2.0.0").unwrap()));
+        assert_eq!(conn.remote_slim_version(), Some(v1));
     }
 }

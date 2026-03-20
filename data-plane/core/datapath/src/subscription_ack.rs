@@ -181,8 +181,8 @@ mod tests {
         use tokio::sync::mpsc;
         let (tx, _rx) = mpsc::channel(1);
         let conn = Connection::new(ConnectionType::Remote, Channel::Server(tx));
-        conn.complete_negotiation(
-            Some(uuid::Uuid::new_v4().to_string()),
+        conn.complete_negotiation_as_server(
+            &uuid::Uuid::new_v4().to_string(),
             semver::Version::new(1, 1, 0),
         );
         assert!(!supports(&conn));
@@ -193,8 +193,8 @@ mod tests {
         use tokio::sync::mpsc;
         let (tx, _rx) = mpsc::channel(1);
         let conn = Connection::new(ConnectionType::Remote, Channel::Server(tx));
-        conn.complete_negotiation(
-            Some(uuid::Uuid::new_v4().to_string()),
+        conn.complete_negotiation_as_server(
+            &uuid::Uuid::new_v4().to_string(),
             semver::Version::new(1, 2, 0),
         );
         assert!(supports(&conn));
@@ -205,8 +205,8 @@ mod tests {
         use tokio::sync::mpsc;
         let (tx, _rx) = mpsc::channel(1);
         let conn = Connection::new(ConnectionType::Remote, Channel::Server(tx));
-        conn.complete_negotiation(
-            Some(uuid::Uuid::new_v4().to_string()),
+        conn.complete_negotiation_as_server(
+            &uuid::Uuid::new_v4().to_string(),
             semver::Version::new(2, 0, 0),
         );
         assert!(supports(&conn));
