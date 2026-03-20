@@ -49,7 +49,6 @@ pub const DISCONNECTION_DETECTED: &str = "DISCONNECTION_DETECTED";
 /// The value is set to `TRUE_VAL` for graceful departure.
 pub const LEAVING_SESSION: &str = "LEAVING_SESSION";
 
-
 /// Standard string value representing a boolean "true" in message metadata.
 pub const TRUE_VAL: &str = "TRUE";
 
@@ -421,7 +420,10 @@ impl ProtoSubscribe {
         let id = identity.unwrap_or("");
         let header = Some(SlimHeader::new(source, dst, id, flags));
 
-        ProtoSubscribe { header, ack_id: String::new() }
+        ProtoSubscribe {
+            header,
+            ack_id: String::new(),
+        }
     }
 }
 
@@ -447,7 +449,10 @@ impl ProtoUnsubscribe {
         let id = identity.unwrap_or("");
         let header = Some(SlimHeader::new(source, dst, id, flags));
 
-        ProtoUnsubscribe { header, ack_id: String::new() }
+        ProtoUnsubscribe {
+            header,
+            ack_id: String::new(),
+        }
     }
 }
 

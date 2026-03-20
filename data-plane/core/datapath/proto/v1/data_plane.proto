@@ -29,10 +29,10 @@ message Publish {
 
 message Message {
   oneof message_type {
-    Subscribe       subscribe        = 1;
-    Unsubscribe     unsubscribe      = 2;
-    Publish         publish          = 3;
-    Link            link             = 5;
+    Subscribe subscribe = 1;
+    Unsubscribe unsubscribe = 2;
+    Publish publish = 3;
+    Link link = 5;
     SubscriptionAck subscription_ack = 6;
   }
   map<string, string> metadata = 4;
@@ -261,10 +261,10 @@ message GroupNackPayload {}
 message PingPayload {}
 
 // SubscriptionAck is delivered directly to the requesting connection in response
-// to a Subscribe or Unsubscribe that carried a SUBSCRIPTION_ACK_ID metadata entry.
+// to a Subscribe or Unsubscribe that carried a non-empty ack_id field.
 // It is never routed through the subscription table.
 message SubscriptionAck {
-  // Echoes the SUBSCRIPTION_ACK_ID from the originating request.
+  // Echoes the ack_id from the originating Subscribe or Unsubscribe request.
   string ack_id = 1;
   // True if the subscription operation succeeded.
   bool success = 2;

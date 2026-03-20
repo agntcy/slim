@@ -16,8 +16,8 @@ use tracing::{debug, error};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::Status;
-use slim_datapath::api::{MessageType, ProtoSubscriptionAck};
 use slim_datapath::api::ProtoMessage as Message;
+use slim_datapath::api::{MessageType, ProtoSubscriptionAck};
 use slim_datapath::messages::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_session::{SessionConfig, session_controller::SessionController};
@@ -616,11 +616,7 @@ mod tests {
         success: bool,
         error_msg: Option<&str>,
     ) -> ProtoMessage {
-        ProtoMessage::builder().build_subscription_ack(
-            ack_id,
-            success,
-            error_msg.unwrap_or(""),
-        )
+        ProtoMessage::builder().build_subscription_ack(ack_id, success, error_msg.unwrap_or(""))
     }
 
     #[tokio::test]

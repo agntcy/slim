@@ -1399,7 +1399,11 @@ impl ControllerService {
     }
 
     fn handle_subscription_ack(&self, ack: &ProtoSubscriptionAck) {
-        let sender = self.inner.pending_subscription_acks.lock().remove(&ack.ack_id);
+        let sender = self
+            .inner
+            .pending_subscription_acks
+            .lock()
+            .remove(&ack.ack_id);
         if let Some(sender) = sender {
             let _ = sender.send(if ack.success {
                 Ok(())

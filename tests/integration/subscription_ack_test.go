@@ -46,11 +46,13 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 
 	// ── new app ↔ new relay ──────────────────────────────────────────────────
 	//
-	// Both nodes run ≥ 1.2.0.  The app's embedded relay uses the remote ACK
-	// path.  After the subscription round-trip completes, a second app sends a
-	// message to confirm end-to-end routing.
+	// Both nodes run ≥ 1.2.0.  The app subscribes immediately; the embedded
+	// relay uses the default path for the initial subscribe (link negotiation
+	// may not be done yet).  Once link negotiation completes the embedded relay
+	// automatically re-sends the subscription via the remote ACK path —
+	// "subscription: remote ack received" in the app log confirms this.
 	Describe("new relay server with new app", func() {
-		It("completes subscription via remote ack path and delivers messages", func() {
+		It("upgrades subscription to remote ack path after link negotiation and delivers messages", func() {
 			relayPort := reservePort()
 
 			replacements := map[string]string{
@@ -82,20 +84,8 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			Expect(err).NotTo(HaveOccurred())
 			defer terminateSession(appASession, 5*time.Second)
 
-			// Link negotiation must complete so the app's embedded relay learns
-			// the upstream relay's version.
-			Eventually(relaySession.Out, 10*time.Second).Should(gbytes.Say("received link negotiation"))
-			Eventually(relaySession.Out, 10*time.Second).Should(gbytes.Say("1.2.0"))
-
-			// App's embedded relay must choose the remote ack path.
-			Eventually(appASession.Out, 10*time.Second).Should(gbytes.Say("subscription: remote ack path"))
-
-			// The external relay (no upstream) takes the default path and sends
-			// a SubscriptionAck back.
-			Eventually(relaySession.Out, 10*time.Second).Should(gbytes.Say("subscription: default ack path"))
-
-			// App's embedded relay receives the SubscriptionAck: subscription is
-			// fully confirmed before we start the sender.
+			// After link negotiation completes the embedded relay upgrades the
+			// forwarded subscription and the retry_loop receives the remote ACK.
 			Eventually(appASession.Out, 10*time.Second).Should(gbytes.Say("subscription: remote ack received"))
 
 			// App B: sender.
@@ -181,11 +171,12 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 
 	// ── old relay as upstream of new relay ───────────────────────────────────
 	//
-	// The new relay detects the old relay via link negotiation and uses the
-	// default path toward it.  A new app on the new relay uses the remote-ack
-	// path.  End-to-end message delivery is verified alongside the ACK checks.
+	// New app connects to new relay (≥ 1.2.0).  The embedded relay upgrades
+	// the subscription to the remote ack path after link negotiation completes.
+	// An unrelated old relay is also connected to the new relay to verify
+	// mixed-version topologies don't break anything.
 	Describe("old relay as client of new relay, new app on new relay", func() {
-		It("uses correct ack paths and delivers messages", func() {
+		It("upgrades subscription to remote ack path and delivers messages", func() {
 			newRelayPort := reservePort()
 
 			replacements := map[string]string{
@@ -228,19 +219,8 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			Expect(err).NotTo(HaveOccurred())
 			defer terminateSession(appASession, 5*time.Second)
 
-			// Link negotiation between the new relay and new app confirms
-			// remote-ack path is available.
-			Eventually(newRelaySession.Out, 10*time.Second).Should(gbytes.Say("received link negotiation"))
-			Eventually(newRelaySession.Out, 10*time.Second).Should(gbytes.Say("1.2.0"))
-
-			// App A's embedded relay uses the remote ack path toward the new relay.
-			Eventually(appASession.Out, 10*time.Second).Should(gbytes.Say("subscription: remote ack path"))
-
-			// New relay processes the subscription with default path (no further
-			// upstream for this subscription).
-			Eventually(newRelaySession.Out, 10*time.Second).Should(gbytes.Say("subscription: default ack path"))
-
-			// App A's subscription is fully confirmed.
+			// After link negotiation completes the embedded relay upgrades the
+			// forwarded subscription and the retry_loop receives the remote ACK.
 			Eventually(appASession.Out, 10*time.Second).Should(gbytes.Say("subscription: remote ack received"))
 
 			// App B: sender, also on the new relay.
@@ -389,8 +369,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 	// ── legacy sdk-mock scenarios ─────────────────────────────────────────────
 	//
 	// These tests verify that an old application (pre-1.2.0 sdk-mock binary)
-	// interoperates correctly with both old and new relays.  All tests are
-	// skipped when the legacy sdk-mock binary is not present in .dist/bin/.
+	// interoperates correctly with both old and new relays.
 
 	// ── old app ↔ new relay ───────────────────────────────────────────────────
 	//
@@ -400,10 +379,6 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 	// path.  A new app then sends a message to verify end-to-end routing.
 	Describe("old app subscribes via new relay", func() {
 		It("new relay takes the default path and delivers messages to the old app", func() {
-			if _, err := os.Stat(legacySDKMockPath); err != nil {
-				Skip("sdk-mock-legacy binary not found at " + legacySDKMockPath)
-			}
-
 			relayPort := reservePort()
 
 			replacements := map[string]string{
@@ -463,10 +438,6 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 	// A second legacy app sends a message to verify routing still works.
 	Describe("old app subscribes via old relay", func() {
 		It("delivers messages between two old apps via the old relay", func() {
-			if _, err := os.Stat(legacySDKMockPath); err != nil {
-				Skip("sdk-mock-legacy binary not found at " + legacySDKMockPath)
-			}
-
 			relayPort := reservePort()
 
 			replacements := map[string]string{
@@ -529,10 +500,6 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 	// takes the default path for that subscription.  Routing must work.
 	Describe("message delivery: old app receives from new app via new relay", func() {
 		It("routes a message from new app to old app through the new relay", func() {
-			if _, err := os.Stat(legacySDKMockPath); err != nil {
-				Skip("sdk-mock-legacy binary not found at " + legacySDKMockPath)
-			}
-
 			relayPort := reservePort()
 
 			replacements := map[string]string{
@@ -591,10 +558,6 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 	// app uses the remote-ack path.  Routing must still work end-to-end.
 	Describe("message delivery: old app receives from new app via old relay", func() {
 		It("routes a message from new app to old app through the old relay", func() {
-			if _, err := os.Stat(legacySDKMockPath); err != nil {
-				Skip("sdk-mock-legacy binary not found at " + legacySDKMockPath)
-			}
-
 			relayPort := reservePort()
 
 			replacements := map[string]string{
@@ -626,9 +589,11 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			Expect(err).NotTo(HaveOccurred())
 			defer terminateSession(appASession, 5*time.Second)
 
-			// App A's embedded relay falls back to the default path (old relay
-			// has no version).  Wait for its ACK log before starting the sender.
-			Eventually(appASession.Out, 10*time.Second).Should(gbytes.Say("subscription: default ack path"))
+			// Both binaries are legacy: no ACK log lines to gate on.  Wait for
+			// the relay to accept the connection and allow a brief propagation
+			// delay before the sender starts.
+			Eventually(relaySession.Out, 10*time.Second).Should(gbytes.Say("new connection received from remote"))
+			time.Sleep(500 * time.Millisecond)
 
 			// App B: new sdk-mock, sender.
 			appBConfig := writeTempConfig(tempDir, "./testdata/sub-ack-app-config.yaml", "app-b.yaml", replacements)

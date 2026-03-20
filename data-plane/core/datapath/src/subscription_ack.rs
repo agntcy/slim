@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use parking_lot::RwLock;
-use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 use tracing::debug;
 
 use crate::api::proto::dataplane::v1::Message;
@@ -30,7 +30,7 @@ pub(crate) fn min_version() -> semver::Version {
 /// Owns the in-flight pending ACK state.
 #[derive(Debug)]
 pub(crate) struct RemoteSubAckManager {
-    pending: RwLock<HashMap<String, mpsc::Sender<Result<(), DataPathError>>>>,
+    pending: RwLock<HashMap<String, oneshot::Sender<Result<(), DataPathError>>>>,
 }
 
 impl RemoteSubAckManager {
@@ -41,21 +41,22 @@ impl RemoteSubAckManager {
     }
 
     /// Register a new in-flight ACK; returns the result receiver.
-    pub fn register(&self, ack_id: &str) -> mpsc::Receiver<Result<(), DataPathError>> {
-        let (tx, rx) = mpsc::channel(1);
+    pub fn register(&self, ack_id: &str) -> oneshot::Receiver<Result<(), DataPathError>> {
+        let (tx, rx) = oneshot::channel();
         self.pending.write().insert(ack_id.to_string(), tx);
         rx
     }
 
     /// Deliver result to a waiting retry loop (no-op if unknown id).
+    ///
+    /// Removes the entry atomically — `oneshot::Sender::send` takes ownership.
     pub fn resolve(&self, ack_id: &str, result: Result<(), DataPathError>) {
-        let tx = self.pending.read().get(ack_id).cloned();
-        if let Some(tx) = tx {
-            let _ = tx.try_send(result);
+        if let Some(tx) = self.pending.write().remove(ack_id) {
+            let _ = tx.send(result);
         }
     }
 
-    /// Remove a completed entry (called by the retry loop on finish).
+    /// Remove a pending entry that never received a result (e.g. all retries exhausted).
     pub fn remove(&self, ack_id: &str) {
         self.pending.write().remove(ack_id);
     }
@@ -64,13 +65,14 @@ impl RemoteSubAckManager {
 /// Returns `true` if the remote peer supports subscription ACKs (version ≥ 1.2.0).
 pub(crate) fn supports(conn: &Connection) -> bool {
     conn.remote_slim_version()
-        .map_or(false, |v| v >= min_version())
+        .is_some_and(|v| v >= min_version())
 }
 
 /// Send/timeout/retry loop for a remote subscription ACK.
 ///
 /// Runs until an ACK is received, the channel is closed, or max retries are
 /// exhausted. Cleans up the manager entry and notifies the upstream requester.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn retry_loop(
     manager: Arc<RemoteSubAckManager>,
     processor: MessageProcessor,
@@ -79,7 +81,7 @@ pub(crate) async fn retry_loop(
     out_conn: u64,
     in_connection: u64,
     upstream_ack_id: Option<String>,
-    mut rx: mpsc::Receiver<Result<(), DataPathError>>,
+    mut rx: oneshot::Receiver<Result<(), DataPathError>>,
 ) {
     let mut final_result = Err(DataPathError::RemoteSubscriptionAckTimeout(MAX_RETRIES));
 
@@ -88,14 +90,18 @@ pub(crate) async fn retry_loop(
             final_result = Err(e);
             break;
         }
-        match tokio::time::timeout(TIMEOUT, rx.recv()).await {
-            Ok(Some(result)) => {
-                debug!(%ack_id, "subscription: remote ack received");
-                final_result = result;
-                break 'retry;
+        tokio::select! {
+            result = &mut rx => {
+                match result {
+                    Ok(r) => {
+                        debug!(%ack_id, "subscription: remote ack received");
+                        final_result = r;
+                        break 'retry;
+                    }
+                    Err(_) => break, // sender dropped (processor shutdown)
+                }
             }
-            Ok(None) => break, // channel closed (processor dropped)
-            Err(_) => {
+            _ = tokio::time::sleep(TIMEOUT) => {
                 debug!(attempt = attempt + 1, "remote sub ack timeout, retrying");
             }
         }
@@ -121,21 +127,23 @@ mod tests {
     #[tokio::test]
     async fn test_register_and_resolve_delivers_ok() {
         let manager = RemoteSubAckManager::new();
-        let mut rx = manager.register("id-1");
+        let rx = manager.register("id-1");
         manager.resolve("id-1", Ok(()));
-        let result = rx.try_recv().expect("should have received result");
+        let result = rx.await.expect("sender dropped unexpectedly");
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn test_register_and_resolve_delivers_err() {
         let manager = RemoteSubAckManager::new();
-        let mut rx = manager.register("id-err");
+        let rx = manager.register("id-err");
         manager.resolve(
             "id-err",
-            Err(DataPathError::RemoteSubscriptionAckError("boom".to_string())),
+            Err(DataPathError::RemoteSubscriptionAckError(
+                "boom".to_string(),
+            )),
         );
-        let result = rx.try_recv().expect("should have received result");
+        let result = rx.await.expect("sender dropped unexpectedly");
         assert!(result.is_err());
     }
 

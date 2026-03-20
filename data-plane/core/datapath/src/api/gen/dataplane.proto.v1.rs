@@ -326,11 +326,11 @@ pub struct GroupNackPayload {}
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct PingPayload {}
 /// SubscriptionAck is delivered directly to the requesting connection in response
-/// to a Subscribe or Unsubscribe that carried a SUBSCRIPTION_ACK_ID metadata entry.
+/// to a Subscribe or Unsubscribe that carried a non-empty ack_id field.
 /// It is never routed through the subscription table.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SubscriptionAck {
-    /// Echoes the SUBSCRIPTION_ACK_ID from the originating request.
+    /// Echoes the ack_id from the originating Subscribe or Unsubscribe request.
     #[prost(string, tag = "1")]
     pub ack_id: ::prost::alloc::string::String,
     /// True if the subscription operation succeeded.

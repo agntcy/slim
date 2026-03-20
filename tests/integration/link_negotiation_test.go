@@ -112,9 +112,6 @@ var _ = Describe("Link Negotiation", func() {
 		})
 	})
 
-	// two new nodes (both v1.2.0): both complete link negotiation and each
-	// advertises the new version, which is the prerequisite for remote
-	// subscription ACKs to be used between them.
 	Describe("two new nodes advertise v1.2.0 during link negotiation", func() {
 		It("logs remote_version=1.2.0 after link negotiation", func() {
 			serverPort := reservePort()

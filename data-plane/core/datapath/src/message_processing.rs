@@ -45,7 +45,6 @@ use crate::messages::utils::SlimHeaderFlags;
 use crate::tables::connection_table::ConnectionTable;
 use crate::tables::subscription_table::SubscriptionTableImpl;
 
-
 // Implementation based on: https://docs.rs/opentelemetry-tonic/latest/src/opentelemetry_tonic/lib.rs.html#1-134
 struct MetadataExtractor<'a>(&'a std::collections::HashMap<String, String>);
 
@@ -517,6 +516,50 @@ impl MessageProcessor {
         }
     }
 
+    /// Re-send every subscription already forwarded on `out_conn` using the remote
+    /// ack path.  Called after link negotiation completes so that subscriptions
+    /// that were initially forwarded via the default path (before the remote peer's
+    /// version was known) are now confirmed with a full ACK round-trip.
+    fn upgrade_forwarded_subscriptions(&self, out_conn: u64) {
+        let subs = self
+            .forwarder()
+            .get_subscriptions_forwarded_on_connection(out_conn);
+
+        if subs.is_empty() {
+            return;
+        }
+
+        debug!(
+            %out_conn,
+            count = subs.len(),
+            "link negotiation complete: upgrading forwarded subscriptions to remote ack path",
+        );
+
+        for info in subs {
+            let new_ack_id = Uuid::new_v4();
+            let new_ack_id = new_ack_id.to_string();
+            let msg = Message::builder()
+                .source(info.source().clone())
+                .destination(info.name().clone())
+                .identity(info.source_identity().clone())
+                .subscription_ack_id(&new_ack_id)
+                .build_subscribe()
+                .unwrap();
+
+            let rx = self.internal.sub_ack_manager.register(&new_ack_id);
+            tokio::spawn(crate::subscription_ack::retry_loop(
+                self.internal.sub_ack_manager.clone(),
+                self.clone(),
+                new_ack_id,
+                msg,
+                out_conn,
+                out_conn, // in_connection – unused (upstream_ack_id is None)
+                None,
+                rx,
+            ));
+        }
+    }
+
     /// Handle an inbound link negotiation message.
     ///
     /// On request (`is_reply == false`): validate the client-provided `link_id` as UUID v4,
@@ -578,6 +621,12 @@ impl MessageProcessor {
             // Atomically check-and-set; returns false if already negotiated (replay protection).
             if !conn.complete_negotiation(None, version) {
                 debug!(%in_connection, "ignoring link negotiation on already-negotiated connection");
+            } else {
+                // Link negotiation just completed on this outgoing connection.
+                // Re-send any subscriptions already forwarded on it using the remote
+                // ack path so the upstream ACK is obtained even though the initial
+                // subscribe fired before negotiation was done.
+                self.upgrade_forwarded_subscriptions(in_connection);
             }
         } else {
             // Server path: validate the client-provided link_id as UUID v4 before storing.
@@ -763,7 +812,8 @@ impl MessageProcessor {
             }
 
             // Generate a fresh ack ID to track the remote hop.
-            let new_ack_id = Uuid::new_v4().to_string();
+            let new_ack_id = Uuid::new_v4();
+            let new_ack_id = new_ack_id.to_string();
 
             // Build the forwarded message with the new ack ID.
             let mut forwarded_msg = msg.clone();
@@ -799,8 +849,7 @@ impl MessageProcessor {
             .await;
 
         if let Some(id) = ack_id {
-            self.send_subscription_ack(in_connection, id, &result)
-                .await;
+            self.send_subscription_ack(in_connection, id, &result).await;
         }
 
         result
@@ -1248,7 +1297,10 @@ mod tests {
         let ack = ack_msg.get_subscription_ack();
         assert_eq!(ack.ack_id, ack_id);
         assert!(!ack.success, "failed ack should have success=false");
-        assert!(!ack.error.is_empty(), "failed ack should include an error message");
+        assert!(
+            !ack.error.is_empty(),
+            "failed ack should include an error message"
+        );
     }
 
     #[tokio::test]
@@ -1632,7 +1684,14 @@ mod tests {
             success: true,
             error: String::new(),
         };
-        processor.internal.sub_ack_manager.resolve(&ack.ack_id, if ack.success { Ok(()) } else { Err(DataPathError::RemoteSubscriptionAckError(ack.error.clone())) });
+        processor.internal.sub_ack_manager.resolve(
+            &ack.ack_id,
+            if ack.success {
+                Ok(())
+            } else {
+                Err(DataPathError::RemoteSubscriptionAckError(ack.error.clone()))
+            },
+        );
 
         // The relay must now forward the upstream ACK to the local connection.
         let upstream_ack = tokio::time::timeout(Duration::from_secs(2), rx_local.recv())
@@ -1747,7 +1806,14 @@ mod tests {
             success: false,
             error: "remote error".to_string(),
         };
-        processor.internal.sub_ack_manager.resolve(&ack.ack_id, if ack.success { Ok(()) } else { Err(DataPathError::RemoteSubscriptionAckError(ack.error.clone())) });
+        processor.internal.sub_ack_manager.resolve(
+            &ack.ack_id,
+            if ack.success {
+                Ok(())
+            } else {
+                Err(DataPathError::RemoteSubscriptionAckError(ack.error.clone()))
+            },
+        );
 
         let upstream_ack = tokio::time::timeout(Duration::from_secs(2), rx_local.recv())
             .await
