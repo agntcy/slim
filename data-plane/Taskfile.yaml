@@ -83,6 +83,16 @@ tasks:
     cmds:
       - docker compose -f ./config/telemetry/docker-compose.yml up
 
+  data-plane:telemetry:start:detached:
+    desc: "Start telemetry stack in the background (docker compose up -d)"
+    cmds:
+      - docker compose -f ./config/telemetry/docker-compose.yml up -d
+
+  data-plane:telemetry:stop:
+    desc: "Stop telemetry stack (docker compose down)"
+    cmds:
+      - docker compose -f ./config/telemetry/docker-compose.yml down
+
   data-plane:python:packaging:
     desc: "Generate python packages"
     dir: ./python

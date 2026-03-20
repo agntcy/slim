@@ -121,32 +121,40 @@ tasks:
           ARGS: ""
           BIN_ARGS: "--disable-mls --multiple-remotes"
   
-  test:benchmark:workload-gen:
-    desc: "Generate workload file for load test (run first)"
+  benchmark:workload-gen:
+    desc: "Generate workload for load test. P = publications count; writes workload_<P>.dat (default P=2000000). Example: task benchmark:workload-gen P=10000"
     dir: ".."
+    vars:
+      P: '{{.P | default "2000000"}}'
     cmds:
       - task: testing:run
         vars:
           BIN: "workload-gen"
           ARGS: ""
-          BIN_ARGS: "--subscriptions 1000 --publications 200 --instances 3 --apps 3 --output workload_debug.dat"
+          BIN_ARGS: "--subscriptions 1 --publications {{.P}} --instances 1 --apps 1 --output workload_{{.P}}.dat"
 
-  test:benchmark:subscriber:
-    desc: "Start subscriber for load test (use --id 0 with default workload)"
+  benchmark:subscribe:
+    desc: "Start subscriber; use same P as workload-gen (default 2000000). Optional WORKLOAD=path overrides file"
     dir: ".."
+    vars:
+      P: '{{.P | default "2000000"}}'
+      WORKLOAD: '{{.WORKLOAD | default (printf "workload_%s.dat" .P)}}'
     cmds:
       - task: testing:run
         vars:
           BIN: "subscriber"
           ARGS: ""
-          BIN_ARGS: "--config ../config/base/client-config.yaml --id 0 --workload workload_debug.dat"
+          BIN_ARGS: "--config ../config/base/client-config.yaml --id 0 --workload {{.WORKLOAD}}"
 
-  test:benchmark:publisher:
-    desc: "Start publisher for load test (run after SLIM and subscriber)"
+  benchmark:publish:
+    desc: "Start publisher (after SLIM and subscriber); same P or WORKLOAD as workload-gen"
     dir: ".."
+    vars:
+      P: '{{.P | default "2000000"}}'
+      WORKLOAD: '{{.WORKLOAD | default (printf "workload_%s.dat" .P)}}'
     cmds:
       - task: testing:run
         vars:
           BIN: "publisher"
           ARGS: ""
-          BIN_ARGS: "--config ../config/base/client-config.yaml --id 1 --workload workload_debug.dat --msg-size 1024 --frequency 0"
+          BIN_ARGS: "--config ../config/base/client-config.yaml --id 1 --workload {{.WORKLOAD}} --msg-size 1024 --frequency 0"
