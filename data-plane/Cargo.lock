@@ -14,7 +14,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim"
-version = "1.1.0"
+version = "1.3.0-rc.0"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-service",
@@ -353,7 +353,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-version"
-version = "1.1.0"
+version = "1.3.0-rc.0"
 
 [[package]]
 name = "agntcy-slimctl"
