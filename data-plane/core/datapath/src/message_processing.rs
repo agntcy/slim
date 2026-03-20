@@ -9,6 +9,7 @@ use display_error_chain::ErrorChainExt;
 use opentelemetry::propagation::{Extractor, Injector};
 use opentelemetry::trace::TraceContextExt;
 use parking_lot::RwLock;
+use slim_config::component::configuration::Configuration;
 use slim_config::grpc::client::ClientConfig;
 use slim_config::grpc::server::ServerConfig;
 use slim_tracing::utils::INSTANCE_ID;
@@ -22,10 +23,15 @@ use tonic::{Request, Response, Status};
 use tracing::{Span, debug, error, info};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
+use crate::api::ProtoMessage;
 use crate::api::ProtoPublishType as PublishType;
 use crate::api::ProtoSubscribeType as SubscribeType;
 use crate::api::ProtoUnsubscribeType as UnsubscribeType;
 use crate::api::proto::dataplane::v1::Message;
+use crate::api::{
+    LinkNegotiationPayload, ProtoLink, ProtoLinkMessageType as LinkType, ProtoLinkType,
+};
+use semver;
 
 use crate::api::proto::dataplane::v1::data_plane_service_client::DataPlaneServiceClient;
 use crate::api::proto::dataplane::v1::data_plane_service_server::DataPlaneService;
@@ -112,6 +118,10 @@ fn create_span(function: &str, out_conn: u64, msg: &Message) -> Span {
     span
 }
 
+fn local_version() -> &'static str {
+    slim_version::version()
+}
+
 #[derive(Debug)]
 struct MessageProcessorInternal {
     /// The forwarder to handle processing events
@@ -135,16 +145,14 @@ pub struct MessageProcessor {
 impl Default for MessageProcessor {
     fn default() -> Self {
         let (signal, watch) = drain::channel();
-        let forwarder = Forwarder::new();
-        let forwarder = MessageProcessorInternal {
-            forwarder,
+        let internal = MessageProcessorInternal {
+            forwarder: Forwarder::new(),
             drain_signal: RwLock::new(Some(signal)),
             drain_watch: RwLock::new(Some(watch)),
             tx_control_plane: RwLock::new(None),
         };
-
         Self {
-            internal: Arc::new(forwarder),
+            internal: Arc::new(internal),
         }
     }
 }
@@ -218,6 +226,7 @@ impl MessageProcessor {
         remote: Option<SocketAddr>,
         existing_conn_index: Option<u64>,
     ) -> Result<(JoinHandle<()>, u64), DataPathError> {
+        client_config.validate()?;
         let mut watch = std::pin::pin!(self.get_drain_watch()?.signaled());
 
         let channel = tokio::select! {
@@ -265,11 +274,30 @@ impl MessageProcessor {
         let handle = self.process_stream(
             stream.into_inner(),
             conn_index,
-            Some(client_config),
+            Some(client_config.clone()),
             cancellation_token,
             false,
             false,
         )?;
+
+        // Perform link negotiation: generate or use the configured link_id, store it
+        // in the connection, and send a negotiation message to the remote peer.
+        // Old SLIM instances that do not understand this message will silently drop it.
+        let link_id = client_config.link_id.clone();
+
+        if let Some(conn) = self.forwarder().get_connection(conn_index) {
+            conn.set_link_id(link_id.clone());
+        }
+
+        let negotiation_msg =
+            ProtoMessage::builder().build_link_negotiation(&link_id, local_version(), false);
+        if let Err(e) = self.send_msg(negotiation_msg, conn_index).await {
+            debug!(
+                %conn_index,
+                error = %e.chain(),
+                "failed to send link negotiation (remote may be an older SLIM instance)",
+            );
+        }
 
         Ok((handle, conn_index))
     }
@@ -367,22 +395,24 @@ impl MessageProcessor {
         let connection = self.forwarder().get_connection(out_conn);
         match connection {
             Some(conn) => {
-                // reset header fields
-                msg.clear_slim_header();
+                if !msg.is_link() {
+                    // reset header fields
+                    msg.clear_slim_header();
 
-                // telemetry ////////////////////////////////////////////////////////
-                let parent_context = extract_parent_context(&msg);
-                let span = create_span("send_message", out_conn, &msg);
+                    // telemetry ////////////////////////////////////////////////////////
+                    let parent_context = extract_parent_context(&msg);
+                    let span = create_span("send_message", out_conn, &msg);
 
-                if let Some(ctx) = parent_context
-                    && let Err(e) = span.set_parent(ctx)
-                {
-                    // log the error but don't fail the message sending
-                    error!(error = %e.chain(), "error setting parent context");
+                    if let Some(ctx) = parent_context
+                        && let Err(e) = span.set_parent(ctx)
+                    {
+                        // log the error but don't fail the message sending
+                        error!(error = %e.chain(), "error setting parent context");
+                    }
+                    let _guard = span.enter();
+                    inject_current_context(&mut msg);
+                    ///////////////////////////////////////////////////////////////////
                 }
-                let _guard = span.enter();
-                inject_current_context(&mut msg);
-                ///////////////////////////////////////////////////////////////////
 
                 match conn.channel() {
                     Channel::Server(s) => {
@@ -447,6 +477,112 @@ impl MessageProcessor {
                 msg: Box::new(msg),
             }),
         }
+    }
+
+    /// Dispatch an inbound Link message to the appropriate handler.
+    ///
+    /// Link messages are link-local and must never be processed for local connections
+    /// (they are only exchanged between SLIM nodes).
+    async fn handle_link_message(
+        &self,
+        link: ProtoLink,
+        conn_index: u64,
+        is_local: bool,
+    ) -> Result<(), DataPathError> {
+        if is_local {
+            debug!(%conn_index, "ignoring link message received on local connection");
+            return Ok(());
+        }
+        match link.link_type {
+            Some(ProtoLinkType::LinkNegotiation(payload)) => {
+                self.handle_link_negotiation(&payload, conn_index).await
+            }
+            None => {
+                debug!(%conn_index, "received link message with unset link_type");
+                Ok(())
+            }
+        }
+    }
+
+    /// Handle an inbound link negotiation message.
+    ///
+    /// On request (`is_reply == false`): calls `complete_negotiation_as_server`, which validates
+    /// the client-provided `link_id` as UUID v4 and atomically stores both fields, then echoes
+    /// back a reply.
+    ///
+    /// On reply (`is_reply == true`): calls `complete_negotiation_as_client`, which verifies the
+    /// echoed `link_id` matches what we sent and atomically stores the remote version.
+    /// No further reply is sent, preventing echo loops.
+    ///
+    /// Both methods hold a single write lock for validation and mutation, eliminating TOCTOU races.
+    async fn handle_link_negotiation(
+        &self,
+        payload: &LinkNegotiationPayload,
+        in_connection: u64,
+    ) -> Result<(), DataPathError> {
+        let link_id = &payload.link_id;
+        let remote_version = &payload.slim_version;
+
+        debug!(
+            %in_connection,
+            %link_id,
+            %remote_version,
+            is_reply = payload.is_reply,
+            "received link negotiation",
+        );
+
+        let Some(conn) = self.forwarder().get_connection(in_connection) else {
+            return Ok(());
+        };
+
+        // Role check: clients must only receive replies; servers must only receive requests.
+        match (conn.is_outgoing(), payload.is_reply) {
+            (true, false) => {
+                debug!(%in_connection, "ignoring link negotiation request received on outgoing connection");
+                return Ok(());
+            }
+            (false, true) => {
+                debug!(%in_connection, "ignoring link negotiation reply received on incoming connection");
+                return Ok(());
+            }
+            _ => {}
+        }
+
+        // Parse the remote version before any state mutation.
+        let version = match semver::Version::parse(remote_version) {
+            Ok(v) => v,
+            Err(e) => {
+                debug!(%in_connection, %remote_version, error = %e, "ignoring link negotiation with unparsable remote SLIM version");
+                return Ok(());
+            }
+        };
+
+        if payload.is_reply {
+            // Client path: verifies the echoed link_id matches what we sent and stores the remote
+            // version atomically (replay-protected).
+            if !conn.complete_negotiation_as_client(link_id, version) {
+                debug!(%in_connection, %link_id, "ignoring link negotiation reply");
+            }
+        } else {
+            // Server path: validates link_id as UUID v4, stores it together with the remote
+            // version atomically (replay-protected), then echoes a reply.
+            if !conn.complete_negotiation_as_server(link_id, version) {
+                debug!(%in_connection, %link_id, "ignoring link negotiation request");
+                return Ok(());
+            }
+            // Send reply only after state is committed.
+            let reply =
+                ProtoMessage::builder().build_link_negotiation(link_id, local_version(), true);
+            if let Err(e) = self.send_msg(reply, in_connection).await {
+                debug!(
+                    %in_connection,
+                    error = %e.chain(),
+                    "failed to send link negotiation reply",
+                );
+            }
+        }
+
+        Ok(())
     }
 
     async fn process_publish(&self, msg: Message, in_connection: u64) -> Result<(), DataPathError> {
@@ -637,12 +773,19 @@ impl MessageProcessor {
         &self,
         msg: Message,
         in_connection: u64,
+        is_local: bool,
     ) -> Result<(), DataPathError> {
-        // process each kind of message in a different path
-        match msg.get_type() {
-            SubscribeType(_) => self.process_subscription(msg, in_connection, true).await,
-            UnsubscribeType(_) => self.process_subscription(msg, in_connection, false).await,
-            PublishType(_) => self.process_publish(msg, in_connection).await,
+        match msg.message_type {
+            Some(SubscribeType(_)) => self.process_subscription(msg, in_connection, true).await,
+            Some(UnsubscribeType(_)) => self.process_subscription(msg, in_connection, false).await,
+            Some(PublishType(_)) => self.process_publish(msg, in_connection).await,
+            Some(LinkType(link)) => {
+                self.handle_link_message(link, in_connection, is_local)
+                    .await
+            }
+            None => unreachable!(
+                "message type not set; validate() must be called before process_message"
+            ),
         }
     }
 
@@ -674,38 +817,31 @@ impl MessageProcessor {
             return Err(ret_err);
         }
 
-        // add incoming connection to the SLIM header
-        msg.set_incoming_conn(Some(conn_index));
+        // Link messages are link-local: no SLIM header, no routing, no telemetry span.
+        if !msg.is_link() {
+            // add incoming connection to the SLIM header
+            msg.set_incoming_conn(Some(conn_index));
 
-        // message is valid - from now on we access the field without checking for None
-
-        // telemetry /////////////////////////////////////////
-        if is_local {
-            // handling the message from the local application
-            let span = create_span("process_local", conn_index, &msg);
-
-            let _guard = span.enter();
-
-            inject_current_context(&mut msg);
-        } else {
-            // handling the message from a remote SLIM instance
-            let parent_context = extract_parent_context(&msg);
-
-            let span = create_span("process_local", conn_index, &msg);
-
-            if let Some(ctx) = parent_context
-                && let Err(e) = span.set_parent(ctx)
-            {
-                // log the error but don't fail the message processing
-                error!(error = %e.chain(), "error setting parent context");
+            // telemetry /////////////////////////////////////////
+            if is_local {
+                let span = create_span("process_local", conn_index, &msg);
+                let _guard = span.enter();
+                inject_current_context(&mut msg);
+            } else {
+                let parent_context = extract_parent_context(&msg);
+                let span = create_span("process_local", conn_index, &msg);
+                if let Some(ctx) = parent_context
+                    && let Err(e) = span.set_parent(ctx)
+                {
+                    error!(error = %e.chain(), "error setting parent context");
+                }
+                let _guard = span.enter();
+                inject_current_context(&mut msg);
             }
-            let _guard = span.enter();
-
-            inject_current_context(&mut msg);
+            //////////////////////////////////////////////////////
         }
-        //////////////////////////////////////////////////////
 
-        match self.process_message(msg, conn_index).await {
+        match self.process_message(msg, conn_index, is_local).await {
             Ok(_) => Ok(()),
             Err(e) => {
                 // telemetry /////////////////////////////////////////
@@ -839,9 +975,9 @@ impl MessageProcessor {
                                         // 3. the control plane exists
                                         if !is_local && !from_control_plane && let Some(txcp) = &tx_cp {
                                             match msg.get_type() {
-                                                PublishType(_) => {/* do nothing */}
+                                                PublishType(_) | LinkType(_) => {/* do nothing */}
                                                 _ => {
-                                                    // send subscriptions and unsupcriptions
+                                                    // send subscriptions and unsubscriptions
                                                     // to the control plane
                                                     let _ = txcp.send(Ok(msg.clone())).await;
                                                 }
@@ -1019,9 +1155,11 @@ impl DataPlaneService for MessageProcessor {
 
 #[cfg(test)]
 mod tests {
+    use slim_config::grpc::client::is_valid_uuid_v4;
     use std::time::Duration;
 
     use super::*;
+    use tonic::Status;
 
     async fn assert_failed_subscription_ack_is_sent(add: bool) {
         let processor = MessageProcessor::new();
@@ -1093,5 +1231,311 @@ mod tests {
     #[tokio::test]
     async fn test_process_subscription_sends_failed_ack_on_unsubscribe_error() {
         assert_failed_subscription_ack_is_sent(false).await;
+    }
+
+    #[test]
+    fn test_is_valid_uuid_v4_accepts_v4() {
+        let id = uuid::Uuid::new_v4().to_string();
+        assert!(is_valid_uuid_v4(&id));
+    }
+
+    #[test]
+    fn test_is_valid_uuid_v4_rejects_non_uuid_string() {
+        assert!(!is_valid_uuid_v4("not-a-uuid"));
+        assert!(!is_valid_uuid_v4(""));
+    }
+
+    #[test]
+    fn test_is_valid_uuid_v4_rejects_non_v4_uuid() {
+        // Version 1 UUID (time-based).
+        assert!(!is_valid_uuid_v4("00000000-0000-1000-8000-000000000000"));
+    }
+
+    // ── handle_link_message ───────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_handle_link_message_is_local_ignored() {
+        let processor = MessageProcessor::new();
+        let link = ProtoLink { link_type: None };
+        assert!(processor.handle_link_message(link, 0, true).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_handle_link_message_none_link_type_ignored() {
+        let processor = MessageProcessor::new();
+        let link = ProtoLink { link_type: None };
+        assert!(processor.handle_link_message(link, 0, false).await.is_ok());
+    }
+
+    // ── handle_link_negotiation ───────────────────────────────────────────────
+
+    fn make_server_conn(
+        processor: &MessageProcessor,
+    ) -> (u64, tokio::sync::mpsc::Receiver<Result<Message, Status>>) {
+        let (tx, rx) = mpsc::channel(16);
+        let conn = Connection::new(ConnectionType::Remote, Channel::Server(tx));
+        let conn_id = processor
+            .forwarder()
+            .on_connection_established(conn, None)
+            .unwrap();
+        (conn_id, rx)
+    }
+
+    fn make_client_conn(
+        processor: &MessageProcessor,
+    ) -> (u64, tokio::sync::mpsc::Receiver<Message>) {
+        let (tx, rx) = mpsc::channel(16);
+        let conn = Connection::new(ConnectionType::Remote, Channel::Client(tx));
+        let conn_id = processor
+            .forwarder()
+            .on_connection_established(conn, None)
+            .unwrap();
+        (conn_id, rx)
+    }
+
+    #[tokio::test]
+    async fn test_handle_link_negotiation_unknown_connection_ignored() {
+        let processor = MessageProcessor::new();
+        let payload = LinkNegotiationPayload {
+            link_id: uuid::Uuid::new_v4().to_string(),
+            slim_version: "1.0.0".into(),
+            is_reply: false,
+        };
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, u64::MAX)
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_handle_link_negotiation_role_outgoing_receives_request_ignored() {
+        let processor = MessageProcessor::new();
+        let (conn_id, _rx) = make_client_conn(&processor);
+        let payload = LinkNegotiationPayload {
+            link_id: uuid::Uuid::new_v4().to_string(),
+            slim_version: "1.0.0".into(),
+            is_reply: false, // request on outgoing connection → ignored
+        };
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, conn_id)
+                .await
+                .is_ok()
+        );
+        assert!(
+            processor
+                .forwarder()
+                .get_connection(conn_id)
+                .unwrap()
+                .remote_slim_version()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_handle_link_negotiation_role_incoming_receives_reply_ignored() {
+        let processor = MessageProcessor::new();
+        let (conn_id, _rx) = make_server_conn(&processor);
+        let payload = LinkNegotiationPayload {
+            link_id: uuid::Uuid::new_v4().to_string(),
+            slim_version: "1.0.0".into(),
+            is_reply: true, // reply on incoming connection → ignored
+        };
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, conn_id)
+                .await
+                .is_ok()
+        );
+        assert!(
+            processor
+                .forwarder()
+                .get_connection(conn_id)
+                .unwrap()
+                .remote_slim_version()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_handle_link_negotiation_unparsable_version_ignored() {
+        let processor = MessageProcessor::new();
+        let (conn_id, _rx) = make_server_conn(&processor);
+        let payload = LinkNegotiationPayload {
+            link_id: uuid::Uuid::new_v4().to_string(),
+            slim_version: "not-semver".into(),
+            is_reply: false,
+        };
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, conn_id)
+                .await
+                .is_ok()
+        );
+        assert!(
+            processor
+                .forwarder()
+                .get_connection(conn_id)
+                .unwrap()
+                .remote_slim_version()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_handle_link_negotiation_server_invalid_uuid_ignored() {
+        let processor = MessageProcessor::new();
+        let (conn_id, _rx) = make_server_conn(&processor);
+        let payload = LinkNegotiationPayload {
+            link_id: "not-a-uuid".into(),
+            slim_version: "1.0.0".into(),
+            is_reply: false,
+        };
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, conn_id)
+                .await
+                .is_ok()
+        );
+        assert!(
+            processor
+                .forwarder()
+                .get_connection(conn_id)
+                .unwrap()
+                .remote_slim_version()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_handle_link_negotiation_server_happy_path() {
+        let processor = MessageProcessor::new();
+        let (conn_id, mut rx) = make_server_conn(&processor);
+        let link_id = uuid::Uuid::new_v4().to_string();
+        let payload = LinkNegotiationPayload {
+            link_id: link_id.clone(),
+            slim_version: "1.2.3".into(),
+            is_reply: false,
+        };
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, conn_id)
+                .await
+                .is_ok()
+        );
+        let conn = processor.forwarder().get_connection(conn_id).unwrap();
+        assert_eq!(conn.link_id(), Some(link_id));
+        assert_eq!(
+            conn.remote_slim_version(),
+            Some(semver::Version::parse("1.2.3").unwrap())
+        );
+        // A reply must have been sent.
+        let reply = rx.try_recv().expect("reply should be sent").unwrap();
+        assert!(reply.is_link());
+    }
+
+    #[tokio::test]
+    async fn test_handle_link_negotiation_server_replay_protection() {
+        let processor = MessageProcessor::new();
+        let (conn_id, mut rx) = make_server_conn(&processor);
+        let link_id = uuid::Uuid::new_v4().to_string();
+        let payload = LinkNegotiationPayload {
+            link_id: link_id.clone(),
+            slim_version: "1.0.0".into(),
+            is_reply: false,
+        };
+        // First request: accepted, reply sent.
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, conn_id)
+                .await
+                .is_ok()
+        );
+        assert!(rx.try_recv().is_ok());
+        // Second request: replay protection must suppress it, no reply.
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, conn_id)
+                .await
+                .is_ok()
+        );
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_handle_link_negotiation_client_happy_path() {
+        let processor = MessageProcessor::new();
+        let (conn_id, _rx) = make_client_conn(&processor);
+        let link_id = uuid::Uuid::new_v4().to_string();
+        let conn = processor.forwarder().get_connection(conn_id).unwrap();
+        conn.set_link_id(link_id.clone());
+        let payload = LinkNegotiationPayload {
+            link_id: link_id.clone(),
+            slim_version: "2.0.0".into(),
+            is_reply: true,
+        };
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, conn_id)
+                .await
+                .is_ok()
+        );
+        assert_eq!(
+            conn.remote_slim_version(),
+            Some(semver::Version::parse("2.0.0").unwrap())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_handle_link_negotiation_client_link_id_mismatch_ignored() {
+        let processor = MessageProcessor::new();
+        let (conn_id, _rx) = make_client_conn(&processor);
+        let conn = processor.forwarder().get_connection(conn_id).unwrap();
+        conn.set_link_id("correct-id".to_string());
+        let payload = LinkNegotiationPayload {
+            link_id: "wrong-id".into(),
+            slim_version: "1.0.0".into(),
+            is_reply: true,
+        };
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, conn_id)
+                .await
+                .is_ok()
+        );
+        assert!(conn.remote_slim_version().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_handle_link_negotiation_client_replay_protection() {
+        let processor = MessageProcessor::new();
+        let (conn_id, _rx) = make_client_conn(&processor);
+        let link_id = uuid::Uuid::new_v4().to_string();
+        let conn = processor.forwarder().get_connection(conn_id).unwrap();
+        conn.set_link_id(link_id.clone());
+        let payload = LinkNegotiationPayload {
+            link_id: link_id.clone(),
+            slim_version: "1.0.0".into(),
+            is_reply: true,
+        };
+        // First reply: accepted.
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, conn_id)
+                .await
+                .is_ok()
+        );
+        let stored = conn.remote_slim_version();
+        assert!(stored.is_some());
+        // Second reply: replay protection must reject it; version unchanged.
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, conn_id)
+                .await
+                .is_ok()
+        );
+        assert_eq!(conn.remote_slim_version(), stored);
     }
 }
