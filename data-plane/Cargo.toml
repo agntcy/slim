@@ -113,6 +113,7 @@ rustls = { version = "0.23.31" }
 rustls-native-certs = "0.8"
 rustls-pki-types = "1.10.0"
 schemars = "1.0.3"
+semver = "1"
 serde = "1.0.217"
 serde-pyobject = "0.7"
 serde_json = "1.0"

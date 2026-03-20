@@ -35,8 +35,8 @@ use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::traits::TokenProvider;
 use slim_config::grpc::client::ClientConfig;
 use slim_datapath::api::{
-    CommandPayload, Content, MessageType::Publish, MessageType::Subscribe,
-    MessageType::Unsubscribe, ProtoMessage as DataPlaneMessage,
+    CommandPayload, Content, MessageType::Link as LinkType, MessageType::Publish,
+    MessageType::Subscribe, MessageType::Unsubscribe, ProtoMessage as DataPlaneMessage,
 };
 use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::message_processing::MessageProcessor;
@@ -402,6 +402,9 @@ impl ControlPlane {
                                                 } else {
                                                     debug!("Ignoring publish message with session type: {:?}", msg.get_session_message_type());
                                                 }
+                                            }
+                                            LinkType(_) => {
+                                                debug!("received link message from dataplane - this should not happen");
                                             }
                                         }
                                     }

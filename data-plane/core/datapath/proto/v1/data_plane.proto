@@ -28,8 +28,17 @@ message Message {
     Subscribe subscribe = 1;
     Unsubscribe unsubscribe = 2;
     Publish publish = 3;
+    Link link = 5;
   }
   map<string, string> metadata = 4;
+}
+
+// Link is a link-local message exchanged only between directly connected SLIM nodes.
+// It is never routed and never sent over local (application-facing) connections.
+message Link {
+  oneof link_type {
+    LinkNegotiationPayload link_negotiation = 1;
+  }
 }
 
 // SLIM headers
@@ -245,3 +254,17 @@ message GroupNackPayload {}
 
 // Ping
 message PingPayload {}
+
+// Link Negotiation
+// Sent upon connection establishment to negotiate a common link identifier
+// and exchange SLIM version information. Not routed; handled locally by
+// the receiving SLIM instance.
+message LinkNegotiationPayload {
+  // Common link identifier agreed upon by both peers.
+  // The connecting side generates this value; the accepting side echoes it back.
+  string link_id = 1;
+  // SLIM version of the sender (semver string, e.g. "0.11.4").
+  string slim_version = 2;
+  // True if this message is a reply to a negotiation request.
+  bool is_reply = 3;
+}
