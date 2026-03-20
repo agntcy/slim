@@ -113,9 +113,9 @@ jobs:
           task test
           task pack OUTPUT_DIR=./nupkg $TAG_NAME_PARAM
 
-      - name: Upload NuGet package
+      - name: Upload NuGet packages
         uses: actions/upload-artifact@v4
         with:
           name: dotnet-bindings-nuget
-          path: ${{ inputs.dotnet-bindings-dir }}/nupkg/*.nupkg
+          path: ${{ inputs.dotnet-bindings-dir }}/nupkg
           if-no-files-found: error
