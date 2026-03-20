@@ -402,6 +402,13 @@ impl std::fmt::Display for ClientConfig {
     }
 }
 
+pub fn is_valid_uuid_v4(s: &str) -> bool {
+    match uuid::Uuid::parse_str(s) {
+        Ok(id) => id.get_version() == Some(uuid::Version::Random),
+        Err(_) => false,
+    }
+}
+
 impl Configuration for ClientConfig {
     type Error = ConfigError;
 
@@ -411,9 +418,8 @@ impl Configuration for ClientConfig {
         }
 
         // Validate link_id is a UUID v4
-        match uuid::Uuid::parse_str(&self.link_id) {
-            Ok(id) if id.get_version() == Some(uuid::Version::Random) => {}
-            _ => return Err(ConfigError::InvalidLinkId),
+        if !is_valid_uuid_v4(&self.link_id) {
+            return Err(ConfigError::InvalidLinkId);
         }
 
         // Validate the client configuration

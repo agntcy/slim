@@ -32,7 +32,6 @@ use crate::api::{
     LinkNegotiationPayload, ProtoLink, ProtoLinkMessageType as LinkType, ProtoLinkType,
 };
 use semver;
-use uuid::Uuid;
 
 use crate::api::proto::dataplane::v1::data_plane_service_client::DataPlaneServiceClient;
 use crate::api::proto::dataplane::v1::data_plane_service_server::DataPlaneService;
@@ -121,13 +120,6 @@ fn create_span(function: &str, out_conn: u64, msg: &Message) -> Span {
 
 fn local_version() -> &'static str {
     slim_version::version()
-}
-
-fn is_valid_uuid_v4(s: &str) -> bool {
-    match Uuid::parse_str(s) {
-        Ok(id) => id.get_version() == Some(uuid::Version::Random),
-        Err(_) => false,
-    }
 }
 
 #[derive(Debug)]
@@ -514,14 +506,15 @@ impl MessageProcessor {
 
     /// Handle an inbound link negotiation message.
     ///
-    /// On request (`is_reply == false`): validate the client-provided `link_id` as UUID v4,
-    /// atomically store both fields under one lock, then echo back a reply.
+    /// On request (`is_reply == false`): calls `complete_negotiation_as_server`, which validates
+    /// the client-provided `link_id` as UUID v4 and atomically stores both fields, then echoes
+    /// back a reply.
     ///
-    /// On reply (`is_reply == true`): verify the echoed `link_id` matches what we sent, then
-    /// atomically store the remote version.  No further reply is sent, preventing echo loops.
+    /// On reply (`is_reply == true`): calls `complete_negotiation_as_client`, which verifies the
+    /// echoed `link_id` matches what we sent and atomically stores the remote version.
+    /// No further reply is sent, preventing echo loops.
     ///
-    /// Both paths use `complete_negotiation` which holds a single write lock for the
-    /// check-and-set, eliminating TOCTOU races.
+    /// Both methods hold a single write lock for validation and mutation, eliminating TOCTOU races.
     async fn handle_link_negotiation(
         &self,
         payload: &LinkNegotiationPayload,
@@ -565,24 +558,16 @@ impl MessageProcessor {
         };
 
         if payload.is_reply {
-            // Client path: verify the server echoed back the link_id we sent.
-            if conn.link_id().as_deref() != Some(link_id.as_str()) {
-                debug!(%in_connection, %link_id, "ignoring link negotiation reply with mismatched link_id");
-                return Ok(());
-            }
-            // Atomically check-and-set; returns false if already negotiated (replay protection).
-            if !conn.complete_negotiation(None, version) {
-                debug!(%in_connection, "ignoring link negotiation on already-negotiated connection");
+            // Client path: verifies the echoed link_id matches what we sent and stores the remote
+            // version atomically (replay-protected).
+            if !conn.complete_negotiation_as_client(link_id, version) {
+                debug!(%in_connection, %link_id, "ignoring link negotiation reply");
             }
         } else {
-            // Server path: validate the client-provided link_id as UUID v4 before storing.
-            if !is_valid_uuid_v4(link_id) {
-                debug!(%in_connection, %link_id, "ignoring link negotiation with invalid link_id (expected UUID v4)");
-                return Ok(());
-            }
-            // Atomically check-and-set; returns false if already negotiated (replay protection).
-            if !conn.complete_negotiation(Some(link_id.clone()), version) {
-                debug!(%in_connection, "ignoring link negotiation on already-negotiated connection");
+            // Server path: validates link_id as UUID v4, stores it together with the remote
+            // version atomically (replay-protected), then echoes a reply.
+            if !conn.complete_negotiation_as_server(link_id, version) {
+                debug!(%in_connection, %link_id, "ignoring link negotiation request");
                 return Ok(());
             }
             // Send reply only after state is committed.
@@ -1170,6 +1155,7 @@ impl DataPlaneService for MessageProcessor {
 
 #[cfg(test)]
 mod tests {
+    use slim_config::grpc::client::is_valid_uuid_v4;
     use std::time::Duration;
 
     use super::*;

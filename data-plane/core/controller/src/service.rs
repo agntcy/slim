@@ -404,7 +404,7 @@ impl ControlPlane {
                                                 }
                                             }
                                             LinkType(_) => {
-                                                debug!("Ignoring link message received by controller");
+                                                debug!("received link message from dataplane - this should not happen");
                                             }
                                         }
                                     }
