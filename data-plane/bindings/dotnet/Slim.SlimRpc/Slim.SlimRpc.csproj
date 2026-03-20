@@ -1,10 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Allow Slim.Examples.SlimRpc to access internal types (Channel, Server, Context, etc.) -->
-  <ItemGroup>
-    <InternalsVisibleTo Include="Slim.Examples.SlimRpc" />
-  </ItemGroup>
-
   <PropertyGroup>
     <RootNamespace>Agntcy.Slim.SlimRpc</RootNamespace>
     <AssemblyName>Agntcy.Slim.SlimRpc</AssemblyName>

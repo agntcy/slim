@@ -156,9 +156,16 @@ tasks:
           exit 1
         fi
 
-        # Make all bindings types public so SlimRpc CreateChannel/CreateServer/SlimRpcStreams can be public.
-        # uniffi-bindgen-cs generates internal by default; a few public types cascade to the whole API.
-        sed -i.bak -e 's/^internal class /public class /' \
+        # Make all bindings types public so protoc-gen-slimrpc-csharp output and Agntcy.Slim.SlimRpc can use FFI from any assembly.
+        # uniffi-bindgen-cs emits internal by default (including abstract handler bases). Order: most specific patterns first.
+        sed -i.bak -e 's/^internal static partial class /public static partial class /' \
+            -e 's/^internal sealed class /public sealed class /' \
+            -e 's/^internal abstract class /public abstract class /' \
+            -e 's/^internal static class /public static class /' \
+            -e 's/^internal partial class /public partial class /' \
+            -e 's/^internal readonly struct /public readonly struct /' \
+            -e 's/^internal struct /public struct /' \
+            -e 's/^internal class /public class /' \
             -e 's/^internal interface /public interface /' \
             -e 's/^internal record /public record /' \
             -e 's/^internal enum /public enum /' \

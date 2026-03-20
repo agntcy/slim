@@ -18,9 +18,9 @@ public sealed class SlimRpcContext
     }
 
     /// <summary>
-    /// Create a SlimRpcContext from the raw FFI Context.
+    /// Create a SlimRpcContext from the raw FFI Context (used by protoc-gen-slimrpc-csharp-generated code in the app assembly).
     /// </summary>
-    internal static SlimRpcContext FromContext(uniffi.slim_bindings.Context context)
+    public static SlimRpcContext FromContext(uniffi.slim_bindings.Context context)
     {
         return new SlimRpcContext(context);
     }
