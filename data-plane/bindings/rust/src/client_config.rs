@@ -16,7 +16,10 @@ use slim_config::grpc::client::{
 };
 
 use crate::common_config::{ClientAuthenticationConfig, TlsClientConfig};
+use crate::errors::SlimError;
 use crate::transport_protocol::TransportProtocol;
+
+use slim_config::component::configuration::Configuration;
 
 /// Compression type for gRPC messages
 #[derive(uniffi::Enum, Clone, Debug, PartialEq)]
@@ -436,10 +439,27 @@ pub fn new_secure_client_config(endpoint: String) -> ClientConfig {
     }
 }
 
+/// Parse and validate a SLIM gRPC client configuration from JSON.
+///
+/// The JSON must match [`CoreClientConfig`] (same as
+/// `data-plane/core/config/src/grpc/schema/client-config.schema.json`).
+#[uniffi::export]
+pub fn new_config_from_json(json: String) -> Result<ClientConfig, SlimError> {
+    let core: CoreClientConfig =
+        serde_json::from_str(&json).map_err(|e| SlimError::ConfigError {
+            message: format!("invalid JSON for client config: {e}"),
+        })?;
+    core.validate().map_err(|e| SlimError::ConfigError {
+        message: e.to_string(),
+    })?;
+    Ok(core.into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::common_config::{CaSource, TlsSource};
+    use crate::errors::SlimError;
     use slim_config::transport::TransportProtocol as CoreTransportProtocol;
     use std::collections::HashMap;
 
@@ -537,6 +557,31 @@ mod tests {
         assert_eq!(config.request_timeout, None);
         assert_eq!(config.auth, None);
         assert_eq!(config.backoff, None);
+    }
+
+    #[test]
+    fn new_config_from_json_minimal_insecure() {
+        let json = r#"{"endpoint":"http://127.0.0.1:46357","tls":{"insecure":true}}"#;
+        let cfg = new_config_from_json(json.to_string()).expect("parse");
+        assert_eq!(cfg.endpoint, "http://127.0.0.1:46357");
+        assert!(cfg.tls.insecure);
+    }
+
+    #[test]
+    fn new_config_from_json_invalid_json() {
+        let err = new_config_from_json("{not json".to_string()).unwrap_err();
+        assert!(matches!(err, SlimError::ConfigError { .. }));
+        let SlimError::ConfigError { message } = err else {
+            unreachable!();
+        };
+        assert!(message.contains("invalid JSON"), "message was: {message}");
+    }
+
+    #[test]
+    fn new_config_from_json_missing_endpoint() {
+        let json = r#"{"endpoint":"","tls":{"insecure":true}}"#;
+        let err = new_config_from_json(json.to_string()).unwrap_err();
+        assert!(matches!(err, SlimError::ConfigError { .. }));
     }
 
     #[test]
