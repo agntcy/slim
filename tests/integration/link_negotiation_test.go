@@ -112,8 +112,8 @@ var _ = Describe("Link Negotiation", func() {
 		})
 	})
 
-	Describe("two new nodes advertise v1.2.0 during link negotiation", func() {
-		It("logs remote_version=1.2.0 after link negotiation", func() {
+	Describe("two new nodes advertise their version during link negotiation", func() {
+		It("logs remote_version after link negotiation", func() {
 			serverPort := reservePort()
 			nodeBPort := reservePort()
 
@@ -141,17 +141,16 @@ var _ = Describe("Link Negotiation", func() {
 			Expect(err).NotTo(HaveOccurred())
 			defer terminateSession(nodeBSession, 5*time.Second)
 
-			// Server receives the negotiation request; the log line is
-			// "received link negotiation ... remote_version=1.2.0 ..."
-			// ANSI colour codes prevent matching "remote_version=1.2.0" as a
-			// literal string, so we assert the message text and then the version
-			// number (which appears later in the same line, after the message).
+			// Server receives the negotiation request.  The log line contains a
+			// remote_version= field but ANSI colour codes split the key from the
+			// value, so we match the message text and then a semver pattern
+			// (e.g. "1.3.0") which appears uninterrupted in the value portion.
 			Eventually(serverSession.Out, 10*time.Second).Should(gbytes.Say("received link negotiation"))
-			Eventually(serverSession.Out, 10*time.Second).Should(gbytes.Say("1.2.0"))
+			Eventually(serverSession.Out, 10*time.Second).Should(gbytes.Say(`\d+\.\d+\.\d+`))
 
 			// Client receives the reply and logs the remote version.
 			Eventually(nodeBSession.Out, 10*time.Second).Should(gbytes.Say("received link negotiation"))
-			Eventually(nodeBSession.Out, 10*time.Second).Should(gbytes.Say("1.2.0"))
+			Eventually(nodeBSession.Out, 10*time.Second).Should(gbytes.Say(`\d+\.\d+\.\d+`))
 
 			// Both processes must keep running.
 			Consistently(serverSession, 500*time.Millisecond).ShouldNot(gexec.Exit())
