@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0](https://github.com/agntcy/slim/compare/slim-datapath-v0.11.5...slim-datapath-v0.12.0) - 2026-03-20
+
+### Added
+
+- add link negotiation protocol between SLIM nodes ([#1353](https://github.com/agntcy/slim/pull/1353))
+
 ## [0.11.5](https://github.com/agntcy/slim/compare/slim-datapath-v0.11.4...slim-datapath-v0.11.5) - 2026-03-20
 
 ### Added
