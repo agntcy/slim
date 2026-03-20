@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "agntcy-protoc-slimrpc-plugin"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "anyhow",
  "heck 0.5.0",
@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-auth"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-testing",
@@ -115,7 +115,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-config"
-version = "0.6.3"
+version = "0.7.0"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-testing",
@@ -161,7 +161,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-controller"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -195,7 +195,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-datapath"
-version = "0.11.4"
+version = "0.11.5"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-tracing",
@@ -228,7 +228,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-mls"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
@@ -248,7 +248,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-service"
-version = "0.8.7"
+version = "0.8.8"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -273,7 +273,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-session"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
@@ -295,7 +295,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-signal"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "agntcy-slim-version",
  "tokio",
@@ -333,7 +333,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-tracing"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-version",
