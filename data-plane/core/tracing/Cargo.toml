@@ -2,7 +2,7 @@
 name = "agntcy-slim-tracing"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.3.4"
+version = "0.3.5"
 description = "Observability for SLIM data plane: logs, traces and metrics infrastructure."
 
 [lib]
@@ -10,6 +10,7 @@ name = "slim_tracing"
 
 [dependencies]
 agntcy-slim-config = { workspace = true }
+agntcy-slim-version = { workspace = true }
 once_cell = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }

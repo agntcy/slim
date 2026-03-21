@@ -199,8 +199,6 @@ async fn send_invite(session_tx: &SessionTx, member: &Name) -> Result<(), RpcErr
         .await
         .map_err(|e| RpcError::internal(format!("Failed to invite {}: {}", member, e)))?;
 
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
     Ok(())
 }
 

@@ -21,11 +21,13 @@ var (
 
 	suiteName = "Run integration tests"
 
-	slimPath         string
-	sdkMockPath      string
-	clientPath       string
-	slimctlPath      string
-	controlPlanePath string
+	slimPath            string
+	legacySlimPath      string
+	sdkMockPath         string
+	legacySDKMockPath   string
+	clientPath          string
+	slimctlPath         string
+	controlPlanePath    string
 )
 
 func mustAbs(p string) string {
@@ -43,6 +45,8 @@ func setBinaryPaths(target string) {
 
 	distBin := filepath.Join("..", "..", ".dist", "bin")
 	controlPlanePath = mustAbs(filepath.Join(distBin, "control-plane"))
+	legacySlimPath = mustAbs(filepath.Join(distBin, "slim-legacy"))
+	legacySDKMockPath = mustAbs(filepath.Join(distBin, "sdk-mock-legacy"))
 }
 
 var _ = BeforeSuite(func() {

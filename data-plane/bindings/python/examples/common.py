@@ -17,6 +17,7 @@ import argparse
 import base64  # Used to decode base64-encoded JWKS content (when provided).
 import datetime  # Used for timedelta in JWT configs
 import json  # Used for parsing JWKS JSON and dynamic option values.
+from pathlib import Path
 from typing import Any
 
 import slim_bindings  # The Python bindings package we are demonstrating.
@@ -220,7 +221,17 @@ async def create_local_app(config: BaseConfig) -> tuple[slim_bindings.App, int]:
     # Convert local identifier to a strongly typed Name.
     local_name = slim_bindings.Name.from_string(config.local)
 
-    client_config = slim_bindings.new_insecure_client_config(config.slim)
+    if config.slim_client_config:
+        json_text = Path(config.slim_client_config).read_text(encoding="utf-8")
+        try:
+            client_config = slim_bindings.new_config_from_json(json_text)
+        except slim_bindings.SlimError as e:
+            raise RuntimeError(
+                f"Invalid slim client config JSON ({config.slim_client_config}): {e}"
+            ) from e
+    else:
+        client_config = slim_bindings.new_insecure_client_config(config.slim)
+
     conn_id = await service.connect_async(client_config)
 
     # Determine authentication mode
@@ -295,7 +306,19 @@ def create_base_parser(description: str) -> argparse.ArgumentParser:
         "--slim",
         type=str,
         default="http://127.0.0.1:46357",
-        help="SLIM remote endpoint URL (default: http://127.0.0.1:46357)",
+        help="SLIM remote endpoint URL (default: http://127.0.0.1:46357); ignored if --slim-config is set",
+    )
+
+    parser.add_argument(
+        "--slim-config",
+        type=str,
+        dest="slim_client_config",
+        default=None,
+        help=(
+            "Path to JSON file for full gRPC ClientConfig "
+            "(same schema as data-plane/core/config/src/grpc/schema/client-config.schema.json); "
+            "when set, overrides --slim for the dataplane connection"
+        ),
     )
 
     # Feature flags

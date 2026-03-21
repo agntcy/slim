@@ -4,11 +4,17 @@
 pub struct Subscribe {
     #[prost(message, optional, tag = "1")]
     pub header: ::core::option::Option<SlimHeader>,
+    /// Non-empty when the sender wants a SubscriptionAck back.
+    #[prost(string, tag = "2")]
+    pub ack_id: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Unsubscribe {
     #[prost(message, optional, tag = "1")]
     pub header: ::core::option::Option<SlimHeader>,
+    /// Non-empty when the sender wants a SubscriptionAck back.
+    #[prost(string, tag = "2")]
+    pub ack_id: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Publish {
@@ -26,7 +32,7 @@ pub struct Message {
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
-    #[prost(oneof = "message::MessageType", tags = "1, 2, 3")]
+    #[prost(oneof = "message::MessageType", tags = "1, 2, 3, 5, 6")]
     pub message_type: ::core::option::Option<message::MessageType>,
 }
 /// Nested message and enum types in `Message`.
@@ -39,6 +45,25 @@ pub mod message {
         Unsubscribe(super::Unsubscribe),
         #[prost(message, tag = "3")]
         Publish(super::Publish),
+        #[prost(message, tag = "5")]
+        Link(super::Link),
+        #[prost(message, tag = "6")]
+        SubscriptionAck(super::SubscriptionAck),
+    }
+}
+/// Link is a link-local message exchanged only between directly connected SLIM nodes.
+/// It is never routed and never sent over local (application-facing) connections.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Link {
+    #[prost(oneof = "link::LinkType", tags = "1")]
+    pub link_type: ::core::option::Option<link::LinkType>,
+}
+/// Nested message and enum types in `Link`.
+pub mod link {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum LinkType {
+        #[prost(message, tag = "1")]
+        LinkNegotiation(super::LinkNegotiationPayload),
     }
 }
 /// recvFrom = connection from where the sub/unsub is supposed to be received
@@ -300,6 +325,38 @@ pub struct GroupNackPayload {}
 /// Ping
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct PingPayload {}
+/// SubscriptionAck is delivered directly to the requesting connection in response
+/// to a Subscribe or Unsubscribe that carried a non-empty ack_id field.
+/// It is never routed through the subscription table.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SubscriptionAck {
+    /// Echoes the ack_id from the originating Subscribe or Unsubscribe request.
+    #[prost(string, tag = "1")]
+    pub ack_id: ::prost::alloc::string::String,
+    /// True if the subscription operation succeeded.
+    #[prost(bool, tag = "2")]
+    pub success: bool,
+    /// Non-empty only when success == false.
+    #[prost(string, tag = "3")]
+    pub error: ::prost::alloc::string::String,
+}
+/// Link Negotiation
+/// Sent upon connection establishment to negotiate a common link identifier
+/// and exchange SLIM version information. Not routed; handled locally by
+/// the receiving SLIM instance.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct LinkNegotiationPayload {
+    /// Common link identifier agreed upon by both peers.
+    /// The connecting side generates this value; the accepting side echoes it back.
+    #[prost(string, tag = "1")]
+    pub link_id: ::prost::alloc::string::String,
+    /// SLIM version of the sender (semver string, e.g. "0.11.4").
+    #[prost(string, tag = "2")]
+    pub slim_version: ::prost::alloc::string::String,
+    /// True if this message is a reply to a negotiation request.
+    #[prost(bool, tag = "3")]
+    pub is_reply: bool,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum SessionType {

@@ -23,6 +23,27 @@ tasks:
     cmds:
       - task -l
 
+  tests:build-legacy-binaries:
+    desc: "Build slim and sdk-mock binaries from the latest slim-v release tag for backward-compat testing"
+    dir: ".."
+    vars:
+      LEGACY_TAG:
+        sh: git tag --sort=-version:refname | grep -E "^slim-v[0-9]+\.[0-9]+\.[0-9]+$" | head -1
+    status:
+      - .dist/bin/slim-legacy --version | grep -qF "$(git rev-parse --short {{.LEGACY_TAG}}^{})"
+      - .dist/bin/sdk-mock-legacy --version | grep -qF "$(git rev-parse --short {{.LEGACY_TAG}}^{})"
+    cmds:
+      - |
+        WORKTREE=$(mktemp -d)
+        trap 'git worktree remove --force "$WORKTREE"' EXIT
+        git worktree add "$WORKTREE" {{.LEGACY_TAG}}
+        cargo build --manifest-path "$WORKTREE/data-plane/Cargo.toml" \
+          --config data-plane/.cargo/config.toml \
+          --bin slim --bin sdk-mock --target-dir data-plane/target
+        mkdir -p .dist/bin
+        cp data-plane/target/debug/slim .dist/bin/slim-legacy
+        cp data-plane/target/debug/sdk-mock .dist/bin/sdk-mock-legacy
+
   tests:integration:
     desc: "Run integration tests"
     vars:
@@ -31,6 +52,7 @@ tasks:
     deps:
       - data-plane:build
       - data-plane:slimctl:build
+      - tests:build-legacy-binaries
       - task: control-plane:build
         vars:
           USE_LOCAL_BINDINGS: "{{.USE_LOCAL_BINDINGS}}"

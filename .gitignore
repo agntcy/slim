@@ -137,3 +137,9 @@ artifacts
 
 libslim_bindings.dylib
 libslim_bindings.a
+
+# Maven
+.flattened-pom.xml
+
+# TaskFile temporary files
+.task
