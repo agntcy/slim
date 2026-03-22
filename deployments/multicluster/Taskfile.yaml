@@ -266,6 +266,10 @@ tasks:
   
   test.sender:deploy:
     desc: Deploy sender application with SPIRE
+    deps:
+      - task: apps:bindings-examples:prepare
+        vars:
+          KIND_CLUSTER_NAMES: '{{ .CLUSTER_A_TRUST_DOMAIN }},{{ .CLUSTER_B_TRUST_DOMAIN }}'
     vars:
       TEMPLATE: '{{ .TEMPLATE | default "./with_spire/sender.yaml" }}'  
       NAMESPACE: '{{ .NAMESPACE | default "default" }}'
@@ -277,6 +281,10 @@ tasks:
 
   test.receiver:deploy:
     desc: Deploy receiver application with SPIRE
+    deps:
+      - task: apps:bindings-examples:prepare
+        vars:
+          KIND_CLUSTER_NAMES: '{{ .CLUSTER_A_TRUST_DOMAIN }},{{ .CLUSTER_B_TRUST_DOMAIN }}'
     vars:
       TEMPLATE: '{{ .TEMPLATE | default "./with_spire/receiver.yaml" }}'  
       NAMESPACE: '{{ .NAMESPACE | default "default" }}'

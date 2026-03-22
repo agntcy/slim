@@ -66,6 +66,8 @@ tasks:
 
   test.sender:deploy:
     desc: Deploy sender application
+    deps:
+      - task: apps:bindings-examples:prepare
     cmds:
       - task: apps:k8s:apply
         vars:
@@ -74,6 +76,8 @@ tasks:
 
   test.receiver:deploy:
     desc: Deploy receiver application
+    deps:
+      - task: apps:bindings-examples:prepare
     cmds:
       - task: apps:k8s:apply
         vars:

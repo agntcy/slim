@@ -5,7 +5,7 @@ metadata:
 spec:
   containers:
   - args:
-    - p2p
+    - slim-bindings-p2p
     - --message
     - hello
     - --iterations
@@ -17,12 +17,12 @@ spec:
     - --shared-secret
     - secret1234secret1234secret123412
     - --slim
-    - '{"endpoint":"http://slim.slim.svc.cluster.local:46357","tls":{"insecure":true}}'
+    - "http://slim.slim.svc.cluster.local:46357"
     env:
     - name: PYTHONUNBUFFERED
       value: "1"
-    image: ghcr.io/agntcy/slim/bindings-examples:0.7.1
-    imagePullPolicy: Always
+    image: agntcy/slim/bindings-examples:latest
+    imagePullPolicy: IfNotPresent
     name: bob
     resources: {}
   serviceAccount: default
