@@ -22,14 +22,16 @@ use crate::{
     mls_state::MlsState,
     session_controller::SessionControllerCommon,
     session_settings::SessionSettings,
+    subscription_manager::{SubscriptionManager, SubscriptionOps},
     traits::{MessageHandler, ProcessingState},
 };
 
-pub struct SessionParticipant<P, V, I>
+pub struct SessionParticipant<P, V, I, M = SubscriptionManager>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
     I: MessageHandler + Send + Sync + 'static,
+    M: SubscriptionOps,
 {
     /// name of the moderator, used to send mls proposal messages
     moderator_name: Option<Name>,
@@ -41,7 +43,7 @@ where
     mls_state: Option<MlsState<P, V>>,
 
     /// common session state
-    common: SessionControllerCommon<P, V>,
+    common: SessionControllerCommon<P, V, M>,
 
     /// connection id from where the remote messages are received
     conn_id: Option<u64>,
@@ -52,13 +54,14 @@ where
     inner: I,
 }
 
-impl<P, V, I> SessionParticipant<P, V, I>
+impl<P, V, I, M> SessionParticipant<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
     I: MessageHandler + Send + Sync + 'static,
+    M: SubscriptionOps,
 {
-    pub(crate) fn new(inner: I, settings: SessionSettings<P, V>) -> Self {
+    pub(crate) fn new(inner: I, settings: SessionSettings<P, V, M>) -> Self {
         let common = SessionControllerCommon::new(settings);
 
         SessionParticipant {
@@ -76,11 +79,12 @@ where
 /// Implementation of MessageHandler trait for SessionParticipant
 /// This allows the participant to be used as a layer in the generic layer system
 #[async_trait]
-impl<P, V, I> MessageHandler for SessionParticipant<P, V, I>
+impl<P, V, I, M> MessageHandler for SessionParticipant<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
     I: MessageHandler + Send + Sync + 'static,
+    M: SubscriptionOps,
 {
     async fn init(&mut self) -> Result<(), SessionError> {
         // Initialize MLS
@@ -258,11 +262,12 @@ where
     }
 }
 
-impl<P, V, I> SessionParticipant<P, V, I>
+impl<P, V, I, M> SessionParticipant<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
     I: MessageHandler + Send + Sync + 'static,
+    M: SubscriptionOps,
 {
     /// Helper method to handle MessageError
     /// Extracts context from the error and routes to appropriate handler
@@ -625,6 +630,32 @@ mod tests {
 
     // --- Test Helpers -----------------------------------------------------------------------
 
+    /// Drives `fut` to completion while automatically resolving any subscription
+    /// ACKs that arrive on `rx_slim` (simulating the SLIM datapath ACK response).
+    async fn run_with_acks<F, T>(
+        fut: F,
+        rx_slim: &mut mpsc::Receiver<Result<Message, Status>>,
+        sub_mgr: &crate::subscription_manager::SubscriptionManager,
+    ) -> T
+    where
+        F: std::future::Future<Output = T>,
+    {
+        let mut pinned = Box::pin(fut);
+        loop {
+            tokio::select! {
+                res = &mut pinned => return res,
+                msg = rx_slim.recv() => {
+                    if let Some(Ok(msg)) = msg {
+                        if let Some(ack_id) = msg.get_subscription_ack_id().map(str::to_owned) {
+                            let ack = Message::builder().build_subscription_ack(ack_id, true, "");
+                            sub_mgr.resolve_ack(ack.get_subscription_ack());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fn make_name(parts: &[&str; 3]) -> Name {
         Name::from_strings([parts[0], parts[1], parts[2]]).with_id(0)
     }
@@ -645,6 +676,8 @@ mod tests {
         let (tx_slim, rx_slim) = mpsc::channel(16);
         let (tx_app, _rx_app) = mpsc::unbounded_channel();
         let (tx_session, _rx_session) = mpsc::channel(16);
+        let subscription_manager =
+            crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
         let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app);
         let (tx_session_layer, rx_session_layer) = mpsc::channel(16);
 
@@ -668,6 +701,7 @@ mod tests {
             identity_provider,
             identity_verifier,
             graceful_shutdown_timeout: None,
+            subscription_manager,
         };
 
         let inner = MockInnerHandler::new();
@@ -729,13 +763,15 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result = participant.on_join_request(join_msg).await;
+        let sub_mgr = participant.common.settings.subscription_manager.clone();
+        let result =
+            run_with_acks(participant.on_join_request(join_msg), &mut rx_slim, &sub_mgr).await;
         assert!(result.is_ok());
 
         // Should have set moderator name
         assert_eq!(participant.moderator_name, Some(moderator));
 
-        // Should have sent messages (route + join reply)
+        // Should have sent at least the join reply (route subscribe was consumed by run_with_acks)
         let mut message_count = 0;
         while let Ok(Ok(_msg)) = rx_slim.try_recv() {
             message_count += 1;
@@ -776,7 +812,9 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result = participant.on_welcome(welcome_msg).await;
+        let sub_mgr = participant.common.settings.subscription_manager.clone();
+        let result =
+            run_with_acks(participant.on_welcome(welcome_msg), &mut rx_slim, &sub_mgr).await;
         assert!(result.is_ok());
 
         // Should have subscribed
@@ -787,16 +825,6 @@ mod tests {
 
         // Should have added endpoints (excluding self)
         assert_eq!(participant.inner.get_endpoints_added_count().await, 2);
-
-        // Should have sent messages (subscribe + routes + group ack)
-        let mut message_count = 0;
-        while let Ok(Ok(_msg)) = rx_slim.try_recv() {
-            message_count += 1;
-        }
-        assert!(
-            message_count > 0,
-            "Should have sent messages including group ack"
-        );
     }
 
     #[tokio::test]
@@ -829,7 +857,13 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result = participant.on_group_update_message(add_msg, true).await;
+        let sub_mgr = participant.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            participant.on_group_update_message(add_msg, true),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
         assert!(result.is_ok());
 
         // Should have added participant to group list
@@ -874,7 +908,13 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result = participant.on_group_update_message(remove_msg, false).await;
+        let sub_mgr = participant.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            participant.on_group_update_message(remove_msg, false),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
         assert!(result.is_ok());
 
         // Should have removed participant from group list
@@ -960,13 +1000,10 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result = participant.join(&welcome_msg).await;
+        let sub_mgr = participant.common.settings.subscription_manager.clone();
+        let result = run_with_acks(participant.join(&welcome_msg), &mut rx_slim, &sub_mgr).await;
         assert!(result.is_ok());
         assert!(participant.subscribed);
-
-        // Should have sent subscribe message
-        let sub_msg = rx_slim.try_recv();
-        assert!(sub_msg.is_ok());
     }
 
     #[tokio::test]
@@ -1030,17 +1067,14 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        // First join
-        participant.join(&msg).await.unwrap();
+        let sub_mgr = participant.common.settings.subscription_manager.clone();
 
-        // Drain all messages from first join (routes + subscribe)
-        let mut message_count = 0;
-        while rx_slim.try_recv().is_ok() {
-            message_count += 1;
-        }
-        assert!(message_count > 0, "First join should send messages");
+        // First join — run_with_acks drains and ACKs all subscribe messages
+        run_with_acks(participant.join(&msg), &mut rx_slim, &sub_mgr)
+            .await
+            .unwrap();
 
-        // Second join should do nothing
+        // Second join should do nothing (already subscribed)
         participant.join(&msg).await.unwrap();
         let second_sub = rx_slim.try_recv();
         assert!(
@@ -1231,21 +1265,16 @@ mod tests {
         let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
         participant.moderator_name = Some(moderator.clone());
 
-        // Manually call leave to test unsubscribe
-        let result = participant.disconnect_from_group().await;
-        assert!(result.is_ok());
-        let result = participant.disconnect_from_moderator().await;
+        let sub_mgr = participant.common.settings.subscription_manager.clone();
+
+        // disconnect_from_group sends delete_route (ACK-awaiting) + unsubscribe (ACK-awaiting)
+        let result =
+            run_with_acks(participant.disconnect_from_group(), &mut rx_slim, &sub_mgr).await;
         assert!(result.is_ok());
 
-        // disconnect_from_group sends: delete_route + unsubscribe
-        // disconnect_from_moderator sends: delete_route
-        let mut message_count = 0;
-        while let Ok(Ok(_msg)) = rx_slim.try_recv() {
-            message_count += 1;
-        }
-        assert!(
-            message_count > 0,
-            "Should have sent unsubscribe and route deletion messages"
-        );
+        // disconnect_from_moderator sends delete_route (ACK-awaiting)
+        let result =
+            run_with_acks(participant.disconnect_from_moderator(), &mut rx_slim, &sub_mgr).await;
+        assert!(result.is_ok());
     }
 }
