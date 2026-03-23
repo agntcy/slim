@@ -22,7 +22,6 @@ use tokio_util::sync::CancellationToken;
 use tonic::{Request, Response, Status};
 use tracing::{Span, debug, error, info};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-use uuid::Uuid;
 
 use crate::api::ProtoMessage;
 use crate::api::ProtoPublishType as PublishType;
@@ -214,7 +213,7 @@ impl MessageProcessor {
         &self.internal.forwarder
     }
 
-    pub(crate) fn remove_sub_ack(&self, ack_id: &str) {
+    pub(crate) fn remove_sub_ack(&self, ack_id: u64) {
         self.internal.sub_ack_manager.remove(ack_id);
     }
 
@@ -533,17 +532,16 @@ impl MessageProcessor {
         );
 
         for info in subs {
-            let new_ack_id = Uuid::new_v4();
-            let new_ack_id = new_ack_id.to_string();
+            let new_ack_id = rand::random::<u64>();
             let msg = Message::builder()
                 .source(info.source().clone())
                 .destination(info.name().clone())
                 .identity(info.source_identity().clone())
-                .subscription_ack_id(&new_ack_id)
+                .subscription_ack_id(new_ack_id)
                 .build_subscribe()
                 .unwrap();
 
-            let rx = self.internal.sub_ack_manager.register(&new_ack_id);
+            let rx = self.internal.sub_ack_manager.register(new_ack_id);
             tokio::spawn(crate::subscription_ack::retry_loop(
                 self.clone(),
                 new_ack_id,
@@ -672,7 +670,7 @@ impl MessageProcessor {
     pub(crate) async fn send_subscription_ack(
         &self,
         in_connection: u64,
-        ack_id: String,
+        ack_id: u64,
         result: &Result<(), DataPathError>,
     ) {
         let (success, error_msg) = match result {
@@ -687,13 +685,17 @@ impl MessageProcessor {
         }
     }
 
+    // Returns Ok(true) if the name is still subscribed on this node after the operation,
+    // Ok(false) if the uid was fully removed. For adds, always Ok(true).
+    // Unsubscribes are only forwarded if the uid was fully removed from this node — if other
+    // connections still hold the subscription, the upstream relay must keep routing here.
     async fn process_subscription_update_and_forward(
         &self,
         msg: Message,
         conn: u64,
         forward: Option<u64>,
         add: bool,
-    ) -> Result<(), DataPathError> {
+    ) -> Result<bool, DataPathError> {
         let dst = msg.get_dst();
 
         // As connection is deleted only after processing, at this point it must exist.
@@ -714,7 +716,7 @@ impl MessageProcessor {
             if add { "" } else { "un" }
         );
 
-        self.forwarder().on_subscription_msg(
+        let still_subscribed = self.forwarder().on_subscription_msg(
             dst.clone(),
             conn,
             connection.is_local_connection(),
@@ -722,8 +724,18 @@ impl MessageProcessor {
         )?;
 
         match forward {
-            None => Ok(()),
+            None => Ok(still_subscribed),
             Some(out_conn) => {
+                // For unsubscribes: skip forwarding if the name is still subscribed on this node.
+                // The upstream relay must continue routing traffic here for the remaining subscribers.
+                if !add && still_subscribed {
+                    debug!(
+                        %dst,
+                        "skipping unsubscribe forward: uid still subscribed on this node"
+                    );
+                    return Ok(true);
+                }
+
                 debug!(
                     %out_conn,
                     "forwarding {}subscription to connection",
@@ -736,6 +748,7 @@ impl MessageProcessor {
                 self.send_msg(msg, out_conn).await.map(|_| {
                     self.forwarder()
                         .on_forwarded_subscription(source, dst, identity, out_conn, add);
+                    still_subscribed
                 })
             }
         }
@@ -790,21 +803,33 @@ impl MessageProcessor {
                 .process_subscription_update_and_forward(msg.clone(), conn, None, add)
                 .await;
 
-            if local_result.is_err() {
+            let still_subscribed = match local_result {
+                Err(e) => {
+                    if let Some(id) = ack_id {
+                        self.send_subscription_ack(in_connection, id, &Err(e)).await;
+                    }
+                    return Ok(());
+                }
+                Ok(v) => v,
+            };
+
+            // For unsubscribes: if other connections still hold this subscription on this
+            // node, there's no need to propagate the unsubscribe to the remote peer.
+            // The upstream relay still needs to route traffic to us for those subscribers.
+            if !add && still_subscribed {
+                debug!(%in_connection, "subscription: uid still subscribed, skipping remote unsubscribe");
                 if let Some(id) = ack_id {
-                    self.send_subscription_ack(in_connection, id, &local_result)
-                        .await;
+                    self.send_subscription_ack(in_connection, id, &Ok(())).await;
                 }
                 return Ok(());
             }
 
             // Generate a fresh ack ID to track the remote hop.
-            let new_ack_id = Uuid::new_v4();
-            let new_ack_id = new_ack_id.to_string();
+            let new_ack_id = rand::random::<u64>();
 
             // Build the forwarded message with the new ack ID.
             let mut forwarded_msg = msg.clone();
-            forwarded_msg.set_subscription_ack_id(new_ack_id.clone());
+            forwarded_msg.set_subscription_ack_id(new_ack_id);
 
             // Register the forwarded subscription in the routing table.
             let source = msg.get_source();
@@ -813,7 +838,7 @@ impl MessageProcessor {
             self.forwarder()
                 .on_forwarded_subscription(source, dst, identity, out_conn, add);
 
-            let rx = self.internal.sub_ack_manager.register(&new_ack_id);
+            let rx = self.internal.sub_ack_manager.register(new_ack_id);
 
             tokio::spawn(crate::subscription_ack::retry_loop(
                 self.clone(),
@@ -834,11 +859,17 @@ impl MessageProcessor {
             .process_subscription_update_and_forward(msg, conn, forward, add)
             .await;
 
+        let unit_result = match result {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e),
+        };
+
         if let Some(id) = ack_id {
-            self.send_subscription_ack(in_connection, id, &result).await;
+            self.send_subscription_ack(in_connection, id, &unit_result)
+                .await;
         }
 
-        result
+        unit_result
     }
 
     pub async fn process_message(
@@ -861,7 +892,7 @@ impl MessageProcessor {
                 } else {
                     Err(DataPathError::RemoteSubscriptionAckError(ack.error.clone()))
                 };
-                self.internal.sub_ack_manager.resolve(&ack.ack_id, result);
+                self.internal.sub_ack_manager.resolve(ack.ack_id, result);
                 Ok(())
             }
             None => unreachable!(
@@ -1251,14 +1282,14 @@ mod tests {
 
         let source = Name::from_strings(["org", "ns", "source"]).with_id(1);
         let destination = Name::from_strings(["org", "ns", "destination"]).with_id(2);
-        let ack_id = if add { "ack-sub" } else { "ack-unsub" };
+        let ack_id: u64 = if add { 1 } else { 2 };
         let invalid_connection = u64::MAX - 1;
 
         let builder = Message::builder()
             .source(source.clone())
             .destination(destination.clone())
             .incoming_conn(invalid_connection)
-            .subscription_ack_id(ack_id.to_string());
+            .subscription_ack_id(ack_id);
 
         let msg = if add {
             builder.build_subscribe().unwrap()
@@ -1632,7 +1663,7 @@ mod tests {
 
         let source = Name::from_strings(["org", "ns", "src"]).with_id(1);
         let destination = Name::from_strings(["org", "ns", "dst"]).with_id(2);
-        let upstream_ack_id = "upstream-ack-id";
+        let upstream_ack_id: u64 = 100;
 
         // Build subscribe: forward_to = remote_conn, with upstream ack ID.
         let sub_msg = Message::builder()
@@ -1662,17 +1693,16 @@ mod tests {
         // Extract the new ack ID embedded in the forwarded message.
         let new_ack_id = forwarded
             .get_subscription_ack_id()
-            .map(str::to_owned)
             .expect("forwarded subscribe must carry a new ack_id");
 
         // Simulate the remote node sending back a success SubscriptionAck.
         let ack = ProtoSubscriptionAck {
-            ack_id: new_ack_id.clone(),
+            ack_id: new_ack_id,
             success: true,
             error: String::new(),
         };
         processor.internal.sub_ack_manager.resolve(
-            &ack.ack_id,
+            ack.ack_id,
             if ack.success {
                 Ok(())
             } else {
@@ -1706,7 +1736,7 @@ mod tests {
 
         let source = Name::from_strings(["org", "ns", "src"]).with_id(1);
         let destination = Name::from_strings(["org", "ns", "dst"]).with_id(2);
-        let upstream_ack_id = "upstream-ack-old-node";
+        let upstream_ack_id: u64 = 101;
 
         let sub_msg = Message::builder()
             .source(source.clone())
@@ -1760,7 +1790,7 @@ mod tests {
 
         let source = Name::from_strings(["org", "ns", "src"]).with_id(1);
         let destination = Name::from_strings(["org", "ns", "dst"]).with_id(2);
-        let upstream_ack_id = "upstream-ack-err";
+        let upstream_ack_id: u64 = 102;
 
         let sub_msg = Message::builder()
             .source(source.clone())
@@ -1784,7 +1814,6 @@ mod tests {
 
         let new_ack_id = forwarded
             .get_subscription_ack_id()
-            .map(str::to_owned)
             .expect("must have ack id");
 
         // Simulate remote failure via SubscriptionAck.
@@ -1794,7 +1823,7 @@ mod tests {
             error: "remote error".to_string(),
         };
         processor.internal.sub_ack_manager.resolve(
-            &ack.ack_id,
+            ack.ack_id,
             if ack.success {
                 Ok(())
             } else {

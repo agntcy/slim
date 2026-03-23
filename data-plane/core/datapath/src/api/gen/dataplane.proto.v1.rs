@@ -4,17 +4,17 @@
 pub struct Subscribe {
     #[prost(message, optional, tag = "1")]
     pub header: ::core::option::Option<SlimHeader>,
-    /// Non-empty when the sender wants a SubscriptionAck back.
-    #[prost(string, tag = "2")]
-    pub ack_id: ::prost::alloc::string::String,
+    /// Non-zero when the sender wants a SubscriptionAck back.
+    #[prost(uint64, tag = "2")]
+    pub ack_id: u64,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Unsubscribe {
     #[prost(message, optional, tag = "1")]
     pub header: ::core::option::Option<SlimHeader>,
-    /// Non-empty when the sender wants a SubscriptionAck back.
-    #[prost(string, tag = "2")]
-    pub ack_id: ::prost::alloc::string::String,
+    /// Non-zero when the sender wants a SubscriptionAck back.
+    #[prost(uint64, tag = "2")]
+    pub ack_id: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Publish {
@@ -331,8 +331,8 @@ pub struct PingPayload {}
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SubscriptionAck {
     /// Echoes the ack_id from the originating Subscribe or Unsubscribe request.
-    #[prost(string, tag = "1")]
-    pub ack_id: ::prost::alloc::string::String,
+    #[prost(uint64, tag = "1")]
+    pub ack_id: u64,
     /// True if the subscription operation succeeded.
     #[prost(bool, tag = "2")]
     pub success: bool,

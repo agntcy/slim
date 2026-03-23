@@ -252,6 +252,20 @@ impl NameState {
 
     fn insert(&mut self, id: u64, conn: u64, is_local: bool) {
         let index = if is_local { 0 } else { 1 };
+
+        // Remote subscriptions (relay-to-relay) are idempotent: re-sending the same
+        // subscription for confirmation (e.g. after link negotiation upgrade) must not
+        // increment the counters, as no new application subscription has arrived.
+        // Local subscriptions (app-facing) keep refcounting so apps can subscribe
+        // multiple times and need matching unsubscribes.
+        if !is_local {
+            if let Some(refs) = self.ids.get(&id) {
+                if refs[index].refs.contains_key(&conn) {
+                    return;
+                }
+            }
+        }
+
         self.connections[index].insert(conn);
 
         match self.ids.get_mut(&id) {
@@ -267,8 +281,15 @@ impl NameState {
         }
     }
 
-    fn remove(&mut self, id: &u64, conn: u64, is_local: bool) -> Result<bool, DataPathError> {
-        // Returns true if the subscription was fully removed (ref count reached 0)
+    fn remove(
+        &mut self,
+        id: &u64,
+        conn: u64,
+        is_local: bool,
+    ) -> Result<(bool, bool), DataPathError> {
+        // Returns (conn_fully_removed, uid_still_subscribed).
+        // conn_fully_removed: the refcount for (id, conn, is_local) reached 0.
+        // uid_still_subscribed: after the remove, at least one connection still holds this uid.
         match self.ids.get_mut(id) {
             None => {
                 warn!(%id, "not found");
@@ -277,16 +298,20 @@ impl NameState {
             Some(connection_refs) => {
                 let index = if is_local { 0 } else { 1 };
 
-                let fully_removed = connection_refs[index].remove(conn)?;
+                let conn_fully_removed = connection_refs[index].remove(conn)?;
                 self.connections[index].remove(conn)?;
 
-                if fully_removed {
-                    // if both refs are empty remove the id from the tables
-                    if connection_refs[0].is_empty() && connection_refs[1].is_empty() {
+                let uid_still_subscribed = if conn_fully_removed {
+                    let uid_gone = connection_refs[0].is_empty() && connection_refs[1].is_empty();
+                    if uid_gone {
                         self.ids.remove(id);
                     }
-                }
-                Ok(fully_removed)
+                    !uid_gone
+                } else {
+                    true // conn still has refs — uid is definitely still subscribed
+                };
+
+                Ok((conn_fully_removed, uid_still_subscribed))
             }
         }
     }
@@ -556,18 +581,19 @@ fn remove_subscription_from_sub_table(
     conn_index: u64,
     is_local: bool,
     table: &mut RwLockWriteGuard<'_, RawRwLock, HashMap<InternalName, NameState>>,
-) -> Result<bool, DataPathError> {
-    // Returns true if the subscription was fully removed (ref count reached 0)
+) -> Result<(bool, bool), DataPathError> {
+    // Returns (conn_fully_removed, uid_still_subscribed).
     // Convert &Name to &InternalName. This is unsafe, but we know the types are compatible.
     let query_name = unsafe { std::mem::transmute::<&Name, &InternalName>(name) };
 
     if let Some(state) = table.get_mut(query_name) {
-        let fully_removed = state.remove(&name.id(), conn_index, is_local)?;
+        let (conn_fully_removed, uid_still_subscribed) =
+            state.remove(&name.id(), conn_index, is_local)?;
 
         if state.ids.is_empty() {
             table.remove(query_name);
         }
-        Ok(fully_removed)
+        Ok((conn_fully_removed, uid_still_subscribed))
     } else {
         debug!("subscription not found {}", name);
         Err(DataPathError::SubscriptionNotFound(name.clone()))
@@ -664,17 +690,17 @@ impl SubscriptionTable for SubscriptionTableImpl {
         name: &Name,
         conn: u64,
         is_local: bool,
-    ) -> Result<(), Self::Error> {
-        let fully_removed = {
+    ) -> Result<bool, Self::Error> {
+        let (conn_fully_removed, uid_still_subscribed) = {
             let mut table = self.table.write();
             remove_subscription_from_sub_table(name, conn, is_local, &mut table)?
         };
-        // Only remove from connections HashSet if subscription was fully removed (ref count = 0)
-        if fully_removed {
+        // Only remove from connections HashSet if the conn's refcount reached 0.
+        if conn_fully_removed {
             let conn_table = self.connections.write();
             remove_subscription_from_connection(name, conn, conn_table)?;
         }
-        Ok(())
+        Ok(uid_still_subscribed)
     }
 
     fn remove_connection(&self, conn: u64, is_local: bool) -> Result<HashSet<Name>, Self::Error> {
@@ -1031,7 +1057,8 @@ mod tests {
         let name1 = Name::from_strings(["agntcy", "default", "service"]);
         let t = SubscriptionTableImpl::default();
 
-        // Add the same subscription multiple times
+        // Remote subscriptions are idempotent: adding the same (name, conn) multiple
+        // times counts as one subscription. A single remove fully removes it.
         assert!(t.add_subscription(name1.clone(), 1, false).is_ok());
         assert!(t.add_subscription(name1.clone(), 1, false).is_ok());
         assert!(t.add_subscription(name1.clone(), 1, false).is_ok());
@@ -1040,42 +1067,26 @@ mod tests {
         let result = t.match_one(&name1, 100).unwrap();
         assert_eq!(result, 1, "Should match to connection 1");
 
-        // Remove once - subscription should still exist (counter: 3 -> 2)
-        assert!(t.remove_subscription(&name1, 1, false).is_ok());
-        let result = t.match_one(&name1, 100).unwrap();
-        assert_eq!(
-            result, 1,
-            "Should still match to connection 1 after first remove"
-        );
-
-        // Remove again - subscription should still exist (counter: 2 -> 1)
-        assert!(t.remove_subscription(&name1, 1, false).is_ok());
-        let result = t.match_one(&name1, 100).unwrap();
-        assert_eq!(
-            result, 1,
-            "Should still match to connection 1 after second remove"
-        );
-
-        // Remove final time - subscription should now be fully removed (counter: 1 -> 0)
+        // One remove is enough to fully remove the remote subscription
         assert!(t.remove_subscription(&name1, 1, false).is_ok());
         let err = t.match_one(&name1, 100);
         assert!(
             matches!(err, Err(DataPathError::NoMatch(_))),
-            "Should have no match after final remove"
+            "Remote subscription should be fully removed after a single remove"
         );
 
-        // Test with multiple connections having different ref counts
+        // Test with multiple remote connections
         let name2 = Name::from_strings(["agntcy", "default", "multi"]);
 
-        // Connection 1: ref count 3
+        // Connection 1: added 3 times (counts as 1)
         assert!(t.add_subscription(name2.clone(), 1, false).is_ok());
         assert!(t.add_subscription(name2.clone(), 1, false).is_ok());
         assert!(t.add_subscription(name2.clone(), 1, false).is_ok());
 
-        // Connection 2: ref count 1
+        // Connection 2: added 1 time
         assert!(t.add_subscription(name2.clone(), 2, false).is_ok());
 
-        // Connection 3: ref count 2
+        // Connection 3: added 2 times (counts as 1)
         assert!(t.add_subscription(name2.clone(), 3, false).is_ok());
         assert!(t.add_subscription(name2.clone(), 3, false).is_ok());
 
@@ -1086,7 +1097,7 @@ mod tests {
         assert!(result.contains(&2));
         assert!(result.contains(&3));
 
-        // Remove connection 2 once - should be gone (ref count 1 -> 0)
+        // Remove connection 2 once - should be gone (idempotent: 1 remove = fully removed)
         assert!(t.remove_subscription(&name2, 2, false).is_ok());
         let result = t.match_all(&name2, 100).unwrap();
         assert_eq!(
@@ -1096,18 +1107,23 @@ mod tests {
         );
         assert!(!result.contains(&2), "Connection 2 should be removed");
 
-        // Remove connection 1 once - should still exist (ref count 3 -> 2)
+        // Remove connection 1 once - should be gone immediately (idempotent)
         assert!(t.remove_subscription(&name2, 1, false).is_ok());
         let result = t.match_all(&name2, 100).unwrap();
-        assert_eq!(result.len(), 2, "Should still have 2 connections");
-        assert!(result.contains(&1), "Connection 1 should still exist");
+        assert_eq!(
+            result.len(),
+            1,
+            "Should have 1 connection after removing conn 1"
+        );
+        assert!(!result.contains(&1), "Connection 1 should be removed");
 
-        // Remove connection 3 twice - should be gone (ref count 2 -> 0)
+        // Remove connection 3 once - should be gone (idempotent)
         assert!(t.remove_subscription(&name2, 3, false).is_ok());
-        assert!(t.remove_subscription(&name2, 3, false).is_ok());
-        let result = t.match_all(&name2, 100).unwrap();
-        assert_eq!(result.len(), 1, "Should have only 1 connection");
-        assert!(result.contains(&1), "Only connection 1 should remain");
+        let err = t.match_one(&name2, 100);
+        assert!(
+            matches!(err, Err(DataPathError::NoMatch(_))),
+            "No connections should remain"
+        );
     }
 
     #[test]
@@ -1178,18 +1194,13 @@ mod tests {
             assert_eq!(result, 2, "Should fall back to remote connection");
         }
 
-        // Remove remote twice - should still exist (ref count 3 -> 1)
-        assert!(t.remove_subscription(&name1, 2, false).is_ok());
-        assert!(t.remove_subscription(&name1, 2, false).is_ok());
-        let result = t.match_one(&name1, 100).unwrap();
-        assert_eq!(result, 2, "Remote should still exist with ref count 1");
-
-        // Remove remote final time - should be gone
+        // Remote is idempotent: one remove fully removes it regardless of how many
+        // times it was added (relay-to-relay re-sends don't increment the counter).
         assert!(t.remove_subscription(&name1, 2, false).is_ok());
         let err = t.match_one(&name1, 100);
         assert!(
             matches!(err, Err(DataPathError::NoMatch(_))),
-            "No connections should remain"
+            "No connections should remain after removing the remote subscription"
         );
     }
 }

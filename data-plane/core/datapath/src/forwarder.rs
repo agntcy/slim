@@ -84,16 +84,20 @@ where
             .get_subscriptions_on_connection(conn_index)
     }
 
+    /// Returns `Ok(true)` if the name is still subscribed on this node after the operation,
+    /// `Ok(false)` if the uid was fully removed (no remaining subscribers for this uid).
+    /// For adds, always returns `Ok(true)`.
     pub fn on_subscription_msg(
         &self,
         name: Name,
         conn_index: u64,
         is_local: bool,
         add: bool,
-    ) -> Result<(), DataPathError> {
+    ) -> Result<bool, DataPathError> {
         if add {
             self.subscription_table
-                .add_subscription(name, conn_index, is_local)
+                .add_subscription(name, conn_index, is_local)?;
+            Ok(true)
         } else {
             self.subscription_table
                 .remove_subscription(&name, conn_index, is_local)

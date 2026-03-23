@@ -122,7 +122,7 @@ struct ControllerServiceInternal {
 
     /// pending subscription acknowledgments keyed by ack id
     pending_subscription_acks:
-        parking_lot::Mutex<HashMap<String, oneshot::Sender<Result<(), String>>>>,
+        parking_lot::Mutex<HashMap<u64, oneshot::Sender<Result<(), String>>>>,
 
     /// counter used to generate subscription acknowledgment ids
     subscription_ack_counter: AtomicU64,
@@ -250,7 +250,7 @@ impl ControlPlane {
                     _auth_verifier: config.auth_verifier,
                     pending_notifications: Arc::new(parking_lot::Mutex::new(Vec::new())),
                     pending_subscription_acks: parking_lot::Mutex::new(HashMap::new()),
-                    subscription_ack_counter: AtomicU64::new(0),
+                    subscription_ack_counter: AtomicU64::new(1),
                     message_id_map: Arc::new(parking_lot::RwLock::new(HashMap::new())),
                     timer_factory: parking_lot::RwLock::new(None),
                     connection_details: config.connection_details,
@@ -1377,15 +1377,13 @@ impl ControllerService {
         return self.send_or_queue_notification(ctrl, clients).await;
     }
 
-    fn next_subscription_ack_id(&self) -> String {
-        let next = self
-            .inner
+    fn next_subscription_ack_id(&self) -> u64 {
+        self.inner
             .subscription_ack_counter
-            .fetch_add(1, Ordering::Relaxed);
-        format!("sub-{}", next)
+            .fetch_add(1, Ordering::Relaxed)
     }
 
-    fn register_subscription_ack(&self, ack_id: String) -> oneshot::Receiver<Result<(), String>> {
+    fn register_subscription_ack(&self, ack_id: u64) -> oneshot::Receiver<Result<(), String>> {
         let (ack_tx, ack_rx) = oneshot::channel();
         self.inner
             .pending_subscription_acks
@@ -1394,8 +1392,8 @@ impl ControllerService {
         ack_rx
     }
 
-    fn remove_subscription_ack(&self, ack_id: &str) {
-        self.inner.pending_subscription_acks.lock().remove(ack_id);
+    fn remove_subscription_ack(&self, ack_id: u64) {
+        self.inner.pending_subscription_acks.lock().remove(&ack_id);
     }
 
     fn handle_subscription_ack(&self, ack: &ProtoSubscriptionAck) {
@@ -1425,13 +1423,13 @@ impl ControllerService {
     async fn send_subscription_message_with_ack(
         &self,
         mut msg: DataPlaneMessage,
-        ack_id: String,
+        ack_id: u64,
     ) -> Result<(), String> {
-        let ack_rx = self.register_subscription_ack(ack_id.clone());
-        msg.set_subscription_ack_id(ack_id.clone());
+        let ack_rx = self.register_subscription_ack(ack_id);
+        msg.set_subscription_ack_id(ack_id);
 
         if let Err(e) = self.send_control_message(msg).await {
-            self.remove_subscription_ack(&ack_id);
+            self.remove_subscription_ack(ack_id);
             return Err(format!("datapath send error: {}", e.chain()));
         }
 

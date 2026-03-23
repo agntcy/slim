@@ -29,7 +29,7 @@ pub(crate) fn min_version() -> semver::Version {
 /// Owns the in-flight pending ACK state.
 #[derive(Debug)]
 pub(crate) struct RemoteSubAckManager {
-    pending: RwLock<HashMap<String, oneshot::Sender<Result<(), DataPathError>>>>,
+    pending: RwLock<HashMap<u64, oneshot::Sender<Result<(), DataPathError>>>>,
 }
 
 impl RemoteSubAckManager {
@@ -40,24 +40,24 @@ impl RemoteSubAckManager {
     }
 
     /// Register a new in-flight ACK; returns the result receiver.
-    pub fn register(&self, ack_id: &str) -> oneshot::Receiver<Result<(), DataPathError>> {
+    pub fn register(&self, ack_id: u64) -> oneshot::Receiver<Result<(), DataPathError>> {
         let (tx, rx) = oneshot::channel();
-        self.pending.write().insert(ack_id.to_string(), tx);
+        self.pending.write().insert(ack_id, tx);
         rx
     }
 
     /// Deliver result to a waiting retry loop (no-op if unknown id).
     ///
     /// Removes the entry atomically — `oneshot::Sender::send` takes ownership.
-    pub fn resolve(&self, ack_id: &str, result: Result<(), DataPathError>) {
-        if let Some(tx) = self.pending.write().remove(ack_id) {
+    pub fn resolve(&self, ack_id: u64, result: Result<(), DataPathError>) {
+        if let Some(tx) = self.pending.write().remove(&ack_id) {
             let _ = tx.send(result);
         }
     }
 
     /// Remove a pending entry that never received a result (e.g. all retries exhausted).
-    pub fn remove(&self, ack_id: &str) {
-        self.pending.write().remove(ack_id);
+    pub fn remove(&self, ack_id: u64) {
+        self.pending.write().remove(&ack_id);
     }
 }
 
@@ -74,11 +74,11 @@ pub(crate) fn supports(conn: &Connection) -> bool {
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn retry_loop(
     processor: MessageProcessor,
-    ack_id: String,
+    ack_id: u64,
     forwarded_msg: Message,
     out_conn: u64,
     in_connection: u64,
-    upstream_ack_id: Option<String>,
+    upstream_ack_id: Option<u64>,
     mut rx: oneshot::Receiver<Result<(), DataPathError>>,
 ) {
     let mut final_result = Err(DataPathError::RemoteSubscriptionAckTimeout(MAX_RETRIES));
@@ -105,7 +105,7 @@ pub(crate) async fn retry_loop(
         }
     }
 
-    processor.remove_sub_ack(&ack_id);
+    processor.remove_sub_ack(ack_id);
 
     if let Some(id) = upstream_ack_id {
         processor
@@ -125,8 +125,8 @@ mod tests {
     #[tokio::test]
     async fn test_register_and_resolve_delivers_ok() {
         let manager = RemoteSubAckManager::new();
-        let rx = manager.register("id-1");
-        manager.resolve("id-1", Ok(()));
+        let rx = manager.register(1);
+        manager.resolve(1, Ok(()));
         let result = rx.await.expect("sender dropped unexpectedly");
         assert!(result.is_ok());
     }
@@ -134,9 +134,9 @@ mod tests {
     #[tokio::test]
     async fn test_register_and_resolve_delivers_err() {
         let manager = RemoteSubAckManager::new();
-        let rx = manager.register("id-err");
+        let rx = manager.register(2);
         manager.resolve(
-            "id-err",
+            2,
             Err(DataPathError::RemoteSubscriptionAckError(
                 "boom".to_string(),
             )),
@@ -148,9 +148,9 @@ mod tests {
     #[test]
     fn test_resolve_unknown_id_is_noop() {
         let manager = RemoteSubAckManager::new();
-        let mut rx = manager.register("id-known");
+        let mut rx = manager.register(3);
         // Resolve a different (unknown) id — must not affect the registered one.
-        manager.resolve("id-unknown", Ok(()));
+        manager.resolve(4, Ok(()));
         assert!(
             rx.try_recv().is_err(),
             "registered channel must not have received anything"
@@ -160,10 +160,10 @@ mod tests {
     #[test]
     fn test_remove_cleans_up() {
         let manager = RemoteSubAckManager::new();
-        manager.register("id-to-remove");
-        assert!(manager.pending.read().contains_key("id-to-remove"));
-        manager.remove("id-to-remove");
-        assert!(!manager.pending.read().contains_key("id-to-remove"));
+        manager.register(5);
+        assert!(manager.pending.read().contains_key(&5));
+        manager.remove(5);
+        assert!(!manager.pending.read().contains_key(&5));
     }
 
     #[test]

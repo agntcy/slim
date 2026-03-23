@@ -46,7 +46,7 @@ where
 
     /// Pending subscription acknowledgments keyed by ack id.
     pending_subscription_acks:
-        Arc<Mutex<HashMap<String, oneshot::Sender<Result<(), SubscriptionAckError>>>>>,
+        Arc<Mutex<HashMap<u64, oneshot::Sender<Result<(), SubscriptionAckError>>>>>,
 
     /// Counter used to generate subscription acknowledgment ids.
     subscription_ack_counter: AtomicU64,
@@ -145,20 +145,18 @@ where
             session_layer,
             cancel_token,
             pending_subscription_acks: Arc::new(Mutex::new(HashMap::new())),
-            subscription_ack_counter: AtomicU64::new(0),
+            subscription_ack_counter: AtomicU64::new(1),
         }
     }
 
-    fn next_subscription_ack_id(&self) -> String {
-        let next = self
-            .subscription_ack_counter
-            .fetch_add(1, Ordering::Relaxed);
-        format!("sub-{}", next)
+    fn next_subscription_ack_id(&self) -> u64 {
+        self.subscription_ack_counter
+            .fetch_add(1, Ordering::Relaxed)
     }
 
     fn handle_subscription_ack_message(
         pending_subscription_acks: &Arc<
-            Mutex<HashMap<String, oneshot::Sender<Result<(), SubscriptionAckError>>>>,
+            Mutex<HashMap<u64, oneshot::Sender<Result<(), SubscriptionAckError>>>>,
         >,
         ack: &ProtoSubscriptionAck,
     ) {
@@ -189,17 +187,17 @@ where
 
     async fn send_with_subscription_ack(
         &self,
-        build_message: impl FnOnce(String) -> Message,
+        build_message: impl FnOnce(u64) -> Message,
         map_ack_error: fn(SubscriptionAckError) -> ServiceError,
     ) -> Result<(), ServiceError> {
         let ack_id = self.next_subscription_ack_id();
         let (ack_tx, ack_rx) = oneshot::channel();
         {
             let mut pending = self.pending_subscription_acks.lock();
-            pending.insert(ack_id.clone(), ack_tx);
+            pending.insert(ack_id, ack_tx);
         }
 
-        let msg = build_message(ack_id.clone());
+        let msg = build_message(ack_id);
 
         if let Err(e) = self.send_message_without_context(msg).await {
             let mut pending = self.pending_subscription_acks.lock();
@@ -612,7 +610,7 @@ mod tests {
     }
 
     fn build_subscription_ack_message(
-        ack_id: &str,
+        ack_id: u64,
         success: bool,
         error_msg: Option<&str>,
     ) -> ProtoMessage {
@@ -623,9 +621,9 @@ mod tests {
     async fn test_handle_subscription_ack_message_uses_default_rejection_message() {
         let pending = Arc::new(Mutex::new(HashMap::new()));
         let (tx, rx) = oneshot::channel();
-        pending.lock().insert("ack-default".to_string(), tx);
+        pending.lock().insert(42u64, tx);
 
-        let ack_msg = build_subscription_ack_message("ack-default", false, None);
+        let ack_msg = build_subscription_ack_message(42u64, false, None);
         App::<SharedSecret, SharedSecret>::handle_subscription_ack_message(
             &pending,
             ack_msg.get_subscription_ack(),
@@ -654,10 +652,9 @@ mod tests {
 
         let ack_id = outbound
             .get_subscription_ack_id()
-            .map(str::to_owned)
             .expect("missing ack id in outbound subscribe message");
 
-        let ack_msg = build_subscription_ack_message(&ack_id, true, None);
+        let ack_msg = build_subscription_ack_message(ack_id, true, None);
         App::<SharedSecret, SharedSecret>::handle_subscription_ack_message(
             &app.pending_subscription_acks,
             ack_msg.get_subscription_ack(),
@@ -679,11 +676,10 @@ mod tests {
 
         let ack_id = outbound
             .get_subscription_ack_id()
-            .map(str::to_owned)
             .expect("missing ack id in outbound subscribe message");
 
         let ack_msg =
-            build_subscription_ack_message(&ack_id, false, Some("forwarding update failed"));
+            build_subscription_ack_message(ack_id, false, Some("forwarding update failed"));
         App::<SharedSecret, SharedSecret>::handle_subscription_ack_message(
             &app.pending_subscription_acks,
             ack_msg.get_subscription_ack(),
@@ -711,7 +707,6 @@ mod tests {
 
         let ack_id = outbound
             .get_subscription_ack_id()
-            .map(str::to_owned)
             .expect("missing ack id in outbound unsubscribe message");
 
         {
