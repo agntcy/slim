@@ -136,7 +136,7 @@ struct MessageProcessorInternal {
     tx_control_plane: RwLock<Option<Sender<Result<Message, Status>>>>,
 
     /// Remote subscription ACK manager
-    sub_ack_manager: Arc<crate::subscription_ack::RemoteSubAckManager>,
+    sub_ack_manager: crate::subscription_ack::RemoteSubAckManager,
 }
 
 #[derive(Debug, Clone)]
@@ -152,7 +152,7 @@ impl Default for MessageProcessor {
             drain_signal: RwLock::new(Some(signal)),
             drain_watch: RwLock::new(Some(watch)),
             tx_control_plane: RwLock::new(None),
-            sub_ack_manager: Arc::new(crate::subscription_ack::RemoteSubAckManager::new()),
+            sub_ack_manager: crate::subscription_ack::RemoteSubAckManager::new(),
         };
         Self {
             internal: Arc::new(internal),
@@ -212,6 +212,10 @@ impl MessageProcessor {
 
     fn forwarder(&self) -> &Forwarder<Connection> {
         &self.internal.forwarder
+    }
+
+    pub(crate) fn remove_sub_ack(&self, ack_id: &str) {
+        self.internal.sub_ack_manager.remove(ack_id);
     }
 
     fn get_drain_watch(&self) -> Result<drain::Watch, DataPathError> {
@@ -541,7 +545,6 @@ impl MessageProcessor {
 
             let rx = self.internal.sub_ack_manager.register(&new_ack_id);
             tokio::spawn(crate::subscription_ack::retry_loop(
-                self.internal.sub_ack_manager.clone(),
                 self.clone(),
                 new_ack_id,
                 msg,
@@ -813,7 +816,6 @@ impl MessageProcessor {
             let rx = self.internal.sub_ack_manager.register(&new_ack_id);
 
             tokio::spawn(crate::subscription_ack::retry_loop(
-                self.internal.sub_ack_manager.clone(),
                 self.clone(),
                 new_ack_id,
                 forwarded_msg,

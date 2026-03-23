@@ -7,7 +7,6 @@
 //! remote subscription ACKs that are in-flight between relay nodes.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
 
 use parking_lot::RwLock;
@@ -74,7 +73,6 @@ pub(crate) fn supports(conn: &Connection) -> bool {
 /// exhausted. Cleans up the manager entry and notifies the upstream requester.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn retry_loop(
-    manager: Arc<RemoteSubAckManager>,
     processor: MessageProcessor,
     ack_id: String,
     forwarded_msg: Message,
@@ -107,7 +105,7 @@ pub(crate) async fn retry_loop(
         }
     }
 
-    manager.remove(&ack_id);
+    processor.remove_sub_ack(&ack_id);
 
     if let Some(id) = upstream_ack_id {
         processor
