@@ -183,8 +183,20 @@ pub async fn run_benchmark(
 
     let send_elapsed = start.elapsed();
 
-    // Give all receivers time to drain remaining in-flight messages.
-    tokio::time::sleep(cfg.drain_timeout).await;
+    // Actively wait until all in-flight messages are received or drain_timeout
+    // elapses — whichever comes first. This gives an honest recv_mps figure
+    // instead of dividing by a fixed sleep duration.
+    let drain_deadline = tokio::time::Instant::now() + cfg.drain_timeout;
+    loop {
+        let received_so_far: u64 = received_counts
+            .iter()
+            .map(|c| c.load(Ordering::Relaxed))
+            .sum();
+        if received_so_far >= total_sent || tokio::time::Instant::now() >= drain_deadline {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
 
     let total_elapsed = start.elapsed();
     let total_received: u64 = received_counts
