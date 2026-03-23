@@ -13,7 +13,7 @@
 # Options:
 #   --senders LIST        Comma-separated sender counts (default: 1,4,8,16)
 #   --messages N          Messages per sender (default: 1000000)
-#   --payload-sizes LIST  Comma-separated payload sizes in bytes (default: 64,256,1024,4096)
+#   --payload-sizes LIST  Comma-separated payload sizes in bytes (default: 8,16,64,256,1024,4096)
 #   --runs N              Repetitions per configuration (default: 3)
 #   --output FILE         Results CSV path (default: benchmark-results.csv)
 #   --quick               Quick mode: 1 run, fewer configs
@@ -40,7 +40,7 @@ DP_DIR="$REPO_ROOT/data-plane"
 # Defaults
 SENDER_LIST="1,4,8,16"
 MESSAGES=1000000
-PAYLOAD_LIST="64,256,1024,4096"
+PAYLOAD_LIST="8,16,64,256,1024,4096"
 RUNS=3
 OUTPUT="$REPO_ROOT/benchmark-results.csv"
 QUICK=false
@@ -66,7 +66,7 @@ done
 
 if [[ "$QUICK" == true ]]; then
   SENDER_LIST="4,16"
-  PAYLOAD_LIST="64,1024"
+  PAYLOAD_LIST="8,16,64,1024"
   RUNS=1
   MESSAGES=500000
 fi

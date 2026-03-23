@@ -26,7 +26,7 @@ on:
       payload-sizes:
         description: 'Comma-separated payload sizes in bytes'
         required: false
-        default: '64,256,1024,4096'
+        default: '8,16,64,256,1024,4096'
         type: string
       runs:
         description: 'Repetitions per configuration'
@@ -61,7 +61,7 @@ jobs:
           ./scripts/run-benchmark.sh \
             --senders "${{ inputs.senders || '4,16' }}" \
             --messages "${{ inputs.messages || '500000' }}" \
-            --payload-sizes "${{ inputs.payload-sizes || '64,1024' }}" \
+            --payload-sizes "${{ inputs.payload-sizes || '8,16,64,1024' }}" \
             --runs "${{ inputs.runs || '1' }}" \
             --output benchmark-results.csv
 
