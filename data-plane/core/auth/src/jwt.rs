@@ -185,7 +185,7 @@ pub struct Jwt<T> {
 
     /// MLS signature key pair: (secret_key_bytes, public_key_bytes).
     /// Each instance (and clone) holds its own independent copy of the keys.
-    signature_keys: Option<(Vec<u8>, Vec<u8>)>,
+    signature_keys: (Vec<u8>, Vec<u8>),
 
     _phantom: std::marker::PhantomData<T>,
 }
@@ -219,7 +219,7 @@ impl<T> Jwt<T> {
             watchers: Arc::new(Vec::new()),
             static_token: None,
             token_cache: std::sync::Arc::new(TokenCache::new()),
-            signature_keys: Some((secret_key, public_key)),
+            signature_keys: (secret_key, public_key),
             _phantom: std::marker::PhantomData,
         })
     }
@@ -586,15 +586,10 @@ impl TokenProvider for SignerJwt {
     }
 
     fn get_token(&self) -> Result<String, AuthError> {
-        if let Some((_, pub_key)) = &self.signature_keys {
-            let pub_key_b64 = STANDARD_BASE64.encode(pub_key);
-            let mut claims_map = MetadataMap::new();
-            claims_map.insert("pubkey".to_string(), pub_key_b64);
-            self.sign_internal_claims_with_custom(claims_map)
-        } else {
-            // No MLS keys — sign without pubkey claim
-            self.sign_internal_claims()
-        }
+        let pub_key_b64 = STANDARD_BASE64.encode(&self.signature_keys.1);
+        let mut claims_map = MetadataMap::new();
+        claims_map.insert("pubkey".to_string(), pub_key_b64);
+        self.sign_internal_claims_with_custom(claims_map)
     }
 
     fn get_id(&self) -> Result<String, AuthError> {
@@ -605,22 +600,15 @@ impl TokenProvider for SignerJwt {
     }
 
     fn get_signature_secret_key(&self) -> Result<Vec<u8>, AuthError> {
-        self.signature_keys
-            .as_ref()
-            .map(|(s, _)| s.clone())
-            .ok_or(AuthError::MlsNotSupported)
+        Ok(self.signature_keys.0.clone())
     }
 
     fn get_signature_public_key(&self) -> Result<Vec<u8>, AuthError> {
-        self.signature_keys
-            .as_ref()
-            .map(|(_, p)| p.clone())
-            .ok_or(AuthError::MlsNotSupported)
+        Ok(self.signature_keys.1.clone())
     }
 
     fn rotate_signature_keys(&mut self) -> Result<(), AuthError> {
-        let (secret_key, public_key) = generate_mls_signature_keys()?;
-        self.signature_keys = Some((secret_key, public_key));
+        self.signature_keys = generate_mls_signature_keys()?;
         Ok(())
     }
 }

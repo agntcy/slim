@@ -158,16 +158,17 @@ struct SharedSecretInternal {
     clock_skew: std::time::Duration,
     replay_cache_enabled: bool,
     replay_cache: Mutex<ReplayCache>,
-    /// MLS Ed25519 signature key pair: (secret_key_bytes, public_key_bytes).
-    /// Stored inside the Arc so all clones share the same key state.
-    signature_keys: Mutex<(Vec<u8>, Vec<u8>)>,
 }
 
 /// Public wrapper holding an Arc to internal implementation.
-/// Cloning shares the same replay cache, keys, and other state.
+/// Cloning shares the replay cache and config but gives each clone
+/// its own independent MLS signature key pair.
 #[derive(Clone)]
 pub struct SharedSecret {
     inner: Arc<SharedSecretInternal>,
+    /// MLS Ed25519 signature key pair: (secret_key_bytes, public_key_bytes).
+    /// Plain field so each clone owns an independent copy.
+    signature_keys: (Vec<u8>, Vec<u8>),
 }
 
 impl std::fmt::Debug for SharedSecret {
@@ -201,7 +202,7 @@ impl SharedSecret {
             .collect();
         let full_id = format!("{}_{}", id, random_suffix);
 
-        let (secret_key, public_key) = generate_mls_signature_keys()?;
+        let signature_keys = generate_mls_signature_keys()?;
         let internal = SharedSecretInternal {
             base_id: id.to_owned(),
             id: full_id,
@@ -210,10 +211,10 @@ impl SharedSecret {
             clock_skew: std::time::Duration::from_secs(DEFAULT_CLOCK_SKEW),
             replay_cache_enabled: false,
             replay_cache: Mutex::new(ReplayCache::new(DEFAULT_REPLAY_CACHE_MAX)),
-            signature_keys: Mutex::new((secret_key, public_key)),
         };
         Ok(SharedSecret {
             inner: Arc::new(internal),
+            signature_keys,
         })
     }
 
@@ -286,9 +287,6 @@ impl SharedSecret {
             }
         }
 
-        // Snapshot current signature keys
-        let sig_keys = current.signature_keys.lock().clone();
-
         let internal = SharedSecretInternal {
             base_id: current.base_id.clone(),
             id: current.id.clone(),
@@ -297,10 +295,10 @@ impl SharedSecret {
             clock_skew: clock_skew.unwrap_or(current.clock_skew),
             replay_cache_enabled: enable_flag,
             replay_cache: Mutex::new(cloned_cache),
-            signature_keys: Mutex::new(sig_keys),
         };
         SharedSecret {
             inner: Arc::new(internal),
+            signature_keys: self.signature_keys.clone(),
         }
     }
 
@@ -462,7 +460,7 @@ impl TokenProvider for SharedSecret {
         }
         let ts = self.get_current_timestamp();
         let nonce = self.gen_nonce();
-        let pub_key_b64 = STANDARD_BASE64.encode(&self.inner.signature_keys.lock().1);
+        let pub_key_b64 = STANDARD_BASE64.encode(&self.signature_keys.1);
         let claims_json = serde_json::json!({"pubkey": pub_key_b64}).to_string();
         let claims_b64 = URL_SAFE_NO_PAD.encode(claims_json.as_bytes());
         let message = self.build_message(self.id(), ts, &nonce, &claims_b64);
@@ -482,16 +480,15 @@ impl TokenProvider for SharedSecret {
     }
 
     fn get_signature_secret_key(&self) -> Result<Vec<u8>, AuthError> {
-        Ok(self.inner.signature_keys.lock().0.clone())
+        Ok(self.signature_keys.0.clone())
     }
 
     fn get_signature_public_key(&self) -> Result<Vec<u8>, AuthError> {
-        Ok(self.inner.signature_keys.lock().1.clone())
+        Ok(self.signature_keys.1.clone())
     }
 
     fn rotate_signature_keys(&mut self) -> Result<(), AuthError> {
-        let (secret_key, public_key) = generate_mls_signature_keys()?;
-        *self.inner.signature_keys.lock() = (secret_key, public_key);
+        self.signature_keys = generate_mls_signature_keys()?;
         Ok(())
     }
 }
