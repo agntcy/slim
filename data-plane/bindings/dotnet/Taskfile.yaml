@@ -303,7 +303,7 @@ tasks:
     cmds:
       - |
         echo "Formatting C# code..."
-        dotnet format
+        dotnet format --exclude Slim/generated/ Slim.Examples.SlimRpc/Generated/
         echo "✅ Code formatted"
     silent: true
 
@@ -312,7 +312,7 @@ tasks:
     cmds:
       - |
         echo "Linting C# code..."
-        dotnet format --verify-no-changes
+        dotnet format --verify-no-changes --exclude Slim/generated/ Slim.Examples.SlimRpc/Generated/
         echo "✅ Lint passed"
     silent: true
 
