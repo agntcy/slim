@@ -52,6 +52,8 @@ dependencies = [
  "headers",
  "http",
  "jsonwebtoken-aws-lc",
+ "mls-rs-core",
+ "mls-rs-crypto-awslc",
  "notify",
  "oauth2",
  "parking_lot",

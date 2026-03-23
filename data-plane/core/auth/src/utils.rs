@@ -3,27 +3,32 @@
 
 //! General utility helpers for the authentication crate.
 
-use aws_lc_rs::rand::SystemRandom;
-use aws_lc_rs::signature::{Ed25519KeyPair, KeyPair};
 use base64::Engine;
+use mls_rs_core::crypto::CipherSuiteProvider;
+use mls_rs_core::crypto::CryptoProvider;
+use mls_rs_crypto_awslc::AwsLcCryptoProvider;
 
-/// Generate an Ed25519 key pair for MLS use.
+const CIPHERSUITE: mls_rs_core::crypto::CipherSuite =
+    mls_rs_core::crypto::CipherSuite::CURVE25519_AES128;
+
+/// Generate an Ed25519 key pair for MLS use via the same crypto provider used by the MLS stack.
 ///
-/// Returns `(secret_key_bytes, public_key_bytes)` where the secret key is
-/// `seed (32 bytes) || public_key (32 bytes)` = 64 bytes total, matching the
-/// format expected by `mls_rs_crypto_awslc` for `CURVE25519_AES128`.
+/// Returns `(secret_key_bytes, public_key_bytes)` in the format expected by
+/// `mls_rs_crypto_awslc` for `CURVE25519_AES128`.
 pub fn generate_mls_signature_keys() -> Result<(Vec<u8>, Vec<u8>), crate::errors::AuthError> {
-    let rng = SystemRandom::new();
-    let pkcs8 = Ed25519KeyPair::generate_pkcs8(&rng)
+    let crypto_provider = AwsLcCryptoProvider::default();
+    let cipher_suite_provider = crypto_provider
+        .cipher_suite_provider(CIPHERSUITE)
+        .ok_or(crate::errors::AuthError::MlsKeyGenerationFailed)?;
+
+    let (secret_key, public_key) = cipher_suite_provider
+        .signature_key_generate()
         .map_err(|_| crate::errors::AuthError::MlsKeyGenerationFailed)?;
-    let key_pair = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref())
-        .map_err(|_| crate::errors::AuthError::MlsKeyGenerationFailed)?;
-    let pub_bytes = key_pair.public_key().as_ref().to_vec();
-    // PKCS#8 DER for Ed25519 (RFC 8410): seed occupies bytes [16..48]
-    let seed = pkcs8.as_ref()[16..48].to_vec();
-    let mut secret_bytes = seed;
-    secret_bytes.extend_from_slice(&pub_bytes);
-    Ok((secret_bytes, pub_bytes))
+
+    Ok((
+        secret_key.as_bytes().to_vec(),
+        public_key.as_bytes().to_vec(),
+    ))
 }
 
 /// Convert arbitrary bytes into a PEM-formatted string with the provided header/footer.
