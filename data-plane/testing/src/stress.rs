@@ -83,76 +83,87 @@ impl BenchmarkResult {
 
 /// Run an in-process benchmark against a freshly created [`MessageProcessor`].
 ///
-/// Sets up one receiver subscribed to the publish topic, then spawns
-/// `cfg.senders` concurrent sender tasks each publishing `cfg.messages`
-/// messages of `cfg.payload_size` bytes. Returns throughput metrics once all
-/// senders complete and the drain timeout elapses.
+/// Uses a **dumbbell topology**: each of the `cfg.senders` concurrent sender
+/// tasks is paired with its own dedicated receiver on an independent topic
+/// (`perf/stress/topic/<i>`). This avoids a single-receiver bottleneck and
+/// measures SLIM's forwarding throughput across all N lanes simultaneously.
+///
+/// Returns aggregate throughput metrics once all senders finish and the drain
+/// timeout elapses.
 pub async fn run_benchmark(
     cfg: &BenchmarkConfig,
 ) -> Result<BenchmarkResult, Box<dyn std::error::Error + Send + Sync>> {
     let mp = MessageProcessor::new();
-    let dest_type = Name::from_strings(["perf", "stress", "topic"]);
 
-    // Register receiver and subscribe it to the topic.
-    let (_recv_conn_id, recv_tx, mut recv_rx) = mp
-        .register_local_connection(false)
-        .expect("failed to register receiver connection");
+    // Per-pair receive counters and receiver task handles.
+    let received_counts: Vec<Arc<AtomicU64>> = (0..cfg.senders)
+        .map(|_| Arc::new(AtomicU64::new(0)))
+        .collect();
 
-    let sub_msg = Message::builder()
-        .source(dest_type.clone())
-        .destination(dest_type.clone())
-        .build_subscribe()
-        .unwrap();
-    recv_tx.send(Ok(sub_msg)).await?;
-
-    // Allow subscription to propagate through the processing loop.
-    tokio::time::sleep(Duration::from_millis(100)).await;
-
-    // Register sender connections — senders do NOT subscribe to dest_type
-    // to avoid messages being load-balanced back to other senders.
+    let mut recv_handles = Vec::new();
+    // Keep recv_tx handles alive so the MessageProcessor retains each
+    // receiver connection (and its subscription) until the benchmark ends.
+    let mut recv_txs = Vec::new();
     let mut sender_channels = Vec::new();
-    for i in 0..cfg.senders {
+
+    // Set up N independent (sender_i → topic_i → receiver_i) lanes.
+    for (i, count) in received_counts.iter().enumerate() {
+        let topic = Name::from_strings(["perf", "stress", "topic"]).with_id(i as u64);
         let sender_name = Name::from_strings(["perf", "stress", "sender"]).with_id(i as u64);
+
+        // Register receiver and subscribe it exclusively to topic_i.
+        let (_recv_conn_id, recv_tx, mut recv_rx) = mp
+            .register_local_connection(false)
+            .expect("failed to register receiver connection");
+
+        let sub_msg = Message::builder()
+            .source(topic.clone())
+            .destination(topic.clone())
+            .build_subscribe()
+            .unwrap();
+        recv_tx.send(Ok(sub_msg)).await?;
+        // Retain tx so the connection stays registered for the benchmark duration.
+        recv_txs.push(recv_tx);
+
+        // Drain task for receiver_i.
+        let count = count.clone();
+        recv_handles.push(tokio::spawn(async move {
+            while let Some(msg) = recv_rx.recv().await {
+                if msg.is_ok() {
+                    count.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        }));
+
+        // Register sender connection — no subscription, publishes only.
         let (_conn_id, tx, _rx) = mp
             .register_local_connection(false)
             .expect("failed to register sender connection");
-        sender_channels.push((i, sender_name, tx, _rx));
+        sender_channels.push((i, sender_name, tx, topic));
     }
 
-    // Allow all registrations to settle.
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    // Allow all subscriptions to propagate through the processing loop.
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
     // Pre-build the payload content once; all messages share the same blob.
     let payload_blob = vec![0xABu8; cfg.payload_size];
     let content = ApplicationPayload::new("perf", payload_blob).as_content();
 
     let total_sent = cfg.senders as u64 * cfg.messages;
-    let received_count = Arc::new(AtomicU64::new(0));
-
-    // Receiver drain task: count every successfully received message.
-    let recv_count = received_count.clone();
-    let recv_handle = tokio::spawn(async move {
-        while let Some(msg) = recv_rx.recv().await {
-            if msg.is_ok() {
-                recv_count.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-    });
 
     let start = Instant::now();
 
     // Spawn concurrent sender tasks.
     let mut handles = Vec::new();
-    for (sender_id, sender_name, tx, _rx) in sender_channels {
+    for (sender_id, sender_name, tx, topic) in sender_channels {
         let msg_count = cfg.messages;
         let content_clone = content.clone();
-        let dest = dest_type.clone();
 
         let handle = tokio::spawn(async move {
             for _ in 0..msg_count {
                 let msg = Message::builder()
                     .source(sender_name.clone())
-                    .destination(dest.clone())
+                    .destination(topic.clone())
                     .payload(content_clone.clone())
                     .build_publish()
                     .unwrap();
@@ -172,13 +183,20 @@ pub async fn run_benchmark(
 
     let send_elapsed = start.elapsed();
 
-    // Give the receiver time to drain the remaining in-flight messages.
+    // Give all receivers time to drain remaining in-flight messages.
     tokio::time::sleep(cfg.drain_timeout).await;
 
     let total_elapsed = start.elapsed();
-    let total_received = received_count.load(Ordering::Relaxed);
+    let total_received: u64 = received_counts
+        .iter()
+        .map(|c| c.load(Ordering::Relaxed))
+        .sum();
 
-    recv_handle.abort();
+    // Drop receiver tx handles so the receiver tasks can exit cleanly.
+    drop(recv_txs);
+    for h in recv_handles {
+        h.abort();
+    }
     mp.shutdown().await.ok();
 
     Ok(BenchmarkResult {
