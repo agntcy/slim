@@ -72,7 +72,6 @@ use spiffe::{
 };
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
@@ -482,13 +481,6 @@ struct JwtSourceConfigInternal {
     max_retry_backoff: Duration,
 }
 
-/// Request to fetch JWT with custom audiences
-struct CustomAudienceRequest {
-    audiences: Vec<String>,
-    target_spiffe_id: Option<String>,
-    response_tx: oneshot::Sender<Result<JwtSvid, AuthError>>,
-}
-
 impl Default for JwtSourceConfigInternal {
     fn default() -> Self {
         Self {
@@ -552,7 +544,6 @@ struct JwtSource {
     current: Arc<RwLock<Option<JwtSvid>>>,
     bundles: Arc<RwLock<Option<JwtBundleSet>>>,
     cancellation_token: CancellationToken,
-    custom_request_tx: mpsc::Sender<CustomAudienceRequest>,
 }
 
 impl JwtSource {
@@ -600,9 +591,6 @@ impl JwtSource {
             }
         }
 
-        // Create channel for custom audience requests
-        let (custom_request_tx, custom_request_rx) = mpsc::channel(16);
-
         // Spawn background task for JWT SVID refresh
         let token_clone = cancellation_token.clone();
         tokio::spawn(async move {
@@ -612,7 +600,6 @@ impl JwtSource {
                 target_clone,
                 current_clone,
                 token_clone,
-                custom_request_rx,
                 cfg,
             )
             .await;
@@ -642,18 +629,16 @@ impl JwtSource {
             current,
             bundles,
             cancellation_token,
-            custom_request_tx,
         }))
     }
 
-    /// Background task that handles JWT refresh and custom audience requests
+    /// Background task that handles JWT refresh
     async fn background_refresh_task(
         mut client: WorkloadApiClient,
         audiences: Vec<String>,
         target_spiffe_id: Option<String>,
         current: Arc<RwLock<Option<JwtSvid>>>,
         cancellation_token: CancellationToken,
-        mut custom_request_rx: mpsc::Receiver<CustomAudienceRequest>,
         cfg: JwtSourceConfigInternal,
     ) {
         let mut backoff = cfg.min_retry_backoff;
@@ -686,11 +671,6 @@ impl JwtSource {
                             tracing::warn!(error=%err, "jwt_source: regular refresh failed");
                         }
                     }
-                }
-
-                // Custom audience request
-                Some(request) = custom_request_rx.recv() => {
-                    Self::handle_custom_request(&mut client, request).await;
                 }
 
                 // Cancellation
@@ -771,43 +751,6 @@ impl JwtSource {
                 Err(err)
             }
         }
-    }
-
-    /// Handle custom audience request
-    async fn handle_custom_request(client: &mut WorkloadApiClient, request: CustomAudienceRequest) {
-        let result = fetch_once(
-            client,
-            &request.audiences,
-            request.target_spiffe_id.as_ref(),
-        )
-        .await;
-
-        // Send response back (ignore if receiver dropped)
-        let _ = request.response_tx.send(result);
-    }
-
-    /// Request a JWT with custom audiences
-    async fn fetch_with_custom_audiences(
-        &self,
-        audiences: Vec<String>,
-        target_spiffe_id: Option<String>,
-    ) -> Result<JwtSvid, AuthError> {
-        let (response_tx, response_rx) = oneshot::channel();
-
-        let request = CustomAudienceRequest {
-            audiences,
-            target_spiffe_id,
-            response_tx,
-        };
-
-        self.custom_request_tx
-            .send(request)
-            .await
-            .map_err(|_| AuthError::SpiffeCustomAudiencesJwtSourceClosed)?;
-
-        response_rx
-            .await
-            .map_err(|_| AuthError::SpiffeCustomAudiencesError)?
     }
 
     /// Sync access to the current JWT SVID (if any). Returns Ok(Some) if present.

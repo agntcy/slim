@@ -160,13 +160,6 @@ pub enum AuthError {
     #[cfg(not(target_family = "windows"))]
     #[error("spire x509 empty certificate chain")]
     SpiffeX509EmptyCertChain,
-    #[cfg(not(target_family = "windows"))]
-    #[error("jwt source closed")]
-    SpiffeCustomAudiencesJwtSourceClosed,
-    #[cfg(not(target_family = "windows"))]
-    #[error("error fetching jwt svid with custom audiences")]
-    SpiffeCustomAudiencesError,
-
     // Serialization
     #[error("JSON serialization error")]
     JsonError(#[from] serde_json::Error),

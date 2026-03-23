@@ -130,7 +130,7 @@ tokio-util = "0.7.14"
 tonic = "0.14"
 tonic-prost = "0.14"
 tonic-prost-build = "0.14"
-tonic-tls = { version = "0.6", default-features = false, features = ["rustls"] }
+tonic-tls = { version = "0.7", default-features = false, features = ["rustls"] }
 tower = "0.5.2"
 tower-http = { version = "0.6", features = ["auth"] }
 tower-layer = "0.3.3"

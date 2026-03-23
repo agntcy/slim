@@ -12,6 +12,7 @@
 
 use display_error_chain::ErrorChainExt;
 use slim_auth::errors::AuthError;
+use slim_auth::identity_claims::IdentityClaims;
 use slim_auth::spire::SpireIdentityManager;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_config::auth::spire::SpireConfig;
@@ -187,15 +188,47 @@ async fn test_spiffe_provider_initialization() {
         }
 
         // Test JWT token retrieval
-        match provider.get_token() {
+        let token = match provider.get_token() {
             Ok(token) => {
                 tracing::info!("Got JWT token");
                 assert!(!token.is_empty());
                 let parts: Vec<&str> = token.split('.').collect();
                 assert_eq!(parts.len(), 3, "JWT should have 3 parts");
+                token
             }
             Err(e) => {
                 tracing::error!(error = %e.chain(), "jwt token fetch failed");
+                should_panic = true;
+                break 'test_block;
+            }
+        };
+
+        // Verify that the token contains the MLS public key in custom_claims
+        match verifier.get_claims::<serde_json::Value>(token).await {
+            Ok(claims) => {
+                tracing::info!(%claims, "Successfully verified JWT token");
+                match IdentityClaims::from_json(&claims) {
+                    Ok(identity) => {
+                        assert!(
+                            !identity.public_key.is_empty(),
+                            "pubkey should not be empty"
+                        );
+                        assert!(!identity.subject.is_empty(), "subject should not be empty");
+                        tracing::info!(
+                            pubkey = %identity.public_key,
+                            subject = %identity.subject,
+                            "Found MLS identity claims in JWT"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!(error = %e, "Failed to extract identity claims from JWT");
+                        should_panic = true;
+                        break 'test_block;
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!(error = %e.chain(), "JWT verification failed");
                 should_panic = true;
                 break 'test_block;
             }
