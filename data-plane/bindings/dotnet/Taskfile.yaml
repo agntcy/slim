@@ -7,6 +7,10 @@ includes:
   rust:
     taskfile: ../rust/Taskfile.yaml
     internal: true
+  tools:
+    taskfile: ../../../tasks/tools.yaml
+    internal: true
+    flatten: true
 
 vars:
   # Rust bindings directory
@@ -35,6 +39,10 @@ vars:
 
   # Output directory for NuGet packages
   OUTPUT_DIR: '{{.OUTPUT_DIR | default "./nupkg"}}'
+
+  # CI artifacts (optional; when set, generate uses pre-built bindings from artifacts)
+  ARTIFACTS_DIR: '{{.ARTIFACTS_DIR | default ""}}'
+  BINDGEN_TARGET: '{{.BINDGEN_TARGET | default .TARGET}}'
 
   # Supported platforms for NuGet packaging
   # Format: TARGET|RID|LIB_EXT
@@ -104,10 +112,74 @@ tasks:
           TARGET: "{{.TARGET}}"
       - install-uniffi-bindgen-cs
     cmds:
-      - 'echo "Generating C# bindings from: {{.LIB_PATH}}"'
-      - rm -rf {{.GENERATED_DIR}}
-      - mkdir -p {{.GENERATED_DIR}}
-      - uniffi-bindgen-cs --library --out-dir {{.GENERATED_DIR}} "{{.LIB_PATH}}"
+      - |
+        ARTIFACTS_DIR="{{.ARTIFACTS_DIR}}"
+        BINDGEN_TARGET="{{.BINDGEN_TARGET}}"
+
+        lib_file=""
+
+        # Try CI artifacts directory first (when ARTIFACTS_DIR is set)
+        if [[ -n "$ARTIFACTS_DIR" ]]; then
+          artifact_dir="$ARTIFACTS_DIR/bindings-${BINDGEN_TARGET}"
+          if [[ -d "$artifact_dir" ]]; then
+            lib_file=$(find "$artifact_dir" -maxdepth 1 -name "lib{{.LIB_NAME}}*.a" -type f | head -1)
+          fi
+        fi
+
+        # Fall back to local build: build Rust library, then use its output
+        if [[ -z "$lib_file" || ! -f "$lib_file" ]]; then
+          echo "No CI artifacts found, building Rust library locally..."
+          (cd {{.BINDINGS_DIR}} && task bindings:build:all PROFILE="{{.PROFILE}}")
+
+          local_lib="{{.LIB_PATH}}"
+          if [[ -f "$local_lib" ]]; then
+            echo "Using local build output: $local_lib"
+            lib_file="$local_lib"
+          fi
+        fi
+
+        if [[ -z "$lib_file" || ! -f "$lib_file" ]]; then
+          echo "ERROR: Static library (.a) not found."
+          [[ -n "$ARTIFACTS_DIR" ]] && echo "Checked CI artifacts dir: $ARTIFACTS_DIR/bindings-${BINDGEN_TARGET}"
+          echo "Checked local build path: {{.LIB_PATH}}"
+          exit 1
+        fi
+
+        echo "Generating C# bindings from: $lib_file"
+
+        rm -rf {{.GENERATED_DIR}}
+        mkdir -p {{.GENERATED_DIR}}
+        uniffi-bindgen-cs --library --out-dir {{.GENERATED_DIR}} "$lib_file"
+
+        if [[ ! -f "{{.GENERATED_DIR}}/slim_bindings.cs" ]]; then
+          echo "ERROR: Failed to generate slim_bindings.cs"
+          exit 1
+        fi
+
+        # Make all bindings types public so protoc-gen-slimrpc-csharp output and Agntcy.Slim.SlimRpc can use FFI from any assembly.
+        # uniffi-bindgen-cs emits internal by default (including abstract handler bases). Order: most specific patterns first.
+        # uniffi-bindgen-cs also emits namespace-scope types with default (internal) visibility
+        # (no leading keyword). Promote those too so public members are consistent (CS0050/CS0051).
+        sed -i.bak -e 's/^internal static partial class /public static partial class /' \
+            -e 's/^internal sealed class /public sealed class /' \
+            -e 's/^internal abstract class /public abstract class /' \
+            -e 's/^internal static class /public static class /' \
+            -e 's/^internal partial class /public partial class /' \
+            -e 's/^internal readonly struct /public readonly struct /' \
+            -e 's/^internal struct /public struct /' \
+            -e 's/^internal class /public class /' \
+            -e 's/^internal interface /public interface /' \
+            -e 's/^internal record /public record /' \
+            -e 's/^internal enum /public enum /' \
+            -e 's/^static class /public static class /' \
+            -e 's/^struct /public struct /' \
+            -e 's/^interface /public interface /' \
+            -e 's/^delegate /public delegate /' \
+            -e 's/^class /public class /' \
+            "{{.GENERATED_DIR}}/slim_bindings.cs"
+        rm -f "{{.GENERATED_DIR}}/slim_bindings.cs.bak"
+
+        echo "✅ C# bindings generated successfully"
       - task: copy:runtimes
     silent: true
 
@@ -219,9 +291,10 @@ tasks:
 
         mkdir -p "$OUTPUT_DIR"
         dotnet pack Slim/Slim.csproj --configuration Release --output "$OUTPUT_DIR" -p:Version="$VERSION"
+        dotnet pack Slim.SlimRpc/Slim.SlimRpc.csproj --configuration Release --output "$OUTPUT_DIR" -p:Version="$VERSION"
 
         echo ""
-        echo "✅ Successfully created NuGet package:"
+        echo "✅ Successfully created NuGet packages:"
         ls -lh "$OUTPUT_DIR"/*.nupkg
     silent: true
 
@@ -261,5 +334,30 @@ tasks:
         echo "Cleaning build artifacts..."
         dotnet clean Slim.sln 2>/dev/null || true
         rm -rf {{.RUNTIMES_DIR}} {{.GENERATED_DIR}} nupkg/ Slim/bin/ Slim/obj/ Slim.Tests/bin/ Slim.Tests/obj/
+        rm -rf Slim.SlimRpc/bin/ Slim.SlimRpc/obj/
+        rm -rf Slim.Examples.SlimRpc/bin/ Slim.Examples.SlimRpc/obj/ Slim.Examples.SlimRpc/Generated/
         echo "✅ Clean completed"
+    silent: true
+
+  slimrpc:generate-proto:
+    desc: "Build protoc-gen-slimrpc-csharp and run buf generate for Slim.Examples.SlimRpc"
+    cmds:
+      - |
+        echo "Building protoc-gen-slimrpc-csharp..."
+        cd {{.TASKFILE_DIR}}/../../slimrpc-compiler
+        cargo build --release --bin protoc-gen-slimrpc-csharp --target-dir ../target
+        echo "✅ Plugin built"
+      - task: buf
+      - |
+        echo "Running buf generate for Slim.Examples.SlimRpc..."
+        cd {{.TASKFILE_DIR}}/Slim.Examples.SlimRpc
+        {{.TOOLS_INSTALL_DIR}}/buf generate
+        echo "✅ Proto code generated"
+    silent: true
+
+  slimrpc:build:
+    desc: "Build the slimrpc example project"
+    cmds:
+      - task: slimrpc:generate-proto
+      - task: build
     silent: true
