@@ -31,15 +31,15 @@ use crate::{
     moderator_task::{
         AddParticipant, ModeratorTask, NotifyParticipants, RemoveParticipant, TaskUpdate,
     },
-    session_controller::SessionControllerCommon,
+    session_controller::{ChannelType, SessionControllerCommon},
     session_settings::SessionSettings,
     traits::{MessageHandler, ProcessingState},
 };
 
 struct PostponedMessage {
     message: Message,
-    // true if we need to send the message using the legacy sender, false otherwise
-    legacy: bool,
+    // idicates on which channel the message needs to be sent
+    channel_type: ChannelType,
 }
 
 pub struct SessionModerator<P, V, I>
@@ -286,9 +286,10 @@ where
 
     fn needs_drain(&self) -> bool {
         !self.common.sender.drain_completed()
-            && !self.inner.needs_drain()
-            && self.tasks_todo.is_empty()
+            || self.inner.needs_drain()
+            || !self.tasks_todo.is_empty()
     }
+
     fn processing_state(&self) -> ProcessingState {
         self.common.processing_state
     }
@@ -498,21 +499,19 @@ where
                 update_payload.clone(),
                 None,
                 true,
-                false,
+                ChannelType::Standard,
             )
             .await?;
 
         let mut legacy_msg_id = None;
-        if let Some(legacy) = self.common.settings.legacy.clone() {
+        if self.common.settings.legacy.is_some() {
             legacy_msg_id = Some(rand::random::<u32>());
             self.common
-                .send_control_message(
-                    &legacy,
-                    ProtoSessionMessageType::GroupAdd,
+                .send_control_message_to_legacy(
+                    ProtoSessionMessageType::GroupRemove,
                     legacy_msg_id.unwrap(),
                     update_payload,
                     None,
-                    true,
                     true,
                 )
                 .await?;
@@ -700,7 +699,7 @@ where
         );
         // for discovery messages always use the standard sender
         self.common
-            .send_with_timer(discovery, false)
+            .send_with_timer(discovery, ChannelType::Standard)
             .await
             .map_err(|e| self.handle_task_error(e))
     }
@@ -776,7 +775,7 @@ where
                 payload,
                 Some(self.common.settings.config.metadata.clone()),
                 false,
-                false, // join request are always handled by the standard sender
+                ChannelType::Standard, // join request are always handled by the standard sender
             )
             .await?;
 
@@ -907,25 +906,23 @@ where
                     update_payload.clone(),
                     None,
                     true,
-                    false, // by default use the standard sender
+                    ChannelType::Standard, // by default use the standard sender
                 )
                 .await?;
             self.current_task
                 .as_mut()
                 .unwrap()
                 .commit_start(add_msg_id)?;
-            if let Some(legacy) = self.common.settings.legacy.clone() {
+            if self.common.settings.legacy.is_some() {
                 let legacy_id = rand::random::<u32>();
                 debug!(id = %legacy_id, "also send the group update to the legacy channel");
                 self.common
-                    .send_control_message(
-                        &legacy,
+                    .send_control_message_to_legacy(
                         ProtoSessionMessageType::GroupAdd,
                         legacy_id,
                         update_payload,
                         None,
                         true,
-                        true, // use the legacy sender
                     )
                     .await?;
                 self.current_task
@@ -964,7 +961,11 @@ where
                 welcome_payload,
                 None,
                 false,
-                new_participant_settings.is_legacy(), // must use the right sender
+                if new_participant_settings.is_legacy() {
+                    ChannelType::Legacy
+                } else {
+                    ChannelType::Standard
+                }, // must use the right sender
             )
             .await?;
 
@@ -1084,7 +1085,11 @@ where
             // see on_group_ack for postponed_message handling
             self.postponed_message = Some(PostponedMessage {
                 message: leave_message,
-                legacy: is_legacy,
+                channel_type: if is_legacy {
+                    ChannelType::Legacy
+                } else {
+                    ChannelType::Standard
+                },
             });
         } else {
             // no commit message will be sent so update the task state to consider the commit as received
@@ -1099,12 +1104,21 @@ where
             let msg_id = leave_message.get_id();
             if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
                 // in case of p2p session the legacy sender is never used
-                self.common.send_with_timer(leave_message, false).await?;
+                self.common
+                    .send_with_timer(leave_message, ChannelType::Standard)
+                    .await?;
             } else {
                 // use the right sender based on the participant settings
                 // this is required to remove the participants from the right sender
                 self.common
-                    .send_with_timer(leave_message, is_legacy)
+                    .send_with_timer(
+                        leave_message,
+                        if is_legacy {
+                            ChannelType::Legacy
+                        } else {
+                            ChannelType::Standard
+                        },
+                    )
                     .await?;
             }
 
@@ -1167,15 +1181,20 @@ where
                 // in case of p2p session the legacy sender is never used
                 self.common
                     .sender
-                    .remove_participant(&disconnected, false)?;
+                    .remove_participant(&disconnected, ChannelType::Standard)?;
             } else {
                 let settings = self.participant_settings.get(&disconnected);
                 let use_legacy = settings.map(|s| s.is_legacy()).ok_or_else(|| {
                     SessionError::ParticipantSettingsNotFound(disconnected.clone())
                 })?;
-                self.common
-                    .sender
-                    .remove_participant(&disconnected, use_legacy)?;
+                self.common.sender.remove_participant(
+                    &disconnected,
+                    if use_legacy {
+                        ChannelType::Legacy
+                    } else {
+                        ChannelType::Standard
+                    },
+                )?;
             }
             self.common.send_to_slim(reply).await?;
 
@@ -1310,21 +1329,19 @@ where
         self.common.sender.on_message(&close, false).await?;
 
         // check if we need to send the message also on the legacy channel
-        if let Some(legacy) = self.common.settings.legacy.clone() {
+        if self.common.settings.legacy.is_some() {
             let legacy_id = rand::random::<u32>();
             debug!(id = %legacy_id, "also send the group close message to the legacy channel");
-            let legacy_close = self.common.create_control_message(
-                &legacy,
-                ProtoSessionMessageType::GroupClose,
-                legacy_id,
-                CommandPayload::builder()
-                    .group_close(participants)
-                    .as_content(),
-                true,
-            )?;
             self.common
-                .sender
-                .send_with_timer(legacy_close, true)
+                .send_control_message_to_legacy(
+                    ProtoSessionMessageType::GroupClose,
+                    legacy_id,
+                    CommandPayload::builder()
+                        .group_close(participants)
+                        .as_content(),
+                    None,
+                    true,
+                )
                 .await?;
             self.current_task
                 .as_mut()
@@ -1395,7 +1412,7 @@ where
                 let msg_id = leave_message.message.get_id();
                 self.common
                     .sender
-                    .send_with_timer(leave_message.message, leave_message.legacy)
+                    .send_with_timer(leave_message.message, leave_message.channel_type)
                     .await?;
                 self.current_task.as_mut().unwrap().leave_start(msg_id)?;
             }
@@ -1557,7 +1574,7 @@ mod tests {
     ) {
         let source = make_name(&["local", "moderator", "v1"]).with_id(100);
         let destination = make_name(&["channel", "name", "v1"]).with_id(Name::DATA_CHANNEL_ID);
-        let control = make_name(&["channel", "name", "v1"]).with_id(Name::DATA_CHANNEL_ID);
+        let control = make_name(&["channel", "name", "v1"]).with_id(Name::CONTROL_CHANNEL_ID);
 
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;
