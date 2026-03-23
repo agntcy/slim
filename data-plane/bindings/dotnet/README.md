@@ -67,6 +67,7 @@ The SDK includes complete working examples demonstrating real-world usage:
 
 - **Point-to-Point** (`Slim.Examples.PointToPoint`): 1:1 messaging with request/reply pattern
 - **Group Messaging** (`Slim.Examples.Group`): Group sessions with moderator/participant roles
+- **slimrpc** (`Slim.Examples.SlimRpc`): Protobuf RPC over SLIM (see [SLIMRPC.md](SLIMRPC.md))
 
 **Quick Start:**
 
@@ -77,6 +78,21 @@ dotnet run --project Slim.Examples.PointToPoint -- --local org/alice/v1
 # Run sender (in another terminal)
 dotnet run --project Slim.Examples.PointToPoint -- \
   --local org/bob/v1 --remote org/alice/v1 --message "Hello"
+```
+
+**slimrpc Example:**
+
+Requires a running SLIM server (e.g. `cd data-plane && cargo run --bin slim -- --config ./config/base/server-config.yaml`).
+
+```bash
+# Generate proto code (requires buf and protoc-gen-slimrpc-csharp)
+task slimrpc:generate-proto
+
+# Run server (in one terminal)
+dotnet run --project Slim.Examples.SlimRpc -- --mode server
+
+# Run client (in another terminal)
+dotnet run --project Slim.Examples.SlimRpc -- --mode client
 ```
 
 See example source code in `Slim.Examples.*` projects for full implementation details and command-line options.
