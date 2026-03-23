@@ -588,7 +588,19 @@ where
             ProtoSessionMessageType::LeaveReply => self.on_leave_reply(message).await,
             ProtoSessionMessageType::GroupAck => self.on_group_ack(message).await,
             ProtoSessionMessageType::Ping => {
-                self.common.sender.on_message(&message, true).await?;
+                self.common
+                    .sender
+                    .on_message(
+                        &message,
+                        if self.common.settings.config.session_type
+                            == ProtoSessionType::PointToPoint
+                        {
+                            false
+                        } else {
+                            true
+                        },
+                    )
+                    .await?;
                 Ok(())
             }
             ProtoSessionMessageType::GroupProposal => todo!(),
@@ -812,7 +824,10 @@ where
         // get the new participant settings from the join reply.
         // None means legacy sender (pre-settings version)
         let payload = msg.extract_join_reply()?;
-        let new_participant_settings = payload.settings.unwrap_or_default();
+        let mut new_participant_settings = payload.settings.unwrap_or_default();
+        if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
+            new_participant_settings.set_as_p2p();
+        }
         self.participant_settings
             .insert(msg.get_source().clone(), new_participant_settings);
         if new_participant_settings.is_legacy()
@@ -961,7 +976,9 @@ where
                 welcome_payload,
                 None,
                 false,
-                if new_participant_settings.is_legacy() {
+                if new_participant_settings.is_legacy()
+                    && self.common.settings.config.session_type == ProtoSessionType::Multicast
+                {
                     ChannelType::Legacy
                 } else {
                     ChannelType::Standard
@@ -1365,7 +1382,18 @@ where
             .await?;
 
         // notify the sender and see if we can pick another task
-        let pending = self.common.sender.on_message(&msg, true).await?;
+        let pending = self
+            .common
+            .sender
+            .on_message(
+                &msg,
+                if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
+                    false
+                } else {
+                    true
+                },
+            )
+            .await?;
         if !pending {
             self.current_task.as_mut().unwrap().leave_complete(msg_id)?;
         }
@@ -1391,7 +1419,18 @@ where
         let mut pending_acks = true;
 
         // notify the sender and see if we can pick another task
-        let pending = self.common.sender.on_message(&msg, true).await?;
+        let pending = self
+            .common
+            .sender
+            .on_message(
+                &msg,
+                if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
+                    false
+                } else {
+                    true
+                },
+            )
+            .await?;
         if !pending {
             self.current_task
                 .as_mut()

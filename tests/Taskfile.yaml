@@ -43,10 +43,10 @@ tasks:
         cp data-plane/target/debug/slim .dist/bin/slim-legacy
 
   tests:build-legacy-test-apps:
-    desc: "Build receiver and sender test apps from v1.0.0-test-apps branch for backward-compat testing"
+    desc: "Build receiver and sender test apps from v1.1.0-test-apps branch for backward-compat testing"
     dir: ".."
     vars:
-      LEGACY_BRANCH: "v1.0.0-test-apps"
+      LEGACY_BRANCH: "v1.1.0-test-apps"
     status:
       - test -f .dist/bin/receiver-legacy
       - test -f .dist/bin/sender-legacy

@@ -166,6 +166,12 @@ impl ParticipantSettings {
     pub fn is_receiver(&self) -> bool {
         self.receives_data.unwrap_or(true)
     }
+
+    /// if the session is P2P, both fields are set to true, as all participants send and receive data messages
+    pub fn set_as_p2p(&mut self) {
+        self.sends_data = Some(true);
+        self.receives_data = Some(true);
+    }
 }
 
 /// Struct grouping the SLIMHeaeder flags for convenience

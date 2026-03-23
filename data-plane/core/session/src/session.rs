@@ -245,15 +245,19 @@ impl Session {
             ProtoSessionMessageType::Msg => {
                 if direction == MessageDirection::South {
                     // message from app to slim, give it to the sender with ack
-                    if self.sender.is_none() {
+                    if self.sender.is_none() || self.sender_config.is_none() {
                         debug!(message_id = %message.get_id(), "sender is shutdown, drop message");
                         if let Some(tx) = ack_tx {
                             let _ = tx.send(Err(SessionError::SessionSenderShutdown));
                         }
                         return Err(SessionError::SessionSenderShutdown);
                     }
-                    if let Some(legacy_sender) = self.legacy_sender.as_mut() {
-                        // the use th ack_tx only on the standard channel
+                    let session_type = self.sender_config.as_ref().unwrap().session_type;
+                    // if the session if P2P always use the standard sender
+                    if session_type != ProtoSessionType::PointToPoint
+                        && let Some(legacy_sender) = self.legacy_sender.as_mut()
+                    {
+                        // the use the ack_tx only on the standard channel
                         legacy_sender.on_message(message.clone(), None).await?
                     }
                     self.sender
@@ -271,7 +275,14 @@ impl Session {
                 Ok(())
             }
             ProtoSessionMessageType::MsgAck | ProtoSessionMessageType::RtxRequest => {
-                if message.get_slim_header().has_version() {
+                let session_type = self
+                    .sender_config
+                    .as_ref()
+                    .ok_or(SessionError::SessionSenderShutdown)?
+                    .session_type;
+                if session_type == ProtoSessionType::PointToPoint
+                    || message.get_slim_header().has_version()
+                {
                     // send to the standard sender
                     if let Some(sender) = self.sender.as_mut() {
                         return sender.on_message(message.clone(), ack_tx).await;

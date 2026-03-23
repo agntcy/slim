@@ -409,7 +409,13 @@ where
         let default_settings;
         if participant_settings_list.is_empty() {
             debug!("welcome message has empty participant settings, using defaults");
-            default_settings = vec![ParticipantSettings::default(); participant_list.len()];
+            if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
+                // in case of P2P never use the legacy settings
+                default_settings =
+                    vec![ParticipantSettings::new(true, true); participant_list.len()];
+            } else {
+                default_settings = vec![ParticipantSettings::default(); participant_list.len()];
+            }
             participant_settings_list = &default_settings;
         }
 
