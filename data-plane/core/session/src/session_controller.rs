@@ -32,6 +32,11 @@ use crate::{
     traits::{MessageHandler, ProcessingState},
 };
 
+pub(crate) enum ChannelType {
+    Standard,
+    Legacy,
+}
+
 pub struct SessionController {
     /// session id
     pub(crate) id: u32,
@@ -525,6 +530,139 @@ pub fn handle_channel_discovery_message(
     Ok(msg)
 }
 
+pub(crate) struct ControlMessageSender {
+    /// sender for command messages
+    pub(crate) sender: ControllerSender,
+
+    /// sender for command messages on legacy group
+    pub(crate) legacy_sender: Option<ControllerSender>,
+}
+
+impl ControlMessageSender {
+    // return true if the message is still pending after processing the incoming message, false otherwise
+    pub(crate) async fn on_message(
+        &mut self,
+        message: &Message,
+        check_legacy: bool,
+    ) -> Result<bool, SessionError> {
+        let msg_id = message.get_id();
+        if !check_legacy || message.get_slim_header().has_version() {
+            self.sender.on_message(message).await?;
+            Ok(self.sender.is_still_pending(msg_id))
+        } else if let Some(legacy) = self.legacy_sender.as_mut() {
+            legacy.on_message(message).await?;
+            Ok(legacy.is_still_pending(msg_id))
+        } else {
+            Err(SessionError::LegacyChannelNotInitialized)
+        }
+    }
+
+    pub(crate) async fn send_with_timer(
+        &mut self,
+        message: Message,
+        channel_type: ChannelType,
+    ) -> Result<(), SessionError> {
+        match channel_type {
+            ChannelType::Legacy => {
+                self.legacy_sender
+                    .as_mut()
+                    .ok_or(SessionError::LegacyChannelNotInitialized)?
+                    .on_message(&message)
+                    .await
+            }
+            ChannelType::Standard => self.sender.on_message(&message).await,
+        }
+    }
+
+    pub(crate) fn remove_participant(
+        &mut self,
+        name: &Name,
+        channel_type: ChannelType,
+    ) -> Result<(), SessionError> {
+        match channel_type {
+            ChannelType::Legacy => {
+                self.legacy_sender
+                    .as_mut()
+                    .ok_or(SessionError::LegacyChannelNotInitialized)?
+                    .remove_participant(name);
+            }
+            ChannelType::Standard => {
+                self.sender.remove_participant(name);
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn on_timeout(
+        &mut self,
+        message_id: u32,
+        message_type: ProtoSessionMessageType,
+    ) -> Result<(), SessionError> {
+        // check if the message was sent with the standard sender the the legacy one
+        if self.sender.is_still_pending(message_id) {
+            self.sender.on_timer_timeout(message_id, message_type).await
+        } else if let Some(legacy) = self.legacy_sender.as_mut() {
+            legacy.on_timer_timeout(message_id, message_type).await
+        } else {
+            // If message is not found in either sender, just return Ok (already handled or never sent)
+            Ok(())
+        }
+    }
+
+    pub(crate) fn on_failure(
+        &mut self,
+        message_id: u32,
+        message_type: ProtoSessionMessageType,
+    ) -> Result<(), SessionError> {
+        // check if the message was sent with the standard sender the the legacy one
+        if self.sender.is_still_pending(message_id) {
+            self.sender.on_failure(message_id, message_type);
+        } else if let Some(legacy) = self.legacy_sender.as_mut() {
+            legacy.on_failure(message_id, message_type);
+        }
+        // If message is not found in either sender, just return Ok (already handled or never sent)
+        Ok(())
+    }
+
+    pub(crate) fn clear_timers(&mut self) {
+        self.sender.clear_timers();
+        if let Some(s) = self.legacy_sender.as_mut() {
+            s.clear_timers()
+        }
+    }
+
+    pub(crate) fn start_drain(&mut self) {
+        self.sender.start_drain();
+        if let Some(s) = self.legacy_sender.as_mut() {
+            s.start_drain()
+        }
+    }
+
+    pub(crate) fn drain_completed(&self) -> bool {
+        self.sender.drain_completed()
+            && self
+                .legacy_sender
+                .as_ref()
+                .is_none_or(|s| s.drain_completed())
+    }
+
+    pub(crate) fn close_legacy(&mut self) {
+        if let Some(s) = self.legacy_sender.as_mut() {
+            s.close();
+            self.legacy_sender = None;
+        }
+    }
+
+    pub(crate) fn close(&mut self) -> bool {
+        self.sender.close();
+        if let Some(s) = self.legacy_sender.as_mut() {
+            s.close();
+            return true;
+        }
+        false
+    }
+}
+
 pub(crate) struct SessionControllerCommon<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -534,7 +672,7 @@ where
     pub(crate) settings: SessionSettings<P, V>,
 
     /// sender for command messages
-    pub(crate) sender: ControllerSender,
+    pub(crate) sender: ControlMessageSender,
 
     /// processing state
     pub(crate) processing_state: ProcessingState,
@@ -558,13 +696,42 @@ where
             settings.tx.clone(),
             // send signal to the controller
             settings.tx_session.clone(),
+            false, // not legacy
         );
+
+        let sender = ControlMessageSender {
+            sender: controller_sender,
+            legacy_sender: None,
+        };
 
         SessionControllerCommon {
             settings,
-            sender: controller_sender,
+            sender,
             processing_state: ProcessingState::Active,
         }
+    }
+
+    pub(crate) fn add_legacy_sender(&mut self) {
+        if self.sender.legacy_sender.is_some() {
+            return;
+        }
+
+        // Create the controller sender for legacy channel.
+        let legacy_sender = ControllerSender::new(
+            self.settings.config.get_timer_settings(),
+            self.settings.source.clone(),
+            self.settings.config.session_type,
+            self.settings.id,
+            Some(PING_INTERVAL),
+            self.settings.config.initiator,
+            // send messages to slim/app
+            self.settings.tx.clone(),
+            // send signal to the controller
+            self.settings.tx_session.clone(),
+            true, // legacy
+        );
+
+        self.sender.legacy_sender = Some(legacy_sender);
     }
 
     /// internal and helper functions
@@ -578,8 +745,12 @@ where
     }
 
     /// Send control message without creating ack channel (for internal use by moderator)
-    pub(crate) async fn send_with_timer(&mut self, message: Message) -> Result<(), SessionError> {
-        self.sender.on_message(&message).await
+    pub(crate) async fn send_with_timer(
+        &mut self,
+        message: Message,
+        channel_type: ChannelType,
+    ) -> Result<(), SessionError> {
+        self.sender.send_with_timer(message, channel_type).await
     }
 
     pub(crate) async fn add_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
@@ -635,7 +806,7 @@ where
     }
 
     pub(crate) fn create_control_message(
-        &mut self,
+        &self,
         dst: &Name,
         message_type: ProtoSessionMessageType,
         message_id: u32,
@@ -661,7 +832,30 @@ where
         Ok(ret)
     }
 
+    /// Send control message to the legacy channel without creating ack channel (for internal use by moderator)
+    pub(crate) async fn send_control_message_to_legacy(
+        &mut self,
+        message_type: ProtoSessionMessageType,
+        message_id: u32,
+        payload: Content,
+        metadata: Option<HashMap<String, String>>,
+        broadcast: bool,
+    ) -> Result<(), SessionError> {
+        let dst = self
+            .settings
+            .legacy
+            .as_ref()
+            .ok_or(SessionError::LegacyChannelNotInitialized)?;
+        let mut msg =
+            self.create_control_message(dst, message_type, message_id, payload, broadcast)?;
+        if let Some(m) = metadata {
+            msg.set_metadata_map(m);
+        }
+        self.send_with_timer(msg, ChannelType::Legacy).await
+    }
+
     /// Send control message without creating ack channel (for internal use by moderator)
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn send_control_message(
         &mut self,
         dst: &Name,
@@ -670,13 +864,15 @@ where
         payload: Content,
         metadata: Option<HashMap<String, String>>,
         broadcast: bool,
+        channel_type: ChannelType,
     ) -> Result<(), SessionError> {
         let mut msg =
             self.create_control_message(dst, message_type, message_id, payload, broadcast)?;
         if let Some(m) = metadata {
             msg.set_metadata_map(m);
         }
-        self.send_with_timer(msg).await
+
+        self.send_with_timer(msg, channel_type).await
     }
 }
 
@@ -797,10 +993,18 @@ mod tests {
 
             let tx = SessionTransmitter::new(tx_slim, tx_app);
 
+            let mut control = self.destination.clone();
+            let mut data = self.destination.clone();
+            if self.session_type == ProtoSessionType::Multicast {
+                data.set_id(Name::DATA_CHANNEL_ID);
+                control.set_id(Name::CONTROL_CHANNEL_ID);
+            }
+
             let controller = SessionController::builder()
                 .with_id(self.session_id)
                 .with_source(self.source.clone())
-                .with_destination(self.destination.clone())
+                .with_destination(data)
+                .with_control(control)
                 .with_config(config)
                 .with_identity_provider(SharedSecret::new("test", SHARED_SECRET).unwrap())
                 .with_identity_verifier(SharedSecret::new("test", SHARED_SECRET).unwrap())
@@ -834,7 +1038,7 @@ mod tests {
         );
         assert_eq!(
             controller.dst(),
-            &Name::from_strings(["org", "ns", "dest"]).with_id(2)
+            &Name::from_strings(["org", "ns", "dest"]).with_id(Name::DATA_CHANNEL_ID)
         );
         assert_eq!(controller.session_type(), ProtoSessionType::Multicast);
         assert!(controller.is_initiator());
@@ -1194,6 +1398,7 @@ mod tests {
             .with_id(session_id)
             .with_source(moderator_name.clone())
             .with_destination(participant_name.clone())
+            .with_control(participant_name.clone())
             .with_config(moderator_config)
             .with_identity_provider(SharedSecret::new("moderator", SHARED_SECRET).unwrap())
             .with_identity_verifier(SharedSecret::new("moderator", SHARED_SECRET).unwrap())
@@ -1226,6 +1431,7 @@ mod tests {
             .with_id(session_id)
             .with_source(participant_name_id.clone())
             .with_destination(moderator_name.clone())
+            .with_control(moderator_name.clone())
             .with_config(participant_config)
             .with_identity_provider(SharedSecret::new("participant", SHARED_SECRET).unwrap())
             .with_identity_verifier(SharedSecret::new("participant", SHARED_SECRET).unwrap())
@@ -1703,7 +1909,9 @@ mod tests {
         let settings = SessionSettings {
             id: 999,
             source: Name::from_strings(["org", "ns", "source"]).with_id(1),
-            destination: Name::from_strings(["org", "ns", "dest"]).with_id(2),
+            destination: Name::from_strings(["org", "ns", "dest"]).with_id(Name::DATA_CHANNEL_ID),
+            control: Name::from_strings(["org", "ns", "control"]).with_id(Name::CONTROL_CHANNEL_ID),
+            legacy: None,
             config: SessionConfig {
                 session_type: ProtoSessionType::PointToPoint,
                 max_retries: Some(3),
@@ -1871,7 +2079,9 @@ mod tests {
         SessionSettings {
             id: 1,
             source: Name::from_strings(["org", "ns", "test"]).with_id(1),
-            destination: Name::from_strings(["org", "ns", "test"]).with_id(2),
+            destination: Name::from_strings(["org", "ns", "test"]).with_id(Name::DATA_CHANNEL_ID),
+            control: Name::from_strings(["org", "ns", "test"]).with_id(Name::CONTROL_CHANNEL_ID),
+            legacy: None,
             config: SessionConfig {
                 session_type: ProtoSessionType::PointToPoint,
                 max_retries: Some(5),

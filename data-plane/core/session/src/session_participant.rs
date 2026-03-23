@@ -142,7 +142,7 @@ where
                 if message_type.is_command_message() {
                     self.common
                         .sender
-                        .on_timer_timeout(message_id, message_type)
+                        .on_timeout(message_id, message_type)
                         .await
                 } else {
                     self.inner
@@ -162,7 +162,7 @@ where
                 timeouts,
             } => {
                 if message_type.is_command_message() {
-                    self.common.sender.on_failure(message_id, message_type);
+                    self.common.sender.on_failure(message_id, message_type)?;
                     Ok(())
                 } else {
                     self.inner
@@ -197,7 +197,7 @@ where
                     // to avoid to get broadcast messages from the moderator
                     self.disconnect_from_group().await?;
 
-                    self.common.sender.on_message(&msg).await?;
+                    self.common.sender.on_message(&msg, false).await?;
                 }
 
                 // propagate draining state
@@ -287,7 +287,7 @@ where
             self.common.sender.on_failure(
                 session_ctx.message_id,
                 session_ctx.get_session_message_type(),
-            );
+            )?;
             Ok(())
         } else {
             // Pass non-command errors to inner handler
@@ -298,6 +298,11 @@ where
     }
 
     async fn process_control_message(&mut self, message: Message) -> Result<(), SessionError> {
+        if message.get_dst().is_legacy() {
+            debug!("Received control message on legacy channel drop it");
+            return Ok(());
+        }
+
         match message.get_session_message_type() {
             ProtoSessionMessageType::JoinRequest => self.on_join_request(message).await,
             ProtoSessionMessageType::GroupWelcome => self.on_welcome(message).await,
@@ -314,7 +319,7 @@ where
                 // reception of the leave request sent on Drain start
                 // if the participant in not on drain state drop the message
                 if self.common.processing_state == ProcessingState::Draining {
-                    self.common.sender.on_message(&message).await?;
+                    self.common.sender.on_message(&message, false).await?;
                 }
                 Ok(())
             }
@@ -391,8 +396,6 @@ where
             mls_state.process_welcome_message(&msg).await?;
         }
 
-        self.join(&msg).await?;
-
         let welcome_payload = msg
             .get_payload()
             .unwrap()
@@ -414,6 +417,7 @@ where
             return Err(SessionError::InvalidParticipantSettingsLength);
         }
 
+        let mut legacy = false;
         for (i, n) in participant_list.iter().enumerate() {
             let name = Name::from(n);
             let settings = participant_settings_list
@@ -430,9 +434,17 @@ where
                         .add_route(&name, msg.get_incoming_conn())
                         .await?;
                 }
+                if settings.is_legacy() {
+                    legacy = true;
+                }
                 self.add_endpoint(&name, *settings).await?;
             }
         }
+
+        // if legacy is true subscribe also to the legacy channel
+        // notice that this is used only for application messages
+        // coming from legacy participants
+        self.join(&msg, legacy).await?;
 
         let ack = self.common.create_control_message(
             &msg.get_source(),
@@ -507,6 +519,12 @@ where
                     .delete_route(&name, msg.get_incoming_conn())
                     .await?;
                 self.inner.remove_endpoint(&name);
+
+                // if no legacy perticipant is left in the group we can close the legacy sender
+                if !self.group_list.values().any(|s| s.is_legacy()) {
+                    debug!("No legacy participant left in the group, close the legacy sender");
+                    self.common.sender.close_legacy();
+                }
             }
         }
 
@@ -566,7 +584,7 @@ where
     async fn on_ping(&mut self, mut msg: Message) -> Result<(), SessionError> {
         debug!("received ping message, reply");
         // send ping to the local sender to register the reception
-        self.common.sender.on_message(&msg).await?;
+        self.common.sender.on_message(&msg, false).await?;
 
         // reply to the ping
         let header = msg.get_slim_header_mut();
@@ -576,7 +594,7 @@ where
         self.common.send_to_slim(msg).await
     }
 
-    async fn join(&mut self, msg: &Message) -> Result<(), SessionError> {
+    async fn join(&mut self, msg: &Message, legacy: bool) -> Result<(), SessionError> {
         if self.subscribed {
             return Ok(());
         }
@@ -593,8 +611,28 @@ where
             .add_route(&self.common.settings.destination, msg.get_incoming_conn())
             .await?;
         self.common
+            .add_route(&self.common.settings.control, msg.get_incoming_conn())
+            .await?;
+        self.common
             .add_subscription(&self.common.settings.destination, msg.get_incoming_conn())
-            .await
+            .await?;
+        self.common
+            .add_subscription(&self.common.settings.control, msg.get_incoming_conn())
+            .await?;
+
+        if legacy {
+            // at lease one of the participants is a legacy one. setup the legacy channel and subscribe to it
+            let mut legacy_name = self.common.settings.destination.clone();
+            legacy_name.reset_id();
+            self.common.settings.legacy = Some(legacy_name.clone());
+            self.common
+                .add_route(&legacy_name, msg.get_incoming_conn())
+                .await?;
+            self.common
+                .add_subscription(&legacy_name, msg.get_incoming_conn())
+                .await?;
+        }
+        Ok(())
     }
 
     async fn disconnect_from_group(&self) -> Result<(), SessionError> {
@@ -658,7 +696,8 @@ mod tests {
         mpsc::Receiver<Result<SessionMessage, SessionError>>,
     ) {
         let source = make_name(&["local", "participant", "v1"]).with_id(100);
-        let destination = make_name(&["channel", "name", "v1"]).with_id(200);
+        let destination = make_name(&["channel", "name", "v1"]).with_id(Name::DATA_CHANNEL_ID);
+        let control = make_name(&["channel", "name", "v1"]).with_id(Name::CONTROL_CHANNEL_ID);
 
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;
@@ -682,6 +721,8 @@ mod tests {
             id: 1,
             source,
             destination,
+            control,
+            legacy: None,
             config,
             direction: Direction::Bidirectional,
             tx,
@@ -779,7 +820,7 @@ mod tests {
 
         let participant1 = make_name(&["participant1", "app", "v1"]).with_id(401);
         let participant2 = make_name(&["participant2", "app", "v1"]).with_id(402);
-        let settings = ParticipantSettings::default();
+        let settings = ParticipantSettings::new(true, true);
 
         let welcome_msg = Message::builder()
             .source(moderator.clone())
@@ -852,7 +893,7 @@ mod tests {
                 CommandPayload::builder()
                     .group_add(
                         new_participant.clone(),
-                        ParticipantSettings::default(),
+                        ParticipantSettings::new(true, true),
                         vec![],
                         vec![],
                         None,
@@ -887,9 +928,10 @@ mod tests {
         participant.moderator_name = Some(moderator.clone());
 
         let removed_participant = make_name(&["removed", "app", "v1"]).with_id(500);
-        participant
-            .group_list
-            .insert(removed_participant.clone(), ParticipantSettings::default());
+        participant.group_list.insert(
+            removed_participant.clone(),
+            ParticipantSettings::new(true, true),
+        );
 
         let remove_msg = Message::builder()
             .source(moderator.clone())
@@ -995,7 +1037,7 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result = participant.join(&welcome_msg).await;
+        let result = participant.join(&welcome_msg, false).await;
         assert!(result.is_ok());
         assert!(participant.subscribed);
 
@@ -1034,7 +1076,7 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result = participant.join(&msg).await;
+        let result = participant.join(&msg, false).await;
         assert!(result.is_ok());
         assert!(participant.subscribed);
         // P2P doesn't send subscribe message
@@ -1066,7 +1108,7 @@ mod tests {
             .unwrap();
 
         // First join
-        participant.join(&msg).await.unwrap();
+        participant.join(&msg, false).await.unwrap();
 
         // Drain all messages from first join (routes + subscribe)
         let mut message_count = 0;
@@ -1076,7 +1118,7 @@ mod tests {
         assert!(message_count > 0, "First join should send messages");
 
         // Second join should do nothing
-        participant.join(&msg).await.unwrap();
+        participant.join(&msg, false).await.unwrap();
         let second_sub = rx_slim.try_recv();
         assert!(
             second_sub.is_err(),
@@ -1206,7 +1248,7 @@ mod tests {
 
         // Add endpoint
         let result = participant
-            .add_endpoint(&endpoint, ParticipantSettings::default())
+            .add_endpoint(&endpoint, ParticipantSettings::new(true, true))
             .await;
         assert!(result.is_ok());
         assert_eq!(participant.inner.get_endpoints_added_count().await, 1);
@@ -1408,7 +1450,7 @@ mod tests {
                 CommandPayload::builder()
                     .group_welcome(
                         vec![p1.clone(), p2.clone()],
-                        vec![ParticipantSettings::default()], // wrong: 1 setting for 2 participants
+                        vec![ParticipantSettings::new(true, true)], // wrong: 1 setting for 2 participants
                         None,
                     )
                     .as_content(),
