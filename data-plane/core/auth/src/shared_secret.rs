@@ -53,6 +53,7 @@ SPDX-License-Identifier: Apache-2.0
 use async_trait::async_trait;
 use aws_lc_rs::hmac;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as STANDARD_BASE64;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use parking_lot::Mutex;
 use rand::{Rng, distr::Alphanumeric};
@@ -64,8 +65,8 @@ use std::{
 
 use crate::{
     errors::AuthError,
-    metadata::MetadataMap,
     traits::{TokenProvider, Verifier},
+    utils::generate_mls_signature_keys,
 };
 
 /// Minimum length (in bytes) required for the shared secret (baseline 256 bits).
@@ -157,22 +158,31 @@ struct SharedSecretInternal {
     clock_skew: std::time::Duration,
     replay_cache_enabled: bool,
     replay_cache: Mutex<ReplayCache>,
+    /// MLS Ed25519 signature key pair: (secret_key_bytes, public_key_bytes).
+    /// Stored inside the Arc so all clones share the same key state.
+    signature_keys: Mutex<(Vec<u8>, Vec<u8>)>,
 }
 
 /// Public wrapper holding an Arc to internal implementation.
-/// Cloning keeps the same replay cache if enabled.
+/// Cloning shares the same replay cache, keys, and other state.
 #[derive(Clone)]
-pub struct SharedSecret(Arc<SharedSecretInternal>);
+pub struct SharedSecret {
+    inner: Arc<SharedSecretInternal>,
+}
 
 impl std::fmt::Debug for SharedSecret {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SharedSecret")
-            .field("base_id", &self.0.base_id)
-            .field("id", &self.0.id)
-            .field("validity_window_secs", &self.0.validity_window.as_secs())
-            .field("clock_skew_secs", &self.0.clock_skew.as_secs())
-            .field("replay_cache_enabled", &self.0.replay_cache_enabled)
-            .field("replay_cache_max", &self.0.replay_cache.lock().max_size)
+            .field("base_id", &self.inner.base_id)
+            .field("id", &self.inner.id)
+            .field(
+                "validity_window_secs",
+                &self.inner.validity_window.as_secs(),
+            )
+            .field("clock_skew_secs", &self.inner.clock_skew.as_secs())
+            .field("replay_cache_enabled", &self.inner.replay_cache_enabled)
+            .field("replay_cache_max", &self.inner.replay_cache.lock().max_size)
+            .field("has_signature_keys", &true)
             .finish()
     }
 }
@@ -191,6 +201,7 @@ impl SharedSecret {
             .collect();
         let full_id = format!("{}_{}", id, random_suffix);
 
+        let (secret_key, public_key) = generate_mls_signature_keys()?;
         let internal = SharedSecretInternal {
             base_id: id.to_owned(),
             id: full_id,
@@ -199,8 +210,11 @@ impl SharedSecret {
             clock_skew: std::time::Duration::from_secs(DEFAULT_CLOCK_SKEW),
             replay_cache_enabled: false,
             replay_cache: Mutex::new(ReplayCache::new(DEFAULT_REPLAY_CACHE_MAX)),
+            signature_keys: Mutex::new((secret_key, public_key)),
         };
-        Ok(SharedSecret(Arc::new(internal)))
+        Ok(SharedSecret {
+            inner: Arc::new(internal),
+        })
     }
 
     /// Enable replay cache with specified maximum size.
@@ -228,7 +242,7 @@ impl SharedSecret {
 
     /// Returns a new instance with updated replay cache max capacity (only if enabled).
     pub fn with_replay_cache_max(&self, max_size: usize) -> Self {
-        if !self.0.replay_cache_enabled {
+        if !self.inner.replay_cache_enabled {
             // Replay protection disabled; capacity change has no effect.
             return self.clone();
         }
@@ -243,7 +257,7 @@ impl SharedSecret {
         replay_cache_max: Option<usize>,
         replay_cache_enabled: Option<bool>,
     ) -> Self {
-        let current = &self.0;
+        let current = &self.inner;
         let enable_flag = replay_cache_enabled.unwrap_or(current.replay_cache_enabled);
 
         // Snapshot existing cache
@@ -272,6 +286,9 @@ impl SharedSecret {
             }
         }
 
+        // Snapshot current signature keys
+        let sig_keys = current.signature_keys.lock().clone();
+
         let internal = SharedSecretInternal {
             base_id: current.base_id.clone(),
             id: current.id.clone(),
@@ -280,48 +297,51 @@ impl SharedSecret {
             clock_skew: clock_skew.unwrap_or(current.clock_skew),
             replay_cache_enabled: enable_flag,
             replay_cache: Mutex::new(cloned_cache),
+            signature_keys: Mutex::new(sig_keys),
         };
-        SharedSecret(Arc::new(internal))
+        SharedSecret {
+            inner: Arc::new(internal),
+        }
     }
 
     /// Get the randomized unique identifier.
     pub fn id(&self) -> &str {
-        &self.0.id
+        &self.inner.id
     }
 
     /// Base identifier (without random suffix).
     pub fn base_id(&self) -> &str {
-        &self.0.base_id
+        &self.inner.base_id
     }
 
     /// Raw shared secret (avoid logging).
     pub fn shared_secret(&self) -> &str {
-        &self.0.shared_secret
+        &self.inner.shared_secret
     }
 
     /// Validity window duration.
     pub fn validity_window(&self) -> std::time::Duration {
-        self.0.validity_window
+        self.inner.validity_window
     }
 
     /// Validity window in seconds (helper for tests / metrics).
     pub fn validity_window_secs(&self) -> u64 {
-        self.0.validity_window.as_secs()
+        self.inner.validity_window.as_secs()
     }
 
     /// Clock skew duration.
     pub fn clock_skew(&self) -> std::time::Duration {
-        self.0.clock_skew
+        self.inner.clock_skew
     }
 
     /// Replay cache enabled?
     pub fn replay_cache_enabled(&self) -> bool {
-        self.0.replay_cache_enabled
+        self.inner.replay_cache_enabled
     }
 
     /// Replay cache max size (even if disabled).
     pub fn replay_cache_max(&self) -> usize {
-        self.0.replay_cache.lock().max_size
+        self.inner.replay_cache.lock().max_size
     }
 
     /// Validate identifier format.
@@ -355,7 +375,7 @@ impl SharedSecret {
     }
 
     fn create_hmac_raw(&self, message: &[u8]) -> Result<Vec<u8>, AuthError> {
-        let key = hmac::Key::new(hmac::HMAC_SHA256, self.0.shared_secret.as_bytes());
+        let key = hmac::Key::new(hmac::HMAC_SHA256, self.inner.shared_secret.as_bytes());
         let tag = hmac::sign(&key, message);
         Ok(tag.as_ref().to_vec())
     }
@@ -370,7 +390,7 @@ impl SharedSecret {
         if expected.len() != 32 {
             return Err(AuthError::TokenMalformed);
         }
-        let key = hmac::Key::new(hmac::HMAC_SHA256, self.0.shared_secret.as_bytes());
+        let key = hmac::Key::new(hmac::HMAC_SHA256, self.inner.shared_secret.as_bytes());
         hmac::verify(&key, message.as_bytes(), &expected).map_err(|_e| AuthError::TokenInvalid)
     }
 
@@ -403,12 +423,12 @@ impl SharedSecret {
     fn validate_timestamp(&self, now: u64, ts: u64) -> Result<(), AuthError> {
         if ts > now {
             let diff = ts - now;
-            if diff > self.0.clock_skew.as_secs() {
+            if diff > self.inner.clock_skew.as_secs() {
                 return Err(AuthError::TokenInvalid);
             }
         } else {
             let age = now - ts;
-            if age > self.0.validity_window.as_secs() {
+            if age > self.inner.validity_window.as_secs() {
                 return Err(AuthError::TokenInvalid);
             }
         }
@@ -416,7 +436,7 @@ impl SharedSecret {
     }
 
     fn record_replay(&self, nonce: &str, ts: u64, now: u64) -> Result<(), AuthError> {
-        if !self.0.replay_cache_enabled {
+        if !self.inner.replay_cache_enabled {
             // Replay protection disabled.
             return Ok(());
         }
@@ -424,8 +444,8 @@ impl SharedSecret {
             nonce: nonce.to_string(),
             timestamp: ts,
         };
-        let mut cache = self.0.replay_cache.lock();
-        cache.insert(entry, now, self.0.validity_window.as_secs())
+        let mut cache = self.inner.replay_cache.lock();
+        cache.insert(entry, now, self.inner.validity_window.as_secs())
     }
 }
 
@@ -437,37 +457,16 @@ impl TokenProvider for SharedSecret {
     }
 
     fn get_token(&self) -> Result<String, AuthError> {
-        if self.0.shared_secret.is_empty() {
+        if self.inner.shared_secret.is_empty() {
             return Err(AuthError::HmacKeyMissing);
         }
         let ts = self.get_current_timestamp();
         let nonce = self.gen_nonce();
-        let message = self.build_message(self.id(), ts, &nonce, "");
-        let mac = self.create_hmac_b64(&message)?;
-        Ok(format!("{}:{}:{}::{}", self.id(), ts, nonce, mac))
-    }
-
-    async fn get_token_with_claims(&self, custom_claims: MetadataMap) -> Result<String, AuthError> {
-        if self.0.shared_secret.is_empty() {
-            return Err(AuthError::HmacKeyMissing);
-        }
-
-        let ts = self.get_current_timestamp();
-        let nonce = self.gen_nonce();
-
-        // Serialize custom claims to JSON and encode to base64 (empty string if no claims)
-        let claims_b64 = if custom_claims.is_empty() {
-            String::new()
-        } else {
-            let claims_json = serde_json::to_string(&custom_claims)?;
-            URL_SAFE_NO_PAD.encode(claims_json.as_bytes())
-        };
-
-        // Build message with claims included (can be empty)
+        let pub_key_b64 = STANDARD_BASE64.encode(&self.inner.signature_keys.lock().1);
+        let claims_json = serde_json::json!({"pubkey": pub_key_b64}).to_string();
+        let claims_b64 = URL_SAFE_NO_PAD.encode(claims_json.as_bytes());
         let message = self.build_message(self.id(), ts, &nonce, &claims_b64);
         let mac = self.create_hmac_b64(&message)?;
-
-        // Format: id:timestamp:nonce:claims_b64:mac (claims_b64 can be empty)
         Ok(format!(
             "{}:{}:{}:{}:{}",
             self.id(),
@@ -480,6 +479,20 @@ impl TokenProvider for SharedSecret {
 
     fn get_id(&self) -> Result<String, AuthError> {
         Ok(self.id().to_string())
+    }
+
+    fn get_signature_secret_key(&self) -> Result<Vec<u8>, AuthError> {
+        Ok(self.inner.signature_keys.lock().0.clone())
+    }
+
+    fn get_signature_public_key(&self) -> Result<Vec<u8>, AuthError> {
+        Ok(self.inner.signature_keys.lock().1.clone())
+    }
+
+    fn rotate_signature_keys(&mut self) -> Result<(), AuthError> {
+        let (secret_key, public_key) = generate_mls_signature_keys()?;
+        *self.inner.signature_keys.lock() = (secret_key, public_key);
+        Ok(())
     }
 }
 
@@ -517,7 +530,7 @@ impl Verifier for SharedSecret {
         let token_str = token.into();
         self.try_verify(token_str.clone())?;
         let (token_id, ts, _, claims_b64, _) = self.parse_token(&token_str)?;
-        let exp = ts + self.0.validity_window.as_secs();
+        let exp = ts + self.inner.validity_window.as_secs();
 
         // Decode custom claims if present
         let custom_claims: serde_json::Value = if !claims_b64.is_empty() {
@@ -582,7 +595,7 @@ mod tests {
         assert!(parts[0].starts_with("app_"));
         assert!(parts[1].parse::<u64>().is_ok());
         assert!(!parts[2].is_empty());
-        assert!(parts[3].is_empty()); // claims field is empty when no custom claims
+        assert!(!parts[3].is_empty()); // claims field contains the embedded MLS public key
         assert!(URL_SAFE_NO_PAD.decode(parts[4]).is_ok());
     }
 
@@ -841,66 +854,5 @@ mod tests {
         let s2 = s.with_replay_cache_max(original_max * 2);
         assert_eq!(original_max, s2.replay_cache_max());
         assert!(!s2.replay_cache_enabled());
-    }
-
-    #[tokio::test]
-    async fn test_custom_claims() {
-        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
-
-        // Create custom claims
-        let mut custom_claims = MetadataMap::new();
-        custom_claims.insert("user_id", "user-123");
-        custom_claims.insert("role", "admin");
-        custom_claims.insert("tenant_id", "tenant-456");
-
-        // Generate token with custom claims
-        let token = s.get_token_with_claims(custom_claims).await.unwrap();
-
-        // Verify token format (5 parts)
-        let parts: Vec<_> = token.split(':').collect();
-        assert_eq!(parts.len(), 5);
-        assert!(!parts[3].is_empty()); // claims field should not be empty
-
-        // Verify token
-        assert!(s.try_verify(token.clone()).is_ok());
-
-        // Extract claims
-        let claims: serde_json::Value = s.try_get_claims(token).unwrap();
-
-        // Check standard fields
-        assert!(claims["sub"].as_str().unwrap().starts_with("svc_"));
-        assert!(claims["iat"].as_u64().is_some());
-        assert!(claims["exp"].as_u64().is_some());
-
-        // Check custom claims under "custom_claims" key
-        let custom = &claims["custom_claims"];
-        assert_eq!(custom["user_id"].as_str().unwrap(), "user-123");
-        assert_eq!(custom["role"].as_str().unwrap(), "admin");
-        assert_eq!(custom["tenant_id"].as_str().unwrap(), "tenant-456");
-    }
-
-    #[tokio::test]
-    async fn test_custom_claims_empty() {
-        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
-
-        // Generate token with empty custom claims
-        let custom_claims = MetadataMap::new();
-        let token = s.get_token_with_claims(custom_claims).await.unwrap();
-
-        // Verify token format (5 parts)
-        let parts: Vec<_> = token.split(':').collect();
-        assert_eq!(parts.len(), 5);
-        assert!(parts[3].is_empty()); // claims field should be empty
-
-        // Verify token
-        assert!(s.try_verify(token.clone()).is_ok());
-
-        // Extract claims
-        let claims: serde_json::Value = s.try_get_claims(token).unwrap();
-
-        // Check custom_claims is an empty object
-        let custom = &claims["custom_claims"];
-        assert!(custom.is_object());
-        assert_eq!(custom.as_object().unwrap().len(), 0);
     }
 }

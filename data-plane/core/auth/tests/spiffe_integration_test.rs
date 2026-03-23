@@ -12,7 +12,6 @@
 
 use display_error_chain::ErrorChainExt;
 use slim_auth::errors::AuthError;
-use slim_auth::metadata::MetadataMap;
 use slim_auth::spire::SpireIdentityManager;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_config::auth::spire::SpireConfig;
@@ -79,7 +78,7 @@ fn build_manager_from(cfg: &SpireConfig) -> SpireIdentityManager {
         builder = builder.with_target_spiffe_id(id.clone());
     }
 
-    builder.build()
+    builder.build().expect("SpireIdentityManager build failed")
 }
 
 /// Asserts that a provider is in uninitialized state
@@ -197,65 +196,6 @@ async fn test_spiffe_provider_initialization() {
             }
             Err(e) => {
                 tracing::error!(error = %e.chain(), "jwt token fetch failed");
-                should_panic = true;
-                break 'test_block;
-            }
-        }
-
-        // Test JWT token retrieval with custom claims
-        let custom_claims = {
-            let mut claims = MetadataMap::new();
-            claims.insert("pubkey", "abcdef");
-            claims
-        };
-        match provider.get_token_with_claims(custom_claims).await {
-            Ok(token_with_claims) => {
-                tracing::info!("Got JWT token with custom claims");
-                assert!(!token_with_claims.is_empty());
-                let parts: Vec<&str> = token_with_claims.split('.').collect();
-                assert_eq!(parts.len(), 3, "JWT should have 3 parts");
-
-                // Test JWT token verification and custom claims extraction
-                match verifier
-                    .get_claims::<serde_json::Value>(token_with_claims)
-                    .await
-                {
-                    Ok(claims) => {
-                        tracing::info!(%claims, "Successfully verified JWT token with claims");
-
-                        // Verify that custom_claims exists
-                        if let Some(custom_claims) = claims.get("custom_claims") {
-                            tracing::info!(?custom_claims, "Found custom_claims");
-
-                            // Verify the specific custom claim we set
-                            if let Some(pubkey) = custom_claims.get("pubkey") {
-                                assert_eq!(
-                                    pubkey.as_str(),
-                                    Some("abcdef"),
-                                    "Custom claim 'pubkey' should have value 'abcdef'"
-                                );
-                                tracing::info!("Successfully verified custom claim 'pubkey'");
-                            } else {
-                                tracing::warn!("Custom claim 'pubkey' not found in custom_claims");
-                                should_panic = true;
-                                break 'test_block;
-                            }
-                        } else {
-                            tracing::warn!("custom_claims field not found in JWT claims");
-                            should_panic = true;
-                            break 'test_block;
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            error = %e.chain(), "JWT verification failed (may be expected in test environment)",
-                        );
-                        // Don't panic here as verification might fail in test environment
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::error!(error = %e.chain(), "JWT token with claims fetch failed");
                 should_panic = true;
                 break 'test_block;
             }

@@ -3,7 +3,6 @@
 
 use crate::errors::AuthError;
 use crate::jwt::extract_sub_claim_unsafe;
-use crate::metadata::MetadataMap;
 use crate::resolver::JwksCache;
 use crate::traits::{TokenProvider, Verifier};
 use async_trait::async_trait;
@@ -359,14 +358,6 @@ impl TokenProvider for OidcTokenProvider {
     fn get_id(&self) -> Result<String, AuthError> {
         let token = self.get_token()?;
         extract_sub_claim_unsafe(&token)
-    }
-
-    async fn get_token_with_claims(
-        &self,
-        _custom_claims: MetadataMap,
-    ) -> Result<String, AuthError> {
-        // This provider does not support custom claims in the token
-        Err(AuthError::OidcUnsupportedCustomClaims)
     }
 }
 

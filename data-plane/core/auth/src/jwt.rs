@@ -6,6 +6,8 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as STANDARD_BASE64;
 use jsonwebtoken_aws_lc::jwk::KeyAlgorithm;
 pub use jsonwebtoken_aws_lc::{Algorithm, Validation};
 use jsonwebtoken_aws_lc::{
@@ -23,6 +25,7 @@ use crate::file_watcher::FileWatcher;
 use crate::metadata::MetadataMap;
 use crate::resolver::KeyResolver;
 use crate::traits::{Signer, StandardClaims, TokenProvider, Verifier};
+use crate::utils::generate_mls_signature_keys;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(rename_all = "lowercase")]
@@ -180,6 +183,10 @@ pub struct Jwt<T> {
     /// Static token from file
     static_token: Option<Arc<RwLock<String>>>,
 
+    /// MLS signature key pair: (secret_key_bytes, public_key_bytes).
+    /// Each instance (and clone) holds its own independent copy of the keys.
+    signature_keys: Option<(Vec<u8>, Vec<u8>)>,
+
     _phantom: std::marker::PhantomData<T>,
 }
 
@@ -196,8 +203,13 @@ impl<T> Jwt<T> {
     ///     .build()?;
     /// ```
     #[allow(clippy::too_many_arguments)]
-    pub fn new(claims: StandardClaims, token_duration: Duration, validation: Validation) -> Self {
-        Self {
+    pub fn new(
+        claims: StandardClaims,
+        token_duration: Duration,
+        validation: Validation,
+    ) -> Result<Self, AuthError> {
+        let (secret_key, public_key) = generate_mls_signature_keys()?;
+        Ok(Self {
             claims,
             token_duration,
             validation,
@@ -207,8 +219,9 @@ impl<T> Jwt<T> {
             watchers: Arc::new(Vec::new()),
             static_token: None,
             token_cache: std::sync::Arc::new(TokenCache::new()),
+            signature_keys: Some((secret_key, public_key)),
             _phantom: std::marker::PhantomData,
-        }
+        })
     }
 
     pub fn with_watcher(mut self, w: FileWatcher) -> Self {
@@ -231,6 +244,7 @@ impl<T> Jwt<T> {
             watchers: Arc::new(Vec::new()),
             static_token: None,
             token_cache: self.token_cache,
+            signature_keys: self.signature_keys,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -246,6 +260,7 @@ impl<T> Jwt<T> {
             watchers: Arc::new(Vec::new()),
             static_token: None,
             token_cache: self.token_cache,
+            signature_keys: self.signature_keys,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -261,6 +276,7 @@ impl<T> Jwt<T> {
             watchers: Arc::new(Vec::new()),
             static_token: None,
             token_cache: self.token_cache,
+            signature_keys: self.signature_keys,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -276,6 +292,7 @@ impl<T> Jwt<T> {
             watchers: self.watchers,
             static_token: Some(token),
             token_cache: self.token_cache,
+            signature_keys: self.signature_keys,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -569,14 +586,14 @@ impl TokenProvider for SignerJwt {
     }
 
     fn get_token(&self) -> Result<String, AuthError> {
-        self.sign_internal_claims()
-    }
-
-    async fn get_token_with_claims(&self, custom_claims: MetadataMap) -> Result<String, AuthError> {
-        if custom_claims.is_empty() {
-            self.sign_internal_claims()
+        if let Some((_, pub_key)) = &self.signature_keys {
+            let pub_key_b64 = STANDARD_BASE64.encode(pub_key);
+            let mut claims_map = MetadataMap::new();
+            claims_map.insert("pubkey".to_string(), pub_key_b64);
+            self.sign_internal_claims_with_custom(claims_map)
         } else {
-            self.sign_internal_claims_with_custom(custom_claims)
+            // No MLS keys — sign without pubkey claim
+            self.sign_internal_claims()
         }
     }
 
@@ -585,6 +602,26 @@ impl TokenProvider for SignerJwt {
             .sub
             .clone()
             .ok_or(AuthError::TokenInvalidMissingSub)
+    }
+
+    fn get_signature_secret_key(&self) -> Result<Vec<u8>, AuthError> {
+        self.signature_keys
+            .as_ref()
+            .map(|(s, _)| s.clone())
+            .ok_or(AuthError::MlsNotSupported)
+    }
+
+    fn get_signature_public_key(&self) -> Result<Vec<u8>, AuthError> {
+        self.signature_keys
+            .as_ref()
+            .map(|(_, p)| p.clone())
+            .ok_or(AuthError::MlsNotSupported)
+    }
+
+    fn rotate_signature_keys(&mut self) -> Result<(), AuthError> {
+        let (secret_key, public_key) = generate_mls_signature_keys()?;
+        self.signature_keys = Some((secret_key, public_key));
+        Ok(())
     }
 }
 
@@ -605,14 +642,6 @@ impl TokenProvider for StaticTokenProvider {
     fn get_id(&self) -> Result<String, AuthError> {
         let token = self.get_token()?;
         extract_sub_claim_unsafe(&token)
-    }
-
-    async fn get_token_with_claims(
-        &self,
-        _custom_claims: MetadataMap,
-    ) -> Result<String, AuthError> {
-        // This provider does not support custom claims in the token
-        Err(AuthError::JwtStaticUnsupportedCustomClaims)
     }
 }
 
@@ -1241,6 +1270,7 @@ mod tests {
             Duration::from_secs(3600),
             Validation::default(),
         )
+        .unwrap()
         .with_static_token(Arc::new(RwLock::new(token)));
 
         let id = provider.get_id().unwrap();
@@ -1260,6 +1290,7 @@ mod tests {
             Duration::from_secs(3600),
             Validation::default(),
         )
+        .unwrap()
         .with_static_token(Arc::new(RwLock::new("invalid.token.here".to_string())));
 
         let result = provider.get_id();
@@ -1287,6 +1318,7 @@ mod tests {
             Duration::from_secs(3600),
             Validation::default(),
         )
+        .unwrap()
         .with_static_token(Arc::new(RwLock::new(token)));
 
         let result = provider.get_id();
