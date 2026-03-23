@@ -1,0 +1,73 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+name: benchmark-data-plane
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/benchmark.yaml'
+      - 'data-plane/**'
+      - 'scripts/run-benchmark.sh'
+      - 'scripts/flamegraph-profile.sh'
+  workflow_dispatch:
+    inputs:
+      senders:
+        description: 'Comma-separated sender counts'
+        required: false
+        default: '1,4,8,16'
+        type: string
+      messages:
+        description: 'Messages per sender'
+        required: false
+        default: '1000000'
+        type: string
+      payload-sizes:
+        description: 'Comma-separated payload sizes in bytes'
+        required: false
+        default: '64,256,1024,4096'
+        type: string
+      runs:
+        description: 'Repetitions per configuration'
+        required: false
+        default: '3'
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  benchmark:
+    name: Data plane benchmark
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          workspace: ./data-plane
+
+      - name: Run benchmark
+        working-directory: .
+        run: |
+          ./scripts/run-benchmark.sh \
+            --senders "${{ inputs.senders || '4,16' }}" \
+            --messages "${{ inputs.messages || '500000' }}" \
+            --payload-sizes "${{ inputs.payload-sizes || '64,1024' }}" \
+            --runs "${{ inputs.runs || '1' }}" \
+            --output benchmark-results.csv
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ github.sha }}
+          path: benchmark-results.csv
+          retention-days: 90
