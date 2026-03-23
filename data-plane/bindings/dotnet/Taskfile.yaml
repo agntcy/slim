@@ -298,6 +298,24 @@ tasks:
         ls -lh "$OUTPUT_DIR"/*.nupkg
     silent: true
 
+  format:
+    desc: "Format the C# code"
+    cmds:
+      - |
+        echo "Formatting C# code..."
+        dotnet format
+        echo "✅ Code formatted"
+    silent: true
+
+  lint:
+    desc: "Check code formatting without applying changes"
+    cmds:
+      - |
+        echo "Linting C# code..."
+        dotnet format --verify-no-changes
+        echo "✅ Lint passed"
+    silent: true
+
   ci:
     desc: "Run complete CI pipeline: generate bindings, copy runtimes, build, test, and pack"
     vars:
@@ -313,6 +331,7 @@ tasks:
         echo ""
       - task: generate
       - task: copy:runtimes
+      - task: lint
       - task: build
       - task: test
       - task: pack
