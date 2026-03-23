@@ -438,13 +438,7 @@ impl SessionSender {
     }
 
     pub fn timer_id_exists(&self, id: u32) -> bool {
-        if id > MAX_PUBLISH_ID {
-            // this must be a message sent with publish_to, so check the pending acks map
-            self.pending_acks.contains_key(&id)
-        } else {
-            // this is a message sent to the group, check if the timer exists
-            self.pending_acks.contains_key(&id)
-        }
+        self.pending_acks.contains_key(&id)
     }
 
     pub fn on_failure(&mut self, id: u32, error: SessionError) -> Result<(), SessionError> {

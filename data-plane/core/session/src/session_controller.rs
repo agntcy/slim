@@ -32,6 +32,11 @@ use crate::{
     traits::{MessageHandler, ProcessingState},
 };
 
+pub(crate) enum ChannelType {
+    Standard,
+    Legacy,
+}
+
 pub struct SessionController {
     /// session id
     pub(crate) id: u32,
@@ -555,31 +560,35 @@ impl ControlMessageSender {
     pub(crate) async fn send_with_timer(
         &mut self,
         message: Message,
-        legacy: bool,
+        channel_type: ChannelType,
     ) -> Result<(), SessionError> {
-        if legacy {
-            self.legacy_sender
-                .as_mut()
-                .ok_or(SessionError::LegacyChannelNotInitialized)?
-                .on_message(&message)
-                .await
-        } else {
-            self.sender.on_message(&message).await
+        match channel_type {
+            ChannelType::Legacy => {
+                self.legacy_sender
+                    .as_mut()
+                    .ok_or(SessionError::LegacyChannelNotInitialized)?
+                    .on_message(&message)
+                    .await
+            }
+            ChannelType::Standard => self.sender.on_message(&message).await,
         }
     }
 
     pub(crate) fn remove_participant(
         &mut self,
         name: &Name,
-        legacy: bool,
+        channel_type: ChannelType,
     ) -> Result<(), SessionError> {
-        if legacy {
-            self.legacy_sender
-                .as_mut()
-                .ok_or(SessionError::LegacyChannelNotInitialized)?
-                .remove_participant(name);
-        } else {
-            self.sender.remove_participant(name);
+        match channel_type {
+            ChannelType::Legacy => {
+                self.legacy_sender
+                    .as_mut()
+                    .ok_or(SessionError::LegacyChannelNotInitialized)?
+                    .remove_participant(name);
+            }
+            ChannelType::Standard => {
+                self.sender.remove_participant(name);
+            }
         }
         Ok(())
     }
@@ -739,9 +748,9 @@ where
     pub(crate) async fn send_with_timer(
         &mut self,
         message: Message,
-        legacy: bool,
+        channel_type: ChannelType,
     ) -> Result<(), SessionError> {
-        self.sender.send_with_timer(message, legacy).await
+        self.sender.send_with_timer(message, channel_type).await
     }
 
     pub(crate) async fn add_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
@@ -797,7 +806,7 @@ where
     }
 
     pub(crate) fn create_control_message(
-        &mut self,
+        &self,
         dst: &Name,
         message_type: ProtoSessionMessageType,
         message_id: u32,
@@ -833,7 +842,7 @@ where
         payload: Content,
         metadata: Option<HashMap<String, String>>,
         broadcast: bool,
-        legacy: bool,
+        channel_type: ChannelType,
     ) -> Result<(), SessionError> {
         let mut msg =
             self.create_control_message(dst, message_type, message_id, payload, broadcast)?;
@@ -841,7 +850,7 @@ where
             msg.set_metadata_map(m);
         }
 
-        self.send_with_timer(msg, legacy).await
+        self.send_with_timer(msg, channel_type).await
     }
 }
 

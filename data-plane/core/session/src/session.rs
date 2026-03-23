@@ -345,9 +345,9 @@ impl Session {
             ProtoSessionMessageType::Msg => {
                 if let Some(sender) = self.sender.as_mut() {
                     if sender.timer_id_exists(id) {
-                        return sender.on_timer_timeout(id).await;
+                        return sender.on_timer_failure(id);
                     } else if let Some(legacy_sender) = self.legacy_sender.as_mut() {
-                        return legacy_sender.on_timer_timeout(id).await;
+                        return legacy_sender.on_timer_failure(id);
                     }
                 }
                 Ok(())
