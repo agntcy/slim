@@ -9,8 +9,8 @@ runtimes/
 # Generated bindings (regenerated at build time)
 Slim/generated/
 
-# SlimRpc example: protobuf + slimrpc-csharp generated code (run task slimrpc:generate-proto)
-Slim.Examples.SlimRpc/Generated/
+# SlimRpc example generated C# (example.proto) is committed; regenerate via
+# `task slimrpc:generate-proto` in this directory when protos or the plugin change.
 
 # IDE
 .vs/
