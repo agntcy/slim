@@ -68,8 +68,8 @@ jobs:
       - name: Extract version from package name
         id: extract-version
         run: |
-          # Extract version from the .nupkg filename
-          PACKAGE=$(ls ./nupkg/*.nupkg | head -1)
+          # Use Agntcy.Slim (not Agntcy.Slim.SlimRpc) for version metadata
+          PACKAGE=$(ls ./nupkg/Agntcy.Slim.*.nupkg | grep -v SlimRpc | head -1)
           FILENAME=$(basename "$PACKAGE")
           # Extract version from Agntcy.Slim.X.Y.Z.nupkg
           VERSION=$(echo "$FILENAME" | sed -n 's/Agntcy\.Slim\.\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*.*\)\.nupkg/\1/p')
@@ -90,12 +90,23 @@ jobs:
 
       - name: Publish to NuGet.org
         run: |
-          PACKAGE=$(ls ./nupkg/*.nupkg | head -1)
-          echo "Publishing package: $PACKAGE"
+          set -euo pipefail
+          shopt -s nullglob
 
-          dotnet nuget push "$PACKAGE" \
-            --api-key "${{ secrets.nuget-api-token }}" \
-            --source https://api.nuget.org/v3/index.json \
-            --skip-duplicate
+          for PACKAGE in ./nupkg/*.nupkg; do
+            echo "Publishing package: $PACKAGE"
+            dotnet nuget push "$PACKAGE" \
+              --api-key "${{ secrets.nuget-api-token }}" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
+          done
 
-          echo "Successfully published to NuGet.org"
+          for PACKAGE in ./nupkg/*.snupkg; do
+            echo "Publishing symbol package: $PACKAGE"
+            dotnet nuget push "$PACKAGE" \
+              --api-key "${{ secrets.nuget-api-token }}" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
+          done
+
+          echo "Successfully published all packages to NuGet.org"

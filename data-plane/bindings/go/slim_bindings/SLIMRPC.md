@@ -1,7 +1,7 @@
 # slimrpc (SLIM Remote Procedure Call)
 
 slimrpc, or SLIM Remote Procedure Call, is a mechanism designed to enable Protocol
-Buffers (protobuf) RPC over SLIM (Secure Low-latency Inter-process Messaging).
+Buffers (protobuf) RPC over SLIM (Secure Low-Latency Interactive Messaging).
 This is analogous to gRPC, which leverages HTTP/2 as its underlying transport
 layer for protobuf RPC.
 

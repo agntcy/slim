@@ -9,6 +9,12 @@ runtimes/
 # Generated bindings (regenerated at build time)
 Slim/generated/
 
+# SlimRpc example: ignore generated output by default; committed files are exceptions.
+# Regenerate with `task slimrpc:generate-proto` when protos or the plugin change.
+Slim.Examples.SlimRpc/Generated/*
+!Slim.Examples.SlimRpc/Generated/Example.cs
+!Slim.Examples.SlimRpc/Generated/example_slimrpc.cs
+
 # IDE
 .vs/
 .vscode/
