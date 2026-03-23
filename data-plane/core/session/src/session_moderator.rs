@@ -504,17 +504,15 @@ where
             .await?;
 
         let mut legacy_msg_id = None;
-        if let Some(legacy) = self.common.settings.legacy.clone() {
+        if self.common.settings.legacy.is_some() {
             legacy_msg_id = Some(rand::random::<u32>());
             self.common
-                .send_control_message(
-                    &legacy,
+                .send_control_message_to_legacy(
                     ProtoSessionMessageType::GroupRemove,
                     legacy_msg_id.unwrap(),
                     update_payload,
                     None,
                     true,
-                    ChannelType::Legacy,
                 )
                 .await?;
         }
@@ -915,18 +913,16 @@ where
                 .as_mut()
                 .unwrap()
                 .commit_start(add_msg_id)?;
-            if let Some(legacy) = self.common.settings.legacy.clone() {
+            if self.common.settings.legacy.is_some() {
                 let legacy_id = rand::random::<u32>();
                 debug!(id = %legacy_id, "also send the group update to the legacy channel");
                 self.common
-                    .send_control_message(
-                        &legacy,
+                    .send_control_message_to_legacy(
                         ProtoSessionMessageType::GroupAdd,
                         legacy_id,
                         update_payload,
                         None,
                         true,
-                        ChannelType::Legacy, // use the legacy sender
                     )
                     .await?;
                 self.current_task
@@ -1333,21 +1329,19 @@ where
         self.common.sender.on_message(&close, false).await?;
 
         // check if we need to send the message also on the legacy channel
-        if let Some(legacy) = self.common.settings.legacy.clone() {
+        if self.common.settings.legacy.is_some() {
             let legacy_id = rand::random::<u32>();
             debug!(id = %legacy_id, "also send the group close message to the legacy channel");
-            let legacy_close = self.common.create_control_message(
-                &legacy,
-                ProtoSessionMessageType::GroupClose,
-                legacy_id,
-                CommandPayload::builder()
-                    .group_close(participants)
-                    .as_content(),
-                true,
-            )?;
             self.common
-                .sender
-                .send_with_timer(legacy_close, ChannelType::Legacy)
+                .send_control_message_to_legacy(
+                    ProtoSessionMessageType::GroupClose,
+                    legacy_id,
+                    CommandPayload::builder()
+                        .group_close(participants)
+                        .as_content(),
+                    None,
+                    true,
+                )
                 .await?;
             self.current_task
                 .as_mut()

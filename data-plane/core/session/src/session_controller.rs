@@ -832,6 +832,28 @@ where
         Ok(ret)
     }
 
+    /// Send control message to the legacy channel without creating ack channel (for internal use by moderator)
+    pub(crate) async fn send_control_message_to_legacy(
+        &mut self,
+        message_type: ProtoSessionMessageType,
+        message_id: u32,
+        payload: Content,
+        metadata: Option<HashMap<String, String>>,
+        broadcast: bool,
+    ) -> Result<(), SessionError> {
+        let dst = self
+            .settings
+            .legacy
+            .as_ref()
+            .ok_or(SessionError::LegacyChannelNotInitialized)?;
+        let mut msg =
+            self.create_control_message(dst, message_type, message_id, payload, broadcast)?;
+        if let Some(m) = metadata {
+            msg.set_metadata_map(m);
+        }
+        self.send_with_timer(msg, ChannelType::Legacy).await
+    }
+
     /// Send control message without creating ack channel (for internal use by moderator)
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn send_control_message(
