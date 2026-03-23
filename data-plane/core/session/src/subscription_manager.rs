@@ -23,6 +23,8 @@ pub enum SubscriptionAckError {
     Rejected { message: String },
     #[error("ack channel closed")]
     ChannelClosed,
+    #[error("ack timed out")]
+    Timeout,
 }
 
 /// Trait that abstracts subscription and route management operations.
@@ -360,9 +362,7 @@ impl SubscriptionManager {
     /// Register a pending ACK entry and return the ack_id and receiver.
     /// The caller is responsible for building and sending the message with this ack_id.
     /// If sending fails, call `cancel_ack` to clean up.
-    pub fn register_ack(
-        &self,
-    ) -> (String, oneshot::Receiver<Result<(), SubscriptionAckError>>) {
+    pub fn register_ack(&self) -> (String, oneshot::Receiver<Result<(), SubscriptionAckError>>) {
         let ack_id = self.next_ack_id();
         let (ack_tx, ack_rx) = oneshot::channel();
         {

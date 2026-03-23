@@ -5,7 +5,9 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::messages::Name;
 
 use crate::{
-    SessionError, common::SessionMessage, session_config::SessionConfig,
+    SessionError,
+    common::SessionMessage,
+    session_config::SessionConfig,
     subscription_manager::{SubscriptionManager, SubscriptionOps},
     transmitter::SessionTransmitter,
 };

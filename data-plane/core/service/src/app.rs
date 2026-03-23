@@ -14,8 +14,8 @@ use tracing::{debug, error};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::Status;
-use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::api::MessageType;
+use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::messages::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 
@@ -568,7 +568,8 @@ mod tests {
 
         // Resolve with empty error — should produce the default rejection message
         let ack_msg = build_subscription_ack_message(&ack_id, false, None);
-        app.subscription_manager.resolve_ack(ack_msg.get_subscription_ack());
+        app.subscription_manager
+            .resolve_ack(ack_msg.get_subscription_ack());
 
         let err = subscribe_fut.await.expect_err("subscribe should fail");
         match err {
@@ -596,7 +597,8 @@ mod tests {
             .expect("missing ack id in outbound subscribe message");
 
         let ack_msg = build_subscription_ack_message(&ack_id, true, None);
-        app.subscription_manager.resolve_ack(ack_msg.get_subscription_ack());
+        app.subscription_manager
+            .resolve_ack(ack_msg.get_subscription_ack());
 
         subscribe_fut.await.expect("subscribe should succeed");
     }
@@ -619,7 +621,8 @@ mod tests {
 
         let ack_msg =
             build_subscription_ack_message(&ack_id, false, Some("forwarding update failed"));
-        app.subscription_manager.resolve_ack(ack_msg.get_subscription_ack());
+        app.subscription_manager
+            .resolve_ack(ack_msg.get_subscription_ack());
 
         let err = subscribe_fut.await.expect_err("subscribe should fail");
         match err {

@@ -1132,6 +1132,7 @@ where
     }
 
     async fn on_leave_reply(&mut self, msg: Message) -> Result<(), SessionError> {
+        println!("Leave reply!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
         debug!(
             from = %msg.get_source(),
             id = %msg.get_id(),
@@ -1553,8 +1554,12 @@ mod tests {
         let sub_mgr = moderator.common.settings.subscription_manager.clone();
         // The JoinRequest handler calls add_route (ACK-awaiting) then sends GroupAck.
         // run_with_acks drives the future while auto-resolving the route subscribe ACK.
-        let result =
-            run_with_acks(moderator.process_control_message(join_msg, None), &mut rx_slim, &sub_mgr).await;
+        let result = run_with_acks(
+            moderator.process_control_message(join_msg, None),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
         assert!(result.is_ok());
         // The route subscribe was consumed by run_with_acks; GroupAck is the next message.
         let ack_msg = rx_slim.recv().await.unwrap().unwrap();
@@ -1643,9 +1648,13 @@ mod tests {
         let remote = make_name(&["remote", "app", "v1"]).with_id(200);
 
         // First join — run_with_acks drains and ACKs the subscribe message
-        run_with_acks(moderator.join(remote.clone(), 12345), &mut rx_slim, &sub_mgr)
-            .await
-            .unwrap();
+        run_with_acks(
+            moderator.join(remote.clone(), 12345),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await
+        .unwrap();
 
         // Second join should do nothing (already subscribed)
         moderator.join(remote, 12345).await.unwrap();
@@ -1869,9 +1878,13 @@ mod tests {
         // Set up moderator as joined (this adds moderator to group_list)
         let remote = Name::from_strings(["agntcy", "ns", "participant"]).with_id(200);
         let sub_mgr = moderator.common.settings.subscription_manager.clone();
-        run_with_acks(moderator.join(remote.clone(), 12345), &mut rx_slim, &sub_mgr)
-            .await
-            .unwrap();
+        run_with_acks(
+            moderator.join(remote.clone(), 12345),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await
+        .unwrap();
 
         // Add one participant to the group (now we have moderator + participant = 2 total)
         // Use the naming convention requested: agntcy/ns/participant
@@ -1998,9 +2011,13 @@ mod tests {
         // Set up moderator as joined
         let remote = Name::from_strings(["agntcy", "ns", "participant1"]).with_id(200);
         let sub_mgr = moderator.common.settings.subscription_manager.clone();
-        run_with_acks(moderator.join(remote.clone(), 12345), &mut rx_slim, &sub_mgr)
-            .await
-            .unwrap();
+        run_with_acks(
+            moderator.join(remote.clone(), 12345),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await
+        .unwrap();
 
         // Add three participants to the group
         let mut participant1 = Name::from_strings(["agntcy", "ns", "participant1"]);

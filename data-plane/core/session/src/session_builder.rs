@@ -7,10 +7,16 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::messages::Name;
 
 use crate::{
-    Direction, common::SessionMessage, errors::SessionError, session_config::SessionConfig,
-    session_controller::SessionController, session_moderator::SessionModerator,
-    session_participant::SessionParticipant, session_settings::SessionSettings,
-    subscription_manager::{SubscriptionManager, SubscriptionOps}, traits::MessageHandler,
+    Direction,
+    common::SessionMessage,
+    errors::SessionError,
+    session_config::SessionConfig,
+    session_controller::SessionController,
+    session_moderator::SessionModerator,
+    session_participant::SessionParticipant,
+    session_settings::SessionSettings,
+    subscription_manager::{SubscriptionManager, SubscriptionOps},
+    traits::MessageHandler,
     transmitter::SessionTransmitter,
 };
 

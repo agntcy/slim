@@ -526,8 +526,17 @@ pub fn handle_channel_discovery_message(
     Ok(msg)
 }
 
-pub(crate) struct SessionControllerCommon<P, V, M = crate::subscription_manager::SubscriptionManager>
-where
+/// Timeout for awaiting a subscription/route ACK from the datapath.
+/// If the datapath does not respond within this window the operation fails
+/// with `SubscriptionAckError::Timeout` so the session is never blocked
+/// indefinitely by a lost or unresponsive SLIM node.
+const SUBSCRIPTION_ACK_TIMEOUT: Duration = Duration::from_secs(5);
+
+pub(crate) struct SessionControllerCommon<
+    P,
+    V,
+    M = crate::subscription_manager::SubscriptionManager,
+> where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
     M: crate::subscription_manager::SubscriptionOps,
@@ -585,6 +594,21 @@ where
         self.sender.on_message(&message).await
     }
 
+    /// Await a subscription ACK receiver with a deadline.  Returns an error if
+    /// the channel closes or the timeout elapses before the ACK arrives.
+    async fn await_subscription_ack(
+        rx: tokio::sync::oneshot::Receiver<
+            Result<(), crate::subscription_manager::SubscriptionAckError>,
+        >,
+    ) -> Result<(), SessionError> {
+        use crate::subscription_manager::SubscriptionAckError;
+        tokio::time::timeout(SUBSCRIPTION_ACK_TIMEOUT, rx)
+            .await
+            .map_err(|_| SessionError::SubscriptionAckFailed(SubscriptionAckError::Timeout))?
+            .map_err(|_| SessionError::SubscriptionAckFailed(SubscriptionAckError::ChannelClosed))?
+            .map_err(SessionError::SubscriptionAckFailed)
+    }
+
     pub(crate) async fn add_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
         let rx = self
             .settings
@@ -592,13 +616,7 @@ where
             .set_route(&self.settings.source, name, conn)
             .await
             .map_err(SessionError::SubscriptionAckFailed)?;
-        rx.await
-            .map_err(|_| {
-                SessionError::SubscriptionAckFailed(
-                    crate::subscription_manager::SubscriptionAckError::ChannelClosed,
-                )
-            })?
-            .map_err(SessionError::SubscriptionAckFailed)
+        Self::await_subscription_ack(rx).await
     }
 
     pub(crate) async fn delete_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
@@ -608,13 +626,7 @@ where
             .remove_route(&self.settings.source, name, conn)
             .await
             .map_err(SessionError::SubscriptionAckFailed)?;
-        rx.await
-            .map_err(|_| {
-                SessionError::SubscriptionAckFailed(
-                    crate::subscription_manager::SubscriptionAckError::ChannelClosed,
-                )
-            })?
-            .map_err(SessionError::SubscriptionAckFailed)
+        Self::await_subscription_ack(rx).await
     }
 
     pub(crate) async fn add_subscription(
@@ -628,13 +640,7 @@ where
             .subscribe(&self.settings.source, name, Some(conn))
             .await
             .map_err(SessionError::SubscriptionAckFailed)?;
-        rx.await
-            .map_err(|_| {
-                SessionError::SubscriptionAckFailed(
-                    crate::subscription_manager::SubscriptionAckError::ChannelClosed,
-                )
-            })?
-            .map_err(SessionError::SubscriptionAckFailed)
+        Self::await_subscription_ack(rx).await
     }
 
     pub(crate) async fn delete_subscription(
@@ -648,13 +654,7 @@ where
             .unsubscribe(&self.settings.source, name, Some(conn))
             .await
             .map_err(SessionError::SubscriptionAckFailed)?;
-        rx.await
-            .map_err(|_| {
-                SessionError::SubscriptionAckFailed(
-                    crate::subscription_manager::SubscriptionAckError::ChannelClosed,
-                )
-            })?
-            .map_err(SessionError::SubscriptionAckFailed)
+        Self::await_subscription_ack(rx).await
     }
 
     pub(crate) fn create_control_message(

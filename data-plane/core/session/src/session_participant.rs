@@ -475,9 +475,14 @@ where
 
                 debug!(name = %msg.get_source(), "remove endpoint from session");
                 // remove a route to the endpoint
-                self.common
-                    .delete_route(&name, msg.get_incoming_conn())
-                    .await?;
+                // Skip delete_route when the removed participant is ourselves: we never
+                // set up a recv_from subscription for our own name, so the datapath
+                // would return SubscriptionNotFound and block the GroupAck.
+                if name != self.common.settings.source {
+                    self.common
+                        .delete_route(&name, msg.get_incoming_conn())
+                        .await?;
+                }
                 self.inner.remove_endpoint(&name);
             }
         }
@@ -764,8 +769,12 @@ mod tests {
             .unwrap();
 
         let sub_mgr = participant.common.settings.subscription_manager.clone();
-        let result =
-            run_with_acks(participant.on_join_request(join_msg), &mut rx_slim, &sub_mgr).await;
+        let result = run_with_acks(
+            participant.on_join_request(join_msg),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
         assert!(result.is_ok());
 
         // Should have set moderator name
@@ -1273,8 +1282,12 @@ mod tests {
         assert!(result.is_ok());
 
         // disconnect_from_moderator sends delete_route (ACK-awaiting)
-        let result =
-            run_with_acks(participant.disconnect_from_moderator(), &mut rx_slim, &sub_mgr).await;
+        let result = run_with_acks(
+            participant.disconnect_from_moderator(),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
         assert!(result.is_ok());
     }
 }
