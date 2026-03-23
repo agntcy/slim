@@ -16,7 +16,7 @@ on:
       senders:
         description: 'Comma-separated sender counts'
         required: false
-        default: '1,4,8,16'
+        default: '1,2,4,8'
         type: string
       messages:
         description: 'Messages per sender'
@@ -59,7 +59,7 @@ jobs:
         working-directory: .
         run: |
           ./scripts/run-benchmark.sh \
-            --senders "${{ inputs.senders || '4,16' }}" \
+            --senders "${{ inputs.senders || '1,2,4,8' }}" \
             --messages "${{ inputs.messages || '500000' }}" \
             --payload-sizes "${{ inputs.payload-sizes || '8,16,64,1024' }}" \
             --runs "${{ inputs.runs || '1' }}" \

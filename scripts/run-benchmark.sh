@@ -11,7 +11,7 @@
 #   ./scripts/run-benchmark.sh [OPTIONS]
 #
 # Options:
-#   --senders LIST        Comma-separated sender counts (default: 1,4,8,16)
+#   --senders LIST        Comma-separated sender counts (default: 1,2,4,8)
 #   --messages N          Messages per sender (default: 1000000)
 #   --payload-sizes LIST  Comma-separated payload sizes in bytes (default: 8,16,64,256,1024,4096)
 #   --runs N              Repetitions per configuration (default: 3)
@@ -38,7 +38,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DP_DIR="$REPO_ROOT/data-plane"
 
 # Defaults
-SENDER_LIST="1,4,8,16"
+SENDER_LIST="1,2,4,8"
 MESSAGES=1000000
 PAYLOAD_LIST="8,16,64,256,1024,4096"
 RUNS=3
@@ -65,7 +65,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$QUICK" == true ]]; then
-  SENDER_LIST="4,16"
+  SENDER_LIST="1,2,4,8"
   PAYLOAD_LIST="8,16,64,1024"
   RUNS=1
   MESSAGES=500000
