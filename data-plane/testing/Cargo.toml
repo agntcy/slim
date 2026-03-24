@@ -37,7 +37,7 @@ base64 = { workspace = true }
 bollard = { version = "0.17" }
 clap = { workspace = true }
 futures = { workspace = true }
-jsonwebtoken-aws-lc = { workspace = true }
+jsonwebtoken = { workspace = true }
 libc = { version = "0.2.177" }
 parking_lot = { workspace = true }
 rand = { workspace = true }
