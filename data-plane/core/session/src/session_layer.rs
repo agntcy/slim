@@ -12,7 +12,7 @@ use rand::Rng;
 
 use slim_datapath::messages::utils::IS_MODERATOR;
 use tokio::sync::mpsc::Sender;
-use tracing::{debug, error, warn};
+use tracing::{Instrument, debug, error, warn};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType};
@@ -102,6 +102,9 @@ where
 
     /// Shared subscription manager — used by both this layer and all sessions it creates
     subscription_manager: SubscriptionManager,
+
+    /// Service ID propagated into every session span
+    service_id: String,
 }
 
 impl<P, V, T> SessionLayer<P, V, T>
@@ -121,6 +124,7 @@ where
         tx_app: Sender<Result<Notification, SessionError>>,
         transmitter: T,
         direction: Direction,
+        service_id: String,
     ) -> Self {
         let (tx_session, rx_session) = tokio::sync::mpsc::channel(16);
 
@@ -140,6 +144,7 @@ where
             to_notify: SyncRwLock::new(HashMap::new()),
             direction,
             subscription_manager,
+            service_id,
         };
 
         sl.listen_from_sessions(rx_session);
@@ -207,6 +212,7 @@ where
     }
 
     /// Public interface to create a new session
+    #[tracing::instrument(skip_all, fields(service_id = %self.service_id))]
     pub async fn create_session(
         &self,
         mut session_config: SessionConfig,
@@ -311,6 +317,7 @@ where
                 .with_tx_to_session_layer(self.tx_session.clone())
                 .with_direction(self.direction)
                 .with_subscription_manager(self.subscription_manager.clone())
+                .with_service_id(self.service_id.clone())
                 .ready()?;
 
             // Perform the async build operation without holding any lock
@@ -349,6 +356,7 @@ where
         mut rx_session: tokio::sync::mpsc::Receiver<Result<SessionMessage, SessionError>>,
     ) {
         let pool_clone = self.pool.clone();
+        let sessions_span = tracing::info_span!(parent: None, "listen_from_sessions", service_id = %self.service_id);
 
         tokio::spawn(async move {
             loop {
@@ -375,10 +383,11 @@ where
                     }
                 }
             }
-        });
+        }.instrument(sessions_span));
     }
 
     /// Remove a session from the pool and return a handle to optionally wait on
+    #[tracing::instrument(skip_all, fields(service_id = %self.service_id, session_id = id))]
     pub fn remove_session(&self, id: u32) -> Result<CompletionHandle, SessionError> {
         debug!(%id, "try to remove session");
         // get the read lock
@@ -440,6 +449,7 @@ where
     }
 
     /// Handle an error coming from SLIM. Forward it to the corresponding session.
+    #[tracing::instrument(skip_all, fields(service_id = %self.service_id))]
     pub async fn handle_error_from_slim(&self, error: SessionError) -> Result<(), SessionError> {
         // Extract context and session ID from the error
         let Some(session_ctx) = error.session_context() else {
@@ -474,6 +484,7 @@ where
 
     /// Handle a message from the message processor, and pass it to the
     /// corresponding session
+    #[tracing::instrument(skip_all, fields(service_id = %self.service_id))]
     pub async fn handle_message_from_slim(&self, mut message: Message) -> Result<(), SessionError> {
         tracing::trace!(
             msg_type = %message.get_session_message_type().as_str_name(),

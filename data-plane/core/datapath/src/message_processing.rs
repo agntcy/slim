@@ -20,7 +20,7 @@ use tokio_stream::{Stream, StreamExt};
 use tokio_util::sync::CancellationToken;
 
 use tonic::{Request, Response, Status};
-use tracing::{Span, debug, error, info};
+use tracing::{Instrument, Span, debug, error, info};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::api::ProtoMessage;
@@ -87,33 +87,36 @@ fn inject_current_context(msg: &mut Message) {
     });
 }
 
-// Helper function to create the trace span
-fn create_span(function: &str, out_conn: u64, msg: &Message) -> Span {
-    let span = tracing::span!(
-        tracing::Level::INFO,
-        "slim_process_message",
-        function = function,
-        source = format!("{}", msg.get_source()),
-        destination =  format!("{}", msg.get_dst()),
-        instance_id = %INSTANCE_ID.as_str(),
-        connection_id = out_conn,
-        message_type = msg.get_type().to_string(),
-        telemetry = true
-    );
+impl MessageProcessor {
+    // Helper to create the trace span, attached to the processor so it carries service_id
+    fn create_span(&self, function: &str, out_conn: u64, msg: &Message) -> Span {
+        let span = tracing::span!(
+            tracing::Level::INFO,
+            "slim_process_message",
+            function = function,
+            service_id = %self.internal.service_id,
+            source = format!("{}", msg.get_source()),
+            destination = format!("{}", msg.get_dst()),
+            instance_id = %INSTANCE_ID.as_str(),
+            connection_id = out_conn,
+            message_type = msg.get_type().to_string(),
+            telemetry = true
+        );
 
-    if let PublishType(_) = msg.get_type() {
-        span.set_attribute("session_type", msg.get_session_message_type().as_str_name());
-        span.set_attribute(
-            "session_id",
-            msg.get_session_header().get_session_id().to_string(),
-        );
-        span.set_attribute(
-            "message_id",
-            msg.get_session_header().get_message_id().to_string(),
-        );
+        if let PublishType(_) = msg.get_type() {
+            span.set_attribute("session_type", msg.get_session_message_type().as_str_name());
+            span.set_attribute(
+                "session_id",
+                msg.get_session_header().get_session_id().to_string(),
+            );
+            span.set_attribute(
+                "message_id",
+                msg.get_session_header().get_message_id().to_string(),
+            );
+        }
+
+        span
     }
-
-    span
 }
 
 fn local_version() -> &'static str {
@@ -136,6 +139,9 @@ struct MessageProcessorInternal {
 
     /// Remote subscription ACK manager
     sub_ack_manager: crate::subscription_ack::RemoteSubAckManager,
+
+    /// Service ID for tracing
+    service_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -145,6 +151,12 @@ pub struct MessageProcessor {
 
 impl Default for MessageProcessor {
     fn default() -> Self {
+        Self::new_with_service_id(String::new())
+    }
+}
+
+impl MessageProcessor {
+    pub fn new_with_service_id(service_id: String) -> Self {
         let (signal, watch) = drain::channel();
         let internal = MessageProcessorInternal {
             forwarder: Forwarder::new(),
@@ -152,14 +164,13 @@ impl Default for MessageProcessor {
             drain_watch: RwLock::new(Some(watch)),
             tx_control_plane: RwLock::new(None),
             sub_ack_manager: crate::subscription_ack::RemoteSubAckManager::new(),
+            service_id,
         };
         Self {
             internal: Arc::new(internal),
         }
     }
-}
 
-impl MessageProcessor {
     pub fn new() -> Self {
         Self::default()
     }
@@ -344,6 +355,7 @@ impl MessageProcessor {
             .ok_or(DataPathError::DisconnectionError(conn))
     }
 
+    #[tracing::instrument(skip_all, fields(service_id = %self.internal.service_id))]
     pub fn register_local_connection(
         &self,
         from_control_plane: bool,
@@ -409,7 +421,7 @@ impl MessageProcessor {
 
                     // telemetry ////////////////////////////////////////////////////////
                     let parent_context = extract_parent_context(&msg);
-                    let span = create_span("send_message", out_conn, &msg);
+                    let span = self.create_span("send_message", out_conn, &msg);
 
                     if let Some(ctx) = parent_context
                         && let Err(e) = span.set_parent(ctx)
@@ -522,6 +534,7 @@ impl MessageProcessor {
             .get_subscriptions_forwarded_on_connection(out_conn);
 
         if subs.is_empty() {
+            debug!(%out_conn, "empty subscription set on connection");
             return;
         }
 
@@ -580,6 +593,7 @@ impl MessageProcessor {
         );
 
         let Some(conn) = self.forwarder().get_connection(in_connection) else {
+            debug!(%in_connection, "ignoring link negotiation request received on unknown connection");
             return Ok(());
         };
 
@@ -708,7 +722,7 @@ impl MessageProcessor {
             });
         };
 
-        debug!(
+        info!(
             %conn,
             %dst,
             is_local = connection.is_local_connection(),
@@ -729,14 +743,14 @@ impl MessageProcessor {
                 // For unsubscribes: skip forwarding if the name is still subscribed on this node.
                 // The upstream relay must continue routing traffic here for the remaining subscribers.
                 if !add && still_subscribed {
-                    debug!(
+                    info!(
                         %dst,
                         "skipping unsubscribe forward: uid still subscribed on this node"
                     );
                     return Ok(true);
                 }
 
-                debug!(
+                info!(
                     %out_conn,
                     "forwarding {}subscription to connection",
                     if add { "" } else { "un" }
@@ -763,7 +777,7 @@ impl MessageProcessor {
         in_connection: u64,
         add: bool,
     ) -> Result<(), DataPathError> {
-        debug!(
+        info!(
             %in_connection,
             ?msg,
             "received {}subscription",
@@ -779,6 +793,8 @@ impl MessageProcessor {
         //////////////////////////////////////////////////////
 
         let ack_id = msg.take_subscription_ack_id();
+
+        info!(?ack_id, "received ack id");
 
         // get header
         let header = msg.get_slim_header();
@@ -807,6 +823,7 @@ impl MessageProcessor {
         // As connection is deleted only after processing, at this point it must exist.
         let Some(connection) = self.forwarder().get_connection(in_conn) else {
             if let Some(id) = ack_id {
+                info!(%in_conn, "connection not found, sending error ack");
                 self.send_subscription_ack(
                     in_connection,
                     id,
@@ -823,11 +840,13 @@ impl MessageProcessor {
         // Do not process subscriptions forwarded back to local connections.
         if recv_from.is_some() && connection.is_local_connection() {
             if let Some(id) = ack_id {
+                debug!(%in_conn, "subscription looped back to local connection, acking ok");
                 self.send_subscription_ack(in_connection, id, &Ok(())).await;
             }
             return Ok(());
         }
 
+        debug!(use_remote_ack, dst = %msg.get_dst(), forward_to = forward, "subscription: ack path decision");
         if use_remote_ack {
             debug!(%in_connection, "subscription: remote ack path");
             let out_conn = forward.unwrap();
@@ -840,6 +859,7 @@ impl MessageProcessor {
             let still_subscribed = match local_result {
                 Err(e) => {
                     if let Some(id) = ack_id {
+                        debug!(%in_connection, error = %e, "local subscription update failed, sending error ack");
                         self.send_subscription_ack(in_connection, id, &Err(e)).await;
                     }
                     return Ok(());
@@ -853,6 +873,7 @@ impl MessageProcessor {
             if !add && still_subscribed {
                 debug!(%in_connection, "subscription: uid still subscribed, skipping remote unsubscribe");
                 if let Some(id) = ack_id {
+                    debug!(%in_connection, "still subscribed, acking ok without forwarding");
                     self.send_subscription_ack(in_connection, id, &Ok(())).await;
                 }
                 return Ok(());
@@ -862,8 +883,7 @@ impl MessageProcessor {
             let new_ack_id = rand::random::<u64>();
 
             // Build the forwarded message with the new ack ID.
-            let mut forwarded_msg = msg.clone();
-            forwarded_msg.set_subscription_ack_id(new_ack_id);
+            msg.set_subscription_ack_id(new_ack_id);
 
             // Register the forwarded subscription in the routing table.
             let source = msg.get_source();
@@ -877,7 +897,7 @@ impl MessageProcessor {
             tokio::spawn(crate::subscription_ack::retry_loop(
                 self.clone(),
                 new_ack_id,
-                forwarded_msg,
+                msg,
                 out_conn,
                 in_connection,
                 ack_id,
@@ -888,7 +908,7 @@ impl MessageProcessor {
         }
 
         // Default path: update local state and forward, then immediately ACK the requester.
-        debug!(%in_connection, "subscription: default ack path");
+        info!(%in_connection, forward = forward.is_some(), "subscription: default ack path");
         let result = self
             .process_subscription_update_and_forward(msg, in_conn, forward, add)
             .await;
@@ -899,6 +919,7 @@ impl MessageProcessor {
         };
 
         if let Some(id) = ack_id {
+            info!(%in_connection, ok = unit_result.is_ok(), "sending immediate subscription ack");
             self.send_subscription_ack(in_connection, id, &unit_result)
                 .await;
         }
@@ -970,12 +991,12 @@ impl MessageProcessor {
 
             // telemetry /////////////////////////////////////////
             if is_local {
-                let span = create_span("process_local", conn_index, &msg);
+                let span = self.create_span("process_local", conn_index, &msg);
                 let _guard = span.enter();
                 inject_current_context(&mut msg);
             } else {
                 let parent_context = extract_parent_context(&msg);
-                let span = create_span("process_local", conn_index, &msg);
+                let span = self.create_span("process_local", conn_index, &msg);
                 if let Some(ctx) = parent_context
                     && let Err(e) = span.set_parent(ctx)
                 {
@@ -1003,6 +1024,7 @@ impl MessageProcessor {
         }
     }
 
+    #[tracing::instrument(skip_all, fields(service_id = %self.internal.service_id, conn_index))]
     async fn send_error_to_local_app(&self, conn_index: u64, err: DataPathError) {
         debug!(%conn_index, "sending error to local application");
         let connection = self.forwarder().get_connection(conn_index);
@@ -1039,6 +1061,7 @@ impl MessageProcessor {
         }
     }
 
+    #[tracing::instrument(skip_all, fields(service_id = %self.internal.service_id, conn_index))]
     async fn reconnect(
         &self,
         client_conf: ClientConfig,
@@ -1102,6 +1125,12 @@ impl MessageProcessor {
         let client_conf_clone = client_config.clone();
         let tx_cp: Option<Sender<Result<Message, Status>>> = self.get_tx_control_plane();
         let watch = self.get_drain_watch()?;
+        let stream_span = tracing::info_span!(
+            parent: None,
+            "process_stream",
+            service_id = %self.internal.service_id,
+            conn_index
+        );
 
         let handle = tokio::spawn(async move {
             let mut try_to_reconnect = true;
@@ -1214,7 +1243,7 @@ impl MessageProcessor {
 
                 info!(telemetry = true, counter.num_active_connections = -1);
             }
-        });
+        }.instrument(stream_span));
 
         Ok(handle)
     }

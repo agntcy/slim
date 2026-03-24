@@ -63,6 +63,7 @@ impl RemoteSubAckManager {
 
 /// Returns `true` if the remote peer supports subscription ACKs (version ≥ 1.2.0).
 pub(crate) fn supports(conn: &Connection) -> bool {
+    debug!(version = ?conn.remote_slim_version(), min = %min_version(), "checking remote subscription-ack support");
     conn.remote_slim_version()
         .is_some_and(|v| v >= min_version())
 }
@@ -108,6 +109,7 @@ pub(crate) async fn retry_loop(
     processor.remove_sub_ack(ack_id);
 
     if let Some(id) = upstream_ack_id {
+        debug!(%ack_id, upstream_ack_id = id, ok = final_result.is_ok(), "forwarding subscription ack to upstream");
         processor
             .send_subscription_ack(in_connection, id, &final_result)
             .await;

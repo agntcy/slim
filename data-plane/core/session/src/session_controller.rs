@@ -9,7 +9,7 @@ use parking_lot::Mutex;
 use tokio::sync::{self, oneshot};
 // Third-party crates
 use tokio_util::sync::CancellationToken;
-use tracing::{Instrument, debug};
+use tracing::{Instrument, debug, info};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
@@ -88,8 +88,10 @@ impl SessionController {
 
         // setup tracing context
         let span = tracing::debug_span!(
+            parent: None,
             "session_controller_processing_loop",
             session_id = id,
+            service_id = %settings.service_id,
             source = %source,
             destination = %destination,
             session_type = ?config.session_type
@@ -294,7 +296,7 @@ impl SessionController {
                 ack_tx,
             })
             .await
-            .map_err(|_e| SessionError::SessionControllerSendFailed)
+            .map_err(|_e| {SessionError::SessionControllerSendFailed})
     }
 
     /// Send a message to the controller for processing
@@ -607,7 +609,11 @@ where
             .set_route(&self.settings.source, name, conn)
             .await
             .map_err(SessionError::SubscriptionAckFailed)?;
-        Self::await_subscription_ack(rx).await
+        info!("Setting route");
+        Self::await_subscription_ack(rx).await?;
+        info!("Set route");
+
+        Ok(())
     }
 
     pub(crate) async fn delete_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
@@ -617,7 +623,12 @@ where
             .remove_route(&self.settings.source, name, conn)
             .await
             .map_err(SessionError::SubscriptionAckFailed)?;
-        Self::await_subscription_ack(rx).await
+
+        info!("Unsetting route");
+        Self::await_subscription_ack(rx).await?;
+        info!("Unset route");
+
+        Ok(())
     }
 
     pub(crate) async fn add_subscription(
@@ -631,7 +642,12 @@ where
             .subscribe(&self.settings.source, name, Some(conn))
             .await
             .map_err(SessionError::SubscriptionAckFailed)?;
-        Self::await_subscription_ack(rx).await
+
+        info!("Setting sub");
+        Self::await_subscription_ack(rx).await?;
+        info!("Set sub");
+
+        Ok(())
     }
 
     pub(crate) async fn delete_subscription(
@@ -645,7 +661,12 @@ where
             .unsubscribe(&self.settings.source, name, Some(conn))
             .await
             .map_err(SessionError::SubscriptionAckFailed)?;
-        Self::await_subscription_ack(rx).await
+
+        info!("Unsetting sub");
+        Self::await_subscription_ack(rx).await?;
+        info!("Unset sub");
+
+        Ok(())
     }
 
     pub(crate) fn create_control_message(

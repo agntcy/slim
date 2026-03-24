@@ -10,7 +10,7 @@ use display_error_chain::ErrorChainExt;
 use slim_datapath::errors::ErrorPayload;
 use slim_session::Direction;
 use tokio::sync::mpsc;
-use tracing::{debug, error};
+use tracing::{Instrument, debug, error};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::Status;
@@ -37,6 +37,9 @@ where
 {
     /// App name provided when creating the app
     app_name: Name,
+
+    /// Service ID for tracing
+    service_id: String,
 
     /// Session layer that manages sessions
     session_layer: Arc<SessionLayer<P, V>>,
@@ -83,6 +86,7 @@ where
         conn_id: u64,
         tx_slim: SlimChannelSender,
         tx_app: mpsc::Sender<Result<Notification, SessionError>>,
+        service_id: String,
     ) -> Self {
         Self::new_with_direction(
             app_name,
@@ -92,6 +96,7 @@ where
             tx_slim,
             tx_app,
             Direction::Bidirectional,
+            service_id,
         )
     }
 
@@ -105,6 +110,7 @@ where
         tx_slim: SlimChannelSender,
         tx_app: mpsc::Sender<Result<Notification, SessionError>>,
         direction: Direction,
+        service_id: String,
     ) -> Self {
         // Create identity interceptor
         let identity_interceptor = Arc::new(IdentityInterceptor::new(
@@ -122,6 +128,7 @@ where
         transmitter.add_interceptor(identity_interceptor);
 
         // Create the session layer
+        let service_id_clone = service_id.clone();
         let session_layer = Arc::new(SessionLayer::new(
             app_name.clone(),
             identity_provider,
@@ -131,6 +138,7 @@ where
             tx_app,
             transmitter,
             direction,
+            service_id,
         ));
 
         // Create a new cancellation token for the app receiver loop
@@ -140,6 +148,7 @@ where
 
         Self {
             app_name: app_name.clone(),
+            service_id: service_id_clone,
             session_layer,
             cancel_token,
             subscription_manager,
@@ -302,12 +311,19 @@ where
     /// SLIM receiver loop
     pub(crate) fn process_messages(&self, mut rx: mpsc::Receiver<Result<Message, Status>>) {
         let app_name = self.app_name.clone();
+        let service_id = self.service_id.clone();
         let session_layer = self.session_layer.clone();
         let token_clone = self.cancel_token.clone();
         let subscription_manager = self.subscription_manager.clone();
 
+        let loop_span = tracing::info_span!(
+            parent: None,
+            "process_messages",
+            app = %app_name,
+            service_id = %service_id,
+        );
         tokio::spawn(async move {
-            debug!(app = %app_name, "starting message processing loop");
+            debug!("starting message processing loop");
 
             // Initiate self-subscription via the subscription manager so the ACK
             // is tracked and resolved through the normal loop machinery.
@@ -401,7 +417,7 @@ where
                     }
                 }
             }
-        });
+        }.instrument(loop_span));
     }
 }
 
