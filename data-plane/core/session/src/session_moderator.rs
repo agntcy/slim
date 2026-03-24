@@ -110,7 +110,6 @@ where
                 self.common.settings.identity_provider.clone(),
                 self.common.settings.identity_verifier.clone(),
             ))
-            .await
             .expect("failed to create MLS state");
 
             Some(MlsModeratorState::new(mls_state))
@@ -150,10 +149,7 @@ where
 
                     // Apply MLS encryption/decryption if enabled
                     if let Some(mls_state) = &mut self.mls_state {
-                        mls_state
-                            .common
-                            .process_message(&mut message, direction)
-                            .await?;
+                        mls_state.common.process_message(&mut message, direction)?;
                     }
 
                     self.inner
@@ -440,7 +436,6 @@ where
             Some(state) => {
                 let mls_content = state
                     .remove_participant(msg)
-                    .await
                     .map_err(|e| self.handle_task_error(e))?;
                 let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
                 Some(MlsPayload {
@@ -758,7 +753,7 @@ where
 
         // get mls data if MLS is enabled
         let (commit, welcome) = if let Some(mls_state) = &mut self.mls_state {
-            let (commit_payload, welcome_payload) = mls_state.add_participant(&msg).await?;
+            let (commit_payload, welcome_payload) = mls_state.add_participant(&msg)?;
 
             // get the id of the commit, the welcome message has a random id
             let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();

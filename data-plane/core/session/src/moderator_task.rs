@@ -286,10 +286,11 @@ impl TaskUpdate for AddParticipant {
         }
 
         // Ack only after both welcome and commit phases are done.
-        if self.welcome.received && self.commit.received {
-            if let Some(tx) = self.ack_tx.take() {
-                let _ = tx.send(Ok(()));
-            }
+        if self.welcome.received
+            && self.commit.received
+            && let Some(tx) = self.ack_tx.take()
+        {
+            let _ = tx.send(Ok(()));
         }
 
         Ok(())

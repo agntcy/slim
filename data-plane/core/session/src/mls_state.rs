@@ -46,8 +46,8 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    pub(crate) async fn new(mut mls: Mls<P, V>) -> Result<Self, SessionError> {
-        mls.initialize().await?;
+    pub(crate) fn new(mut mls: Mls<P, V>) -> Result<Self, SessionError> {
+        mls.initialize()?;
 
         Ok(MlsState {
             mls,
@@ -57,15 +57,12 @@ where
         })
     }
 
-    pub(crate) async fn generate_key_package(&mut self) -> Result<KeyPackageMsg, SessionError> {
-        let ret = self.mls.generate_key_package().await?;
+    pub(crate) fn generate_key_package(&mut self) -> Result<KeyPackageMsg, SessionError> {
+        let ret = self.mls.generate_key_package()?;
         Ok(ret)
     }
 
-    pub(crate) async fn process_welcome_message(
-        &mut self,
-        msg: &Message,
-    ) -> Result<(), SessionError> {
+    pub(crate) fn process_welcome_message(&mut self, msg: &Message) -> Result<(), SessionError> {
         if self.last_mls_msg_id != 0 {
             debug!("Welcome message already received, drop");
             // we already got a welcome message, ignore this one
@@ -80,12 +77,12 @@ where
         self.last_mls_msg_id = mls_payload.commit_id;
         let welcome = &mls_payload.mls_content;
 
-        self.group = self.mls.process_welcome(welcome).await?;
+        self.group = self.mls.process_welcome(welcome)?;
 
         Ok(())
     }
 
-    pub(crate) async fn process_control_message(
+    pub(crate) fn process_control_message(
         &mut self,
         msg: Message,
         local_name: &Name,
@@ -108,18 +105,18 @@ where
             // base on the message type, process it
             match msg.get_session_header().session_message_type() {
                 ProtoSessionMessageType::GroupProposal => {
-                    self.process_proposal_message(msg, local_name).await?;
+                    self.process_proposal_message(msg, local_name)?;
                 }
                 ProtoSessionMessageType::GroupAdd => {
                     let payload = msg.extract_group_add()?;
                     let mls_payload = payload.mls.as_ref().ok_or(MlsError::NoGroupAddPayload)?;
-                    self.process_commit_message(mls_payload).await?;
+                    self.process_commit_message(mls_payload)?;
                 }
                 ProtoSessionMessageType::GroupRemove => {
                     let payload = msg.extract_group_remove()?;
                     let mls_payload = payload.mls.as_ref().ok_or(MlsError::NoGroupRemovePayload)?;
 
-                    self.process_commit_message(mls_payload).await?;
+                    self.process_commit_message(mls_payload)?;
                 }
                 _type => {
                     error!(?_type, "unknown control message type, drop it");
@@ -133,19 +130,16 @@ where
         Ok(true)
     }
 
-    async fn process_commit_message(
-        &mut self,
-        mls_payload: &MlsPayload,
-    ) -> Result<(), SessionError> {
+    fn process_commit_message(&mut self, mls_payload: &MlsPayload) -> Result<(), SessionError> {
         trace!(id = %mls_payload.commit_id,  "processing stored commit",);
 
         // process the commit message
-        self.mls.process_commit(&mls_payload.mls_content).await?;
+        self.mls.process_commit(&mls_payload.mls_content)?;
 
         Ok(())
     }
 
-    async fn process_proposal_message(
+    fn process_proposal_message(
         &mut self,
         proposal: Message,
         local_name: &Name,
@@ -165,9 +159,7 @@ where
             return Ok(());
         }
 
-        self.mls
-            .process_proposal(&payload.mls_proposal, false)
-            .await?;
+        self.mls.process_proposal(&payload.mls_proposal, false)?;
 
         Ok(())
     }
@@ -261,7 +253,7 @@ where
     /// # Returns
     /// * `Ok(())` if processing succeeds
     /// * `Err(SessionError)` if processing fails or message format is invalid
-    pub async fn process_message(
+    pub fn process_message(
         &mut self,
         msg: &mut Message,
         direction: MessageDirection,
@@ -269,11 +261,11 @@ where
         match direction {
             MessageDirection::South => {
                 // Encrypting message going to SLIM
-                self.encrypt_message(msg).await
+                self.encrypt_message(msg)
             }
             MessageDirection::North => {
                 // Decrypting message coming from SLIM
-                self.decrypt_message(msg).await
+                self.decrypt_message(msg)
             }
         }
     }
@@ -286,7 +278,7 @@ where
     /// # Returns
     /// * `Ok(())` if encryption succeeds
     /// * `Err(SessionError)` if encryption fails or message format is invalid
-    async fn encrypt_message(&mut self, msg: &mut Message) -> Result<(), SessionError> {
+    fn encrypt_message(&mut self, msg: &mut Message) -> Result<(), SessionError> {
         if !Self::should_process_message(msg) {
             return Ok(());
         }
@@ -294,7 +286,7 @@ where
         let payload = msg.get_payload().unwrap().as_application_payload()?;
 
         debug!("Encrypting message for group member");
-        let encrypted_payload = self.mls.encrypt_message(&payload.blob).await?;
+        let encrypted_payload = self.mls.encrypt_message(&payload.blob)?;
 
         msg.set_payload(
             ApplicationPayload::new(&payload.payload_type, encrypted_payload.to_vec()).as_content(),
@@ -311,7 +303,7 @@ where
     /// # Returns
     /// * `Ok(())` if decryption succeeds
     /// * `Err(SessionError)` if decryption fails or message format is invalid
-    async fn decrypt_message(&mut self, msg: &mut Message) -> Result<(), SessionError> {
+    fn decrypt_message(&mut self, msg: &mut Message) -> Result<(), SessionError> {
         if !Self::should_process_message(msg) {
             return Ok(());
         }
@@ -319,7 +311,7 @@ where
         let payload = msg.get_payload().unwrap().as_application_payload()?;
 
         debug!("Decrypting message for group member");
-        let decrypted_payload = self.mls.decrypt_message(&payload.blob).await?;
+        let decrypted_payload = self.mls.decrypt_message(&payload.blob)?;
 
         msg.set_payload(
             ApplicationPayload::new(&payload.payload_type, decrypted_payload.to_vec()).as_content(),
@@ -359,18 +351,18 @@ where
     }
 
     pub(crate) async fn init_moderator(&mut self) -> Result<(), SessionError> {
-        self.common.mls.create_group().await?;
+        self.common.mls.create_group()?;
         Ok(())
     }
 
-    pub(crate) async fn add_participant(
+    pub(crate) fn add_participant(
         &mut self,
         msg: &Message,
     ) -> Result<(CommitMsg, WelcomeMsg), SessionError> {
         let payload = msg.extract_join_reply()?;
 
         // Propagate MlsError directly (will become SessionError::MlsOp via #[from])
-        let ret = self.common.mls.add_member(payload.key_package()).await?;
+        let ret = self.common.mls.add_member(payload.key_package())?;
 
         // add participant to the list
         self.participants
@@ -379,10 +371,7 @@ where
         Ok((ret.commit_message, ret.welcome_message))
     }
 
-    pub(crate) async fn remove_participant(
-        &mut self,
-        msg: &Message,
-    ) -> Result<CommitMsg, SessionError> {
+    pub(crate) fn remove_participant(&mut self, msg: &Message) -> Result<CommitMsg, SessionError> {
         debug!("Remove participant from the MLS group");
         let name = msg.get_dst();
         let id = match self.participants.get(&name) {
@@ -393,7 +382,7 @@ where
             }
         };
 
-        let ret = self.common.mls.remove_member(id).await?;
+        let ret = self.common.mls.remove_member(id)?;
 
         // remove the participant from the list
         self.participants.remove(&name);
@@ -402,20 +391,18 @@ where
     }
 
     #[allow(dead_code)]
-    pub(crate) async fn process_proposal_message(
+    pub(crate) fn process_proposal_message(
         &mut self,
         proposal: &ProposalMsg,
     ) -> Result<CommitMsg, SessionError> {
-        let commit = self.common.mls.process_proposal(proposal, true).await?;
+        let commit = self.common.mls.process_proposal(proposal, true)?;
 
         Ok(commit)
     }
 
     #[allow(dead_code)]
-    pub(crate) async fn process_local_pending_proposal(
-        &mut self,
-    ) -> Result<CommitMsg, SessionError> {
-        let commit = self.common.mls.process_local_pending_proposal().await?;
+    pub(crate) fn process_local_pending_proposal(&mut self) -> Result<CommitMsg, SessionError> {
+        let commit = self.common.mls.process_local_pending_proposal()?;
 
         Ok(commit)
     }
@@ -438,7 +425,7 @@ mod tests {
             SharedSecret::new("test", TEST_VALID_SECRET).unwrap(),
             SharedSecret::new("test", TEST_VALID_SECRET).unwrap(),
         );
-        mls.initialize().await.unwrap();
+        mls.initialize().unwrap();
 
         let mut mls_state = MlsState {
             mls,
@@ -462,7 +449,7 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result = mls_state.encrypt_message(&mut msg).await;
+        let result = mls_state.encrypt_message(&mut msg);
         assert!(result.is_err_and(|e| matches!(e, SessionError::MlsOp(_))));
     }
 
@@ -477,13 +464,13 @@ mod tests {
             SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
         );
 
-        alice_mls.initialize().await.unwrap();
-        bob_mls.initialize().await.unwrap();
+        alice_mls.initialize().unwrap();
+        bob_mls.initialize().unwrap();
 
-        let _group_id = alice_mls.create_group().await.unwrap();
-        let bob_key_package = bob_mls.generate_key_package().await.unwrap();
-        let ret = alice_mls.add_member(&bob_key_package).await.unwrap();
-        bob_mls.process_welcome(&ret.welcome_message).await.unwrap();
+        let _group_id = alice_mls.create_group().unwrap();
+        let bob_key_package = bob_mls.generate_key_package().unwrap();
+        let ret = alice_mls.add_member(&bob_key_package).unwrap();
+        bob_mls.process_welcome(&ret.welcome_message).unwrap();
 
         let mut alice_state = MlsState {
             mls: alice_mls,
@@ -516,7 +503,7 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        alice_state.encrypt_message(&mut alice_msg).await.unwrap();
+        alice_state.encrypt_message(&mut alice_msg).unwrap();
 
         assert_ne!(
             alice_msg
@@ -529,7 +516,7 @@ mod tests {
         );
 
         let mut bob_msg = alice_msg.clone();
-        bob_state.decrypt_message(&mut bob_msg).await.unwrap();
+        bob_state.decrypt_message(&mut bob_msg).unwrap();
 
         assert_eq!(
             bob_msg
@@ -548,8 +535,8 @@ mod tests {
             SharedSecret::new("test", TEST_VALID_SECRET).unwrap(),
             SharedSecret::new("test", TEST_VALID_SECRET).unwrap(),
         );
-        mls.initialize().await.unwrap();
-        let _group_id = mls.create_group().await.unwrap();
+        mls.initialize().unwrap();
+        let _group_id = mls.create_group().unwrap();
 
         let mut mls_state = MlsState {
             mls,
@@ -583,7 +570,7 @@ mod tests {
             .clone();
 
         // Should not encrypt
-        mls_state.encrypt_message(&mut msg).await.unwrap();
+        mls_state.encrypt_message(&mut msg).unwrap();
 
         // Payload should remain unchanged
         assert_eq!(

@@ -102,7 +102,9 @@ impl Config {
             }
             #[cfg(not(target_family = "windows"))]
             IdentityProviderConfig::Spire(spire_config) => {
-                let manager = spire_config.create_provider();
+                let manager = spire_config
+                    .create_provider()
+                    .expect("Failed to build SpireIdentityManager");
                 Some(AuthProvider::spire(manager))
             }
             IdentityProviderConfig::None => None,
@@ -122,7 +124,9 @@ impl Config {
             }
             #[cfg(not(target_family = "windows"))]
             IdentityVerifierConfig::Spire(spire_config) => {
-                let manager = spire_config.create_provider();
+                let manager = spire_config
+                    .create_provider()
+                    .expect("Failed to build SpireIdentityManager");
                 Some(AuthVerifier::spire(manager))
             }
             IdentityVerifierConfig::None => None,

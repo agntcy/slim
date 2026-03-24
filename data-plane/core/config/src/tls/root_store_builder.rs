@@ -121,7 +121,7 @@ impl RootStoreBuilder {
         root_store: &mut RootCertStore,
         spiffe_cfg: &spire::SpireConfig,
     ) -> Result<(), ConfigError> {
-        let mut spire_identity_manager = spiffe_cfg.create_provider();
+        let mut spire_identity_manager = spiffe_cfg.create_provider()?;
         spire_identity_manager.initialize().await?;
 
         if !spiffe_cfg.trust_domains.is_empty() {
