@@ -160,15 +160,19 @@ pub async fn run_benchmark(
         let content_clone = content.clone();
 
         let handle = tokio::spawn(async move {
-            for _ in 0..msg_count {
-                let msg = Message::builder()
-                    .source(sender_name.clone())
-                    .destination(topic.clone())
-                    .payload(content_clone.clone())
-                    .build_publish()
-                    .unwrap();
+            // Build the publish message template once, moving all owned values
+            // in (no clone). Per-iteration we only pay for one ProtoMessage
+            // clone instead of two Name clones + one Content clone + a full
+            // SlimHeader/SessionHeader construction.
+            let template = Message::builder()
+                .source(sender_name)
+                .destination(topic)
+                .payload(content_clone)
+                .build_publish()
+                .unwrap();
 
-                if tx.send(Ok(msg)).await.is_err() {
+            for _ in 0..msg_count {
+                if tx.send(Ok(template.clone())).await.is_err() {
                     break;
                 }
             }
