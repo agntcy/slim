@@ -258,12 +258,11 @@ impl NameState {
         // increment the counters, as no new application subscription has arrived.
         // Local subscriptions (app-facing) keep refcounting so apps can subscribe
         // multiple times and need matching unsubscribes.
-        if !is_local {
-            if let Some(refs) = self.ids.get(&id) {
-                if refs[index].refs.contains_key(&conn) {
-                    return;
-                }
-            }
+        if !is_local
+            && let Some(refs) = self.ids.get(&id)
+            && refs[index].refs.contains_key(&conn)
+        {
+            return;
         }
 
         self.connections[index].insert(conn);
