@@ -5,7 +5,10 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::messages::Name;
 
 use crate::{
-    SessionError, common::SessionMessage, session_config::SessionConfig,
+    SessionError,
+    common::SessionMessage,
+    session_config::SessionConfig,
+    subscription_manager::{SubscriptionManager, SubscriptionOps},
     transmitter::SessionTransmitter,
 };
 
@@ -21,10 +24,11 @@ use crate::{
 /// This struct is primarily for internal use. External users should use
 /// the `SessionBuilder` for a more ergonomic API.
 #[derive(Clone)]
-pub(crate) struct SessionSettings<P, V>
+pub(crate) struct SessionSettings<P, V, M = SubscriptionManager>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    M: SubscriptionOps,
 {
     /// Session ID
     pub(crate) id: u32,
@@ -55,4 +59,7 @@ where
 
     /// Graceful shutdown timeout - time to drain pending messages during shutdown
     pub(crate) graceful_shutdown_timeout: Option<std::time::Duration>,
+
+    /// Subscription manager for ACK-aware subscribe/unsubscribe operations
+    pub(crate) subscription_manager: M,
 }

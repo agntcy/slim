@@ -24,6 +24,7 @@ use crate::interceptor::IdentityInterceptor;
 use crate::notification::Notification;
 use crate::session_config::SessionConfig;
 use crate::session_controller::SessionController;
+use crate::subscription_manager::SubscriptionManager;
 
 use crate::transmitter::{AppTransmitter, SessionTransmitter};
 
@@ -98,6 +99,9 @@ where
 
     /// direction to use for the new sessions
     direction: Direction,
+
+    /// Shared subscription manager — used by both this layer and all sessions it creates
+    subscription_manager: SubscriptionManager,
 }
 
 impl<P, V, T> SessionLayer<P, V, T>
@@ -120,6 +124,8 @@ where
     ) -> Self {
         let (tx_session, rx_session) = tokio::sync::mpsc::channel(16);
 
+        let subscription_manager = SubscriptionManager::new(tx_slim.clone());
+
         let sl = SessionLayer {
             pool: Arc::new(SyncRwLock::new(HashMap::new())),
             app_id: app_name.id(),
@@ -133,6 +139,7 @@ where
             tx_session,
             to_notify: SyncRwLock::new(HashMap::new()),
             direction,
+            subscription_manager,
         };
 
         sl.listen_from_sessions(rx_session);
@@ -142,6 +149,10 @@ where
 
     pub fn tx_slim(&self) -> SlimChannelSender {
         self.tx_slim.clone()
+    }
+
+    pub fn subscription_manager(&self) -> SubscriptionManager {
+        self.subscription_manager.clone()
     }
 
     pub fn tx_app(&self) -> Sender<Result<Notification, SessionError>> {
@@ -299,6 +310,7 @@ where
                 .with_tx(tx)
                 .with_tx_to_session_layer(self.tx_session.clone())
                 .with_direction(self.direction)
+                .with_subscription_manager(self.subscription_manager.clone())
                 .ready()?;
 
             // Perform the async build operation without holding any lock

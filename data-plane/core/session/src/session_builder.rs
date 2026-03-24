@@ -7,10 +7,17 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::messages::Name;
 
 use crate::{
-    Direction, common::SessionMessage, errors::SessionError, session_config::SessionConfig,
-    session_controller::SessionController, session_moderator::SessionModerator,
-    session_participant::SessionParticipant, session_settings::SessionSettings,
-    traits::MessageHandler, transmitter::SessionTransmitter,
+    Direction,
+    common::SessionMessage,
+    errors::SessionError,
+    session_config::SessionConfig,
+    session_controller::SessionController,
+    session_moderator::SessionModerator,
+    session_participant::SessionParticipant,
+    session_settings::SessionSettings,
+    subscription_manager::{SubscriptionManager, SubscriptionOps},
+    traits::MessageHandler,
+    transmitter::SessionTransmitter,
 };
 
 // Marker types for builder states
@@ -103,10 +110,11 @@ pub struct ForModerator;
 ///     .build()
 ///     .await;
 /// ```
-pub struct SessionBuilder<P, V, Target, State = NotReady>
+pub struct SessionBuilder<P, V, Target, State = NotReady, M = SubscriptionManager>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    M: SubscriptionOps,
 {
     id: Option<u32>,
     source: Option<Name>,
@@ -118,15 +126,17 @@ where
     tx_to_session_layer: Option<tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>>,
     graceful_shutdown_timeout: Option<std::time::Duration>,
     direction: Direction,
+    subscription_manager: Option<M>,
     _target: PhantomData<Target>,
     _state: PhantomData<State>,
 }
 
 // Common builder methods (available in NotReady state for all target types)
-impl<P, V, Target> SessionBuilder<P, V, Target, NotReady>
+impl<P, V, Target, M> SessionBuilder<P, V, Target, NotReady, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    M: SubscriptionOps,
 {
     fn new() -> Self {
         Self {
@@ -140,6 +150,7 @@ where
             tx_to_session_layer: None,
             graceful_shutdown_timeout: None,
             direction: Direction::Bidirectional,
+            subscription_manager: None,
             _target: PhantomData,
             _state: PhantomData,
         }
@@ -198,7 +209,31 @@ where
         self
     }
 
-    pub fn ready(self) -> Result<SessionBuilder<P, V, Target, Ready>, SessionError> {
+    /// Set a custom subscription manager.  This method changes the manager
+    /// type `M`, so it returns a new builder type `SessionBuilder<P, V,
+    /// Target, NotReady, N>`.  Call this before `ready()`.
+    pub fn with_subscription_manager<N: SubscriptionOps>(
+        self,
+        manager: N,
+    ) -> SessionBuilder<P, V, Target, NotReady, N> {
+        SessionBuilder {
+            id: self.id,
+            source: self.source,
+            destination: self.destination,
+            config: self.config,
+            identity_provider: self.identity_provider,
+            identity_verifier: self.identity_verifier,
+            tx: self.tx,
+            tx_to_session_layer: self.tx_to_session_layer,
+            graceful_shutdown_timeout: self.graceful_shutdown_timeout,
+            direction: self.direction,
+            subscription_manager: Some(manager),
+            _target: PhantomData,
+            _state: PhantomData,
+        }
+    }
+
+    pub fn ready(self) -> Result<SessionBuilder<P, V, Target, Ready, M>, SessionError> {
         // Verify all required fields are set
         if self.id.is_none()
             || self.source.is_none()
@@ -223,6 +258,7 @@ where
             tx_to_session_layer: self.tx_to_session_layer,
             graceful_shutdown_timeout: self.graceful_shutdown_timeout,
             direction: self.direction,
+            subscription_manager: self.subscription_manager,
             _target: PhantomData,
             _state: PhantomData,
         })
@@ -230,10 +266,11 @@ where
 }
 
 // Convenience constructors for different target types
-impl<P, V> SessionBuilder<P, V, ForController, NotReady>
+impl<P, V, M> SessionBuilder<P, V, ForController, NotReady, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    M: SubscriptionOps,
 {
     /// Create a new builder for constructing a SessionController
     pub fn for_controller() -> Self {
@@ -241,10 +278,11 @@ where
     }
 }
 
-impl<P, V> SessionBuilder<P, V, ForParticipant, NotReady>
+impl<P, V, M> SessionBuilder<P, V, ForParticipant, NotReady, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    M: SubscriptionOps,
 {
     /// Create a new builder for constructing a SessionParticipant
     pub fn for_participant() -> Self {
@@ -252,10 +290,11 @@ where
     }
 }
 
-impl<P, V> SessionBuilder<P, V, ForModerator, NotReady>
+impl<P, V, M> SessionBuilder<P, V, ForModerator, NotReady, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    M: SubscriptionOps,
 {
     /// Create a new builder for constructing a SessionModerator
     pub fn for_moderator() -> Self {
@@ -264,10 +303,11 @@ where
 }
 
 // Build methods for SessionController
-impl<P, V> SessionBuilder<P, V, ForController, Ready>
+impl<P, V, M> SessionBuilder<P, V, ForController, Ready, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    M: SubscriptionOps,
 {
     /// Build a SessionController
     ///
@@ -310,13 +350,13 @@ where
     /// between moderator and participant stack building.
     fn build_session_stack<W>(
         self,
-        wrapper_constructor: impl FnOnce(crate::session::Session, SessionSettings<P, V>) -> W,
+        wrapper_constructor: impl FnOnce(crate::session::Session, SessionSettings<P, V, M>) -> W,
     ) -> Result<
         (
             W,
             tokio::sync::mpsc::Sender<SessionMessage>,
             tokio::sync::mpsc::Receiver<SessionMessage>,
-            SessionSettings<P, V>,
+            SessionSettings<P, V, M>,
         ),
         SessionError,
     >
@@ -335,17 +375,23 @@ where
             self.direction,
         );
 
+        let tx = self.tx.unwrap();
+        let subscription_manager = self
+            .subscription_manager
+            .or_else(|| M::from_slim_tx(&tx.slim_tx))
+            .expect("subscription_manager must be provided or M must implement from_slim_tx");
         let settings = SessionSettings {
             id: self.id.unwrap(),
             source: self.source.unwrap(),
             destination: self.destination.unwrap(),
             config: self.config.unwrap(),
-            tx: self.tx.unwrap(),
+            tx,
             tx_session: tx_session.clone(),
             tx_to_session_layer: self.tx_to_session_layer.unwrap(),
             identity_provider: self.identity_provider.unwrap(),
             identity_verifier: self.identity_verifier.unwrap(),
             graceful_shutdown_timeout: self.graceful_shutdown_timeout,
+            subscription_manager,
         };
 
         let wrapper = wrapper_constructor(inner, settings.clone());

@@ -14,6 +14,7 @@ use slim_mls::errors::MlsError;
 use tonic::Status;
 
 use crate::SessionMessage;
+use crate::subscription_manager::SubscriptionAckError;
 
 #[derive(Error, Debug)]
 pub enum SessionError {
@@ -80,6 +81,8 @@ pub enum SessionError {
     // Acknowledgements and routing
     #[error("error receiving ack for message: {0}")]
     AckReception(String),
+    #[error("subscription ack failed: {0}")]
+    SubscriptionAckFailed(#[source] SubscriptionAckError),
     #[error("unknown destination: {0}")]
     UnknownDestination(Name),
 

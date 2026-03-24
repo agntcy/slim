@@ -784,7 +784,17 @@ impl MessageProcessor {
         let header = msg.get_slim_header();
 
         // get in and out connections
-        let (conn, forward) = header.get_in_out_connections();
+        let (in_conn, recv_from, forward) = header.get_connections();
+        let in_conn = recv_from.unwrap_or(in_conn);
+
+        // Never forward subscriptions to local connections (they are local apps whose
+        // routes are already set locally).
+        let forward = forward.filter(|&out| {
+            self.forwarder()
+                .get_connection(out)
+                .map(|c| !c.is_local_connection())
+                .unwrap_or(true)
+        });
 
         // If forwarding to a remote ACK-capable node (v≥1.2.0), use the remote ack path:
         // update local state now, then asynchronously forward and wait for the remote ACK
@@ -794,13 +804,37 @@ impl MessageProcessor {
             .map(|c| crate::subscription_ack::supports(&c))
             .unwrap_or(false);
 
+        // As connection is deleted only after processing, at this point it must exist.
+        let Some(connection) = self.forwarder().get_connection(in_conn) else {
+            if let Some(id) = ack_id {
+                self.send_subscription_ack(
+                    in_connection,
+                    id,
+                    &Err(DataPathError::ConnectionNotFound(in_conn)),
+                )
+                .await;
+            }
+            return Err(DataPathError::MessageProcessingError {
+                source: Box::new(DataPathError::ConnectionNotFound(in_conn)),
+                msg: Box::new(msg),
+            });
+        };
+
+        // Do not process subscriptions forwarded back to local connections.
+        if recv_from.is_some() && connection.is_local_connection() {
+            if let Some(id) = ack_id {
+                self.send_subscription_ack(in_connection, id, &Ok(())).await;
+            }
+            return Ok(());
+        }
+
         if use_remote_ack {
             debug!(%in_connection, "subscription: remote ack path");
             let out_conn = forward.unwrap();
 
             // Local update only (no forwarding yet).
             let local_result = self
-                .process_subscription_update_and_forward(msg.clone(), conn, None, add)
+                .process_subscription_update_and_forward(msg.clone(), in_conn, None, add)
                 .await;
 
             let still_subscribed = match local_result {
@@ -856,7 +890,7 @@ impl MessageProcessor {
         // Default path: update local state and forward, then immediately ACK the requester.
         debug!(%in_connection, "subscription: default ack path");
         let result = self
-            .process_subscription_update_and_forward(msg, conn, forward, add)
+            .process_subscription_update_and_forward(msg, in_conn, forward, add)
             .await;
 
         let unit_result = match result {
