@@ -17,7 +17,7 @@ display-error-chain = { workspace = true }
 futures = { workspace = true }
 headers = { workspace = true }
 http = { workspace = true }
-jsonwebtoken-aws-lc = { workspace = true }
+jsonwebtoken = { workspace = true }
 mls-rs-core = { workspace = true }
 mls-rs-crypto-awslc = { workspace = true }
 notify = { workspace = true }

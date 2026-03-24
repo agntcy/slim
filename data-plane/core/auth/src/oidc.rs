@@ -8,8 +8,8 @@ use crate::traits::{TokenProvider, Verifier};
 use async_trait::async_trait;
 use display_error_chain::ErrorChainExt;
 use futures::executor::block_on;
-use jsonwebtoken_aws_lc::jwk::JwkSet;
-use jsonwebtoken_aws_lc::{DecodingKey, Validation, decode, decode_header};
+use jsonwebtoken::jwk::JwkSet;
+use jsonwebtoken::{DecodingKey, Validation, decode, decode_header};
 use oauth2::{AuthUrl, ClientId, ClientSecret, Scope, TokenResponse, TokenUrl, basic::BasicClient};
 use parking_lot::RwLock;
 use reqwest::Client as ReqwestClient;
@@ -539,7 +539,7 @@ impl Verifier for OidcVerifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use jsonwebtoken_aws_lc::{Algorithm, EncodingKey, Header, encode};
+    use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
     use serde_json::json;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};

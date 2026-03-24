@@ -62,7 +62,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use display_error_chain::ErrorChainExt;
 use futures::StreamExt;
-use jsonwebtoken_aws_lc::TokenData;
+use jsonwebtoken::TokenData;
 use parking_lot::RwLock;
 use serde::de::DeserializeOwned;
 use serde_json::{self, Value};
@@ -872,14 +872,7 @@ async fn fetch_once(
 // Decode JWT expiry (seconds since epoch) without verifying signature and audience.
 // Extracted as a standalone helper for reuse and unit testing.
 fn decode_jwt_expiry_unverified(token: &str) -> Result<u64, AuthError> {
-    let mut validation = jsonwebtoken_aws_lc::Validation::default();
-    validation.insecure_disable_signature_validation();
-    validation.validate_aud = false;
-
-    let key = jsonwebtoken_aws_lc::DecodingKey::from_secret(&[]);
-    let claims: TokenData<serde_json::Value> =
-        jsonwebtoken_aws_lc::decode(token, &key, &validation)?;
-
+    let claims: TokenData<serde_json::Value> = jsonwebtoken::dangerous::insecure_decode(token)?;
     let exp_val = claims
         .claims
         .get("exp")
@@ -1048,16 +1041,16 @@ mod tests {
     use serde_json::json;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    // Helper to build a JWT with a specific exp claim (numeric or string) using jsonwebtoken_aws_lc.
+    // Helper to build a JWT with a specific exp claim (numeric or string) using jsonwebtoken.
     fn build_token_with_exp(exp_value: serde_json::Value) -> String {
-        use jsonwebtoken_aws_lc::{EncodingKey, Header};
+        use jsonwebtoken::{EncodingKey, Header};
         use serde_json::Value;
         let mut payload_map = serde_json::Map::new();
         if exp_value != Value::Null {
             payload_map.insert("exp".to_string(), exp_value);
         }
         let payload = Value::Object(payload_map);
-        jsonwebtoken_aws_lc::encode(&Header::default(), &payload, &EncodingKey::from_secret(&[]))
+        jsonwebtoken::encode(&Header::default(), &payload, &EncodingKey::from_secret(&[]))
             .expect("token encoding should succeed")
     }
 

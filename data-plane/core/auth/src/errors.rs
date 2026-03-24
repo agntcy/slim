@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use http::StatusCode;
-use jsonwebtoken_aws_lc::jwk::KeyAlgorithm;
+use jsonwebtoken::jwk::KeyAlgorithm;
 
 #[cfg(not(target_family = "windows"))]
 use spiffe::{
@@ -88,7 +88,7 @@ pub enum AuthError {
     #[error("token invalid: replay")]
     TokenInvalidReplay,
     #[error("token invalid")]
-    JwtTokenInvalid(#[from] jsonwebtoken_aws_lc::errors::Error),
+    JwtTokenInvalid(#[from] jsonwebtoken::errors::Error),
     #[error("token invalid - missing or invalid exp claim")]
     TokenInvalidMissingExp,
 

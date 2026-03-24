@@ -7,8 +7,8 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 
-use jsonwebtoken_aws_lc::jwk::{Jwk, JwkSet};
-use jsonwebtoken_aws_lc::{Algorithm, DecodingKey, EncodingKey, Validation};
+use jsonwebtoken::jwk::{Jwk, JwkSet};
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Validation};
 use parking_lot::RwLock;
 
 use crate::errors::AuthError;

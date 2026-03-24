@@ -51,7 +51,7 @@ dependencies = [
  "futures",
  "headers",
  "http",
- "jsonwebtoken-aws-lc",
+ "jsonwebtoken 10.3.0",
  "mls-rs-core",
  "mls-rs-crypto-awslc",
  "notify",
@@ -321,7 +321,7 @@ dependencies = [
  "bollard",
  "clap",
  "futures",
- "jsonwebtoken-aws-lc",
+ "jsonwebtoken 10.3.0",
  "libc",
  "parking_lot",
  "rand 0.9.2",
@@ -2035,16 +2035,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "jsonwebtoken-aws-lc"
-version = "9.3.0"
+name = "jsonwebtoken"
+version = "10.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5719b46c18bab340120f6d71f2a98d775cc3b1dd22d810335e4b00d52830d841"
+checksum = "0529410abe238729a60b108898784df8984c87f6054c9c4fcacc47e4803c1ce1"
 dependencies = [
  "aws-lc-rs",
  "base64",
+ "getrandom 0.2.17",
+ "js-sys",
  "pem",
  "serde",
  "serde_json",
+ "signature",
  "simple_asn1",
 ]
 
@@ -3613,6 +3616,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "signature"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77549399552de45a898a580c1b41d445bf730df867cc44e6c0233bbc4b8329de"
+dependencies = [
+ "rand_core 0.6.4",
+]
+
+[[package]]
 name = "simple_asn1"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3688,7 +3700,7 @@ checksum = "7f805aae79ba04a1f0b2e5e06de0bbb2e7851ea3588d03fdf8f25075a0111603"
 dependencies = [
  "anyhow",
  "hyper-util",
- "jsonwebtoken",
+ "jsonwebtoken 9.3.1",
  "log",
  "pkcs8",
  "prost",
