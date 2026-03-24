@@ -298,6 +298,28 @@ tasks:
         ls -lh "$OUTPUT_DIR"/*.nupkg
     silent: true
 
+  format:
+    desc: "Format the C# code"
+    cmds:
+      - |
+        echo "Formatting C# code (whitespace)..."
+        dotnet format whitespace --exclude Slim/generated/ Slim.Examples.SlimRpc/Generated/
+        echo "Formatting C# code (style)..."
+        dotnet format style --exclude Slim/generated/ Slim.Examples.SlimRpc/Generated/
+        echo "✅ Code formatted"
+    silent: true
+
+  lint:
+    desc: "Check code formatting without applying changes"
+    cmds:
+      - |
+        echo "Linting C# code (whitespace)..."
+        dotnet format whitespace --verify-no-changes --exclude Slim/generated/ Slim.Examples.SlimRpc/Generated/
+        echo "Linting C# code (style)..."
+        dotnet format style --verify-no-changes --exclude Slim/generated/ Slim.Examples.SlimRpc/Generated/
+        echo "✅ Lint passed"
+    silent: true
+
   ci:
     desc: "Run complete CI pipeline: generate bindings, copy runtimes, build, test, and pack"
     vars:
@@ -313,6 +335,7 @@ tasks:
         echo ""
       - task: generate
       - task: copy:runtimes
+      - task: lint
       - task: build
       - task: test
       - task: pack
