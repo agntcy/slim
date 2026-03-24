@@ -202,7 +202,6 @@ impl<T> Jwt<T> {
     ///     .private_key("secret-key")
     ///     .build()?;
     /// ```
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         claims: StandardClaims,
         token_duration: Duration,
