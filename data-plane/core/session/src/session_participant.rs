@@ -89,7 +89,6 @@ where
                 self.common.settings.identity_provider.clone(),
                 self.common.settings.identity_verifier.clone(),
             ))
-            .await
             .expect("failed to create MLS state");
 
             Some(mls_state)
@@ -117,7 +116,7 @@ where
                 } else {
                     // Apply MLS encryption/decryption if enabled
                     if let Some(mls_state) = &mut self.mls_state {
-                        mls_state.process_message(&mut message, direction).await?;
+                        mls_state.process_message(&mut message, direction)?;
                     }
 
                     self.inner
@@ -348,7 +347,7 @@ where
 
         let payload = if let Some(mls_state) = &mut self.mls_state {
             debug!("mls enabled, create the package key");
-            let key = mls_state.generate_key_package().await?;
+            let key = mls_state.generate_key_package()?;
             Some(key)
         } else {
             None
@@ -376,7 +375,7 @@ where
         );
 
         if let Some(mls_state) = &mut self.mls_state {
-            mls_state.process_welcome_message(&msg).await?;
+            mls_state.process_welcome_message(&msg)?;
         }
 
         self.join(&msg).await?;
@@ -428,9 +427,8 @@ where
 
         if let Some(mls_state) = &mut self.mls_state {
             debug!("process mls control update");
-            let ret = mls_state
-                .process_control_message(msg.clone(), &self.common.settings.source)
-                .await?;
+            let ret =
+                mls_state.process_control_message(msg.clone(), &self.common.settings.source)?;
 
             if !ret {
                 debug!(

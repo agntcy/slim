@@ -4,8 +4,8 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use jsonwebtoken_aws_lc::jwk::KeyAlgorithm;
-use jsonwebtoken_aws_lc::{
+use jsonwebtoken::jwk::KeyAlgorithm;
+use jsonwebtoken::{
     Algorithm, DecodingKey, Header,
     jwk::{Jwk, JwkSet},
 };

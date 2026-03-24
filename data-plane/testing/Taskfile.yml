@@ -120,3 +120,22 @@ tasks:
           BIN: "test-p2p"
           ARGS: ""
           BIN_ARGS: "--disable-mls --multiple-remotes"
+
+  benchmark:
+    desc: "Run in-process throughput benchmark (dumbbell topology)"
+    dir: "../.."
+    vars:
+      QUICK: '{{.QUICK | default "true"}}'
+      SENDERS: '{{.SENDERS | default ""}}'
+      PAYLOADS: '{{.PAYLOADS | default ""}}'
+      MESSAGES: '{{.MESSAGES | default ""}}'
+      RUNS: '{{.RUNS | default ""}}'
+    cmds:
+      - |
+        ARGS=""
+        [ "{{.QUICK}}" = "true" ] && ARGS="$ARGS --quick"
+        [ -n "{{.SENDERS}}" ]  && ARGS="$ARGS --senders {{.SENDERS}}"
+        [ -n "{{.PAYLOADS}}" ] && ARGS="$ARGS --payload-sizes {{.PAYLOADS}}"
+        [ -n "{{.MESSAGES}}" ] && ARGS="$ARGS --messages {{.MESSAGES}}"
+        [ -n "{{.RUNS}}" ]     && ARGS="$ARGS --runs {{.RUNS}}"
+        ./scripts/run-benchmark.sh $ARGS
