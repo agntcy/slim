@@ -34,8 +34,8 @@ public static class CommonHelpers
     /// <param name="secret">Shared secret for authentication (min 32 chars)</param>
     /// <returns>Created and connected app instance and connection ID</returns>
     public static (SlimApp app, ulong connId) CreateAndConnectApp(
-        string localId, 
-        string serverAddr, 
+        string localId,
+        string serverAddr,
         string secret)
     {
         // Initialize crypto, runtime, global service and logging with defaults

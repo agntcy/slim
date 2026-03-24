@@ -119,6 +119,8 @@ See the `Slim.Examples.*` projects for working integration examples.
 ```bash
 task                  # List all available tasks
 task ci               # Run complete CI pipeline: generate, copy runtimes, build, test, pack
+task format           # Format the C# code using dotnet format
+task lint             # Check code formatting without applying changes
 task generate         # Generate C# bindings from artifacts (requires ARTIFACTS_DIR)
 task copy:runtimes    # Copy runtime libraries from artifacts to runtimes directory
 task build            # Build .NET solution (expects bindings already generated)
