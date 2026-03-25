@@ -105,21 +105,21 @@ tasks:
           BIN: "test-p2p"
           ARGS: ""
           BIN_ARGS: "--disable-mls"
-      # - task: testing:run
-      #   vars:
-      #     BIN: "test-p2p"
-      #     ARGS: ""
-      #     BIN_ARGS: ""
-      # - task: testing:run
-      #   vars:
-      #     BIN: "test-p2p"
-      #     ARGS: ""
-      #     BIN_ARGS: "--multiple-remotes"
-      # - task: testing:run
-      #   vars:
-      #     BIN: "test-p2p"
-      #     ARGS: ""
-      #     BIN_ARGS: "--disable-mls --multiple-remotes"
+      - task: testing:run
+        vars:
+          BIN: "test-p2p"
+          ARGS: ""
+          BIN_ARGS: ""
+      - task: testing:run
+        vars:
+          BIN: "test-p2p"
+          ARGS: ""
+          BIN_ARGS: "--multiple-remotes"
+      - task: testing:run
+        vars:
+          BIN: "test-p2p"
+          ARGS: ""
+          BIN_ARGS: "--disable-mls --multiple-remotes"
 
   benchmark:
     desc: "Run in-process throughput benchmark (dumbbell topology)"

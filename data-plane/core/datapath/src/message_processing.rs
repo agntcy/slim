@@ -741,7 +741,7 @@ impl MessageProcessor {
         match forward {
             None => Ok(still_subscribed),
             Some(out_conn) => {
-                info!(
+                debug!(
                     %out_conn,
                     "forwarding {}subscription to connection",
                     if add { "" } else { "un" }
@@ -768,7 +768,7 @@ impl MessageProcessor {
         in_connection: u64,
         add: bool,
     ) -> Result<(), DataPathError> {
-        info!(
+        debug!(
             %in_connection,
             ?msg,
             "received {}subscription",
@@ -785,7 +785,7 @@ impl MessageProcessor {
 
         let subscription_id = msg.get_subscription_id();
 
-        info!(?subscription_id, "received subscription id");
+        debug!(?subscription_id, "received subscription id");
 
         // get header
         let header = msg.get_slim_header();
@@ -814,7 +814,7 @@ impl MessageProcessor {
         // As connection is deleted only after processing, at this point it must exist.
         let Some(connection) = self.forwarder().get_connection(in_conn) else {
             if let Some(id) = subscription_id {
-                info!(%in_conn, "connection not found, sending error ack");
+                debug!(%in_conn, "connection not found, sending error ack");
                 self.send_subscription_ack(
                     in_connection,
                     id,
@@ -896,7 +896,7 @@ impl MessageProcessor {
         }
 
         // Default path: update local state and forward, then immediately ACK the requester.
-        info!(%in_connection, forward = forward.is_some(), "subscription: default ack path");
+        debug!(%in_connection, forward = forward.is_some(), "subscription: default ack path");
         let sub_id = subscription_id.unwrap_or(0);
         let result = self
             .process_subscription_update_and_forward(msg, in_conn, forward, add, sub_id)
@@ -908,7 +908,7 @@ impl MessageProcessor {
         };
 
         if let Some(id) = subscription_id {
-            info!(%in_connection, ok = unit_result.is_ok(), "sending immediate subscription ack");
+            debug!(%in_connection, ok = unit_result.is_ok(), "sending immediate subscription ack");
             self.send_subscription_ack(in_connection, id, &unit_result)
                 .await;
         }

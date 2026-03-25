@@ -9,7 +9,7 @@ use parking_lot::Mutex;
 use tokio::sync::{self, oneshot};
 // Third-party crates
 use tokio_util::sync::CancellationToken;
-use tracing::{Instrument, debug, info};
+use tracing::{Instrument, debug};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{

@@ -457,20 +457,16 @@ impl SubscriptionManager {
 
     /// Called by the App message loop to complete a waiting future for an ACK.
     pub fn resolve_ack(&self, ack: &ProtoSubscriptionAck) {
-        tracing::info!(ack = %ack.subscription_id, "ack received");
+        tracing::debug!(ack = %ack.subscription_id, "ack received");
         let sender = {
             let mut pending = self.pending_acks.lock();
             pending.remove(&ack.subscription_id)
         };
 
-        tracing::info!("channel found");
-
         if let Some(sender) = sender {
             let _ = sender.send(if ack.success {
-                tracing::info!("sending ok");
                 Ok(())
             } else {
-                tracing::info!(error = %ack.error, "sending no ok");
                 Err(SubscriptionAckError::Rejected {
                     message: if ack.error.is_empty() {
                         "subscription ack failed".to_string()
