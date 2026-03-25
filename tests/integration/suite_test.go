@@ -48,8 +48,6 @@ func setBinaryPaths(target string) {
 	sdkMockPath = mustAbs(filepath.Join(dataPlaneTarget, "sdk-mock"))
 	clientPath = mustAbs(filepath.Join(dataPlaneTarget, "client"))
 	slimctlPath = mustAbs(filepath.Join(dataPlaneTarget, "slimctl"))
-
-	// Current test apps (examples)
 	examplesTarget := filepath.Join(dataPlaneTarget, "examples")
 	receiverPath = mustAbs(filepath.Join(examplesTarget, "receiver"))
 	senderPath = mustAbs(filepath.Join(examplesTarget, "sender"))
@@ -58,8 +56,6 @@ func setBinaryPaths(target string) {
 	controlPlanePath = mustAbs(filepath.Join(distBin, "control-plane"))
 	legacySlimPath = mustAbs(filepath.Join(distBin, "slim-legacy"))
 	legacySDKMockPath = mustAbs(filepath.Join(distBin, "sdk-mock-legacy"))
-
-	// Legacy test apps
 	legacyReceiverPath = mustAbs(filepath.Join(distBin, "receiver-legacy"))
 	legacySenderPath = mustAbs(filepath.Join(distBin, "sender-legacy"))
 }

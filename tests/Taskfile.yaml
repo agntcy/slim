@@ -46,7 +46,7 @@ tasks:
         trap 'git worktree remove --force "$WORKTREE"' EXIT
         git worktree add "$WORKTREE" {{.LEGACY_BRANCH}}
         
-        # Build slim, sdk-mock, and the test apps in one go
+        # Build slim, sdk-mock, and the test apps
         cargo build --manifest-path "$WORKTREE/data-plane/Cargo.toml" \
           --config "$WORKTREE/data-plane/.cargo/config.toml" \
           --bins \
