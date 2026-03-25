@@ -232,7 +232,7 @@ where
             .map_err(ServiceError::SubscriptionError)?;
 
         // Register the subscription after ack confirms the forwarding table update.
-        self.session_layer.add_app_name(name);
+        self.session_layer.add_app_name(name, ack_id);
         Ok(())
     }
 
@@ -240,32 +240,39 @@ where
     pub async fn unsubscribe(&self, name: &Name, conn: Option<u64>) -> Result<(), ServiceError> {
         debug!(?name, ?conn, "unsubscribe");
 
-        let flags = if let Some(c) = conn {
-            SlimHeaderFlags::default().with_forward_to(c)
-        } else {
-            SlimHeaderFlags::default()
-        };
+        let subscription_id = self.session_layer.remove_app_name(name);
+        match subscription_id {
+            Some(subscription_id) => {
+                let flags = if let Some(c) = conn {
+                    SlimHeaderFlags::default().with_forward_to(c)
+                } else {
+                    SlimHeaderFlags::default()
+                };
 
-        let (ack_id, ack_rx) = self.subscription_manager.register_ack();
-        let msg = Message::builder()
-            .source(self.app_name.clone())
-            .destination(name.clone())
-            .flags(flags)
-            .subscription_id(ack_id)
-            .build_unsubscribe()
-            .unwrap();
+                let ack_rx = self
+                    .subscription_manager
+                    .register_ack_with_id(subscription_id);
+                let msg = Message::builder()
+                    .source(self.app_name.clone())
+                    .destination(name.clone())
+                    .flags(flags)
+                    .subscription_id(subscription_id)
+                    .build_unsubscribe()
+                    .unwrap();
 
-        if let Err(e) = self.send_message_without_context(msg).await {
-            self.subscription_manager.cancel_ack(ack_id);
-            return Err(e);
+                if let Err(e) = self.send_message_without_context(msg).await {
+                    self.subscription_manager.cancel_ack(subscription_id);
+                    return Err(e);
+                }
+
+                SubscriptionManager::await_ack(ack_rx)
+                    .await
+                    .map_err(ServiceError::UnsubscriptionError)?;
+            }
+            None => {
+                tracing::warn!(%name, "no subscription_id found, skipping unsubscribe");
+            }
         }
-
-        SubscriptionManager::await_ack(ack_rx)
-            .await
-            .map_err(ServiceError::UnsubscriptionError)?;
-
-        // Remove the subscription after ack confirms the forwarding table update.
-        self.session_layer.remove_app_name(name);
         Ok(())
     }
 
@@ -330,7 +337,7 @@ where
 
             // Initiate self-subscription via the subscription manager so the ACK
             // is tracked and resolved through the normal loop machinery.
-            let init_ack_rx = subscription_manager
+            let (_init_sub_id, init_ack_rx) = subscription_manager
                 .subscribe(&app_name, &app_name, None)
                 .await
                 .expect("error sending initial subscription");
@@ -640,6 +647,9 @@ mod tests {
     async fn test_unsubscribe_returns_channel_closed_when_ack_sender_is_dropped() {
         let (app, mut rx_slim) = create_isolated_test_app("unsubscribe-channel-closed");
         let dst = create_test_name("channel");
+
+        // Pre-populate the session layer's app_names so unsubscribe has an ID to use
+        app.session_layer.add_app_name(dst.clone(), 42);
 
         let mut unsubscribe_fut = Box::pin(app.unsubscribe(&dst, None));
         let outbound = tokio::select! {

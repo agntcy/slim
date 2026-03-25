@@ -54,13 +54,14 @@ pub trait SubscriptionOps: Clone + Send + Sync + 'static {
         source: &Name,
         name: &Name,
         forward_to: Option<u64>,
-    ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError>;
+    ) -> Result<(u64, oneshot::Receiver<Result<(), SubscriptionAckError>>), SubscriptionAckError>;
 
     /// Unsubscribe (forward_to): de-register interest in `name`.
     async fn unsubscribe(
         &self,
         source: &Name,
         name: &Name,
+        subscription_id: u64,
         forward_to: Option<u64>,
     ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError>;
 
@@ -70,13 +71,14 @@ pub trait SubscriptionOps: Clone + Send + Sync + 'static {
         source: &Name,
         name: &Name,
         conn: u64,
-    ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError>;
+    ) -> Result<(u64, oneshot::Receiver<Result<(), SubscriptionAckError>>), SubscriptionAckError>;
 
     /// Remove a recv_from route for `name` on connection `conn`.
     async fn remove_route(
         &self,
         source: &Name,
         name: &Name,
+        subscription_id: u64,
         conn: u64,
     ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError>;
 
@@ -96,7 +98,9 @@ pub trait SubscriptionOps: Clone + Send + Sync + 'static {
 /// datapath.  Every operation immediately succeeds without sending any
 /// messages.
 #[derive(Clone)]
-pub struct AutoAckManager;
+pub struct AutoAckManager {
+    ack_counter: Arc<AtomicU64>,
+}
 
 #[async_trait]
 impl SubscriptionOps for AutoAckManager {
@@ -105,16 +109,19 @@ impl SubscriptionOps for AutoAckManager {
         _source: &Name,
         _name: &Name,
         _forward_to: Option<u64>,
-    ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError> {
+    ) -> Result<(u64, oneshot::Receiver<Result<(), SubscriptionAckError>>), SubscriptionAckError>
+    {
+        let id = self.ack_counter.fetch_add(1, Ordering::Relaxed) + 1;
         let (tx, rx) = oneshot::channel();
         let _ = tx.send(Ok(()));
-        Ok(rx)
+        Ok((id, rx))
     }
 
     async fn unsubscribe(
         &self,
         _source: &Name,
         _name: &Name,
+        _subscription_id: u64,
         _forward_to: Option<u64>,
     ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError> {
         let (tx, rx) = oneshot::channel();
@@ -127,16 +134,19 @@ impl SubscriptionOps for AutoAckManager {
         _source: &Name,
         _name: &Name,
         _conn: u64,
-    ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError> {
+    ) -> Result<(u64, oneshot::Receiver<Result<(), SubscriptionAckError>>), SubscriptionAckError>
+    {
+        let id = self.ack_counter.fetch_add(1, Ordering::Relaxed) + 1;
         let (tx, rx) = oneshot::channel();
         let _ = tx.send(Ok(()));
-        Ok(rx)
+        Ok((id, rx))
     }
 
     async fn remove_route(
         &self,
         _source: &Name,
         _name: &Name,
+        _subscription_id: u64,
         _conn: u64,
     ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError> {
         let (tx, rx) = oneshot::channel();
@@ -145,7 +155,9 @@ impl SubscriptionOps for AutoAckManager {
     }
 
     fn from_slim_tx(_tx: &SlimChannelSender) -> Option<Self> {
-        Some(AutoAckManager)
+        Some(AutoAckManager {
+            ack_counter: Arc::new(AtomicU64::new(0)),
+        })
     }
 }
 
@@ -163,7 +175,8 @@ impl SubscriptionOps for SubscriptionManager {
         source: &Name,
         name: &Name,
         forward_to: Option<u64>,
-    ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError> {
+    ) -> Result<(u64, oneshot::Receiver<Result<(), SubscriptionAckError>>), SubscriptionAckError>
+    {
         let source = source.clone();
         let name = name.clone();
         self.send_with_receiver(move |ack_id| {
@@ -187,11 +200,12 @@ impl SubscriptionOps for SubscriptionManager {
         &self,
         source: &Name,
         name: &Name,
+        subscription_id: u64,
         forward_to: Option<u64>,
     ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError> {
         let source = source.clone();
         let name = name.clone();
-        self.send_with_receiver(move |ack_id| {
+        self.send_with_id(subscription_id, move |ack_id| {
             let flags = if let Some(conn) = forward_to {
                 SlimHeaderFlags::default().with_forward_to(conn)
             } else {
@@ -213,7 +227,8 @@ impl SubscriptionOps for SubscriptionManager {
         source: &Name,
         name: &Name,
         conn: u64,
-    ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError> {
+    ) -> Result<(u64, oneshot::Receiver<Result<(), SubscriptionAckError>>), SubscriptionAckError>
+    {
         let source = source.clone();
         let name = name.clone();
         self.send_with_receiver(move |ack_id| {
@@ -232,11 +247,12 @@ impl SubscriptionOps for SubscriptionManager {
         &self,
         source: &Name,
         name: &Name,
+        subscription_id: u64,
         conn: u64,
     ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError> {
         let source = source.clone();
         let name = name.clone();
-        self.send_with_receiver(move |ack_id| {
+        self.send_with_id(subscription_id, move |ack_id| {
             Message::builder()
                 .source(source)
                 .destination(name)
@@ -287,17 +303,19 @@ impl SubscriptionOps for SpySubscriptionManager {
         _source: &Name,
         _name: &Name,
         _forward_to: Option<u64>,
-    ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError> {
+    ) -> Result<(u64, oneshot::Receiver<Result<(), SubscriptionAckError>>), SubscriptionAckError>
+    {
         let _ = self.tx.send(SubscriptionCall::Subscribe);
         let (tx, rx) = oneshot::channel();
         let _ = tx.send(Ok(()));
-        Ok(rx)
+        Ok((0, rx))
     }
 
     async fn unsubscribe(
         &self,
         _source: &Name,
         _name: &Name,
+        _subscription_id: u64,
         _forward_to: Option<u64>,
     ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError> {
         let _ = self.tx.send(SubscriptionCall::Unsubscribe);
@@ -311,17 +329,19 @@ impl SubscriptionOps for SpySubscriptionManager {
         _source: &Name,
         _name: &Name,
         _conn: u64,
-    ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError> {
+    ) -> Result<(u64, oneshot::Receiver<Result<(), SubscriptionAckError>>), SubscriptionAckError>
+    {
         let _ = self.tx.send(SubscriptionCall::SetRoute);
         let (tx, rx) = oneshot::channel();
         let _ = tx.send(Ok(()));
-        Ok(rx)
+        Ok((0, rx))
     }
 
     async fn remove_route(
         &self,
         _source: &Name,
         _name: &Name,
+        _subscription_id: u64,
         _conn: u64,
     ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError> {
         let _ = self.tx.send(SubscriptionCall::RemoveRoute);
@@ -351,7 +371,8 @@ impl SubscriptionManager {
     async fn send_with_receiver(
         &self,
         build_message: impl FnOnce(u64) -> Message,
-    ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError> {
+    ) -> Result<(u64, oneshot::Receiver<Result<(), SubscriptionAckError>>), SubscriptionAckError>
+    {
         let ack_id = self.next_ack_id();
         let (ack_tx, ack_rx) = oneshot::channel();
         {
@@ -363,6 +384,23 @@ impl SubscriptionManager {
 
         if self.tx.send(Ok(msg)).await.is_err() {
             self.pending_acks.lock().remove(&ack_id);
+            return Err(SubscriptionAckError::ChannelClosed);
+        }
+
+        Ok((ack_id, ack_rx))
+    }
+
+    async fn send_with_id(
+        &self,
+        subscription_id: u64,
+        build_message: impl FnOnce(u64) -> Message,
+    ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError> {
+        let ack_rx = self.register_ack_with_id(subscription_id);
+
+        let msg = build_message(subscription_id);
+
+        if self.tx.send(Ok(msg)).await.is_err() {
+            self.pending_acks.lock().remove(&subscription_id);
             return Err(SubscriptionAckError::ChannelClosed);
         }
 
@@ -380,6 +418,16 @@ impl SubscriptionManager {
             pending.insert(ack_id, ack_tx);
         }
         (ack_id, ack_rx)
+    }
+
+    /// Register a pending ACK entry under a caller-provided ID and return the receiver.
+    pub fn register_ack_with_id(
+        &self,
+        id: u64,
+    ) -> oneshot::Receiver<Result<(), SubscriptionAckError>> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.pending_acks.lock().insert(id, ack_tx);
+        ack_rx
     }
 
     /// Remove a previously registered pending ACK (call on send failure).

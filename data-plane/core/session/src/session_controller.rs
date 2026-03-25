@@ -547,6 +547,9 @@ pub(crate) struct SessionControllerCommon<
 
     /// processing state
     pub(crate) processing_state: ProcessingState,
+
+    /// Maps (name_without_id, conn) → subscription_id for route/subscription tracking.
+    subscription_ids: Mutex<HashMap<(Name, u64), u64>>,
 }
 
 impl<P, V, M> SessionControllerCommon<P, V, M>
@@ -574,6 +577,7 @@ where
             settings,
             sender: controller_sender,
             processing_state: ProcessingState::Active,
+            subscription_ids: Mutex::new(HashMap::new()),
         }
     }
 
@@ -603,7 +607,7 @@ where
     }
 
     pub(crate) async fn add_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
-        let rx = self
+        let (subscription_id, rx) = self
             .settings
             .subscription_manager
             .set_route(&self.settings.source, name, conn)
@@ -611,22 +615,36 @@ where
             .map_err(SessionError::SubscriptionAckFailed)?;
         info!("Setting route");
         Self::await_subscription_ack(rx).await?;
+        self.subscription_ids
+            .lock()
+            .insert((name.clone(), conn), subscription_id);
         info!("Set route");
 
         Ok(())
     }
 
     pub(crate) async fn delete_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
-        let rx = self
-            .settings
-            .subscription_manager
-            .remove_route(&self.settings.source, name, conn)
-            .await
-            .map_err(SessionError::SubscriptionAckFailed)?;
+        let subscription_id = self.subscription_ids.lock().remove(&(name.clone(), conn));
+        match subscription_id {
+            Some(subscription_id) => {
+                let rx = self
+                    .settings
+                    .subscription_manager
+                    .remove_route(&self.settings.source, name, subscription_id, conn)
+                    .await
+                    .map_err(SessionError::SubscriptionAckFailed)?;
 
-        info!("Unsetting route");
-        Self::await_subscription_ack(rx).await?;
-        info!("Unset route");
+                info!("Unsetting route");
+                Self::await_subscription_ack(rx).await?;
+                info!("Unset route");
+            }
+            None => {
+                tracing::warn!(
+                    %name, %conn,
+                    "no subscription_id found for route, skipping remove_route"
+                );
+            }
+        }
 
         Ok(())
     }
@@ -636,7 +654,7 @@ where
         name: &Name,
         conn: u64,
     ) -> Result<(), SessionError> {
-        let rx = self
+        let (subscription_id, rx) = self
             .settings
             .subscription_manager
             .subscribe(&self.settings.source, name, Some(conn))
@@ -645,6 +663,9 @@ where
 
         info!("Setting sub");
         Self::await_subscription_ack(rx).await?;
+        self.subscription_ids
+            .lock()
+            .insert((name.clone(), conn), subscription_id);
         info!("Set sub");
 
         Ok(())
@@ -655,16 +676,27 @@ where
         name: &Name,
         conn: u64,
     ) -> Result<(), SessionError> {
-        let rx = self
-            .settings
-            .subscription_manager
-            .unsubscribe(&self.settings.source, name, Some(conn))
-            .await
-            .map_err(SessionError::SubscriptionAckFailed)?;
+        let subscription_id = self.subscription_ids.lock().remove(&(name.clone(), conn));
+        match subscription_id {
+            Some(subscription_id) => {
+                let rx = self
+                    .settings
+                    .subscription_manager
+                    .unsubscribe(&self.settings.source, name, subscription_id, Some(conn))
+                    .await
+                    .map_err(SessionError::SubscriptionAckFailed)?;
 
-        info!("Unsetting sub");
-        Self::await_subscription_ack(rx).await?;
-        info!("Unset sub");
+                info!("Unsetting sub");
+                Self::await_subscription_ack(rx).await?;
+                info!("Unset sub");
+            }
+            None => {
+                tracing::warn!(
+                    %name, %conn,
+                    "no subscription_id found for subscription, skipping unsubscribe"
+                );
+            }
+        }
 
         Ok(())
     }

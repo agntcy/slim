@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Standard library imports
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use display_error_chain::ErrorChainExt;
@@ -70,8 +70,8 @@ where
     /// Default name of the local app
     app_id: u64,
 
-    /// Names registered by local app
-    app_names: SyncRwLock<HashSet<Name>>,
+    /// Names registered by local app, keyed by name → subscription_id
+    app_names: SyncRwLock<HashMap<Name, u64>>,
 
     /// Identity provider for the local app
     identity_provider: P,
@@ -133,7 +133,10 @@ where
         let sl = SessionLayer {
             pool: Arc::new(SyncRwLock::new(HashMap::new())),
             app_id: app_name.id(),
-            app_names: SyncRwLock::new(HashSet::from([app_name.with_id(Name::NULL_COMPONENT)])),
+            app_names: SyncRwLock::new(HashMap::from([(
+                app_name.with_id(Name::NULL_COMPONENT),
+                0,
+            )])),
             identity_provider,
             identity_verifier,
             conn_id,
@@ -173,36 +176,32 @@ where
         self.app_id
     }
 
-    pub fn add_app_name(&self, name: Name) {
+    pub fn add_app_name(&self, name: Name, subscription_id: u64) {
         // unset last component for fast lookups
         self.app_names
             .write()
-            .insert(name.with_id(Name::NULL_COMPONENT));
+            .insert(name.with_id(Name::NULL_COMPONENT), subscription_id);
     }
 
-    pub fn remove_app_name(&self, name: &Name) {
-        let removed = match name.id() {
-            Name::NULL_COMPONENT => self.app_names.write().remove(name),
-            _ => {
-                let name = name.clone().with_id(Name::NULL_COMPONENT);
-                self.app_names.write().remove(&name)
-            }
+    pub fn remove_app_name(&self, name: &Name) -> Option<u64> {
+        let key = match name.id() {
+            Name::NULL_COMPONENT => name.clone(),
+            _ => name.clone().with_id(Name::NULL_COMPONENT),
         };
-
-        if !removed {
+        let removed = self.app_names.write().remove(&key);
+        if removed.is_none() {
             warn!(%name, "tried to remove unknown app name");
         }
+        removed
     }
 
     fn get_local_name_for_session(&self, dst: Name) -> Result<Name, SessionError> {
         let name = dst.with_id(Name::NULL_COMPONENT);
-
-        self.app_names
-            .read()
-            .get(&name)
-            .cloned()
-            .map(|n| n.with_id(self.app_id))
-            .ok_or(SessionError::SubscriptionNotFound(name))
+        if self.app_names.read().contains_key(&name) {
+            Ok(name.with_id(self.app_id))
+        } else {
+            Err(SessionError::SubscriptionNotFound(name))
+        }
     }
 
     /// Get identity token from the identity provider
@@ -783,8 +782,8 @@ mod tests {
         let name1 = make_name(&["service", "v1", "api"]);
         let name2 = make_name(&["service", "v2", "api"]);
 
-        session_layer.add_app_name(name1.clone());
-        session_layer.add_app_name(name2.clone());
+        session_layer.add_app_name(name1.clone(), 0);
+        session_layer.add_app_name(name2.clone(), 0);
 
         // Verify names are added
         assert_eq!(session_layer.app_names.read().len(), 3); // initial + 2 added
@@ -967,7 +966,7 @@ mod tests {
         let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
 
         let name = make_name(&["service", "api", "v1"]);
-        session_layer.add_app_name(name.clone());
+        session_layer.add_app_name(name.clone(), 0);
 
         let dst = name.with_id(123);
         let result = session_layer.get_local_name_for_session(dst);
@@ -1008,7 +1007,7 @@ mod tests {
         let (session_layer, _rx_slim, _rx_app, mut rx_transmitter) = setup_session_layer();
 
         let local_name = make_name(&["local", "app", "v1"]);
-        session_layer.add_app_name(local_name.clone());
+        session_layer.add_app_name(local_name.clone(), 0);
 
         let source = make_name(&["remote", "app", "v1"]);
         let message = Message::builder()
@@ -1113,13 +1112,13 @@ mod tests {
         let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
 
         let name = make_name(&["service", "v1", "api"]).with_id(123);
-        session_layer.add_app_name(name.clone());
+        session_layer.add_app_name(name.clone(), 0);
 
         // Remove with specific ID (should normalize to NULL_COMPONENT)
         session_layer.remove_app_name(&name);
 
         // The name with NULL_COMPONENT should be removed
         let name_null = name.with_id(Name::NULL_COMPONENT);
-        assert!(!session_layer.app_names.read().contains(&name_null));
+        assert!(!session_layer.app_names.read().contains_key(&name_null));
     }
 }
