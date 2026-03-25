@@ -296,7 +296,7 @@ impl SessionController {
                 ack_tx,
             })
             .await
-            .map_err(|_e| {SessionError::SessionControllerSendFailed})
+            .map_err(|_e| SessionError::SessionControllerSendFailed)
     }
 
     /// Send a message to the controller for processing

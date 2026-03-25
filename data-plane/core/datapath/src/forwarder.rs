@@ -96,12 +96,20 @@ where
         subscription_id: u64,
     ) -> Result<bool, DataPathError> {
         if add {
-            self.subscription_table
-                .add_subscription(name, conn_index, is_local, subscription_id)?;
+            self.subscription_table.add_subscription(
+                name,
+                conn_index,
+                is_local,
+                subscription_id,
+            )?;
             Ok(true)
         } else {
-            self.subscription_table
-                .remove_subscription(&name, conn_index, is_local, subscription_id)
+            self.subscription_table.remove_subscription(
+                &name,
+                conn_index,
+                is_local,
+                subscription_id,
+            )
         }
     }
 

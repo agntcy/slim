@@ -11,7 +11,7 @@ use slim_session::{Notification, SessionConfig};
 use slim_testing::build_client_service;
 use slim_testing::common::{create_and_subscribe_app, reserve_local_port, run_slim_node};
 use slim_tracing::TracingConfiguration;
-use tracing::{error, info, info_span, Instrument};
+use tracing::{Instrument, error, info, info_span};
 
 #[derive(Parser, Debug)]
 pub struct Args {

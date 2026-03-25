@@ -399,7 +399,10 @@ impl ProtoSubscribe {
         let id = identity.unwrap_or("");
         let header = Some(SlimHeader::new(source, dst, id, flags));
 
-        ProtoSubscribe { header, subscription_id: 0 }
+        ProtoSubscribe {
+            header,
+            subscription_id: 0,
+        }
     }
 }
 
@@ -425,7 +428,10 @@ impl ProtoUnsubscribe {
         let id = identity.unwrap_or("");
         let header = Some(SlimHeader::new(source, dst, id, flags));
 
-        ProtoUnsubscribe { header, subscription_id: 0 }
+        ProtoUnsubscribe {
+            header,
+            subscription_id: 0,
+        }
     }
 }
 
@@ -848,8 +854,12 @@ impl ProtoMessage {
     /// Returns None if the field is absent or zero.
     pub fn take_subscription_id(&mut self) -> Option<u64> {
         match &mut self.message_type {
-            Some(ProtoSubscribeType(s)) if s.subscription_id != 0 => Some(std::mem::take(&mut s.subscription_id)),
-            Some(ProtoUnsubscribeType(u)) if u.subscription_id != 0 => Some(std::mem::take(&mut u.subscription_id)),
+            Some(ProtoSubscribeType(s)) if s.subscription_id != 0 => {
+                Some(std::mem::take(&mut s.subscription_id))
+            }
+            Some(ProtoUnsubscribeType(u)) if u.subscription_id != 0 => {
+                Some(std::mem::take(&mut u.subscription_id))
+            }
             _ => None,
         }
     }

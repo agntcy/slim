@@ -243,10 +243,14 @@ impl NameState {
         let refs = SubscriptionRefs::new(conn, subscription_id);
         if is_local {
             type_state.connections[0].insert(conn);
-            type_state.ids.insert(id, [refs, SubscriptionRefs::default()]);
+            type_state
+                .ids
+                .insert(id, [refs, SubscriptionRefs::default()]);
         } else {
             type_state.connections[1].insert(conn);
-            type_state.ids.insert(id, [SubscriptionRefs::default(), refs]);
+            type_state
+                .ids
+                .insert(id, [SubscriptionRefs::default(), refs]);
         }
         type_state
     }
@@ -262,9 +266,7 @@ impl NameState {
                 self.ids.insert(id, connections);
                 true
             }
-            Some(v) => {
-                v[index].insert(conn, subscription_id)
-            }
+            Some(v) => v[index].insert(conn, subscription_id),
         };
 
         // Only add to connections pool if this was actually a new subscription_id
@@ -659,7 +661,13 @@ impl SubscriptionTable for SubscriptionTableImpl {
         }
     }
 
-    fn add_subscription(&self, name: Name, conn: u64, is_local: bool, subscription_id: u64) -> Result<(), Self::Error> {
+    fn add_subscription(
+        &self,
+        name: Name,
+        conn: u64,
+        is_local: bool,
+        subscription_id: u64,
+    ) -> Result<(), Self::Error> {
         {
             let table = self.table.write();
             add_subscription_to_sub_table(name.clone(), conn, is_local, subscription_id, table);
@@ -1084,7 +1092,11 @@ mod tests {
         // Remove connection 2's subscription
         assert!(t.remove_subscription(&name2, 2, false, 204).is_ok());
         let result = t.match_all(&name2, 100_u64).unwrap();
-        assert_eq!(result.len(), 2, "Should have 2 connections after removing conn 2");
+        assert_eq!(
+            result.len(),
+            2,
+            "Should have 2 connections after removing conn 2"
+        );
         assert!(!result.contains(&2));
 
         // Remove one subscription_id from connection 1
@@ -1136,7 +1148,10 @@ mod tests {
 
         // Now only connection 2 should be available
         let result = t.match_one(&name1, 100).unwrap();
-        assert_eq!(result, 2, "Should only match to connection 2 after conn 1 dies");
+        assert_eq!(
+            result, 2,
+            "Should only match to connection 2 after conn 1 dies"
+        );
 
         let result = t.match_all(&name1, 100).unwrap();
         assert_eq!(result.len(), 1, "Should only have 1 connection remaining");

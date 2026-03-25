@@ -692,7 +692,8 @@ impl MessageProcessor {
             Err(e) => (false, e.to_string()),
         };
 
-        let ack_msg = Message::builder().build_subscription_ack(subscription_id, success, error_msg);
+        let ack_msg =
+            Message::builder().build_subscription_ack(subscription_id, success, error_msg);
 
         if let Err(e) = self.send_msg(ack_msg, in_connection).await {
             error!(error = %e.chain(), "failed to send subscription ack");
@@ -947,7 +948,9 @@ impl MessageProcessor {
                 } else {
                     Err(DataPathError::RemoteSubscriptionAckError(ack.error.clone()))
                 };
-                self.internal.sub_ack_manager.resolve(ack.subscription_id, result);
+                self.internal
+                    .sub_ack_manager
+                    .resolve(ack.subscription_id, result);
                 Ok(())
             }
             None => unreachable!(
@@ -1756,7 +1759,10 @@ mod tests {
         let forwarded_sub_id = forwarded
             .get_subscription_id()
             .expect("forwarded subscribe must carry the same subscription_id");
-        assert_eq!(forwarded_sub_id, upstream_ack_id, "subscription_id must not change when forwarding");
+        assert_eq!(
+            forwarded_sub_id, upstream_ack_id,
+            "subscription_id must not change when forwarding"
+        );
 
         // Simulate the remote node sending back a success SubscriptionAck.
         let ack = ProtoSubscriptionAck {
@@ -1883,7 +1889,10 @@ mod tests {
         let forwarded_sub_id = forwarded
             .get_subscription_id()
             .expect("forwarded subscribe must carry the same subscription_id");
-        assert_eq!(forwarded_sub_id, upstream_ack_id, "subscription_id must not change when forwarding");
+        assert_eq!(
+            forwarded_sub_id, upstream_ack_id,
+            "subscription_id must not change when forwarding"
+        );
 
         // Simulate remote failure via SubscriptionAck.
         let ack = ProtoSubscriptionAck {

@@ -578,16 +578,20 @@ where
         }
 
         if let Some(conn_id) = self.conn_id {
-            if let Err(e) = self.common
+            if let Err(e) = self
+                .common
                 .delete_route(&self.common.settings.destination, conn_id)
-                .await {
-                    tracing::warn!(error = %e, name = %self.common.settings.destination, "error deleting route");
-                }
-            if let Err(e) = self.common
+                .await
+            {
+                tracing::warn!(error = %e, name = %self.common.settings.destination, "error deleting route");
+            }
+            if let Err(e) = self
+                .common
                 .delete_subscription(&self.common.settings.destination, conn_id)
-                .await {
-                    tracing::warn!(error = %e, name = %self.common.settings.destination, "error deleting subscription");
-                }
+                .await
+            {
+                tracing::warn!(error = %e, name = %self.common.settings.destination, "error deleting subscription");
+            }
         }
 
         // remove also all the routes to the other participants except the moderator
@@ -605,11 +609,13 @@ where
 
     async fn disconnect_from_moderator(&self) -> Result<(), SessionError> {
         if let Some(conn_id) = self.conn_id {
-            if let Err(e) = self.common
+            if let Err(e) = self
+                .common
                 .delete_route(self.moderator_name.as_ref().unwrap(), conn_id)
-                .await {
-                    tracing::warn!(error = %e, name = ?self.moderator_name, "error disconnecting from moderator");
-                }
+                .await
+            {
+                tracing::warn!(error = %e, name = ?self.moderator_name, "error disconnecting from moderator");
+            }
         }
         Ok(())
     }

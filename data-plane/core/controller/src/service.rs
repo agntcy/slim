@@ -801,8 +801,9 @@ impl ControllerService {
                                     .unwrap();
 
                                 let subscription_id = self.next_subscription_id();
-                                if let Err(err) =
-                                    self.send_subscription_message_with_ack(msg, subscription_id).await
+                                if let Err(err) = self
+                                    .send_subscription_message_with_ack(msg, subscription_id)
+                                    .await
                                 {
                                     subscription_success = false;
                                     subscription_error_msg =
@@ -859,8 +860,9 @@ impl ControllerService {
                                     .unwrap();
 
                                 let subscription_id = self.next_subscription_id();
-                                if let Err(err) =
-                                    self.send_subscription_message_with_ack(msg, subscription_id).await
+                                if let Err(err) = self
+                                    .send_subscription_message_with_ack(msg, subscription_id)
+                                    .await
                                 {
                                     subscription_success = false;
                                     subscription_error_msg =
@@ -1383,7 +1385,10 @@ impl ControllerService {
             .fetch_add(1, Ordering::Relaxed)
     }
 
-    fn register_subscription_ack(&self, subscription_id: u64) -> oneshot::Receiver<Result<(), String>> {
+    fn register_subscription_ack(
+        &self,
+        subscription_id: u64,
+    ) -> oneshot::Receiver<Result<(), String>> {
         let (ack_tx, ack_rx) = oneshot::channel();
         self.inner
             .pending_subscription_acks
@@ -1393,7 +1398,10 @@ impl ControllerService {
     }
 
     fn remove_subscription_ack(&self, subscription_id: u64) {
-        self.inner.pending_subscription_acks.lock().remove(&subscription_id);
+        self.inner
+            .pending_subscription_acks
+            .lock()
+            .remove(&subscription_id);
     }
 
     fn handle_subscription_ack(&self, ack: &ProtoSubscriptionAck) {
