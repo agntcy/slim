@@ -29,6 +29,8 @@ pub enum DataPathError {
     NoMatch(Name),
     #[error("subscription not found")]
     SubscriptionNotFound(Name),
+    #[error("subscription id not found: {0}")]
+    SubscriptionIdNotFound(u64),
     #[error("id not found: {0}")]
     IdNotFound(u64),
 

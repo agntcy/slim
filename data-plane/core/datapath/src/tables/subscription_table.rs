@@ -70,24 +70,25 @@ impl SubscriptionRefs {
     }
 
     /// Removes a subscription_id for the given connection.
-    /// Returns `Ok(true)` if the connection was fully removed (no more subscription_ids),
-    /// `Ok(false)` if it still has other subscription_ids.
-    /// Returns `Err` if the connection was not found.
-    /// If the subscription_id is not present (already removed), this is a no-op
-    /// and returns based on whether the connection still has other subscription_ids.
-    fn remove(&mut self, conn: u64, subscription_id: u64) -> Result<(bool, bool), DataPathError> {
+    /// Returns `Ok(true)` if the connection has no remaining subscription_ids.
+    /// Returns `Ok(false)` if the connection still has other subscription_ids.
+    /// Returns `Err(SubscriptionIdNotFound)` if the subscription_id was not present.
+    /// Returns `Err(ConnectionIdNotFound)` if the connection was not found.
+    fn remove(&mut self, conn: u64, subscription_id: u64) -> Result<bool, DataPathError> {
         match self.refs.get_mut(&conn) {
             None => {
                 debug!(%conn, "connection not found in refs");
                 Err(DataPathError::ConnectionIdNotFound(conn))
             }
             Some(set) => {
-                let actually_removed = set.remove(&subscription_id);
+                if !set.remove(&subscription_id) {
+                    return Err(DataPathError::SubscriptionIdNotFound(subscription_id));
+                }
                 if set.is_empty() {
                     self.refs.remove(&conn);
-                    Ok((true, actually_removed)) // (conn_fully_removed, actually_removed)
+                    Ok(true)
                 } else {
-                    Ok((false, actually_removed))
+                    Ok(false)
                 }
             }
         }
@@ -296,20 +297,16 @@ impl NameState {
             Some(connection_refs) => {
                 let index = if is_local { 0 } else { 1 };
 
-                let (conn_fully_removed, actually_removed) =
-                    connection_refs[index].remove(conn, subscription_id)?;
-                // Only decrement the Connections counter if the subscription_id
-                // was actually present — it was incremented once per unique
-                // subscription_id in insert().
-                if actually_removed {
-                    self.connections[index].remove(conn)?;
-                }
+                let conn_fully_removed = connection_refs[index].remove(conn, subscription_id)?;
+                // Decrement the Connections counter — it was incremented
+                // once per unique subscription_id in insert().
+                self.connections[index].remove(conn)?;
 
-                if conn_fully_removed {
-                    let uid_gone = connection_refs[0].is_empty() && connection_refs[1].is_empty();
-                    if uid_gone {
-                        self.ids.remove(id);
-                    }
+                if conn_fully_removed
+                    && connection_refs[0].is_empty()
+                    && connection_refs[1].is_empty()
+                {
+                    self.ids.remove(id);
                 }
 
                 Ok(conn_fully_removed)
