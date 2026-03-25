@@ -700,8 +700,6 @@ impl MessageProcessor {
         }
     }
 
-    // Returns Ok(true) if the name is still subscribed on this node after the operation,
-    // Ok(false) if the uid was fully removed. For adds, always Ok(true).
     async fn process_subscription_update_and_forward(
         &self,
         msg: Message,
@@ -709,7 +707,7 @@ impl MessageProcessor {
         forward: Option<u64>,
         add: bool,
         subscription_id: u64,
-    ) -> Result<bool, DataPathError> {
+    ) -> Result<(), DataPathError> {
         let dst = msg.get_dst();
 
         // As connection is deleted only after processing, at this point it must exist.
@@ -730,7 +728,7 @@ impl MessageProcessor {
             if add { "" } else { "un" }
         );
 
-        let still_subscribed = self.forwarder().on_subscription_msg(
+        self.forwarder().on_subscription_msg(
             dst.clone(),
             conn,
             connection.is_local_connection(),
@@ -739,7 +737,7 @@ impl MessageProcessor {
         )?;
 
         match forward {
-            None => Ok(still_subscribed),
+            None => Ok(()),
             Some(out_conn) => {
                 debug!(
                     %out_conn,
@@ -753,7 +751,6 @@ impl MessageProcessor {
                 self.send_msg(msg, out_conn).await.map(|_| {
                     self.forwarder()
                         .on_forwarded_subscription(source, dst, identity, out_conn, add);
-                    still_subscribed
                 })
             }
         }
@@ -844,29 +841,13 @@ impl MessageProcessor {
 
             // Local update only (no forwarding yet).
             let sub_id = subscription_id.unwrap_or(0);
-            let local_result = self
+            if let Err(e) = self
                 .process_subscription_update_and_forward(msg.clone(), in_conn, None, add, sub_id)
-                .await;
-
-            let still_subscribed = match local_result {
-                Err(e) => {
-                    if let Some(id) = subscription_id {
-                        debug!(%in_connection, error = %e, "local subscription update failed, sending error ack");
-                        self.send_subscription_ack(in_connection, id, &Err(e)).await;
-                    }
-                    return Ok(());
-                }
-                Ok(v) => v,
-            };
-
-            // For unsubscribes: if other connections still hold this subscription on this
-            // node, there's no need to propagate the unsubscribe to the remote peer.
-            // The upstream relay still needs to route traffic to us for those subscribers.
-            if !add && still_subscribed {
-                debug!(%in_connection, "subscription: uid still subscribed, skipping remote unsubscribe");
+                .await
+            {
                 if let Some(id) = subscription_id {
-                    debug!(%in_connection, "still subscribed, acking ok without forwarding");
-                    self.send_subscription_ack(in_connection, id, &Ok(())).await;
+                    debug!(%in_connection, error = %e, "local subscription update failed, sending error ack");
+                    self.send_subscription_ack(in_connection, id, &Err(e)).await;
                 }
                 return Ok(());
             }
@@ -902,18 +883,12 @@ impl MessageProcessor {
             .process_subscription_update_and_forward(msg, in_conn, forward, add, sub_id)
             .await;
 
-        let unit_result = match result {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e),
-        };
-
         if let Some(id) = subscription_id {
-            debug!(%in_connection, ok = unit_result.is_ok(), "sending immediate subscription ack");
-            self.send_subscription_ack(in_connection, id, &unit_result)
-                .await;
+            debug!(%in_connection, ok = result.is_ok(), "sending immediate subscription ack");
+            self.send_subscription_ack(in_connection, id, &result).await;
         }
 
-        unit_result
+        result
     }
 
     pub async fn process_message(

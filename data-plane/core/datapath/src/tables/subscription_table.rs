@@ -281,7 +281,7 @@ impl NameState {
         conn: u64,
         is_local: bool,
         subscription_id: u64,
-    ) -> Result<(bool, bool), DataPathError> {
+    ) -> Result<bool, DataPathError> {
         match self.ids.get_mut(id) {
             None => {
                 warn!(%id, "not found");
@@ -295,17 +295,14 @@ impl NameState {
                 // once per unique subscription_id in insert().
                 self.connections[index].remove(conn)?;
 
-                let uid_still_subscribed = if conn_fully_removed {
+                if conn_fully_removed {
                     let uid_gone = connection_refs[0].is_empty() && connection_refs[1].is_empty();
                     if uid_gone {
                         self.ids.remove(id);
                     }
-                    !uid_gone
-                } else {
-                    true // conn still has refs — uid is definitely still subscribed
-                };
+                }
 
-                Ok((conn_fully_removed, uid_still_subscribed))
+                Ok(conn_fully_removed)
             }
         }
     }
@@ -573,17 +570,16 @@ fn remove_subscription_from_sub_table(
     is_local: bool,
     subscription_id: u64,
     table: &mut RwLockWriteGuard<'_, RawRwLock, HashMap<InternalName, NameState>>,
-) -> Result<(bool, bool), DataPathError> {
+) -> Result<bool, DataPathError> {
     let query_name = unsafe { std::mem::transmute::<&Name, &InternalName>(name) };
 
     if let Some(state) = table.get_mut(query_name) {
-        let (conn_fully_removed, uid_still_subscribed) =
-            state.remove(&name.id(), conn_index, is_local, subscription_id)?;
+        let conn_fully_removed = state.remove(&name.id(), conn_index, is_local, subscription_id)?;
 
         if state.ids.is_empty() {
             table.remove(query_name);
         }
-        Ok((conn_fully_removed, uid_still_subscribed))
+        Ok(conn_fully_removed)
     } else {
         debug!("subscription not found {}", name);
         Err(DataPathError::SubscriptionNotFound(name.clone()))
@@ -685,8 +681,8 @@ impl SubscriptionTable for SubscriptionTableImpl {
         conn: u64,
         is_local: bool,
         subscription_id: u64,
-    ) -> Result<bool, Self::Error> {
-        let (conn_fully_removed, uid_still_subscribed) = {
+    ) -> Result<(), Self::Error> {
+        let conn_fully_removed = {
             let mut table = self.table.write();
             remove_subscription_from_sub_table(name, conn, is_local, subscription_id, &mut table)?
         };
@@ -694,7 +690,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
             let conn_table = self.connections.write();
             remove_subscription_from_connection(name, conn, conn_table)?;
         }
-        Ok(uid_still_subscribed)
+        Ok(())
     }
 
     fn remove_connection(&self, conn: u64, is_local: bool) -> Result<HashSet<Name>, Self::Error> {

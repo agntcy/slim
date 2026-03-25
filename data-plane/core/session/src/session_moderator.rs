@@ -1348,11 +1348,9 @@ mod tests {
             tokio::select! {
                 res = &mut pinned => return res,
                 msg = rx_slim.recv() => {
-                    if let Some(Ok(msg)) = msg {
-                        if let Some(ack_id) = msg.get_subscription_id() {
-                            let ack = Message::builder().build_subscription_ack(ack_id, true, "");
-                            sub_mgr.resolve_ack(ack.get_subscription_ack());
-                        }
+                    if let Some(Ok(msg)) = msg && let Some(ack_id) = msg.get_subscription_id() {
+                        let ack = Message::builder().build_subscription_ack(ack_id, true, "");
+                        sub_mgr.resolve_ack(ack.get_subscription_ack());
                     }
                 }
             }

@@ -332,7 +332,8 @@ where
             app = %app_name,
             service_id = %service_id,
         );
-        let handle = tokio::spawn(async move {
+
+        tokio::spawn(async move {
             debug!("starting message processing loop");
 
             // Initiate self-subscription via the subscription manager so the ACK
@@ -369,7 +370,7 @@ where
                                         match msg.message_type.as_ref() {
                                             Some(MessageType::Publish(_)) => {},
                                             Some(MessageType::SubscriptionAck(ack)) => {
-                                                subscription_manager.resolve_ack(&ack);
+                                                subscription_manager.resolve_ack(ack);
                                                 continue;
                                             }
                                             Some(MessageType::Subscribe(_))
@@ -427,9 +428,7 @@ where
                     }
                 }
             }
-        }.instrument(loop_span));
-
-        handle
+        }.instrument(loop_span))
     }
 }
 

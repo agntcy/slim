@@ -29,15 +29,13 @@ pub trait SubscriptionTable {
         subscription_id: u64,
     ) -> Result<(), Self::Error>;
 
-    /// Returns `Ok(true)` if the uid is still subscribed by at least one other connection after
-    /// this removal, or `Ok(false)` if no subscribers remain for this uid on this node.
     fn remove_subscription(
         &self,
         name: &Name,
         conn: u64,
         is_local: bool,
         subscription_id: u64,
-    ) -> Result<bool, Self::Error>;
+    ) -> Result<(), Self::Error>;
 
     fn remove_connection(&self, conn: u64, is_local: bool) -> Result<HashSet<Name>, Self::Error>;
 

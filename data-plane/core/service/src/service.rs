@@ -375,7 +375,7 @@ impl Service {
         );
 
         // start message processing using the rx channel
-        let _ = app.process_messages(rx_slim);
+        app.process_messages(rx_slim);
 
         // return the app instance and the rx channel
         Ok((app, rx_app))
