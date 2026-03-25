@@ -657,7 +657,7 @@ where
                     .map_err(SessionError::SubscriptionAckFailed)?;
 
                 Self::await_subscription_ack(rx).await?;
-                tracing::info!(%name, %conn, %subscription_id, "route deleted");
+                tracing::debug!(%name, %conn, %subscription_id, "route deleted");
             }
             None => {
                 tracing::warn!(

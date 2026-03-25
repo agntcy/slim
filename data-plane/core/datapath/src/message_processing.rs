@@ -545,7 +545,10 @@ impl MessageProcessor {
         );
 
         for info in subs {
-            let subscription_id = rand::random::<u64>();
+            let subscription_id = match info.subscription_id() {
+                0 => rand::random::<u64>(),
+                id => id,
+            };
             let msg = Message::builder()
                 .source(info.source().clone())
                 .destination(info.name().clone())
@@ -749,8 +752,14 @@ impl MessageProcessor {
                 let identity = msg.get_identity();
 
                 self.send_msg(msg, out_conn).await.map(|_| {
-                    self.forwarder()
-                        .on_forwarded_subscription(source, dst, identity, out_conn, add);
+                    self.forwarder().on_forwarded_subscription(
+                        source,
+                        dst,
+                        identity,
+                        out_conn,
+                        add,
+                        subscription_id,
+                    );
                 })
             }
         }
@@ -859,7 +868,7 @@ impl MessageProcessor {
             let dst = msg.get_dst();
             let identity = msg.get_identity();
             self.forwarder()
-                .on_forwarded_subscription(source, dst, identity, out_conn, add);
+                .on_forwarded_subscription(source, dst, identity, out_conn, add, sub_id);
 
             let rx = self.internal.sub_ack_manager.register(sub_id);
 

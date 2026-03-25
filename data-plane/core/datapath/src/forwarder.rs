@@ -113,6 +113,7 @@ where
         source_identity: String,
         conn_index: u64,
         add: bool,
+        subscription_id: u64,
     ) {
         if add {
             self.remote_subscription_table.add_subscription(
@@ -120,6 +121,7 @@ where
                 name,
                 source_identity,
                 conn_index,
+                subscription_id,
             );
         } else {
             self.remote_subscription_table.remove_subscription(
@@ -127,6 +129,7 @@ where
                 name,
                 source_identity,
                 conn_index,
+                subscription_id,
             );
         }
     }
