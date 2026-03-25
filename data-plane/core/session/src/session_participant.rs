@@ -347,7 +347,7 @@ where
         self.moderator_name = Some(source.clone());
 
         self.common
-            .add_route(&source, msg.get_incoming_conn())
+            .add_route(source.clone(), msg.get_incoming_conn())
             .await?;
 
         let payload = if let Some(mls_state) = &mut self.mls_state {
@@ -401,7 +401,7 @@ where
                 // skip the moderator as the route is already added in on_join_request
                 if self.moderator_name.as_ref() != Some(&name) {
                     self.common
-                        .add_route(&name, msg.get_incoming_conn())
+                        .add_route(name.clone(), msg.get_incoming_conn())
                         .await?;
                 }
                 self.add_endpoint(&name).await?;
@@ -457,7 +457,7 @@ where
                 debug!(name  = %msg.get_source(), "add endpoint to session");
                 // add a route to the new endpoint, this is needed in case of message retransmission
                 self.common
-                    .add_route(&name, msg.get_incoming_conn())
+                    .add_route(name.clone(), msg.get_incoming_conn())
                     .await?;
                 self.add_endpoint(&name).await?;
             }
@@ -478,7 +478,7 @@ where
                 // would return SubscriptionNotFound and block the GroupAck.
                 if name != self.common.settings.source {
                     self.common
-                        .delete_route(&name, msg.get_incoming_conn())
+                        .delete_route(name.clone(), msg.get_incoming_conn())
                         .await?;
                 }
                 self.inner.remove_endpoint(&name);
@@ -564,15 +564,16 @@ where
             return Ok(());
         }
 
+        let destination = self.common.settings.destination.clone();
         self.common
-            .add_route(&self.common.settings.destination, msg.get_incoming_conn())
+            .add_route(destination.clone(), msg.get_incoming_conn())
             .await?;
         self.common
-            .add_subscription(&self.common.settings.destination, msg.get_incoming_conn())
+            .add_subscription(destination, msg.get_incoming_conn())
             .await
     }
 
-    async fn disconnect_from_group(&self) -> Result<(), SessionError> {
+    async fn disconnect_from_group(&mut self) -> Result<(), SessionError> {
         if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
             return Ok(());
         }
@@ -580,14 +581,14 @@ where
         if let Some(conn_id) = self.conn_id {
             if let Err(e) = self
                 .common
-                .delete_route(&self.common.settings.destination, conn_id)
+                .delete_route(self.common.settings.destination.clone(), conn_id)
                 .await
             {
                 tracing::warn!(error = %e, name = %self.common.settings.destination, "error deleting route");
             }
             if let Err(e) = self
                 .common
-                .delete_subscription(&self.common.settings.destination, conn_id)
+                .delete_subscription(self.common.settings.destination.clone(), conn_id)
                 .await
             {
                 tracing::warn!(error = %e, name = %self.common.settings.destination, "error deleting subscription");
@@ -598,7 +599,10 @@ where
         // it will be removed in disconnect_from_moderator
         for n in self.group_list.iter() {
             if self.moderator_name.as_ref() != Some(n)
-                && let Err(e) = self.common.delete_route(n, self.conn_id.unwrap()).await
+                && let Err(e) = self
+                    .common
+                    .delete_route(n.clone(), self.conn_id.unwrap())
+                    .await
             {
                 tracing::warn!(error = %e, name = %n, "error deleting route");
             }
@@ -607,11 +611,11 @@ where
         Ok(())
     }
 
-    async fn disconnect_from_moderator(&self) -> Result<(), SessionError> {
+    async fn disconnect_from_moderator(&mut self) -> Result<(), SessionError> {
         if let Some(conn_id) = self.conn_id
             && let Err(e) = self
                 .common
-                .delete_route(self.moderator_name.as_ref().unwrap(), conn_id)
+                .delete_route(self.moderator_name.as_ref().unwrap().clone(), conn_id)
                 .await
         {
             tracing::warn!(error = %e, name = ?self.moderator_name, "error disconnecting from moderator");

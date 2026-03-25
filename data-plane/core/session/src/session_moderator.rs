@@ -296,10 +296,10 @@ where
             && let Some(conn) = self.conn_id
         {
             self.common
-                .delete_route(&self.common.settings.destination, conn)
+                .delete_route(self.common.settings.destination.clone(), conn)
                 .await?;
             self.common
-                .delete_subscription(&self.common.settings.destination, conn)
+                .delete_subscription(self.common.settings.destination.clone(), conn)
                 .await?;
         }
 
@@ -496,7 +496,7 @@ where
                 // the effect of it is to create the session itself with
                 // the right settings. We need to set a route to the controller and send back the ack
                 self.common
-                    .add_route(&message.get_source(), message.get_incoming_conn())
+                    .add_route(message.get_source(), message.get_incoming_conn())
                     .await
                     .map_err(|e| self.handle_task_error(e))?;
 
@@ -606,7 +606,7 @@ where
                 // same connection from where we got the message from the controller
                 let dst = Name::from(dst_name);
                 self.common
-                    .add_route(&dst, msg.get_incoming_conn())
+                    .add_route(dst.clone(), msg.get_incoming_conn())
                     .await
                     .map_err(|e| self.handle_task_error(e))?;
 
@@ -676,7 +676,7 @@ where
 
         // set a route to the remote participant
         self.common
-            .add_route(&msg.get_source(), msg.get_incoming_conn())
+            .add_route(msg.get_source(), msg.get_incoming_conn())
             .await?;
 
         // if this is a multicast session we need to add a route for the channel
@@ -685,7 +685,10 @@ where
         // different connections. In case the route exists already it will be just ignored
         if self.common.settings.config.session_type == ProtoSessionType::Multicast {
             self.common
-                .add_route(&self.common.settings.destination, msg.get_incoming_conn())
+                .add_route(
+                    self.common.settings.destination.clone(),
+                    msg.get_incoming_conn(),
+                )
                 .await?;
         }
 
@@ -1136,7 +1139,7 @@ where
 
         // delete the route to the source of the message
         self.common
-            .delete_route(&msg.get_source(), msg.get_incoming_conn())
+            .delete_route(msg.get_source(), msg.get_incoming_conn())
             .await?;
 
         // notify the sender and see if we can pick another task
@@ -1272,9 +1275,8 @@ where
             self.common.settings.destination = remote;
         } else {
             // if this is a multicast session we need to subscribe for the channel name
-            self.common
-                .add_subscription(&self.common.settings.destination, conn)
-                .await?;
+            let destination = self.common.settings.destination.clone();
+            self.common.add_subscription(destination, conn).await?;
         }
 
         // create mls group if needed

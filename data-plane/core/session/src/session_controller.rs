@@ -87,7 +87,7 @@ impl SessionController {
         let cancellation_token = CancellationToken::new();
 
         // setup tracing context
-        let span = tracing::info_span!(
+        let span = tracing::debug_span!(
             parent: None,
             "session_controller_processing_loop",
             session_id = id,
@@ -549,7 +549,7 @@ pub(crate) struct SessionControllerCommon<
     pub(crate) processing_state: ProcessingState,
 
     /// Maps (kind, name, conn) → subscription_id for route/subscription tracking.
-    subscription_ids: Mutex<HashMap<(SubscriptionKind, Name, u64), u64>>,
+    subscription_ids: HashMap<(SubscriptionKind, Name, u64), u64>,
 }
 
 /// Distinguishes route entries from subscription entries in the subscription_ids map.
@@ -587,7 +587,7 @@ where
             settings,
             sender: controller_sender,
             processing_state: ProcessingState::Active,
-            subscription_ids: Mutex::new(HashMap::new()),
+            subscription_ids: HashMap::new(),
         }
     }
 
@@ -616,35 +616,43 @@ where
             .map_err(SessionError::SubscriptionAckFailed)
     }
 
-    pub(crate) async fn add_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
+    pub(crate) async fn add_route(&mut self, name: Name, conn: u64) -> Result<(), SessionError> {
+        if name == self.settings.source {
+            // We never add a route for ourselves
+            return Ok(());
+        }
+
         let (subscription_id, rx) = self
             .settings
             .subscription_manager
-            .set_route(&self.settings.source, name, conn)
+            .set_route(&self.settings.source, &name, conn)
             .await
             .map_err(SessionError::SubscriptionAckFailed)?;
         Self::await_subscription_ack(rx).await?;
-        self.subscription_ids.lock().insert(
-            (SubscriptionKind::Route, name.clone(), conn),
-            subscription_id,
-        );
 
-        debug!(%name, %conn, source = %self.settings.source, "route added");
+        debug!(%name, %conn, %subscription_id, source = %self.settings.source, "route added");
+
+        self.subscription_ids
+            .insert((SubscriptionKind::Route, name, conn), subscription_id);
 
         Ok(())
     }
 
-    pub(crate) async fn delete_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
-        let subscription_id =
-            self.subscription_ids
-                .lock()
-                .remove(&(SubscriptionKind::Route, name.clone(), conn));
+    pub(crate) async fn delete_route(&mut self, name: Name, conn: u64) -> Result<(), SessionError> {
+        if name == self.settings.source {
+            // We never remove a route for ourselves
+            return Ok(());
+        }
+
+        let key = (SubscriptionKind::Route, name, conn);
+        let subscription_id = self.subscription_ids.remove(&key);
+        let (_, name, conn) = key;
         match subscription_id {
             Some(subscription_id) => {
                 let rx = self
                     .settings
                     .subscription_manager
-                    .remove_route(&self.settings.source, name, subscription_id, conn)
+                    .remove_route(&self.settings.source, &name, subscription_id, conn)
                     .await
                     .map_err(SessionError::SubscriptionAckFailed)?;
 
@@ -653,7 +661,7 @@ where
             }
             None => {
                 tracing::warn!(
-                    %name, %conn,
+                    %name, %conn, io = %self.settings.source,
                     "no subscription_id found for route, skipping delete"
                 );
             }
@@ -663,44 +671,43 @@ where
     }
 
     pub(crate) async fn add_subscription(
-        &self,
-        name: &Name,
+        &mut self,
+        name: Name,
         conn: u64,
     ) -> Result<(), SessionError> {
         let (subscription_id, rx) = self
             .settings
             .subscription_manager
-            .subscribe(&self.settings.source, name, Some(conn))
+            .subscribe(&self.settings.source, &name, Some(conn))
             .await
             .map_err(SessionError::SubscriptionAckFailed)?;
 
         Self::await_subscription_ack(rx).await?;
-        self.subscription_ids.lock().insert(
-            (SubscriptionKind::Subscription, name.clone(), conn),
-            subscription_id,
-        );
 
         debug!(%name, %conn, %subscription_id, "subscription added");
+
+        self.subscription_ids.insert(
+            (SubscriptionKind::Subscription, name, conn),
+            subscription_id,
+        );
 
         Ok(())
     }
 
     pub(crate) async fn delete_subscription(
-        &self,
-        name: &Name,
+        &mut self,
+        name: Name,
         conn: u64,
     ) -> Result<(), SessionError> {
-        let subscription_id = self.subscription_ids.lock().remove(&(
-            SubscriptionKind::Subscription,
-            name.clone(),
-            conn,
-        ));
+        let key = (SubscriptionKind::Subscription, name, conn);
+        let subscription_id = self.subscription_ids.remove(&key);
+        let (_, name, conn) = key;
         match subscription_id {
             Some(subscription_id) => {
                 let rx = self
                     .settings
                     .subscription_manager
-                    .unsubscribe(&self.settings.source, name, subscription_id, Some(conn))
+                    .unsubscribe(&self.settings.source, &name, subscription_id, Some(conn))
                     .await
                     .map_err(SessionError::SubscriptionAckFailed)?;
 
