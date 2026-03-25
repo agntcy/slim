@@ -50,10 +50,7 @@ fn resolve_csharp_type(
             "Empty" | "Timestamp" | "Duration" | "Struct" => "Google.Protobuf.WellKnownTypes",
             _ => "Google.Protobuf",
         };
-        return (
-            format!("{}.{}", ns, bare),
-            Some(format!("using {};", ns)),
-        );
+        return (format!("{}.{}", ns, bare), Some(format!("using {};", ns)));
     }
 
     if type_proto_pkg == current_proto_pkg || type_proto_pkg.is_empty() {
