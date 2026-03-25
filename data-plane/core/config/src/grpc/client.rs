@@ -329,6 +329,11 @@ pub struct ClientConfig {
 
     /// Arbitrary user-provided metadata.
     pub metadata: Option<MetadataMap>,
+
+    /// Link identifier for this connection, used during link negotiation.
+    /// Must be a valid UUID v4. Defaults to a randomly generated UUID v4.
+    #[serde(default = "default_link_id")]
+    pub link_id: String,
 }
 
 /// Defaults for ClientConfig
@@ -352,8 +357,13 @@ impl Default for ClientConfig {
             auth: AuthenticationConfig::None,
             backoff: BackoffConfig::default(),
             metadata: None,
+            link_id: default_link_id(),
         }
     }
+}
+
+fn default_link_id() -> String {
+    uuid::Uuid::new_v4().to_string()
 }
 
 fn default_connect_timeout() -> DurationString {
@@ -369,7 +379,7 @@ impl std::fmt::Display for ClientConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ClientConfig {{ endpoint: {}, transport: {:?}, websocket_auth_query_param: {:?}, origin: {:?}, server_name: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?}, backoff: {:?}, metadata: {:?} }}",
+            "ClientConfig {{ endpoint: {}, transport: {:?}, websocket_auth_query_param: {:?}, origin: {:?}, server_name: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?}, backoff: {:?}, metadata: {:?}, link_id: {:?} }}",
             self.endpoint,
             self.transport,
             self.websocket_auth_query_param,
@@ -386,8 +396,16 @@ impl std::fmt::Display for ClientConfig {
             self.headers,
             self.auth,
             self.backoff,
-            self.metadata
+            self.metadata,
+            self.link_id
         )
+    }
+}
+
+pub fn is_valid_uuid_v4(s: &str) -> bool {
+    match uuid::Uuid::parse_str(s) {
+        Ok(id) => id.get_version() == Some(uuid::Version::Random),
+        Err(_) => false,
     }
 }
 
@@ -397,6 +415,11 @@ impl Configuration for ClientConfig {
     fn validate(&self) -> Result<(), Self::Error> {
         if self.endpoint.is_empty() {
             return Err(ConfigError::MissingEndpoint);
+        }
+
+        // Validate link_id is a UUID v4
+        if !is_valid_uuid_v4(&self.link_id) {
+            return Err(ConfigError::InvalidLinkId);
         }
 
         // Validate the client configuration
@@ -1493,5 +1516,27 @@ mod test {
         assert_eq!(ka.http2_keepalive, Duration::from_secs(22));
         assert_eq!(ka.timeout, Duration::from_secs(3));
         assert!(ka.keep_alive_while_idle);
+    }
+
+    #[test]
+    fn test_validate_rejects_non_uuid_link_id() {
+        let mut config = ClientConfig::with_endpoint("http://localhost:1234");
+        config.link_id = "not-a-uuid".to_string();
+        assert!(matches!(config.validate(), Err(ConfigError::InvalidLinkId)));
+    }
+
+    #[test]
+    fn test_validate_rejects_non_v4_uuid() {
+        let mut config = ClientConfig::with_endpoint("http://localhost:1234");
+        // Version 1 UUID.
+        config.link_id = "00000000-0000-1000-8000-000000000000".to_string();
+        assert!(matches!(config.validate(), Err(ConfigError::InvalidLinkId)));
+    }
+
+    #[test]
+    fn test_validate_accepts_default_v4_link_id() {
+        // default_link_id() generates a v4 UUID; validation must pass.
+        let config = ClientConfig::with_endpoint("http://localhost:1234");
+        assert!(config.validate().is_ok());
     }
 }

@@ -6,10 +6,10 @@
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use serde_json::Value as JsonValue;
-use slim_auth::metadata::MetadataMap;
 use std::collections::HashMap;
 
-use crate::errors::MlsError;
+use crate::errors::AuthError;
+use crate::metadata::MetadataMap;
 
 /// Claim key constants to ensure consistency across the codebase
 pub mod claim_keys {
@@ -43,7 +43,7 @@ impl IdentityClaims {
     ///
     /// Tries to get the public key from the top-level claims first,
     /// then falls back to custom_claims if not found.
-    pub fn from_json(claims: &JsonValue) -> Result<Self, MlsError> {
+    pub fn from_json(claims: &JsonValue) -> Result<Self, AuthError> {
         // Try to get the public key from claims, falling back to custom_claims
         let public_key = claims
             .get(claim_keys::PUBKEY)
@@ -55,7 +55,7 @@ impl IdentityClaims {
                     .and_then(|cc| cc.get(claim_keys::PUBKEY))
                     .and_then(|pk| pk.as_str())
             })
-            .ok_or(MlsError::PublicKeyNotFound)?;
+            .ok_or(AuthError::PublicKeyNotFound)?;
 
         // Get the subject of this identity
         // Fall back to "id" field if "sub" is not present (for SharedSecret compatibility)
@@ -63,7 +63,7 @@ impl IdentityClaims {
             .get(claim_keys::SUBJECT)
             .and_then(|s| s.as_str())
             .or_else(|| claims.get("id").and_then(|s| s.as_str()))
-            .ok_or(MlsError::SubjectNotFound)?;
+            .ok_or(AuthError::SubjectNotFound)?;
 
         Ok(Self {
             subject: subject.to_string(),
@@ -142,7 +142,7 @@ mod tests {
         });
 
         let result = IdentityClaims::from_json(&claims);
-        assert!(matches!(result, Err(MlsError::PublicKeyNotFound)));
+        assert!(matches!(result, Err(AuthError::PublicKeyNotFound)));
     }
 
     #[test]
@@ -152,7 +152,7 @@ mod tests {
         });
 
         let result = IdentityClaims::from_json(&claims);
-        assert!(matches!(result, Err(MlsError::SubjectNotFound)));
+        assert!(matches!(result, Err(AuthError::SubjectNotFound)));
     }
 
     #[test]

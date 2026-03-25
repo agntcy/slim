@@ -178,7 +178,7 @@ pub struct AddParticipant {
     commit: State,
     /// Optional ack message to send back to the control plane upon completion
     ack_msg: Option<Message>,
-    /// Optional ack notifier to signal when the invite operation completes (after JoinReply)
+    /// Optional ack notifier to signal when the invite operation completes (after welcome+commit)
     pub(crate) ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
 }
 
@@ -236,12 +236,6 @@ impl TaskUpdate for AddParticipant {
                 %timer_id,
                 "join completed on AddParticipan task"
             );
-
-            // Signal success to the ack notifier if present (invite operation complete)
-            if let Some(tx) = self.ack_tx.take() {
-                let _ = tx.send(Ok(()));
-            }
-
             Ok(())
         } else {
             Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id))
@@ -281,17 +275,25 @@ impl TaskUpdate for AddParticipant {
                 %timer_id,
                 "welcome completed on AddParticipan task",
             );
-            Ok(())
         } else if self.commit.timer_id == timer_id {
             self.commit.received = true;
             debug!(
                 %timer_id,
                 "commit completed on AddParticipan task",
             );
-            Ok(())
         } else {
-            Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id))
+            return Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id));
         }
+
+        // Ack only after both welcome and commit phases are done.
+        if self.welcome.received
+            && self.commit.received
+            && let Some(tx) = self.ack_tx.take()
+        {
+            let _ = tx.send(Ok(()));
+        }
+
+        Ok(())
     }
 
     fn task_complete(&self) -> bool {
@@ -776,6 +778,34 @@ mod tests {
                 ),
             ],
         );
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_add_participant_ack_after_welcome_and_commit() {
+        let base = 10u32;
+        let (tx, mut rx) = tokio::sync::oneshot::channel::<Result<(), SessionError>>();
+        let mut task = ModeratorTask::Add(AddParticipant::new(Some(tx), None));
+
+        task.discovery_start(base).unwrap();
+        task.discovery_complete(base).unwrap();
+        task.join_start(base + 1).unwrap();
+        task.join_complete(base + 1).unwrap();
+        // ack must NOT fire on join
+        assert!(rx.try_recv().is_err());
+
+        task.welcome_start(base + 2).unwrap();
+        task.commit_start(base + 3).unwrap();
+
+        // only welcome done — still no ack
+        task.update_phase_completed(base + 2).unwrap();
+        assert!(rx.try_recv().is_err());
+
+        // commit done — both phases complete, ack fires
+        task.update_phase_completed(base + 3).unwrap();
+        assert!(rx.try_recv().is_ok());
+
+        assert!(task.task_complete());
     }
 
     #[test]

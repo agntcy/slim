@@ -68,7 +68,7 @@ pub use app::{App, Direction, SessionWithCompletion};
 pub use build_info::{BuildInfo, get_build_info, get_version};
 pub use client_config::{
     BackoffConfig, ClientConfig, ExponentialBackoff, KeepaliveConfig, ProxyConfig,
-    new_insecure_client_config,
+    new_config_from_json, new_insecure_client_config,
 };
 pub use common_config::{
     BasicAuth, CaSource, ClientAuthenticationConfig, ServerAuthenticationConfig, SpireConfig,

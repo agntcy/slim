@@ -121,16 +121,24 @@ pub trait TokenProvider {
     /// Try to get a token
     fn get_token(&self) -> Result<String, AuthError>;
 
-    /// Try to get a token with custom claims
-    ///
-    /// # Arguments
-    /// * `custom_claims` - Additional custom claims to include in the token.
-    async fn get_token_with_claims(&self, custom_claims: MetadataMap) -> Result<String, AuthError> {
-        // Default implementation ignores custom claims for backward compatibility
-        let _ = custom_claims;
-        self.get_token()
-    }
-
     /// Get ID from the identity provider, e.g. the sub claim in JWT
     fn get_id(&self) -> Result<String, AuthError>;
+
+    /// Get the MLS signature secret key bytes.
+    /// Returns `Err(AuthError::MlsNotSupported)` by default.
+    fn get_signature_secret_key(&self) -> Result<Vec<u8>, AuthError> {
+        Err(AuthError::MlsNotSupported)
+    }
+
+    /// Get the MLS signature public key bytes.
+    /// Returns `Err(AuthError::MlsNotSupported)` by default.
+    fn get_signature_public_key(&self) -> Result<Vec<u8>, AuthError> {
+        Err(AuthError::MlsNotSupported)
+    }
+
+    /// Rotate the MLS signature key pair, generating new keys internally.
+    /// Returns `Err(AuthError::MlsNotSupported)` by default.
+    fn rotate_signature_keys(&mut self) -> Result<(), AuthError> {
+        Err(AuthError::MlsNotSupported)
+    }
 }

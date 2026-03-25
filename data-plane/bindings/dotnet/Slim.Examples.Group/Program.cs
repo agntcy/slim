@@ -100,7 +100,7 @@ class Program
         return await rootCommand.InvokeAsync(args);
     }
 
-    static async Task RunModerator(SlimApp app, ulong connId, string remote, 
+    static async Task RunModerator(SlimApp app, ulong connId, string remote,
         List<string> invites, bool enableMls, ulong instance)
     {
         // Parse remote channel name
@@ -147,7 +147,7 @@ class Program
 
         // Run message loops
         await RunMessageLoops(app, session, channelName, instance);
-        
+
         // Note: session.Dispose() is automatically called by 'using var' at end of method
     }
 
@@ -163,11 +163,11 @@ class Program
 
         // Run message loops
         await RunMessageLoops(app, session, channelName, instance);
-        
+
         // Note: session.Dispose() is automatically called by 'using var' at end of method
     }
 
-    static async Task RunMessageLoops(SlimApp app, SlimSession session, 
+    static async Task RunMessageLoops(SlimApp app, SlimSession session,
         SlimName channelName, ulong instance)
     {
         using var cts = new CancellationTokenSource();
@@ -181,10 +181,10 @@ class Program
 
         // Wait for either task to complete
         await Task.WhenAny(receiveTask, keyboardTask);
-        
+
         // Cancel remaining tasks
         cts.Cancel();
-        
+
         // Wait for both to finish
         try
         {
@@ -196,7 +196,7 @@ class Program
         }
     }
 
-    static async Task ReceiveLoop(SlimSession session, SlimName sourceName, 
+    static async Task ReceiveLoop(SlimSession session, SlimName sourceName,
         ulong instance, CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
@@ -204,7 +204,7 @@ class Program
             try
             {
                 var msg = await session.GetMessageAsync(TimeSpan.FromSeconds(1));
-                
+
                 // Display received message
                 Console.WriteLine($"\n{ColorYellow}[Message] > {msg.Text}{ColorReset}");
 
@@ -224,11 +224,11 @@ class Program
         }
     }
 
-    static async Task KeyboardLoop(SlimSession session, SlimName sourceName, 
+    static async Task KeyboardLoop(SlimSession session, SlimName sourceName,
         SlimName channelName, ulong instance, CancellationToken cancellationToken)
     {
         Console.WriteLine($"\n{ColorCyan}[{instance}]{ColorReset} Welcome to the group {channelName}!");
-        
+
         var participants = session.GetParticipants();
         Console.WriteLine($"{ColorCyan}[{instance}]{ColorReset} Participants in the group: {participants.Count}");
         foreach (var participant in participants)
@@ -243,7 +243,7 @@ class Program
         {
             // Read input with cancellation support
             var input = await Task.Run(() => Console.ReadLine(), cancellationToken);
-            
+
             if (string.IsNullOrWhiteSpace(input))
             {
                 Console.Write($"{ColorGreen}{sourceName} > {ColorReset}");

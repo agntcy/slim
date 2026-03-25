@@ -11,7 +11,7 @@ use aws_lc_rs::encoding::AsDer;
 use aws_lc_rs::signature::KeyPair; // Import the KeyPair trait for public_key() method
 use aws_lc_rs::{rand, rsa, signature};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use jsonwebtoken_aws_lc::Algorithm;
+use jsonwebtoken::Algorithm;
 use serde_json::json;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};

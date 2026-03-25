@@ -12,6 +12,7 @@ members = [
     "core/signal",
     "core/slim",
     "core/tracing",
+    "core/version",
     "examples",
     "slimctl",
     "slimrpc-compiler",
@@ -26,6 +27,7 @@ default-members = [
     "core/signal",
     "core/slim",
     "core/tracing",
+    "core/version",
     "examples",
     "slimctl",
     "slimrpc-compiler",
@@ -36,25 +38,26 @@ resolver = "2"
 
 [workspace.dependencies]
 # Local dependencies
-agntcy-slim = { path = "core/slim", version = "1.1.0" }
-agntcy-slim-auth = { path = "core/auth", version = "0.5.1" }
-agntcy-slim-bindings = { path = "bindings/rust", version = "1.2.0" }
-agntcy-slim-config = { path = "core/config", version = "0.6.3" }
-agntcy-slim-controller = { path = "core/controller", version = "0.4.8" }
-agntcy-slim-datapath = { path = "core/datapath", version = "0.11.4" }
-agntcy-slim-mls = { path = "core/mls", version = "0.1.10" }
-agntcy-slim-service = { path = "core/service", version = "0.8.7", default-features = false }
-agntcy-slim-session = { path = "core/session", version = "0.1.7" }
-agntcy-slim-signal = { path = "core/signal", version = "0.1.4" }
+agntcy-slim = { path = "core/slim", version = "1.3.0-rc.0" }
+agntcy-slim-auth = { path = "core/auth", version = "0.5.2" }
+agntcy-slim-bindings = { path = "bindings/rust", version = "1.3.0-rc.0" }
+agntcy-slim-config = { path = "core/config", version = "0.7.0" }
+agntcy-slim-controller = { path = "core/controller", version = "0.4.9" }
+agntcy-slim-datapath = { path = "core/datapath", version = "0.11.5" }
+agntcy-slim-mls = { path = "core/mls", version = "0.1.11" }
+agntcy-slim-service = { path = "core/service", version = "0.8.8", default-features = false }
+agntcy-slim-session = { path = "core/session", version = "0.1.8" }
+agntcy-slim-signal = { path = "core/signal", version = "0.1.5" }
 agntcy-slim-testing = { path = "testing" }
-agntcy-slim-tracing = { path = "core/tracing", version = "0.3.4" }
-agntcy-slimctl = { path = "slimctl", version = "1.2.0" }
+agntcy-slim-tracing = { path = "core/tracing", version = "0.3.5" }
+agntcy-slim-version = { path = "core/version", version = "1.3.0-rc.0" }
+agntcy-slimctl = { path = "slimctl", version = "1.3.0-rc.0" }
 
 anyhow = "1.0.98"
 
 async-stream = "0.3"
 async-trait = "0.1.88"
-aws-lc-rs = "1.13"
+aws-lc-rs = "1.16"
 base64 = "0.22"
 bincode = "2.0.1"
 bit-vec = "0.8"
@@ -77,12 +80,12 @@ hyper-util = "0.1.10"
 indexmap = "2"
 indicatif = "0.17.11"
 jemallocator = { version = "0.5" }
-jsonwebtoken-aws-lc = "9.3.0"
+jsonwebtoken = { version = "10.3.0", features = ["aws_lc_rs"]}
 
 lazy_static = "1.5.0"
-mls-rs = { version = "0.50.1" }
-mls-rs-core = { version = "0.24.0" }
-mls-rs-crypto-awslc = { version = "0.19" }
+mls-rs = { version = "0.54" }
+mls-rs-core = { version = "0.26" }
+mls-rs-crypto-awslc = { version = "0.23" }
 notify = "8.0.0"
 num_cpus = "1.16"
 oauth2 = "5"
@@ -110,6 +113,7 @@ rustls = { version = "0.23.31" }
 rustls-native-certs = "0.8"
 rustls-pki-types = "1.10.0"
 schemars = "1.0.3"
+semver = "1"
 serde = "1.0.217"
 serde-pyobject = "0.7"
 serde_json = "1.0"
@@ -126,7 +130,7 @@ tokio-util = "0.7.14"
 tonic = "0.14"
 tonic-prost = "0.14"
 tonic-prost-build = "0.14"
-tonic-tls = { version = "0.6", default-features = false, features = ["rustls"] }
+tonic-tls = { version = "0.7", default-features = false, features = ["rustls"] }
 tower = "0.5.2"
 tower-http = { version = "0.6", features = ["auth"] }
 tower-layer = "0.3.3"
@@ -143,6 +147,7 @@ uuid = { version = "1.15.1", features = ["v4"] }
 wiremock = "0.6"
 
 [workspace.package]
+version = "1.3.0-rc.0"
 license = "Apache-2.0"
 edition = "2024"
 repository = "https://github.com/agntcy/slim"
@@ -161,6 +166,7 @@ ignored = [
     "agntcy-slim-signal",
     "agntcy-slim-testing",
     "agntcy-slim-tracing",
+    "agntcy-slim-version",
     "agntcy-slimctl",
     "agntcy-slimrpc",
 ]

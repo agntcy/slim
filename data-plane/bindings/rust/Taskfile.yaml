@@ -8,6 +8,12 @@ includes:
     taskfile: ../../../tasks/rust.yaml
     internal: true
 
+vars:
+  PROFILE: '{{.PROFILE | default "debug"}}'
+  CURRENT_TARGET:
+    sh: 'rustc -vV | sed -n "s|host: ||p"'
+  TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
+
 tasks:
   default:
     cmds:
@@ -16,10 +22,37 @@ tasks:
   bindings:build:all:
     desc: Build the Rust library with cross-compilation support
     dir: "{{.TASKFILE_DIR}}"
-    silent: true
+    silent: false
+    vars:
+      LIB_FILENAME:
+        sh: |
+          TARGET_OS=$(echo "{{.TARGET}}" | cut -d"-" -f3)
+          case "$TARGET_OS" in
+            linux*)   echo "libslim_bindings.so" ;;
+            darwin*)  echo "libslim_bindings.dylib" ;;
+            windows*) echo "slim_bindings.dll" ;;
+            *)        echo "libslim_bindings.so" ;;
+          esac
+      LIB_STATIC_FILENAME:
+        sh: |
+          TARGET_OS=$(echo "{{.TARGET}}" | cut -d"-" -f3)
+          case "$TARGET_OS" in
+            windows*) echo "slim_bindings.lib" ;;
+            *)        echo "libslim_bindings.a" ;;
+          esac
+    sources:
+      - "../../**/*.rs"
+      - "../../**/Cargo.toml"
+      - "../../Cargo.lock"
+    generates:
+      - "../../target/{{.TARGET}}/{{.PROFILE}}/{{.LIB_FILENAME}}"
+      - "../../target/{{.TARGET}}/{{.PROFILE}}/{{.LIB_STATIC_FILENAME}}"
+    method: timestamp
     cmds:
       - echo "🦀 Building Rust bindings library... {{.TARGET}}"
       - task: rust:crossbuild
         vars:
           ARGS: --config 'profile.release.strip="none"'
+          TARGET: "{{.TARGET}}"
+          PROFILE: "{{.PROFILE}}"
       - echo "🦀 Rust bindings library built successfully."

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use http::StatusCode;
-use jsonwebtoken_aws_lc::jwk::KeyAlgorithm;
+use jsonwebtoken::jwk::KeyAlgorithm;
 
 #[cfg(not(target_family = "windows"))]
 use spiffe::{
@@ -88,7 +88,7 @@ pub enum AuthError {
     #[error("token invalid: replay")]
     TokenInvalidReplay,
     #[error("token invalid")]
-    JwtTokenInvalid(#[from] jsonwebtoken_aws_lc::errors::Error),
+    JwtTokenInvalid(#[from] jsonwebtoken::errors::Error),
     #[error("token invalid - missing or invalid exp claim")]
     TokenInvalidMissingExp,
 
@@ -160,13 +160,6 @@ pub enum AuthError {
     #[cfg(not(target_family = "windows"))]
     #[error("spire x509 empty certificate chain")]
     SpiffeX509EmptyCertChain,
-    #[cfg(not(target_family = "windows"))]
-    #[error("jwt source closed")]
-    SpiffeCustomAudiencesJwtSourceClosed,
-    #[cfg(not(target_family = "windows"))]
-    #[error("error fetching jwt svid with custom audiences")]
-    SpiffeCustomAudiencesError,
-
     // Serialization
     #[error("JSON serialization error")]
     JsonError(#[from] serde_json::Error),
@@ -176,4 +169,14 @@ pub enum AuthError {
     // Operational
     #[error("operation would block on async I/O; call async variant")]
     WouldBlockOn,
+
+    // MLS
+    #[error("MLS is not supported by this provider")]
+    MlsNotSupported,
+    #[error("MLS signature key generation failed")]
+    MlsKeyGenerationFailed,
+    #[error("public key not found in identity claims")]
+    PublicKeyNotFound,
+    #[error("subject not found in identity claims")]
+    SubjectNotFound,
 }
