@@ -623,13 +623,13 @@ where
             .set_route(&self.settings.source, name, conn)
             .await
             .map_err(SessionError::SubscriptionAckFailed)?;
-        info!("Setting route");
         Self::await_subscription_ack(rx).await?;
         self.subscription_ids.lock().insert(
             (SubscriptionKind::Route, name.clone(), conn),
             subscription_id,
         );
-        info!("Set route");
+
+        debug!(%name, %conn, source = %self.settings.source, "route added");
 
         Ok(())
     }
@@ -648,14 +648,13 @@ where
                     .await
                     .map_err(SessionError::SubscriptionAckFailed)?;
 
-                info!("Unsetting route");
                 Self::await_subscription_ack(rx).await?;
-                info!("Unset route");
+                debug!(%name, %conn, %subscription_id, "route deleted");
             }
             None => {
                 tracing::warn!(
                     %name, %conn,
-                    "no subscription_id found for route, skipping remove_route"
+                    "no subscription_id found for route, skipping delete"
                 );
             }
         }
@@ -675,13 +674,13 @@ where
             .await
             .map_err(SessionError::SubscriptionAckFailed)?;
 
-        info!("Setting sub");
         Self::await_subscription_ack(rx).await?;
         self.subscription_ids.lock().insert(
             (SubscriptionKind::Subscription, name.clone(), conn),
             subscription_id,
         );
-        info!("Set sub");
+
+        debug!(%name, %conn, %subscription_id, "subscription added");
 
         Ok(())
     }
@@ -705,14 +704,13 @@ where
                     .await
                     .map_err(SessionError::SubscriptionAckFailed)?;
 
-                info!("Unsetting sub");
                 Self::await_subscription_ack(rx).await?;
-                info!("Unset sub");
+                debug!(%name, %conn, %subscription_id, "subscription deleted");
             }
             None => {
                 tracing::warn!(
                     %name, %conn,
-                    "no subscription_id found for subscription, skipping unsubscribe"
+                    "no subscription_id found for subscription, skipping delete"
                 );
             }
         }
