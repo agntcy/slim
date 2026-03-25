@@ -548,8 +548,18 @@ pub(crate) struct SessionControllerCommon<
     /// processing state
     pub(crate) processing_state: ProcessingState,
 
-    /// Maps (name_without_id, conn) → subscription_id for route/subscription tracking.
-    subscription_ids: Mutex<HashMap<(Name, u64), u64>>,
+    /// Maps (kind, name, conn) → subscription_id for route/subscription tracking.
+    subscription_ids: Mutex<HashMap<(SubscriptionKind, Name, u64), u64>>,
+}
+
+/// Distinguishes route entries from subscription entries in the subscription_ids map.
+/// Both can share the same `(Name, conn)` pair, so this enum prevents key collisions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum SubscriptionKind {
+    /// A recv_from route (`set_route` / `remove_route`).
+    Route,
+    /// A forward_to subscription (`subscribe` / `unsubscribe`).
+    Subscription,
 }
 
 impl<P, V, M> SessionControllerCommon<P, V, M>
@@ -615,16 +625,20 @@ where
             .map_err(SessionError::SubscriptionAckFailed)?;
         info!("Setting route");
         Self::await_subscription_ack(rx).await?;
-        self.subscription_ids
-            .lock()
-            .insert((name.clone(), conn), subscription_id);
+        self.subscription_ids.lock().insert(
+            (SubscriptionKind::Route, name.clone(), conn),
+            subscription_id,
+        );
         info!("Set route");
 
         Ok(())
     }
 
     pub(crate) async fn delete_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
-        let subscription_id = self.subscription_ids.lock().remove(&(name.clone(), conn));
+        let subscription_id =
+            self.subscription_ids
+                .lock()
+                .remove(&(SubscriptionKind::Route, name.clone(), conn));
         match subscription_id {
             Some(subscription_id) => {
                 let rx = self
@@ -663,9 +677,10 @@ where
 
         info!("Setting sub");
         Self::await_subscription_ack(rx).await?;
-        self.subscription_ids
-            .lock()
-            .insert((name.clone(), conn), subscription_id);
+        self.subscription_ids.lock().insert(
+            (SubscriptionKind::Subscription, name.clone(), conn),
+            subscription_id,
+        );
         info!("Set sub");
 
         Ok(())
@@ -676,7 +691,11 @@ where
         name: &Name,
         conn: u64,
     ) -> Result<(), SessionError> {
-        let subscription_id = self.subscription_ids.lock().remove(&(name.clone(), conn));
+        let subscription_id = self.subscription_ids.lock().remove(&(
+            SubscriptionKind::Subscription,
+            name.clone(),
+            conn,
+        ));
         match subscription_id {
             Some(subscription_id) => {
                 let rx = self
