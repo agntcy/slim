@@ -1,12 +1,15 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::{collections::HashMap, num::NonZeroU8};
+
 use async_trait::async_trait;
+use rand::{distr::Map, rand_core::le};
 use slim_datapath::{
     api::{
         ParticipantSettings, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType,
     },
-    messages::Name,
+    messages::{Name, utils::STANDARD_SOURCE},
 };
 
 use tokio::sync::mpsc::{self};
@@ -31,6 +34,38 @@ struct SessionSenderConfig {
     tx_signal: Option<tokio::sync::mpsc::Sender<SessionMessage>>,
 }
 
+/// State for messages sent but not acked yet
+struct PendingMesage {
+    /// the session message id, used to correlate legacy and standard sender for the same message
+    /// this is needed as legacy and standard sender may not be in synch with the message id
+    session_id: u32,
+    /// if set, the message was sent using the legacy sender and the value is the legacy sender message id
+    legacy_sent: Option<u32>,
+    /// true if all the acks for the message sent by the legacy sender were received
+    /// or the message was not sent at all on the legacy sender
+    legacy_done: bool,
+    /// if set, the message was sent using the standard sender and the value is the standard sender message id
+    standard_sent: Option<u32>,
+    /// true if all the acks for the message sent by the standard sender were received
+    /// or the message was not sent at all on the standard sender
+    standard_done: bool,
+    /// ack channel to notify the app when the message is fully acked by all the participants
+    ack_tx: Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
+}
+
+impl PendingMesage {
+    fn new(session_id: u32, ack_tx: Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>) -> Self {
+        PendingMesage {
+            session_id,
+            legacy_sent: None,
+            legacy_done: true,
+            standard_sent: None,
+            standard_done: true,
+            ack_tx,
+        }
+    }
+}
+
 pub(crate) struct Session {
     local_name: Name,
     sender_config: Option<SessionSenderConfig>,
@@ -38,6 +73,16 @@ pub(crate) struct Session {
     legacy_sender: Option<SessionSender>,
     receiver: Option<SessionReceiver>,
     processing_state: ProcessingState,
+    /// next message id at the session level
+    /// legacy and standard sender may not be in synch so we need
+    /// a commond id for the same message
+    message_id: u32,
+    /// map from senssion message id to pending message info
+    pending_messages: HashMap<u32, PendingMesage>,
+    /// map from legacy sender id to session message id for legacy messages
+    legacy_id_map: HashMap<u32, u32>,
+    /// map from standard sender id to session message id for standard messages
+    standard_id_map: HashMap<u32, u32>,
 }
 
 impl Session {
@@ -102,6 +147,10 @@ impl Session {
             legacy_sender: None,
             receiver,
             processing_state: ProcessingState::Active,
+            message_id: 1,
+            pending_messages: HashMap::new(),
+            legacy_id_map: HashMap::new(),
+            standard_id_map: HashMap::new(),
         }
     }
 
@@ -235,6 +284,10 @@ impl Session {
         }
     }
 
+    // session_msg_id -> (ack. sent legacy, sent standard)
+    // next_legacy -> session_msg_id
+    // next_standard -> session_msg_id
+
     async fn on_application_message(
         &mut self,
         message: Message,
@@ -252,55 +305,99 @@ impl Session {
                         }
                         return Err(SessionError::SessionSenderShutdown);
                     }
+
+                    let mut pending_msg = PendingMesage::new(self.message_id, ack_tx);
+                    let mut next_legacy_id = 0;
+                    let mut next_standard_id = 0;
+
                     let session_type = self.sender_config.as_ref().unwrap().session_type;
                     // if the session if P2P always use the standard sender
                     if session_type != ProtoSessionType::PointToPoint
                         && let Some(legacy_sender) = self.legacy_sender.as_mut()
+                        && !legacy_sender.has_no_endpoints()
                     {
-                        // the use the ack_tx only on the standard channel
-                        legacy_sender.on_message(message.clone(), None).await?
+                        println!("send APP message on a legacy sender");
+                        next_legacy_id = legacy_sender.get_next_msg_id(&message);
+                        // use the ack_tx on the legacy sender
+                        legacy_sender.on_message(message.clone(), None).await?;
+                        pending_msg.legacy_sent = Some(next_legacy_id);
+                        pending_msg.legacy_done = false;
                     }
-                    self.sender
-                        .as_mut()
-                        .unwrap()
-                        .on_message(message, ack_tx)
-                        .await?
+
+                    if let Some(sender) = self.sender.as_mut() && !sender.has_no_endpoints() {
+                        println!("send APP message on the standard sender");
+                        next_standard_id = sender.get_next_msg_id(&message);
+                        sender
+                            .on_message(message, None)
+                            .await?;
+                        pending_msg.standard_sent = Some(next_standard_id);
+                        pending_msg.standard_done = false;
+                    }
+
+                    if pending_msg.legacy_sent.is_some() {
+                        self.legacy_id_map.insert(next_legacy_id, pending_msg.session_id);
+                    }
+                    if pending_msg.standard_sent.is_some() {
+                        self.standard_id_map.insert(next_standard_id, pending_msg.session_id);
+                    }
+                    if pending_msg.legacy_sent.is_some() || pending_msg.standard_sent.is_some() {
+                        self.pending_messages.insert(pending_msg.session_id, pending_msg);
+                        // increase for the next one
+                        self.message_id += 1;
+                    }
+                    
                 } else {
                     // message from slim to the app, give it to the receiver if exists
                     if let Some(receiver) = self.receiver.as_mut() {
                         receiver.on_message(message).await?
                     }
                 }
-
+                        
                 Ok(())
             }
             ProtoSessionMessageType::MsgAck | ProtoSessionMessageType::RtxRequest => {
-                let session_type = self
-                    .sender_config
-                    .as_ref()
-                    .ok_or(SessionError::SessionSenderShutdown)?
-                    .session_type;
-                if session_type == ProtoSessionType::PointToPoint
-                    || message.get_slim_header().has_version()
-                {
-                    // send to the standard sender
+                let msg_id = message.get_id();
+                if message.contains_metadata(STANDARD_SOURCE) {
+                    // if the message contains the metadata it means it is from the standard sender
                     if let Some(sender) = self.sender.as_mut() {
-                        return sender.on_message(message.clone(), ack_tx).await;
+                        sender.on_message(message.clone(), None).await?;
+                        if !sender.timer_id_exists(msg_id) {
+                            // all acks received on this channel
+                            if let Some(session_id) = self.standard_id_map.get(&msg_id)
+                                && let Some(pending_msg) = self.pending_messages.get_mut(session_id) {
+                                pending_msg.standard_done = true;
+                                // if both legacy and standard are done, send ack to the app
+                                if pending_msg.legacy_done && pending_msg.standard_done {
+                                    if let Some(ack_tx) = pending_msg.ack_tx.take() {
+                                        let _ = ack_tx.send(Ok(()));
+                                    }
+                                    self.pending_messages.remove(session_id);
+                                }
+                            }
+                        }
                     }
                 } else {
-                    // send to the legacy sender
+                    // use the legacy sender
                     if let Some(legacy_sender) = self.legacy_sender.as_mut() {
-                        return legacy_sender.on_message(message.clone(), ack_tx).await;
+                        legacy_sender.on_message(message.clone(), None).await?;
+                        if !legacy_sender.timer_id_exists(msg_id) {
+                            // all acks received on this channel
+                            if let Some(session_id) = self.legacy_id_map.get(&msg_id)
+                                && let Some(pending_msg) = self.pending_messages.get_mut(session_id) {
+                                pending_msg.legacy_done = true;
+                                // if both legacy and standard are done, send ack to the app
+                                if pending_msg.legacy_done && pending_msg.standard_done {
+                                    if let Some(ack_tx) = pending_msg.ack_tx.take() {
+                                        let _ = ack_tx.send(Ok(()));
+                                    }
+                                    self.pending_messages.remove(session_id);
+                                }
+                            }
+                        }
                     }
                 }
-                // if we are here the message was not process correctly, return an error
-                debug!(message_id = %message.get_id(), "no sender available for ack/rtx message");
-                if let Some(tx) = ack_tx {
-                    let _ = tx.send(Err(SessionError::MissingSenderForAckOrRtx(
-                        message.get_id(),
-                    )));
-                }
-                Err(SessionError::MissingSenderForAckOrRtx(message.get_id()))
+
+                Ok(())
             }
             ProtoSessionMessageType::RtxReply => {
                 if let Some(receiver) = self.receiver.as_mut() {

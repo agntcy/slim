@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
 use slim_datapath::api::ProtoSessionType;
-use slim_datapath::messages::utils::{PUBLISH_TO, TRUE_VAL};
+use slim_datapath::messages::utils::{PUBLISH_TO, STANDARD_SOURCE, TRUE_VAL};
 use slim_datapath::{api::ProtoMessage as Message, messages::Name};
 use tokio::sync::mpsc::Sender;
 use tracing::debug;
@@ -54,7 +54,6 @@ enum ReceiverDrainStatus {
     Completed,
 }
 
-#[allow(dead_code)]
 pub struct SessionReceiver {
     /// buffer with received packets one per endpoint
     buffer: HashMap<Name, ReceiverBuffer>,
@@ -87,6 +86,11 @@ pub struct SessionReceiver {
     /// shutdown receive flag. if set no message is delivered to the app
     /// the receiver will simply send acks on message reception
     shutdown_receive: bool,
+
+    /// indicates if the receiver is receiving messages for a legacy or a
+    /// standard channel. It is set on the first message received looking 
+    /// at the last component of the destination name.
+    is_legacy: Option<bool>,
 }
 
 #[allow(dead_code)]
@@ -125,6 +129,7 @@ impl SessionReceiver {
             tx,
             draining_state: ReceiverDrainStatus::NotDraining,
             shutdown_receive,
+            is_legacy: None,
         }
     }
 
@@ -186,6 +191,7 @@ impl SessionReceiver {
         let buffer = self.buffer.entry(source.clone()).or_default();
 
         let (recv_vec, rtx_vec) = buffer.on_received_message(message);
+
         self.handle_recv_and_rtx_vectors(source, in_conn, recv_vec, rtx_vec)
             .await
     }
@@ -202,7 +208,7 @@ impl SessionReceiver {
                 .collect::<std::collections::HashMap<_, _>>()
         });
 
-        let ack = new_message_from_session_fields(
+        let mut ack = new_message_from_session_fields(
             &self.local_name,
             &message.get_source(),
             message.get_incoming_conn(),
@@ -213,6 +219,24 @@ impl SessionReceiver {
             message.get_id(),
             publish_meta,
         )?;
+
+        let is_legacy = match self.is_legacy {
+            Some(is_legacy) => is_legacy,
+            None => {
+                if message.get_dst().components().last() == Some(&Name::DATA_CHANNEL_ID) {
+                    self.is_legacy = Some(false);
+                    false
+                } else {
+                    self.is_legacy = Some(true);
+                    true
+                }
+            }
+        };
+
+        // if not legacy we need to set the metadata to indicate the message is from the standard channel
+        if !is_legacy {
+            ack.insert_metadata(STANDARD_SOURCE.to_string(), TRUE_VAL.to_string());
+        }
 
         self.tx.send_to_slim(Ok(ack)).await
     }
@@ -289,7 +313,8 @@ impl SessionReceiver {
                 source = %source,
                 "send rtx");
 
-            let rtx = new_message_from_session_fields(
+        
+            let mut rtx = new_message_from_session_fields(
                 &self.local_name,
                 &source,
                 in_conn,
@@ -300,6 +325,11 @@ impl SessionReceiver {
                 rtx_id,
                 None,
             )?;
+
+            // if not legacy we need to set the metadata to indicate the message is from the standard channel
+            if self.is_legacy == Some(false) {
+                rtx.insert_metadata(STANDARD_SOURCE.to_string(), TRUE_VAL.to_string());
+            }
 
             // for each RTX start a timer
             debug!(id = %rtx_id,

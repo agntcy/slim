@@ -99,6 +99,7 @@ impl ModeratorTask {
 
 impl TaskUpdate for ModeratorTask {
     fn discovery_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
+        println!("discovery start id {}", timer_id);
         match self {
             ModeratorTask::Add(task) => task.discovery_start(timer_id),
             _ => Err(unsupported_phase()),
@@ -106,6 +107,7 @@ impl TaskUpdate for ModeratorTask {
     }
 
     fn discovery_complete(&mut self, timer_id: u32) -> Result<(), SessionError> {
+        println!("discovery complete id {}", timer_id);
         match self {
             ModeratorTask::Add(task) => task.discovery_complete(timer_id),
             _ => Err(unsupported_phase()),
@@ -113,6 +115,7 @@ impl TaskUpdate for ModeratorTask {
     }
 
     fn join_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
+        println!("join start id {}", timer_id);
         match self {
             ModeratorTask::Add(task) => task.join_start(timer_id),
             _ => Err(unsupported_phase()),
@@ -120,6 +123,7 @@ impl TaskUpdate for ModeratorTask {
     }
 
     fn join_complete(&mut self, timer_id: u32) -> Result<(), SessionError> {
+        println!("join complete id {}", timer_id);
         match self {
             ModeratorTask::Add(task) => task.join_complete(timer_id),
             _ => Err(unsupported_phase()),
@@ -148,6 +152,7 @@ impl TaskUpdate for ModeratorTask {
     }
 
     fn commit_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
+        println!("commit start id {}", timer_id);
         match self {
             ModeratorTask::Add(task) => task.commit_start(timer_id),
             ModeratorTask::Remove(task) => task.commit_start(timer_id),
@@ -157,6 +162,7 @@ impl TaskUpdate for ModeratorTask {
     }
 
     fn commit_legacy_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
+        println!("commit legacy start id {}", timer_id);
         match self {
             ModeratorTask::Add(task) => task.commit_legacy_start(timer_id),
             ModeratorTask::Remove(task) => task.commit_legacy_start(timer_id),
@@ -173,6 +179,7 @@ impl TaskUpdate for ModeratorTask {
     }
 
     fn update_phase_completed(&mut self, timer_id: u32) -> Result<(), SessionError> {
+        println!("phase completed id {}", timer_id);
         match self {
             ModeratorTask::Add(task) => task.update_phase_completed(timer_id),
             ModeratorTask::Remove(task) => task.update_phase_completed(timer_id),
@@ -335,6 +342,13 @@ impl TaskUpdate for AddParticipant {
     }
 
     fn task_complete(&self) -> bool {
+        println!("task complete check {} {} {} {} {}",
+            self.discovery.received,
+            self.join.received,
+            self.welcome.received,
+            self.commit.received,
+            self.commit_legacy.as_ref().map_or(true, |c| c.received),
+        );
         self.discovery.received
             && self.join.received
             && self.welcome.received

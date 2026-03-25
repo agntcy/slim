@@ -63,9 +63,12 @@ pub struct SessionSender {
     endpoints_list: HashSet<Name>,
 
     /// message id, used to send sequential messages
-    /// it goes from 0 to 2^16. higher ids are used for messages
-    /// sent using the publish_to function.
+    /// it goes from 0 to MAX_PUBLISH_ID. 
     next_id: u32,
+
+    /// message id, used to send publish_to messages
+    /// it goes from MAX_PUBLISH_ID + 1, u32::MAX - 1
+    next_id_publish_to: u32,
 
     /// session id to had in the message header
     session_id: u32,
@@ -113,6 +116,7 @@ impl SessionSender {
             pending_acks_per_endpoint: HashMap::new(),
             endpoints_list: HashSet::new(),
             next_id: 0,
+            next_id_publish_to: MAX_PUBLISH_ID + 1,
             session_id,
             session_type,
             tx,
@@ -239,9 +243,13 @@ impl SessionSender {
     fn id_and_fanout(&mut self, is_publish_to: bool) -> (u32, u32) {
         if is_publish_to {
             // if the message is sent using the publish_to the message
-            // id is taken randomly and it must be in range [MAX_PUBLISH_ID + 1, u32::MAX - 1]
-            let id = rand::rng().random_range((MAX_PUBLISH_ID + 1)..u32::MAX);
-            return (id, 1);
+            // id is incremented sequentially and it must be in range [MAX_PUBLISH_ID + 1, u32::MAX - 1]
+            self.next_id_publish_to = if self.next_id_publish_to == u32::MAX - 1 {
+                MAX_PUBLISH_ID + 1
+            } else {
+                self.next_id_publish_to + 1
+            };
+            return (self.next_id_publish_to, 1);
         }
 
         // by increasing next_id before assign it to message_id
@@ -549,6 +557,15 @@ impl SessionSender {
 
     pub fn has_no_endpoints(&self) -> bool {
         self.endpoints_list.is_empty()
+    }
+
+    // returns the next message id that the sender will use
+    pub fn get_next_msg_id (&mut self, message: &Message) -> u32 {
+        if message.metadata.contains_key(PUBLISH_TO) {
+            self.next_id
+        } else {
+            self.next_id_publish_to
+        }
     }
 
     pub fn start_drain(&mut self) {

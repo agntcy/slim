@@ -62,6 +62,12 @@ pub const SUBSCRIPTION_ACK_SUCCESS: &str = "SUBSCRIPTION_ACK_SUCCESS";
 /// SUBSCRIPTION_ACK_ERROR carries an optional error message for failed subscription operations.
 pub const SUBSCRIPTION_ACK_ERROR: &str = "SUBSCRIPTION_ACK_ERROR";
 
+/// STANDARD_SOURCE is used to indicate if the message was received on the standard channel.
+/// The value is set to `TRUE_VAL` when the message is from the standard channel.
+/// This is required both on MSG_ACKs and RTXs. If not set the message is considered as if
+/// it was received on the legacy channel
+pub const STANDARD_SOURCE: &str = "STANDARD_SOURCE";
+
 /// Standard string value representing a boolean "true" in message metadata.
 pub const TRUE_VAL: &str = "TRUE";
 

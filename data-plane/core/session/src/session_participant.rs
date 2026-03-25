@@ -351,6 +351,8 @@ where
             id = %msg.get_id(),
             "received join request",
         );
+
+        println!("received JOIN REQUEST = {:?}", msg);
         let source = msg.get_source();
         self.moderator_name = Some(source.clone());
 
@@ -382,6 +384,7 @@ where
             false,
         )?;
 
+        println!("send join reply: {:?}", reply);
         self.common.send_to_slim(reply).await
     }
 

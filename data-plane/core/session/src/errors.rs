@@ -102,6 +102,8 @@ pub enum SessionError {
     CannotRemoveFromP2P,
     #[error("only initiator can modify participants")]
     NotInitiator,
+    #[error("no participants on the channel")]
+    NoParticipantsOnChannel,
 
     // Routing and delivery failures
     #[error("error sending session internal message to session controller")]

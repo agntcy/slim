@@ -32,6 +32,7 @@ use crate::{
     traits::{MessageHandler, ProcessingState},
 };
 
+#[derive(Debug)]
 pub(crate) enum ChannelType {
     Standard,
     Legacy,
@@ -547,9 +548,11 @@ impl ControlMessageSender {
     ) -> Result<bool, SessionError> {
         let msg_id = message.get_id();
         if !check_legacy || message.get_slim_header().has_version() {
+            println!("process message {} {:?} on standard sender", msg_id, message.get_session_message_type());
             self.sender.on_message(message).await?;
             Ok(self.sender.is_still_pending(msg_id))
         } else if let Some(legacy) = self.legacy_sender.as_mut() {
+            println!("process message {} {:?} on legacy sender", msg_id, message.get_session_message_type());
             legacy.on_message(message).await?;
             Ok(legacy.is_still_pending(msg_id))
         } else {
@@ -871,7 +874,7 @@ where
         if let Some(m) = metadata {
             msg.set_metadata_map(m);
         }
-
+        println!("send control message {:?} to {:?} via {:?} channel", message_type, dst, channel_type);
         self.send_with_timer(msg, channel_type).await
     }
 }

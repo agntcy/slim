@@ -803,6 +803,8 @@ where
             "join reply",
         );
 
+        println!("JOIN REPLY: {:?}", msg);
+
         // stop the timer for the join request
         // join replies are always handled by the standard sender
         self.common.sender.on_message(&msg, false).await?;
@@ -886,6 +888,10 @@ where
         let mut participants_vec = vec![];
         let mut participant_settings_vec = vec![];
 
+        // this flags indicates if there are standard or legacy participants
+        // connected to the group
+        let mut standard = false;
+        let mut legacy = false;
         for (n, id) in &self.group_list {
             let name = n.clone().with_id(*id);
             // here the settings should be always present in the map
@@ -894,6 +900,16 @@ where
                 .get(&name)
                 .cloned()
                 .ok_or(SessionError::ParticipantSettingsNotFound(name.clone()))?;
+            println!("check name {} != {}", name, self.common.settings.source);
+            if name != self.common.settings.source {
+                if settings.is_legacy() {
+                    println!("is legacy = true");
+                    legacy = true;
+                } else {
+                    println!("is standard = true");
+                    standard = true;
+                }
+            }
             participant_settings_vec.push(settings);
             // add participant to the list
             participants_vec.push(name);
@@ -913,22 +929,37 @@ where
                 .as_content();
             let add_msg_id = rand::random::<u32>();
             debug!(id = %add_msg_id, "send add update to channel");
-            self.common
-                .send_control_message(
-                    &self.common.settings.control.clone(),
-                    ProtoSessionMessageType::GroupAdd,
-                    add_msg_id,
-                    update_payload.clone(),
-                    None,
-                    true,
-                    ChannelType::Standard, // by default use the standard sender
-                )
-                .await?;
-            self.current_task
-                .as_mut()
-                .unwrap()
-                .commit_start(add_msg_id)?;
-            if self.common.settings.legacy.is_some() {
+            // if there is someone connected as stadard client send the group
+            // update to the standard channel
+            if standard {
+                self.common
+                    .send_control_message(
+                        &self.common.settings.control.clone(),
+                        ProtoSessionMessageType::GroupAdd,
+                        add_msg_id,
+                        update_payload.clone(),
+                        None,
+                        true,
+                        ChannelType::Standard, // by default use the standard sender
+                    )
+                    .await?;
+                self.current_task
+                    .as_mut()
+                    .unwrap()
+                    .commit_start(add_msg_id)?;
+            } else {
+                // skip the task
+                println!("no standard participant, skip the group update task for the standard channel");
+                self.current_task
+                    .as_mut()
+                    .unwrap()
+                    .commit_start(12345)?;
+                self.current_task
+                    .as_mut()
+                    .unwrap()
+                    .update_phase_completed(12345)?;
+            }
+            if self.common.settings.legacy.is_some() && legacy {
                 let legacy_id = rand::random::<u32>();
                 debug!(id = %legacy_id, "also send the group update to the legacy channel");
                 self.common
@@ -944,7 +975,7 @@ where
                     .as_mut()
                     .unwrap()
                     .commit_legacy_start(legacy_id)?;
-            }
+            } 
         } else {
             // no commit message will be sent so update the task state to consider the commit as received
             // the timer id is not important here, it just need to be consistent
@@ -1432,11 +1463,14 @@ where
             )
             .await?;
         if !pending {
+            println!("the message is not pending anymore");
             self.current_task
                 .as_mut()
                 .unwrap()
                 .update_phase_completed(msg_id)?;
             pending_acks = false;
+        } else {
+            println!("the message is still pending");
         }
 
         // check if the task is finished.
@@ -1466,9 +1500,12 @@ where
         if !self.current_task.as_ref().unwrap().task_complete() {
             // the task is not completed so just return
             // and continue with the process
+            println!("task not done yet");
             debug!("Current task is NOT completed");
             return Ok(());
         }
+
+        println!("task complete");
 
         // check if we need to send an ack message to the controller
         if let Some(ack_msg) = self.current_task.as_ref().unwrap().ack_msg() {
