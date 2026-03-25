@@ -24,7 +24,7 @@ tasks:
       - task -l
 
   tests:build-legacy-binaries:
-    desc: "Build all legacy binaries (slim, receiver, sender) for backward-compat testing"
+    desc: "Build all legacy binaries (slim, receiver, sender, sdk-mock) for backward-compat testing"
     dir: ".."
     vars:
       LEGACY_BRANCH: "slim-v1.1.0-test-apps"
@@ -32,6 +32,7 @@ tasks:
       - test -f .dist/bin/slim-legacy
       - test -f .dist/bin/receiver-legacy
       - test -f .dist/bin/sender-legacy
+      - test -f .dist/bin/sdk-mock-legacy
     cmds:
       - |
         # Fetch the legacy branch if it doesn't exist locally
@@ -44,16 +45,19 @@ tasks:
         WORKTREE=$(mktemp -d)
         trap 'git worktree remove --force "$WORKTREE"' EXIT
         git worktree add "$WORKTREE" {{.LEGACY_BRANCH}}
-        cd "$WORKTREE"
-        # Build both slim and the test apps in one go
-        cargo build --manifest-path data-plane/Cargo.toml \
-          --config data-plane/.cargo/config.toml \
+        
+        # Build slim, sdk-mock, and the test apps in one go
+        cargo build --manifest-path "$WORKTREE/data-plane/Cargo.toml" \
+          --config "$WORKTREE/data-plane/.cargo/config.toml" \
+          --bins \
           -p agntcy-slim \
+          -p slim-examples \
           -p agntcy-slim-bindings \
           --examples
-        cd -
+        
         mkdir -p .dist/bin
         cp "$WORKTREE/data-plane/target/debug/slim" .dist/bin/slim-legacy
+        cp "$WORKTREE/data-plane/target/debug/sdk-mock" .dist/bin/sdk-mock-legacy
         cp "$WORKTREE/data-plane/target/debug/examples/receiver" .dist/bin/receiver-legacy
         cp "$WORKTREE/data-plane/target/debug/examples/sender" .dist/bin/sender-legacy
 

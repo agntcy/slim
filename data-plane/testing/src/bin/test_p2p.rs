@@ -12,9 +12,7 @@ use slim_datapath::messages::Name;
 use slim_service::ServiceError;
 use slim_session::{Notification, SessionConfig};
 use slim_testing::build_client_service;
-use slim_testing::common::{
-    DEFAULT_SERVICE_ID, create_and_subscribe_app, reserve_local_port, run_slim_node,
-};
+use slim_testing::common::{create_and_subscribe_app, reserve_local_port, run_slim_node};
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -81,7 +79,7 @@ async fn run_client_task(name: Name, moderator_name: Name, port: u16) -> Result<
     /* this is the same */
     println!("client {} task starting...", name);
 
-    let svc = build_client_service(port, DEFAULT_SERVICE_ID);
+    let svc = build_client_service(port, &name);
 
     let (_app, mut rx, conn_id, _svc) = create_and_subscribe_app(svc, &name).await?;
 
@@ -218,7 +216,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // start moderator
 
-    let svc = build_client_service(dataplane_port, DEFAULT_SERVICE_ID);
+    let svc = build_client_service(dataplane_port, &moderator_name);
 
     let (app, _rx, conn_id, _svc) = create_and_subscribe_app(svc, &moderator_name.clone()).await?;
 

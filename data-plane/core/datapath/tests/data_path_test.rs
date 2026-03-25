@@ -142,8 +142,12 @@ mod tests {
         tx.send(Ok(fwd_to)).await.unwrap();
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        let expected_msg = "forwarding subscription to connection";
-        assert!(logs_contain(expected_msg));
+        // After link negotiation the peer version is ≥ 1.2.0, so the remote-ack
+        // path is taken instead of the synchronous forwarding path.
+        assert!(
+            logs_contain("subscription: remote ack path")
+                || logs_contain("forwarding subscription to connection")
+        );
     }
 
     #[tokio::test]

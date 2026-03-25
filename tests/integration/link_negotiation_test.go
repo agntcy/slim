@@ -112,6 +112,52 @@ var _ = Describe("Link Negotiation", func() {
 		})
 	})
 
+	Describe("two new nodes advertise their version during link negotiation", func() {
+		It("logs remote_version after link negotiation", func() {
+			serverPort := reservePort()
+			nodeBPort := reservePort()
+
+			replacements := map[string]string{
+				"0.0.0.0:46480":         fmt.Sprintf("0.0.0.0:%d", serverPort),
+				"0.0.0.0:46481":         fmt.Sprintf("0.0.0.0:%d", nodeBPort),
+				"http://localhost:46480": fmt.Sprintf("http://localhost:%d", serverPort),
+			}
+			serverConfig := writeTempConfig(tempDir, "./testdata/link-neg-server-config.yaml", "server-v120.yaml", replacements)
+			nodeBConfig := writeTempConfig(tempDir, "./testdata/link-neg-node-with-client-config.yaml", "node-b-v120.yaml", replacements)
+
+			serverSession, err := gexec.Start(
+				exec.Command(slimPath, "--config", serverConfig),
+				GinkgoWriter, GinkgoWriter,
+			)
+			Expect(err).NotTo(HaveOccurred())
+			defer terminateSession(serverSession, 5*time.Second)
+
+			Eventually(serverSession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
+
+			nodeBSession, err := gexec.Start(
+				exec.Command(slimPath, "--config", nodeBConfig),
+				GinkgoWriter, GinkgoWriter,
+			)
+			Expect(err).NotTo(HaveOccurred())
+			defer terminateSession(nodeBSession, 5*time.Second)
+
+			// Server receives the negotiation request.  The log line contains a
+			// remote_version= field but ANSI colour codes split the key from the
+			// value, so we match the message text and then a semver pattern
+			// (e.g. "1.3.0") which appears uninterrupted in the value portion.
+			Eventually(serverSession.Out, 10*time.Second).Should(gbytes.Say("received link negotiation"))
+			Eventually(serverSession.Out, 10*time.Second).Should(gbytes.Say(`\d+\.\d+\.\d+`))
+
+			// Client receives the reply and logs the remote version.
+			Eventually(nodeBSession.Out, 10*time.Second).Should(gbytes.Say("received link negotiation"))
+			Eventually(nodeBSession.Out, 10*time.Second).Should(gbytes.Say(`\d+\.\d+\.\d+`))
+
+			// Both processes must keep running.
+			Consistently(serverSession, 500*time.Millisecond).ShouldNot(gexec.Exit())
+			Consistently(nodeBSession, 500*time.Millisecond).ShouldNot(gexec.Exit())
+		})
+	})
+
 	// old client <--> new server: the old client (slim-v1.1.0) connects but
 	// never sends link negotiation.  The new server must accept the connection
 	// and remain stable without ever receiving a negotiation message.

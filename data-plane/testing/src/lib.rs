@@ -15,15 +15,17 @@ use slim_service::{Service, ServiceConfiguration};
 use thiserror::Error;
 
 /// Build a client-only Service configured to connect to a local dataplane port.
-/// This helper is shared across test programs.
+/// The service ID is derived from the third component of `name` (e.g. "slim/moderator",
+/// "slim/t0"), so each participant is identifiable in traces.
 /// - port: dataplane server port
-/// - service_id: component identifier string, e.g. "slim/0"
-pub fn build_client_service(port: u16, service_id: &str) -> Service {
+/// - name: the name of the app that will be registered on this service
+pub fn build_client_service(port: u16, name: &Name) -> Service {
     let endpoint = format!("http://localhost:{}", port);
     let client_cfg = GrpcClientConfig::with_endpoint(&endpoint)
         .with_tls_setting(TlsClientConfig::default().with_insecure(true));
     let service_cfg = ServiceConfiguration::new().with_dataplane_client(vec![client_cfg]);
-    let svc_id = ID::new_with_str(service_id).expect("invalid service id");
+    let svc_id_str = format!("slim/{}", name.components_strings()[2]);
+    let svc_id = ID::new_with_str(&svc_id_str).expect("invalid service id");
 
     service_cfg
         .build_server(svc_id)
