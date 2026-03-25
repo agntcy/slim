@@ -16,18 +16,18 @@ spec:
     spec:
       containers:
       - args:
-        - p2p
+        - slim-bindings-p2p
         - --local
         - org/ns/alice
         - --shared-secret
         - secret1234secret1234secret123412
         - --slim
-        - '{"endpoint":"http://slim-local.slim.svc.cluster.local:46357","tls":{"insecure":true}}'
+        - "http://slim-local.slim.svc.cluster.local:46357"
         env:
         - name: PYTHONUNBUFFERED
           value: "1"
-        image: ghcr.io/agntcy/slim/bindings-examples:0.7.1
-        imagePullPolicy: Always
+        image: agntcy/slim/bindings-examples:latest
+        imagePullPolicy: IfNotPresent
         name: alice
       serviceAccount: default
       serviceAccountName: default
