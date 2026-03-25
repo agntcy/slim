@@ -702,8 +702,6 @@ impl MessageProcessor {
 
     // Returns Ok(true) if the name is still subscribed on this node after the operation,
     // Ok(false) if the uid was fully removed. For adds, always Ok(true).
-    // Unsubscribes are only forwarded if the uid was fully removed from this node — if other
-    // connections still hold the subscription, the upstream relay must keep routing here.
     async fn process_subscription_update_and_forward(
         &self,
         msg: Message,
@@ -724,7 +722,7 @@ impl MessageProcessor {
             });
         };
 
-        info!(
+        debug!(
             %conn,
             %dst,
             is_local = connection.is_local_connection(),
@@ -743,16 +741,6 @@ impl MessageProcessor {
         match forward {
             None => Ok(still_subscribed),
             Some(out_conn) => {
-                // For unsubscribes: skip forwarding if the name is still subscribed on this node.
-                // The upstream relay must continue routing traffic here for the remaining subscribers.
-                if !add && still_subscribed {
-                    info!(
-                        %dst,
-                        "skipping unsubscribe forward: uid still subscribed on this node"
-                    );
-                    return Ok(true);
-                }
-
                 info!(
                     %out_conn,
                     "forwarding {}subscription to connection",
