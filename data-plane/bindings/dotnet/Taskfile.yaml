@@ -249,7 +249,9 @@ tasks:
     silent: true
 
   build:
-    desc: "Build the .NET solution (expects bindings already generated)"
+    desc: "Build the .NET solution (expects UniFFI bindings already generated; runs slimrpc proto codegen for the example)"
+    deps:
+      - task: slimrpc:generate-proto
     cmds:
       - |
         if [[ ! -f "{{.GENERATED_DIR}}/slim_bindings.cs" ]]; then
@@ -379,8 +381,7 @@ tasks:
     silent: true
 
   slimrpc:build:
-    desc: "Build the slimrpc example project"
+    desc: "Build the slimrpc example project (via full solution build)"
     cmds:
-      - task: slimrpc:generate-proto
       - task: build
     silent: true
