@@ -34,6 +34,13 @@ tasks:
       - test -f .dist/bin/sender-legacy
     cmds:
       - |
+        # Fetch the legacy branch if it doesn't exist locally
+        if ! git rev-parse --verify {{.LEGACY_BRANCH}} >/dev/null 2>&1; then
+          echo "Fetching legacy branch {{.LEGACY_BRANCH}}..."
+          git fetch origin {{.LEGACY_BRANCH}}:{{.LEGACY_BRANCH}} || \
+          git fetch origin refs/heads/{{.LEGACY_BRANCH}}:refs/heads/{{.LEGACY_BRANCH}}
+        fi
+        
         WORKTREE=$(mktemp -d)
         trap 'git worktree remove --force "$WORKTREE"' EXIT
         git worktree add "$WORKTREE" {{.LEGACY_BRANCH}}
