@@ -95,22 +95,22 @@ namespace ExampleService;
     public abstract class UnimplementedTestServer : ITestServer
     {
         public Task<ExampleService.ExampleResponse> ExampleUnaryUnary(ExampleService.ExampleRequest request, SlimRpcContext context) =>
-            Task.FromException<ExampleService.ExampleResponse>(new NotImplementedException("Method ExampleUnaryUnary not implemented"));
+            System.Threading.Tasks.Task.FromException<ExampleService.ExampleResponse>(new NotImplementedException("Method ExampleUnaryUnary not implemented"));
         public async IAsyncEnumerable<ExampleService.ExampleResponse> ExampleUnaryStream(ExampleService.ExampleRequest request, SlimRpcContext context)
         {
-            await Task.CompletedTask;
+            await System.Threading.Tasks.Task.CompletedTask;
             yield break;
         }
         public async IAsyncEnumerable<ExampleService.ExampleResponse> ExampleUnaryStreamTwo(ExampleService.ExampleRequest request, SlimRpcContext context)
         {
-            await Task.CompletedTask;
+            await System.Threading.Tasks.Task.CompletedTask;
             yield break;
         }
         public Task<ExampleService.ExampleResponse> ExampleStreamUnary(IAsyncEnumerable<ExampleService.ExampleRequest> requestStream, SlimRpcContext context) =>
-            Task.FromException<ExampleService.ExampleResponse>(new NotImplementedException("Method ExampleStreamUnary not implemented"));
+            System.Threading.Tasks.Task.FromException<ExampleService.ExampleResponse>(new NotImplementedException("Method ExampleStreamUnary not implemented"));
         public async IAsyncEnumerable<ExampleService.ExampleResponse> ExampleStreamStream(IAsyncEnumerable<ExampleService.ExampleRequest> requestStream, SlimRpcContext context)
         {
-            await Task.CompletedTask;
+            await System.Threading.Tasks.Task.CompletedTask;
             yield break;
         }
     }
@@ -159,7 +159,7 @@ namespace ExampleService;
 
         public Test_ExampleUnaryStream_Handler(ITestServer impl) => _impl = impl;
 
-        public async Task Handle(byte[] request, Context context, ResponseSink sink)
+        public async System.Threading.Tasks.Task Handle(byte[] request, Context context, ResponseSink sink)
         {
             var req = ExampleService.ExampleRequest.Parser.ParseFrom(request);
             var ctx = SlimRpcContext.FromContext(context);
@@ -188,7 +188,7 @@ namespace ExampleService;
 
         public Test_ExampleUnaryStreamTwo_Handler(ITestServer impl) => _impl = impl;
 
-        public async Task Handle(byte[] request, Context context, ResponseSink sink)
+        public async System.Threading.Tasks.Task Handle(byte[] request, Context context, ResponseSink sink)
         {
             var req = ExampleService.ExampleRequest.Parser.ParseFrom(request);
             var ctx = SlimRpcContext.FromContext(context);
@@ -243,7 +243,7 @@ namespace ExampleService;
 
         public Test_ExampleStreamStream_Handler(ITestServer impl) => _impl = impl;
 
-        public async Task Handle(RequestStream stream, Context context, ResponseSink sink)
+        public async System.Threading.Tasks.Task Handle(RequestStream stream, Context context, ResponseSink sink)
         {
             var ctx = SlimRpcContext.FromContext(context);
             var reqStream = SlimRpcStreams.ReadRequestStreamAsync<ExampleService.ExampleRequest>(stream);
