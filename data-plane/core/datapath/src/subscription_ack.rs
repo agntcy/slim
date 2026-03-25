@@ -51,6 +51,7 @@ impl RemoteSubAckManager {
     /// Removes the entry atomically — `oneshot::Sender::send` takes ownership.
     pub fn resolve(&self, ack_id: u64, result: Result<(), DataPathError>) {
         if let Some(tx) = self.pending.write().remove(&ack_id) {
+            debug!(%ack_id, "subscription: remote ack received");
             let _ = tx.send(result);
         }
     }
@@ -68,10 +69,11 @@ pub(crate) fn supports(conn: &Connection) -> bool {
         .is_some_and(|v| v >= min_version())
 }
 
-/// Send/timeout/retry loop for a remote subscription ACK.
+/// Wait/retry loop for a remote subscription ACK.
 ///
-/// Runs until an ACK is received, the channel is closed, or max retries are
-/// exhausted. Cleans up the manager entry and notifies the upstream requester.
+/// The caller is responsible for the initial send; this loop waits for the
+/// ACK and re-sends on timeout up to [`MAX_RETRIES`] times. Cleans up the
+/// manager entry and notifies the upstream requester.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn retry_loop(
     processor: MessageProcessor,
@@ -85,15 +87,12 @@ pub(crate) async fn retry_loop(
     let mut final_result = Err(DataPathError::RemoteSubscriptionAckTimeout(MAX_RETRIES));
 
     'retry: for attempt in 0..=MAX_RETRIES {
-        if let Err(e) = processor.send_msg(forwarded_msg.clone(), out_conn).await {
-            final_result = Err(e);
-            break;
-        }
+        // Wait for the remote ACK. The initial send was done by the caller;
+        // re-sends (retries) happen below on timeout.
         tokio::select! {
             result = &mut rx => {
                 match result {
                     Ok(r) => {
-                        debug!(%subscription_id, "subscription: remote ack received");
                         final_result = r;
                         break 'retry;
                     }
@@ -101,7 +100,13 @@ pub(crate) async fn retry_loop(
                 }
             }
             _ = tokio::time::sleep(TIMEOUT) => {
-                debug!(attempt = attempt + 1, "remote sub ack timeout, retrying");
+                if attempt < MAX_RETRIES {
+                    debug!(attempt = attempt + 1, "remote sub ack timeout, retrying");
+                    if let Err(e) = processor.send_msg(forwarded_msg.clone(), out_conn).await {
+                        final_result = Err(e);
+                        break;
+                    }
+                }
             }
         }
     }
