@@ -44,5 +44,7 @@ pub mod app;
 pub use slim_datapath::messages::utils::SlimHeaderFlags;
 
 // Local crate
-pub use errors::{ServiceError, SubscriptionAckError};
+pub use errors::ServiceError;
+#[cfg(feature = "session")]
+pub use errors::SubscriptionAckError;
 pub use service::{KIND, Service, ServiceBuilder, ServiceConfiguration};
