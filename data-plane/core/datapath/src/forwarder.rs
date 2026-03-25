@@ -93,14 +93,15 @@ where
         conn_index: u64,
         is_local: bool,
         add: bool,
+        subscription_id: u64,
     ) -> Result<bool, DataPathError> {
         if add {
             self.subscription_table
-                .add_subscription(name, conn_index, is_local)?;
+                .add_subscription(name, conn_index, is_local, subscription_id)?;
             Ok(true)
         } else {
             self.subscription_table
-                .remove_subscription(&name, conn_index, is_local)
+                .remove_subscription(&name, conn_index, is_local, subscription_id)
         }
     }
 
@@ -163,18 +164,18 @@ mod tests {
         let fwd = Forwarder::<u32>::new();
 
         assert!(
-            fwd.on_subscription_msg(name.clone(), 10, false, true)
+            fwd.on_subscription_msg(name.clone(), 10, false, true, 1)
                 .is_ok()
         );
 
         assert!(
-            fwd.on_subscription_msg(name.clone().with_id(1), 12, false, true)
+            fwd.on_subscription_msg(name.clone().with_id(1), 12, false, true, 2)
                 .is_ok()
         );
 
         assert!(
             // this creates a warning
-            fwd.on_subscription_msg(name.clone().with_id(1), 12, false, true)
+            fwd.on_subscription_msg(name.clone().with_id(1), 12, false, true, 3)
                 .is_ok()
         );
 
@@ -190,11 +191,11 @@ mod tests {
         assert!(matches!(err, Err(DataPathError::NoMatch(_))));
 
         assert!(
-            fwd.on_subscription_msg(name.clone(), 10, false, false)
+            fwd.on_subscription_msg(name.clone(), 10, false, false, 1)
                 .is_ok()
         );
 
-        let err = fwd.on_subscription_msg(name.clone(), 10, false, false);
+        let err = fwd.on_subscription_msg(name.clone(), 10, false, false, 1);
         assert!(matches!(err, Err(DataPathError::IdNotFound(_))));
     }
 }

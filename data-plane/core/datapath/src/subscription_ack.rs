@@ -75,11 +75,11 @@ pub(crate) fn supports(conn: &Connection) -> bool {
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn retry_loop(
     processor: MessageProcessor,
-    ack_id: u64,
+    subscription_id: u64,
     forwarded_msg: Message,
     out_conn: u64,
     in_connection: u64,
-    upstream_ack_id: Option<u64>,
+    upstream_subscription_id: Option<u64>,
     mut rx: oneshot::Receiver<Result<(), DataPathError>>,
 ) {
     let mut final_result = Err(DataPathError::RemoteSubscriptionAckTimeout(MAX_RETRIES));
@@ -93,7 +93,7 @@ pub(crate) async fn retry_loop(
             result = &mut rx => {
                 match result {
                     Ok(r) => {
-                        debug!(%ack_id, "subscription: remote ack received");
+                        debug!(%subscription_id, "subscription: remote ack received");
                         final_result = r;
                         break 'retry;
                     }
@@ -106,10 +106,10 @@ pub(crate) async fn retry_loop(
         }
     }
 
-    processor.remove_sub_ack(ack_id);
+    processor.remove_sub_ack(subscription_id);
 
-    if let Some(id) = upstream_ack_id {
-        debug!(%ack_id, upstream_ack_id = id, ok = final_result.is_ok(), "forwarding subscription ack to upstream");
+    if let Some(id) = upstream_subscription_id {
+        debug!(%subscription_id, upstream_subscription_id = id, ok = final_result.is_ok(), "forwarding subscription ack to upstream");
         processor
             .send_subscription_ack(in_connection, id, &final_result)
             .await;

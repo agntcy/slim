@@ -800,9 +800,9 @@ impl ControllerService {
                                     .build_subscribe()
                                     .unwrap();
 
-                                let ack_id = self.next_subscription_ack_id();
+                                let subscription_id = self.next_subscription_id();
                                 if let Err(err) =
-                                    self.send_subscription_message_with_ack(msg, ack_id).await
+                                    self.send_subscription_message_with_ack(msg, subscription_id).await
                                 {
                                     subscription_success = false;
                                     subscription_error_msg =
@@ -858,9 +858,9 @@ impl ControllerService {
                                     .build_unsubscribe()
                                     .unwrap();
 
-                                let ack_id = self.next_subscription_ack_id();
+                                let subscription_id = self.next_subscription_id();
                                 if let Err(err) =
-                                    self.send_subscription_message_with_ack(msg, ack_id).await
+                                    self.send_subscription_message_with_ack(msg, subscription_id).await
                                 {
                                     subscription_success = false;
                                     subscription_error_msg =
@@ -1377,23 +1377,23 @@ impl ControllerService {
         return self.send_or_queue_notification(ctrl, clients).await;
     }
 
-    fn next_subscription_ack_id(&self) -> u64 {
+    fn next_subscription_id(&self) -> u64 {
         self.inner
             .subscription_ack_counter
             .fetch_add(1, Ordering::Relaxed)
     }
 
-    fn register_subscription_ack(&self, ack_id: u64) -> oneshot::Receiver<Result<(), String>> {
+    fn register_subscription_ack(&self, subscription_id: u64) -> oneshot::Receiver<Result<(), String>> {
         let (ack_tx, ack_rx) = oneshot::channel();
         self.inner
             .pending_subscription_acks
             .lock()
-            .insert(ack_id, ack_tx);
+            .insert(subscription_id, ack_tx);
         ack_rx
     }
 
-    fn remove_subscription_ack(&self, ack_id: u64) {
-        self.inner.pending_subscription_acks.lock().remove(&ack_id);
+    fn remove_subscription_ack(&self, subscription_id: u64) {
+        self.inner.pending_subscription_acks.lock().remove(&subscription_id);
     }
 
     fn handle_subscription_ack(&self, ack: &ProtoSubscriptionAck) {
@@ -1401,7 +1401,7 @@ impl ControllerService {
             .inner
             .pending_subscription_acks
             .lock()
-            .remove(&ack.ack_id);
+            .remove(&ack.subscription_id);
         if let Some(sender) = sender {
             let _ = sender.send(if ack.success {
                 Ok(())
@@ -1414,7 +1414,7 @@ impl ControllerService {
             });
         } else {
             debug!(
-                ack_id = %ack.ack_id,
+                subscription_id = %ack.subscription_id,
                 "received subscription ack with no pending waiter"
             );
         }
@@ -1423,13 +1423,13 @@ impl ControllerService {
     async fn send_subscription_message_with_ack(
         &self,
         mut msg: DataPlaneMessage,
-        ack_id: u64,
+        subscription_id: u64,
     ) -> Result<(), String> {
-        let ack_rx = self.register_subscription_ack(ack_id);
-        msg.set_subscription_ack_id(ack_id);
+        let ack_rx = self.register_subscription_ack(subscription_id);
+        msg.set_subscription_id(subscription_id);
 
         if let Err(e) = self.send_control_message(msg).await {
-            self.remove_subscription_ack(ack_id);
+            self.remove_subscription_ack(subscription_id);
             return Err(format!("datapath send error: {}", e.chain()));
         }
 

@@ -761,6 +761,7 @@ mod tests {
             tx_app,
             transmitter,
             Direction::Bidirectional,
+            "test-service".to_string(),
         );
 
         (session_layer, rx_slim, rx_app, rx_transmitter)

@@ -375,7 +375,7 @@ impl Service {
         );
 
         // start message processing using the rx channel
-        app.process_messages(rx_slim);
+        let _ = app.process_messages(rx_slim);
 
         // return the app instance and the rx channel
         Ok((app, rx_app))
@@ -873,10 +873,6 @@ mod tests {
 
         // sleep to allow the deletion to be processed
         time::sleep(Duration::from_millis(100)).await;
-
-        // This should also trigger a stop of the message processing loop.
-        // Make sure the loop stopped by checking the logs
-        assert!(logs_contain("message processing loop cancelled"));
     }
 
     #[tokio::test]

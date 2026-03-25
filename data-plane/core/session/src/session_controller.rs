@@ -1739,6 +1739,7 @@ mod tests {
             identity_verifier: SharedSecret::new("src", SHARED_SECRET).unwrap(),
             graceful_shutdown_timeout: Some(Duration::from_secs(10)),
             subscription_manager,
+            service_id: String::new(),
         };
 
         let needs_drain = Arc::new(AtomicBool::new(true));
@@ -1909,6 +1910,7 @@ mod tests {
             identity_verifier: SharedSecret::new("test", SHARED_SECRET).unwrap(),
             graceful_shutdown_timeout,
             subscription_manager,
+            service_id: String::new(),
         }
     }
 

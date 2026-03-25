@@ -1350,7 +1350,7 @@ mod tests {
                 res = &mut pinned => return res,
                 msg = rx_slim.recv() => {
                     if let Some(Ok(msg)) = msg {
-                        if let Some(ack_id) = msg.get_subscription_ack_id() {
+                        if let Some(ack_id) = msg.get_subscription_id() {
                             let ack = Message::builder().build_subscription_ack(ack_id, true, "");
                             sub_mgr.resolve_ack(ack.get_subscription_ack());
                         }
@@ -1405,6 +1405,7 @@ mod tests {
             identity_verifier,
             graceful_shutdown_timeout: None,
             subscription_manager,
+            service_id: String::new(),
         };
 
         let inner = MockInnerHandler::new();
@@ -1788,6 +1789,7 @@ mod tests {
             identity_verifier,
             graceful_shutdown_timeout: None,
             subscription_manager,
+            service_id: String::new(),
         };
 
         let inner = MockInnerHandler::new();
@@ -1864,6 +1866,7 @@ mod tests {
             identity_verifier,
             graceful_shutdown_timeout: None,
             subscription_manager,
+            service_id: String::new(),
         };
 
         let inner = MockInnerHandler::new();
@@ -1997,6 +2000,7 @@ mod tests {
             identity_verifier,
             graceful_shutdown_timeout: None,
             subscription_manager,
+            service_id: String::new(),
         };
 
         let inner = MockInnerHandler::new();

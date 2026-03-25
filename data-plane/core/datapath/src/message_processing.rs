@@ -224,8 +224,8 @@ impl MessageProcessor {
         &self.internal.forwarder
     }
 
-    pub(crate) fn remove_sub_ack(&self, ack_id: u64) {
-        self.internal.sub_ack_manager.remove(ack_id);
+    pub(crate) fn remove_sub_ack(&self, subscription_id: u64) {
+        self.internal.sub_ack_manager.remove(subscription_id);
     }
 
     fn get_drain_watch(&self) -> Result<drain::Watch, DataPathError> {
@@ -545,22 +545,22 @@ impl MessageProcessor {
         );
 
         for info in subs {
-            let new_ack_id = rand::random::<u64>();
+            let subscription_id = rand::random::<u64>();
             let msg = Message::builder()
                 .source(info.source().clone())
                 .destination(info.name().clone())
                 .identity(info.source_identity().clone())
-                .subscription_ack_id(new_ack_id)
+                .subscription_id(subscription_id)
                 .build_subscribe()
                 .unwrap();
 
-            let rx = self.internal.sub_ack_manager.register(new_ack_id);
+            let rx = self.internal.sub_ack_manager.register(subscription_id);
             tokio::spawn(crate::subscription_ack::retry_loop(
                 self.clone(),
-                new_ack_id,
+                subscription_id,
                 msg,
                 out_conn,
-                out_conn, // in_connection – unused (upstream_ack_id is None)
+                out_conn, // in_connection – unused (no upstream to notify)
                 None,
                 rx,
             ));
@@ -684,7 +684,7 @@ impl MessageProcessor {
     pub(crate) async fn send_subscription_ack(
         &self,
         in_connection: u64,
-        ack_id: u64,
+        subscription_id: u64,
         result: &Result<(), DataPathError>,
     ) {
         let (success, error_msg) = match result {
@@ -692,7 +692,7 @@ impl MessageProcessor {
             Err(e) => (false, e.to_string()),
         };
 
-        let ack_msg = Message::builder().build_subscription_ack(ack_id, success, error_msg);
+        let ack_msg = Message::builder().build_subscription_ack(subscription_id, success, error_msg);
 
         if let Err(e) = self.send_msg(ack_msg, in_connection).await {
             error!(error = %e.chain(), "failed to send subscription ack");
@@ -709,6 +709,7 @@ impl MessageProcessor {
         conn: u64,
         forward: Option<u64>,
         add: bool,
+        subscription_id: u64,
     ) -> Result<bool, DataPathError> {
         let dst = msg.get_dst();
 
@@ -735,6 +736,7 @@ impl MessageProcessor {
             conn,
             connection.is_local_connection(),
             add,
+            subscription_id,
         )?;
 
         match forward {
@@ -773,7 +775,7 @@ impl MessageProcessor {
     // is used to remove existing state
     async fn process_subscription(
         &self,
-        mut msg: Message,
+        msg: Message,
         in_connection: u64,
         add: bool,
     ) -> Result<(), DataPathError> {
@@ -792,9 +794,9 @@ impl MessageProcessor {
         );
         //////////////////////////////////////////////////////
 
-        let ack_id = msg.take_subscription_ack_id();
+        let subscription_id = msg.get_subscription_id();
 
-        info!(?ack_id, "received ack id");
+        info!(?subscription_id, "received subscription id");
 
         // get header
         let header = msg.get_slim_header();
@@ -822,7 +824,7 @@ impl MessageProcessor {
 
         // As connection is deleted only after processing, at this point it must exist.
         let Some(connection) = self.forwarder().get_connection(in_conn) else {
-            if let Some(id) = ack_id {
+            if let Some(id) = subscription_id {
                 info!(%in_conn, "connection not found, sending error ack");
                 self.send_subscription_ack(
                     in_connection,
@@ -839,7 +841,7 @@ impl MessageProcessor {
 
         // Do not process subscriptions forwarded back to local connections.
         if recv_from.is_some() && connection.is_local_connection() {
-            if let Some(id) = ack_id {
+            if let Some(id) = subscription_id {
                 debug!(%in_conn, "subscription looped back to local connection, acking ok");
                 self.send_subscription_ack(in_connection, id, &Ok(())).await;
             }
@@ -852,13 +854,14 @@ impl MessageProcessor {
             let out_conn = forward.unwrap();
 
             // Local update only (no forwarding yet).
+            let sub_id = subscription_id.unwrap_or(0);
             let local_result = self
-                .process_subscription_update_and_forward(msg.clone(), in_conn, None, add)
+                .process_subscription_update_and_forward(msg.clone(), in_conn, None, add, sub_id)
                 .await;
 
             let still_subscribed = match local_result {
                 Err(e) => {
-                    if let Some(id) = ack_id {
+                    if let Some(id) = subscription_id {
                         debug!(%in_connection, error = %e, "local subscription update failed, sending error ack");
                         self.send_subscription_ack(in_connection, id, &Err(e)).await;
                     }
@@ -872,35 +875,31 @@ impl MessageProcessor {
             // The upstream relay still needs to route traffic to us for those subscribers.
             if !add && still_subscribed {
                 debug!(%in_connection, "subscription: uid still subscribed, skipping remote unsubscribe");
-                if let Some(id) = ack_id {
+                if let Some(id) = subscription_id {
                     debug!(%in_connection, "still subscribed, acking ok without forwarding");
                     self.send_subscription_ack(in_connection, id, &Ok(())).await;
                 }
                 return Ok(());
             }
 
-            // Generate a fresh ack ID to track the remote hop.
-            let new_ack_id = rand::random::<u64>();
-
-            // Build the forwarded message with the new ack ID.
-            msg.set_subscription_ack_id(new_ack_id);
-
-            // Register the forwarded subscription in the routing table.
+            // The subscription_id stays the same when forwarding — it is a
+            // globally unique identifier that travels with the subscription.
+            // Register it in the ack manager so we can correlate the response.
             let source = msg.get_source();
             let dst = msg.get_dst();
             let identity = msg.get_identity();
             self.forwarder()
                 .on_forwarded_subscription(source, dst, identity, out_conn, add);
 
-            let rx = self.internal.sub_ack_manager.register(new_ack_id);
+            let rx = self.internal.sub_ack_manager.register(sub_id);
 
             tokio::spawn(crate::subscription_ack::retry_loop(
                 self.clone(),
-                new_ack_id,
+                sub_id,
                 msg,
                 out_conn,
                 in_connection,
-                ack_id,
+                subscription_id,
                 rx,
             ));
 
@@ -909,8 +908,9 @@ impl MessageProcessor {
 
         // Default path: update local state and forward, then immediately ACK the requester.
         info!(%in_connection, forward = forward.is_some(), "subscription: default ack path");
+        let sub_id = subscription_id.unwrap_or(0);
         let result = self
-            .process_subscription_update_and_forward(msg, in_conn, forward, add)
+            .process_subscription_update_and_forward(msg, in_conn, forward, add, sub_id)
             .await;
 
         let unit_result = match result {
@@ -918,7 +918,7 @@ impl MessageProcessor {
             Err(e) => Err(e),
         };
 
-        if let Some(id) = ack_id {
+        if let Some(id) = subscription_id {
             info!(%in_connection, ok = unit_result.is_ok(), "sending immediate subscription ack");
             self.send_subscription_ack(in_connection, id, &unit_result)
                 .await;
@@ -947,7 +947,7 @@ impl MessageProcessor {
                 } else {
                     Err(DataPathError::RemoteSubscriptionAckError(ack.error.clone()))
                 };
-                self.internal.sub_ack_manager.resolve(ack.ack_id, result);
+                self.internal.sub_ack_manager.resolve(ack.subscription_id, result);
                 Ok(())
             }
             None => unreachable!(
@@ -1126,7 +1126,6 @@ impl MessageProcessor {
         let tx_cp: Option<Sender<Result<Message, Status>>> = self.get_tx_control_plane();
         let watch = self.get_drain_watch()?;
         let stream_span = tracing::info_span!(
-            parent: None,
             "process_stream",
             service_id = %self.internal.service_id,
             conn_index
@@ -1352,7 +1351,7 @@ mod tests {
             .source(source.clone())
             .destination(destination.clone())
             .incoming_conn(invalid_connection)
-            .subscription_ack_id(ack_id);
+            .subscription_id(ack_id);
 
         let msg = if add {
             builder.build_subscribe().unwrap()
@@ -1376,7 +1375,7 @@ mod tests {
 
         assert!(matches!(ack_msg.get_type(), SubscriptionAckType(_)));
         let ack = ack_msg.get_subscription_ack();
-        assert_eq!(ack.ack_id, ack_id);
+        assert_eq!(ack.subscription_id, ack_id);
         assert!(!ack.success, "failed ack should have success=false");
         assert!(
             !ack.error.is_empty(),
@@ -1734,7 +1733,7 @@ mod tests {
             .destination(destination.clone())
             .incoming_conn(local_conn)
             .forward_to(remote_conn)
-            .subscription_ack_id(upstream_ack_id)
+            .subscription_id(upstream_ack_id)
             .build_subscribe()
             .unwrap();
 
@@ -1753,19 +1752,20 @@ mod tests {
             .unwrap();
         assert!(matches!(forwarded.get_type(), SubscribeType(_)));
 
-        // Extract the new ack ID embedded in the forwarded message.
-        let new_ack_id = forwarded
-            .get_subscription_ack_id()
-            .expect("forwarded subscribe must carry a new ack_id");
+        // The forwarded message must carry the same subscription_id as the original.
+        let forwarded_sub_id = forwarded
+            .get_subscription_id()
+            .expect("forwarded subscribe must carry the same subscription_id");
+        assert_eq!(forwarded_sub_id, upstream_ack_id, "subscription_id must not change when forwarding");
 
         // Simulate the remote node sending back a success SubscriptionAck.
         let ack = ProtoSubscriptionAck {
-            ack_id: new_ack_id,
+            subscription_id: upstream_ack_id,
             success: true,
             error: String::new(),
         };
         processor.internal.sub_ack_manager.resolve(
-            ack.ack_id,
+            ack.subscription_id,
             if ack.success {
                 Ok(())
             } else {
@@ -1782,7 +1782,7 @@ mod tests {
 
         assert!(matches!(upstream_ack.get_type(), SubscriptionAckType(_)));
         let ack_inner = upstream_ack.get_subscription_ack();
-        assert_eq!(ack_inner.ack_id, upstream_ack_id);
+        assert_eq!(ack_inner.subscription_id, upstream_ack_id);
         assert!(ack_inner.success);
     }
 
@@ -1806,7 +1806,7 @@ mod tests {
             .destination(destination.clone())
             .incoming_conn(local_conn)
             .forward_to(remote_conn)
-            .subscription_ack_id(upstream_ack_id)
+            .subscription_id(upstream_ack_id)
             .build_subscribe()
             .unwrap();
 
@@ -1815,16 +1815,21 @@ mod tests {
             .await
             .unwrap();
 
-        // Forwarded subscribe must have been sent to remote (without ack_id).
+        // Forwarded subscribe must have been sent to remote.
+        // The subscription_id is a globally unique identifier that always travels
+        // with the subscription, regardless of whether the remote supports acks.
         let forwarded = tokio::time::timeout(Duration::from_secs(1), rx_remote.recv())
             .await
             .expect("timeout waiting for forwarded subscribe")
             .expect("channel closed")
             .unwrap();
         assert!(matches!(forwarded.get_type(), SubscribeType(_)));
-        assert!(
-            forwarded.get_subscription_ack_id().is_none(),
-            "old-node path must not embed a remote ack ID"
+        let forwarded_sub_id = forwarded
+            .get_subscription_id()
+            .expect("forwarded subscribe must carry the subscription_id");
+        assert_eq!(
+            forwarded_sub_id, upstream_ack_id,
+            "subscription_id must not change when forwarding"
         );
 
         // Upstream ACK must be sent immediately (without waiting for remote).
@@ -1836,7 +1841,7 @@ mod tests {
 
         assert!(matches!(upstream_ack.get_type(), SubscriptionAckType(_)));
         let ack = upstream_ack.get_subscription_ack();
-        assert_eq!(ack.ack_id, upstream_ack_id);
+        assert_eq!(ack.subscription_id, upstream_ack_id);
         assert!(ack.success);
     }
 
@@ -1860,7 +1865,7 @@ mod tests {
             .destination(destination.clone())
             .incoming_conn(local_conn)
             .forward_to(remote_conn)
-            .subscription_ack_id(upstream_ack_id)
+            .subscription_id(upstream_ack_id)
             .build_subscribe()
             .unwrap();
 
@@ -1875,18 +1880,19 @@ mod tests {
             .expect("channel closed")
             .unwrap();
 
-        let new_ack_id = forwarded
-            .get_subscription_ack_id()
-            .expect("must have ack id");
+        let forwarded_sub_id = forwarded
+            .get_subscription_id()
+            .expect("forwarded subscribe must carry the same subscription_id");
+        assert_eq!(forwarded_sub_id, upstream_ack_id, "subscription_id must not change when forwarding");
 
         // Simulate remote failure via SubscriptionAck.
         let ack = ProtoSubscriptionAck {
-            ack_id: new_ack_id,
+            subscription_id: upstream_ack_id,
             success: false,
             error: "remote error".to_string(),
         };
         processor.internal.sub_ack_manager.resolve(
-            ack.ack_id,
+            ack.subscription_id,
             if ack.success {
                 Ok(())
             } else {
@@ -1902,7 +1908,7 @@ mod tests {
 
         assert!(matches!(upstream_ack.get_type(), SubscriptionAckType(_)));
         let ack_inner = upstream_ack.get_subscription_ack();
-        assert_eq!(ack_inner.ack_id, upstream_ack_id);
+        assert_eq!(ack_inner.subscription_id, upstream_ack_id);
         assert!(!ack_inner.success);
         assert!(!ack_inner.error.is_empty());
     }

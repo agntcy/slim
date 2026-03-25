@@ -11,14 +11,16 @@ service DataPlaneService {
 // SLIM messages
 message Subscribe {
   SLIMHeader header = 1;
+  // Globally unique identifier for this subscription.
   // Non-zero when the sender wants a SubscriptionAck back.
-  uint64 ack_id = 2;
+  uint64 subscription_id = 2;
 }
 
 message Unsubscribe {
   SLIMHeader header = 1;
+  // Globally unique identifier for this subscription.
   // Non-zero when the sender wants a SubscriptionAck back.
-  uint64 ack_id = 2;
+  uint64 subscription_id = 2;
 }
 
 message Publish {
@@ -261,11 +263,11 @@ message GroupNackPayload {}
 message PingPayload {}
 
 // SubscriptionAck is delivered directly to the requesting connection in response
-// to a Subscribe or Unsubscribe that carried a non-empty ack_id field.
+// to a Subscribe or Unsubscribe that carried a non-zero subscription_id field.
 // It is never routed through the subscription table.
 message SubscriptionAck {
-  // Echoes the ack_id from the originating Subscribe or Unsubscribe request.
-  uint64 ack_id = 1;
+  // Echoes the subscription_id from the originating Subscribe or Unsubscribe request.
+  uint64 subscription_id = 1;
   // True if the subscription operation succeeded.
   bool success = 2;
   // Non-empty only when success == false.

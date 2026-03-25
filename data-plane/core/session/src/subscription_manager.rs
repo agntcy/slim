@@ -13,7 +13,6 @@ use futures_timer::Delay;
 use parking_lot::Mutex;
 use thiserror::Error;
 use tokio::sync::oneshot;
-use tracing::debug;
 
 use slim_datapath::api::{ProtoMessage as Message, ProtoSubscriptionAck};
 use slim_datapath::messages::Name;
@@ -177,7 +176,7 @@ impl SubscriptionOps for SubscriptionManager {
                 .source(source)
                 .destination(name)
                 .flags(flags)
-                .subscription_ack_id(ack_id)
+                .subscription_id(ack_id)
                 .build_subscribe()
                 .unwrap()
         })
@@ -202,7 +201,7 @@ impl SubscriptionOps for SubscriptionManager {
                 .source(source)
                 .destination(name)
                 .flags(flags)
-                .subscription_ack_id(ack_id)
+                .subscription_id(ack_id)
                 .build_unsubscribe()
                 .unwrap()
         })
@@ -222,7 +221,7 @@ impl SubscriptionOps for SubscriptionManager {
                 .source(source)
                 .destination(name)
                 .flags(SlimHeaderFlags::default().with_recv_from(conn))
-                .subscription_ack_id(ack_id)
+                .subscription_id(ack_id)
                 .build_subscribe()
                 .unwrap()
         })
@@ -242,7 +241,7 @@ impl SubscriptionOps for SubscriptionManager {
                 .source(source)
                 .destination(name)
                 .flags(SlimHeaderFlags::default().with_recv_from(conn))
-                .subscription_ack_id(ack_id)
+                .subscription_id(ack_id)
                 .build_unsubscribe()
                 .unwrap()
         })
@@ -410,10 +409,10 @@ impl SubscriptionManager {
 
     /// Called by the App message loop to complete a waiting future for an ACK.
     pub fn resolve_ack(&self, ack: &ProtoSubscriptionAck) {
-        tracing::info!(ack = %ack.ack_id, "ack received");
+        tracing::info!(ack = %ack.subscription_id, "ack received");
         let sender = {
             let mut pending = self.pending_acks.lock();
-            pending.remove(&ack.ack_id)
+            pending.remove(&ack.subscription_id)
         };
 
         tracing::info!("channel found");
@@ -434,7 +433,7 @@ impl SubscriptionManager {
             });
         } else {
             tracing::info!(
-                ack_id = %ack.ack_id,
+                ack_id = %ack.subscription_id,
                 "received subscription ack with no pending waiter"
             );
         }

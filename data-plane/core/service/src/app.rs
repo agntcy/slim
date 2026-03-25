@@ -218,7 +218,7 @@ where
             .source(self.app_name.clone())
             .destination(name.clone())
             .flags(flags)
-            .subscription_ack_id(ack_id)
+            .subscription_id(ack_id)
             .build_subscribe()
             .unwrap();
 
@@ -251,7 +251,7 @@ where
             .source(self.app_name.clone())
             .destination(name.clone())
             .flags(flags)
-            .subscription_ack_id(ack_id)
+            .subscription_id(ack_id)
             .build_unsubscribe()
             .unwrap();
 
@@ -309,7 +309,10 @@ where
     }
 
     /// SLIM receiver loop
-    pub(crate) fn process_messages(&self, mut rx: mpsc::Receiver<Result<Message, Status>>) {
+    pub(crate) fn process_messages(
+        &self,
+        mut rx: mpsc::Receiver<Result<Message, Status>>,
+    ) -> tokio::task::JoinHandle<()> {
         let app_name = self.app_name.clone();
         let service_id = self.service_id.clone();
         let session_layer = self.session_layer.clone();
@@ -322,7 +325,7 @@ where
             app = %app_name,
             service_id = %service_id,
         );
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             debug!("starting message processing loop");
 
             // Initiate self-subscription via the subscription manager so the ACK
@@ -418,6 +421,8 @@ where
                 }
             }
         }.instrument(loop_span));
+
+        handle
     }
 }
 
@@ -510,22 +515,6 @@ mod tests {
             .expect("error receiving message")
     }
 
-    #[allow(dead_code)]
-    fn create_app() -> App<SharedSecret, SharedSecret> {
-        let (tx_slim, _) = tokio::sync::mpsc::channel(128);
-        let (tx_app, _) = tokio::sync::mpsc::channel(128);
-        let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
-
-        App::new(
-            &name,
-            SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-            SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-            0,
-            tx_slim,
-            tx_app,
-        )
-    }
-
     fn create_isolated_test_app(
         suffix: &str,
     ) -> (
@@ -543,6 +532,7 @@ mod tests {
             0,
             tx_slim,
             tx_app,
+            format!("test-service-{suffix}"),
         );
 
         (app, rx_slim)
@@ -578,7 +568,7 @@ mod tests {
         };
 
         let ack_id = outbound
-            .get_subscription_ack_id()
+            .get_subscription_id()
             .expect("missing ack id in outbound subscribe message");
 
         // Resolve with empty error — should produce the default rejection message
@@ -607,7 +597,7 @@ mod tests {
         };
 
         let ack_id = outbound
-            .get_subscription_ack_id()
+            .get_subscription_id()
             .expect("missing ack id in outbound subscribe message");
 
         let ack_msg = build_subscription_ack_message(ack_id, true, None);
@@ -629,7 +619,7 @@ mod tests {
         };
 
         let ack_id = outbound
-            .get_subscription_ack_id()
+            .get_subscription_id()
             .expect("missing ack id in outbound subscribe message");
 
         let ack_msg =
@@ -658,7 +648,7 @@ mod tests {
         };
 
         let ack_id = outbound
-            .get_subscription_ack_id()
+            .get_subscription_id()
             .expect("missing ack id in outbound unsubscribe message");
 
         // Drop the sender by resolving with a closed-channel-simulating approach:
