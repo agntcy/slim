@@ -4,7 +4,7 @@ Minimal client/server over SLIM using the generated `TestStub` / `TestServicer` 
 
 ## Prerequisites
 
-- Rust toolchain, **uv**, and a **SLIM controller** on **`http://localhost:46357`**
+- Rust toolchain, **uv**, and a **SLIM node** listening on **`http://localhost:46357`**
 - From the **Python bindings root** (`data-plane/bindings/python`)
 
 ## One-time setup
@@ -38,8 +38,6 @@ uv run slim-bindings-simple-rpc-server
 ```bash
 uv run slim-bindings-simple-rpc-client
 ```
-
-The demo uses shared secret **`my_shared_secret_for_testing_purposes_only`** (see `server.py` / `client.py`).
 
 ## See also
 
