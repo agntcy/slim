@@ -218,7 +218,9 @@ impl Channel {
         tracing::debug!("no persistent session - recreating");
         let (session_tx, session_rx) = self.create_raw_session().await?;
         let dispatcher = Arc::new(ResponseDispatcher::new());
-        let task = tokio::spawn(response_dispatcher_task(session_rx, dispatcher.clone()));
+        let task = self
+            .runtime
+            .spawn(response_dispatcher_task(session_rx, dispatcher.clone()));
         let new_cs = ChannelSession {
             tx: session_tx.clone(),
             dispatcher: dispatcher.clone(),

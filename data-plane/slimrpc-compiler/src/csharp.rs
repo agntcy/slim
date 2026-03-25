@@ -44,6 +44,18 @@ fn resolve_csharp_type(
     let bare = bare_type_name(trimmed);
     let type_proto_pkg = trimmed.rfind('.').map(|pos| &trimmed[..pos]).unwrap_or("");
 
+    // Well-known types must use WellKnownTypes even when also listed in google.protobuf descriptors.
+    if trimmed.starts_with("google.protobuf.") {
+        let ns = match bare.as_str() {
+            "Empty" | "Timestamp" | "Duration" | "Struct" => "Google.Protobuf.WellKnownTypes",
+            _ => "Google.Protobuf",
+        };
+        return (
+            format!("{}.{}", ns, bare),
+            Some(format!("using {};", ns)),
+        );
+    }
+
     if type_proto_pkg == current_proto_pkg || type_proto_pkg.is_empty() {
         let ns = types_namespace
             .as_ref()
@@ -51,14 +63,6 @@ fn resolve_csharp_type(
             .unwrap_or_else(|| bare.clone());
         (ns, None)
     } else if let Some(ns) = type_to_namespace.get(trimmed) {
-        (format!("{}.{}", ns, bare), Some(format!("using {};", ns)))
-    } else if trimmed.starts_with("google.protobuf.") {
-        let ns = match bare.as_str() {
-            "Empty" => "Google.Protobuf.WellKnownTypes",
-            "Timestamp" => "Google.Protobuf.WellKnownTypes",
-            "Duration" => "Google.Protobuf.WellKnownTypes",
-            _ => "Google.Protobuf",
-        };
         (format!("{}.{}", ns, bare), Some(format!("using {};", ns)))
     } else {
         (bare, None)
@@ -209,7 +213,7 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
                         ));
                         unimplemented_methods.push_str(&format!(
                             r#"        public Task<{}> {}({} request, SlimRpcContext context) =>
-            Task.FromException<{}>(new NotImplementedException("Method {} not implemented"));
+            System.Threading.Tasks.Task.FromException<{}>(new NotImplementedException("Method {} not implemented"));
 "#,
                             output_type, method_name, input_type, output_type, method_name
                         ));
@@ -246,7 +250,7 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
                         unimplemented_methods.push_str(&format!(
                             r#"        public async IAsyncEnumerable<{}> {}({} request, SlimRpcContext context)
         {{
-            await Task.CompletedTask;
+            await System.Threading.Tasks.Task.CompletedTask;
             yield break;
         }}
 "#,
@@ -284,7 +288,7 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
                         ));
                         unimplemented_methods.push_str(&format!(
                             r#"        public Task<{}> {}(IAsyncEnumerable<{}> requestStream, SlimRpcContext context) =>
-            Task.FromException<{}>(new NotImplementedException("Method {} not implemented"));
+            System.Threading.Tasks.Task.FromException<{}>(new NotImplementedException("Method {} not implemented"));
 "#,
                             output_type, method_name, input_type, output_type, method_name
                         ));
@@ -321,7 +325,7 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
                         unimplemented_methods.push_str(&format!(
                             r#"        public async IAsyncEnumerable<{}> {}(IAsyncEnumerable<{}> requestStream, SlimRpcContext context)
         {{
-            await Task.CompletedTask;
+            await System.Threading.Tasks.Task.CompletedTask;
             yield break;
         }}
 "#,
@@ -434,17 +438,20 @@ fn generate_unary_unary_client(
     output_type: &str,
     package_name: &str,
 ) -> String {
+    // Full gRPC-style service name must be a single string (e.g. a2a.v1.A2AService). Using
+    // format!("{}.{}", pkg, svc) inside the outer format! breaks placeholder pairing.
+    let full_service = format!("{package_name}.{service_name}");
     format!(
         r#"
         public async Task<{}> {}Async({} request, TimeSpan? timeout = null, IReadOnlyDictionary<string, string>? metadata = null, CancellationToken cancellationToken = default)
         {{
             cancellationToken.ThrowIfCancellationRequested();
             var reqBytes = request.ToByteString().ToByteArray();
-            var respBytes = await _channel.CallUnaryAsync("{}.{}", "{}", reqBytes, timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
+            var respBytes = await _channel.CallUnaryAsync("{}", "{}", reqBytes, timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
             return {}.Parser.ParseFrom(respBytes);
         }}
 "#,
-        output_type, method_name, input_type, package_name, service_name, method_name, output_type
+        output_type, method_name, input_type, full_service, method_name, output_type
     )
 }
 
@@ -455,19 +462,20 @@ fn generate_unary_stream_client(
     output_type: &str,
     package_name: &str,
 ) -> String {
+    let full_service = format!("{package_name}.{service_name}");
     format!(
         r#"
         public async IAsyncEnumerable<{}> {}Async({} request, TimeSpan? timeout = null, IReadOnlyDictionary<string, string>? metadata = null, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {{
             var reqBytes = request.ToByteString().ToByteArray();
-            var stream = await _channel.CallUnaryStreamAsync("{}.{}", "{}", reqBytes, timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
+            var stream = await _channel.CallUnaryStreamAsync("{}", "{}", reqBytes, timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
             await foreach (var msg in SlimRpcStreams.ReadResponseStreamAsync<{}>(stream, cancellationToken))
             {{
                 yield return msg;
             }}
         }}
 "#,
-        output_type, method_name, input_type, package_name, service_name, method_name, output_type
+        output_type, method_name, input_type, full_service, method_name, output_type
     )
 }
 
@@ -478,11 +486,12 @@ fn generate_stream_unary_client(
     output_type: &str,
     package_name: &str,
 ) -> String {
+    let full_service = format!("{package_name}.{service_name}");
     format!(
         r#"
         public async Task<{}> {}Async(IAsyncEnumerable<{}> requestStream, TimeSpan? timeout = null, IReadOnlyDictionary<string, string>? metadata = null, CancellationToken cancellationToken = default)
         {{
-            var writer = _channel.CallStreamUnary("{}.{}", "{}", timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
+            var writer = _channel.CallStreamUnary("{}", "{}", timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
             await foreach (var req in requestStream.WithCancellation(cancellationToken))
             {{
                 await writer.SendAsync(req.ToByteString().ToByteArray());
@@ -491,7 +500,7 @@ fn generate_stream_unary_client(
             return {}.Parser.ParseFrom(respBytes);
         }}
 "#,
-        output_type, method_name, input_type, package_name, service_name, method_name, output_type
+        output_type, method_name, input_type, full_service, method_name, output_type
     )
 }
 
@@ -502,11 +511,12 @@ fn generate_stream_stream_client(
     output_type: &str,
     package_name: &str,
 ) -> String {
+    let full_service = format!("{package_name}.{service_name}");
     format!(
         r#"
         public async IAsyncEnumerable<{}> {}Async(IAsyncEnumerable<{}> requestStream, TimeSpan? timeout = null, IReadOnlyDictionary<string, string>? metadata = null, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {{
-            var bidi = _channel.CallStreamStream("{}.{}", "{}", timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
+            var bidi = _channel.CallStreamStream("{}", "{}", timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
             var sendTask = Task.Run(async () =>
             {{
                 await foreach (var req in requestStream.WithCancellation(cancellationToken))
@@ -528,7 +538,7 @@ fn generate_stream_stream_client(
             }}
         }}
 "#,
-        output_type, method_name, input_type, package_name, service_name, method_name, output_type
+        output_type, method_name, input_type, full_service, method_name, output_type
     )
 }
 
@@ -591,7 +601,7 @@ fn generate_unary_stream_handler(
 
         public {}_{}_Handler(I{}Server impl) => _impl = impl;
 
-        public async Task Handle(byte[] request, Context context, ResponseSink sink)
+        public async System.Threading.Tasks.Task Handle(byte[] request, Context context, ResponseSink sink)
         {{
             var req = {}.Parser.ParseFrom(request);
             var ctx = SlimRpcContext.FromContext(context);
@@ -684,7 +694,7 @@ fn generate_stream_stream_handler(
 
         public {}_{}_Handler(I{}Server impl) => _impl = impl;
 
-        public async Task Handle(RequestStream stream, Context context, ResponseSink sink)
+        public async System.Threading.Tasks.Task Handle(RequestStream stream, Context context, ResponseSink sink)
         {{
             var ctx = SlimRpcContext.FromContext(context);
             var reqStream = SlimRpcStreams.ReadRequestStreamAsync<{}>(stream);
