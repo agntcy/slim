@@ -56,7 +56,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			relayPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46490":         fmt.Sprintf("0.0.0.0:%d", relayPort),
+				"0.0.0.0:46490":          fmt.Sprintf("0.0.0.0:%d", relayPort),
 				"http://localhost:46490": fmt.Sprintf("http://localhost:%d", relayPort),
 			}
 
@@ -116,7 +116,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			relayPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46490":         fmt.Sprintf("0.0.0.0:%d", relayPort),
+				"0.0.0.0:46490":          fmt.Sprintf("0.0.0.0:%d", relayPort),
 				"http://localhost:46490": fmt.Sprintf("http://localhost:%d", relayPort),
 			}
 
@@ -148,7 +148,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			// the old relay never responds to link negotiation (supports()=false).
 			// The ACK is immediate so the subscription is ready as soon as this
 			// log line appears.
-			Eventually(appASession.Out, 10*time.Second).Should(gbytes.Say("subscription: default ack path"))
+			Eventually(appASession.Out, 10*time.Second).Should(gbytes.Say("subscription: remote ack not available, link negotiation may not have completed yet"))
 
 			// App B: sender.
 			appBConfig := writeTempConfig(tempDir, "./testdata/sub-ack-app-config.yaml", "app-b.yaml", replacements)
@@ -180,7 +180,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			newRelayPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46490":         fmt.Sprintf("0.0.0.0:%d", newRelayPort),
+				"0.0.0.0:46490":          fmt.Sprintf("0.0.0.0:%d", newRelayPort),
 				"http://localhost:46490": fmt.Sprintf("http://localhost:%d", newRelayPort),
 			}
 
@@ -254,7 +254,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			relayPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46490":         fmt.Sprintf("0.0.0.0:%d", relayPort),
+				"0.0.0.0:46490":          fmt.Sprintf("0.0.0.0:%d", relayPort),
 				"http://localhost:46490": fmt.Sprintf("http://localhost:%d", relayPort),
 			}
 
@@ -313,7 +313,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			relayPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46490":         fmt.Sprintf("0.0.0.0:%d", relayPort),
+				"0.0.0.0:46490":          fmt.Sprintf("0.0.0.0:%d", relayPort),
 				"http://localhost:46490": fmt.Sprintf("http://localhost:%d", relayPort),
 			}
 
@@ -344,7 +344,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			// App A's embedded relay falls back to the default path.  The ACK is
 			// immediate; a brief pause lets the subscribe propagate through the
 			// old relay's internal state before B starts sending.
-			Eventually(appASession.Out, 10*time.Second).Should(gbytes.Say("subscription: default ack path"))
+			Eventually(appASession.Out, 10*time.Second).Should(gbytes.Say("subscription: remote ack not available, link negotiation may not have completed yet"))
 			time.Sleep(500 * time.Millisecond)
 
 			// App B: sender.
@@ -382,7 +382,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			relayPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46490":         fmt.Sprintf("0.0.0.0:%d", relayPort),
+				"0.0.0.0:46490":          fmt.Sprintf("0.0.0.0:%d", relayPort),
 				"http://localhost:46490": fmt.Sprintf("http://localhost:%d", relayPort),
 			}
 
@@ -411,7 +411,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 
 			// New relay processes the old app's subscribe with default path
 			// (no ack_id from old app, use_remote_ack=false).
-			Eventually(relaySession.Out, 10*time.Second).Should(gbytes.Say("subscription: default ack path"))
+			Eventually(relaySession.Out, 10*time.Second).Should(gbytes.Say("subscription: remote ack not available, link negotiation may not have completed yet"))
 
 			// App B: new sdk-mock, sender.
 			appBConfig := writeTempConfig(tempDir, "./testdata/sub-ack-app-config.yaml", "app-b.yaml", replacements)
@@ -441,7 +441,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			relayPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46490":         fmt.Sprintf("0.0.0.0:%d", relayPort),
+				"0.0.0.0:46490":          fmt.Sprintf("0.0.0.0:%d", relayPort),
 				"http://localhost:46490": fmt.Sprintf("http://localhost:%d", relayPort),
 			}
 
@@ -503,7 +503,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			relayPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46490":         fmt.Sprintf("0.0.0.0:%d", relayPort),
+				"0.0.0.0:46490":          fmt.Sprintf("0.0.0.0:%d", relayPort),
 				"http://localhost:46490": fmt.Sprintf("http://localhost:%d", relayPort),
 			}
 
@@ -531,7 +531,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			defer terminateSession(appASession, 5*time.Second)
 
 			// New relay takes the default path for the old app's subscribe (no ack_id).
-			Eventually(relaySession.Out, 10*time.Second).Should(gbytes.Say("subscription: default ack path"))
+			Eventually(relaySession.Out, 10*time.Second).Should(gbytes.Say("subscription: remote ack not available, link negotiation may not have completed yet"))
 
 			// App B: new sdk-mock, sender.
 			appBConfig := writeTempConfig(tempDir, "./testdata/sub-ack-app-config.yaml", "app-b.yaml", replacements)
@@ -561,7 +561,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			relayPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46490":         fmt.Sprintf("0.0.0.0:%d", relayPort),
+				"0.0.0.0:46490":          fmt.Sprintf("0.0.0.0:%d", relayPort),
 				"http://localhost:46490": fmt.Sprintf("http://localhost:%d", relayPort),
 			}
 
