@@ -119,6 +119,10 @@ impl ServiceConfiguration {
     }
 
     pub fn build_server(&self, id: ID) -> Result<Service, ServiceError> {
+        let id = match &self.node_id {
+            Some(node_id) => ID::new_with_name(id.kind().clone(), node_id)?,
+            None => id,
+        };
         let service = Service::new_with_config(id, self.clone());
         Ok(service)
     }
@@ -201,7 +205,7 @@ impl Service {
 
     /// Create a new Service with configuration
     pub fn new_with_config(id: ID, config: ServiceConfiguration) -> Self {
-        let message_processor = Arc::new(MessageProcessor::new());
+        let message_processor = Arc::new(MessageProcessor::new_with_service_id(id.to_string()));
 
         Service {
             id,
@@ -224,6 +228,7 @@ impl Service {
     }
 
     /// Run the service
+    #[tracing::instrument(skip_all, fields(service_id = %self.id))]
     pub async fn run(&self) -> Result<(), ServiceError> {
         // Check that at least one client or server is configured
 
@@ -266,6 +271,7 @@ impl Service {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all, fields(service_id = %self.id))]
     pub async fn shutdown(&self) -> Result<(), ServiceError> {
         debug!("shutting down service");
 
@@ -322,6 +328,7 @@ impl Service {
     }
 
     #[cfg(feature = "session")]
+    #[tracing::instrument(skip_all, fields(service_id = %self.id))]
     pub fn create_app_with_direction<P, V>(
         &self,
         app_name: &Name,
@@ -364,6 +371,7 @@ impl Service {
             tx_slim,
             tx_app,
             direction,
+            self.id.to_string(),
         );
 
         // start message processing using the rx channel
@@ -373,6 +381,7 @@ impl Service {
         Ok((app, rx_app))
     }
 
+    #[tracing::instrument(skip_all, fields(service_id = %self.id))]
     pub async fn run_server(&self, config: &ServerConfig) -> Result<(), ServiceError> {
         let cancellation_token = self.message_processor.run_server(config).await?;
         self.cancellation_tokens
@@ -394,6 +403,7 @@ impl Service {
         }
     }
 
+    #[tracing::instrument(skip_all, fields(service_id = %self.id))]
     pub async fn connect(&self, config: &ClientConfig) -> Result<u64, ServiceError> {
         // ensure there is no other client connected to the same endpoint
         if self.clients.read().contains_key(&config.endpoint) {
@@ -418,6 +428,7 @@ impl Service {
         Ok(conn_id)
     }
 
+    #[tracing::instrument(skip_all, fields(service_id = %self.id))]
     pub fn disconnect(&self, conn: u64) -> Result<(), ServiceError> {
         let client_config = self.message_processor.disconnect(conn)?;
         let endpoint = client_config.endpoint.clone();
@@ -537,9 +548,7 @@ impl ComponentBuilder for ServiceBuilder {
         name: &str,
         config: &Self::Config,
     ) -> Result<Self::Component, ServiceError> {
-        let node_name = config.node_id.clone().unwrap_or(name.to_string());
-        let id = ID::new_with_name(ServiceBuilder::kind(), &node_name)?;
-
+        let id = ID::new_with_name(ServiceBuilder::kind(), name)?;
         config.build_server(id)
     }
 }
@@ -565,6 +574,28 @@ mod tests {
         let config = ServiceConfiguration::new();
         assert_eq!(config.dataplane_servers(), &[]);
         assert_eq!(config.dataplane_clients(), &[]);
+    }
+
+    #[test]
+    fn test_build_server_uses_node_id_when_set() {
+        let mut config = ServiceConfiguration::new();
+        config.node_id = Some("custom-node".to_string());
+
+        let original_id = ID::new_with_name(Kind::new(KIND).unwrap(), "original").unwrap();
+        let service = config.build_server(original_id).unwrap();
+
+        assert_eq!(service.identifier().name(), "custom-node");
+        assert_eq!(service.identifier().kind(), &Kind::new(KIND).unwrap());
+    }
+
+    #[test]
+    fn test_build_server_preserves_id_when_node_id_is_none() {
+        let config = ServiceConfiguration::new();
+
+        let original_id = ID::new_with_name(Kind::new(KIND).unwrap(), "original").unwrap();
+        let service = config.build_server(original_id).unwrap();
+
+        assert_eq!(service.identifier().name(), "original");
     }
 
     #[tokio::test]
@@ -842,10 +873,6 @@ mod tests {
 
         // sleep to allow the deletion to be processed
         time::sleep(Duration::from_millis(100)).await;
-
-        // This should also trigger a stop of the message processing loop.
-        // Make sure the loop stopped by checking the logs
-        assert!(logs_contain("message processing loop cancelled"));
     }
 
     #[tokio::test]

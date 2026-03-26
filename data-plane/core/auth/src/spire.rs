@@ -54,11 +54,6 @@
 //! # Ok(()) }
 //! ```
 //!
-//! Custom claims:
-//! Use `get_token_with_claims` to embed additional claims via a special audience
-//! encoding. The verifier automatically decodes and exposes them under
-//! the `custom_claims` field in returned claim structures.
-//!
 //! This unified design replaced the previous split between
 //! `SpiffeProvider` and `SpiffeJwtVerifier`.
 
@@ -67,7 +62,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use display_error_chain::ErrorChainExt;
 use futures::StreamExt;
-use jsonwebtoken_aws_lc::TokenData;
+use jsonwebtoken::TokenData;
 use parking_lot::RwLock;
 use serde::de::DeserializeOwned;
 use serde_json::{self, Value};
@@ -77,14 +72,14 @@ use spiffe::{
 };
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
 use crate::errors::AuthError;
+use crate::identity_claims::IdentityClaims;
 use crate::metadata::MetadataMap;
 use crate::traits::{TokenProvider, Verifier};
-use crate::utils::bytes_to_pem;
+use crate::utils::{bytes_to_pem, generate_mls_signature_keys};
 
 /// Helper for encoding/decoding custom claims in JWT audiences
 ///
@@ -105,19 +100,6 @@ use crate::utils::bytes_to_pem;
 /// 3. Custom claims are extracted and returned separately
 /// 4. Special audience is removed from the audience list
 ///
-/// ## Example
-///
-/// ```ignore
-/// // Provider encodes custom claims
-/// let mut claims = HashMap::new();
-/// claims.insert("pubkey".to_string(), json!("abc123"));
-/// let token = provider.get_token_with_claims(claims).await?;
-///
-/// // Verifier transparently extracts them
-/// let extracted_claims = verifier.get_claims::<MyClaims>(token)?;
-/// // extracted_claims.custom_claims contains the original claims
-/// // extracted_claims.aud does NOT contain the special audience
-/// ```
 struct CustomClaimsCodec;
 
 impl CustomClaimsCodec {
@@ -243,15 +225,17 @@ impl SpireIdentityManagerBuilder {
         self
     }
 
-    pub fn build(self) -> SpireIdentityManager {
-        SpireIdentityManager {
+    pub fn build(self) -> Result<SpireIdentityManager, crate::errors::AuthError> {
+        let signature_keys = generate_mls_signature_keys()?;
+        Ok(SpireIdentityManager {
             socket_path: self.socket_path,
             target_spiffe_id: self.target_spiffe_id,
             jwt_audiences: self.jwt_audiences,
             client: None,
             x509_source: None,
             jwt_source: None,
-        }
+            signature_keys,
+        })
     }
 }
 
@@ -264,12 +248,41 @@ pub struct SpireIdentityManager {
     client: Option<WorkloadApiClient>,
     x509_source: Option<Arc<X509Source>>,
     jwt_source: Option<Arc<JwtSource>>,
+    /// MLS Ed25519 signature key pair: (secret_key_bytes, public_key_bytes).
+    signature_keys: (Vec<u8>, Vec<u8>),
 }
 
 impl SpireIdentityManager {
     /// Convenience: start building a new SpireIdentityManager
     pub fn builder() -> SpireIdentityManagerBuilder {
         SpireIdentityManagerBuilder::new()
+    }
+
+    /// Build the full JWT audience list, including the MLS public key encoded as a
+    /// custom-claim audience. This ensures every cached SVID from the JwtSource
+    /// has the pubkey embedded so `get_token()` returns a token that passes
+    /// `IdentityClaims::from_json` (which looks for `custom_claims.pubkey`).
+    fn jwt_audiences_with_pubkey(&self) -> Result<Vec<String>, AuthError> {
+        let pubkey_claims = IdentityClaims::from_public_key_bytes(&self.signature_keys.1);
+        let pubkey_audience = CustomClaimsCodec::encode_audience(&pubkey_claims)?;
+        let mut audiences = self.jwt_audiences.clone();
+        audiences.push(pubkey_audience);
+        Ok(audiences)
+    }
+
+    /// Build a fresh JwtSource whose fetch audiences include the current pubkey claim.
+    async fn build_jwt_source(
+        audiences: Vec<String>,
+        target_spiffe_id: Option<String>,
+        client: WorkloadApiClient,
+    ) -> Result<Arc<JwtSource>, AuthError> {
+        let mut builder = JwtSourceBuilder::new()
+            .with_audiences(audiences)
+            .with_client(client);
+        if let Some(target_id) = target_spiffe_id {
+            builder = builder.with_target_spiffe_id(target_id);
+        }
+        builder.build().await
     }
 
     /// Initialize the spire identity manager (sources for X.509 & JWT)
@@ -287,16 +300,12 @@ impl SpireIdentityManager {
 
         self.x509_source = Some(x509_source);
 
-        // Initialize JwtSource for JWT token management
-        let mut jwt_builder = JwtSourceBuilder::new()
-            .with_audiences(self.jwt_audiences.clone())
-            .with_client(client.clone());
-
-        if let Some(ref target_id) = self.target_spiffe_id {
-            jwt_builder = jwt_builder.with_target_spiffe_id(target_id.clone());
-        }
-
-        let jwt_source = jwt_builder.build().await?;
+        // Initialize JwtSource with audiences that include the MLS pubkey as a
+        // custom-claim audience so every cached SVID carries it transparently.
+        let jwt_audiences = self.jwt_audiences_with_pubkey()?;
+        let jwt_source =
+            Self::build_jwt_source(jwt_audiences, self.target_spiffe_id.clone(), client.clone())
+                .await?;
 
         self.jwt_source = Some(jwt_source);
 
@@ -427,33 +436,42 @@ impl TokenProvider for SpireIdentityManager {
         Ok(jwt_svid.token().to_string())
     }
 
-    async fn get_token_with_claims(&self, custom_claims: MetadataMap) -> Result<String, AuthError> {
-        if custom_claims.is_empty() {
-            return self.get_token();
-        }
-
-        // Encode custom claims as a special audience
-        let claims_audience = CustomClaimsCodec::encode_audience(&custom_claims)?;
-
-        // Build audiences list with custom claims audience
-        let mut audiences = self.jwt_audiences.clone();
-        audiences.push(claims_audience);
-
-        // Get the jwt_source
-        let jwt_source = self
-            .jwt_source
-            .as_ref()
-            .ok_or(AuthError::SpiffeJwtSourceNotInitialized)?;
-
-        jwt_source
-            .fetch_with_custom_audiences(audiences, self.target_spiffe_id.clone())
-            .await
-            .map(|svid| svid.token().to_string())
-    }
-
     fn get_id(&self) -> Result<String, AuthError> {
         let jwt_svid = self.get_jwt_svid()?;
         Ok(jwt_svid.spiffe_id().to_string())
+    }
+
+    fn get_signature_secret_key(&self) -> Result<Vec<u8>, AuthError> {
+        Ok(self.signature_keys.0.clone())
+    }
+
+    fn get_signature_public_key(&self) -> Result<Vec<u8>, AuthError> {
+        Ok(self.signature_keys.1.clone())
+    }
+
+    fn rotate_signature_keys(&mut self) -> Result<(), AuthError> {
+        self.signature_keys = generate_mls_signature_keys()?;
+
+        // Rebuild the JwtSource so the next get_token() call returns a fresh SVID
+        // with the new pubkey embedded in its audiences.
+        let new_audiences = self.jwt_audiences_with_pubkey()?;
+        let target_spiffe_id = self.target_spiffe_id.clone();
+        let client = self
+            .client
+            .clone()
+            .ok_or(AuthError::SpiffeWorkloadApiUnavailable)?;
+
+        let new_jwt_source = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(Self::build_jwt_source(
+                new_audiences,
+                target_spiffe_id,
+                client,
+            ))
+        })?;
+
+        self.jwt_source = Some(new_jwt_source);
+
+        Ok(())
     }
 }
 
@@ -461,13 +479,6 @@ impl TokenProvider for SpireIdentityManager {
 struct JwtSourceConfigInternal {
     min_retry_backoff: Duration,
     max_retry_backoff: Duration,
-}
-
-/// Request to fetch JWT with custom audiences
-struct CustomAudienceRequest {
-    audiences: Vec<String>,
-    target_spiffe_id: Option<String>,
-    response_tx: oneshot::Sender<Result<JwtSvid, AuthError>>,
 }
 
 impl Default for JwtSourceConfigInternal {
@@ -533,7 +544,6 @@ struct JwtSource {
     current: Arc<RwLock<Option<JwtSvid>>>,
     bundles: Arc<RwLock<Option<JwtBundleSet>>>,
     cancellation_token: CancellationToken,
-    custom_request_tx: mpsc::Sender<CustomAudienceRequest>,
 }
 
 impl JwtSource {
@@ -581,9 +591,6 @@ impl JwtSource {
             }
         }
 
-        // Create channel for custom audience requests
-        let (custom_request_tx, custom_request_rx) = mpsc::channel(16);
-
         // Spawn background task for JWT SVID refresh
         let token_clone = cancellation_token.clone();
         tokio::spawn(async move {
@@ -593,7 +600,6 @@ impl JwtSource {
                 target_clone,
                 current_clone,
                 token_clone,
-                custom_request_rx,
                 cfg,
             )
             .await;
@@ -623,18 +629,16 @@ impl JwtSource {
             current,
             bundles,
             cancellation_token,
-            custom_request_tx,
         }))
     }
 
-    /// Background task that handles JWT refresh and custom audience requests
+    /// Background task that handles JWT refresh
     async fn background_refresh_task(
         mut client: WorkloadApiClient,
         audiences: Vec<String>,
         target_spiffe_id: Option<String>,
         current: Arc<RwLock<Option<JwtSvid>>>,
         cancellation_token: CancellationToken,
-        mut custom_request_rx: mpsc::Receiver<CustomAudienceRequest>,
         cfg: JwtSourceConfigInternal,
     ) {
         let mut backoff = cfg.min_retry_backoff;
@@ -667,11 +671,6 @@ impl JwtSource {
                             tracing::warn!(error=%err, "jwt_source: regular refresh failed");
                         }
                     }
-                }
-
-                // Custom audience request
-                Some(request) = custom_request_rx.recv() => {
-                    Self::handle_custom_request(&mut client, request).await;
                 }
 
                 // Cancellation
@@ -752,43 +751,6 @@ impl JwtSource {
                 Err(err)
             }
         }
-    }
-
-    /// Handle custom audience request
-    async fn handle_custom_request(client: &mut WorkloadApiClient, request: CustomAudienceRequest) {
-        let result = fetch_once(
-            client,
-            &request.audiences,
-            request.target_spiffe_id.as_ref(),
-        )
-        .await;
-
-        // Send response back (ignore if receiver dropped)
-        let _ = request.response_tx.send(result);
-    }
-
-    /// Request a JWT with custom audiences
-    async fn fetch_with_custom_audiences(
-        &self,
-        audiences: Vec<String>,
-        target_spiffe_id: Option<String>,
-    ) -> Result<JwtSvid, AuthError> {
-        let (response_tx, response_rx) = oneshot::channel();
-
-        let request = CustomAudienceRequest {
-            audiences,
-            target_spiffe_id,
-            response_tx,
-        };
-
-        self.custom_request_tx
-            .send(request)
-            .await
-            .map_err(|_| AuthError::SpiffeCustomAudiencesJwtSourceClosed)?;
-
-        response_rx
-            .await
-            .map_err(|_| AuthError::SpiffeCustomAudiencesError)?
     }
 
     /// Sync access to the current JWT SVID (if any). Returns Ok(Some) if present.
@@ -910,14 +872,7 @@ async fn fetch_once(
 // Decode JWT expiry (seconds since epoch) without verifying signature and audience.
 // Extracted as a standalone helper for reuse and unit testing.
 fn decode_jwt_expiry_unverified(token: &str) -> Result<u64, AuthError> {
-    let mut validation = jsonwebtoken_aws_lc::Validation::default();
-    validation.insecure_disable_signature_validation();
-    validation.validate_aud = false;
-
-    let key = jsonwebtoken_aws_lc::DecodingKey::from_secret(&[]);
-    let claims: TokenData<serde_json::Value> =
-        jsonwebtoken_aws_lc::decode(token, &key, &validation)?;
-
+    let claims: TokenData<serde_json::Value> = jsonwebtoken::dangerous::insecure_decode(token)?;
     let exp_val = claims
         .claims
         .get("exp")
@@ -1086,16 +1041,16 @@ mod tests {
     use serde_json::json;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    // Helper to build a JWT with a specific exp claim (numeric or string) using jsonwebtoken_aws_lc.
+    // Helper to build a JWT with a specific exp claim (numeric or string) using jsonwebtoken.
     fn build_token_with_exp(exp_value: serde_json::Value) -> String {
-        use jsonwebtoken_aws_lc::{EncodingKey, Header};
+        use jsonwebtoken::{EncodingKey, Header};
         use serde_json::Value;
         let mut payload_map = serde_json::Map::new();
         if exp_value != Value::Null {
             payload_map.insert("exp".to_string(), exp_value);
         }
         let payload = Value::Object(payload_map);
-        jsonwebtoken_aws_lc::encode(&Header::default(), &payload, &EncodingKey::from_secret(&[]))
+        jsonwebtoken::encode(&Header::default(), &payload, &EncodingKey::from_secret(&[]))
             .expect("token encoding should succeed")
     }
 

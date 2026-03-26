@@ -168,10 +168,6 @@ struct ChannelSession {
     /// Background task reading from the session. When finished the session
     /// is considered dead and will be recreated on the next RPC call.
     task: JoinHandle<()>,
-    /// Group members currently in this session.
-    /// Populated at session creation and extended by `invite_participant`.
-    /// Preserved across session recreations.
-    members: HashSet<Name>,
 }
 
 impl ChannelSession {
@@ -314,20 +310,25 @@ impl Channel {
     ///   auto-invites all members on every (re)creation under the session lock.
     async fn get_or_create_session(
         &self,
-    ) -> Result<(SessionTx, Arc<ResponseDispatcher>, usize), RpcError> {
+    ) -> Result<(SessionTx, Arc<ResponseDispatcher>, HashMap<Name, bool>), RpcError> {
         let mut guard = self.session.lock().await;
         self.ensure_session(&mut guard).await?;
         let cs = guard
             .as_ref()
             .ok_or_else(|| RpcError::internal("session missing after creation"))?;
-        Ok((cs.tx.clone(), cs.dispatcher.clone(), cs.members.len()))
+        let members = self
+            .initial_members
+            .iter()
+            .map(|m| (m.clone(), false))
+            .collect();
+        Ok((cs.tx.clone(), cs.dispatcher.clone(), members))
     }
 
     /// Create (or recreate) the SLIM session inside an already-held lock guard.
     ///
-    /// If the session is already alive this is a no-op. Otherwise the old
-    /// (dead) session's member set is inherited so dynamically invited members
-    /// survive reconnects. All members are invited on every creation.
+    /// If the session is already alive this is a no-op. Members are always
+    /// taken from `self.initial_members` since the member set is fixed at
+    /// channel construction time.
     async fn ensure_session(
         &self,
         guard: &mut tokio::sync::MutexGuard<'_, Option<ChannelSession>>,
@@ -344,77 +345,26 @@ impl Channel {
             ProtoSessionType::PointToPoint
         };
 
-        // Preserve members from the old (dead) session so dynamically invited
-        // members survive session recreations. Fall back to initial_members on
-        // first creation.
-        let members = guard
-            .take()
-            .map(|old| old.members)
-            .unwrap_or_else(|| self.initial_members.clone());
-
         tracing::debug!(?session_type, "no persistent session — recreating");
         let (session_tx, session_rx) = self.create_raw_session(session_type).await?;
         let dispatcher = Arc::new(ResponseDispatcher::new());
-        let task = tokio::spawn(response_dispatcher_task(session_rx, dispatcher.clone()));
+        let task = self
+            .runtime
+            .spawn(response_dispatcher_task(session_rx, dispatcher.clone()));
 
         **guard = Some(ChannelSession {
             tx: session_tx.clone(),
             dispatcher: dispatcher.clone(),
             task,
-            members,
         });
 
         // Invite all members whenever the GROUP session is (re)created.
-        if self.is_group
-            && let Some(ref cs) = **guard
-        {
-            for member in &cs.members {
+        if self.is_group {
+            for member in &self.initial_members {
                 send_invite(&session_tx, member).await?;
             }
         }
 
-        Ok(())
-    }
-
-    /// Invite a participant into the GROUP session.
-    ///
-    /// Creates the GROUP session if not yet established. Checks for duplicates
-    /// before any session work, then invites and inserts
-    ///
-    /// Returns an error if called on a P2P channel or if `destination` is
-    /// already a member.
-    pub async fn invite_participant(&self, destination: Name) -> Result<(), RpcError> {
-        if !self.is_group {
-            return Err(RpcError::invalid_argument(
-                "invite_participant is only valid on GROUP channels",
-            ));
-        }
-
-        let mut guard = self.session.lock().await;
-
-        // Check for duplicates before doing any work. A dead session still
-        // carries its member set (inherited on recreation), so checking it is
-        // correct regardless of liveness. Fall back to initial_members when no
-        // session exists yet.
-        let already_member = match guard.as_ref() {
-            Some(s) => s.members.contains(&destination),
-            None => self.initial_members.contains(&destination),
-        };
-        if already_member {
-            return Err(RpcError::already_exists(format!(
-                "{} is already a member",
-                destination
-            )));
-        }
-
-        // Create the session if needed — reuses the lock already held.
-        self.ensure_session(&mut guard).await?;
-
-        let session = guard
-            .as_mut()
-            .ok_or_else(|| RpcError::internal("session disappeared"))?;
-        send_invite(&session.tx, &destination).await?;
-        session.members.insert(destination);
         Ok(())
     }
 
@@ -565,7 +515,7 @@ impl Channel {
             let timeout_duration = calculate_timeout_duration(timeout);
             let mut delay = Delay::new(timeout_duration);
 
-            let (session_tx, dispatcher, num_members) = match tokio::select! {
+            let (session_tx, dispatcher, members) = match tokio::select! {
                 result = channel.get_or_create_session() => result,
                 _ = &mut delay => Err(RpcError::deadline_exceeded("Client deadline exceeded during session setup")),
             } {
@@ -591,7 +541,9 @@ impl Channel {
                     )
                     .await
             });
-            let mut eos_count = 0usize;
+            let mut members = members;
+            let num_members = members.len();
+            let mut num_completed = 0usize;
             let mut send_completed = false;
 
             loop {
@@ -613,41 +565,58 @@ impl Channel {
                 let received = match received_opt {
                     Err(e) => { yield Err(e); break; }
                     Ok(None) => {
-                        if eos_count < num_members {
-                            yield Err(RpcError::internal(format!(
-                                "Session closed after {}/{} EOS markers",
-                                eos_count, num_members
-                            )));
+                        if num_completed < num_members {
+                            if channel.is_group {
+                                yield Err(RpcError::multicast_session_closed(
+                                    members.iter().map(|(m, done)| (m, *done))
+                                ));
+                            } else {
+                                yield Err(RpcError::internal(format!(
+                                    "Session closed after {}/{} EOS markers",
+                                    num_completed, num_members
+                                )));
+                            }
                         }
                         break;
                     }
                     Ok(Some(m)) => m,
                 };
 
+                let mut source = received.source.clone();
+                source.reset_id();
+
                 if received.is_eos() {
-                    eos_count += 1;
-                    if eos_count >= num_members { break; }
+                    if !*members.get(&source).unwrap_or(&true) {
+                        members.insert(source, true);
+                        num_completed += 1;
+                    }
+                    if num_completed >= num_members { break; }
                     continue;
                 }
-
                 let code = RpcCode::from_metadata_str(
                     received.metadata.get(STATUS_CODE_KEY).map(String::as_str)
                 );
                 if code != RpcCode::Ok {
                     let msg_text = String::from_utf8_lossy(&received.payload).to_string();
-                    eos_count += 1;
-                    yield Err(RpcError::new(code, msg_text));
-                    if eos_count >= num_members { break; }
+                    if !*members.get(&source).unwrap_or(&true) {
+                        members.insert(source.clone(), true);
+                        num_completed += 1;
+                    }
+                    let err = RpcError::new(code, msg_text);
+                    yield Err(if channel.is_group { err.with_origin(source.to_string()) } else { err });
+                    if num_completed >= num_members { break; }
                     continue;
                 }
 
-                let source = received.source.clone();
                 let response = match Res::decode(received.payload) {
                     Ok(r) => r,
                     Err(e) => {
-                        eos_count += 1;
-                        yield Err(e);
-                        if eos_count >= num_members { break; }
+                        if !*members.get(&source).unwrap_or(&true) {
+                            members.insert(source.clone(), true);
+                            num_completed += 1;
+                        }
+                        yield Err(if channel.is_group { e.with_origin(source.to_string()) } else { e });
+                        if num_completed >= num_members { break; }
                         continue;
                     }
                 };

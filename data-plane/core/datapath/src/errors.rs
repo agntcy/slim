@@ -29,6 +29,8 @@ pub enum DataPathError {
     NoMatch(Name),
     #[error("subscription not found")]
     SubscriptionNotFound(Name),
+    #[error("subscription id not found: {0}")]
+    SubscriptionIdNotFound(u64),
     #[error("id not found: {0}")]
     IdNotFound(u64),
 
@@ -55,6 +57,13 @@ pub enum DataPathError {
     // Configuration error
     #[error("configuration error")]
     ConfigurationError(#[from] ConfigError),
+
+    // Remote subscription ACK errors
+    #[error("remote subscription ack timed out after {0} retries")]
+    RemoteSubscriptionAckTimeout(u32),
+
+    #[error("remote subscription ack returned error: {0}")]
+    RemoteSubscriptionAckError(String),
 
     // Shutdown errors
     #[error("data path is already closed")]

@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Agntcy.Slim.SlimRpc</RootNamespace>
+    <AssemblyName>Agntcy.Slim.SlimRpc</AssemblyName>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PackageId>Agntcy.Slim.SlimRpc</PackageId>
+    <Authors>AGNTCY Contributors</Authors>
+    <Company>AGNTCY</Company>
+    <Description>C# slimrpc helper library for SLIM bindings</Description>
+    <PackageTags>slim;slimrpc;rpc;grpc;sdk;agntcy</PackageTags>
+    <RepositoryUrl>https://github.com/agntcy/slim</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/agntcy/slim/tree/main/data-plane/bindings/dotnet</PackageProjectUrl>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageReadmeFile>SLIMRPC.md</PackageReadmeFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\SLIMRPC.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Slim/Slim.csproj" />
+    <PackageReference Include="Google.Protobuf" Version="3.28.0" />
+  </ItemGroup>
+
+</Project>

@@ -18,6 +18,9 @@ pub struct SubscriptionInfo {
 
     /// identity of the original sender of the subscription
     source_identity: String,
+
+    /// subscription id from the original subscribe message
+    subscription_id: u64,
 }
 
 impl SubscriptionInfo {
@@ -32,6 +35,10 @@ impl SubscriptionInfo {
     pub fn name(&self) -> &Name {
         &self.name
     }
+
+    pub fn subscription_id(&self) -> u64 {
+        self.subscription_id
+    }
 }
 
 #[derive(Debug, Default)]
@@ -42,11 +49,19 @@ pub struct RemoteSubscriptions {
 }
 
 impl RemoteSubscriptions {
-    pub fn add_subscription(&self, source: Name, name: Name, source_identity: String, conn: u64) {
+    pub fn add_subscription(
+        &self,
+        source: Name,
+        name: Name,
+        source_identity: String,
+        conn: u64,
+        subscription_id: u64,
+    ) {
         let info = SubscriptionInfo {
             source,
             name,
             source_identity,
+            subscription_id,
         };
         let mut map = self.table.write();
         match map.get_mut(&conn) {
@@ -68,11 +83,13 @@ impl RemoteSubscriptions {
         name: Name,
         source_identity: String,
         conn: u64,
+        subscription_id: u64,
     ) {
         let info = SubscriptionInfo {
             source,
             name,
             source_identity,
+            subscription_id,
         };
         let mut map = self.table.write();
         match map.get_mut(&conn) {

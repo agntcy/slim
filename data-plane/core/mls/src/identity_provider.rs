@@ -1,7 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use async_trait::async_trait;
 use mls_rs::{
     ExtensionList, IdentityProvider,
     identity::{CredentialType, SigningIdentity},
@@ -10,10 +9,10 @@ use mls_rs::{
 use mls_rs_core::identity::MemberValidationContext;
 use tracing::debug;
 
-use slim_auth::{errors::AuthError, traits::Verifier};
+use slim_auth::identity_claims::IdentityClaims;
+use slim_auth::traits::Verifier;
 
 use crate::errors::MlsError;
-use crate::identity_claims::IdentityClaims;
 
 #[derive(Clone)]
 pub struct SlimIdentityProvider<V>
@@ -31,7 +30,7 @@ where
         Self { identity_verifier }
     }
 
-    async fn resolve_slim_identity(
+    fn resolve_slim_identity(
         &self,
         signing_id: &SigningIdentity,
     ) -> Result<IdentityClaims, MlsError> {
@@ -41,21 +40,13 @@ where
             .ok_or(MlsError::NotBasicCredential)?;
         let credential_data = std::str::from_utf8(&basic_cred.identifier)?;
 
-        // Verify token and extract claims
-        let claims: serde_json::Value = match self.identity_verifier.try_get_claims(credential_data)
-        {
-            Ok(claims) => claims,
-            Err(AuthError::WouldBlockOn) => {
-                // Fallback to async verification
-                self.identity_verifier.get_claims(credential_data).await?
-            }
-            Err(e) => {
-                return Err(MlsError::verification_failed(format!(
-                    "could not get claims from token: {}",
-                    e
-                )));
-            }
-        };
+        // Verify token and extract claims (sync only — mls_build_async is not set)
+        let claims: serde_json::Value = self
+            .identity_verifier
+            .try_get_claims(credential_data)
+            .map_err(|e| {
+                MlsError::verification_failed(format!("could not get claims from token: {}", e))
+            })?;
 
         // Extract identity claims using the abstraction
         let identity_claims = IdentityClaims::from_json(&claims)?;
@@ -83,21 +74,20 @@ where
     }
 }
 
-#[async_trait]
 impl<V> IdentityProvider for SlimIdentityProvider<V>
 where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     type Error = MlsError;
 
-    async fn validate_member(
+    fn validate_member(
         &self,
         signing_identity: &SigningIdentity,
         _timestamp: Option<MlsTime>,
         _context: MemberValidationContext<'_>,
     ) -> Result<(), Self::Error> {
         debug!("Validating MLS group member identity");
-        let identity_claims = self.resolve_slim_identity(signing_identity).await?;
+        let identity_claims = self.resolve_slim_identity(signing_identity)?;
 
         // make sure the public key matches the signing identity's public key
         let signing_pubkey =
@@ -112,7 +102,7 @@ where
         Ok(())
     }
 
-    async fn validate_external_sender(
+    fn validate_external_sender(
         &self,
         _signing_identity: &SigningIdentity,
         _timestamp: Option<MlsTime>,
@@ -122,25 +112,25 @@ where
         Err(MlsError::ExternalCommitNotSupported)
     }
 
-    async fn identity(
+    fn identity(
         &self,
         signing_identity: &SigningIdentity,
         _extensions: &ExtensionList,
     ) -> Result<Vec<u8>, Self::Error> {
-        let identity_claims = self.resolve_slim_identity(signing_identity).await?;
+        let identity_claims = self.resolve_slim_identity(signing_identity)?;
 
         Ok(identity_claims.subject.into_bytes())
     }
 
-    async fn valid_successor(
+    fn valid_successor(
         &self,
         predecessor: &SigningIdentity,
         successor: &SigningIdentity,
         _extensions: &ExtensionList,
     ) -> Result<bool, Self::Error> {
         debug!("Validating identity succession");
-        let pred_claims = self.resolve_slim_identity(predecessor).await?;
-        let succ_claims = self.resolve_slim_identity(successor).await?;
+        let pred_claims = self.resolve_slim_identity(predecessor)?;
+        let succ_claims = self.resolve_slim_identity(successor)?;
 
         // Successor is valid if both identities have the same subject
         let is_valid = pred_claims.subject == succ_claims.subject;

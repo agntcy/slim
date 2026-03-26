@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0-rc.1](https://github.com/agntcy/slim/compare/slim-bindings-v1.3.0-rc.0...slim-bindings-v1.3.0-rc.1) - 2026-03-26
+
+### Added
+
+- Fix dotnet bindings ([#1403](https://github.com/agntcy/slim/pull/1403))
+- MLS identity key integration and security dependency upgrades ([#1394](https://github.com/agntcy/slim/pull/1394))
+- add link negotiation protocol between SLIM nodes ([#1353](https://github.com/agntcy/slim/pull/1353))
+
+### Other
+
+- upgrade versions for 1.3.0-rc.1 ([#1406](https://github.com/agntcy/slim/pull/1406))
+
+## [1.3.0-rc.0](https://github.com/agntcy/slim/compare/slim-bindings-v1.2.0...slim-bindings-v1.3.0-rc.0) - 2026-03-20
+
+### Added
+
+- expose json config in bindings ([#1366](https://github.com/agntcy/slim/pull/1366))
+- add agntcy-slim-version crate as single source of truth for version and build info ([#1360](https://github.com/agntcy/slim/pull/1360))
+- *(slimrpc)* session reuse and method demultiplexing ([#1334](https://github.com/agntcy/slim/pull/1334))
+- *(websocket)* update the config module while making sure backward compatibility ([#1333](https://github.com/agntcy/slim/pull/1333))
+- upgrade bindings to uniffi 0.29 ([#1321](https://github.com/agntcy/slim/pull/1321))
+
+### Other
+
+- release candidate 1.3.0-rc.0 ([#1367](https://github.com/agntcy/slim/pull/1367))
+- *(bindings)* Refactor Taskfiles to avoid rebuilds if source unchanged ([#1261](https://github.com/agntcy/slim/pull/1261))
+
 ## [1.2.0](https://github.com/agntcy/slim/compare/slim-bindings-v1.1.1...slim-bindings-v1.2.0) - 2026-02-27
 
 ### Added

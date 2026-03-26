@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.12](https://github.com/agntcy/slim/compare/slim-mls-v0.1.11...slim-mls-v0.1.12) - 2026-03-26
+
+### Added
+
+- MLS identity key integration and security dependency upgrades ([#1394](https://github.com/agntcy/slim/pull/1394))
+
+## [0.1.11](https://github.com/agntcy/slim/compare/slim-mls-v0.1.10...slim-mls-v0.1.11) - 2026-03-20
+
+### Added
+
+- add agntcy-slim-version crate as single source of truth for version and build info ([#1360](https://github.com/agntcy/slim/pull/1360))
+
 ## [0.1.10](https://github.com/agntcy/slim/compare/slim-mls-v0.1.9...slim-mls-v0.1.10) - 2026-02-27
 
 ### Other

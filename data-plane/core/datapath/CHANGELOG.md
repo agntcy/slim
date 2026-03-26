@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0](https://github.com/agntcy/slim/compare/slim-datapath-v0.11.5...slim-datapath-v0.12.0) - 2026-03-26
+
+### Added
+
+- ack for remote subscriptions ([#1364](https://github.com/agntcy/slim/pull/1364))
+- add link negotiation protocol between SLIM nodes ([#1353](https://github.com/agntcy/slim/pull/1353))
+
+### Fixed
+
+- race condition between subscription forwarding and link negotiation ([#1404](https://github.com/agntcy/slim/pull/1404))
+
+## [0.11.5](https://github.com/agntcy/slim/compare/slim-datapath-v0.11.4...slim-datapath-v0.11.5) - 2026-03-20
+
+### Added
+
+- add agntcy-slim-version crate as single source of truth for version and build info ([#1360](https://github.com/agntcy/slim/pull/1360))
+
 ## [0.11.4](https://github.com/agntcy/slim/compare/slim-datapath-v0.11.3...slim-datapath-v0.11.4) - 2026-02-27
 
 ### Added

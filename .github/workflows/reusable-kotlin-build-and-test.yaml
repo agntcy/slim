@@ -45,33 +45,39 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           workspace: ${{ inputs.rust-workspace }}
+          cache-enabled: false
 
       - name: Setup Java
         uses: ./.github/actions/setup-java
         with:
           java-version: ${{ inputs.java-version }}
 
-      # Download all library artifacts from build-libraries job
+      # Download all library artifacts and restore to target folder structure
       - name: Download library artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: bindings-*
-          path: ${{ inputs.working-directory }}/artifacts/
+          path: ${{ github.workspace }}/target-artifacts/
 
-      - name: List downloaded artifacts
+      - name: Restore libraries to target folder
         run: |
-          echo "📦 Downloaded artifacts:"
-          find ./artifacts -type f -name "*.so" -o -name "*.dll" -o -name "*.dylib" -o -name "*.a" | sort
+          echo "📦 Restoring artifacts to target folder..."
+          for artifact_dir in "$GITHUB_WORKSPACE/target-artifacts/bindings-"*; do
+            [ -d "$artifact_dir" ] || continue
+            target=$(basename "$artifact_dir" | sed 's/^bindings-//')
+            mkdir -p "$GITHUB_WORKSPACE/data-plane/target/$target/release/"
+            find "$artifact_dir" -maxdepth 1 -type f -exec cp {} "$GITHUB_WORKSPACE/data-plane/target/$target/release/" \;
+            echo "  Restored $target"
+          done
+          echo "📁 Restored libraries:"
+          find "$GITHUB_WORKSPACE/data-plane/target" -name "*slim_bindings*" -type f | sort
+          rm -rf "$GITHUB_WORKSPACE/target-artifacts"
 
       # Generate bindings and run tests
       - name: Generate bindings and run tests
         run: |
           echo "Generate bindings and run tests..."
-          # First, copy-libraries will run (inside generate task) and create jniLibs structure
-          # Then point LIB_PATH to the correctly-named library in jniLibs
-          LIB_FILE="generated/jniLibs/linux-x86-64/libslim_bindings.so"
-          echo "Using library: $LIB_FILE"
-          task test SKIP_BUILD=true ARTIFACTS_DIR=./artifacts LIB_PATH="$LIB_FILE"
+          task test PROFILE=release
 
       - name: Strip shared libraries
         run: |

@@ -1,0 +1,9 @@
+[package]
+name = "agntcy-slim-version"
+version.workspace = true
+edition = { workspace = true }
+license = { workspace = true }
+description = "SLIM version information."
+
+[lib]
+name = "slim_version"

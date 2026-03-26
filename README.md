@@ -14,7 +14,10 @@ AI agent protocols like [A2A (Agent-to-Agent)](https://a2a.ai) and
 - 🎓 **[Get Started](https://docs.agntcy.org/slim/slim-howto)**
 - 💻 **[Code Examples](./data-plane/bindings)** - 
   [Python](./data-plane/bindings/python/examples) | 
-  [Go](./data-plane/bindings/go/examples)
+  [Go](./data-plane/bindings/go/examples) |
+  [Dotnet](./data-plane/bindings/dotnet) |
+  [Java](./data-plane/bindings/java/examples) |
+  [Kotlin](./data-plane/bindings/kotlin/examples)
 - 🔌 **[Integrations](https://docs.agntcy.org/slim/slim-rpc/)** - 
   [A2A](https://github.com/agntcy/slim-a2a-python) | 
   [MCP](https://github.com/agntcy/slim-mcp-python) | 
@@ -95,8 +98,12 @@ options including TLS, authentication, and mTLS.
     - SLIM node binary for message forwarding
     - Session layer with MLS encryption
     - SRPC (SLIM RPC) for request-response patterns
-    - Language bindings: [Python](./data-plane/python/bindings), Go
-      (coming soon)
+    - Language bindings:
+      [Python](./data-plane/bindings/python),
+      [Go](./data-plane/bindings/go),
+      [Dotnet](./data-plane/bindings/dotnet),
+      [Kotlin](./data-plane/bindings/kotlin),
+      [Java](./data-plane/bindings/java)
 
 - **[control-plane](./control-plane)**: Go-based management services
     - Configuration management for SLIM nodes
@@ -153,7 +160,7 @@ instructions in the golang website.
 - 📚 [Documentation](https://docs.agntcy.org/slim/overview)
 - 📖 [IETF Specification](https://datatracker.ietf.org/doc/draft-slim-protocol/)
 - 💬 [Slack Community](https://join.slack.com/t/agntcy/shared_invite/)
-- 🎥 [YouTube Channel](https://www.youtube.com/@agntcy)
+- 🎥 [YouTube Channel](https://www.youtube.com/@agntcy-lf)
 
 ## License
 

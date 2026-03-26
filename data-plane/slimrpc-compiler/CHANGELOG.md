@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0-rc.1](https://github.com/agntcy/slim/compare/protoc-slimrpc-plugin-v1.2.0...protoc-slimrpc-plugin-v1.3.0-rc.1) - 2026-03-26
+
+### Added
+
+- Fix dotnet bindings ([#1403](https://github.com/agntcy/slim/pull/1403))
+- Add slimrpc support for .NET (C#) ([#1345](https://github.com/agntcy/slim/pull/1345))
+
+### Other
+
+- upgrade versions for 1.3.0-rc.1 ([#1406](https://github.com/agntcy/slim/pull/1406))
+
+## [1.2.0](https://github.com/agntcy/slim/compare/protoc-slimrpc-plugin-v1.1.0...protoc-slimrpc-plugin-v1.2.0) - 2026-03-20
+
+### Added
+
+- java plugin for slimrpc compiler ([#1342](https://github.com/agntcy/slim/pull/1342))
+
 ## [1.1.0](https://github.com/agntcy/slim/compare/protoc-slimrpc-plugin-v1.0.2...protoc-slimrpc-plugin-v1.1.0) - 2026-02-27
 
 ### Added

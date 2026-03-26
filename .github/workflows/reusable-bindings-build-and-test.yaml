@@ -153,47 +153,11 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           workspace: ./data-plane
+          cache-enabled: false
       - name: Build library
         working-directory: ./data-plane/bindings/rust
         run: |
           task bindings:build:all TARGET=${{ matrix.platform.target }} PROFILE=release
-      - name: Strip and rename artifacts
-        run: |
-          ls -lah ../../target/${{ matrix.platform.target }}/release/
-
-          # Split target and use in filename
-          TARGET="${{ matrix.platform.target }}"
-          ARCH=$(echo "$TARGET" | cut -d'-' -f1)
-          OS=$(echo "$TARGET" | cut -d'-' -f3)
-          ABI=$(echo "$TARGET" | cut -d'-' -f4)
-
-          echo "Architecture: $ARCH"
-          echo "OS: $OS"
-          echo "ABI: $ABI"
-
-          # Build the library name with arch_os_abi if ABI is present, otherwise arch_os
-          if [ -n "$ABI" ] && [ "$ABI" != "" ]; then
-            LIB_NAME="slim_bindings_${ARCH}_${OS}_${ABI}"
-          else
-            LIB_NAME="slim_bindings_${ARCH}_${OS}"
-          fi
-
-          # Handle both libslim_bindings* (Unix) and slim_bindings* (Windows)
-          for file in ../../target/${{ matrix.platform.target }}/release/libslim_bindings* ../../target/${{ matrix.platform.target }}/release/slim_bindings.*; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-
-              # Replace slim_bindings with arch_os_abi version, keeping any existing prefix
-              new_filename="${filename/slim_bindings/${LIB_NAME}}"
-
-              if [ "$filename" != "$new_filename" ]; then
-                mv "$file" "../../target/${{ matrix.platform.target }}/release/${new_filename}"
-              fi
-            fi
-          done
-
-          echo "📁 Renamed files:"
-          ls -lah ../../target/${{ matrix.platform.target }}/release/*slim_bindings*
       - name: Upload libs
         uses: actions/upload-artifact@v4
         with:
@@ -234,26 +198,40 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           workspace: ${{ inputs.rust-workspace }}
+          cache-enabled: false
 
       - name: Setup Go
         uses: ./.github/actions/setup-go
 
-      # Download all library artifacts
+      # Download all library artifacts and restore to target folder structure
       - name: Download libraries
         uses: actions/download-artifact@v4
         with:
-          merge-multiple: true
           pattern: bindings-*
-          path: ./data-plane/bindings/go/artifacts/
+          path: ${{ github.workspace }}/target-artifacts/
 
-      - name: List downloaded artifacts
+      - name: Restore libraries to target folder
         run: |
-          echo "📦 Downloaded artifacts:"
-          find ./artifacts -type f -ls
+          echo "📦 Restoring artifacts to target folder..."
+          for artifact_dir in "$GITHUB_WORKSPACE/target-artifacts/bindings-"*; do
+            [ -d "$artifact_dir" ] || continue
+            target=$(basename "$artifact_dir" | sed 's/^bindings-//')
+            mkdir -p "$GITHUB_WORKSPACE/data-plane/target/$target/release/"
+            find "$artifact_dir" -maxdepth 1 -type f -exec cp {} "$GITHUB_WORKSPACE/data-plane/target/$target/release/" \;
+            echo "  Restored $target"
+          done
+          echo "📁 Restored libraries:"
+          find "$GITHUB_WORKSPACE/data-plane/target" -name "*slim_bindings*" -type f | sort
+          rm -rf "$GITHUB_WORKSPACE/target-artifacts"
 
       - name: Generate Go bindings
         run: |
-          task generate LIB_PATH=./artifacts/lib${{ env.LIBRARY_NAME }}_x86_64_linux_gnu.a
+          # Extract version from tag name if present (e.g., slim-bindings-v1.3.0 -> v1.3.0)
+          VERSION="${{ inputs.tag-name }}"
+          VERSION="${VERSION#slim-bindings-}"
+          VERSION="${VERSION:-devel}"
+
+          task generate PROFILE=release VERSION="$VERSION"
 
           echo "📁 slim-bindings-go files:"
           find ./slim_bindings -type f
@@ -272,7 +250,7 @@ jobs:
       - name: Run Go bindings tests
         run: |
           echo "Running Go bindings tests..."
-          task test
+          task test PROFILE=release
 
       - name: Upload Generated Go code
         uses: actions/upload-artifact@v4
@@ -437,6 +415,16 @@ jobs:
       - generate-matrix
       - build-libraries
     uses: ./.github/workflows/reusable-kotlin-build-and-test.yaml
+    with:
+      runner: ${{ inputs.runner }}
+      rust-workspace: ${{ inputs.rust-workspace }}
+
+  java-bindings-build-and-test:
+    name: "Java Bindings Build and Test"
+    needs:
+      - generate-matrix
+      - build-libraries
+    uses: ./.github/workflows/reusable-java-build-and-test.yaml
     with:
       runner: ${{ inputs.runner }}
       rust-workspace: ${{ inputs.rust-workspace }}

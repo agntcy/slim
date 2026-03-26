@@ -41,6 +41,8 @@ tasks:
   patch-cgo-directives:
     desc: Patch generated Go bindings with proper cgo directives
     internal: true
+    vars:
+      VERSION: '{{.VERSION | default "devel"}}'
     cmds:
       - echo "🔧 Patching cgo directives..."
       - |
@@ -52,11 +54,11 @@ tasks:
 
         /*
         #cgo CFLAGS: -I${SRCDIR}
-        #cgo linux,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings -lslim_bindings_x86_64_linux_gnu -lm
-        #cgo linux,arm64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings -lslim_bindings_aarch64_linux_gnu -lm
-        #cgo darwin,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings -lslim_bindings_x86_64_darwin -Wl,-undefined,dynamic_lookup
-        #cgo darwin,arm64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings -lslim_bindings_aarch64_darwin -Wl,-undefined,dynamic_lookup
-        #cgo windows,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings -lslim_bindings_x86_64_windows_gnu -lws2_32 -lbcrypt -ladvapi32 -luserenv -lntdll -lgcc_eh -lgcc -lkernel32 -lole32
+        #cgo linux,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings/{{.VERSION}} -lslim_bindings_x86_64_linux_gnu -lm
+        #cgo linux,arm64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings/{{.VERSION}} -lslim_bindings_aarch64_linux_gnu -lm
+        #cgo darwin,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings/{{.VERSION}} -lslim_bindings_x86_64_darwin -Wl,-undefined,dynamic_lookup
+        #cgo darwin,arm64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings/{{.VERSION}} -lslim_bindings_aarch64_darwin -Wl,-undefined,dynamic_lookup
+        #cgo windows,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings/{{.VERSION}} -lslim_bindings_x86_64_windows_gnu -lws2_32 -lbcrypt -ladvapi32 -luserenv -lntdll -lgcc_eh -lgcc -lkernel32 -lole32
         #include <slim_bindings.h>
         */
         import "C"
@@ -117,12 +119,12 @@ tasks:
   generate:
     desc: Generate Go bindings from compiled library
     deps:
-      # TODO(sambetts): Consider making this optional through a wrapper
-      # task+status check to avoid building if we're using prebuilt libs
+      # bindings:build:all is skipped automatically when the library already
+      # exists and sources have not changed (sources/generates fingerprinting).
       - task: adapter:bindings:build:all
-        vars:
-          PROFILE: release
       - task: install-uniffi-bindgen-go
+    vars:
+      VERSION: '{{.VERSION | default "devel"}}'
     cmds:
       - echo "🔧 Generating Go bindings from compiled library..."
       - |
@@ -132,6 +134,8 @@ tasks:
       - task: copy-library
       - task: patch-header
       - task: patch-cgo-directives
+        vars:
+          VERSION: '{{.VERSION}}'
       - echo "✅ Bindings generated in slim_bindings/"
     silent: true
 
@@ -139,6 +143,8 @@ tasks:
     desc: Generate Go bindings using a cached native library
     deps:
       - task: install-uniffi-bindgen-go
+    vars:
+      VERSION: '{{.VERSION | default "devel"}}'
     cmds:
       - echo "🔧 Generating Go bindings from cached library..."
       - |
@@ -192,7 +198,7 @@ tasks:
         esac
 
         GOPATH_DIR=$(go env GOPATH)
-        CACHE_DIR="$GOPATH_DIR/.cgo-cache/slim-bindings"
+        CACHE_DIR="$GOPATH_DIR/.cgo-cache/slim-bindings/{{.VERSION}}"
         LIB_PATH="$CACHE_DIR/$LIB_NAME"
 
         if [ ! -f "$LIB_PATH" ]; then
@@ -206,6 +212,8 @@ tasks:
 
       - task: patch-header
       - task: patch-cgo-directives
+        vars:
+          VERSION: '{{.VERSION}}'
       - echo "✅ Bindings generated in slim_bindings/"
     silent: true
 
@@ -219,63 +227,41 @@ tasks:
     silent: true
 
   copy-library:
-    desc: Copy shared library to generated directory
+    desc: Copy the static library for the current target to the generated directory
     internal: true
     cmds:
-      - echo "📦 Copying static libraries..."
+      - echo "📦 Copying static library for {{.TARGET}}..."
       - |
-        LIB_DIR=$(dirname "{{.LIB_PATH}}")
+        LIB_PATH='{{.LIB_PATH}}'
         DEST_DIR="slim_bindings"
 
-        # Check if libraries already have platform-specific names (from CI build)
-        PLATFORM_LIBS=$(find "$LIB_DIR" -type f \( -name "lib{{.LIB_NAME}}_*.a" -o -name "{{.LIB_NAME}}_*.lib" \) 2>/dev/null | head -1)
-
-        if [ -n "$PLATFORM_LIBS" ]; then
-          # CI build: libraries already have platform-specific names
-          echo "📦 Found platform-specific libraries, copying..."
-          find "$LIB_DIR" -type f \( -name "lib{{.LIB_NAME}}_*.a" -o -name "{{.LIB_NAME}}_*.lib" \) | while read -r lib_file; do
-            dest_name=$(basename "$lib_file")
-            file_size=$(stat -f%z "$lib_file" 2>/dev/null || stat -c%s "$lib_file" 2>/dev/null)
-            echo "   Copying $dest_name ($((file_size / 1024 / 1024))MB)"
-            cp "$lib_file" "$DEST_DIR/$dest_name"
-          done
-        else
-          # Local build: need to detect platform and rename
-          echo "📦 Local build detected, renaming library for current platform..."
-
-          # Detect architecture
-          ARCH=$(uname -m)
-          case "$ARCH" in
-            x86_64|amd64) ARCH="x86_64" ;;
-            arm64|aarch64) ARCH="aarch64" ;;
-          esac
-
-          # Detect OS
-          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-          LIB_EXT="a"
-          LIB_PREFIX="lib"
-          case "$OS" in
-            darwin) OS="darwin" ;;
-            linux) OS="linux_gnu" ;;  # Assume GNU for local builds
-            mingw*|msys*|cygwin*)
-              OS="windows"
-              LIB_EXT="lib"
-              LIB_PREFIX=""
-              ;;
-          esac
-
-          LIB_NAME="${LIB_PREFIX}{{.LIB_NAME}}_${ARCH}_${OS}"
-
-          if [ -f "{{.LIB_PATH}}" ]; then
-            file_size=$(stat -f%z "{{.LIB_PATH}}" 2>/dev/null || stat -c%s "{{.LIB_PATH}}" 2>/dev/null)
-            echo "   Copying ${LIB_NAME}.${LIB_EXT} ($((file_size / 1024 / 1024))MB)"
-            cp "{{.LIB_PATH}}" "$DEST_DIR/${LIB_NAME}.${LIB_EXT}"
-            echo "✅ Copied {{.LIB_PATH}} -> $DEST_DIR/$LIB_NAME"
-          else
-            echo "⚠️  Library not found: {{.LIB_PATH}}"
-            exit 1
-          fi
+        if [ ! -f "$LIB_PATH" ]; then
+          echo "⚠️  Library not found: $LIB_PATH"
+          exit 1
         fi
+
+        # Derive destination name matching the -l flags in slim_bindings.go cgo directives:
+        # lib{{.LIB_NAME}}_${ARCH}_${OS}.a        (e.g. libslim_bindings_aarch64_darwin.a)
+        # lib{{.LIB_NAME}}_${ARCH}_${OS}_${ABI}.a (e.g. libslim_bindings_x86_64_linux_gnu.a)
+        TARGET="{{.TARGET}}"
+        ARCH=$(echo "$TARGET" | cut -d'-' -f1)
+        OS=$(echo  "$TARGET" | cut -d'-' -f3)
+        ABI=$(echo "$TARGET" | cut -d'-' -f4)
+
+        case "$LIB_PATH" in
+          *.lib) LIB_EXT="lib"; LIB_PREFIX="" ;;
+          *)     LIB_EXT="a";   LIB_PREFIX="lib" ;;
+        esac
+
+        if [ -n "$ABI" ]; then
+          DEST_NAME="${LIB_PREFIX}{{.LIB_NAME}}_${ARCH}_${OS}_${ABI}.${LIB_EXT}"
+        else
+          DEST_NAME="${LIB_PREFIX}{{.LIB_NAME}}_${ARCH}_${OS}.${LIB_EXT}"
+        fi
+
+        file_size=$(stat -f%z "$LIB_PATH" 2>/dev/null || stat -c%s "$LIB_PATH" 2>/dev/null)
+        echo "   $TARGET → $DEST_NAME ($((file_size / 1024 / 1024))MB)"
+        cp "$LIB_PATH" "$DEST_DIR/$DEST_NAME"
       - echo "✅ Libraries in slim_bindings/:"
       - ls -lah "slim_bindings/"*{{.LIB_NAME}}*.a "slim_bindings/"*{{.LIB_NAME}}*.lib 2>/dev/null || echo "  (no library files found)"
     silent: true

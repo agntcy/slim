@@ -74,6 +74,10 @@ pub enum ConfigError {
     #[error("resolution error")]
     ResolutionError,
 
+    // Link negotiation
+    #[error("link_id must be a valid UUID v4")]
+    InvalidLinkId,
+
     // Unknown / catch-all
     #[error("unknown error")]
     Unknown,
