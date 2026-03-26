@@ -7,7 +7,6 @@ use std::{
 };
 
 use async_trait::async_trait;
-use display_error_chain::ErrorChainExt;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
@@ -19,7 +18,7 @@ use slim_datapath::{
         utils::{DELETE_GROUP, DISCONNECTION_DETECTED, LEAVING_SESSION, TRUE_VAL},
     },
 };
-use tokio::sync::oneshot;
+use crate::runtime::channel::oneshot;
 
 use slim_mls::mls::Mls;
 use tracing::debug;
@@ -99,7 +98,8 @@ where
 
 /// Implementation of MessageHandler trait for SessionModerator
 /// This allows the moderator to be used as a layer in the generic layer system
-#[async_trait]
+#[cfg_attr(feature = "native", async_trait)]
+#[cfg_attr(feature = "wasm", async_trait(?Send))]
 impl<P, V, I, M> MessageHandler for SessionModerator<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -1317,7 +1317,7 @@ where
             .await;
 
         if let Err(e) = res {
-            tracing::error!(error = %e.chain(), "an error occurred while signaling session close");
+            tracing::error!(error = %e, "an error occurred while signaling session close");
         }
     }
 }
@@ -1331,7 +1331,7 @@ mod tests {
     use slim_datapath::Status;
     use slim_datapath::api::{CommandPayload, ProtoSessionType};
     use slim_datapath::messages::Name;
-    use tokio::sync::mpsc;
+    use crate::runtime::channel::mpsc;
 
     // --- Test Helpers -----------------------------------------------------------------------
 

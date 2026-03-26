@@ -34,10 +34,11 @@
 //! ```
 
 pub mod errors;
+#[cfg(feature = "native")]
 #[macro_use]
 pub mod service;
 
-#[cfg(feature = "session")]
+#[cfg(all(feature = "native", feature = "session"))]
 pub mod app;
 
 // Third-party crates
@@ -47,4 +48,5 @@ pub use slim_datapath::messages::utils::SlimHeaderFlags;
 pub use errors::ServiceError;
 #[cfg(feature = "session")]
 pub use errors::SubscriptionAckError;
+#[cfg(feature = "native")]
 pub use service::{KIND, Service, ServiceBuilder, ServiceConfiguration};

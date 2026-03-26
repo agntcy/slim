@@ -5,7 +5,7 @@ pub async fn shutdown() {
     imp::shutdown().await
 }
 
-#[cfg(unix)]
+#[cfg(all(feature = "native", unix))]
 mod imp {
     use tokio::signal::unix::{SignalKind, signal};
     use tracing::info;
@@ -33,7 +33,7 @@ mod imp {
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(all(feature = "native", not(unix)))]
 mod imp {
     use tracing::info;
 
@@ -46,5 +46,14 @@ mod imp {
             target: "slim::signal",
             "received signal Ctrl-C, starting shutdown",
         );
+    }
+}
+
+#[cfg(feature = "wasm")]
+mod imp {
+    /// In WASM there are no OS signals. This future will pend forever.
+    /// Callers should use their own cancellation mechanism (e.g. CancellationToken).
+    pub(super) async fn shutdown() {
+        std::future::pending::<()>().await
     }
 }
