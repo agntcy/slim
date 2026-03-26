@@ -5,12 +5,14 @@
 use std::sync::Arc;
 
 // Third-party crates
-use tokio::time::{self, Duration};
-use tokio_util::sync::CancellationToken;
-use tonic::async_trait;
+use std::time::Duration;
+use crate::runtime::CancellationToken;
+use crate::runtime::{SelectResult, select_timer_or_cancel};
+use async_trait::async_trait;
 use tracing::trace;
 
-#[async_trait]
+#[cfg_attr(feature = "native", async_trait)]
+#[cfg_attr(feature = "wasm", async_trait(?Send))]
 pub trait TimerObserver {
     async fn on_timeout(&self, timer_id: u32, timeouts: u32);
     async fn on_failure(&self, timer_id: u32, timeouts: u32);
@@ -73,7 +75,7 @@ impl Timer {
         let max_duration = self.max_duration;
         let cancellation_token = self.cancellation_token.clone();
 
-        tokio::spawn(async move {
+        crate::runtime::spawn(async move {
             let mut retry = 0;
             let mut timeouts = 0;
             let mut last_duration = duration;
@@ -124,11 +126,8 @@ impl Timer {
                     }
                 };
 
-                let timer = time::sleep(timer_duration);
-                tokio::pin!(timer);
-
-                tokio::select! {
-                    _ = timer.as_mut() => {
+                match select_timer_or_cancel(timer_duration, &cancellation_token).await {
+                    SelectResult::TimerExpired => {
                         timeouts += 1;
                         match max_retries {
                             Some(max) => {
@@ -143,7 +142,7 @@ impl Timer {
                         }
                         retry += 1;
                     },
-                    _ = cancellation_token.cancelled() => {
+                    SelectResult::Cancelled => {
                         observer.on_stop(timer_id).await;
                         break;
                     },
@@ -185,7 +184,8 @@ mod tests {
         id: u32,
     }
 
-    #[async_trait]
+    #[cfg_attr(feature = "native", async_trait)]
+#[cfg_attr(feature = "wasm", async_trait(?Send))]
     impl TimerObserver for Observer {
         async fn on_timeout(&self, timer_id: u32, timeouts: u32) {
             debug!(

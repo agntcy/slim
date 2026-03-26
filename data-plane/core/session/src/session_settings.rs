@@ -46,10 +46,10 @@ where
     pub(crate) tx: SessionTransmitter,
 
     /// Tx channel for sending messages to session queue
-    pub(crate) tx_session: tokio::sync::mpsc::Sender<SessionMessage>,
+    pub(crate) tx_session: crate::runtime::channel::mpsc::Sender<SessionMessage>,
 
     /// Channel to send messages to the session layer
-    pub(crate) tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
+    pub(crate) tx_to_session_layer: crate::runtime::channel::mpsc::Sender<Result<SessionMessage, SessionError>>,
 
     /// Identity token provider
     pub(crate) identity_provider: P,
