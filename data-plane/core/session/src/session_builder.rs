@@ -123,7 +123,7 @@ where
     identity_provider: Option<P>,
     identity_verifier: Option<V>,
     tx: Option<SessionTransmitter>,
-    tx_to_session_layer: Option<tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>>,
+    tx_to_session_layer: Option<crate::runtime::channel::mpsc::Sender<Result<SessionMessage, SessionError>>>,
     graceful_shutdown_timeout: Option<std::time::Duration>,
     direction: Direction,
     subscription_manager: Option<M>,
@@ -195,7 +195,7 @@ where
 
     pub fn with_tx_to_session_layer(
         mut self,
-        tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
+        tx_to_session_layer: crate::runtime::channel::mpsc::Sender<Result<SessionMessage, SessionError>>,
     ) -> Self {
         self.tx_to_session_layer = Some(tx_to_session_layer);
         self
@@ -363,8 +363,8 @@ where
     ) -> Result<
         (
             W,
-            tokio::sync::mpsc::Sender<SessionMessage>,
-            tokio::sync::mpsc::Receiver<SessionMessage>,
+            crate::runtime::channel::mpsc::Sender<SessionMessage>,
+            crate::runtime::channel::mpsc::Receiver<SessionMessage>,
             SessionSettings<P, V, M>,
         ),
         SessionError,
@@ -372,7 +372,7 @@ where
     where
         W: MessageHandler,
     {
-        let (tx_session, rx_session) = tokio::sync::mpsc::channel(256);
+        let (tx_session, rx_session) = crate::runtime::channel::mpsc::channel(256);
 
         // Create the base Session layer
         let inner = crate::session::Session::new(
@@ -420,7 +420,7 @@ mod tests {
     };
     use slim_datapath::{api::ProtoSessionType, messages::Name};
     use std::collections::HashMap;
-    use tokio::sync::mpsc;
+    use crate::runtime::channel::mpsc;
 
     fn create_test_config(initiator: bool) -> SessionConfig {
         SessionConfig {
