@@ -15,14 +15,14 @@ env:
   NUGET_PACKAGE_NAME: Agntcy.Slim
   UNIFFI_BINDGEN_GO_VERSION: v0.4.0+v0.28.3
   UNIFFI_BINDGEN_CS_VERSION: v0.9.0+v0.28.3
-  DOTNET_VERSION: "8.0.x"
+  DOTNET_VERSION: '8.0.x'
 
 jobs:
   # ==========================================================================
   # Job 1: Build and test bindings libraries for all languages and platforms
   # ==========================================================================
   build-and-test-bindings:
-    name: "Build and Test Bindings"
+    name: 'Build and Test Bindings'
     uses: ./.github/workflows/reusable-bindings-build-and-test.yaml
     with:
       tag-name: ${{ github.ref_name }}
@@ -74,7 +74,30 @@ jobs:
           for platform_dir in ./artifacts/bindings-*/; do
             if [ -d "$platform_dir" ]; then
               platform_name=$(basename "$platform_dir" | sed 's/^bindings-//')
-              echo "📦 Zipping libraries for platform: $platform_name"
+              echo "📦 Preparing libraries for platform: $platform_name"
+
+              # Rename libraries to platform-specific names expected by consumers (e.g. Go cgo directives)
+              TARGET="$platform_name"
+              ARCH=$(echo "$TARGET" | cut -d'-' -f1)
+              OS=$(echo "$TARGET" | cut -d'-' -f3)
+              ABI=$(echo "$TARGET" | cut -d'-' -f4)
+
+              if [ -n "$ABI" ] && [ "$ABI" != "" ]; then
+                LIB_NAME="${LIBRARY_NAME}_${ARCH}_${OS}_${ABI}"
+              else
+                LIB_NAME="${LIBRARY_NAME}_${ARCH}_${OS}"
+              fi
+
+              for file in "$platform_dir"/lib${LIBRARY_NAME}* "$platform_dir"/${LIBRARY_NAME}.*; do
+                if [ -f "$file" ]; then
+                  filename=$(basename "$file")
+                  new_filename="${filename/${LIBRARY_NAME}/${LIB_NAME}}"
+                  if [ "$filename" != "$new_filename" ]; then
+                    mv "$file" "$platform_dir/$new_filename"
+                    echo "   Renamed: $filename -> $new_filename"
+                  fi
+                fi
+              done
 
               cd "$platform_dir"
               zip -r "../../release-artifacts/slim-bindings-${platform_name}.zip" *
@@ -90,7 +113,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "${{ github.ref_name }}"
+          name: '${{ github.ref_name }}'
           body: |
             Release of SLIM native bindings libraries.
 
@@ -110,7 +133,7 @@ jobs:
   # Job 3: Generate and publish Go bindings
   # ==========================================================================
   release-go-bindings:
-    name: "Release Go Bindings"
+    name: 'Release Go Bindings'
     needs: build-and-test-bindings
     uses: ./.github/workflows/reusable-go-bindings-release.yaml
     secrets:
@@ -149,7 +172,7 @@ jobs:
   # Job 5: Release .NET bindings to NuGet
   # ==========================================================================
   release-dotnet-bindings:
-    name: "Release .NET Bindings"
+    name: 'Release .NET Bindings'
     needs: build-and-test-bindings
     uses: ./.github/workflows/reusable-dotnet-bindings-release.yaml
     secrets:
@@ -159,7 +182,7 @@ jobs:
   # Job 6: Release Kotlin bindings to GitHub Packages
   # ==========================================================================
   release-kotlin-bindings:
-    name: "Release Kotlin Bindings"
+    name: 'Release Kotlin Bindings'
     needs: build-and-test-bindings
     uses: ./.github/workflows/reusable-kotlin-bindings-release.yaml
     permissions:
@@ -175,7 +198,7 @@ jobs:
   # Job 7: Release Java bindings to GitHub Packages and Maven Central
   # ==========================================================================
   release-java-bindings:
-    name: "Release Java Bindings"
+    name: 'Release Java Bindings'
     needs: build-and-test-bindings
     uses: ./.github/workflows/reusable-java-bindings-release.yaml
     permissions:
