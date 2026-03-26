@@ -13,14 +13,13 @@ use display_error_chain::ErrorChainExt;
 
 use futures_timer::Delay;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
-use slim_datapath::api::{ProtoMessage, ProtoSessionMessageType};
-use slim_datapath::messages::{Name, utils::SlimHeaderFlags};
+use slim_datapath::messages::Name;
 use slim_service::app::App as SlimApp;
 use slim_session::context::SessionContext;
 use slim_session::errors::SessionError;
 use slim_session::{AppChannelReceiver, CompletionHandle};
 
-use super::RpcError;
+use super::{RpcCode, RpcError, STATUS_CODE_KEY};
 
 /// Received message from a session
 #[derive(Debug, Clone)]
@@ -29,6 +28,18 @@ pub struct ReceivedMessage {
     pub metadata: std::collections::HashMap<String, String>,
     /// Message payload
     pub payload: Vec<u8>,
+    /// Name of the app that sent this message (extracted from the SLIM header)
+    pub source: Name,
+}
+
+impl ReceivedMessage {
+    /// Returns `true` when this message is an end-of-stream marker:
+    /// status code is `Ok` **and** the payload is empty.
+    pub fn is_eos(&self) -> bool {
+        RpcCode::from_metadata_str(self.metadata.get(STATUS_CODE_KEY).map(String::as_str))
+            == RpcCode::Ok
+            && self.payload.is_empty()
+    }
 }
 
 /// Session transmitter - used only for sending messages
@@ -51,13 +62,13 @@ impl SessionTx {
     }
 
     /// Get the source name
-    pub fn source(&self) -> Name {
-        self.controller.source().clone()
+    pub fn source(&self) -> &Name {
+        self.controller.source()
     }
 
     /// Get the destination name
-    pub fn destination(&self) -> Name {
-        self.controller.dst().clone()
+    pub fn destination(&self) -> &Name {
+        self.controller.dst()
     }
 
     /// Get session metadata
@@ -65,44 +76,21 @@ impl SessionTx {
         self.controller.metadata()
     }
 
-    /// Publish a message through this session
+    /// Publish a message to `target` through this session.
+    ///
+    /// Pass `self.destination()` for broadcast behaviour, or pass the
+    /// requester's source name to unicast a reply directly to the caller.
     pub async fn publish(
         &self,
+        target: &Name,
         data: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<std::collections::HashMap<String, String>>,
     ) -> Result<CompletionHandle, RpcError> {
-        // Use the Message builder to create a proper protocol message
-        let ct = payload_type.unwrap_or_else(|| "msg".to_string());
-
-        let flags = SlimHeaderFlags::new(0, None, None, None, None);
-
-        let mut msg = ProtoMessage::builder()
-            .source(self.controller.source().clone())
-            .destination(self.controller.dst().clone())
-            .identity("")
-            .flags(flags)
-            .session_type(self.controller.session_type())
-            .session_message_type(ProtoSessionMessageType::Msg)
-            .session_id(self.controller.id())
-            .message_id(rand::random::<u32>())
-            .application_payload(&ct, data)
-            .build_publish()
-            .map_err(|e| RpcError::internal(e.chain().to_string()))?;
-
-        if let Some(map) = metadata
-            && !map.is_empty()
-        {
-            msg.set_metadata_map(map);
-        }
-
-        let handle = self
-            .controller
-            .publish_message(msg)
+        self.controller
+            .publish(target, data, payload_type, metadata)
             .await
-            .map_err(|e| RpcError::internal(e.chain().to_string()))?;
-
-        Ok(handle)
+            .map_err(|e| RpcError::internal(e.chain().to_string()))
     }
 
     /// Get a clone of the underlying session controller
@@ -162,9 +150,11 @@ impl SessionRx {
             };
 
             // Extract metadata and payload from the proto message
+            let source = msg.get_source();
             Ok(ReceivedMessage {
                 metadata: msg.metadata,
                 payload,
+                source,
             })
         };
 
