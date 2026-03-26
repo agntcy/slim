@@ -124,7 +124,13 @@ impl TestEnv {
             )
             .unwrap();
         let client_app = Arc::new(client_app);
-        let channel = Channel::new_internal(client_app.clone(), server_name.clone());
+        let channel = Channel::new_with_members_internal(
+            client_app.clone(),
+            vec![server_name.clone()],
+            false,
+            None,
+        )
+        .expect("single non-empty member list is always valid");
 
         Self {
             service,

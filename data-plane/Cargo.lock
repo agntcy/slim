@@ -101,7 +101,6 @@ dependencies = [
  "futures",
  "futures-timer",
  "parking_lot",
- "rand 0.9.2",
  "serde",
  "serde_json",
  "test-fork",
@@ -3272,7 +3271,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
