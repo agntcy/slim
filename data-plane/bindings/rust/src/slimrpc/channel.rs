@@ -187,6 +187,7 @@ fn generate_rpc_id() -> String {
 }
 
 async fn send_invite(session_tx: &SessionTx, member: &Name) -> Result<(), RpcError> {
+    tracing::info!("Inviting member to rpc channel.. {}", member);
     session_tx
         .controller()
         .invite_participant(member)
@@ -367,6 +368,13 @@ impl Channel {
         // Invite all members whenever the GROUP session is (re)created.
         if self.is_group {
             for member in &self.initial_members {
+                if let Some(conn_id) = self.connection_id {
+                    self.app.set_route(member, conn_id).await.map_err(|e| {
+                        RpcError::internal(format!(
+                            "Failed to set route for group member {member}: {e}"
+                        ))
+                    })?;
+                }
                 send_invite(&session_tx, member).await?;
             }
         }

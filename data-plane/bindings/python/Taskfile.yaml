@@ -21,7 +21,7 @@ includes:
     internal: true
 
 env:
-  SHARED_SECRET: "demo-secret-key-for-examples012345"
+  SHARED_SECRET: "my_shared_secret_for_testing_purposes_only"
 
 tasks:
   default:
@@ -349,6 +349,37 @@ tasks:
         uv run slim-bindings-group                                                    \
           --local agntcy/ns/client-2                                                  \
           --shared-secret $SHARED_SECRET{{.EXTRA_ARGS}}
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  python:example:rpc:server:
+    desc: "Run the SlimRPC server example"
+    deps:
+      - python:bindings:install-examples
+    cmds:
+      - echo "🚀 Starting SlimRPC server..."
+      - uv run slim-bindings-simple-rpc-server --instance {{.INSTANCE}} {{.EXTRA_ARGS}}
+    vars:
+      INSTANCE: '{{.INSTANCE | default "server"}}'
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  python:example:rpc:client:
+    desc: "Run the SlimRPC client example"
+    deps:
+      - python:bindings:install-examples
+    cmds:
+      - echo "🚀 Starting SlimRPC client..."
+      - uv run slim-bindings-simple-rpc-client {{.EXTRA_ARGS}}
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  python:example:rpc:group-client:
+    desc: "Run the SlimRPC group (multicast) client example"
+    deps:
+      - python:bindings:install-examples
+    cmds:
+      - echo "🚀 Starting SlimRPC group client..."
+      - uv run slim-bindings-simple-rpc-client-group {{.EXTRA_ARGS}}
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 

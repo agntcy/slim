@@ -403,3 +403,41 @@ tasks:
       - echo "👤 Starting group participant..."
       - go run . --local="org/bob/app" --server="http://localhost:46357" {{.CLI_ARGS}}
     silent: true
+
+  example:rpc:server:
+    desc: Run the SlimRPC server example
+    deps:
+      - task: adapter:bindings:build:all
+        vars:
+          PROFILE: release
+    dir: examples/slimrpc/simple
+    cmds:
+      - echo "🚀 Starting SlimRPC server (instance={{.INSTANCE}})..."
+      - go run ./cmd/server -instance={{.INSTANCE}} {{.CLI_ARGS}}
+    vars:
+      INSTANCE: '{{.INSTANCE | default "server"}}'
+    silent: true
+
+  example:rpc:client:
+    desc: Run the SlimRPC client example
+    deps:
+      - task: adapter:bindings:build:all
+        vars:
+          PROFILE: release
+    dir: examples/slimrpc/simple
+    cmds:
+      - echo "🚀 Starting SlimRPC client..."
+      - go run ./cmd/client {{.CLI_ARGS}}
+    silent: true
+
+  example:rpc:group-client:
+    desc: Run the SlimRPC group (multicast) client example
+    deps:
+      - task: adapter:bindings:build:all
+        vars:
+          PROFILE: release
+    dir: examples/slimrpc/simple
+    cmds:
+      - echo "🚀 Starting SlimRPC group client..."
+      - go run ./cmd/client_group {{.CLI_ARGS}}
+    silent: true

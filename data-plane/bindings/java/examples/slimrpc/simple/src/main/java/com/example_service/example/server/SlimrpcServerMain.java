@@ -1,11 +1,12 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-package com.exampleservice.example.server;
+package com.example_service.example.server;
 
-import com.exampleservice.ExampleRequest;
-import com.exampleservice.ExampleResponse;
-import com.exampleservice.TestSlimrpc;
+import io.agntcy.slim.examples.common.Common;
+import com.example_service.ExampleRequest;
+import com.example_service.ExampleResponse;
+import com.example_service.TestSlimrpc;
 import io.agntcy.slim.bindings.App;
 import io.agntcy.slim.bindings.ClientConfig;
 import io.agntcy.slim.bindings.Context;
@@ -26,10 +27,16 @@ import io.agntcy.slim.bindings.slimrpc.ServerResponseStream;
 import java.util.concurrent.CompletableFuture;
 
 public final class SlimrpcServerMain {
-    private static final String SERVER_ADDR = "127.0.0.1:46357";
-    private static final String SHARED_SECRET = "my_shared_secret_for_testing_purposes_only";
 
     public static void main(String[] args) throws Exception {
+        // Parse --instance flag (default: "server")
+        String instance = "server";
+        for (int i = 0; i < args.length; i++) {
+            if ("--instance".equals(args[i]) && i + 1 < args.length) {
+                instance = args[i + 1];
+            }
+        }
+
         RuntimeConfig runtime = SlimBindings.newRuntimeConfig();
         TracingConfig tracing = SlimBindings.newTracingConfigWith(
                 "debug",
@@ -42,10 +49,10 @@ public final class SlimrpcServerMain {
 
         Service service = SlimBindings.getGlobalService();
 
-        Name localName = new Name("agntcy", "slimrpc", "server");
-        App app = service.createAppWithSecret(localName, SHARED_SECRET);
+        Name localName = new Name(Common.NAME_ORG, Common.NAME_NS, instance);
+        App app = service.createAppWithSecret(localName, Common.DEFAULT_SHARED_SECRET);
 
-        ClientConfig clientConfig = SlimBindings.newInsecureClientConfig("http://" + SERVER_ADDR);
+        ClientConfig clientConfig = SlimBindings.newInsecureClientConfig(Common.DEFAULT_SERVER_ENDPOINT);
         long connId = service.connect(clientConfig);
         app.subscribe(localName, connId);
 
@@ -154,7 +161,7 @@ public final class SlimrpcServerMain {
             }
         });
 
-        System.out.println("SlimRPC server ready on " + SERVER_ADDR);
+        System.out.println("SlimRPC server '" + instance + "' ready on " + Common.DEFAULT_SERVER_ENDPOINT);
         rpcServer.serve();
     }
 }

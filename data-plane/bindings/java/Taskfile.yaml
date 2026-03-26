@@ -17,7 +17,7 @@ includes:
     internal: true
 
 env:
-  SHARED_SECRET: "demo-secret-key-for-examples012345"
+  SHARED_SECRET: "my_shared_secret_for_testing_purposes_only"
 
 vars:
   BINDINGS_VERSION:
@@ -327,8 +327,10 @@ tasks:
   examples:rpc:compile:
     desc: Compile SlimRPC Java examples
     deps:
-      - examples:install:bindings
+      - examples:compile
     cmds:
+      - echo "📦 Installing examples project to local Maven repo..."
+      - cd examples && mvn install -DskipTests -q
       - echo "🔨 Compiling SlimRPC Java examples..."
       - cd examples/slimrpc/simple && mvn clean compile
       - echo "✅ SlimRPC compilation complete"
@@ -338,9 +340,10 @@ tasks:
     deps:
       - examples:rpc:compile
     cmds:
-      - echo "🚀 Starting SlimRPC server..."
-      - cd examples/slimrpc/simple && mvn exec:java@server
+      - echo "🚀 Starting SlimRPC server (instance={{.INSTANCE}})..."
+      - cd examples/slimrpc/simple && mvn exec:java@server -Dexec.args="--instance {{.INSTANCE}}"
     vars:
+      INSTANCE: '{{.INSTANCE | default "server"}}'
       CLI_ARGS: '{{.CLI_ARGS | default ""}}'
 
   examples:rpc:client:
@@ -350,6 +353,16 @@ tasks:
     cmds:
       - echo "🚀 Starting SlimRPC client..."
       - cd examples/slimrpc/simple && mvn exec:java@client
+    vars:
+      CLI_ARGS: '{{.CLI_ARGS | default ""}}'
+
+  examples:rpc:group-client:
+    desc: Run the SlimRPC group (multicast) client example
+    deps:
+      - examples:rpc:compile
+    cmds:
+      - echo "🚀 Starting SlimRPC group client..."
+      - cd examples/slimrpc/simple && mvn exec:java@group-client
     vars:
       CLI_ARGS: '{{.CLI_ARGS | default ""}}'
 

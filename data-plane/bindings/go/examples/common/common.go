@@ -18,7 +18,7 @@ import (
 // Default configuration values
 const (
 	DefaultServerEndpoint = "http://localhost:46357"
-	DefaultSharedSecret   = "demo-shared-secret-min-32-chars!!"
+	DefaultSharedSecret   = "my_shared_secret_for_testing_purposes_only"
 )
 
 // CreateAndConnectApp creates a SLIM app with shared secret authentication

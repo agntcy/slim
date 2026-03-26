@@ -30,6 +30,10 @@ import io.agntcy.slim.bindings.StreamUnaryHandler;
 import io.agntcy.slim.bindings.StreamStreamHandler;
 import io.agntcy.slim.bindings.slimrpc.ClientRequestStream;
 import io.agntcy.slim.bindings.slimrpc.ClientBidiStream;
+import io.agntcy.slim.bindings.MulticastResponseReader;
+import io.agntcy.slim.bindings.MulticastBidiStreamHandler;
+import io.agntcy.slim.bindings.slimrpc.MulticastResponseStream;
+import io.agntcy.slim.bindings.slimrpc.MulticastClientBidiStream;
 
 import static io.agntcy.slim.bindings.slimrpc.SlimrpcUtil.parse;
 import static io.agntcy.slim.bindings.slimrpc.SlimrpcUtil.toRpcException;
@@ -73,6 +77,19 @@ const SERVICE_TEMPLATE: &str = r#"public final class {{SERVICE_NAME}}Slimrpc {
     }
 
 {{HANDLER_IMPLS}}
+    public interface {{SERVICE_NAME}}GroupClient {
+{{GROUP_CLIENT_METHODS}}
+    }
+
+    public static final class {{SERVICE_NAME}}GroupClientImpl implements {{SERVICE_NAME}}GroupClient {
+        private final Channel channel;
+
+        public {{SERVICE_NAME}}GroupClientImpl(Channel channel) {
+            this.channel = channel;
+        }
+
+{{GROUP_CLIENT_METHOD_IMPLS}}
+    }
 }
 "#;
 
@@ -299,6 +316,72 @@ const HANDLER_STREAM_STREAM: &str = r#"    private static final class {{SERVICE_
 
 "#;
 
+const GROUP_CLIENT_UNARY_UNARY_METHOD: &str = r#"        MulticastResponseStream<{{OUTPUT_TYPE}}> {{METHOD_NAME}}({{INPUT_TYPE}} request, Duration timeout, Map<String, String> metadata) throws RpcException;
+"#;
+
+const GROUP_CLIENT_UNARY_UNARY_IMPL: &str = r#"        @Override
+        public MulticastResponseStream<{{OUTPUT_TYPE}}> {{METHOD_NAME}}({{INPUT_TYPE}} request, Duration timeout, Map<String, String> metadata) throws RpcException {
+            MulticastResponseReader reader = channel.callMulticastUnaryAsync(
+                SERVICE_NAME,
+                "{{METHOD_NAME}}",
+                request.toByteArray(),
+                timeout,
+                metadata
+            ).join();
+            return new MulticastResponseStream<>(reader, bytes -> parse(bytes, {{OUTPUT_TYPE}}.parser()));
+        }
+
+"#;
+
+const GROUP_CLIENT_UNARY_STREAM_METHOD: &str = r#"        MulticastResponseStream<{{OUTPUT_TYPE}}> {{METHOD_NAME}}({{INPUT_TYPE}} request, Duration timeout, Map<String, String> metadata) throws RpcException;
+"#;
+
+const GROUP_CLIENT_UNARY_STREAM_IMPL: &str = r#"        @Override
+        public MulticastResponseStream<{{OUTPUT_TYPE}}> {{METHOD_NAME}}({{INPUT_TYPE}} request, Duration timeout, Map<String, String> metadata) throws RpcException {
+            MulticastResponseReader reader = channel.callMulticastUnaryStreamAsync(
+                SERVICE_NAME,
+                "{{METHOD_NAME}}",
+                request.toByteArray(),
+                timeout,
+                metadata
+            ).join();
+            return new MulticastResponseStream<>(reader, bytes -> parse(bytes, {{OUTPUT_TYPE}}.parser()));
+        }
+
+"#;
+
+const GROUP_CLIENT_STREAM_UNARY_METHOD: &str = r#"        MulticastClientBidiStream<{{INPUT_TYPE}}, {{OUTPUT_TYPE}}> {{METHOD_NAME}}(Duration timeout, Map<String, String> metadata) throws RpcException;
+"#;
+
+const GROUP_CLIENT_STREAM_UNARY_IMPL: &str = r#"        @Override
+        public MulticastClientBidiStream<{{INPUT_TYPE}}, {{OUTPUT_TYPE}}> {{METHOD_NAME}}(Duration timeout, Map<String, String> metadata) throws RpcException {
+            MulticastBidiStreamHandler handler = channel.callMulticastStreamUnary(
+                    SERVICE_NAME,
+                    "{{METHOD_NAME}}",
+                    timeout,
+                    metadata
+            );
+            return new MulticastClientBidiStream<>(handler, {{INPUT_TYPE}}::toByteArray, bytes -> parse(bytes, {{OUTPUT_TYPE}}.parser()));
+        }
+
+"#;
+
+const GROUP_CLIENT_STREAM_STREAM_METHOD: &str = r#"        MulticastClientBidiStream<{{INPUT_TYPE}}, {{OUTPUT_TYPE}}> {{METHOD_NAME}}(Duration timeout, Map<String, String> metadata) throws RpcException;
+"#;
+
+const GROUP_CLIENT_STREAM_STREAM_IMPL: &str = r#"        @Override
+        public MulticastClientBidiStream<{{INPUT_TYPE}}, {{OUTPUT_TYPE}}> {{METHOD_NAME}}(Duration timeout, Map<String, String> metadata) throws RpcException {
+            MulticastBidiStreamHandler handler = channel.callMulticastStreamStream(
+                    SERVICE_NAME,
+                    "{{METHOD_NAME}}",
+                    timeout,
+                    metadata
+            );
+            return new MulticastClientBidiStream<>(handler, {{INPUT_TYPE}}::toByteArray, bytes -> parse(bytes, {{OUTPUT_TYPE}}.parser()));
+        }
+
+"#;
+
 struct RpcTemplates {
     client_method: &'static str,
     client_impl: &'static str,
@@ -306,6 +389,8 @@ struct RpcTemplates {
     unimplemented: &'static str,
     register: &'static str,
     handler: &'static str,
+    group_client_method: &'static str,
+    group_client_impl: &'static str,
 }
 
 const UNARY_UNARY_TEMPLATES: RpcTemplates = RpcTemplates {
@@ -315,6 +400,8 @@ const UNARY_UNARY_TEMPLATES: RpcTemplates = RpcTemplates {
     unimplemented: UNIMPLEMENTED_UNARY_UNARY,
     register: REGISTER_UNARY_UNARY,
     handler: HANDLER_UNARY_UNARY,
+    group_client_method: GROUP_CLIENT_UNARY_UNARY_METHOD,
+    group_client_impl: GROUP_CLIENT_UNARY_UNARY_IMPL,
 };
 
 const UNARY_STREAM_TEMPLATES: RpcTemplates = RpcTemplates {
@@ -324,6 +411,8 @@ const UNARY_STREAM_TEMPLATES: RpcTemplates = RpcTemplates {
     unimplemented: UNIMPLEMENTED_UNARY_STREAM,
     register: REGISTER_UNARY_STREAM,
     handler: HANDLER_UNARY_STREAM,
+    group_client_method: GROUP_CLIENT_UNARY_STREAM_METHOD,
+    group_client_impl: GROUP_CLIENT_UNARY_STREAM_IMPL,
 };
 
 const STREAM_UNARY_TEMPLATES: RpcTemplates = RpcTemplates {
@@ -333,6 +422,8 @@ const STREAM_UNARY_TEMPLATES: RpcTemplates = RpcTemplates {
     unimplemented: UNIMPLEMENTED_STREAM_UNARY,
     register: REGISTER_STREAM_UNARY,
     handler: HANDLER_STREAM_UNARY,
+    group_client_method: GROUP_CLIENT_STREAM_UNARY_METHOD,
+    group_client_impl: GROUP_CLIENT_STREAM_UNARY_IMPL,
 };
 
 const STREAM_STREAM_TEMPLATES: RpcTemplates = RpcTemplates {
@@ -342,6 +433,8 @@ const STREAM_STREAM_TEMPLATES: RpcTemplates = RpcTemplates {
     unimplemented: UNIMPLEMENTED_STREAM_STREAM,
     register: REGISTER_STREAM_STREAM,
     handler: HANDLER_STREAM_STREAM,
+    group_client_method: GROUP_CLIENT_STREAM_STREAM_METHOD,
+    group_client_impl: GROUP_CLIENT_STREAM_STREAM_IMPL,
 };
 
 fn rpc_templates(client_streaming: bool, server_streaming: bool) -> &'static RpcTemplates {
@@ -543,6 +636,8 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
             let mut unimplemented_methods = String::new();
             let mut register_methods = String::new();
             let mut handler_impls = String::new();
+            let mut group_client_methods = String::new();
+            let mut group_client_method_impls = String::new();
 
             for method in service.method {
                 let method_name = method.name.as_deref().context("Method name missing")?;
@@ -572,6 +667,8 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
                 unimplemented_methods.push_str(&apply(t.unimplemented, vars));
                 register_methods.push_str(&apply(t.register, vars));
                 handler_impls.push_str(&apply(t.handler, vars));
+                group_client_methods.push_str(&apply(t.group_client_method, vars));
+                group_client_method_impls.push_str(&apply(t.group_client_impl, vars));
             }
 
             let service_content = SERVICE_TEMPLATE
@@ -582,7 +679,9 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
                 .replace("{{SERVER_METHODS}}", &server_methods)
                 .replace("{{UNIMPLEMENTED_METHODS}}", &unimplemented_methods)
                 .replace("{{REGISTER_METHODS}}", register_methods.trim_end())
-                .replace("{{HANDLER_IMPLS}}", &handler_impls);
+                .replace("{{HANDLER_IMPLS}}", &handler_impls)
+                .replace("{{GROUP_CLIENT_METHODS}}", &group_client_methods)
+                .replace("{{GROUP_CLIENT_METHOD_IMPLS}}", &group_client_method_impls);
 
             let output_file_name = format!("{}Slimrpc.java", service_name);
             let output_path = if java_package.is_empty() {
@@ -925,6 +1024,43 @@ mod tests {
         );
         let path = response.file[0].name.as_ref().unwrap();
         assert!(path.starts_with("com/example/test/"), "path was: {}", path);
+    }
+
+    #[test]
+    fn test_generate_group_client() {
+        let methods = vec![
+            create_method("UnaryUnary", ".pkg.Req", ".pkg.Res", false, false),
+            create_method("UnaryStream", ".pkg.Req", ".pkg.Res", false, true),
+            create_method("StreamUnary", ".pkg.Req", ".pkg.Res", true, false),
+            create_method("StreamStream", ".pkg.Req", ".pkg.Res", true, true),
+        ];
+        let service = create_service("Test", methods);
+        let messages = vec![create_message("Req"), create_message("Res")];
+        let file = create_test_file("example.proto", "pkg", vec![service], messages);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["example.proto".to_string()],
+            proto_file: vec![file],
+            ..Default::default()
+        };
+
+        let response = generate(request).unwrap();
+        assert_eq!(response.file.len(), 1);
+
+        let content = response.file[0].content.as_ref().unwrap();
+
+        // Verify TestGroupClient interface is generated
+        assert!(content.contains("interface TestGroupClient"));
+        // Verify TestGroupClientImpl is generated
+        assert!(content.contains("class TestGroupClientImpl implements TestGroupClient"));
+        // Verify all four multicast channel method calls are present
+        assert!(content.contains("callMulticastUnaryAsync"));
+        assert!(content.contains("callMulticastUnaryStreamAsync"));
+        assert!(content.contains("callMulticastStreamUnary"));
+        assert!(content.contains("callMulticastStreamStream"));
+        // Verify multicast return types
+        assert!(content.contains("MulticastResponseStream<"));
+        assert!(content.contains("MulticastClientBidiStream<"));
     }
 
     #[test]

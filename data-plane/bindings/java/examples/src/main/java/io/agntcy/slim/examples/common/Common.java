@@ -25,7 +25,13 @@ public class Common {
      * Default configuration values
      */
     public static final String DEFAULT_SERVER_ENDPOINT = "http://localhost:46357";
-    public static final String DEFAULT_SHARED_SECRET = "demo-shared-secret-min-32-chars!!";
+    public static final String DEFAULT_SHARED_SECRET = "my_shared_secret_for_testing_purposes_only";
+
+    /** Name org component used across all examples. */
+    public static final String NAME_ORG = "agntcy";
+
+    /** Name namespace component used across all examples. */
+    public static final String NAME_NS = "grpc";
 
     /**
      * Result of creating and connecting an app.

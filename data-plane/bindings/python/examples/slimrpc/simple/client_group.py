@@ -4,6 +4,12 @@ import time
 from datetime import timedelta
 
 import slim_bindings
+from examples.constants import (
+    NAME_NS,
+    NAME_ORG,
+    SHARED_SECRET,
+    SLIM_ADDR,
+)
 from examples.slimrpc.simple.types.example_pb2 import ExampleRequest
 from examples.slimrpc.simple.types.example_pb2_slimrpc import TestGroupStub
 
@@ -12,8 +18,10 @@ logger = logging.getLogger(__name__)
 # Names of the server instances to broadcast to.
 # Start each with: python -m examples.slimrpc.simple.server --instance server1 (or server2)
 SERVER_NAMES = [
-    slim_bindings.Name("agntcy", "grpc", "server1"),
-    slim_bindings.Name("agntcy", "grpc", "server2"),
+    slim_bindings.Name(NAME_ORG, NAME_NS, "server1"),
+    slim_bindings.Name(NAME_ORG, NAME_NS, "server2"),
+    slim_bindings.Name(NAME_ORG, NAME_NS, "server3"),
+    slim_bindings.Name(NAME_ORG, NAME_NS, "server4"),
 ]
 
 
@@ -74,14 +82,12 @@ async def amain() -> None:
 
     service = slim_bindings.get_global_service()
 
-    local_name = slim_bindings.Name("agntcy", "grpc", "client")
+    local_name = slim_bindings.Name(NAME_ORG, NAME_NS, "client")
 
-    client_config = slim_bindings.new_insecure_client_config("http://localhost:46357")
+    client_config = slim_bindings.new_insecure_client_config(SLIM_ADDR)
     conn_id = await service.connect_async(client_config)
 
-    local_app = service.create_app_with_secret(
-        local_name, "my_shared_secret_for_testing_purposes_only"
-    )
+    local_app = service.create_app_with_secret(local_name, SHARED_SECRET)
     await local_app.subscribe_async(local_name, conn_id)
 
     # Group channel targeting all server instances
@@ -98,6 +104,8 @@ async def amain() -> None:
         await run_multicast_stream_stream(stub)
     except slim_bindings.RpcError as e:
         logger.error(f"RPC error: {e}")
+
+    await asyncio.sleep(1)
 
     # Close the channel
     await channel.close_async(timeout=None)

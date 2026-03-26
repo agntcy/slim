@@ -9,6 +9,7 @@ import (
 	"time"
 
 	slim_bindings "github.com/agntcy/slim-bindings-go"
+	"github.com/agntcy/slim/bindings/go/examples/common"
 	pb "github.com/agntcy/slim/bindings/go/examples/slimrpc/simple/types"
 )
 
@@ -23,13 +24,13 @@ func main() {
 	remoteName := slim_bindings.NewName("agntcy", "grpc", "server")
 
 	// Create app with shared secret
-	app, err := service.CreateAppWithSecret(localName, "my_shared_secret_for_testing_purposes_only")
+	app, err := service.CreateAppWithSecret(localName, common.DefaultSharedSecret)
 	if err != nil {
 		log.Fatalf("Failed to create app: %v", err)
 	}
 
 	// Connect to SLIM
-	clientConfig := slim_bindings.NewInsecureClientConfig("http://localhost:46357")
+	clientConfig := slim_bindings.NewInsecureClientConfig(common.DefaultServerEndpoint)
 	connId, err := service.Connect(clientConfig)
 	if err != nil {
 		log.Fatalf("Failed to connect: %v", err)

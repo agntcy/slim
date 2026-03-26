@@ -12,12 +12,8 @@ import (
 
 	slim_bindings "github.com/agntcy/slim-bindings-go"
 
+	"github.com/agntcy/slim/bindings/go/examples/common"
 	pb "github.com/agntcy/slim/bindings/go/examples/slimrpc/simple/types"
-)
-
-const (
-	slimAddr     = "http://localhost:46357"
-	sharedSecret = "my_shared_secret_for_testing_purposes_only"
 )
 
 func runMulticastUnary(client pb.TestGroupClient) {
@@ -153,12 +149,12 @@ func main() {
 		slim_bindings.NewName("agntcy", "grpc", "server2"),
 	}
 
-	app, err := service.CreateAppWithSecret(localName, sharedSecret)
+	app, err := service.CreateAppWithSecret(localName, common.DefaultSharedSecret)
 	if err != nil {
 		log.Fatalf("Failed to create app: %v", err)
 	}
 
-	clientConfig := slim_bindings.NewInsecureClientConfig(slimAddr)
+	clientConfig := slim_bindings.NewInsecureClientConfig(common.DefaultServerEndpoint)
 	connId, err := service.Connect(clientConfig)
 	if err != nil {
 		log.Fatalf("Failed to connect: %v", err)

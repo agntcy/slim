@@ -1,11 +1,12 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-package com.exampleservice.example.client;
+package com.example_service.example.client;
 
-import com.exampleservice.ExampleRequest;
-import com.exampleservice.ExampleResponse;
-import com.exampleservice.TestSlimrpc;
+import io.agntcy.slim.examples.common.Common;
+import com.example_service.ExampleRequest;
+import com.example_service.ExampleResponse;
+import com.example_service.TestSlimrpc;
 import io.agntcy.slim.bindings.App;
 import io.agntcy.slim.bindings.Channel;
 import io.agntcy.slim.bindings.ClientConfig;
@@ -24,18 +25,15 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class SlimrpcClientMain {
-    private static final String SERVER_ADDR = "127.0.0.1:46357";
-    private static final String SHARED_SECRET = "my_shared_secret_for_testing_purposes_only";
-
     public static void main(String[] args) throws Exception {
         SlimBindings.initializeWithDefaults();
         Service service = SlimBindings.getGlobalService();
 
-        Name localName = new Name("agntcy", "slimrpc", "client");
-        Name remoteName = new Name("agntcy", "slimrpc", "server");
+        Name localName = new Name(Common.NAME_ORG, Common.NAME_NS, "client");
+        Name remoteName = new Name(Common.NAME_ORG, Common.NAME_NS, "server");
 
-        App app = service.createAppWithSecret(localName, SHARED_SECRET);
-        ClientConfig clientConfig = SlimBindings.newInsecureClientConfig("http://" + SERVER_ADDR);
+        App app = service.createAppWithSecret(localName, Common.DEFAULT_SHARED_SECRET);
+        ClientConfig clientConfig = SlimBindings.newInsecureClientConfig(Common.DEFAULT_SERVER_ENDPOINT);
         long connId = service.connect(clientConfig);
         app.subscribe(localName, connId);
 

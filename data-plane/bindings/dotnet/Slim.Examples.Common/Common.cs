@@ -19,7 +19,7 @@ public static class CommonHelpers
     /// Default configuration values
     /// </summary>
     public const string DefaultServerEndpoint = "http://localhost:46357";
-    public const string DefaultSharedSecret = "demo-shared-secret-min-32-chars!!";
+    public const string DefaultSharedSecret = "my_shared_secret_for_testing_purposes_only";
 
     /// <summary>
     /// Creates a SLIM app with shared secret authentication and connects it to a SLIM server.

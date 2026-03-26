@@ -765,7 +765,7 @@ impl MessageProcessor {
             .map(|c| crate::subscription_ack::supports(&c))
             .unwrap_or(false);
 
-        if !use_remote_ack {
+        if forward.is_some() && !use_remote_ack {
             debug!(
                 forward_to = forward,
                 "subscription: remote ack not available, link negotiation may not have completed yet"

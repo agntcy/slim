@@ -4,6 +4,12 @@ import logging
 from collections.abc import AsyncIterable
 
 import slim_bindings
+from examples.constants import (
+    NAME_NS,
+    NAME_ORG,
+    SHARED_SECRET,
+    SLIM_ADDR,
+)
 from examples.slimrpc.simple.types.example_pb2 import ExampleRequest, ExampleResponse
 from examples.slimrpc.simple.types.example_pb2_slimrpc import (
     TestServicer,
@@ -85,7 +91,7 @@ async def amain(instance: str) -> None:
     runtime_config = slim_bindings.new_runtime_config()
     service_config = slim_bindings.new_service_config()
 
-    tracing_config.log_level = "info"
+    tracing_config.log_level = "debug"
 
     slim_bindings.initialize_with_configs(
         tracing_config=tracing_config,
@@ -96,16 +102,14 @@ async def amain(instance: str) -> None:
     service = slim_bindings.get_global_service()
 
     # Create local name (instance allows running multiple servers, e.g. server1, server2)
-    local_name = slim_bindings.Name("agntcy", "grpc", instance)
+    local_name = slim_bindings.Name(NAME_ORG, NAME_NS, instance)
 
     # Connect to SLIM
-    client_config = slim_bindings.new_insecure_client_config("http://localhost:46357")
+    client_config = slim_bindings.new_insecure_client_config(SLIM_ADDR)
     conn_id = await service.connect_async(client_config)
 
     # Create app with shared secret
-    local_app = service.create_app_with_secret(
-        local_name, "my_shared_secret_for_testing_purposes_only"
-    )
+    local_app = service.create_app_with_secret(local_name, SHARED_SECRET)
 
     # Subscribe to local name
     await local_app.subscribe_async(local_name, conn_id)

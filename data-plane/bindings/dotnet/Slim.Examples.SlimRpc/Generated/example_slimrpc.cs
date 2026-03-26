@@ -265,3 +265,89 @@ namespace ExampleService;
             }
         }
     }
+
+    public sealed class TestGroupClient
+    {
+        private readonly Channel _channel;
+
+        internal TestGroupClient(Channel channel) => _channel = channel;
+
+
+        public async IAsyncEnumerable<MulticastItem<ExampleService.ExampleResponse>> ExampleUnaryUnaryAsync(ExampleService.ExampleRequest request, TimeSpan? timeout = null, IReadOnlyDictionary<string, string>? metadata = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            var reqBytes = request.ToByteString().ToByteArray();
+            var reader = await _channel.CallMulticastUnaryAsync("example_service.Test", "ExampleUnaryUnary", reqBytes, timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
+            await foreach (var item in SlimRpcStreams.ReadMulticastStreamAsync<ExampleService.ExampleResponse>(reader, cancellationToken))
+            {
+                yield return item;
+            }
+        }
+
+        public async IAsyncEnumerable<MulticastItem<ExampleService.ExampleResponse>> ExampleUnaryStreamAsync(ExampleService.ExampleRequest request, TimeSpan? timeout = null, IReadOnlyDictionary<string, string>? metadata = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            var reqBytes = request.ToByteString().ToByteArray();
+            var reader = await _channel.CallMulticastUnaryStreamAsync("example_service.Test", "ExampleUnaryStream", reqBytes, timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
+            await foreach (var item in SlimRpcStreams.ReadMulticastStreamAsync<ExampleService.ExampleResponse>(reader, cancellationToken))
+            {
+                yield return item;
+            }
+        }
+
+        public async IAsyncEnumerable<MulticastItem<ExampleService.ExampleResponse>> ExampleUnaryStreamTwoAsync(ExampleService.ExampleRequest request, TimeSpan? timeout = null, IReadOnlyDictionary<string, string>? metadata = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            var reqBytes = request.ToByteString().ToByteArray();
+            var reader = await _channel.CallMulticastUnaryStreamAsync("example_service.Test", "ExampleUnaryStreamTwo", reqBytes, timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
+            await foreach (var item in SlimRpcStreams.ReadMulticastStreamAsync<ExampleService.ExampleResponse>(reader, cancellationToken))
+            {
+                yield return item;
+            }
+        }
+
+        public async IAsyncEnumerable<MulticastItem<ExampleService.ExampleResponse>> ExampleStreamUnaryAsync(IAsyncEnumerable<ExampleService.ExampleRequest> requestStream, TimeSpan? timeout = null, IReadOnlyDictionary<string, string>? metadata = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            var handler = _channel.CallMulticastStreamUnary("example_service.Test", "ExampleStreamUnary", timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
+            var sendTask = Task.Run(async () =>
+            {
+                await foreach (var req in requestStream.WithCancellation(cancellationToken))
+                {
+                    await handler.SendAsync(req.ToByteString().ToByteArray());
+                }
+                await handler.CloseSendAsync();
+            });
+            try
+            {
+                await foreach (var item in SlimRpcStreams.ReadMulticastBidiStreamAsync<ExampleService.ExampleResponse>(handler, cancellationToken))
+                {
+                    yield return item;
+                }
+            }
+            finally
+            {
+                await sendTask;
+            }
+        }
+
+        public async IAsyncEnumerable<MulticastItem<ExampleService.ExampleResponse>> ExampleStreamStreamAsync(IAsyncEnumerable<ExampleService.ExampleRequest> requestStream, TimeSpan? timeout = null, IReadOnlyDictionary<string, string>? metadata = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            var handler = _channel.CallMulticastStreamStream("example_service.Test", "ExampleStreamStream", timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
+            var sendTask = Task.Run(async () =>
+            {
+                await foreach (var req in requestStream.WithCancellation(cancellationToken))
+                {
+                    await handler.SendAsync(req.ToByteString().ToByteArray());
+                }
+                await handler.CloseSendAsync();
+            });
+            try
+            {
+                await foreach (var item in SlimRpcStreams.ReadMulticastBidiStreamAsync<ExampleService.ExampleResponse>(handler, cancellationToken))
+                {
+                    yield return item;
+                }
+            }
+            finally
+            {
+                await sendTask;
+            }
+        }
+    }

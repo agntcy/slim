@@ -10,6 +10,18 @@ using Google.Protobuf;
 namespace Agntcy.Slim.SlimRpc;
 
 /// <summary>
+/// A single item from a multicast (group) RPC stream, carrying the source
+/// member's identity and the deserialized response value.
+/// </summary>
+/// <typeparam name="T">Protobuf message type.</typeparam>
+public sealed record MulticastItem<T>(
+    /// <summary>The SLIM name of the group member that produced this response.</summary>
+    string Context,
+    /// <summary>The deserialized response message.</summary>
+    T Value
+);
+
+/// <summary>
 /// Helper methods for streaming protobuf messages over slimrpc streams.
 /// </summary>
 public static class SlimRpcStreams
@@ -102,6 +114,74 @@ public static class SlimRpcStreams
                 case uniffi.slim_bindings.StreamMessage.Error err:
                     throw err.v1;
                 case uniffi.slim_bindings.StreamMessage.End:
+                    yield break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Read typed multicast items from a <see cref="uniffi.slim_bindings.MulticastResponseReader"/>
+    /// (used by multicast unary-unary and unary-stream patterns).
+    /// </summary>
+    /// <typeparam name="T">Protobuf message type (must have a static Parser property).</typeparam>
+    /// <param name="reader">The multicast response reader.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Async enumerable of <see cref="MulticastItem{T}"/> items.</returns>
+    public static async IAsyncEnumerable<MulticastItem<T>> ReadMulticastStreamAsync<T>(
+        uniffi.slim_bindings.MulticastResponseReader reader,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        where T : IMessage<T>, new()
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        var parser = new MessageParser<T>(() => new T());
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var msg = await reader.NextAsync();
+            switch (msg)
+            {
+                case uniffi.slim_bindings.MulticastStreamMessage.Data data:
+                    var source = data.item.context.source.ToString();
+                    var value = parser.ParseFrom(data.item.message);
+                    yield return new MulticastItem<T>(source, value);
+                    break;
+                case uniffi.slim_bindings.MulticastStreamMessage.Error err:
+                    throw err.error;
+                case uniffi.slim_bindings.MulticastStreamMessage.End:
+                    yield break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Read typed multicast items from a <see cref="uniffi.slim_bindings.MulticastBidiStreamHandler"/>
+    /// (used by multicast stream-unary and stream-stream patterns on the receive side).
+    /// </summary>
+    /// <typeparam name="T">Protobuf message type (must have a static Parser property).</typeparam>
+    /// <param name="bidi">The multicast bidirectional stream handler.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Async enumerable of <see cref="MulticastItem{T}"/> items.</returns>
+    public static async IAsyncEnumerable<MulticastItem<T>> ReadMulticastBidiStreamAsync<T>(
+        uniffi.slim_bindings.MulticastBidiStreamHandler bidi,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        where T : IMessage<T>, new()
+    {
+        ArgumentNullException.ThrowIfNull(bidi);
+        var parser = new MessageParser<T>(() => new T());
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var msg = await bidi.RecvAsync();
+            switch (msg)
+            {
+                case uniffi.slim_bindings.MulticastStreamMessage.Data data:
+                    var source = data.item.context.source.ToString();
+                    var value = parser.ParseFrom(data.item.message);
+                    yield return new MulticastItem<T>(source, value);
+                    break;
+                case uniffi.slim_bindings.MulticastStreamMessage.Error err:
+                    throw err.error;
+                case uniffi.slim_bindings.MulticastStreamMessage.End:
                     yield break;
             }
         }

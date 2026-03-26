@@ -385,3 +385,37 @@ tasks:
     cmds:
       - task: build
     silent: true
+
+  examples:rpc:server:
+    desc: "Run the SlimRPC server example"
+    deps:
+      - task: build
+    cmds:
+      - echo "🚀 Starting SlimRPC server (instance={{.INSTANCE}})..."
+      - dotnet run --project Slim.Examples.SlimRpc --no-build --configuration Release -- --mode server --instance {{.INSTANCE}} {{.CLI_ARGS}}
+    vars:
+      INSTANCE: '{{.INSTANCE | default "server"}}'
+      CLI_ARGS: '{{.CLI_ARGS | default ""}}'
+    silent: true
+
+  examples:rpc:client:
+    desc: "Run the SlimRPC client example"
+    deps:
+      - task: build
+    cmds:
+      - echo "🚀 Starting SlimRPC client..."
+      - dotnet run --project Slim.Examples.SlimRpc --no-build --configuration Release -- --mode client {{.CLI_ARGS}}
+    vars:
+      CLI_ARGS: '{{.CLI_ARGS | default ""}}'
+    silent: true
+
+  examples:rpc:group-client:
+    desc: "Run the SlimRPC group (multicast) client example"
+    deps:
+      - task: build
+    cmds:
+      - echo "🚀 Starting SlimRPC group client..."
+      - dotnet run --project Slim.Examples.SlimRpc --no-build --configuration Release -- --mode group-client {{.CLI_ARGS}}
+    vars:
+      CLI_ARGS: '{{.CLI_ARGS | default ""}}'
+    silent: true

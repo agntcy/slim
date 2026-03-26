@@ -160,6 +160,7 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
             let mut unimplemented_methods = String::new();
             let mut handler_impls = String::new();
             let mut register_methods = String::new();
+            let mut group_client_impls = String::new();
 
             for method in &service.method {
                 let method_name = method.name.clone().context("Method name missing")?;
@@ -225,6 +226,13 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
 "#,
                             package_name, service_name, method_name, service_name, method_name
                         ));
+                        group_client_impls.push_str(&generate_unary_unary_group_client(
+                            &service_name,
+                            &method_name,
+                            &input_type,
+                            &output_type,
+                            &package_name,
+                        ));
                     }
                     (false, true) => {
                         client_methods.push_str(&format!(
@@ -264,6 +272,13 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
 "#,
                             package_name, service_name, method_name, service_name, method_name
                         ));
+                        group_client_impls.push_str(&generate_unary_stream_group_client(
+                            &service_name,
+                            &method_name,
+                            &input_type,
+                            &output_type,
+                            &package_name,
+                        ));
                     }
                     (true, false) => {
                         client_methods.push_str(&format!(
@@ -299,6 +314,13 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
                             r#"            server.RegisterStreamUnary("{}.{}", "{}", new {}_{}_Handler(impl));
 "#,
                             package_name, service_name, method_name, service_name, method_name
+                        ));
+                        group_client_impls.push_str(&generate_stream_unary_group_client(
+                            &service_name,
+                            &method_name,
+                            &input_type,
+                            &output_type,
+                            &package_name,
                         ));
                     }
                     (true, true) => {
@@ -338,6 +360,13 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
                             r#"            server.RegisterStreamStream("{}.{}", "{}", new {}_{}_Handler(impl));
 "#,
                             package_name, service_name, method_name, service_name, method_name
+                        ));
+                        group_client_impls.push_str(&generate_stream_stream_group_client(
+                            &service_name,
+                            &method_name,
+                            &input_type,
+                            &output_type,
+                            &package_name,
                         ));
                     }
                 }
@@ -392,8 +421,25 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
                 handler_impls.trim_end()
             );
 
+            let group_client = format!(
+                r#"
+    public sealed class {}GroupClient
+    {{
+        private readonly Channel _channel;
+
+        internal {}GroupClient(Channel channel) => _channel = channel;
+
+{}
+    }}
+"#,
+                service_name,
+                service_name,
+                group_client_impls.trim_end()
+            );
+
             service_definitions.push_str(&client_interface);
             service_definitions.push_str(&server_interface);
+            service_definitions.push_str(&group_client);
         }
 
         if services_found {
@@ -725,6 +771,130 @@ fn generate_stream_stream_handler(
     )
 }
 
+fn generate_unary_unary_group_client(
+    service_name: &str,
+    method_name: &str,
+    input_type: &str,
+    output_type: &str,
+    package_name: &str,
+) -> String {
+    let full_service = format!("{package_name}.{service_name}");
+    format!(
+        r#"
+        public async IAsyncEnumerable<MulticastItem<{}>> {}Async({} request, TimeSpan? timeout = null, IReadOnlyDictionary<string, string>? metadata = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {{
+            var reqBytes = request.ToByteString().ToByteArray();
+            var reader = await _channel.CallMulticastUnaryAsync("{}", "{}", reqBytes, timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
+            await foreach (var item in SlimRpcStreams.ReadMulticastStreamAsync<{}>(reader, cancellationToken))
+            {{
+                yield return item;
+            }}
+        }}
+"#,
+        output_type, method_name, input_type, full_service, method_name, output_type
+    )
+}
+
+fn generate_unary_stream_group_client(
+    service_name: &str,
+    method_name: &str,
+    input_type: &str,
+    output_type: &str,
+    package_name: &str,
+) -> String {
+    let full_service = format!("{package_name}.{service_name}");
+    format!(
+        r#"
+        public async IAsyncEnumerable<MulticastItem<{}>> {}Async({} request, TimeSpan? timeout = null, IReadOnlyDictionary<string, string>? metadata = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {{
+            var reqBytes = request.ToByteString().ToByteArray();
+            var reader = await _channel.CallMulticastUnaryStreamAsync("{}", "{}", reqBytes, timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
+            await foreach (var item in SlimRpcStreams.ReadMulticastStreamAsync<{}>(reader, cancellationToken))
+            {{
+                yield return item;
+            }}
+        }}
+"#,
+        output_type, method_name, input_type, full_service, method_name, output_type
+    )
+}
+
+fn generate_stream_unary_group_client(
+    service_name: &str,
+    method_name: &str,
+    input_type: &str,
+    output_type: &str,
+    package_name: &str,
+) -> String {
+    let full_service = format!("{package_name}.{service_name}");
+    format!(
+        r#"
+        public async IAsyncEnumerable<MulticastItem<{}>> {}Async(IAsyncEnumerable<{}> requestStream, TimeSpan? timeout = null, IReadOnlyDictionary<string, string>? metadata = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {{
+            var handler = _channel.CallMulticastStreamUnary("{}", "{}", timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
+            var sendTask = Task.Run(async () =>
+            {{
+                await foreach (var req in requestStream.WithCancellation(cancellationToken))
+                {{
+                    await handler.SendAsync(req.ToByteString().ToByteArray());
+                }}
+                await handler.CloseSendAsync();
+            }});
+            try
+            {{
+                await foreach (var item in SlimRpcStreams.ReadMulticastBidiStreamAsync<{}>(handler, cancellationToken))
+                {{
+                    yield return item;
+                }}
+            }}
+            finally
+            {{
+                await sendTask;
+            }}
+        }}
+"#,
+        output_type, method_name, input_type, full_service, method_name, output_type
+    )
+}
+
+fn generate_stream_stream_group_client(
+    service_name: &str,
+    method_name: &str,
+    input_type: &str,
+    output_type: &str,
+    package_name: &str,
+) -> String {
+    let full_service = format!("{package_name}.{service_name}");
+    format!(
+        r#"
+        public async IAsyncEnumerable<MulticastItem<{}>> {}Async(IAsyncEnumerable<{}> requestStream, TimeSpan? timeout = null, IReadOnlyDictionary<string, string>? metadata = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {{
+            var handler = _channel.CallMulticastStreamStream("{}", "{}", timeout, metadata != null ? new Dictionary<string, string>(metadata) : null);
+            var sendTask = Task.Run(async () =>
+            {{
+                await foreach (var req in requestStream.WithCancellation(cancellationToken))
+                {{
+                    await handler.SendAsync(req.ToByteString().ToByteArray());
+                }}
+                await handler.CloseSendAsync();
+            }});
+            try
+            {{
+                await foreach (var item in SlimRpcStreams.ReadMulticastBidiStreamAsync<{}>(handler, cancellationToken))
+                {{
+                    yield return item;
+                }}
+            }}
+            finally
+            {{
+                await sendTask;
+            }}
+        }}
+"#,
+        output_type, method_name, input_type, full_service, method_name, output_type
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -955,5 +1125,39 @@ mod tests {
         assert_eq!(response.file.len(), 1);
         let content = response.file[0].content.as_ref().unwrap();
         assert!(content.contains("namespace Custom.Namespace"));
+    }
+
+    #[test]
+    fn test_generate_group_client() {
+        let methods = vec![
+            create_test_method("UnaryUnary", ".pkg.Request", ".pkg.Response", false, false),
+            create_test_method("UnaryStream", ".pkg.Request", ".pkg.Response", false, true),
+            create_test_method("StreamUnary", ".pkg.Request", ".pkg.Response", true, false),
+            create_test_method("StreamStream", ".pkg.Request", ".pkg.Response", true, true),
+        ];
+        let service = create_test_service("Test", methods);
+        let file_descriptor = create_test_file_descriptor("example.proto", "pkg", vec![service]);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["example.proto".to_string()],
+            parameter: None,
+            proto_file: vec![file_descriptor],
+            compiler_version: None,
+        };
+
+        let response = generate(request).unwrap();
+        assert_eq!(response.file.len(), 1);
+
+        let content = response.file[0].content.as_ref().unwrap();
+
+        // Verify TestGroupClient class is generated
+        assert!(content.contains("TestGroupClient"));
+        // Verify all four multicast channel method calls are present
+        assert!(content.contains("CallMulticastUnaryAsync"));
+        assert!(content.contains("CallMulticastUnaryStreamAsync"));
+        assert!(content.contains("CallMulticastStreamUnary"));
+        assert!(content.contains("CallMulticastStreamStream"));
+        // Verify multicast return types
+        assert!(content.contains("MulticastItem<"));
     }
 }
