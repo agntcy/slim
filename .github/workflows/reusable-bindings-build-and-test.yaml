@@ -226,7 +226,12 @@ jobs:
 
       - name: Generate Go bindings
         run: |
-          task generate PROFILE=release
+          # Extract version from tag name if present (e.g., slim-bindings-v1.3.0 -> v1.3.0)
+          VERSION="${{ inputs.tag-name }}"
+          VERSION="${VERSION#slim-bindings-}"
+          VERSION="${VERSION:-devel}"
+
+          task generate PROFILE=release VERSION="$VERSION"
 
           echo "📁 slim-bindings-go files:"
           find ./slim_bindings -type f
