@@ -23,11 +23,11 @@ path = "src/main.rs"
 [dependencies]
 # Local workspace
 agntcy-slim = { workspace = true }
-agntcy-slim-config = { workspace = true }
-agntcy-slim-datapath = { workspace = true }
-agntcy-slim-service = { workspace = true }
-agntcy-slim-signal = { workspace = true }
-agntcy-slim-tracing = { workspace = true }
+agntcy-slim-config = { workspace = true, features = ["native"] }
+agntcy-slim-datapath = { workspace = true, features = ["native"] }
+agntcy-slim-service = { workspace = true, features = ["native"] }
+agntcy-slim-signal = { workspace = true, features = ["native"] }
+agntcy-slim-tracing = { workspace = true, features = ["native"] }
 agntcy-slim-version = { workspace = true }
 
 # Error handling

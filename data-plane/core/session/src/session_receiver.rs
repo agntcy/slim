@@ -7,7 +7,7 @@ use std::hash::{Hash, Hasher};
 use slim_datapath::api::ProtoSessionType;
 use slim_datapath::messages::utils::{PUBLISH_TO, TRUE_VAL};
 use slim_datapath::{api::ProtoMessage as Message, messages::Name};
-use tokio::sync::mpsc::Sender;
+use crate::runtime::channel::mpsc::Sender;
 use tracing::debug;
 
 use crate::common::new_message_from_session_fields;
@@ -414,9 +414,9 @@ mod tests {
         // Test 1: receive messages 1 and 2, they should be correctly sent to the app
         let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
 
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app, mut rx_app) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = crate::runtime::channel::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let local_name = Name::from_strings(["org", "ns", "local"]);
@@ -527,9 +527,9 @@ mod tests {
         // Test 2: receive message 1 and 3, detect loss for message 2. RTX timer expires after retries
         let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
 
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app, mut rx_app) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, mut rx_signal) = crate::runtime::channel::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let local_name = Name::from_strings(["org", "ns", "local"]);
@@ -755,9 +755,9 @@ mod tests {
         // so all messages 1, 2, and 3 are sent to the application
         let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
 
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app, mut rx_app) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = crate::runtime::channel::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let local_name = Name::from_strings(["org", "ns", "local"]);
@@ -914,9 +914,9 @@ mod tests {
         // messages 1 and 3 plus an error for message 2
         let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
 
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app, mut rx_app) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = crate::runtime::channel::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let local_name = Name::from_strings(["org", "ns", "local"]);
@@ -1082,9 +1082,9 @@ mod tests {
         // all messages are correctly delivered to the app
         let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
 
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app, mut rx_app) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = crate::runtime::channel::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let local_name = Name::from_strings(["org", "ns", "local"]);
@@ -1218,9 +1218,9 @@ mod tests {
         // we should see an rtx for message 2 from remote2. after this recv a rtx reply and deliver everything to the app
         let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
 
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app, mut rx_app) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = crate::runtime::channel::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let local_name = Name::from_strings(["org", "ns", "local"]);
@@ -1428,9 +1428,9 @@ mod tests {
         // Test that messages with PUBLISH_TO metadata are sent directly to the app without buffering/reordering
         let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
 
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app, mut rx_app) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = crate::runtime::channel::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let local_name = Name::from_strings(["org", "ns", "local"]);
@@ -1497,9 +1497,9 @@ mod tests {
         // Test that PUBLISH_TO metadata is removed in point-to-point sessions on receiver side
         let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
 
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app, mut rx_app) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = crate::runtime::channel::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let local_name = Name::from_strings(["org", "ns", "local"]);
@@ -1561,9 +1561,9 @@ mod tests {
         // Test receiving both normal and PUBLISH_TO messages in a multicast session
         let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
 
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app, mut rx_app) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = crate::runtime::channel::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let local_name = Name::from_strings(["org", "ns", "local"]);
@@ -1686,8 +1686,8 @@ mod tests {
     #[traced_test]
     async fn test_publish_to_no_buffering_unreliable_mode() {
         // Test that in unreliable mode (no timer factory), PUBLISH_TO messages work correctly
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app, mut rx_app) = crate::runtime::channel::mpsc::unbounded_channel();
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let local_name = Name::from_strings(["org", "ns", "local"]);
@@ -1747,9 +1747,9 @@ mod tests {
         // Test that PUBLISH_TO messages are delivered immediately even when out of order
         let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
 
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app, mut rx_app) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = crate::runtime::channel::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let local_name = Name::from_strings(["org", "ns", "local"]);
@@ -1887,9 +1887,9 @@ mod tests {
         // Test receiving PUBLISH_TO messages from multiple senders in multicast session
         let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
 
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app, mut rx_app) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = crate::runtime::channel::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let local_name = Name::from_strings(["org", "ns", "local"]);
@@ -1978,9 +1978,9 @@ mod tests {
         // Verify all ACKs are sent but no messages reach the app, and no RTX requests are generated.
         let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
 
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app, mut rx_app) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = crate::runtime::channel::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let local_name = Name::from_strings(["org", "ns", "local"]);
@@ -2056,9 +2056,9 @@ mod tests {
         // Verify ACKs go to both senders but no messages reach the app.
         let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
 
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app, mut rx_app) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = crate::runtime::channel::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let local_name = Name::from_strings(["org", "ns", "local"]);
@@ -2180,9 +2180,9 @@ mod tests {
         // are not delivered to the app when shutdown_receive=true, but still generate ACKs.
         let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
 
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app, mut rx_app) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = crate::runtime::channel::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let local_name = Name::from_strings(["org", "ns", "local"]);
@@ -2288,8 +2288,8 @@ mod tests {
     async fn test_shutdown_receive_unreliable_mode() {
         // Test: Verify shutdown_receive works in unreliable mode (no timer_factory, no ACKs)
         // Messages should be dropped without being delivered to app.
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app, mut rx_app) = crate::runtime::channel::mpsc::unbounded_channel();
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let local_name = Name::from_strings(["org", "ns", "local"]);

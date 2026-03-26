@@ -6,12 +6,11 @@ use std::{
     time::Duration,
 };
 
-use display_error_chain::ErrorChainExt;
 use slim_datapath::{
     api::{CommandPayload, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType},
     messages::Name,
 };
-use tokio::sync::mpsc::Sender;
+use crate::runtime::channel::mpsc::Sender;
 use tracing::debug;
 
 use crate::{
@@ -469,7 +468,7 @@ impl ControllerSender {
                         .tx_session
                         .try_send(SessionMessage::ParticipantDisconnected { name: None })
                     {
-                        debug!(error = %e.chain(), "failed to send participant disconnected message");
+                        debug!(error = %e, "failed to send participant disconnected message");
                     }
                 }
             }
@@ -602,7 +601,7 @@ impl ControllerSender {
                                 name: Some(k.clone()),
                             })
                     {
-                        debug!(error = %e.chain(), "failed to send participant disconnected message");
+                        debug!(error = %e, "failed to send participant disconnected message");
                     }
                     false // remove from missing_pings
                 } else {
@@ -701,9 +700,9 @@ mod tests {
         // send a discovery request, wait for a retransmission of the message and then get the discovery reply
         let settings = TimerSettings::constant(Duration::from_millis(200)).with_max_retries(3);
 
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app, _) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, mut rx_signal) = crate::runtime::channel::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
@@ -820,9 +819,9 @@ mod tests {
         // send a join request, wait for a retransmission of the message and then get the join reply
         let settings = TimerSettings::constant(Duration::from_millis(200)).with_max_retries(3);
 
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app, _) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, mut rx_signal) = crate::runtime::channel::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
@@ -945,9 +944,9 @@ mod tests {
         // send a leave request, wait for a retransmission of the message and then get the leave reply
         let settings = TimerSettings::constant(Duration::from_millis(200)).with_max_retries(3);
 
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app, _) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, mut rx_signal) = crate::runtime::channel::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
@@ -1064,9 +1063,9 @@ mod tests {
         // send a group welcome, wait for a retransmission of the message and then get the group ack
         let settings = TimerSettings::constant(Duration::from_millis(200)).with_max_retries(3);
 
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app, _) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, mut rx_signal) = crate::runtime::channel::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -1181,9 +1180,9 @@ mod tests {
         // send a group add with 2 participants, wait for retransmission, then send 2 group acks
         let settings = TimerSettings::constant(Duration::from_millis(200)).with_max_retries(3);
 
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app, _) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, mut rx_signal) = crate::runtime::channel::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
@@ -1332,9 +1331,9 @@ mod tests {
         // verify timer doesn't stop until we get acks from BOTH different participants
         let settings = TimerSettings::constant(Duration::from_millis(200)).with_max_retries(3);
 
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app, _) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, mut rx_signal) = crate::runtime::channel::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
@@ -1541,9 +1540,9 @@ mod tests {
         let settings = TimerSettings::constant(Duration::from_millis(400)).with_max_retries(3);
         let ping_interval = Duration::from_millis(1000);
 
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(100);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(100);
+        let (tx_app, _) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, mut rx_signal) = crate::runtime::channel::mpsc::channel(100);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
@@ -1935,9 +1934,9 @@ mod tests {
         let settings = TimerSettings::constant(Duration::from_millis(400)).with_max_retries(3);
         let ping_interval = Duration::from_millis(1000);
 
-        let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(100);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
+        let (tx_slim, _rx_slim) = crate::runtime::channel::mpsc::channel(100);
+        let (tx_app, _) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, mut rx_signal) = crate::runtime::channel::mpsc::channel(100);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
@@ -2133,9 +2132,9 @@ mod tests {
         let settings = TimerSettings::constant(Duration::from_secs(1000)).with_max_retries(3);
         let ping_interval = Duration::from_millis(1000);
 
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(100);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(100);
+        let (tx_app, _) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, mut rx_signal) = crate::runtime::channel::mpsc::channel(100);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
@@ -2365,9 +2364,9 @@ mod tests {
         let settings = TimerSettings::constant(Duration::from_millis(400)).with_max_retries(3);
         let ping_interval = Duration::from_millis(1000);
 
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(100);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(100);
+        let (tx_app, _) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, mut rx_signal) = crate::runtime::channel::mpsc::channel(100);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
@@ -2500,9 +2499,9 @@ mod tests {
         let settings = TimerSettings::constant(Duration::from_millis(400)).with_max_retries(3);
         let ping_interval = Duration::from_millis(1000);
 
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(100);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(100);
+        let (tx_app, _) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, mut rx_signal) = crate::runtime::channel::mpsc::channel(100);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 

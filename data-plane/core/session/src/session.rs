@@ -7,7 +7,7 @@ use slim_datapath::{
     messages::Name,
 };
 
-use tokio::sync::mpsc::{self};
+use crate::runtime::channel::mpsc::{self};
 use tracing::debug;
 
 use crate::{
@@ -146,7 +146,7 @@ impl Session {
         &mut self,
         message: Message,
         direction: MessageDirection,
-        ack_tx: Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
+        ack_tx: Option<crate::runtime::channel::oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<(), SessionError> {
         match message.get_session_message_type() {
             ProtoSessionMessageType::Msg => {
@@ -206,7 +206,8 @@ impl Session {
 
 /// Implementation of MessageHandler trait for Session
 /// This allows Session to be used as a layer in the generic layer system
-#[async_trait]
+#[cfg_attr(feature = "native", async_trait)]
+#[cfg_attr(feature = "wasm", async_trait(?Send))]
 impl MessageHandler for Session {
     async fn init(&mut self) -> Result<(), SessionError> {
         // Session is the innermost layer, no initialization needed
@@ -257,9 +258,9 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_send_message() {
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _rx_app) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app, _rx_app) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, mut rx_signal) = crate::runtime::channel::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim.clone(), tx_app.clone());
         let session_id = 10;
@@ -396,9 +397,9 @@ mod tests {
     #[traced_test]
     async fn test_receive_message() {
         // Create the session
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app, mut rx_app) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal, mut rx_signal) = crate::runtime::channel::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim.clone(), tx_app.clone());
         let session_id = 10;
@@ -609,9 +610,9 @@ mod tests {
         let session_id = 10;
 
         // Sender session setup
-        let (tx_slim_sender, mut rx_slim_sender) = tokio::sync::mpsc::channel(10);
-        let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal_sender, mut rx_signal_sender) = tokio::sync::mpsc::channel(10);
+        let (tx_slim_sender, mut rx_slim_sender) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app_sender, _rx_app_sender) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal_sender, mut rx_signal_sender) = crate::runtime::channel::mpsc::channel(10);
 
         let tx_sender = SessionTransmitter::new(tx_slim_sender.clone(), tx_app_sender.clone());
 
@@ -643,9 +644,9 @@ mod tests {
             .expect("error adding participant");
 
         // Receiver session setup
-        let (tx_slim_receiver, mut rx_slim_receiver) = tokio::sync::mpsc::channel(10);
-        let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal_receiver, _rx_signal_receiver) = tokio::sync::mpsc::channel(10);
+        let (tx_slim_receiver, mut rx_slim_receiver) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_app_receiver, mut rx_app_receiver) = crate::runtime::channel::mpsc::unbounded_channel();
+        let (tx_signal_receiver, _rx_signal_receiver) = crate::runtime::channel::mpsc::channel(10);
 
         let tx_receiver =
             SessionTransmitter::new(tx_slim_receiver.clone(), tx_app_receiver.clone());

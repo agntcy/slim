@@ -11,7 +11,7 @@ use mls_rs::{
 #[cfg(test)]
 use mls_rs::{CipherSuiteProvider, CryptoProvider};
 
-use mls_rs_crypto_awslc::AwsLcCryptoProvider;
+use crate::crypto::CryptoProviderImpl;
 use std::collections::HashSet;
 use tracing::debug;
 
@@ -55,7 +55,7 @@ where
             mls_rs::client_builder::WithIdentityProvider<
                 SlimIdentityProvider<V>,
                 mls_rs::client_builder::WithCryptoProvider<
-                    AwsLcCryptoProvider,
+                    CryptoProviderImpl,
                     mls_rs::client_builder::BaseConfig,
                 >,
             >,
@@ -66,7 +66,7 @@ where
             mls_rs::client_builder::WithIdentityProvider<
                 SlimIdentityProvider<V>,
                 mls_rs::client_builder::WithCryptoProvider<
-                    AwsLcCryptoProvider,
+                    CryptoProviderImpl,
                     mls_rs::client_builder::BaseConfig,
                 >,
             >,
@@ -144,9 +144,8 @@ where
         Ok((private_key, signing_identity))
     }
 
-    #[cfg(test)]
-    fn generate_key_pair() -> Result<(SignatureSecretKey, SignaturePublicKey), MlsError> {
-        let crypto_provider = AwsLcCryptoProvider::default();
+    async fn generate_key_pair() -> Result<(SignatureSecretKey, SignaturePublicKey), MlsError> {
+        let crypto_provider = crate::crypto::default_crypto_provider();
         let cipher_suite_provider = crypto_provider
             .cipher_suite_provider(CIPHERSUITE)
             .ok_or(MlsError::CiphersuiteUnavailable)?;
@@ -186,7 +185,8 @@ where
         // Create signing identity using keys provided by the identity provider
         let (private_key, signing_identity) = self.create_signing_identity(false)?;
 
-        let crypto_provider = AwsLcCryptoProvider::default();
+        let crypto_provider = crate::crypto::default_crypto_provider();
+
         let identity_provider = SlimIdentityProvider::new(self.identity_verifier.clone());
 
         let client = Client::builder()
@@ -918,7 +918,7 @@ mod tests {
 
         // Build MLS client with mismatched private key
         let verifier = SharedSecret::new("alice", SHARED_SECRET).unwrap();
-        let crypto_provider = AwsLcCryptoProvider::default();
+        let crypto_provider = crate::crypto::default_crypto_provider();
         let identity_provider = SlimIdentityProvider::new(verifier.clone());
         let client = Client::builder()
             .identity_provider(identity_provider)

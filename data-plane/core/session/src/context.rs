@@ -45,7 +45,7 @@ impl SessionContext {
     /// Spawn a Tokio task to process the receive channel while returning the session handle.
     ///
     /// The provided closure receives ownership of the `AppChannelReceiver`, a `Weak<SessionController>` and
-    /// the optional metadata. It runs inside a `tokio::spawn` so any panic will be isolated.
+    /// the optional metadata. It runs inside a `crate::runtime::spawn` so any panic will be isolated.
     ///
     /// Example usage:
     /// ```ignore
@@ -63,7 +63,7 @@ impl SessionContext {
     {
         let (session, rx) = self.into_parts();
         let session_clone = session.clone();
-        tokio::spawn(async move {
+        crate::runtime::spawn(async move {
             f(rx, session_clone).await;
         });
         session
@@ -88,15 +88,16 @@ mod tests {
     use slim_auth::traits::{TokenProvider, Verifier};
     use slim_datapath::api::ProtoSessionType;
     use slim_datapath::messages::Name;
-    use tokio::sync::mpsc;
-    use tokio::sync::oneshot;
+    use crate::runtime::channel::mpsc;
+    use crate::runtime::channel::oneshot;
 
     // --- Test doubles -----------------------------------------------------------------------
     // Lightweight provider / verifier used to satisfy generic bounds of sessions.
     #[derive(Clone, Default)]
     struct DummyProvider;
 
-    #[async_trait]
+    #[cfg_attr(feature = "native", async_trait)]
+#[cfg_attr(feature = "wasm", async_trait(?Send))]
     impl TokenProvider for DummyProvider {
         async fn initialize(&mut self) -> Result<(), AuthError> {
             Ok(())
@@ -111,7 +112,8 @@ mod tests {
     }
     #[derive(Clone, Default)]
     struct DummyVerifier;
-    #[async_trait]
+    #[cfg_attr(feature = "native", async_trait)]
+#[cfg_attr(feature = "wasm", async_trait(?Send))]
     impl Verifier for DummyVerifier {
         async fn initialize(&mut self) -> Result<(), AuthError> {
             Ok(())
