@@ -736,3 +736,252 @@ async fn test_multicast_partial_error_unary_stream() {
 
     env.shutdown().await;
 }
+
+// ============================================================================
+// Test 7 — MulticastRpc error carries origin (unary)
+// ============================================================================
+
+/// When a member returns an error in a multicast unary call, the yielded
+/// `RpcError` must be the `MulticastRpc` variant with the `origin` field set
+/// to the failing member's name.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_multicast_error_origin_unary() {
+    const NUM_MEMBERS: usize = 3;
+    let mut env = MulticastTestEnv::new("test-multicast-error-origin-unary", NUM_MEMBERS).await;
+
+    // Member 0 returns an error.
+    env.member_servers[0].register_unary_unary_internal(
+        "TestService",
+        "Echo",
+        move |_req: TestRequest, _ctx: Context| async move {
+            Err::<TestResponse, _>(RpcError::internal("member 0 exploded"))
+        },
+    );
+    // Members 1 and 2 succeed.
+    for i in 1..NUM_MEMBERS {
+        env.member_servers[i].register_unary_unary_internal(
+            "TestService",
+            "Echo",
+            move |req: TestRequest, _ctx: Context| async move {
+                Ok(TestResponse {
+                    member_id: i,
+                    result: format!("M{i}: {}", req.message),
+                    count: req.value + i as i32,
+                })
+            },
+        );
+    }
+    env.start_all_servers().await;
+
+    let stream = env.channel.multicast_unary::<TestRequest, TestResponse>(
+        "TestService",
+        "Echo",
+        TestRequest {
+            message: "hello".to_string(),
+            value: 10,
+        },
+        Some(Duration::from_secs(10)),
+        None,
+    );
+
+    let results = collect_n_mixed(
+        stream,
+        NUM_MEMBERS,
+        Duration::from_secs(10),
+        "error_origin_unary",
+    )
+    .await;
+
+    assert_eq!(results.len(), NUM_MEMBERS);
+
+    let errors: Vec<_> = results.iter().filter_map(|r| r.as_ref().err()).collect();
+    assert_eq!(errors.len(), 1, "expected exactly 1 error");
+
+    let err = &errors[0];
+    let expected_origin = Name::from_strings(["org", "ns", "member-0"]).to_string();
+    match err {
+        RpcError::MulticastRpc {
+            origin,
+            code,
+            message,
+            ..
+        } => {
+            assert_eq!(
+                origin, &expected_origin,
+                "origin must identify the failing member"
+            );
+            assert_eq!(*code, slim_bindings::slimrpc::RpcCode::Internal);
+            assert!(
+                message.contains("member 0 exploded"),
+                "message should be preserved"
+            );
+        }
+        other => panic!("expected MulticastRpc, got: {other:?}"),
+    }
+
+    // Successes should still be plain Ok items with correct context.
+    let successes: Vec<_> = results.iter().filter_map(|r| r.as_ref().ok()).collect();
+    assert_eq!(successes.len(), 2, "expected 2 successes");
+
+    env.shutdown().await;
+}
+
+// ============================================================================
+// Test 8 — MulticastRpc error carries origin (streaming)
+// ============================================================================
+
+/// When a member errors mid-stream, the yielded error must be `MulticastRpc`
+/// with the correct `origin`.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_multicast_error_origin_stream() {
+    const NUM_MEMBERS: usize = 2;
+    const M0_OK_ITEMS: usize = 1;
+    const M1_OK_ITEMS: usize = 2;
+    let mut env = MulticastTestEnv::new("test-multicast-error-origin-stream", NUM_MEMBERS).await;
+
+    // Member 0: 1 ok item then an error.
+    env.member_servers[0].register_unary_stream_internal(
+        "TestService",
+        "Expand",
+        move |req: TestRequest, _ctx: Context| async move {
+            let items: Vec<Result<TestResponse, RpcError>> = (0..M0_OK_ITEMS)
+                .map(|j| {
+                    Ok(TestResponse {
+                        member_id: 0,
+                        result: format!("M0-item{j}: {}", req.message),
+                        count: j as i32,
+                    })
+                })
+                .chain(std::iter::once(Err(RpcError::internal("M0 broke"))))
+                .collect();
+            Ok(stream::iter(items))
+        },
+    );
+    // Member 1: 2 ok items, normal completion.
+    env.member_servers[1].register_unary_stream_internal(
+        "TestService",
+        "Expand",
+        move |req: TestRequest, _ctx: Context| async move {
+            let items: Vec<Result<TestResponse, RpcError>> = (0..M1_OK_ITEMS)
+                .map(|j| {
+                    Ok(TestResponse {
+                        member_id: 1,
+                        result: format!("M1-item{j}: {}", req.message),
+                        count: j as i32,
+                    })
+                })
+                .collect();
+            Ok(stream::iter(items))
+        },
+    );
+    env.start_all_servers().await;
+
+    let stream = env
+        .channel
+        .multicast_unary_stream::<TestRequest, TestResponse>(
+            "TestService",
+            "Expand",
+            TestRequest {
+                message: "x".to_string(),
+                value: 1,
+            },
+            Some(Duration::from_secs(10)),
+            None,
+        );
+
+    let total = M0_OK_ITEMS + 1 + M1_OK_ITEMS;
+    let results = collect_n_mixed(
+        stream,
+        total,
+        Duration::from_secs(10),
+        "error_origin_stream",
+    )
+    .await;
+
+    let errors: Vec<_> = results.iter().filter_map(|r| r.as_ref().err()).collect();
+    assert_eq!(errors.len(), 1, "expected exactly 1 error (from M0)");
+
+    let err = &errors[0];
+    let expected_origin = Name::from_strings(["org", "ns", "member-0"]).to_string();
+    match err {
+        RpcError::MulticastRpc { origin, code, .. } => {
+            assert_eq!(origin, &expected_origin, "origin must identify M0");
+            assert_eq!(*code, slim_bindings::slimrpc::RpcCode::Internal);
+        }
+        other => panic!("expected MulticastRpc, got: {other:?}"),
+    }
+
+    env.shutdown().await;
+}
+
+// ============================================================================
+// Test 9 — MulticastRpc error carries origin for all failing members
+// ============================================================================
+
+/// When multiple members fail, each error must carry its own origin.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_multicast_error_origin_multiple_failures() {
+    const NUM_MEMBERS: usize = 3;
+    let mut env = MulticastTestEnv::new("test-multicast-error-origin-multi", NUM_MEMBERS).await;
+
+    // All members return errors with distinct messages.
+    for i in 0..NUM_MEMBERS {
+        env.member_servers[i].register_unary_unary_internal(
+            "TestService",
+            "Echo",
+            move |_req: TestRequest, _ctx: Context| async move {
+                Err::<TestResponse, _>(RpcError::internal(format!("fail-{i}")))
+            },
+        );
+    }
+    env.start_all_servers().await;
+
+    let stream = env.channel.multicast_unary::<TestRequest, TestResponse>(
+        "TestService",
+        "Echo",
+        TestRequest {
+            message: "hello".to_string(),
+            value: 10,
+        },
+        Some(Duration::from_secs(10)),
+        None,
+    );
+
+    let results = collect_n_mixed(
+        stream,
+        NUM_MEMBERS,
+        Duration::from_secs(10),
+        "error_origin_multi",
+    )
+    .await;
+
+    assert_eq!(results.len(), NUM_MEMBERS);
+
+    // Every result should be a MulticastRpc error.
+    let mut origins: Vec<String> = Vec::new();
+    for result in &results {
+        match result {
+            Err(RpcError::MulticastRpc { origin, .. }) => {
+                origins.push(origin.clone());
+            }
+            Err(other) => panic!("expected MulticastRpc, got: {other:?}"),
+            Ok(item) => panic!("expected error, got success: {:?}", item.message),
+        }
+    }
+
+    // Each member should appear exactly once.
+    origins.sort();
+    let mut expected: Vec<String> = (0..NUM_MEMBERS)
+        .map(|i| Name::from_strings(["org", "ns", &format!("member-{i}")]).to_string())
+        .collect();
+    expected.sort();
+    assert_eq!(
+        origins, expected,
+        "each failing member must appear as an origin"
+    );
+
+    env.shutdown().await;
+}
