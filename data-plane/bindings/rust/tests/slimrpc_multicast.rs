@@ -34,7 +34,7 @@ use slim_service::service::Service;
 use slim_testing::utils::TEST_VALID_SECRET;
 
 use slim_bindings::slimrpc::{
-    Channel, Context, Decoder, Encoder, MulticastItem, RequestStream, RpcError, Server,
+    Channel, Context, DecodedStream, Decoder, Encoder, MulticastItem, RpcError, Server,
 };
 
 // ============================================================================
@@ -403,7 +403,7 @@ async fn test_multicast_stream_unary() {
         server.register_stream_unary_internal(
             "TestService",
             "Sum",
-            move |mut req_stream: RequestStream<TestRequest>, _ctx: Context| async move {
+            move |mut req_stream: DecodedStream<TestRequest>, _ctx: Context| async move {
                 let mut total = 0i32;
                 let mut msgs = Vec::new();
                 while let Some(item) = req_stream.next().await {
@@ -492,7 +492,7 @@ async fn test_multicast_stream_stream() {
         server.register_stream_stream_internal(
             "TestService",
             "Echo",
-            move |mut req_stream: RequestStream<TestRequest>, _ctx: Context| async move {
+            move |mut req_stream: DecodedStream<TestRequest>, _ctx: Context| async move {
                 let responses: Vec<Result<TestResponse, RpcError>> = {
                     let mut v = Vec::new();
                     while let Some(item) = req_stream.next().await {
