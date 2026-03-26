@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.9](https://github.com/agntcy/slim/compare/slim-service-v0.8.8...slim-service-v0.8.9) - 2026-03-26
+
+### Added
+
+- ack for remote subscriptions ([#1364](https://github.com/agntcy/slim/pull/1364))
+- add link negotiation protocol between SLIM nodes ([#1353](https://github.com/agntcy/slim/pull/1353))
+
 ## [0.8.8](https://github.com/agntcy/slim/compare/slim-service-v0.8.7...slim-service-v0.8.8) - 2026-03-20
 
 ### Added
