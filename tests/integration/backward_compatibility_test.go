@@ -15,11 +15,136 @@ import (
 	"github.com/onsi/gomega/gexec"
 )
 
-var _ = Describe("Backward Compatibility", func() {
-	const (
-		testSecret = "a-very-long-shared-secret-abcdef1234567890"
-	)
+// pathGetter is a function type that returns an executable path at runtime
+type pathGetter func() string
 
+// testP2PSession is a helper function that runs a P2P backward compatibility test.
+// It starts a SLIM node, a receiver, and a sender with the specified executable paths.
+func testP2PSession(tempDir string, getSlimPath, getSenderPath, getReceiverPath pathGetter) {
+	slimPort := reservePort()
+
+	replacements := map[string]string{
+		"0.0.0.0:46480": fmt.Sprintf("0.0.0.0:%d", slimPort),
+	}
+	slimConfig := writeTempConfig(tempDir, "./testdata/backward-compat-server-config.yaml", "slim.yaml", replacements)
+
+	// Start SLIM node
+	slimSession, err := gexec.Start(
+		exec.Command(getSlimPath(), "--config", slimConfig),
+		GinkgoWriter, GinkgoWriter,
+	)
+	Expect(err).NotTo(HaveOccurred())
+	defer terminateSession(slimSession, 5*time.Second)
+	Eventually(slimSession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
+
+	// Start receiver
+	receiverSession, err := gexec.Start(
+		exec.Command(
+			getReceiverPath(),
+			"--local", "agntcy/ns/alice",
+			"--shared-secret", "a-very-long-shared-secret-abcdef1234567890",
+			"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
+		),
+		GinkgoWriter, GinkgoWriter,
+	)
+	Expect(err).NotTo(HaveOccurred())
+	defer terminateSession(receiverSession, 5*time.Second)
+	Eventually(receiverSession.Out, 10*time.Second).Should(gbytes.Say("Waiting for incoming session"))
+
+	// Start sender
+	senderSession, err := gexec.Start(
+		exec.Command(
+			getSenderPath(),
+			"--local", "agntcy/ns/bob",
+			"--shared-secret", "a-very-long-shared-secret-abcdef1234567890",
+			"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
+			"--session-type", "p2p",
+			"--participants", "agntcy/ns/alice",
+		),
+		GinkgoWriter, GinkgoWriter,
+	)
+	Expect(err).NotTo(HaveOccurred())
+	defer terminateSession(senderSession, 5*time.Second)
+
+	Eventually(senderSession.Out, 15*time.Second).Should(gbytes.Say("Session .* established"))
+	Eventually(senderSession.Out, 15*time.Second).Should(gbytes.Say("Sending: Message 1"))
+	Eventually(senderSession.Out, 15*time.Second).Should(gbytes.Say("Reply from agntcy/ns/alice.*: Message 1 from agntcy/ns/alice.*"))
+	Eventually(senderSession.Out, 15*time.Second).Should(gbytes.Say("Reply from agntcy/ns/alice.*: Message 10 from agntcy/ns/alice.*"))
+	Eventually(senderSession.Out, 15*time.Second).Should(gbytes.Say("✓ All participants replied correctly"))
+}
+
+// testGroupSession is a helper function that runs a Group backward compatibility test.
+// It starts a SLIM node, two receivers (participants), and a sender (moderator) with the specified executable paths.
+func testGroupSession(tempDir string, getSlimPath, getModeratorPath, getParticipant1Path, getParticipant2Path pathGetter) {
+	slimPort := reservePort()
+
+	replacements := map[string]string{
+		"0.0.0.0:46480": fmt.Sprintf("0.0.0.0:%d", slimPort),
+	}
+	slimConfig := writeTempConfig(tempDir, "./testdata/backward-compat-server-config.yaml", "slim.yaml", replacements)
+
+	// Start SLIM node
+	slimSession, err := gexec.Start(
+		exec.Command(getSlimPath(), "--config", slimConfig),
+		GinkgoWriter, GinkgoWriter,
+	)
+	Expect(err).NotTo(HaveOccurred())
+	defer terminateSession(slimSession, 5*time.Second)
+	Eventually(slimSession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
+
+	// Start participant 1 (alice)
+	participant1Session, err := gexec.Start(
+		exec.Command(
+			getParticipant1Path(),
+			"--local", "agntcy/ns/alice",
+			"--shared-secret", "a-very-long-shared-secret-abcdef1234567890",
+			"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
+		),
+		GinkgoWriter, GinkgoWriter,
+	)
+	Expect(err).NotTo(HaveOccurred())
+	defer terminateSession(participant1Session, 5*time.Second)
+	Eventually(participant1Session.Out, 10*time.Second).Should(gbytes.Say("Waiting for incoming session"))
+
+	// Start participant 2 (charlie)
+	participant2Session, err := gexec.Start(
+		exec.Command(
+			getParticipant2Path(),
+			"--local", "agntcy/ns/charlie",
+			"--shared-secret", "a-very-long-shared-secret-abcdef1234567890",
+			"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
+		),
+		GinkgoWriter, GinkgoWriter,
+	)
+	Expect(err).NotTo(HaveOccurred())
+	defer terminateSession(participant2Session, 5*time.Second)
+	Eventually(participant2Session.Out, 10*time.Second).Should(gbytes.Say("Waiting for incoming session"))
+
+	// Start moderator (bob)
+	moderatorSession, err := gexec.Start(
+		exec.Command(
+			getModeratorPath(),
+			"--local", "agntcy/ns/bob",
+			"--shared-secret", "a-very-long-shared-secret-abcdef1234567890",
+			"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
+			"--session-type", "group",
+			"--participants", "agntcy/ns/alice", "agntcy/ns/charlie",
+		),
+		GinkgoWriter, GinkgoWriter,
+	)
+	Expect(err).NotTo(HaveOccurred())
+	defer terminateSession(moderatorSession, 5*time.Second)
+
+	Eventually(moderatorSession.Out, 15*time.Second).Should(gbytes.Say("Session .* established"))
+	Eventually(moderatorSession.Out, 15*time.Second).Should(gbytes.Say("agntcy/ns/alice.* joined session"))
+	Eventually(moderatorSession.Out, 15*time.Second).Should(gbytes.Say("agntcy/ns/charlie.* joined session"))
+	Eventually(moderatorSession.Out, 15*time.Second).Should(gbytes.Say("Sending: Message 1"))
+	Eventually(moderatorSession.Out, 15*time.Second).Should(gbytes.Say("Reply from agntcy/ns/alice"))
+	Eventually(moderatorSession.Out, 15*time.Second).Should(gbytes.Say("Reply from agntcy/ns/charlie"))
+	Eventually(moderatorSession.Out, 15*time.Second).Should(gbytes.Say("✓ All participants replied correctly"))
+}
+
+var _ = Describe("Backward Compatibility", func() {
 	var (
 		tempDir string
 	)
@@ -35,639 +160,31 @@ var _ = Describe("Backward Compatibility", func() {
 		}
 	})
 
-	// ====================================================================================
-	// Tests on CURRENT SLIM node - All apps (mixed legacy/current) connect to current SLIM
-	// ====================================================================================
-	Describe("apps running on current SLIM node", func() {
-
-		// Test 1a: Latest sender → Legacy receiver (P2P)
-		Describe("latest sender communicating with legacy receiver over P2P", func() {
-			It("should deliver messages bidirectionally", func() {
-				slimPort := reservePort()
-
-				replacements := map[string]string{
-					"0.0.0.0:46480": fmt.Sprintf("0.0.0.0:%d", slimPort),
-				}
-				slimConfig := writeTempConfig(tempDir, "./testdata/backward-compat-server-config.yaml", "slim.yaml", replacements)
-
-				// Start current SLIM node
-				slimSession, err := gexec.Start(
-					exec.Command(slimPath, "--config", slimConfig),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(slimSession, 5*time.Second)
-				Eventually(slimSession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
-
-				// Start legacy receiver
-				legacyReceiverSession, err := gexec.Start(
-					exec.Command(
-						legacyReceiverPath,
-						"--local", "agntcy/ns/alice",
-						"--shared-secret", testSecret,
-						"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
-					),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(legacyReceiverSession, 5*time.Second)
-				Eventually(legacyReceiverSession.Out, 10*time.Second).Should(gbytes.Say("Waiting for incoming session"))
-
-				// Start latest sender
-				latestSenderSession, err := gexec.Start(
-					exec.Command(
-						senderPath,
-						"--local", "agntcy/ns/bob",
-						"--shared-secret", testSecret,
-						"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
-						"--session-type", "p2p",
-						"--participants", "agntcy/ns/alice",
-					),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(latestSenderSession, 5*time.Second)
-
-				Eventually(latestSenderSession.Out, 15*time.Second).Should(gbytes.Say("Session .* established"))
-				Eventually(latestSenderSession.Out, 10*time.Second).Should(gbytes.Say("Sending: Message 1"))
-				Eventually(latestSenderSession.Out, 10*time.Second).Should(gbytes.Say("Reply from agntcy/ns/alice.*: Message 1 from agntcy/ns/alice.*"))
-				Eventually(latestSenderSession.Out, 10*time.Second).Should(gbytes.Say("Reply from agntcy/ns/alice.*: Message 10 from agntcy/ns/alice.*"))
-				Eventually(latestSenderSession.Out, 10*time.Second).Should(gbytes.Say("✓ All participants replied correctly"))
-			})
-		})
-
-		// Test 2a: Legacy sender → Latest receiver (P2P)
-		Describe("legacy sender communicating with latest receiver over P2P", func() {
-			It("should deliver messages bidirectionally", func() {
-				slimPort := reservePort()
-
-				replacements := map[string]string{
-					"0.0.0.0:46480": fmt.Sprintf("0.0.0.0:%d", slimPort),
-				}
-				slimConfig := writeTempConfig(tempDir, "./testdata/backward-compat-server-config.yaml", "slim.yaml", replacements)
-
-				// Start current SLIM node
-				slimSession, err := gexec.Start(
-					exec.Command(slimPath, "--config", slimConfig),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(slimSession, 5*time.Second)
-				Eventually(slimSession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
-
-				// Start latest receiver
-				latestReceiverSession, err := gexec.Start(
-					exec.Command(
-						receiverPath,
-						"--local", "agntcy/ns/alice",
-						"--shared-secret", testSecret,
-						"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
-					),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(latestReceiverSession, 5*time.Second)
-				Eventually(latestReceiverSession.Out, 10*time.Second).Should(gbytes.Say("Waiting for incoming session"))
-
-				// Start legacy sender
-				legacySenderSession, err := gexec.Start(
-					exec.Command(
-						legacySenderPath,
-						"--local", "agntcy/ns/bob",
-						"--shared-secret", testSecret,
-						"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
-						"--session-type", "p2p",
-						"--participants", "agntcy/ns/alice",
-					),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(legacySenderSession, 5*time.Second)
-
-				Eventually(legacySenderSession.Out, 15*time.Second).Should(gbytes.Say("Session .* established"))
-				Eventually(legacySenderSession.Out, 15*time.Second).Should(gbytes.Say("Sending: Message 1"))
-				Eventually(legacySenderSession.Out, 15*time.Second).Should(gbytes.Say("Reply from agntcy/ns/alice.*: Message 1 from agntcy/ns/alice.*"))
-				Eventually(legacySenderSession.Out, 15*time.Second).Should(gbytes.Say("Reply from agntcy/ns/alice.*: Message 10 from agntcy/ns/alice.*"))
-				Eventually(legacySenderSession.Out, 15*time.Second).Should(gbytes.Say("✓ All participants replied correctly"))
-			})
-		})
-
-		// Test 5a: Both legacy apps (P2P)
-		Describe("legacy sender communicating with legacy receiver over P2P", func() {
-			It("should deliver messages bidirectionally", func() {
-				slimPort := reservePort()
-
-				replacements := map[string]string{
-					"0.0.0.0:46480": fmt.Sprintf("0.0.0.0:%d", slimPort),
-				}
-				slimConfig := writeTempConfig(tempDir, "./testdata/backward-compat-server-config.yaml", "slim.yaml", replacements)
-
-				// Start current SLIM node
-				slimSession, err := gexec.Start(
-					exec.Command(slimPath, "--config", slimConfig),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(slimSession, 5*time.Second)
-				Eventually(slimSession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
-
-				// Start legacy receiver
-				legacyReceiverSession, err := gexec.Start(
-					exec.Command(
-						legacyReceiverPath,
-						"--local", "agntcy/ns/alice",
-						"--shared-secret", testSecret,
-						"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
-					),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(legacyReceiverSession, 5*time.Second)
-				Eventually(legacyReceiverSession.Out, 10*time.Second).Should(gbytes.Say("Waiting for incoming session"))
-
-				// Start legacy sender
-				legacySenderSession, err := gexec.Start(
-					exec.Command(
-						legacySenderPath,
-						"--local", "agntcy/ns/bob",
-						"--shared-secret", testSecret,
-						"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
-						"--session-type", "p2p",
-						"--participants", "agntcy/ns/alice",
-					),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(legacySenderSession, 5*time.Second)
-
-				Eventually(legacySenderSession.Out, 15*time.Second).Should(gbytes.Say("Session .* established"))
-				Eventually(legacySenderSession.Out, 15*time.Second).Should(gbytes.Say("Sending: Message 1"))
-				Eventually(legacySenderSession.Out, 15*time.Second).Should(gbytes.Say("Reply from agntcy/ns/alice.*: Message 1 from agntcy/ns/alice.*"))
-				Eventually(legacySenderSession.Out, 15*time.Second).Should(gbytes.Say("Reply from agntcy/ns/alice.*: Message 10 from agntcy/ns/alice.*"))
-				Eventually(legacySenderSession.Out, 15*time.Second).Should(gbytes.Say("✓ All participants replied correctly"))
-			})
-		})
-
-		// Test 3a: Latest moderator with mixed participants (Group)
-		Describe("latest moderator with mixed legacy and latest participants in group session", func() {
-			It("should deliver group messages to all participants", func() {
-				slimPort := reservePort()
-
-				replacements := map[string]string{
-					"0.0.0.0:46480": fmt.Sprintf("0.0.0.0:%d", slimPort),
-				}
-				slimConfig := writeTempConfig(tempDir, "./testdata/backward-compat-server-config.yaml", "slim.yaml", replacements)
-
-				// Start current SLIM node
-				slimSession, err := gexec.Start(
-					exec.Command(slimPath, "--config", slimConfig),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(slimSession, 5*time.Second)
-				Eventually(slimSession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
-
-				// Start latest receiver (participant1 - alice)
-				latestParticipantSession, err := gexec.Start(
-					exec.Command(
-						receiverPath,
-						"--local", "agntcy/ns/alice",
-						"--shared-secret", testSecret,
-						"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
-					),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(latestParticipantSession, 5*time.Second)
-				Eventually(latestParticipantSession.Out, 10*time.Second).Should(gbytes.Say("Waiting for incoming session"))
-
-				// Start legacy receiver (participant2 - charlie)
-				legacyParticipantSession, err := gexec.Start(
-					exec.Command(
-						legacyReceiverPath,
-						"--local", "agntcy/ns/charlie",
-						"--shared-secret", testSecret,
-						"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
-					),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(legacyParticipantSession, 5*time.Second)
-				Eventually(legacyParticipantSession.Out, 10*time.Second).Should(gbytes.Say("Waiting for incoming session"))
-
-				// Start latest moderator (sender - bob)
-				latestModeratorSession, err := gexec.Start(
-					exec.Command(
-						senderPath,
-						"--local", "agntcy/ns/bob",
-						"--shared-secret", testSecret,
-						"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
-						"--session-type", "group",
-						"--participants", "agntcy/ns/alice", "agntcy/ns/charlie",
-					),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(latestModeratorSession, 5*time.Second)
-
-				Eventually(latestModeratorSession.Out, 15*time.Second).Should(gbytes.Say("Session .* established"))
-				Eventually(latestModeratorSession.Out, 15*time.Second).Should(gbytes.Say("agntcy/ns/alice.* joined session"))
-				Eventually(latestModeratorSession.Out, 15*time.Second).Should(gbytes.Say("agntcy/ns/charlie.* joined session"))
-				Eventually(latestModeratorSession.Out, 15*time.Second).Should(gbytes.Say("Sending: Message 1"))
-				Eventually(latestModeratorSession.Out, 15*time.Second).Should(gbytes.Say("Reply from agntcy/ns/alice"))
-				Eventually(latestModeratorSession.Out, 15*time.Second).Should(gbytes.Say("Reply from agntcy/ns/charlie"))
-				Eventually(latestModeratorSession.Out, 15*time.Second).Should(gbytes.Say("✓ All participants replied correctly"))
-			})
-		})
-
-		// Test 4a: Legacy moderator with mixed participants (Group)
-		Describe("legacy moderator with mixed legacy and latest participants in group session", func() {
-			It("should deliver group messages to all participants", func() {
-				slimPort := reservePort()
-
-				replacements := map[string]string{
-					"0.0.0.0:46480": fmt.Sprintf("0.0.0.0:%d", slimPort),
-				}
-				slimConfig := writeTempConfig(tempDir, "./testdata/backward-compat-server-config.yaml", "slim.yaml", replacements)
-
-				// Start current SLIM node
-				slimSession, err := gexec.Start(
-					exec.Command(slimPath, "--config", slimConfig),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(slimSession, 5*time.Second)
-				Eventually(slimSession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
-
-				// Start legacy receiver (participant1 - alice)
-				legacyParticipantSession, err := gexec.Start(
-					exec.Command(
-						legacyReceiverPath,
-						"--local", "agntcy/ns/alice",
-						"--shared-secret", testSecret,
-						"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
-					),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(legacyParticipantSession, 5*time.Second)
-				Eventually(legacyParticipantSession.Out, 10*time.Second).Should(gbytes.Say("Waiting for incoming session"))
-
-				// Start latest receiver (participant2 - charlie)
-				latestParticipantSession, err := gexec.Start(
-					exec.Command(
-						receiverPath,
-						"--local", "agntcy/ns/charlie",
-						"--shared-secret", testSecret,
-						"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
-					),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(latestParticipantSession, 5*time.Second)
-				Eventually(latestParticipantSession.Out, 10*time.Second).Should(gbytes.Say("Waiting for incoming session"))
-
-				// Start legacy moderator (sender - bob)
-				legacyModeratorSession, err := gexec.Start(
-					exec.Command(
-						legacySenderPath,
-						"--local", "agntcy/ns/bob",
-						"--shared-secret", testSecret,
-						"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
-						"--session-type", "group",
-						"--participants", "agntcy/ns/alice", "agntcy/ns/charlie",
-					),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(legacyModeratorSession, 5*time.Second)
-
-				Eventually(legacyModeratorSession.Out, 15*time.Second).Should(gbytes.Say("Session .* established"))
-				Eventually(legacyModeratorSession.Out, 15*time.Second).Should(gbytes.Say("agntcy/ns/alice.* joined session"))
-				Eventually(legacyModeratorSession.Out, 15*time.Second).Should(gbytes.Say("agntcy/ns/charlie.* joined session"))
-				Eventually(legacyModeratorSession.Out, 15*time.Second).Should(gbytes.Say("Sending: Message 1"))
-				Eventually(legacyModeratorSession.Out, 15*time.Second).Should(gbytes.Say("Reply from agntcy/ns/alice"))
-				Eventually(legacyModeratorSession.Out, 15*time.Second).Should(gbytes.Say("Reply from agntcy/ns/charlie"))
-				Eventually(legacyModeratorSession.Out, 15*time.Second).Should(gbytes.Say("✓ All participants replied correctly"))
-			})
-		})
-	})
-
-	// ====================================================================================
-	// Tests on LEGACY SLIM node - All apps (mixed legacy/current) connect to legacy SLIM
-	// ====================================================================================
-	Describe("apps running on legacy SLIM node", func() {
-
-		// Test 1b: Latest sender → Legacy receiver (P2P)
-		Describe("latest sender communicating with legacy receiver over P2P", func() {
-			It("should deliver messages bidirectionally", func() {
-				slimPort := reservePort()
-
-				replacements := map[string]string{
-					"0.0.0.0:46480": fmt.Sprintf("0.0.0.0:%d", slimPort),
-				}
-				slimConfig := writeTempConfig(tempDir, "./testdata/backward-compat-server-config.yaml", "slim.yaml", replacements)
-
-				// Start legacy SLIM node
-				slimSession, err := gexec.Start(
-					exec.Command(legacySlimPath, "--config", slimConfig),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(slimSession, 5*time.Second)
-				Eventually(slimSession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
-
-				// Start legacy receiver
-				legacyReceiverSession, err := gexec.Start(
-					exec.Command(
-						legacyReceiverPath,
-						"--local", "agntcy/ns/alice",
-						"--shared-secret", testSecret,
-						"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
-					),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(legacyReceiverSession, 5*time.Second)
-				Eventually(legacyReceiverSession.Out, 10*time.Second).Should(gbytes.Say("Waiting for incoming session"))
-
-				// Start latest sender
-				latestSenderSession, err := gexec.Start(
-					exec.Command(
-						senderPath,
-						"--local", "agntcy/ns/bob",
-						"--shared-secret", testSecret,
-						"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
-						"--session-type", "p2p",
-						"--participants", "agntcy/ns/alice",
-					),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(latestSenderSession, 5*time.Second)
-
-				Eventually(latestSenderSession.Out, 15*time.Second).Should(gbytes.Say("Session .* established"))
-				Eventually(latestSenderSession.Out, 15*time.Second).Should(gbytes.Say("Sending: Message 1"))
-				Eventually(latestSenderSession.Out, 15*time.Second).Should(gbytes.Say("Reply from agntcy/ns/alice.*: Message 1 from agntcy/ns/alice.*"))
-				Eventually(latestSenderSession.Out, 15*time.Second).Should(gbytes.Say("Reply from agntcy/ns/alice.*: Message 10 from agntcy/ns/alice.*"))
-				Eventually(latestSenderSession.Out, 15*time.Second).Should(gbytes.Say("✓ All participants replied correctly"))
-			})
-		})
-
-		// Test 2b: Legacy sender → Latest receiver (P2P)
-		Describe("legacy sender communicating with latest receiver over P2P", func() {
-			It("should deliver messages bidirectionally", func() {
-				slimPort := reservePort()
-
-				replacements := map[string]string{
-					"0.0.0.0:46480": fmt.Sprintf("0.0.0.0:%d", slimPort),
-				}
-				slimConfig := writeTempConfig(tempDir, "./testdata/backward-compat-server-config.yaml", "slim.yaml", replacements)
-
-				// Start legacy SLIM node
-				slimSession, err := gexec.Start(
-					exec.Command(legacySlimPath, "--config", slimConfig),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(slimSession, 5*time.Second)
-				Eventually(slimSession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
-
-				// Start latest receiver
-				latestReceiverSession, err := gexec.Start(
-					exec.Command(
-						receiverPath,
-						"--local", "agntcy/ns/alice",
-						"--shared-secret", testSecret,
-						"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
-					),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(latestReceiverSession, 5*time.Second)
-				Eventually(latestReceiverSession.Out, 10*time.Second).Should(gbytes.Say("Waiting for incoming session"))
-
-				// Start legacy sender
-				legacySenderSession, err := gexec.Start(
-					exec.Command(
-						legacySenderPath,
-						"--local", "agntcy/ns/bob",
-						"--shared-secret", testSecret,
-						"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
-						"--session-type", "p2p",
-						"--participants", "agntcy/ns/alice",
-					),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(legacySenderSession, 5*time.Second)
-
-				Eventually(legacySenderSession.Out, 15*time.Second).Should(gbytes.Say("Session .* established"))
-				Eventually(legacySenderSession.Out, 15*time.Second).Should(gbytes.Say("Sending: Message 1"))
-				Eventually(legacySenderSession.Out, 15*time.Second).Should(gbytes.Say("Reply from agntcy/ns/alice.*: Message 1 from agntcy/ns/alice.*"))
-				Eventually(legacySenderSession.Out, 15*time.Second).Should(gbytes.Say("Reply from agntcy/ns/alice.*: Message 10 from agntcy/ns/alice.*"))
-				Eventually(legacySenderSession.Out, 15*time.Second).Should(gbytes.Say("✓ All participants replied correctly"))
-			})
-		})
-
-		// Test 5b: Both latest apps (P2P)
-		Describe("latest sender communicating with latest receiver over P2P", func() {
-			It("should deliver messages bidirectionally", func() {
-				slimPort := reservePort()
-
-				replacements := map[string]string{
-					"0.0.0.0:46480": fmt.Sprintf("0.0.0.0:%d", slimPort),
-				}
-				slimConfig := writeTempConfig(tempDir, "./testdata/backward-compat-server-config.yaml", "slim.yaml", replacements)
-
-				// Start legacy SLIM node
-				slimSession, err := gexec.Start(
-					exec.Command(legacySlimPath, "--config", slimConfig),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(slimSession, 5*time.Second)
-				Eventually(slimSession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
-
-				// Start latest receiver
-				latestReceiverSession, err := gexec.Start(
-					exec.Command(
-						receiverPath,
-						"--local", "agntcy/ns/alice",
-						"--shared-secret", testSecret,
-						"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
-					),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(latestReceiverSession, 5*time.Second)
-				Eventually(latestReceiverSession.Out, 10*time.Second).Should(gbytes.Say("Waiting for incoming session"))
-
-				// Start latest sender
-				latestSenderSession, err := gexec.Start(
-					exec.Command(
-						senderPath,
-						"--local", "agntcy/ns/bob",
-						"--shared-secret", testSecret,
-						"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
-						"--session-type", "p2p",
-						"--participants", "agntcy/ns/alice",
-					),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(latestSenderSession, 5*time.Second)
-
-				Eventually(latestSenderSession.Out, 15*time.Second).Should(gbytes.Say("Session .* established"))
-				Eventually(latestSenderSession.Out, 10*time.Second).Should(gbytes.Say("Sending: Message 1"))
-				Eventually(latestSenderSession.Out, 10*time.Second).Should(gbytes.Say("Reply from agntcy/ns/alice.*: Message 1 from agntcy/ns/alice.*"))
-				Eventually(latestSenderSession.Out, 10*time.Second).Should(gbytes.Say("Reply from agntcy/ns/alice.*: Message 10 from agntcy/ns/alice.*"))
-				Eventually(latestSenderSession.Out, 10*time.Second).Should(gbytes.Say("✓ All participants replied correctly"))
-			})
-		})
-
-		// Test 3b: Latest moderator with mixed participants (Group)
-		Describe("latest moderator with mixed legacy and latest participants in group session", func() {
-			It("should deliver group messages to all participants", func() {
-				slimPort := reservePort()
-
-				replacements := map[string]string{
-					"0.0.0.0:46480": fmt.Sprintf("0.0.0.0:%d", slimPort),
-				}
-				slimConfig := writeTempConfig(tempDir, "./testdata/backward-compat-server-config.yaml", "slim.yaml", replacements)
-
-				// Start legacy SLIM node
-				slimSession, err := gexec.Start(
-					exec.Command(legacySlimPath, "--config", slimConfig),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(slimSession, 5*time.Second)
-				Eventually(slimSession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
-
-				// Start latest receiver (participant1 - alice)
-				latestParticipantSession, err := gexec.Start(
-					exec.Command(
-						receiverPath,
-						"--local", "agntcy/ns/alice",
-						"--shared-secret", testSecret,
-						"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
-					),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(latestParticipantSession, 5*time.Second)
-				Eventually(latestParticipantSession.Out, 10*time.Second).Should(gbytes.Say("Waiting for incoming session"))
-
-				// Start legacy receiver (participant2 - charlie)
-				legacyParticipantSession, err := gexec.Start(
-					exec.Command(
-						legacyReceiverPath,
-						"--local", "agntcy/ns/charlie",
-						"--shared-secret", testSecret,
-						"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
-					),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(legacyParticipantSession, 5*time.Second)
-				Eventually(legacyParticipantSession.Out, 10*time.Second).Should(gbytes.Say("Waiting for incoming session"))
-
-				// Start latest moderator (sender - bob)
-				latestModeratorSession, err := gexec.Start(
-					exec.Command(
-						senderPath,
-						"--local", "agntcy/ns/bob",
-						"--shared-secret", testSecret,
-						"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
-						"--session-type", "group",
-						"--participants", "agntcy/ns/alice", "agntcy/ns/charlie",
-					),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(latestModeratorSession, 5*time.Second)
-
-				Eventually(latestModeratorSession.Out, 15*time.Second).Should(gbytes.Say("Session .* established"))
-				Eventually(latestModeratorSession.Out, 15*time.Second).Should(gbytes.Say("agntcy/ns/alice.* joined session"))
-				Eventually(latestModeratorSession.Out, 15*time.Second).Should(gbytes.Say("agntcy/ns/charlie.* joined session"))
-				Eventually(latestModeratorSession.Out, 15*time.Second).Should(gbytes.Say("Sending: Message 1"))
-				Eventually(latestModeratorSession.Out, 15*time.Second).Should(gbytes.Say("Reply from agntcy/ns/alice"))
-				Eventually(latestModeratorSession.Out, 15*time.Second).Should(gbytes.Say("Reply from agntcy/ns/charlie"))
-				Eventually(latestModeratorSession.Out, 15*time.Second).Should(gbytes.Say("✓ All participants replied correctly"))
-			})
-		})
-
-		// Test 4b: Legacy moderator with mixed participants (Group)
-		Describe("legacy moderator with mixed legacy and latest participants in group session", func() {
-			It("should deliver group messages to all participants", func() {
-				slimPort := reservePort()
-
-				replacements := map[string]string{
-					"0.0.0.0:46480": fmt.Sprintf("0.0.0.0:%d", slimPort),
-				}
-				slimConfig := writeTempConfig(tempDir, "./testdata/backward-compat-server-config.yaml", "slim.yaml", replacements)
-
-				// Start legacy SLIM node
-				slimSession, err := gexec.Start(
-					exec.Command(legacySlimPath, "--config", slimConfig),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(slimSession, 5*time.Second)
-				Eventually(slimSession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
-
-				// Start legacy receiver (participant1 - alice)
-				legacyParticipantSession, err := gexec.Start(
-					exec.Command(
-						legacyReceiverPath,
-						"--local", "agntcy/ns/alice",
-						"--shared-secret", testSecret,
-						"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
-					),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(legacyParticipantSession, 5*time.Second)
-				Eventually(legacyParticipantSession.Out, 10*time.Second).Should(gbytes.Say("Waiting for incoming session"))
-
-				// Start latest receiver (participant2 - charlie)
-				latestParticipantSession, err := gexec.Start(
-					exec.Command(
-						receiverPath,
-						"--local", "agntcy/ns/charlie",
-						"--shared-secret", testSecret,
-						"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
-					),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(latestParticipantSession, 5*time.Second)
-				Eventually(latestParticipantSession.Out, 10*time.Second).Should(gbytes.Say("Waiting for incoming session"))
-
-				// Start legacy moderator (sender - bob)
-				legacyModeratorSession, err := gexec.Start(
-					exec.Command(
-						legacySenderPath,
-						"--local", "agntcy/ns/bob",
-						"--shared-secret", testSecret,
-						"--slim", fmt.Sprintf("http://localhost:%d", slimPort),
-						"--session-type", "group",
-						"--participants", "agntcy/ns/alice", "agntcy/ns/charlie",
-					),
-					GinkgoWriter, GinkgoWriter,
-				)
-				Expect(err).NotTo(HaveOccurred())
-				defer terminateSession(legacyModeratorSession, 5*time.Second)
-
-				Eventually(legacyModeratorSession.Out, 15*time.Second).Should(gbytes.Say("Session .* established"))
-				Eventually(legacyModeratorSession.Out, 15*time.Second).Should(gbytes.Say("agntcy/ns/alice.* joined session"))
-				Eventually(legacyModeratorSession.Out, 15*time.Second).Should(gbytes.Say("agntcy/ns/charlie.* joined session"))
-				Eventually(legacyModeratorSession.Out, 15*time.Second).Should(gbytes.Say("Sending: Message 1"))
-				Eventually(legacyModeratorSession.Out, 15*time.Second).Should(gbytes.Say("Reply from agntcy/ns/alice"))
-				Eventually(legacyModeratorSession.Out, 15*time.Second).Should(gbytes.Say("Reply from agntcy/ns/charlie"))
-				Eventually(legacyModeratorSession.Out, 15*time.Second).Should(gbytes.Say("✓ All participants replied correctly"))
-			})
-		})
-	})
+	// P2P session tests with different combinations of SLIM and app versions
+	DescribeTable("P2P sessions",
+		func(getSlimPath, getSenderPath, getReceiverPath pathGetter) {
+			testP2PSession(tempDir, getSlimPath, getSenderPath, getReceiverPath)
+		},
+		// Tests on CURRENT SLIM node
+		Entry("current SLIM: latest sender → legacy receiver", func() string { return slimPath }, func() string { return senderPath }, func() string { return legacyReceiverPath }),
+		Entry("current SLIM: legacy sender → latest receiver", func() string { return slimPath }, func() string { return legacySenderPath }, func() string { return receiverPath }),
+		Entry("current SLIM: legacy sender → legacy receiver", func() string { return slimPath }, func() string { return legacySenderPath }, func() string { return legacyReceiverPath }),
+		// Tests on LEGACY SLIM node
+		Entry("legacy SLIM: latest sender → legacy receiver", func() string { return legacySlimPath }, func() string { return senderPath }, func() string { return legacyReceiverPath }),
+		Entry("legacy SLIM: legacy sender → latest receiver", func() string { return legacySlimPath }, func() string { return legacySenderPath }, func() string { return receiverPath }),
+		Entry("legacy SLIM: latest sender → latest receiver", func() string { return legacySlimPath }, func() string { return senderPath }, func() string { return receiverPath }),
+	)
+
+	// Group session tests with different combinations of SLIM and app versions
+	DescribeTable("Group sessions",
+		func(getSlimPath, getModeratorPath, getParticipant1Path, getParticipant2Path pathGetter) {
+			testGroupSession(tempDir, getSlimPath, getModeratorPath, getParticipant1Path, getParticipant2Path)
+		},
+		// Tests on CURRENT SLIM node
+		Entry("current SLIM: latest moderator with mixed participants", func() string { return slimPath }, func() string { return senderPath }, func() string { return receiverPath }, func() string { return legacyReceiverPath }),
+		Entry("current SLIM: legacy moderator with mixed participants", func() string { return slimPath }, func() string { return legacySenderPath }, func() string { return receiverPath }, func() string { return legacyReceiverPath }),
+		// Tests on LEGACY SLIM node
+		Entry("legacy SLIM: latest moderator with mixed participants", func() string { return legacySlimPath }, func() string { return senderPath }, func() string { return receiverPath }, func() string { return legacyReceiverPath }),
+		Entry("legacy SLIM: legacy moderator with mixed participants", func() string { return legacySlimPath }, func() string { return legacySenderPath }, func() string { return receiverPath }, func() string { return legacyReceiverPath }),
+	)
 })
