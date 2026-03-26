@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.10](https://github.com/agntcy/slim/compare/slim-controller-v0.4.9...slim-controller-v0.4.10) - 2026-03-26
+
+### Added
+
+- ack for remote subscriptions ([#1364](https://github.com/agntcy/slim/pull/1364))
+- MLS identity key integration and security dependency upgrades ([#1394](https://github.com/agntcy/slim/pull/1394))
+- add link negotiation protocol between SLIM nodes ([#1353](https://github.com/agntcy/slim/pull/1353))
+
 ## [0.4.9](https://github.com/agntcy/slim/compare/slim-controller-v0.4.8...slim-controller-v0.4.9) - 2026-03-20
 
 ### Added
