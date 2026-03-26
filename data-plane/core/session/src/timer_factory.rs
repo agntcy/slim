@@ -4,8 +4,8 @@
 use std::{sync::Arc, time::Duration};
 
 use slim_datapath::{api::ProtoSessionMessageType, messages::Name};
-use tokio::sync::mpsc::Sender;
-use tonic::async_trait;
+use crate::runtime::channel::mpsc::Sender;
+use async_trait::async_trait;
 use tracing::debug;
 
 use crate::{
@@ -19,7 +19,8 @@ struct ReliableTimerObserver {
     name: Option<Name>,
 }
 
-#[async_trait]
+#[cfg_attr(feature = "native", async_trait)]
+#[cfg_attr(feature = "wasm", async_trait(?Send))]
 impl TimerObserver for ReliableTimerObserver {
     async fn on_timeout(&self, message_id: u32, timeouts: u32) {
         if let Err(e) = self
@@ -172,7 +173,7 @@ impl TimerFactory {
 mod tests {
     use super::*;
     use std::time::Duration;
-    use tokio::sync::mpsc;
+    use crate::runtime::channel::mpsc;
     use tokio::time::timeout;
 
     // Helper function to create test names

@@ -5,13 +5,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use display_error_chain::ErrorChainExt;
 // Third-party crates
 use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
 
 use slim_datapath::messages::utils::IS_MODERATOR;
-use tokio::sync::mpsc::Sender;
+use crate::runtime::channel::mpsc::Sender;
 use tracing::{Instrument, debug, error, warn};
 
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -90,7 +89,7 @@ where
     transmitter: T,
 
     /// Channel to clone on session creation
-    tx_session: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
+    tx_session: crate::runtime::channel::mpsc::Sender<Result<SessionMessage, SessionError>>,
 
     /// map from session id to session context
     /// once a new session is created on reception of a join request, store it temporarily
@@ -126,7 +125,7 @@ where
         direction: Direction,
         service_id: String,
     ) -> Self {
-        let (tx_session, rx_session) = tokio::sync::mpsc::channel(16);
+        let (tx_session, rx_session) = crate::runtime::channel::mpsc::channel(16);
 
         let subscription_manager = SubscriptionManager::new(tx_slim.clone());
 
@@ -243,7 +242,7 @@ where
                 })?
         } else {
             // For non-P2P sessions, return an immediately resolved future
-            let (tx, rx) = tokio::sync::oneshot::channel();
+            let (tx, rx) = crate::runtime::channel::oneshot::channel();
             let _ = tx.send(Ok(()));
             CompletionHandle::from_oneshot_receiver(rx)
         };
@@ -294,7 +293,7 @@ where
             }; // lock is dropped here
 
             // Create a new transmitter with identity interceptors
-            let (app_tx, app_rx) = tokio::sync::mpsc::unbounded_channel();
+            let (app_tx, app_rx) = crate::runtime::channel::mpsc::unbounded_channel();
             let tx = SessionTransmitter::new(self.tx_slim.clone(), app_tx);
 
             let identity_interceptor = Arc::new(IdentityInterceptor::new(
@@ -352,33 +351,29 @@ where
 
     pub fn listen_from_sessions(
         &self,
-        mut rx_session: tokio::sync::mpsc::Receiver<Result<SessionMessage, SessionError>>,
+        mut rx_session: crate::runtime::channel::mpsc::Receiver<Result<SessionMessage, SessionError>>,
     ) {
         let pool_clone = self.pool.clone();
         let sessions_span = tracing::info_span!(parent: None, "listen_from_sessions", service_id = %self.service_id);
 
-        tokio::spawn(async move {
+        crate::runtime::spawn(async move {
             loop {
-                tokio::select! {
-                    next = rx_session.recv() => {
-                        match next {
-                            Some(Ok(SessionMessage::DeleteSession { session_id })) => {
-                                debug!(%session_id, "received closing signal, cancel session from the pool");
-                                if pool_clone.write().remove(&session_id).is_none() {
-                                    warn!(%session_id, "requested to delete unknown session");
-                                }
-                            }
-                            Some(Ok(m)) => {
-                                error!(?m, "received unexpected message");
-                            }
-                            Some(Err(e)) => {
-                                warn!(error = %e.chain(), "error from session");
-                            }
-                            None => {
-                                // All senders dropped; exit loop.
-                                break;
-                            }
+                match rx_session.recv().await {
+                    Some(Ok(SessionMessage::DeleteSession { session_id })) => {
+                        debug!(%session_id, "received closing signal, cancel session from the pool");
+                        if pool_clone.write().remove(&session_id).is_none() {
+                            warn!(%session_id, "requested to delete unknown session");
                         }
+                    }
+                    Some(Ok(m)) => {
+                        error!(?m, "received unexpected message");
+                    }
+                    Some(Err(e)) => {
+                        warn!(error = %e, "error from session");
+                    }
+                    None => {
+                        // All senders dropped; exit loop.
+                        break;
                     }
                 }
             }
@@ -453,7 +448,7 @@ where
         // Extract context and session ID from the error
         let Some(session_ctx) = error.session_context() else {
             debug!(
-                error = %error.chain(),
+                error = %error,
                 "received error without session context in handle_error_from_slim",
             );
             return Ok(());
@@ -464,7 +459,7 @@ where
 
         if let Some(controller) = session_controller {
             debug!(
-                error = %error.chain(),
+                error = %error,
                 session_id = %session_id,
                 "received error from SLIM for session id",
             );
@@ -474,7 +469,7 @@ where
         }
 
         debug!(
-            error = %error.chain(),
+            error = %error,
             "received error from SLIM for unknown session id",
         );
 
@@ -718,7 +713,7 @@ mod tests {
     use slim_datapath::Status;
     use slim_datapath::api::ProtoSessionType;
     use slim_datapath::messages::Name;
-    use tokio::sync::mpsc;
+    use crate::runtime::channel::mpsc;
 
     // --- Test Mocks -----------------------------------------------------------------------
 
