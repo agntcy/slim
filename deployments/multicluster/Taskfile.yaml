@@ -7,11 +7,11 @@ version: "3"
 # This Taskfile includes specific tasks for the naive deployment strategy.
 
 includes:
-  templates: 
+  templates:
     taskfile: ../Taskfile.yaml
     internal: true
 
-  apps: 
+  apps:
     taskfile: ../client_apps/Taskfile.yaml
     dir: ../client_apps
     internal: true
@@ -23,7 +23,7 @@ vars:
   CLUSTER_ADMIN_TRUST_DOMAIN: '{{ .CLUSTER_ADMIN_TRUST_DOMAIN | default "admin.example" }}'
   CLUSTER_A_TRUST_DOMAIN: '{{ .CLUSTER_A_TRUST_DOMAIN | default "cluster-a.example" }}'
   CLUSTER_B_TRUST_DOMAIN: '{{ .CLUSTER_B_TRUST_DOMAIN | default "cluster-b.example" }}'
-  
+
 #  Suppress task name and command output by default
 silent: true
 
@@ -34,7 +34,7 @@ tasks:
 
   multi-cluster:up:
     desc: Start a local Kubernetes cluster using Kind
-    cmds: 
+    cmds:
       # Start cloud provider for LoadBalancer support
       - task: multi-cluster:lb:up
 
@@ -44,8 +44,8 @@ tasks:
 
   multi-cluster:down:
     desc: Delete the local Kubernetes cluster
-    cmds: 
-      - kind delete cluster --name {{ .CLUSTER_ADMIN_TRUST_DOMAIN }}    
+    cmds:
+      - kind delete cluster --name {{ .CLUSTER_ADMIN_TRUST_DOMAIN }}
       - kind delete cluster --name {{ .CLUSTER_A_TRUST_DOMAIN }}
       - kind delete cluster --name {{ .CLUSTER_B_TRUST_DOMAIN }}
       - rm -f ./*.spiffe
@@ -57,7 +57,7 @@ tasks:
     vars:
       TRUST_DOMAIN: '{{ .TRUST_DOMAIN | default "" }}'
       SERVICE_TYPE: '{{ .SERVICE_TYPE | default "LoadBalancer" }}'
-      BUNDLE_PATH: '{{ .BUNDLE_PATH | default "spire-bundle.spiffe" }}'    
+      BUNDLE_PATH: '{{ .BUNDLE_PATH | default "spire-bundle.spiffe" }}'
     cmds:
       - |
         helm upgrade --install  \
@@ -84,12 +84,12 @@ tasks:
         --wait-for-jobs \
         --timeout "15m"
       - |
-        kubectl get configmap -n {{ .SPIRE_NAMESPACE }} spire-bundle -o json | jq '.data."bundle.spiffe"' -r > {{ .BUNDLE_PATH }}      
+        kubectl get configmap -n {{ .SPIRE_NAMESPACE }} spire-bundle -o json | jq '.data."bundle.spiffe"' -r > {{ .BUNDLE_PATH }}
 
   spire:deploy:
     desc: Set up federation between SPIRE servers
     cmds:
-      - kubectl config use-context kind-{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}    
+      - kubectl config use-context kind-{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}
       - task: spire:server:deploy
         vars:
           TRUST_DOMAIN: '{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}'
@@ -97,7 +97,7 @@ tasks:
           SPIRE_NAMESPACE: '{{ .SPIRE_NAMESPACE }}'
       - task slim:wait-for-lb LB_HOSTNAME=spire.{{ .CLUSTER_ADMIN_TRUST_DOMAIN }} SVC_NAME=spire-server NAMESPACE='{{ .SPIRE_NAMESPACE }}'
 
-      - kubectl config use-context kind-{{ .CLUSTER_A_TRUST_DOMAIN }}    
+      - kubectl config use-context kind-{{ .CLUSTER_A_TRUST_DOMAIN }}
       - task: spire:server:deploy
         vars:
           TRUST_DOMAIN: '{{ .CLUSTER_A_TRUST_DOMAIN }}'
@@ -136,7 +136,7 @@ tasks:
         EOF
 
   spire:federation:deploy:
-    desc: Set up federation between clusters      
+    desc: Set up federation between clusters
     cmds:
       - task: spire:federation:gen-resource
         vars:
@@ -163,7 +163,7 @@ tasks:
       - kubectl config use-context kind-{{ .CLUSTER_A_TRUST_DOMAIN }}
       - echo "Creating federation config on {{ .CLUSTER_A_TRUST_DOMAIN }} for {{ .CLUSTER_B_TRUST_DOMAIN }} ..."
       - kubectl apply -f ./{{ .CLUSTER_B_TRUST_DOMAIN }}.yaml -n {{ .SPIRE_NAMESPACE }}
- 
+
       - kubectl config use-context kind-{{ .CLUSTER_B_TRUST_DOMAIN }}
       - echo "Creating federation config on {{ .CLUSTER_B_TRUST_DOMAIN }} for {{ .CLUSTER_ADMIN_TRUST_DOMAIN }} ..."
       - kubectl apply -f ./{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}.yaml -n {{ .SPIRE_NAMESPACE }}
@@ -181,9 +181,9 @@ tasks:
           --namespace slim \
           --create-namespace \
           --set image.tag="{{ .SLIM_CONTROLLER_IMAGE_TAG }}" \
-          --values controller-values.yaml   
+          --values controller-values.yaml
 
-      - task slim:wait-for-lb LB_HOSTNAME=slim-control.{{ .CLUSTER_ADMIN_TRUST_DOMAIN }} SVC_NAME=slim-control   
+      - task slim:wait-for-lb LB_HOSTNAME=slim-control.{{ .CLUSTER_ADMIN_TRUST_DOMAIN }} SVC_NAME=slim-control
 
   slim:deploy:
     desc: Deploy Slim using the StatefulSet deployment strategy
@@ -191,7 +191,7 @@ tasks:
     requires:
       vars: [SLIM_IMAGE_TAG]
 
-    deps: 
+    deps:
       # - templates:cluster:use-context
 
     cmds:
@@ -204,7 +204,7 @@ tasks:
           --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" \
           --values cluster-a-values.yaml
 
-      - task slim:wait-for-lb LB_HOSTNAME=slim.{{ .CLUSTER_A_TRUST_DOMAIN }}         
+      - task slim:wait-for-lb LB_HOSTNAME=slim.{{ .CLUSTER_A_TRUST_DOMAIN }}
       # Deploy SLIM to cluster-b
       - kubectl config use-context kind-{{ .CLUSTER_B_TRUST_DOMAIN }}
       - |
@@ -214,7 +214,7 @@ tasks:
           --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" \
           --values cluster-b-values.yaml
 
-      - task slim:wait-for-lb LB_HOSTNAME=slim.{{ .CLUSTER_B_TRUST_DOMAIN }}     
+      - task slim:wait-for-lb LB_HOSTNAME=slim.{{ .CLUSTER_B_TRUST_DOMAIN }}
 
   slim:wait-for-lb:
     desc: Wait for LoadBalancer IP to be available (with timeout)
@@ -232,7 +232,7 @@ tasks:
           LB_IP=$(kubectl get service -n {{.NAMESPACE}} {{.SVC_NAME}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
           if [ -n "$LB_IP" ] && [ "$LB_IP" != "<pending>" ] && [ "$LB_IP" != "null" ]; then
             echo "LoadBalancer IP assigned: $LB_IP"
-            echo -e "\e[32mAdd to your /etc/hosts: $LB_IP    {{.LB_HOSTNAME}}\e[0m"            
+            echo -e "\e[32mAdd to your /etc/hosts: $LB_IP    {{.LB_HOSTNAME}}\e[0m"
             exit 0
           fi
           echo "LoadBalancer IP not yet available, waiting... ($COUNTER/{{.TIMEOUT}})"
@@ -251,7 +251,7 @@ tasks:
     cmds:
       - |
         echo "Starting Kind cloud provider for LoadBalancer support..."
-        bash -c "go run sigs.k8s.io/cloud-provider-kind@latest >/dev/null 2>&1 &"
+        sudo bash -c "go run sigs.k8s.io/cloud-provider-kind@latest >/dev/null 2>&1 &"
 
   multi-cluster:lb:down:
     desc: Stop cloud provider for LoadBalancer support
@@ -263,7 +263,7 @@ tasks:
       - |
         echo "Stopping Kind cloud provider for LoadBalancer support..."
         kill -9 $(ps aux | grep [c]loud-provider-kind | awk '{print $2}')
-  
+
   test.sender:deploy:
     desc: Deploy sender application with SPIRE
     deps:
@@ -271,7 +271,7 @@ tasks:
         vars:
           KIND_CLUSTER_NAMES: '{{ .CLUSTER_A_TRUST_DOMAIN }},{{ .CLUSTER_B_TRUST_DOMAIN }}'
     vars:
-      TEMPLATE: '{{ .TEMPLATE | default "./with_spire/sender.yaml" }}'  
+      TEMPLATE: '{{ .TEMPLATE | default "./with_spire/sender.yaml" }}'
       NAMESPACE: '{{ .NAMESPACE | default "default" }}'
     cmds:
       - task: apps:k8s:apply
@@ -286,12 +286,10 @@ tasks:
         vars:
           KIND_CLUSTER_NAMES: '{{ .CLUSTER_A_TRUST_DOMAIN }},{{ .CLUSTER_B_TRUST_DOMAIN }}'
     vars:
-      TEMPLATE: '{{ .TEMPLATE | default "./with_spire/receiver.yaml" }}'  
+      TEMPLATE: '{{ .TEMPLATE | default "./with_spire/receiver.yaml" }}'
       NAMESPACE: '{{ .NAMESPACE | default "default" }}'
     cmds:
       - task: apps:k8s:apply
         vars:
           TEMPLATE: '{{ .TEMPLATE }}'
           NAMESPACE: '{{ .NAMESPACE }}'
-  
-
