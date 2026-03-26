@@ -74,7 +74,30 @@ jobs:
           for platform_dir in ./artifacts/bindings-*/; do
             if [ -d "$platform_dir" ]; then
               platform_name=$(basename "$platform_dir" | sed 's/^bindings-//')
-              echo "📦 Zipping libraries for platform: $platform_name"
+              echo "📦 Preparing libraries for platform: $platform_name"
+
+              # Rename libraries to platform-specific names expected by consumers (e.g. Go cgo directives)
+              TARGET="$platform_name"
+              ARCH=$(echo "$TARGET" | cut -d'-' -f1)
+              OS=$(echo "$TARGET" | cut -d'-' -f3)
+              ABI=$(echo "$TARGET" | cut -d'-' -f4)
+
+              if [ -n "$ABI" ] && [ "$ABI" != "" ]; then
+                LIB_NAME="${LIBRARY_NAME}_${ARCH}_${OS}_${ABI}"
+              else
+                LIB_NAME="${LIBRARY_NAME}_${ARCH}_${OS}"
+              fi
+
+              for file in "$platform_dir"/lib${LIBRARY_NAME}* "$platform_dir"/${LIBRARY_NAME}.*; do
+                if [ -f "$file" ]; then
+                  filename=$(basename "$file")
+                  new_filename="${filename/${LIBRARY_NAME}/${LIB_NAME}}"
+                  if [ "$filename" != "$new_filename" ]; then
+                    mv "$file" "$platform_dir/$new_filename"
+                    echo "   Renamed: $filename -> $new_filename"
+                  fi
+                fi
+              done
 
               cd "$platform_dir"
               zip -r "../../release-artifacts/slim-bindings-${platform_name}.zip" *

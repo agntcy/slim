@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9](https://github.com/agntcy/slim/compare/slim-session-v0.1.8...slim-session-v0.1.9) - 2026-03-26
+
+### Added
+
+- ack for remote subscriptions ([#1364](https://github.com/agntcy/slim/pull/1364))
+- MLS identity key integration and security dependency upgrades ([#1394](https://github.com/agntcy/slim/pull/1394))
+
+### Fixed
+
+- *(session)* delay invite ACK until MLS update sequence completes ([#1393](https://github.com/agntcy/slim/pull/1393))
+
 ## [0.1.8](https://github.com/agntcy/slim/compare/slim-session-v0.1.7...slim-session-v0.1.8) - 2026-03-20
 
 ### Added

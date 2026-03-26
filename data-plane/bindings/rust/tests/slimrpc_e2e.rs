@@ -16,9 +16,9 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 
 use slim_bindings::{
-    App, Channel, Direction, IdentityProviderConfig, IdentityVerifierConfig, Name, RpcCode,
-    RpcError, Server, StreamMessage, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler,
-    UnaryUnaryHandler, initialize_with_defaults,
+    App, Channel, Direction, IdentityProviderConfig, IdentityVerifierConfig,
+    MulticastStreamMessage, Name, RpcCode, RpcError, Server, StreamMessage, StreamStreamHandler,
+    StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler, initialize_with_defaults,
 };
 
 // ============================================================================
@@ -2245,4 +2245,361 @@ async fn test_context_all_fields() {
     }
 
     env.server.shutdown_async().await;
+}
+
+// ============================================================================
+// Multicast UniFFI tests
+//
+// These tests exercise the four `call_multicast_*` wrappers exposed through
+// the UniFFI API:
+//   - call_multicast_unary / call_multicast_unary_async
+//   - call_multicast_unary_stream / call_multicast_unary_stream_async
+//   - call_multicast_stream_unary  (via MulticastBidiStreamHandler)
+//   - call_multicast_stream_stream (via MulticastBidiStreamHandler)
+//
+// Topology: N member apps each running a Server, one client App holding a
+// GROUP Channel created with Channel::new_group().
+// ============================================================================
+
+/// Helper: create `num_members` UniFFI member (App + Server) pairs and a
+/// GROUP Channel that targets all of them. Returns the server apps (kept alive
+/// for the duration of the test), the servers, the channel, and the
+/// Arc<Name>s used for the members.
+async fn setup_multicast_env(
+    test_name: &str,
+    num_members: usize,
+) -> (Vec<Arc<App>>, Vec<Arc<Server>>, Channel, Vec<Arc<Name>>) {
+    initialize_with_defaults();
+
+    let provider_config = IdentityProviderConfig::SharedSecret {
+        id: "test-provider".to_string(),
+        data: "test-secret-with-sufficient-length-for-hmac-key".to_string(),
+    };
+    let verifier_config = IdentityVerifierConfig::SharedSecret {
+        id: "test-verifier".to_string(),
+        data: "test-secret-with-sufficient-length-for-hmac-key".to_string(),
+    };
+
+    let mut server_apps = Vec::new();
+    let mut servers = Vec::new();
+    let mut member_names: Vec<Arc<Name>> = Vec::new();
+
+    for i in 0..num_members {
+        let member_name = Arc::new(Name::new(
+            "org".to_string(),
+            "test".to_string(),
+            format!("{}-m{}", test_name, i),
+        ));
+        let app = App::new_with_direction_async(
+            member_name.clone(),
+            provider_config.clone(),
+            verifier_config.clone(),
+            Direction::Bidirectional,
+        )
+        .await
+        .expect("Failed to create member app");
+        let server = Arc::new(Server::new(&app, member_name.clone()));
+        server_apps.push(app);
+        servers.push(server);
+        member_names.push(member_name);
+    }
+
+    // Client app — separate identity, holds the GROUP channel
+    let client_name = Arc::new(Name::new(
+        "org".to_string(),
+        "test".to_string(),
+        format!("{}-client", test_name),
+    ));
+    let client_app = App::new_with_direction_async(
+        client_name,
+        provider_config,
+        verifier_config,
+        Direction::Bidirectional,
+    )
+    .await
+    .expect("Failed to create client app");
+
+    let channel = Channel::new_group(client_app, member_names.clone())
+        .expect("Failed to create GROUP channel");
+
+    (server_apps, servers, channel, member_names)
+}
+
+/// Start all servers in background tasks and give them time to subscribe.
+async fn start_multicast_servers(servers: &[Arc<Server>]) {
+    for s in servers {
+        let s = s.clone();
+        tokio::spawn(async move {
+            if let Err(e) = s.serve_async().await {
+                eprintln!("Member server error: {:?}", e);
+            }
+        });
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+}
+
+// ── Test: call_multicast_unary_async ─────────────────────────────────────────
+
+/// Broadcast one request to 2 members (echo handler). Expect 2 `Data` items
+/// each containing the original payload, then `End`. Also verify that the
+/// source names in the context match the member names.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_uniffi_multicast_unary() {
+    let (_apps, servers, channel, member_names) = setup_multicast_env("uniffi-mc-unary", 2).await;
+
+    for s in &servers {
+        s.register_unary_unary(
+            "TestService".to_string(),
+            "Echo".to_string(),
+            Arc::new(EchoHandler),
+        );
+    }
+    start_multicast_servers(&servers).await;
+
+    let request = b"hello multicast".to_vec();
+    let reader = channel
+        .call_multicast_unary_async(
+            "TestService".to_string(),
+            "Echo".to_string(),
+            request.clone(),
+            Some(Duration::from_secs(10)),
+            None,
+        )
+        .await
+        .expect("call_multicast_unary_async failed");
+
+    let mut items = Vec::new();
+    loop {
+        match reader.next_async().await {
+            MulticastStreamMessage::Data { item } => {
+                assert_eq!(item.message, request, "Each member should echo the request");
+                items.push(item);
+            }
+            MulticastStreamMessage::Error { error: e } => panic!("Unexpected error: {:?}", e),
+            MulticastStreamMessage::End => break,
+        }
+    }
+
+    assert_eq!(items.len(), 2, "Should receive one response per member");
+
+    // Verify that both member sources are represented in the responses.
+    let sources: Vec<Vec<String>> = items
+        .iter()
+        .map(|i| i.context.source.components())
+        .collect();
+    let expected: Vec<Vec<String>> = member_names.iter().map(|n| n.components()).collect();
+    for exp in &expected {
+        assert!(
+            sources.contains(exp),
+            "Source {:?} missing from {:?}",
+            exp,
+            sources
+        );
+    }
+
+    for s in &servers {
+        s.shutdown_async().await;
+    }
+}
+
+// ── Test: call_multicast_unary_stream_async ───────────────────────────────────
+
+/// Each of 2 members streams 3 counter responses. Expect 6 `Data` items total
+/// (3 per member) then `End`.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_uniffi_multicast_unary_stream() {
+    let (_apps, servers, channel, _member_names) =
+        setup_multicast_env("uniffi-mc-unary-stream", 2).await;
+
+    for s in &servers {
+        s.register_unary_stream(
+            "TestService".to_string(),
+            "Counter".to_string(),
+            Arc::new(CounterHandler),
+        );
+    }
+    start_multicast_servers(&servers).await;
+
+    // Request 3 items per member -> 2 members * 3 = 6 total
+    let count = 3u32;
+    let reader = channel
+        .call_multicast_unary_stream_async(
+            "TestService".to_string(),
+            "Counter".to_string(),
+            count.to_le_bytes().to_vec(),
+            Some(Duration::from_secs(10)),
+            None,
+        )
+        .await
+        .expect("call_multicast_unary_stream_async failed");
+
+    let mut data_count = 0usize;
+    loop {
+        match reader.next_async().await {
+            MulticastStreamMessage::Data { .. } => data_count += 1,
+            MulticastStreamMessage::Error { error: e } => panic!("Unexpected error: {:?}", e),
+            MulticastStreamMessage::End => break,
+        }
+    }
+
+    assert_eq!(
+        data_count,
+        2 * 3,
+        "Should receive 3 responses from each of 2 members"
+    );
+
+    for s in &servers {
+        s.shutdown_async().await;
+    }
+}
+
+// ── Test: call_multicast_stream_unary ─────────────────────────────────────────
+
+/// Stream 3 u32 values to 2 accumulator members. Expect 2 `Data` items (one
+/// per member), each reporting total=60 and count=3, then `End`.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_uniffi_multicast_stream_unary() {
+    let (_apps, servers, channel, _member_names) =
+        setup_multicast_env("uniffi-mc-stream-unary", 2).await;
+
+    for s in &servers {
+        s.register_stream_unary(
+            "TestService".to_string(),
+            "Accumulator".to_string(),
+            Arc::new(AccumulatorHandler),
+        );
+    }
+    start_multicast_servers(&servers).await;
+
+    let handler = channel.call_multicast_stream_unary(
+        "TestService".to_string(),
+        "Accumulator".to_string(),
+        Some(Duration::from_secs(10)),
+        None,
+    );
+
+    // Send three values that sum to 60
+    for v in [10u32, 20u32, 30u32] {
+        handler
+            .send_async(v.to_le_bytes().to_vec())
+            .await
+            .expect("send failed");
+    }
+    handler.close_send_async().await.expect("close_send failed");
+
+    // Collect responses - one per member
+    let mut responses = Vec::new();
+    loop {
+        match handler.recv_async().await {
+            MulticastStreamMessage::Data { item } => responses.push(item),
+            MulticastStreamMessage::Error { error: e } => panic!("Unexpected error: {:?}", e),
+            MulticastStreamMessage::End => break,
+        }
+    }
+
+    assert_eq!(responses.len(), 2, "Should receive one response per member");
+    for item in &responses {
+        assert_eq!(
+            item.message.len(),
+            8,
+            "Response must be 8 bytes (total + count)"
+        );
+        let total = u32::from_le_bytes([
+            item.message[0],
+            item.message[1],
+            item.message[2],
+            item.message[3],
+        ]);
+        let count = u32::from_le_bytes([
+            item.message[4],
+            item.message[5],
+            item.message[6],
+            item.message[7],
+        ]);
+        assert_eq!(total, 60, "Accumulated total should be 60");
+        assert_eq!(count, 3, "Message count should be 3");
+    }
+
+    for s in &servers {
+        s.shutdown_async().await;
+    }
+}
+
+// ── Test: call_multicast_stream_stream ────────────────────────────────────────
+
+/// Send 2 messages to 2 echo members via stream-stream. Expect 4 `Data` items
+/// (each member echoes each message) with both member sources present, then
+/// `End`.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_uniffi_multicast_stream_stream() {
+    let (_apps, servers, channel, member_names) =
+        setup_multicast_env("uniffi-mc-stream-stream", 2).await;
+
+    for s in &servers {
+        s.register_stream_stream(
+            "TestService".to_string(),
+            "StreamEcho".to_string(),
+            Arc::new(StreamEchoHandler),
+        );
+    }
+    start_multicast_servers(&servers).await;
+
+    let handler = channel.call_multicast_stream_stream(
+        "TestService".to_string(),
+        "StreamEcho".to_string(),
+        Some(Duration::from_secs(10)),
+        None,
+    );
+
+    // Send in a background task so receiving can proceed concurrently.
+    let handler_clone = handler.clone();
+    let send_task = tokio::spawn(async move {
+        for msg in [vec![1u8, 2, 3], vec![4u8, 5, 6]] {
+            handler_clone.send_async(msg).await.expect("send failed");
+        }
+        handler_clone
+            .close_send_async()
+            .await
+            .expect("close_send failed");
+    });
+
+    // Receive from the main task.
+    let mut received = Vec::new();
+    loop {
+        match handler.recv_async().await {
+            MulticastStreamMessage::Data { item } => received.push(item),
+            MulticastStreamMessage::Error { error: e } => panic!("Unexpected error: {:?}", e),
+            MulticastStreamMessage::End => break,
+        }
+    }
+    send_task.await.expect("send task panicked");
+
+    // 2 members * 2 messages = 4 items
+    assert_eq!(
+        received.len(),
+        4,
+        "Expected 4 items (2 members * 2 messages)"
+    );
+
+    // Both member sources should be present in the received items.
+    let sources: Vec<Vec<String>> = received
+        .iter()
+        .map(|i| i.context.source.components())
+        .collect();
+    let expected: Vec<Vec<String>> = member_names.iter().map(|n| n.components()).collect();
+    for exp in &expected {
+        assert!(
+            sources.contains(exp),
+            "Member source {:?} not found among received items",
+            exp
+        );
+    }
+
+    for s in &servers {
+        s.shutdown_async().await;
+    }
 }

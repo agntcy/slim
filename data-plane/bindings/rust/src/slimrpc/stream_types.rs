@@ -7,11 +7,145 @@
 //! Since UniFFI doesn't support Rust async streams, we provide synchronous
 //! pull/push interfaces backed by async channels.
 
+use std::pin::Pin;
+use std::task::Poll;
+
 use futures::StreamExt;
 use parking_lot::Mutex;
-use tokio::sync::Mutex as TokioMutex;
+use std::sync::Arc;
+use tokio::sync::{
+    Mutex as TokioMutex,
+    mpsc::{self, UnboundedReceiver, UnboundedSender, unbounded_channel},
+};
 
-use super::{Channel, RpcCode, RpcError};
+use super::{Channel, MulticastItem, ReceivedMessage, RpcCode, RpcError, STATUS_CODE_KEY};
+
+/// Raw byte stream for a stream-input RPC call.
+///
+/// Implements [`Stream`] directly using `poll_recv` — no heap allocation.
+/// All fields are [`Unpin`], so this type is `Unpin` too.
+///
+/// Yielded values:
+/// - `Ok(payload)` — normal message bytes
+/// - `Err(e)` — protocol error (bad status code, channel closed)
+///
+/// The stream ends (returns `None`) on EOS or after yielding an error.
+pub struct RawStream {
+    session_rx: Option<mpsc::UnboundedReceiver<ReceivedMessage>>,
+    payload: Vec<u8>,
+    first_is_eos: bool,
+    first_code: RpcCode,
+    /// `true` once the first message has been yielded or skipped.
+    first_done: bool,
+    /// `true` once the stream has permanently ended (EOS, error, or channel close).
+    done: bool,
+}
+
+impl futures::Stream for RawStream {
+    type Item = Result<Vec<u8>, RpcError>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        if self.done {
+            return Poll::Ready(None);
+        }
+
+        // ── First message ────────────────────────────────────────────────────
+        if !self.first_done {
+            self.first_done = true;
+
+            if self.first_is_eos {
+                self.done = true;
+                return Poll::Ready(None);
+            }
+
+            let first_code = self.first_code;
+            if first_code != RpcCode::Ok {
+                let payload = std::mem::take(&mut self.payload);
+                self.done = true;
+                return Poll::Ready(Some(Err(RpcError::new(
+                    first_code,
+                    String::from_utf8_lossy(&payload).into_owned(),
+                ))));
+            }
+
+            let payload = std::mem::take(&mut self.payload);
+            return Poll::Ready(Some(Ok(payload)));
+        }
+
+        // ── Continuation messages ────────────────────────────────────────────
+        let Some(ref mut rx) = self.session_rx else {
+            self.done = true;
+            return Poll::Ready(None);
+        };
+
+        match rx.poll_recv(cx) {
+            Poll::Ready(Some(msg)) => {
+                tracing::debug!("Received message in stream-based method");
+
+                if msg.is_eos() {
+                    self.done = true;
+                    return Poll::Ready(None);
+                }
+
+                let code = RpcCode::from_metadata_str(
+                    msg.metadata.get(STATUS_CODE_KEY).map(String::as_str),
+                );
+                if code != RpcCode::Ok {
+                    let message = String::from_utf8_lossy(&msg.payload).into_owned();
+                    self.done = true;
+                    return Poll::Ready(Some(Err(RpcError::new(code, message))));
+                }
+
+                Poll::Ready(Some(Ok(msg.payload)))
+            }
+            Poll::Ready(None) => {
+                self.done = true;
+                Poll::Ready(Some(Err(RpcError::internal("Stream channel closed"))))
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+/// A decoded request stream: `RawStream` items mapped through `Req::decode`.
+///
+/// Using a concrete named type (instead of `BoxStream`) lets the compiler
+/// stack-allocate the stream combinator and eliminates the `BoxStream`
+/// allocation that `RequestStream<Req>` required.
+///
+/// Handlers registered via `register_stream_unary_internal` /
+/// `register_stream_stream_internal` receive `DecodedStream<Req>` directly.
+pub type DecodedStream<Req> =
+    futures::stream::Map<RawStream, fn(Result<Vec<u8>, RpcError>) -> Result<Req, RpcError>>;
+
+/// Raw stream components passed to stream-input handlers.
+///
+/// Holding the raw components avoids boxing at the dispatch level. Each typed
+/// wrapper calls [`StreamSource::into_raw_stream`] to get a [`RawStream`], then
+/// maps it to the decoded type — with zero heap allocations.
+pub struct StreamSource {
+    pub session_rx: Option<mpsc::UnboundedReceiver<ReceivedMessage>>,
+    pub payload: Vec<u8>,
+    pub first_is_eos: bool,
+    pub first_code: RpcCode,
+}
+
+impl StreamSource {
+    /// Consume `self` and produce an allocation-free [`RawStream`].
+    pub fn into_raw_stream(self) -> RawStream {
+        RawStream {
+            session_rx: self.session_rx,
+            payload: self.payload,
+            first_is_eos: self.first_is_eos,
+            first_code: self.first_code,
+            first_done: false,
+            done: false,
+        }
+    }
+}
 
 /// Request stream reader
 ///
@@ -21,12 +155,12 @@ use super::{Channel, RpcCode, RpcError};
 #[derive(uniffi::Object)]
 pub struct RequestStream {
     /// Inner stream wrapped in a mutex for interior mutability
-    inner: TokioMutex<super::RequestStream<Vec<u8>>>,
+    inner: TokioMutex<DecodedStream<Vec<u8>>>,
 }
 
 impl RequestStream {
     /// Create a new request stream wrapper
-    pub fn new(stream: super::RequestStream<Vec<u8>>) -> Self {
+    pub fn new(stream: DecodedStream<Vec<u8>>) -> Self {
         Self {
             inner: TokioMutex::new(stream),
         }
@@ -74,23 +208,20 @@ pub enum StreamMessage {
 #[derive(uniffi::Object)]
 pub struct ResponseSink {
     /// Channel sender for streaming responses (None when closed)
-    sender: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Result<Vec<u8>, RpcError>>>>,
+    sender: Mutex<Option<UnboundedSender<Result<Vec<u8>, RpcError>>>>,
 }
 
 impl ResponseSink {
     /// Create a new response sink wrapper
-    pub fn new(sender: tokio::sync::mpsc::UnboundedSender<Result<Vec<u8>, RpcError>>) -> Self {
+    pub fn new(sender: UnboundedSender<Result<Vec<u8>, RpcError>>) -> Self {
         Self {
             sender: Mutex::new(Some(sender)),
         }
     }
 
     /// Get the receiver side of the channel
-    pub fn receiver() -> (
-        Self,
-        tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, RpcError>>,
-    ) {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    pub fn receiver() -> (Self, UnboundedReceiver<Result<Vec<u8>, RpcError>>) {
+        let (tx, rx) = unbounded_channel();
         let sink = Self::new(tx);
         (sink, rx)
     }
@@ -179,12 +310,12 @@ impl ResponseSink {
 #[derive(uniffi::Object)]
 pub struct ResponseStreamReader {
     /// Inner receiver channel for stream messages
-    inner: TokioMutex<tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, RpcError>>>,
+    inner: TokioMutex<UnboundedReceiver<Result<Vec<u8>, RpcError>>>,
 }
 
 impl ResponseStreamReader {
     /// Create a new response stream reader
-    pub fn new(rx: tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, RpcError>>) -> Self {
+    pub fn new(rx: UnboundedReceiver<Result<Vec<u8>, RpcError>>) -> Self {
         Self {
             inner: TokioMutex::new(rx),
         }
@@ -218,7 +349,7 @@ impl ResponseStreamReader {
 /// Allows sending multiple request messages and getting a final response.
 #[derive(uniffi::Object)]
 pub struct RequestStreamWriter {
-    sender: TokioMutex<Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>,
+    sender: TokioMutex<Option<UnboundedSender<Vec<u8>>>>,
     response: TokioMutex<Option<tokio::task::JoinHandle<Result<Vec<u8>, RpcError>>>>,
 }
 
@@ -230,7 +361,7 @@ impl RequestStreamWriter {
         timeout: Option<std::time::Duration>,
         metadata: Option<std::collections::HashMap<String, String>>,
     ) -> Self {
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, mut rx) = unbounded_channel();
 
         let channel_clone = channel;
         let service_name_clone = service_name;
@@ -328,8 +459,8 @@ impl RequestStreamWriter {
 /// Allows sending and receiving messages concurrently.
 #[derive(uniffi::Object)]
 pub struct BidiStreamHandler {
-    sender: TokioMutex<Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>,
-    receiver: TokioMutex<tokio::sync::mpsc::UnboundedReceiver<Result<Vec<u8>, RpcError>>>,
+    sender: TokioMutex<Option<UnboundedSender<Vec<u8>>>>,
+    receiver: TokioMutex<UnboundedReceiver<Result<Vec<u8>, RpcError>>>,
 }
 
 impl BidiStreamHandler {
@@ -340,8 +471,8 @@ impl BidiStreamHandler {
         timeout: Option<std::time::Duration>,
         metadata: Option<std::collections::HashMap<String, String>>,
     ) -> Self {
-        let (req_tx, mut req_rx) = tokio::sync::mpsc::unbounded_channel();
-        let (resp_tx, resp_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (req_tx, mut req_rx) = unbounded_channel();
+        let (resp_tx, resp_rx) = unbounded_channel();
 
         // Spawn task to handle the stream_stream call
         crate::get_runtime().spawn(async move {
@@ -425,26 +556,243 @@ impl BidiStreamHandler {
     }
 }
 
+// ── Multicast stream types ────────────────────────────────────────────────────
+
+/// Per-message context for a multicast RPC response — identifies which group
+/// member sent the response.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct RpcMessageContext {
+    /// The SLIM name of the group member that sent this response.
+    pub source: Arc<crate::Name>,
+}
+
+/// A single item in a multicast response stream, pairing the response payload
+/// with the identity of the member that produced it.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct RpcMulticastItem {
+    /// Context identifying the source member.
+    pub context: RpcMessageContext,
+    /// The encoded response payload (raw bytes).
+    pub message: Vec<u8>,
+}
+
+/// Message from a multicast response stream.
+#[derive(uniffi::Enum)]
+pub enum MulticastStreamMessage {
+    /// Successfully received response item with source context.
+    Data { item: RpcMulticastItem },
+    /// Error from one member — other members may still be active.
+    Error { error: RpcError },
+    /// All members have finished — the stream has ended.
+    End,
+}
+
+/// Response stream reader for multicast RPC calls.
+///
+/// Allows pulling `RpcMulticastItem`s from a GROUP response stream one at a
+/// time. Each item carries the source member's identity alongside the payload.
+#[derive(uniffi::Object)]
+pub struct MulticastResponseReader {
+    inner: TokioMutex<UnboundedReceiver<Result<MulticastItem<Vec<u8>>, RpcError>>>,
+}
+
+impl MulticastResponseReader {
+    /// Create a new reader backed by the given mpsc receiver.
+    pub fn new(rx: UnboundedReceiver<Result<MulticastItem<Vec<u8>>, RpcError>>) -> Self {
+        Self {
+            inner: TokioMutex::new(rx),
+        }
+    }
+
+    /// Convert one channel item into a `MulticastStreamMessage`.
+    pub(crate) fn convert_item(
+        item: Result<MulticastItem<Vec<u8>>, RpcError>,
+    ) -> MulticastStreamMessage {
+        match item {
+            Ok(mi) => MulticastStreamMessage::Data {
+                item: RpcMulticastItem {
+                    context: RpcMessageContext {
+                        source: Arc::new(crate::Name::from_slim_name(mi.context.source)),
+                    },
+                    message: mi.message,
+                },
+            },
+            Err(e) => MulticastStreamMessage::Error { error: e },
+        }
+    }
+}
+
+#[uniffi::export]
+impl MulticastResponseReader {
+    /// Pull the next item from the multicast response stream (blocking).
+    pub fn next(&self) -> MulticastStreamMessage {
+        crate::get_runtime().block_on(self.next_async())
+    }
+
+    /// Pull the next item from the multicast response stream (async).
+    pub async fn next_async(&self) -> MulticastStreamMessage {
+        let mut rx = self.inner.lock().await;
+        match rx.recv().await {
+            Some(item) => Self::convert_item(item),
+            None => MulticastStreamMessage::End,
+        }
+    }
+}
+
+/// Bidirectional stream handler for multicast stream-to-unary and
+/// stream-to-stream RPC calls.
+///
+/// Send request messages via [`send`](Self::send) / [`send_async`](Self::send_async),
+/// close the request stream via [`close_send`](Self::close_send), and receive
+/// responses via [`recv`](Self::recv) / [`recv_async`](Self::recv_async). Each
+/// response item carries the source member's identity.
+#[derive(uniffi::Object)]
+pub struct MulticastBidiStreamHandler {
+    sender: TokioMutex<Option<UnboundedSender<Vec<u8>>>>,
+    receiver: TokioMutex<UnboundedReceiver<Result<MulticastItem<Vec<u8>>, RpcError>>>,
+}
+
+impl MulticastBidiStreamHandler {
+    /// Create a new handler that pipes a request stream through a multicast
+    /// `stream_stream` call on `channel`.
+    pub fn new(
+        channel: Channel,
+        service_name: String,
+        method_name: String,
+        timeout: Option<std::time::Duration>,
+        metadata: Option<std::collections::HashMap<String, String>>,
+    ) -> Self {
+        let (req_tx, mut req_rx) = unbounded_channel();
+        let (resp_tx, resp_rx) = unbounded_channel();
+
+        crate::get_runtime().spawn(async move {
+            use async_stream::stream;
+
+            let request_stream = stream! {
+                while let Some(data) = req_rx.recv().await {
+                    yield data;
+                }
+            };
+
+            let response_stream = channel.multicast_stream_stream::<Vec<u8>, Vec<u8>>(
+                &service_name,
+                &method_name,
+                request_stream,
+                timeout,
+                metadata,
+            );
+
+            futures::pin_mut!(response_stream);
+            while let Some(item) = futures::StreamExt::next(&mut response_stream).await {
+                if resp_tx.send(item).is_err() {
+                    break;
+                }
+            }
+        });
+
+        Self {
+            sender: TokioMutex::new(Some(req_tx)),
+            receiver: TokioMutex::new(resp_rx),
+        }
+    }
+}
+
+#[uniffi::export]
+impl MulticastBidiStreamHandler {
+    /// Send a request message to the stream (blocking).
+    pub fn send(&self, data: Vec<u8>) -> Result<(), RpcError> {
+        crate::get_runtime().block_on(self.send_async(data))
+    }
+
+    /// Send a request message to the stream (async).
+    pub async fn send_async(&self, data: Vec<u8>) -> Result<(), RpcError> {
+        let sender = self.sender.lock().await;
+        if let Some(tx) = sender.as_ref() {
+            tx.send(data)
+                .map_err(|_| RpcError::new(RpcCode::Internal, "Stream closed".to_string()))
+        } else {
+            Err(RpcError::new(
+                RpcCode::Internal,
+                "Stream already closed".to_string(),
+            ))
+        }
+    }
+
+    /// Close the request stream — signals that no more messages will be sent
+    /// (blocking).
+    pub fn close_send(&self) -> Result<(), RpcError> {
+        crate::get_runtime().block_on(self.close_send_async())
+    }
+
+    /// Close the request stream (async).
+    pub async fn close_send_async(&self) -> Result<(), RpcError> {
+        let mut sender = self.sender.lock().await;
+        *sender = None;
+        Ok(())
+    }
+
+    /// Receive the next response item (blocking).
+    pub fn recv(&self) -> MulticastStreamMessage {
+        crate::get_runtime().block_on(self.recv_async())
+    }
+
+    /// Receive the next response item (async).
+    pub async fn recv_async(&self) -> MulticastStreamMessage {
+        let mut rx = self.receiver.lock().await;
+        match rx.recv().await {
+            Some(item) => MulticastResponseReader::convert_item(item),
+            None => MulticastStreamMessage::End,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures::stream;
 
     #[tokio::test]
     async fn test_request_stream() {
-        let data = vec![vec![1, 2, 3], vec![4, 5, 6]];
-        let stream = stream::iter(data.clone().into_iter().map(Ok));
-        let request_stream = RequestStream::new(stream.boxed());
+        use crate::slimrpc::{ReceivedMessage, StreamSource};
+        use futures::StreamExt;
+        use slim_datapath::messages::Name;
+
+        let dummy_name = Name::from_strings(["", "", ""]);
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ReceivedMessage>();
+
+        // Second message
+        tx.send(ReceivedMessage {
+            metadata: std::collections::HashMap::new(),
+            payload: vec![4, 5, 6],
+            source: dummy_name.clone(),
+        })
+        .unwrap();
+        // EOS: empty payload with default (Ok) status code
+        tx.send(ReceivedMessage {
+            metadata: std::collections::HashMap::new(),
+            payload: vec![],
+            source: dummy_name,
+        })
+        .unwrap();
+
+        let source = StreamSource {
+            session_rx: Some(rx),
+            payload: vec![1, 2, 3],
+            first_is_eos: false,
+            first_code: RpcCode::Ok,
+        };
+        let decode_fn: fn(Result<Vec<u8>, RpcError>) -> Result<Vec<u8>, RpcError> = |res| res;
+        let stream: DecodedStream<Vec<u8>> = source.into_raw_stream().map(decode_fn);
+        let request_stream = RequestStream::new(stream);
 
         let msg1 = request_stream.next_async().await;
         match msg1 {
-            StreamMessage::Data(d) => assert_eq!(d, data[0]),
+            StreamMessage::Data(d) => assert_eq!(d, vec![1, 2, 3]),
             _ => panic!("Expected data"),
         }
 
         let msg2 = request_stream.next_async().await;
         match msg2 {
-            StreamMessage::Data(d) => assert_eq!(d, data[1]),
+            StreamMessage::Data(d) => assert_eq!(d, vec![4, 5, 6]),
             _ => panic!("Expected data"),
         }
 

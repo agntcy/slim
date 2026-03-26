@@ -23,7 +23,7 @@ use slim_testing::utils::TEST_VALID_SECRET;
 use tokio::sync::Mutex;
 
 use slim_bindings::slimrpc::{
-    Channel, Context, Decoder, Encoder, RequestStream, RpcCode, RpcError, Server,
+    Channel, Context, DecodedStream, Decoder, Encoder, RpcCode, RpcError, Server,
 };
 
 // ============================================================================
@@ -124,7 +124,14 @@ impl TestEnv {
             )
             .unwrap();
         let client_app = Arc::new(client_app);
-        let channel = Channel::new_internal(client_app.clone(), server_app.app_name().clone());
+
+        let channel = Channel::new_with_members_internal(
+            client_app.clone(),
+            vec![server_app.app_name().clone()],
+            false,
+            None,
+        )
+        .expect("single non-empty member list is always valid");
 
         Self {
             service,
@@ -335,7 +342,7 @@ async fn test_stream_unary_rpc() {
     env.server.register_stream_unary_internal(
         "TestService",
         "Sum",
-        |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
+        |mut request_stream: DecodedStream<TestRequest>, _ctx: Context| async move {
             let mut total = 0;
             let mut messages = Vec::new();
 
@@ -404,7 +411,7 @@ async fn test_stream_unary_error_handling() {
     env.server.register_stream_unary_internal(
         "TestService",
         "SumWithValidation",
-        |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
+        |mut request_stream: DecodedStream<TestRequest>, _ctx: Context| async move {
             let mut total = 0;
             let mut messages = Vec::new();
 
@@ -718,7 +725,7 @@ async fn test_stream_stream_with_async_processing() {
     env.server.register_stream_stream_internal(
         "TestService",
         "ProcessAsync",
-        |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
+        |mut request_stream: DecodedStream<TestRequest>, _ctx: Context| async move {
             // Create channel for responses
             let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
@@ -803,7 +810,7 @@ async fn test_empty_stream_unary() {
     env.server.register_stream_unary_internal(
         "TestService",
         "EmptySum",
-        |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
+        |mut request_stream: DecodedStream<TestRequest>, _ctx: Context| async move {
             println!("Processing empty stream...");
 
             let mut count = 0;
@@ -1397,7 +1404,7 @@ async fn test_multiple_handler_types_same_client() {
     env.server.register_stream_unary_internal(
         "MultiService",
         "StreamUnary",
-        move |mut stream: RequestStream<TestRequest>, _ctx: Context| {
+        move |mut stream: DecodedStream<TestRequest>, _ctx: Context| {
             let counter = su_counter.clone();
             async move {
                 let mut c = counter.lock().await;
@@ -1449,7 +1456,7 @@ async fn test_multiple_handler_types_same_client() {
     env.server.register_stream_stream_internal(
         "MultiService",
         "StreamStream",
-        move |mut stream: RequestStream<TestRequest>, _ctx: Context| {
+        move |mut stream: DecodedStream<TestRequest>, _ctx: Context| {
             let counter = ss_counter.clone();
             async move {
                 let mut c = counter.lock().await;
@@ -1819,7 +1826,7 @@ async fn test_server_deadline_stream_unary() {
     env.server.register_stream_unary_internal(
         "TestService",
         "SlowStreamUnary",
-        |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
+        |mut request_stream: DecodedStream<TestRequest>, _ctx: Context| async move {
             // Collect all requests
             let mut messages = Vec::new();
             while let Some(req_result) = request_stream.next().await {
@@ -1879,7 +1886,7 @@ async fn test_server_deadline_stream_stream() {
     env.server.register_stream_stream_internal(
         "TestService",
         "SlowStreamStream",
-        |mut request_stream: RequestStream<TestRequest>, _ctx: Context| async move {
+        |mut request_stream: DecodedStream<TestRequest>, _ctx: Context| async move {
             // Consume one request
             if let Some(req_result) = request_stream.next().await {
                 let _ = req_result?;
@@ -2248,7 +2255,7 @@ async fn test_server_enforces_deadline_for_stream_unary() {
     env.server.register_stream_unary_internal(
         "TestService",
         "SlowStreamProcessor",
-        move |mut request_stream: RequestStream<TestRequest>, _ctx: Context| {
+        move |mut request_stream: DecodedStream<TestRequest>, _ctx: Context| {
             let received = message_received_clone.clone();
             let completed = handler_completed_clone.clone();
             async move {
@@ -2448,7 +2455,7 @@ async fn test_server_enforces_deadline_for_stream_stream() {
     env.server.register_stream_stream_internal(
         "TestService",
         "SlowStreamTransform",
-        move |mut request_stream: RequestStream<TestRequest>, _ctx: Context| {
+        move |mut request_stream: DecodedStream<TestRequest>, _ctx: Context| {
             let received = received_clone.clone();
             let sent = sent_clone.clone();
             let completed = completed_clone.clone();
