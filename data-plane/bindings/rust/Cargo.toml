@@ -46,6 +46,15 @@ uniffi = { workspace = true, features = ["build"] }
 [dev-dependencies]
 agntcy-slim-testing = { workspace = true }
 bincode = { workspace = true }
+clap = { workspace = true }
 test-fork = { workspace = true }
 tokio-test = { workspace = true }
 tracing-test = { workspace = true }
+
+[[example]]
+name = "receiver"
+path = "examples/receiver.rs"
+
+[[example]]
+name = "sender"
+path = "examples/sender.rs"

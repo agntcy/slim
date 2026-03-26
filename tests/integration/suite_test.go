@@ -21,13 +21,19 @@ var (
 
 	suiteName = "Run integration tests"
 
-	slimPath            string
-	legacySlimPath      string
-	sdkMockPath         string
-	legacySDKMockPath   string
-	clientPath          string
-	slimctlPath         string
-	controlPlanePath    string
+	slimPath          string
+	legacySlimPath    string
+	sdkMockPath       string
+	legacySDKMockPath string
+	clientPath        string
+	slimctlPath       string
+	controlPlanePath  string
+
+	// Backward compatibility test apps
+	receiverPath       string
+	senderPath         string
+	legacyReceiverPath string
+	legacySenderPath   string
 )
 
 func mustAbs(p string) string {
@@ -42,11 +48,16 @@ func setBinaryPaths(target string) {
 	sdkMockPath = mustAbs(filepath.Join(dataPlaneTarget, "sdk-mock"))
 	clientPath = mustAbs(filepath.Join(dataPlaneTarget, "client"))
 	slimctlPath = mustAbs(filepath.Join(dataPlaneTarget, "slimctl"))
+	examplesTarget := filepath.Join(dataPlaneTarget, "examples")
+	receiverPath = mustAbs(filepath.Join(examplesTarget, "receiver"))
+	senderPath = mustAbs(filepath.Join(examplesTarget, "sender"))
 
 	distBin := filepath.Join("..", "..", ".dist", "bin")
 	controlPlanePath = mustAbs(filepath.Join(distBin, "control-plane"))
 	legacySlimPath = mustAbs(filepath.Join(distBin, "slim-legacy"))
 	legacySDKMockPath = mustAbs(filepath.Join(distBin, "sdk-mock-legacy"))
+	legacyReceiverPath = mustAbs(filepath.Join(distBin, "receiver-legacy"))
+	legacySenderPath = mustAbs(filepath.Join(distBin, "sender-legacy"))
 }
 
 var _ = BeforeSuite(func() {
