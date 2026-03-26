@@ -86,7 +86,7 @@ impl Name {
     // NULL_COMPONENT is used to represent a component that is not set
     pub const NULL_COMPONENT: u64 = u64::MAX;
 
-    /// Returns true if `id` is a reserved values 
+    /// Returns true if `id` is a reserved values
     pub const fn is_reserved_id(id: u64) -> bool {
         id == Self::NULL_COMPONENT
     }

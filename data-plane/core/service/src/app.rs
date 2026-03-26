@@ -170,7 +170,7 @@ where
         let subscription_manager = session_layer.subscription_manager();
 
         Self {
-            app_name: app_name.clone(),
+            app_name: app_name_with_id,
             service_id: service_id_clone,
             session_layer,
             cancel_token,
@@ -991,8 +991,7 @@ mod tests {
     async fn run_p2p_subscription_test(config: P2PTestConfig) {
         let service = create_test_service(config.test_name);
 
-        let subscriber_name =
-            Name::from_strings(["org", "ns", config.subscriber_suffix]);
+        let subscriber_name = Name::from_strings(["org", "ns", config.subscriber_suffix]);
         let publisher_name = Name::from_strings(["org", "ns", config.publisher_suffix]);
 
         let (subscriber_app, mut subscriber_notifications) =
@@ -1005,13 +1004,16 @@ mod tests {
             && config.subscription_names[0] == "subscriber"
         {
             // Special case: subscribe to the subscriber's own name
-            vec![subscriber_name.clone()]
+            vec![subscriber_app.app_name().clone()]
         } else {
             // Generate multiple subscription names
             config
                 .subscription_names
                 .iter()
-                .map(|suffix| Name::from_strings(["org", "ns", suffix]).with_id(subscriber_app.app_name().id()))
+                .map(|suffix| {
+                    Name::from_strings(["org", "ns", suffix])
+                        .with_id(subscriber_app.app_name().id())
+                })
                 .collect()
         };
 
@@ -1072,6 +1074,7 @@ mod tests {
 
             // Check that the source matches is in sub_names_set
             let src = session_arc.source();
+
             assert!(sub_names_set.contains(src));
 
             // Verify it's a point-to-point session
