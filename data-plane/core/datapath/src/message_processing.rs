@@ -524,52 +524,6 @@ impl MessageProcessor {
         }
     }
 
-    /// Re-send every subscription already forwarded on `out_conn` using the remote
-    /// ack path.  Called after link negotiation completes so that subscriptions
-    /// that were initially forwarded via the default path (before the remote peer's
-    /// version was known) are now confirmed with a full ACK round-trip.
-    fn upgrade_forwarded_subscriptions(&self, out_conn: u64) {
-        let subs = self
-            .forwarder()
-            .get_subscriptions_forwarded_on_connection(out_conn);
-
-        if subs.is_empty() {
-            debug!(%out_conn, "empty subscription set on connection");
-            return;
-        }
-
-        debug!(
-            %out_conn,
-            count = subs.len(),
-            "link negotiation complete: upgrading forwarded subscriptions to remote ack path",
-        );
-
-        for info in subs {
-            let subscription_id = match info.subscription_id() {
-                0 => rand::random::<u64>(),
-                id => id,
-            };
-            let msg = Message::builder()
-                .source(info.source().clone())
-                .destination(info.name().clone())
-                .identity(info.source_identity().clone())
-                .subscription_id(subscription_id)
-                .build_subscribe()
-                .unwrap();
-
-            let rx = self.internal.sub_ack_manager.register(subscription_id);
-            tokio::spawn(crate::subscription_ack::retry_loop(
-                self.clone(),
-                subscription_id,
-                msg,
-                out_conn,
-                out_conn, // in_connection – unused (no upstream to notify)
-                None,
-                rx,
-            ));
-        }
-    }
-
     /// Handle an inbound link negotiation message.
     ///
     /// On request (`is_reply == false`): validate the client-provided `link_id` as UUID v4,
@@ -627,12 +581,6 @@ impl MessageProcessor {
             // version atomically (replay-protected).
             if !conn.complete_negotiation_as_client(link_id, version) {
                 debug!(%in_connection, %link_id, "ignoring link negotiation reply");
-            } else {
-                // Link negotiation just completed on this outgoing connection.
-                // Re-send any subscriptions already forwarded on it using the remote
-                // ack path so the upstream ACK is obtained even though the initial
-                // subscribe fired before negotiation was done.
-                self.upgrade_forwarded_subscriptions(in_connection);
             }
         } else {
             // Server path: validates link_id as UUID v4, stores it together with the remote
@@ -817,6 +765,13 @@ impl MessageProcessor {
             .map(|c| crate::subscription_ack::supports(&c))
             .unwrap_or(false);
 
+        if !use_remote_ack {
+            debug!(
+                forward_to = forward,
+                "subscription: remote ack not available, link negotiation may not have completed yet"
+            );
+        }
+
         // As connection is deleted only after processing, at this point it must exist.
         let Some(connection) = self.forwarder().get_connection(in_conn) else {
             if let Some(id) = subscription_id {
@@ -844,33 +799,23 @@ impl MessageProcessor {
         }
 
         debug!(use_remote_ack, dst = %msg.get_dst(), forward_to = forward, "subscription: ack path decision");
-        if use_remote_ack {
-            debug!(%in_connection, "subscription: remote ack path");
+
+        let sub_id = subscription_id.unwrap_or(0);
+
+        // Always register subscription as at this point we might not have received the link negotiaiion
+        // yet, so the other side might reply just after
+        let rx = self.internal.sub_ack_manager.register(sub_id);
+
+        // Update local state and forward the subscription.
+        let result = self
+            .process_subscription_update_and_forward(msg.clone(), in_conn, forward, add, sub_id)
+            .await;
+
+        // Remote-ack path: on success, spawn a retry loop that waits for the
+        // downstream ACK (the initial send was already done above) and retries
+        // on timeout.
+        if use_remote_ack && result.is_ok() {
             let out_conn = forward.unwrap();
-
-            // Local update only (no forwarding yet).
-            let sub_id = subscription_id.unwrap_or(0);
-            if let Err(e) = self
-                .process_subscription_update_and_forward(msg.clone(), in_conn, None, add, sub_id)
-                .await
-            {
-                if let Some(id) = subscription_id {
-                    debug!(%in_connection, error = %e, "local subscription update failed, sending error ack");
-                    self.send_subscription_ack(in_connection, id, &Err(e)).await;
-                }
-                return Ok(());
-            }
-
-            // The subscription_id stays the same when forwarding — it is a
-            // globally unique identifier that travels with the subscription.
-            // Register it in the ack manager so we can correlate the response.
-            let source = msg.get_source();
-            let dst = msg.get_dst();
-            let identity = msg.get_identity();
-            self.forwarder()
-                .on_forwarded_subscription(source, dst, identity, out_conn, add, sub_id);
-
-            let rx = self.internal.sub_ack_manager.register(sub_id);
 
             tokio::spawn(crate::subscription_ack::retry_loop(
                 self.clone(),
@@ -885,13 +830,7 @@ impl MessageProcessor {
             return Ok(());
         }
 
-        // Default path: update local state and forward, then immediately ACK the requester.
-        debug!(%in_connection, forward = forward.is_some(), "subscription: default ack path");
-        let sub_id = subscription_id.unwrap_or(0);
-        let result = self
-            .process_subscription_update_and_forward(msg, in_conn, forward, add, sub_id)
-            .await;
-
+        // Default path (or remote-ack error fallback): ACK the requester immediately.
         if let Some(id) = subscription_id {
             debug!(%in_connection, ok = result.is_ok(), "sending immediate subscription ack");
             self.send_subscription_ack(in_connection, id, &result).await;
@@ -1892,5 +1831,280 @@ mod tests {
         assert_eq!(ack_inner.subscription_id, upstream_ack_id);
         assert!(!ack_inner.success);
         assert!(!ack_inner.error.is_empty());
+    }
+
+    // ── retry_loop tests ──────────────────────────────────────────────────────
+
+    fn make_test_subscribe(sub_id: u64) -> Message {
+        let source = Name::from_strings(["org", "ns", "src"]).with_id(1);
+        let destination = Name::from_strings(["org", "ns", "dst"]).with_id(2);
+        Message::builder()
+            .source(source)
+            .destination(destination)
+            .subscription_id(sub_id)
+            .build_subscribe()
+            .unwrap()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_retry_loop_ack_received_before_timeout() {
+        // ACK arrives within the first wait window → no retry send.
+        let processor = MessageProcessor::new();
+        let (local_conn, _tx_local, mut rx_local) = processor
+            .register_local_connection(false)
+            .expect("failed to create local connection");
+        let (remote_conn, mut rx_remote) = make_server_conn(&processor);
+
+        let sub_id: u64 = 1000;
+        let msg = make_test_subscribe(sub_id);
+        let rx = processor.internal.sub_ack_manager.register(sub_id);
+
+        let proc_clone = processor.clone();
+        let handle = tokio::spawn(crate::subscription_ack::retry_loop(
+            proc_clone,
+            sub_id,
+            msg,
+            remote_conn,
+            local_conn,
+            Some(sub_id),
+            rx,
+        ));
+
+        // Resolve immediately — the loop should receive it before the timeout.
+        processor.internal.sub_ack_manager.resolve(sub_id, Ok(()));
+
+        handle.await.unwrap();
+
+        // No retry sends should have been made.
+        assert!(
+            rx_remote.try_recv().is_err(),
+            "no retry send expected when ack arrives before timeout"
+        );
+
+        // Upstream ack must have been sent.
+        let ack = rx_local
+            .try_recv()
+            .expect("upstream ack should have been sent")
+            .unwrap();
+        assert!(ack.get_subscription_ack().success);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_retry_loop_timeout_then_retry_send_then_ack() {
+        // First wait times out → retry send → ACK arrives on second wait.
+        let processor = MessageProcessor::new();
+        let (local_conn, _tx_local, mut rx_local) = processor
+            .register_local_connection(false)
+            .expect("failed to create local connection");
+        let (remote_conn, mut rx_remote) = make_server_conn(&processor);
+
+        let sub_id: u64 = 1001;
+        let msg = make_test_subscribe(sub_id);
+        let rx = processor.internal.sub_ack_manager.register(sub_id);
+
+        let proc_clone = processor.clone();
+        let handle = tokio::spawn(crate::subscription_ack::retry_loop(
+            proc_clone,
+            sub_id,
+            msg,
+            remote_conn,
+            local_conn,
+            Some(sub_id),
+            rx,
+        ));
+
+        // Let the first timeout elapse → triggers a retry send.
+        tokio::time::sleep(crate::subscription_ack::TIMEOUT + Duration::from_millis(100)).await;
+
+        // A retry message should have been sent.
+        let retried = rx_remote
+            .try_recv()
+            .expect("retry send expected after first timeout")
+            .unwrap();
+        assert!(retried.get_subscription_id().is_some());
+
+        // Now resolve so the second wait succeeds.
+        processor.internal.sub_ack_manager.resolve(sub_id, Ok(()));
+
+        handle.await.unwrap();
+
+        // Upstream success ack.
+        let ack = rx_local
+            .try_recv()
+            .expect("upstream ack should have been sent")
+            .unwrap();
+        assert!(ack.get_subscription_ack().success);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_retry_loop_retry_send_fails() {
+        // Timeout → retry send fails because the connection is gone → loop
+        // exits with the send error, upstream receives a failure ack.
+        let processor = MessageProcessor::new();
+        let (local_conn, _tx_local, mut rx_local) = processor
+            .register_local_connection(false)
+            .expect("failed to create local connection");
+        let (remote_conn, _rx_remote) = make_server_conn(&processor);
+
+        let sub_id: u64 = 1002;
+        let msg = make_test_subscribe(sub_id);
+        let rx = processor.internal.sub_ack_manager.register(sub_id);
+
+        // Drop the remote connection so send_msg fails on retry.
+        processor.connection_table().remove(remote_conn as usize);
+
+        let proc_clone = processor.clone();
+        let handle = tokio::spawn(crate::subscription_ack::retry_loop(
+            proc_clone,
+            sub_id,
+            msg,
+            remote_conn,
+            local_conn,
+            Some(sub_id),
+            rx,
+        ));
+
+        // Let the first timeout elapse → triggers a retry send which fails.
+        tokio::time::sleep(crate::subscription_ack::TIMEOUT + Duration::from_millis(100)).await;
+
+        handle.await.unwrap();
+
+        // Upstream failure ack.
+        let ack = rx_local
+            .try_recv()
+            .expect("upstream ack should have been sent")
+            .unwrap();
+        assert!(!ack.get_subscription_ack().success);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_retry_loop_all_retries_exhausted() {
+        // No ACK ever arrives → all waits time out → final_result is timeout error.
+        let processor = MessageProcessor::new();
+        let (local_conn, _tx_local, mut rx_local) = processor
+            .register_local_connection(false)
+            .expect("failed to create local connection");
+        let (remote_conn, mut rx_remote) = make_server_conn(&processor);
+
+        let sub_id: u64 = 1003;
+        let msg = make_test_subscribe(sub_id);
+        let rx = processor.internal.sub_ack_manager.register(sub_id);
+
+        let proc_clone = processor.clone();
+        let handle = tokio::spawn(crate::subscription_ack::retry_loop(
+            proc_clone,
+            sub_id,
+            msg,
+            remote_conn,
+            local_conn,
+            Some(sub_id),
+            rx,
+        ));
+
+        // Advance time past all retry windows: (MAX_RETRIES + 1) timeouts.
+        for _ in 0..=crate::subscription_ack::MAX_RETRIES {
+            tokio::time::sleep(crate::subscription_ack::TIMEOUT + Duration::from_millis(100)).await;
+        }
+
+        handle.await.unwrap();
+
+        // Should have exactly MAX_RETRIES retry sends (attempts 0..MAX_RETRIES-1
+        // trigger resends; the last attempt only waits).
+        let mut retry_count = 0;
+        while rx_remote.try_recv().is_ok() {
+            retry_count += 1;
+        }
+        assert_eq!(
+            retry_count,
+            crate::subscription_ack::MAX_RETRIES as usize,
+            "expected {} retry sends",
+            crate::subscription_ack::MAX_RETRIES,
+        );
+
+        // Upstream ack must indicate failure (timeout).
+        let ack = rx_local
+            .try_recv()
+            .expect("upstream ack should have been sent")
+            .unwrap();
+        let ack_inner = ack.get_subscription_ack();
+        assert!(
+            !ack_inner.success,
+            "ack must indicate failure after exhausting retries"
+        );
+        assert!(!ack_inner.error.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_retry_loop_no_upstream_subscription_id() {
+        // When upstream_subscription_id is None, no upstream ack is sent.
+        let processor = MessageProcessor::new();
+        let (_local_conn, _tx_local, mut rx_local) = processor
+            .register_local_connection(false)
+            .expect("failed to create local connection");
+        let (remote_conn, _rx_remote) = make_server_conn(&processor);
+
+        let sub_id: u64 = 1004;
+        let msg = make_test_subscribe(sub_id);
+        let rx = processor.internal.sub_ack_manager.register(sub_id);
+
+        let proc_clone = processor.clone();
+        let handle = tokio::spawn(crate::subscription_ack::retry_loop(
+            proc_clone,
+            sub_id,
+            msg,
+            remote_conn,
+            0, // in_connection — irrelevant since upstream_subscription_id is None
+            None,
+            rx,
+        ));
+
+        // Resolve immediately.
+        processor.internal.sub_ack_manager.resolve(sub_id, Ok(()));
+
+        handle.await.unwrap();
+
+        // No upstream ack should be sent.
+        assert!(
+            rx_local.try_recv().is_err(),
+            "no upstream ack when upstream_subscription_id is None"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_retry_loop_sender_dropped() {
+        // If the oneshot sender is dropped (e.g. processor shutdown), the loop
+        // must exit promptly without panicking.
+        let processor = MessageProcessor::new();
+        let (local_conn, _tx_local, mut rx_local) = processor
+            .register_local_connection(false)
+            .expect("failed to create local connection");
+        let (remote_conn, _rx_remote) = make_server_conn(&processor);
+
+        let sub_id: u64 = 1005;
+        let msg = make_test_subscribe(sub_id);
+        let rx = processor.internal.sub_ack_manager.register(sub_id);
+
+        // Drop the sender by removing the pending entry.
+        processor.internal.sub_ack_manager.remove(sub_id);
+
+        let proc_clone = processor.clone();
+        let handle = tokio::spawn(crate::subscription_ack::retry_loop(
+            proc_clone,
+            sub_id,
+            msg,
+            remote_conn,
+            local_conn,
+            Some(sub_id),
+            rx,
+        ));
+
+        handle.await.unwrap();
+
+        // Upstream failure ack (timeout error since we never got a result).
+        let ack = rx_local
+            .try_recv()
+            .expect("upstream ack should have been sent")
+            .unwrap();
+        assert!(!ack.get_subscription_ack().success);
     }
 }
