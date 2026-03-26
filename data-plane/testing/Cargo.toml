@@ -20,6 +20,10 @@ path = "src/bin/test_group.rs"
 name = "test-p2p"
 path = "src/bin/test_p2p.rs"
 
+[[bin]]
+name = "stress-publish"
+path = "src/bin/stress_publish.rs"
+
 [dependencies]
 agntcy-slim = { workspace = true }
 agntcy-slim-auth = { workspace = true }
@@ -33,7 +37,7 @@ base64 = { workspace = true }
 bollard = { version = "0.17" }
 clap = { workspace = true }
 futures = { workspace = true }
-jsonwebtoken-aws-lc = { workspace = true }
+jsonwebtoken = { workspace = true }
 libc = { version = "0.2.177" }
 parking_lot = { workspace = true }
 rand = { workspace = true }

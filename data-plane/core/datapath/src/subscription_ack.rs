@@ -7,7 +7,6 @@
 //! remote subscription ACKs that are in-flight between relay nodes.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
 
 use parking_lot::RwLock;
@@ -30,7 +29,7 @@ pub(crate) fn min_version() -> semver::Version {
 /// Owns the in-flight pending ACK state.
 #[derive(Debug)]
 pub(crate) struct RemoteSubAckManager {
-    pending: RwLock<HashMap<String, oneshot::Sender<Result<(), DataPathError>>>>,
+    pending: RwLock<HashMap<u64, oneshot::Sender<Result<(), DataPathError>>>>,
 }
 
 impl RemoteSubAckManager {
@@ -41,60 +40,59 @@ impl RemoteSubAckManager {
     }
 
     /// Register a new in-flight ACK; returns the result receiver.
-    pub fn register(&self, ack_id: &str) -> oneshot::Receiver<Result<(), DataPathError>> {
+    pub fn register(&self, ack_id: u64) -> oneshot::Receiver<Result<(), DataPathError>> {
         let (tx, rx) = oneshot::channel();
-        self.pending.write().insert(ack_id.to_string(), tx);
+        self.pending.write().insert(ack_id, tx);
         rx
     }
 
     /// Deliver result to a waiting retry loop (no-op if unknown id).
     ///
     /// Removes the entry atomically — `oneshot::Sender::send` takes ownership.
-    pub fn resolve(&self, ack_id: &str, result: Result<(), DataPathError>) {
-        if let Some(tx) = self.pending.write().remove(ack_id) {
+    pub fn resolve(&self, ack_id: u64, result: Result<(), DataPathError>) {
+        if let Some(tx) = self.pending.write().remove(&ack_id) {
+            debug!(%ack_id, "subscription: remote ack received");
             let _ = tx.send(result);
         }
     }
 
     /// Remove a pending entry that never received a result (e.g. all retries exhausted).
-    pub fn remove(&self, ack_id: &str) {
-        self.pending.write().remove(ack_id);
+    pub fn remove(&self, ack_id: u64) {
+        self.pending.write().remove(&ack_id);
     }
 }
 
 /// Returns `true` if the remote peer supports subscription ACKs (version ≥ 1.2.0).
 pub(crate) fn supports(conn: &Connection) -> bool {
+    debug!(version = ?conn.remote_slim_version(), min = %min_version(), "checking remote subscription-ack support");
     conn.remote_slim_version()
         .is_some_and(|v| v >= min_version())
 }
 
-/// Send/timeout/retry loop for a remote subscription ACK.
+/// Wait/retry loop for a remote subscription ACK.
 ///
-/// Runs until an ACK is received, the channel is closed, or max retries are
-/// exhausted. Cleans up the manager entry and notifies the upstream requester.
+/// The caller is responsible for the initial send; this loop waits for the
+/// ACK and re-sends on timeout up to [`MAX_RETRIES`] times. Cleans up the
+/// manager entry and notifies the upstream requester.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn retry_loop(
-    manager: Arc<RemoteSubAckManager>,
     processor: MessageProcessor,
-    ack_id: String,
+    subscription_id: u64,
     forwarded_msg: Message,
     out_conn: u64,
     in_connection: u64,
-    upstream_ack_id: Option<String>,
+    upstream_subscription_id: Option<u64>,
     mut rx: oneshot::Receiver<Result<(), DataPathError>>,
 ) {
     let mut final_result = Err(DataPathError::RemoteSubscriptionAckTimeout(MAX_RETRIES));
 
     'retry: for attempt in 0..=MAX_RETRIES {
-        if let Err(e) = processor.send_msg(forwarded_msg.clone(), out_conn).await {
-            final_result = Err(e);
-            break;
-        }
+        // Wait for the remote ACK. The initial send was done by the caller;
+        // re-sends (retries) happen below on timeout.
         tokio::select! {
             result = &mut rx => {
                 match result {
                     Ok(r) => {
-                        debug!(%ack_id, "subscription: remote ack received");
                         final_result = r;
                         break 'retry;
                     }
@@ -102,14 +100,21 @@ pub(crate) async fn retry_loop(
                 }
             }
             _ = tokio::time::sleep(TIMEOUT) => {
-                debug!(attempt = attempt + 1, "remote sub ack timeout, retrying");
+                if attempt < MAX_RETRIES {
+                    debug!(attempt = attempt + 1, "remote sub ack timeout, retrying");
+                    if let Err(e) = processor.send_msg(forwarded_msg.clone(), out_conn).await {
+                        final_result = Err(e);
+                        break;
+                    }
+                }
             }
         }
     }
 
-    manager.remove(&ack_id);
+    processor.remove_sub_ack(subscription_id);
 
-    if let Some(id) = upstream_ack_id {
+    if let Some(id) = upstream_subscription_id {
+        debug!(%subscription_id, upstream_subscription_id = id, ok = final_result.is_ok(), "forwarding subscription ack to upstream");
         processor
             .send_subscription_ack(in_connection, id, &final_result)
             .await;
@@ -127,8 +132,8 @@ mod tests {
     #[tokio::test]
     async fn test_register_and_resolve_delivers_ok() {
         let manager = RemoteSubAckManager::new();
-        let rx = manager.register("id-1");
-        manager.resolve("id-1", Ok(()));
+        let rx = manager.register(1);
+        manager.resolve(1, Ok(()));
         let result = rx.await.expect("sender dropped unexpectedly");
         assert!(result.is_ok());
     }
@@ -136,9 +141,9 @@ mod tests {
     #[tokio::test]
     async fn test_register_and_resolve_delivers_err() {
         let manager = RemoteSubAckManager::new();
-        let rx = manager.register("id-err");
+        let rx = manager.register(2);
         manager.resolve(
-            "id-err",
+            2,
             Err(DataPathError::RemoteSubscriptionAckError(
                 "boom".to_string(),
             )),
@@ -150,9 +155,9 @@ mod tests {
     #[test]
     fn test_resolve_unknown_id_is_noop() {
         let manager = RemoteSubAckManager::new();
-        let mut rx = manager.register("id-known");
+        let mut rx = manager.register(3);
         // Resolve a different (unknown) id — must not affect the registered one.
-        manager.resolve("id-unknown", Ok(()));
+        manager.resolve(4, Ok(()));
         assert!(
             rx.try_recv().is_err(),
             "registered channel must not have received anything"
@@ -162,10 +167,10 @@ mod tests {
     #[test]
     fn test_remove_cleans_up() {
         let manager = RemoteSubAckManager::new();
-        manager.register("id-to-remove");
-        assert!(manager.pending.read().contains_key("id-to-remove"));
-        manager.remove("id-to-remove");
-        assert!(!manager.pending.read().contains_key("id-to-remove"));
+        manager.register(5);
+        assert!(manager.pending.read().contains_key(&5));
+        manager.remove(5);
+        assert!(!manager.pending.read().contains_key(&5));
     }
 
     #[test]

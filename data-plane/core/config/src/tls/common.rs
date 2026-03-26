@@ -232,7 +232,7 @@ impl SpireCertResolver {
             builder = builder.with_target_spiffe_id(id.clone());
         }
 
-        let mut provider = builder.build();
+        let mut provider = builder.build()?;
         provider.initialize().await?;
 
         Ok(Self {

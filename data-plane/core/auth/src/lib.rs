@@ -5,6 +5,7 @@ pub mod auth_provider;
 pub mod builder;
 pub mod errors;
 pub mod file_watcher;
+pub mod identity_claims;
 pub mod jwt;
 pub mod jwt_middleware;
 pub mod metadata;

@@ -6,9 +6,11 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
-use jsonwebtoken_aws_lc::jwk::KeyAlgorithm;
-pub use jsonwebtoken_aws_lc::{Algorithm, Validation};
-use jsonwebtoken_aws_lc::{
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as STANDARD_BASE64;
+use jsonwebtoken::jwk::KeyAlgorithm;
+pub use jsonwebtoken::{Algorithm, Validation};
+use jsonwebtoken::{
     DecodingKey, EncodingKey, Header as JwtHeader, TokenData, decode, decode_header, encode,
     jwk::Jwk,
 };
@@ -23,6 +25,7 @@ use crate::file_watcher::FileWatcher;
 use crate::metadata::MetadataMap;
 use crate::resolver::KeyResolver;
 use crate::traits::{Signer, StandardClaims, TokenProvider, Verifier};
+use crate::utils::generate_mls_signature_keys;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(rename_all = "lowercase")]
@@ -57,7 +60,7 @@ pub struct Key {
 }
 
 /// Local enum used only for JSON Schema generation of the `algorithm` field.
-/// Remote schema representation of jsonwebtoken_aws_lc::Algorithm
+/// Remote schema representation of jsonwebtoken::Algorithm
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub enum AlgorithmRepr {
     HS256,
@@ -180,6 +183,10 @@ pub struct Jwt<T> {
     /// Static token from file
     static_token: Option<Arc<RwLock<String>>>,
 
+    /// MLS signature key pair: (secret_key_bytes, public_key_bytes).
+    /// Each instance (and clone) holds its own independent copy of the keys.
+    signature_keys: (Vec<u8>, Vec<u8>),
+
     _phantom: std::marker::PhantomData<T>,
 }
 
@@ -195,9 +202,13 @@ impl<T> Jwt<T> {
     ///     .private_key("secret-key")
     ///     .build()?;
     /// ```
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(claims: StandardClaims, token_duration: Duration, validation: Validation) -> Self {
-        Self {
+    pub fn new(
+        claims: StandardClaims,
+        token_duration: Duration,
+        validation: Validation,
+    ) -> Result<Self, AuthError> {
+        let (secret_key, public_key) = generate_mls_signature_keys()?;
+        Ok(Self {
             claims,
             token_duration,
             validation,
@@ -207,8 +218,9 @@ impl<T> Jwt<T> {
             watchers: Arc::new(Vec::new()),
             static_token: None,
             token_cache: std::sync::Arc::new(TokenCache::new()),
+            signature_keys: (secret_key, public_key),
             _phantom: std::marker::PhantomData,
-        }
+        })
     }
 
     pub fn with_watcher(mut self, w: FileWatcher) -> Self {
@@ -231,6 +243,7 @@ impl<T> Jwt<T> {
             watchers: Arc::new(Vec::new()),
             static_token: None,
             token_cache: self.token_cache,
+            signature_keys: self.signature_keys,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -246,6 +259,7 @@ impl<T> Jwt<T> {
             watchers: Arc::new(Vec::new()),
             static_token: None,
             token_cache: self.token_cache,
+            signature_keys: self.signature_keys,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -261,6 +275,7 @@ impl<T> Jwt<T> {
             watchers: Arc::new(Vec::new()),
             static_token: None,
             token_cache: self.token_cache,
+            signature_keys: self.signature_keys,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -276,6 +291,7 @@ impl<T> Jwt<T> {
             watchers: self.watchers,
             static_token: Some(token),
             token_cache: self.token_cache,
+            signature_keys: self.signature_keys,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -417,15 +433,13 @@ impl<V> Jwt<V> {
         let token_header = decode_header(&token)?;
 
         // Derive a validation using the same algorithm
-        let mut validation = self.get_validation(token_header.alg);
+        let validation = self.get_validation(token_header.alg);
 
         // Decode and verify the token
         let token_data: TokenData<Claims> = decode(&token, &decoding_key, &validation)?;
 
-        // Get the exp to cache the token
-        validation.insecure_disable_signature_validation();
-        // Decode and verify the exp
-        let token_exp_data: TokenData<ExpClaim> = decode(&token, &decoding_key, &validation)?;
+        // Get the exp to cache the token - do not verify token again
+        let token_exp_data: TokenData<ExpClaim> = jsonwebtoken::dangerous::insecure_decode(&token)?;
 
         // Cache the token with its expiry
         self.cache(token, token_exp_data.claims.exp);
@@ -434,18 +448,16 @@ impl<V> Jwt<V> {
         Ok(token_data.claims)
     }
 
+    /// Get cached token from the cache
     fn get_cached_claims<Claims: serde::de::DeserializeOwned>(
         &self,
         token: &str,
     ) -> Option<Claims> {
         // Check if the token is in the cache first for cacheable claim types
         if let Some(_cached_claims) = self.token_cache.get(token) {
-            // Return the token skipping the signature verification
-            let mut validation = self.get_validation(self.validation.algorithms[0]);
-            validation.insecure_disable_signature_validation();
-
+            // Tokens in the cache are already verified - skip the signature verification
             let token_data: TokenData<Claims> =
-                decode(token, &DecodingKey::from_secret(b"notused"), &validation).ok()?;
+                jsonwebtoken::dangerous::insecure_decode(token).ok()?;
 
             // Return the claims from the cached token
             return Some(token_data.claims);
@@ -471,12 +483,8 @@ impl<V> Jwt<V> {
         &self,
         token: &str,
     ) -> Result<TokenData<T>, AuthError> {
-        let mut validation = self.validation.clone();
-        validation.insecure_disable_signature_validation();
-        let decoding_key = DecodingKey::from_secret(b"unused");
-
         // Get issuer from claims
-        let ret = decode(token, &decoding_key, &validation)?;
+        let ret = jsonwebtoken::dangerous::insecure_decode(token)?;
 
         Ok(ret)
     }
@@ -492,12 +500,9 @@ impl<V> Jwt<V> {
 
         // Try to get a cached decoding key
         if let Some(resolver) = &self.key_resolver {
-            let mut validation = self.validation.clone();
-            validation.insecure_disable_signature_validation();
-            let decoding_key = DecodingKey::from_secret(b"unused");
-
             // Get issuer from claims
-            let token_data: TokenData<StandardClaims> = decode(token, &decoding_key, &validation)?;
+            let token_data: TokenData<StandardClaims> =
+                jsonwebtoken::dangerous::insecure_decode(token)?;
 
             let issuer = token_data
                 .claims
@@ -569,15 +574,10 @@ impl TokenProvider for SignerJwt {
     }
 
     fn get_token(&self) -> Result<String, AuthError> {
-        self.sign_internal_claims()
-    }
-
-    async fn get_token_with_claims(&self, custom_claims: MetadataMap) -> Result<String, AuthError> {
-        if custom_claims.is_empty() {
-            self.sign_internal_claims()
-        } else {
-            self.sign_internal_claims_with_custom(custom_claims)
-        }
+        let pub_key_b64 = STANDARD_BASE64.encode(&self.signature_keys.1);
+        let mut claims_map = MetadataMap::new();
+        claims_map.insert("pubkey".to_string(), pub_key_b64);
+        self.sign_internal_claims_with_custom(claims_map)
     }
 
     fn get_id(&self) -> Result<String, AuthError> {
@@ -585,6 +585,19 @@ impl TokenProvider for SignerJwt {
             .sub
             .clone()
             .ok_or(AuthError::TokenInvalidMissingSub)
+    }
+
+    fn get_signature_secret_key(&self) -> Result<Vec<u8>, AuthError> {
+        Ok(self.signature_keys.0.clone())
+    }
+
+    fn get_signature_public_key(&self) -> Result<Vec<u8>, AuthError> {
+        Ok(self.signature_keys.1.clone())
+    }
+
+    fn rotate_signature_keys(&mut self) -> Result<(), AuthError> {
+        self.signature_keys = generate_mls_signature_keys()?;
+        Ok(())
     }
 }
 
@@ -605,14 +618,6 @@ impl TokenProvider for StaticTokenProvider {
     fn get_id(&self) -> Result<String, AuthError> {
         let token = self.get_token()?;
         extract_sub_claim_unsafe(&token)
-    }
-
-    async fn get_token_with_claims(
-        &self,
-        _custom_claims: MetadataMap,
-    ) -> Result<String, AuthError> {
-        // This provider does not support custom claims in the token
-        Err(AuthError::JwtStaticUnsupportedCustomClaims)
     }
 }
 
@@ -651,15 +656,8 @@ impl Verifier for VerifierJwt {
 
 /// Helper function to extract the 'sub' claim from a JWT token without signature validation
 pub(crate) fn extract_sub_claim_unsafe(token: &str) -> Result<String, AuthError> {
-    let mut validation = Validation::default();
-    validation.insecure_disable_signature_validation();
-
     // Decode the token without signature validation
-    let token_data = decode::<serde_json::Value>(
-        token,
-        &DecodingKey::from_secret(&[]), // Empty key since we're not validating
-        &validation,
-    )?;
+    let token_data = jsonwebtoken::dangerous::insecure_decode::<serde_json::Value>(token)?;
 
     // Extract the 'sub' claim
     token_data
@@ -680,7 +678,7 @@ mod tests {
     use std::{env, fs, vec};
 
     use super::*;
-    use jsonwebtoken_aws_lc::{Algorithm, Header};
+    use jsonwebtoken::{Algorithm, Header};
     use tokio::time;
     use tracing_test::traced_test;
 
@@ -1241,6 +1239,7 @@ mod tests {
             Duration::from_secs(3600),
             Validation::default(),
         )
+        .unwrap()
         .with_static_token(Arc::new(RwLock::new(token)));
 
         let id = provider.get_id().unwrap();
@@ -1260,6 +1259,7 @@ mod tests {
             Duration::from_secs(3600),
             Validation::default(),
         )
+        .unwrap()
         .with_static_token(Arc::new(RwLock::new("invalid.token.here".to_string())));
 
         let result = provider.get_id();
@@ -1287,6 +1287,7 @@ mod tests {
             Duration::from_secs(3600),
             Validation::default(),
         )
+        .unwrap()
         .with_static_token(Arc::new(RwLock::new(token)));
 
         let result = provider.get_id();

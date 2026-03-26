@@ -62,4 +62,7 @@ where
 
     /// Subscription manager for ACK-aware subscribe/unsubscribe operations
     pub(crate) subscription_manager: M,
+
+    /// Service ID for tracing — identifies which service instance owns this session
+    pub(crate) service_id: String,
 }

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Standard library imports
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use display_error_chain::ErrorChainExt;
@@ -12,7 +12,7 @@ use rand::Rng;
 
 use slim_datapath::messages::utils::IS_MODERATOR;
 use tokio::sync::mpsc::Sender;
-use tracing::{debug, error, warn};
+use tracing::{Instrument, debug, error, warn};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType};
@@ -70,8 +70,8 @@ where
     /// Default name of the local app
     app_id: u64,
 
-    /// Names registered by local app
-    app_names: SyncRwLock<HashSet<Name>>,
+    /// Names registered by local app, keyed by name → subscription_id
+    app_names: SyncRwLock<HashMap<Name, u64>>,
 
     /// Identity provider for the local app
     identity_provider: P,
@@ -102,6 +102,9 @@ where
 
     /// Shared subscription manager — used by both this layer and all sessions it creates
     subscription_manager: SubscriptionManager,
+
+    /// Service ID propagated into every session span
+    service_id: String,
 }
 
 impl<P, V, T> SessionLayer<P, V, T>
@@ -121,6 +124,7 @@ where
         tx_app: Sender<Result<Notification, SessionError>>,
         transmitter: T,
         direction: Direction,
+        service_id: String,
     ) -> Self {
         let (tx_session, rx_session) = tokio::sync::mpsc::channel(16);
 
@@ -129,7 +133,10 @@ where
         let sl = SessionLayer {
             pool: Arc::new(SyncRwLock::new(HashMap::new())),
             app_id: app_name.id(),
-            app_names: SyncRwLock::new(HashSet::from([app_name.with_id(Name::NULL_COMPONENT)])),
+            app_names: SyncRwLock::new(HashMap::from([(
+                app_name.with_id(Name::NULL_COMPONENT),
+                0,
+            )])),
             identity_provider,
             identity_verifier,
             conn_id,
@@ -140,6 +147,7 @@ where
             to_notify: SyncRwLock::new(HashMap::new()),
             direction,
             subscription_manager,
+            service_id,
         };
 
         sl.listen_from_sessions(rx_session);
@@ -168,36 +176,32 @@ where
         self.app_id
     }
 
-    pub fn add_app_name(&self, name: Name) {
+    pub fn add_app_name(&self, name: Name, subscription_id: u64) {
         // unset last component for fast lookups
         self.app_names
             .write()
-            .insert(name.with_id(Name::NULL_COMPONENT));
+            .insert(name.with_id(Name::NULL_COMPONENT), subscription_id);
     }
 
-    pub fn remove_app_name(&self, name: &Name) {
-        let removed = match name.id() {
-            Name::NULL_COMPONENT => self.app_names.write().remove(name),
-            _ => {
-                let name = name.clone().with_id(Name::NULL_COMPONENT);
-                self.app_names.write().remove(&name)
-            }
+    pub fn remove_app_name(&self, name: &Name) -> Option<u64> {
+        let key = match name.id() {
+            Name::NULL_COMPONENT => name.clone(),
+            _ => name.clone().with_id(Name::NULL_COMPONENT),
         };
-
-        if !removed {
+        let removed = self.app_names.write().remove(&key);
+        if removed.is_none() {
             warn!(%name, "tried to remove unknown app name");
         }
+        removed
     }
 
     fn get_local_name_for_session(&self, dst: Name) -> Result<Name, SessionError> {
         let name = dst.with_id(Name::NULL_COMPONENT);
-
-        self.app_names
-            .read()
-            .get(&name)
-            .cloned()
-            .map(|n| n.with_id(self.app_id))
-            .ok_or(SessionError::SubscriptionNotFound(name))
+        if self.app_names.read().contains_key(&name) {
+            Ok(name.with_id(self.app_id))
+        } else {
+            Err(SessionError::SubscriptionNotFound(name))
+        }
     }
 
     /// Get identity token from the identity provider
@@ -207,6 +211,7 @@ where
     }
 
     /// Public interface to create a new session
+    #[tracing::instrument(skip_all, fields(service_id = %self.service_id))]
     pub async fn create_session(
         &self,
         mut session_config: SessionConfig,
@@ -311,6 +316,7 @@ where
                 .with_tx_to_session_layer(self.tx_session.clone())
                 .with_direction(self.direction)
                 .with_subscription_manager(self.subscription_manager.clone())
+                .with_service_id(self.service_id.clone())
                 .ready()?;
 
             // Perform the async build operation without holding any lock
@@ -349,6 +355,7 @@ where
         mut rx_session: tokio::sync::mpsc::Receiver<Result<SessionMessage, SessionError>>,
     ) {
         let pool_clone = self.pool.clone();
+        let sessions_span = tracing::info_span!(parent: None, "listen_from_sessions", service_id = %self.service_id);
 
         tokio::spawn(async move {
             loop {
@@ -375,10 +382,11 @@ where
                     }
                 }
             }
-        });
+        }.instrument(sessions_span));
     }
 
     /// Remove a session from the pool and return a handle to optionally wait on
+    #[tracing::instrument(skip_all, fields(service_id = %self.service_id, session_id = id))]
     pub fn remove_session(&self, id: u32) -> Result<CompletionHandle, SessionError> {
         debug!(%id, "try to remove session");
         // get the read lock
@@ -440,6 +448,7 @@ where
     }
 
     /// Handle an error coming from SLIM. Forward it to the corresponding session.
+    #[tracing::instrument(skip_all, fields(service_id = %self.service_id))]
     pub async fn handle_error_from_slim(&self, error: SessionError) -> Result<(), SessionError> {
         // Extract context and session ID from the error
         let Some(session_ctx) = error.session_context() else {
@@ -474,6 +483,7 @@ where
 
     /// Handle a message from the message processor, and pass it to the
     /// corresponding session
+    #[tracing::instrument(skip_all, fields(service_id = %self.service_id))]
     pub async fn handle_message_from_slim(&self, mut message: Message) -> Result<(), SessionError> {
         tracing::trace!(
             msg_type = %message.get_session_message_type().as_str_name(),
@@ -750,6 +760,7 @@ mod tests {
             tx_app,
             transmitter,
             Direction::Bidirectional,
+            "test-service".to_string(),
         );
 
         (session_layer, rx_slim, rx_app, rx_transmitter)
@@ -771,8 +782,8 @@ mod tests {
         let name1 = make_name(&["service", "v1", "api"]);
         let name2 = make_name(&["service", "v2", "api"]);
 
-        session_layer.add_app_name(name1.clone());
-        session_layer.add_app_name(name2.clone());
+        session_layer.add_app_name(name1.clone(), 0);
+        session_layer.add_app_name(name2.clone(), 0);
 
         // Verify names are added
         assert_eq!(session_layer.app_names.read().len(), 3); // initial + 2 added
@@ -955,7 +966,7 @@ mod tests {
         let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
 
         let name = make_name(&["service", "api", "v1"]);
-        session_layer.add_app_name(name.clone());
+        session_layer.add_app_name(name.clone(), 0);
 
         let dst = name.with_id(123);
         let result = session_layer.get_local_name_for_session(dst);
@@ -996,7 +1007,7 @@ mod tests {
         let (session_layer, _rx_slim, _rx_app, mut rx_transmitter) = setup_session_layer();
 
         let local_name = make_name(&["local", "app", "v1"]);
-        session_layer.add_app_name(local_name.clone());
+        session_layer.add_app_name(local_name.clone(), 0);
 
         let source = make_name(&["remote", "app", "v1"]);
         let message = Message::builder()
@@ -1101,13 +1112,13 @@ mod tests {
         let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
 
         let name = make_name(&["service", "v1", "api"]).with_id(123);
-        session_layer.add_app_name(name.clone());
+        session_layer.add_app_name(name.clone(), 0);
 
         // Remove with specific ID (should normalize to NULL_COMPONENT)
         session_layer.remove_app_name(&name);
 
         // The name with NULL_COMPONENT should be removed
         let name_null = name.with_id(Name::NULL_COMPONENT);
-        assert!(!session_layer.app_names.read().contains(&name_null));
+        assert!(!session_layer.app_names.read().contains_key(&name_null));
     }
 }

@@ -6,8 +6,7 @@
 //! This module contains the logic for handling individual RPC sessions,
 //! including message sending/receiving, timeout handling, and stream processing.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use futures::StreamExt;
 use slim_session::CompletionHandle;

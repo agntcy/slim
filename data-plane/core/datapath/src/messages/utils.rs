@@ -311,9 +311,7 @@ impl SlimHeader {
         self.error = error;
     }
 
-    // returns the connection to use to process correctly the message
-    // first connection is from where we received the packet
-    // the second is where to forward the packet if needed
+    // returns (incoming, recv_from, forward_to) for subscription processing
     pub(crate) fn get_connections(&self) -> (u64, Option<u64>, Option<u64>) {
         // when calling this function, incoming connection is set
         let incoming = self
@@ -403,7 +401,7 @@ impl ProtoSubscribe {
 
         ProtoSubscribe {
             header,
-            ack_id: String::new(),
+            subscription_id: 0,
         }
     }
 }
@@ -432,7 +430,7 @@ impl ProtoUnsubscribe {
 
         ProtoUnsubscribe {
             header,
-            ack_id: String::new(),
+            subscription_id: 0,
         }
     }
 }
@@ -843,34 +841,34 @@ impl ProtoMessage {
         }
     }
 
-    /// Returns the ack_id from a Subscribe/Unsubscribe message, or None if absent/empty.
-    pub fn get_subscription_ack_id(&self) -> Option<&str> {
+    /// Returns the subscription_id from a Subscribe/Unsubscribe message, or None if absent/zero.
+    pub fn get_subscription_id(&self) -> Option<u64> {
         match &self.message_type {
-            Some(ProtoSubscribeType(s)) if !s.ack_id.is_empty() => Some(&s.ack_id),
-            Some(ProtoUnsubscribeType(u)) if !u.ack_id.is_empty() => Some(&u.ack_id),
+            Some(ProtoSubscribeType(s)) if s.subscription_id != 0 => Some(s.subscription_id),
+            Some(ProtoUnsubscribeType(u)) if u.subscription_id != 0 => Some(u.subscription_id),
             _ => None,
         }
     }
 
-    /// Takes and clears the ack_id from a Subscribe/Unsubscribe message.
-    /// Returns None if the field is absent or empty.
-    pub fn take_subscription_ack_id(&mut self) -> Option<String> {
+    /// Takes and clears the subscription_id from a Subscribe/Unsubscribe message.
+    /// Returns None if the field is absent or zero.
+    pub fn take_subscription_id(&mut self) -> Option<u64> {
         match &mut self.message_type {
-            Some(ProtoSubscribeType(s)) if !s.ack_id.is_empty() => {
-                Some(std::mem::take(&mut s.ack_id))
+            Some(ProtoSubscribeType(s)) if s.subscription_id != 0 => {
+                Some(std::mem::take(&mut s.subscription_id))
             }
-            Some(ProtoUnsubscribeType(u)) if !u.ack_id.is_empty() => {
-                Some(std::mem::take(&mut u.ack_id))
+            Some(ProtoUnsubscribeType(u)) if u.subscription_id != 0 => {
+                Some(std::mem::take(&mut u.subscription_id))
             }
             _ => None,
         }
     }
 
-    /// Sets the ack_id on a Subscribe/Unsubscribe message (no-op for other types).
-    pub fn set_subscription_ack_id(&mut self, ack_id: String) {
+    /// Sets the subscription_id on a Subscribe/Unsubscribe message (no-op for other types).
+    pub fn set_subscription_id(&mut self, subscription_id: u64) {
         match &mut self.message_type {
-            Some(ProtoSubscribeType(s)) => s.ack_id = ack_id,
-            Some(ProtoUnsubscribeType(u)) => u.ack_id = ack_id,
+            Some(ProtoSubscribeType(s)) => s.subscription_id = subscription_id,
+            Some(ProtoUnsubscribeType(u)) => u.subscription_id = subscription_id,
             _ => {}
         }
     }
@@ -1339,7 +1337,7 @@ pub struct ProtoMessageBuilder {
     message_id: Option<u32>,
     payload: Option<Content>,
     metadata: HashMap<String, String>,
-    subscription_ack_id: Option<String>,
+    subscription_id: Option<u64>,
 }
 
 impl ProtoMessageBuilder {
@@ -1356,7 +1354,7 @@ impl ProtoMessageBuilder {
             message_id: None,
             payload: None,
             metadata: HashMap::new(),
-            subscription_ack_id: None,
+            subscription_id: None,
         }
     }
 
@@ -1520,9 +1518,9 @@ impl ProtoMessageBuilder {
         self
     }
 
-    /// Requests a SubscriptionAck with the given id (subscribe/unsubscribe only).
-    pub fn subscription_ack_id(mut self, id: impl Into<String>) -> Self {
-        self.subscription_ack_id = Some(id.into());
+    /// Sets the subscription_id for subscribe/unsubscribe messages.
+    pub fn subscription_id(mut self, id: u64) -> Self {
+        self.subscription_id = Some(id);
         self
     }
 
@@ -1573,7 +1571,7 @@ impl ProtoMessageBuilder {
 
         let mut subscribe =
             ProtoSubscribe::new(&source, &destination, self.identity.as_deref(), self.flags);
-        subscribe.ack_id = self.subscription_ack_id.unwrap_or_default();
+        subscribe.subscription_id = self.subscription_id.unwrap_or_default();
 
         Ok(ProtoMessage::new(
             self.metadata,
@@ -1592,7 +1590,7 @@ impl ProtoMessageBuilder {
 
         let mut unsubscribe =
             ProtoUnsubscribe::new(&source, &destination, self.identity.as_deref(), self.flags);
-        unsubscribe.ack_id = self.subscription_ack_id.unwrap_or_default();
+        unsubscribe.subscription_id = self.subscription_id.unwrap_or_default();
 
         Ok(ProtoMessage::new(
             self.metadata,
@@ -1605,12 +1603,12 @@ impl ProtoMessageBuilder {
     /// and are never routed through the subscription table.
     pub fn build_subscription_ack(
         self,
-        ack_id: impl Into<String>,
+        subscription_id: u64,
         success: bool,
         error: impl Into<String>,
     ) -> ProtoMessage {
         let ack = ProtoSubscriptionAck {
-            ack_id: ack_id.into(),
+            subscription_id,
             success,
             error: error.into(),
         };

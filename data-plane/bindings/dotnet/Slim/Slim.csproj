@@ -25,6 +25,10 @@
     <NoWarn>$(NoWarn);CS0659</NoWarn>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Agntcy.Slim.SlimRpc" />
+  </ItemGroup>
+
   <!-- Include native libraries in the NuGet package using standard runtime structure -->
   <ItemGroup>
     <!-- NuGet runtime folder structure: runtimes/{rid}/native/{library} -->

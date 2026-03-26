@@ -4,17 +4,19 @@
 pub struct Subscribe {
     #[prost(message, optional, tag = "1")]
     pub header: ::core::option::Option<SlimHeader>,
-    /// Non-empty when the sender wants a SubscriptionAck back.
-    #[prost(string, tag = "2")]
-    pub ack_id: ::prost::alloc::string::String,
+    /// Globally unique identifier for this subscription.
+    /// Non-zero when the sender wants a SubscriptionAck back.
+    #[prost(uint64, tag = "2")]
+    pub subscription_id: u64,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Unsubscribe {
     #[prost(message, optional, tag = "1")]
     pub header: ::core::option::Option<SlimHeader>,
-    /// Non-empty when the sender wants a SubscriptionAck back.
-    #[prost(string, tag = "2")]
-    pub ack_id: ::prost::alloc::string::String,
+    /// Globally unique identifier for this subscription.
+    /// Non-zero when the sender wants a SubscriptionAck back.
+    #[prost(uint64, tag = "2")]
+    pub subscription_id: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Publish {
@@ -326,13 +328,13 @@ pub struct GroupNackPayload {}
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct PingPayload {}
 /// SubscriptionAck is delivered directly to the requesting connection in response
-/// to a Subscribe or Unsubscribe that carried a non-empty ack_id field.
+/// to a Subscribe or Unsubscribe that carried a non-zero subscription_id field.
 /// It is never routed through the subscription table.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SubscriptionAck {
-    /// Echoes the ack_id from the originating Subscribe or Unsubscribe request.
-    #[prost(string, tag = "1")]
-    pub ack_id: ::prost::alloc::string::String,
+    /// Echoes the subscription_id from the originating Subscribe or Unsubscribe request.
+    #[prost(uint64, tag = "1")]
+    pub subscription_id: u64,
     /// True if the subscription operation succeeded.
     #[prost(bool, tag = "2")]
     pub success: bool,

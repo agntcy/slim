@@ -3,14 +3,13 @@
 
 use crate::errors::AuthError;
 use crate::jwt::extract_sub_claim_unsafe;
-use crate::metadata::MetadataMap;
 use crate::resolver::JwksCache;
 use crate::traits::{TokenProvider, Verifier};
 use async_trait::async_trait;
 use display_error_chain::ErrorChainExt;
 use futures::executor::block_on;
-use jsonwebtoken_aws_lc::jwk::JwkSet;
-use jsonwebtoken_aws_lc::{DecodingKey, Validation, decode, decode_header};
+use jsonwebtoken::jwk::JwkSet;
+use jsonwebtoken::{DecodingKey, Validation, decode, decode_header};
 use oauth2::{AuthUrl, ClientId, ClientSecret, Scope, TokenResponse, TokenUrl, basic::BasicClient};
 use parking_lot::RwLock;
 use reqwest::Client as ReqwestClient;
@@ -360,14 +359,6 @@ impl TokenProvider for OidcTokenProvider {
         let token = self.get_token()?;
         extract_sub_claim_unsafe(&token)
     }
-
-    async fn get_token_with_claims(
-        &self,
-        _custom_claims: MetadataMap,
-    ) -> Result<String, AuthError> {
-        // This provider does not support custom claims in the token
-        Err(AuthError::OidcUnsupportedCustomClaims)
-    }
 }
 
 impl Drop for OidcTokenProvider {
@@ -548,7 +539,7 @@ impl Verifier for OidcVerifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use jsonwebtoken_aws_lc::{Algorithm, EncodingKey, Header, encode};
+    use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
     use serde_json::json;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};

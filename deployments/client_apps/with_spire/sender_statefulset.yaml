@@ -1,4 +1,27 @@
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: slim-with-spire-client-config
+  labels:
+    app.kubernetes.io/name: slim-client
+data:
+  client.json: |
+    {
+      "endpoint": "https://slim.slim.svc.cluster.local:46357",
+      "tls": {
+        "source": {
+          "type": "spire",
+          "socket_path": "unix:/tmp/spire-agent/public/api.sock"
+        },
+        "ca_source": {
+          "type": "spire",
+          "socket_path": "unix:/tmp/spire-agent/public/api.sock",
+          "trust_domains": ["example.local"]
+        }
+      }
+    }
+---
+apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: bob
@@ -33,10 +56,9 @@ metadata:
     app.kubernetes.io/name: slim-client
     app.kubernetes.io/component: bob     
 spec:
-  serviceAccountName: bob
   containers:      
   - args:
-    - p2p
+    - slim-bindings-p2p
     - --message
     - hello
     - --iterations
@@ -50,18 +72,21 @@ spec:
     - --spire-jwt-audience
     - slim-demo
     - --enable-mls
-    - --slim
-    - '{"endpoint":"https://slim.slim.svc.cluster.local:46357","tls":{"source":{"type":"spire","socket_path":"unix:/tmp/spire-agent/public/api.sock"},"ca_source":{"type":"spire","socket_path":"unix:/tmp/spire-agent/public/api.sock","trust_domains":["example.local"]}}}'    
+    - --slim-config
+    - /etc/slim/client.json
     env:
     - name: PYTHONUNBUFFERED
       value: "1"
-    image: ghcr.io/agntcy/slim/bindings-examples:0.7.1
-    imagePullPolicy: Always
+    image: agntcy/slim/bindings-examples:latest
+    imagePullPolicy: IfNotPresent
     name: client
     volumeMounts:
     - name: spire-agent-socket
       mountPath: /tmp/spire-agent/public/
-      readOnly: true       
+      readOnly: true
+    - name: slim-client-config
+      mountPath: /etc/slim
+      readOnly: true
   restartPolicy: OnFailure
   serviceAccountName: bob
   volumes:
@@ -69,3 +94,7 @@ spec:
       path: /run/spire/agent-sockets
       type: Directory
     name: spire-agent-socket
+  - name: slim-client-config
+    configMap:
+      name: slim-with-spire-client-config
+      defaultMode: 0444

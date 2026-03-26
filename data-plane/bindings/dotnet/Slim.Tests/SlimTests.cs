@@ -41,7 +41,7 @@ public class UnitTests
     {
         // Should not throw - already initialized by fixture
         Assert.True(Slim.IsInitialized);
-        
+
         // Multiple calls should be safe
         Slim.Initialize();
         Assert.True(Slim.IsInitialized);
@@ -180,7 +180,7 @@ public class UnitTests
     public void MultipleApps_HaveDifferentIds()
     {
         using var service = Slim.GetGlobalService();
-        
+
         using var app1 = service.CreateApp("org", "app1", "v1", SharedSecret);
         using var app2 = service.CreateApp("org", "app2", "v1", SharedSecret);
 
@@ -248,7 +248,7 @@ public class IntegrationTests
     public void Connect_CreateApp_Subscribe_Succeeds()
     {
         using var service = Slim.GetGlobalService();
-        
+
         // Connect
         var connId = Slim.Connect(ServerEndpoint);
         Assert.True(connId >= 0);

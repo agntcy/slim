@@ -88,8 +88,10 @@ impl SessionController {
 
         // setup tracing context
         let span = tracing::debug_span!(
+            parent: None,
             "session_controller_processing_loop",
             session_id = id,
+            service_id = %settings.service_id,
             source = %source,
             destination = %destination,
             session_type = ?config.session_type
@@ -526,12 +528,6 @@ pub fn handle_channel_discovery_message(
     Ok(msg)
 }
 
-/// Timeout for awaiting a subscription/route ACK from the datapath.
-/// If the datapath does not respond within this window the operation fails
-/// with `SubscriptionAckError::Timeout` so the session is never blocked
-/// indefinitely by a lost or unresponsive SLIM node.
-const SUBSCRIPTION_ACK_TIMEOUT: Duration = Duration::from_secs(5);
-
 pub(crate) struct SessionControllerCommon<
     P,
     V,
@@ -549,6 +545,19 @@ pub(crate) struct SessionControllerCommon<
 
     /// processing state
     pub(crate) processing_state: ProcessingState,
+
+    /// Maps (kind, name, conn) → subscription_id for route/subscription tracking.
+    subscription_ids: HashMap<(SubscriptionKind, Name, u64), u64>,
+}
+
+/// Distinguishes route entries from subscription entries in the subscription_ids map.
+/// Both can share the same `(Name, conn)` pair, so this enum prevents key collisions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum SubscriptionKind {
+    /// A recv_from route (`set_route` / `remove_route`).
+    Route,
+    /// A forward_to subscription (`subscribe` / `unsubscribe`).
+    Subscription,
 }
 
 impl<P, V, M> SessionControllerCommon<P, V, M>
@@ -576,6 +585,7 @@ where
             settings,
             sender: controller_sender,
             processing_state: ProcessingState::Active,
+            subscription_ids: HashMap::new(),
         }
     }
 
@@ -594,67 +604,123 @@ where
         self.sender.on_message(&message).await
     }
 
-    /// Await a subscription ACK receiver with a deadline.  Returns an error if
-    /// the channel closes or the timeout elapses before the ACK arrives.
     async fn await_subscription_ack(
         rx: tokio::sync::oneshot::Receiver<
             Result<(), crate::subscription_manager::SubscriptionAckError>,
         >,
     ) -> Result<(), SessionError> {
-        use crate::subscription_manager::SubscriptionAckError;
-        tokio::time::timeout(SUBSCRIPTION_ACK_TIMEOUT, rx)
+        crate::subscription_manager::SubscriptionManager::await_ack(rx)
             .await
-            .map_err(|_| SessionError::SubscriptionAckFailed(SubscriptionAckError::Timeout))?
-            .map_err(|_| SessionError::SubscriptionAckFailed(SubscriptionAckError::ChannelClosed))?
             .map_err(SessionError::SubscriptionAckFailed)
     }
 
-    pub(crate) async fn add_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
-        let rx = self
+    pub(crate) async fn add_route(&mut self, name: Name, conn: u64) -> Result<(), SessionError> {
+        if name == self.settings.source {
+            // We never add a route for ourselves
+            return Ok(());
+        }
+
+        let (subscription_id, rx) = self
             .settings
             .subscription_manager
-            .set_route(&self.settings.source, name, conn)
+            .set_route(&self.settings.source, &name, conn)
             .await
             .map_err(SessionError::SubscriptionAckFailed)?;
-        Self::await_subscription_ack(rx).await
+        Self::await_subscription_ack(rx).await?;
+
+        debug!(%name, %conn, %subscription_id, source = %self.settings.source, "route added");
+
+        self.subscription_ids
+            .insert((SubscriptionKind::Route, name, conn), subscription_id);
+
+        Ok(())
     }
 
-    pub(crate) async fn delete_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
-        let rx = self
-            .settings
-            .subscription_manager
-            .remove_route(&self.settings.source, name, conn)
-            .await
-            .map_err(SessionError::SubscriptionAckFailed)?;
-        Self::await_subscription_ack(rx).await
+    pub(crate) async fn delete_route(&mut self, name: Name, conn: u64) -> Result<(), SessionError> {
+        if name == self.settings.source {
+            // We never remove a route for ourselves
+            return Ok(());
+        }
+
+        let key = (SubscriptionKind::Route, name, conn);
+        let subscription_id = self.subscription_ids.remove(&key);
+        let (_, name, conn) = key;
+        match subscription_id {
+            Some(subscription_id) => {
+                let rx = self
+                    .settings
+                    .subscription_manager
+                    .remove_route(&self.settings.source, &name, subscription_id, conn)
+                    .await
+                    .map_err(SessionError::SubscriptionAckFailed)?;
+
+                Self::await_subscription_ack(rx).await?;
+                tracing::debug!(%name, %conn, %subscription_id, "route deleted");
+            }
+            None => {
+                tracing::warn!(
+                    %name, %conn, io = %self.settings.source,
+                    "no subscription_id found for route, skipping delete"
+                );
+            }
+        }
+
+        Ok(())
     }
 
     pub(crate) async fn add_subscription(
-        &self,
-        name: &Name,
+        &mut self,
+        name: Name,
         conn: u64,
     ) -> Result<(), SessionError> {
-        let rx = self
+        let (subscription_id, rx) = self
             .settings
             .subscription_manager
-            .subscribe(&self.settings.source, name, Some(conn))
+            .subscribe(&self.settings.source, &name, Some(conn))
             .await
             .map_err(SessionError::SubscriptionAckFailed)?;
-        Self::await_subscription_ack(rx).await
+
+        Self::await_subscription_ack(rx).await?;
+
+        debug!(%name, %conn, %subscription_id, "subscription added");
+
+        self.subscription_ids.insert(
+            (SubscriptionKind::Subscription, name, conn),
+            subscription_id,
+        );
+
+        Ok(())
     }
 
     pub(crate) async fn delete_subscription(
-        &self,
-        name: &Name,
+        &mut self,
+        name: Name,
         conn: u64,
     ) -> Result<(), SessionError> {
-        let rx = self
-            .settings
-            .subscription_manager
-            .unsubscribe(&self.settings.source, name, Some(conn))
-            .await
-            .map_err(SessionError::SubscriptionAckFailed)?;
-        Self::await_subscription_ack(rx).await
+        let key = (SubscriptionKind::Subscription, name, conn);
+        let subscription_id = self.subscription_ids.remove(&key);
+        let (_, name, conn) = key;
+        match subscription_id {
+            Some(subscription_id) => {
+                let rx = self
+                    .settings
+                    .subscription_manager
+                    .unsubscribe(&self.settings.source, &name, subscription_id, Some(conn))
+                    .await
+                    .map_err(SessionError::SubscriptionAckFailed)?;
+
+                Self::await_subscription_ack(rx).await?;
+                debug!(%name, %conn, %subscription_id, "subscription deleted");
+            }
+            None => {
+                tracing::warn!(
+                    %name, %conn,
+                    "no subscription_id found for subscription, skipping delete"
+                );
+            }
+        }
+
+        Ok(())
     }
 
     pub(crate) fn create_control_message(
@@ -1727,6 +1793,7 @@ mod tests {
             identity_verifier: SharedSecret::new("src", SHARED_SECRET).unwrap(),
             graceful_shutdown_timeout: Some(Duration::from_secs(10)),
             subscription_manager,
+            service_id: String::new(),
         };
 
         let needs_drain = Arc::new(AtomicBool::new(true));
@@ -1897,6 +1964,7 @@ mod tests {
             identity_verifier: SharedSecret::new("test", SHARED_SECRET).unwrap(),
             graceful_shutdown_timeout,
             subscription_manager,
+            service_id: String::new(),
         }
     }
 

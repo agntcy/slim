@@ -95,3 +95,13 @@ jobs:
           zip: windows
           token: ${{ secrets.GITHUB_TOKEN }}
           manifest-path: ./data-plane/slimrpc-compiler/Cargo.toml
+
+      - uses: taiki-e/upload-rust-binary-action@f391289bcff6a7f36b6301c0a74199657bbb4561 # v1.28.0
+        with:
+          bin: protoc-gen-slimrpc-csharp
+          target: ${{ matrix.platform.target }}
+          archive: protoc-gen-slimrpc-csharp-${{ matrix.platform.archive }}
+          tar: unix
+          zip: windows
+          token: ${{ secrets.GITHUB_TOKEN }}
+          manifest-path: ./data-plane/slimrpc-compiler/Cargo.toml

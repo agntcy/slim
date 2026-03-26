@@ -4,9 +4,34 @@
 
 version: "3"
 
-# taks file for the client applications deployment
+# Taskfile for the client applications deployment
+
+vars:
+  BINDINGS_EXAMPLES_IMAGE: '{{ .BINDINGS_EXAMPLES_IMAGE | default "agntcy/slim/bindings-examples:latest" }}'
+  KIND_CLUSTER_NAMES: '{{ .KIND_CLUSTER_NAMES | default "slim-cluster" }}'
+
 tasks:
-    
+
+  bindings-examples:build:
+    internal: true
+    desc: Build bindings-examples Docker image (skipped if image exists locally)
+    status:
+      - docker image inspect {{.BINDINGS_EXAMPLES_IMAGE}} >/dev/null 2>&1
+    cmds:
+      - docker build -t {{.BINDINGS_EXAMPLES_IMAGE}} -f Dockerfile .
+
+  bindings-examples:prepare:
+    desc: Build bindings-examples image if missing and load it into Kind cluster(s); clusters must exist
+    deps:
+      - bindings-examples:build
+    cmds:
+      - |
+        set -e
+        for c in $(echo "{{.KIND_CLUSTER_NAMES}}" | tr ',' ' '); do
+          echo "Loading {{.BINDINGS_EXAMPLES_IMAGE}} into kind cluster $c"
+          kind load docker-image {{.BINDINGS_EXAMPLES_IMAGE}} --name "$c"
+        done
+
   k8s:apply:
     desc: Apply k8s template to namespace
     requires:

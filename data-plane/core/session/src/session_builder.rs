@@ -127,6 +127,7 @@ where
     graceful_shutdown_timeout: Option<std::time::Duration>,
     direction: Direction,
     subscription_manager: Option<M>,
+    service_id: Option<String>,
     _target: PhantomData<Target>,
     _state: PhantomData<State>,
 }
@@ -151,6 +152,7 @@ where
             graceful_shutdown_timeout: None,
             direction: Direction::Bidirectional,
             subscription_manager: None,
+            service_id: None,
             _target: PhantomData,
             _state: PhantomData,
         }
@@ -228,9 +230,15 @@ where
             graceful_shutdown_timeout: self.graceful_shutdown_timeout,
             direction: self.direction,
             subscription_manager: Some(manager),
+            service_id: self.service_id,
             _target: PhantomData,
             _state: PhantomData,
         }
+    }
+
+    pub fn with_service_id(mut self, service_id: String) -> Self {
+        self.service_id = Some(service_id);
+        self
     }
 
     pub fn ready(self) -> Result<SessionBuilder<P, V, Target, Ready, M>, SessionError> {
@@ -259,6 +267,7 @@ where
             graceful_shutdown_timeout: self.graceful_shutdown_timeout,
             direction: self.direction,
             subscription_manager: self.subscription_manager,
+            service_id: self.service_id,
             _target: PhantomData,
             _state: PhantomData,
         })
@@ -392,6 +401,7 @@ where
             identity_verifier: self.identity_verifier.unwrap(),
             graceful_shutdown_timeout: self.graceful_shutdown_timeout,
             subscription_manager,
+            service_id: self.service_id.unwrap_or_default(),
         };
 
         let wrapper = wrapper_constructor(inner, settings.clone());

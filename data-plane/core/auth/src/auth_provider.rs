@@ -70,7 +70,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::errors::AuthError;
 use crate::jwt::{SignerJwt, StaticTokenProvider, VerifierJwt};
-use crate::metadata::MetadataMap;
 use crate::shared_secret::SharedSecret;
 use crate::traits::{TokenProvider, Verifier};
 
@@ -231,18 +230,6 @@ impl TokenProvider for AuthProvider {
         }
     }
 
-    async fn get_token_with_claims(&self, custom_claims: MetadataMap) -> Result<String, AuthError> {
-        match self {
-            AuthProvider::JwtSigner(signer) => signer.get_token_with_claims(custom_claims).await,
-            AuthProvider::StaticToken(provider) => {
-                provider.get_token_with_claims(custom_claims).await
-            }
-            AuthProvider::SharedSecret(secret) => secret.get_token_with_claims(custom_claims).await,
-            #[cfg(not(target_family = "windows"))]
-            AuthProvider::Spire(spire) => spire.get_token_with_claims(custom_claims).await,
-        }
-    }
-
     fn get_id(&self) -> Result<String, AuthError> {
         match self {
             AuthProvider::JwtSigner(signer) => signer.get_id(),
@@ -250,6 +237,36 @@ impl TokenProvider for AuthProvider {
             AuthProvider::SharedSecret(secret) => secret.get_id(),
             #[cfg(not(target_family = "windows"))]
             AuthProvider::Spire(spire) => spire.get_id(),
+        }
+    }
+
+    fn get_signature_secret_key(&self) -> Result<Vec<u8>, AuthError> {
+        match self {
+            AuthProvider::JwtSigner(signer) => signer.get_signature_secret_key(),
+            AuthProvider::StaticToken(provider) => provider.get_signature_secret_key(),
+            AuthProvider::SharedSecret(secret) => secret.get_signature_secret_key(),
+            #[cfg(not(target_family = "windows"))]
+            AuthProvider::Spire(spire) => spire.get_signature_secret_key(),
+        }
+    }
+
+    fn get_signature_public_key(&self) -> Result<Vec<u8>, AuthError> {
+        match self {
+            AuthProvider::JwtSigner(signer) => signer.get_signature_public_key(),
+            AuthProvider::StaticToken(provider) => provider.get_signature_public_key(),
+            AuthProvider::SharedSecret(secret) => secret.get_signature_public_key(),
+            #[cfg(not(target_family = "windows"))]
+            AuthProvider::Spire(spire) => spire.get_signature_public_key(),
+        }
+    }
+
+    fn rotate_signature_keys(&mut self) -> Result<(), AuthError> {
+        match self {
+            AuthProvider::JwtSigner(signer) => signer.rotate_signature_keys(),
+            AuthProvider::StaticToken(provider) => provider.rotate_signature_keys(),
+            AuthProvider::SharedSecret(secret) => secret.rotate_signature_keys(),
+            #[cfg(not(target_family = "windows"))]
+            AuthProvider::Spire(spire) => spire.rotate_signature_keys(),
         }
     }
 }

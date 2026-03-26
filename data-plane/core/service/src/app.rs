@@ -10,7 +10,7 @@ use display_error_chain::ErrorChainExt;
 use slim_datapath::errors::ErrorPayload;
 use slim_session::Direction;
 use tokio::sync::mpsc;
-use tracing::{debug, error};
+use tracing::{Instrument, debug, error};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::Status;
@@ -37,6 +37,9 @@ where
 {
     /// App name provided when creating the app
     app_name: Name,
+
+    /// Service ID for tracing
+    service_id: String,
 
     /// Session layer that manages sessions
     session_layer: Arc<SessionLayer<P, V>>,
@@ -83,6 +86,7 @@ where
         conn_id: u64,
         tx_slim: SlimChannelSender,
         tx_app: mpsc::Sender<Result<Notification, SessionError>>,
+        service_id: String,
     ) -> Self {
         Self::new_with_direction(
             app_name,
@@ -92,6 +96,7 @@ where
             tx_slim,
             tx_app,
             Direction::Bidirectional,
+            service_id,
         )
     }
 
@@ -105,6 +110,7 @@ where
         tx_slim: SlimChannelSender,
         tx_app: mpsc::Sender<Result<Notification, SessionError>>,
         direction: Direction,
+        service_id: String,
     ) -> Self {
         // Create identity interceptor
         let identity_interceptor = Arc::new(IdentityInterceptor::new(
@@ -122,6 +128,7 @@ where
         transmitter.add_interceptor(identity_interceptor);
 
         // Create the session layer
+        let service_id_clone = service_id.clone();
         let session_layer = Arc::new(SessionLayer::new(
             app_name.clone(),
             identity_provider,
@@ -131,6 +138,7 @@ where
             tx_app,
             transmitter,
             direction,
+            service_id,
         ));
 
         // Create a new cancellation token for the app receiver loop
@@ -140,6 +148,7 @@ where
 
         Self {
             app_name: app_name.clone(),
+            service_id: service_id_clone,
             session_layer,
             cancel_token,
             subscription_manager,
@@ -209,12 +218,12 @@ where
             .source(self.app_name.clone())
             .destination(name.clone())
             .flags(flags)
-            .subscription_ack_id(ack_id.clone())
+            .subscription_id(ack_id)
             .build_subscribe()
             .unwrap();
 
         if let Err(e) = self.send_message_without_context(msg).await {
-            self.subscription_manager.cancel_ack(&ack_id);
+            self.subscription_manager.cancel_ack(ack_id);
             return Err(e);
         }
 
@@ -223,7 +232,7 @@ where
             .map_err(ServiceError::SubscriptionError)?;
 
         // Register the subscription after ack confirms the forwarding table update.
-        self.session_layer.add_app_name(name);
+        self.session_layer.add_app_name(name, ack_id);
         Ok(())
     }
 
@@ -231,32 +240,39 @@ where
     pub async fn unsubscribe(&self, name: &Name, conn: Option<u64>) -> Result<(), ServiceError> {
         debug!(?name, ?conn, "unsubscribe");
 
-        let flags = if let Some(c) = conn {
-            SlimHeaderFlags::default().with_forward_to(c)
-        } else {
-            SlimHeaderFlags::default()
-        };
+        let subscription_id = self.session_layer.remove_app_name(name);
+        match subscription_id {
+            Some(subscription_id) => {
+                let flags = if let Some(c) = conn {
+                    SlimHeaderFlags::default().with_forward_to(c)
+                } else {
+                    SlimHeaderFlags::default()
+                };
 
-        let (ack_id, ack_rx) = self.subscription_manager.register_ack();
-        let msg = Message::builder()
-            .source(self.app_name.clone())
-            .destination(name.clone())
-            .flags(flags)
-            .subscription_ack_id(ack_id.clone())
-            .build_unsubscribe()
-            .unwrap();
+                let ack_rx = self
+                    .subscription_manager
+                    .register_ack_with_id(subscription_id);
+                let msg = Message::builder()
+                    .source(self.app_name.clone())
+                    .destination(name.clone())
+                    .flags(flags)
+                    .subscription_id(subscription_id)
+                    .build_unsubscribe()
+                    .unwrap();
 
-        if let Err(e) = self.send_message_without_context(msg).await {
-            self.subscription_manager.cancel_ack(&ack_id);
-            return Err(e);
+                if let Err(e) = self.send_message_without_context(msg).await {
+                    self.subscription_manager.cancel_ack(subscription_id);
+                    return Err(e);
+                }
+
+                SubscriptionManager::await_ack(ack_rx)
+                    .await
+                    .map_err(ServiceError::UnsubscriptionError)?;
+            }
+            None => {
+                tracing::warn!(%name, "no subscription_id found, skipping unsubscribe");
+            }
         }
-
-        SubscriptionManager::await_ack(ack_rx)
-            .await
-            .map_err(ServiceError::UnsubscriptionError)?;
-
-        // Remove the subscription after ack confirms the forwarding table update.
-        self.session_layer.remove_app_name(name);
         Ok(())
     }
 
@@ -300,18 +316,29 @@ where
     }
 
     /// SLIM receiver loop
-    pub(crate) fn process_messages(&self, mut rx: mpsc::Receiver<Result<Message, Status>>) {
+    pub(crate) fn process_messages(
+        &self,
+        mut rx: mpsc::Receiver<Result<Message, Status>>,
+    ) -> tokio::task::JoinHandle<()> {
         let app_name = self.app_name.clone();
+        let service_id = self.service_id.clone();
         let session_layer = self.session_layer.clone();
         let token_clone = self.cancel_token.clone();
         let subscription_manager = self.subscription_manager.clone();
 
+        let loop_span = tracing::info_span!(
+            parent: None,
+            "process_messages",
+            app = %app_name,
+            service_id = %service_id,
+        );
+
         tokio::spawn(async move {
-            debug!(app = %app_name, "starting message processing loop");
+            debug!("starting message processing loop");
 
             // Initiate self-subscription via the subscription manager so the ACK
             // is tracked and resolved through the normal loop machinery.
-            let init_ack_rx = subscription_manager
+            let (_init_sub_id, init_ack_rx) = subscription_manager
                 .subscribe(&app_name, &app_name, None)
                 .await
                 .expect("error sending initial subscription");
@@ -343,7 +370,7 @@ where
                                         match msg.message_type.as_ref() {
                                             Some(MessageType::Publish(_)) => {},
                                             Some(MessageType::SubscriptionAck(ack)) => {
-                                                subscription_manager.resolve_ack(&ack);
+                                                subscription_manager.resolve_ack(ack);
                                                 continue;
                                             }
                                             Some(MessageType::Subscribe(_))
@@ -401,7 +428,7 @@ where
                     }
                 }
             }
-        });
+        }.instrument(loop_span))
     }
 }
 
@@ -494,22 +521,6 @@ mod tests {
             .expect("error receiving message")
     }
 
-    #[allow(dead_code)]
-    fn create_app() -> App<SharedSecret, SharedSecret> {
-        let (tx_slim, _) = tokio::sync::mpsc::channel(128);
-        let (tx_app, _) = tokio::sync::mpsc::channel(128);
-        let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
-
-        App::new(
-            &name,
-            SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-            SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
-            0,
-            tx_slim,
-            tx_app,
-        )
-    }
-
     fn create_isolated_test_app(
         suffix: &str,
     ) -> (
@@ -527,6 +538,7 @@ mod tests {
             0,
             tx_slim,
             tx_app,
+            format!("test-service-{suffix}"),
         );
 
         (app, rx_slim)
@@ -543,7 +555,7 @@ mod tests {
     }
 
     fn build_subscription_ack_message(
-        ack_id: &str,
+        ack_id: u64,
         success: bool,
         error_msg: Option<&str>,
     ) -> ProtoMessage {
@@ -562,12 +574,11 @@ mod tests {
         };
 
         let ack_id = outbound
-            .get_subscription_ack_id()
-            .map(str::to_owned)
+            .get_subscription_id()
             .expect("missing ack id in outbound subscribe message");
 
         // Resolve with empty error — should produce the default rejection message
-        let ack_msg = build_subscription_ack_message(&ack_id, false, None);
+        let ack_msg = build_subscription_ack_message(ack_id, false, None);
         app.subscription_manager
             .resolve_ack(ack_msg.get_subscription_ack());
 
@@ -592,11 +603,10 @@ mod tests {
         };
 
         let ack_id = outbound
-            .get_subscription_ack_id()
-            .map(str::to_owned)
+            .get_subscription_id()
             .expect("missing ack id in outbound subscribe message");
 
-        let ack_msg = build_subscription_ack_message(&ack_id, true, None);
+        let ack_msg = build_subscription_ack_message(ack_id, true, None);
         app.subscription_manager
             .resolve_ack(ack_msg.get_subscription_ack());
 
@@ -615,12 +625,11 @@ mod tests {
         };
 
         let ack_id = outbound
-            .get_subscription_ack_id()
-            .map(str::to_owned)
+            .get_subscription_id()
             .expect("missing ack id in outbound subscribe message");
 
         let ack_msg =
-            build_subscription_ack_message(&ack_id, false, Some("forwarding update failed"));
+            build_subscription_ack_message(ack_id, false, Some("forwarding update failed"));
         app.subscription_manager
             .resolve_ack(ack_msg.get_subscription_ack());
 
@@ -638,6 +647,9 @@ mod tests {
         let (app, mut rx_slim) = create_isolated_test_app("unsubscribe-channel-closed");
         let dst = create_test_name("channel");
 
+        // Pre-populate the session layer's app_names so unsubscribe has an ID to use
+        app.session_layer.add_app_name(dst.clone(), 42);
+
         let mut unsubscribe_fut = Box::pin(app.unsubscribe(&dst, None));
         let outbound = tokio::select! {
             res = &mut unsubscribe_fut => panic!("unsubscribe completed before ack handling: {:?}", res),
@@ -645,8 +657,7 @@ mod tests {
         };
 
         let ack_id = outbound
-            .get_subscription_ack_id()
-            .map(str::to_owned)
+            .get_subscription_id()
             .expect("missing ack id in outbound unsubscribe message");
 
         // Drop the sender by resolving with a closed-channel-simulating approach:

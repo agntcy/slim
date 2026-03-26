@@ -114,7 +114,6 @@ where
                 self.common.settings.identity_provider.clone(),
                 self.common.settings.identity_verifier.clone(),
             ))
-            .await
             .expect("failed to create MLS state");
 
             Some(MlsModeratorState::new(mls_state))
@@ -154,10 +153,7 @@ where
 
                     // Apply MLS encryption/decryption if enabled
                     if let Some(mls_state) = &mut self.mls_state {
-                        mls_state
-                            .common
-                            .process_message(&mut message, direction)
-                            .await?;
+                        mls_state.common.process_message(&mut message, direction)?;
                     }
 
                     self.inner
@@ -300,10 +296,10 @@ where
             && let Some(conn) = self.conn_id
         {
             self.common
-                .delete_route(&self.common.settings.destination, conn)
+                .delete_route(self.common.settings.destination.clone(), conn)
                 .await?;
             self.common
-                .delete_subscription(&self.common.settings.destination, conn)
+                .delete_subscription(self.common.settings.destination.clone(), conn)
                 .await?;
         }
 
@@ -445,7 +441,6 @@ where
             Some(state) => {
                 let mls_content = state
                     .remove_participant(msg)
-                    .await
                     .map_err(|e| self.handle_task_error(e))?;
                 let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
                 Some(MlsPayload {
@@ -501,7 +496,7 @@ where
                 // the effect of it is to create the session itself with
                 // the right settings. We need to set a route to the controller and send back the ack
                 self.common
-                    .add_route(&message.get_source(), message.get_incoming_conn())
+                    .add_route(message.get_source(), message.get_incoming_conn())
                     .await
                     .map_err(|e| self.handle_task_error(e))?;
 
@@ -611,7 +606,7 @@ where
                 // same connection from where we got the message from the controller
                 let dst = Name::from(dst_name);
                 self.common
-                    .add_route(&dst, msg.get_incoming_conn())
+                    .add_route(dst.clone(), msg.get_incoming_conn())
                     .await
                     .map_err(|e| self.handle_task_error(e))?;
 
@@ -681,7 +676,7 @@ where
 
         // set a route to the remote participant
         self.common
-            .add_route(&msg.get_source(), msg.get_incoming_conn())
+            .add_route(msg.get_source(), msg.get_incoming_conn())
             .await?;
 
         // if this is a multicast session we need to add a route for the channel
@@ -690,7 +685,10 @@ where
         // different connections. In case the route exists already it will be just ignored
         if self.common.settings.config.session_type == ProtoSessionType::Multicast {
             self.common
-                .add_route(&self.common.settings.destination, msg.get_incoming_conn())
+                .add_route(
+                    self.common.settings.destination.clone(),
+                    msg.get_incoming_conn(),
+                )
                 .await?;
         }
 
@@ -763,7 +761,7 @@ where
 
         // get mls data if MLS is enabled
         let (commit, welcome) = if let Some(mls_state) = &mut self.mls_state {
-            let (commit_payload, welcome_payload) = mls_state.add_participant(&msg).await?;
+            let (commit_payload, welcome_payload) = mls_state.add_participant(&msg)?;
 
             // get the id of the commit, the welcome message has a random id
             let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
@@ -1142,7 +1140,7 @@ where
 
         // delete the route to the source of the message
         self.common
-            .delete_route(&msg.get_source(), msg.get_incoming_conn())
+            .delete_route(msg.get_source(), msg.get_incoming_conn())
             .await?;
 
         // notify the sender and see if we can pick another task
@@ -1278,9 +1276,8 @@ where
             self.common.settings.destination = remote;
         } else {
             // if this is a multicast session we need to subscribe for the channel name
-            self.common
-                .add_subscription(&self.common.settings.destination, conn)
-                .await?;
+            let destination = self.common.settings.destination.clone();
+            self.common.add_subscription(destination, conn).await?;
         }
 
         // create mls group if needed
@@ -1354,11 +1351,9 @@ mod tests {
             tokio::select! {
                 res = &mut pinned => return res,
                 msg = rx_slim.recv() => {
-                    if let Some(Ok(msg)) = msg {
-                        if let Some(ack_id) = msg.get_subscription_ack_id().map(str::to_owned) {
-                            let ack = Message::builder().build_subscription_ack(ack_id, true, "");
-                            sub_mgr.resolve_ack(ack.get_subscription_ack());
-                        }
+                    if let Some(Ok(msg)) = msg && let Some(ack_id) = msg.get_subscription_id() {
+                        let ack = Message::builder().build_subscription_ack(ack_id, true, "");
+                        sub_mgr.resolve_ack(ack.get_subscription_ack());
                     }
                 }
             }
@@ -1410,6 +1405,7 @@ mod tests {
             identity_verifier,
             graceful_shutdown_timeout: None,
             subscription_manager,
+            service_id: String::new(),
         };
 
         let inner = MockInnerHandler::new();
@@ -1793,6 +1789,7 @@ mod tests {
             identity_verifier,
             graceful_shutdown_timeout: None,
             subscription_manager,
+            service_id: String::new(),
         };
 
         let inner = MockInnerHandler::new();
@@ -1869,6 +1866,7 @@ mod tests {
             identity_verifier,
             graceful_shutdown_timeout: None,
             subscription_manager,
+            service_id: String::new(),
         };
 
         let inner = MockInnerHandler::new();
@@ -2002,6 +2000,7 @@ mod tests {
             identity_verifier,
             graceful_shutdown_timeout: None,
             subscription_manager,
+            service_id: String::new(),
         };
 
         let inner = MockInnerHandler::new();
