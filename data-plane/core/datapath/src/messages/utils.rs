@@ -1,11 +1,12 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::arch::aarch64::vreinterpret_s16_f64;
 use std::fmt::Display;
 use std::{collections::HashMap, time::Duration};
 
 use super::encoder::Name;
-use crate::api::proto::dataplane::v1::{GroupClosePayload, GroupNackPayload, PingPayload};
+use crate::api::proto::dataplane::v1::{GroupClosePayload, GroupNackPayload, Participant, ParticipantSettings, PingPayload};
 use crate::api::{
     Content, LinkNegotiationPayload, MessageType, ProtoLink, ProtoLinkMessageType, ProtoLinkType,
     ProtoMessage, ProtoName, ProtoPublish, ProtoPublishType, ProtoSessionType, ProtoSubscribe,
@@ -20,6 +21,7 @@ use crate::api::{
     },
 };
 
+use slim_version::version;
 use thiserror::Error;
 
 /// IS_MODERATOR is used in the Join request metadata to indicate whether a participant is the moderator/initiator of a session.
@@ -92,6 +94,10 @@ pub enum MessageError {
     BuilderErrorSourceRequired,
     #[error("builder error: destination is required")]
     BuilderErrorDestinationRequired,
+    #[error("participant name not found")]
+    ParticipantNameNotFound,
+    #[error("participant settings not found")]
+    ParticipantSettingsNotFound,
 }
 
 /// ProtoName from Name
@@ -110,6 +116,50 @@ impl From<&Name> for ProtoName {
                 str_component_2: name.components_strings()[2].clone(),
             }),
         }
+    }
+}
+
+impl ParticipantSettings {
+    pub fn new(sends_data: bool, receives_data: bool) -> Self {
+        Self {
+            sends_data: sends_data,
+            receives_data: receives_data,
+        }
+    }
+
+    /// Returns whether this participant produces data messages.
+    /// `None` means the participant is an old sender, in that case return always true.
+    pub fn is_sender(&self) -> bool {
+        self.sends_data
+    }
+
+    /// Returns whether this participant consumes data messages.
+    /// `None` means the participant is an old sender, in that case return always true.
+    pub fn is_receiver(&self) -> bool {
+        self.receives_data
+    }
+}
+
+impl Participant {
+    pub fn new(name: Name, settings: ParticipantSettings) -> Self {
+        Self {
+            name: Some(ProtoName::from(&name)),
+            settings: Some(settings),
+        }
+    }
+
+    pub fn get_name(&self) -> Result<Name, MessageError> {
+        match &self.name {
+            Some(name) => Ok(Name::from(name)),
+            None => Err(MessageError::ParticipantNameNotFound),
+        }
+    }
+
+    pub fn get_settings(&self) -> Result<&ParticipantSettings, MessageError> {
+        match &self.settings {
+            Some(settings) => Ok(settings),
+            None => Err(MessageError::ParticipantSettingsNotFound),
+        }   
     }
 }
 
@@ -225,6 +275,7 @@ impl SlimHeader {
             destination: Some(ProtoName::from(destination)),
             identity: identity.to_string(),
             fanout: flags.fanout,
+            version: version().to_string(),
             recv_from: flags.recv_from,
             forward_to: flags.forward_to,
             incoming_conn: flags.incoming_conn,
@@ -273,6 +324,10 @@ impl SlimHeader {
 
     pub fn get_identity(&self) -> String {
         self.identity.clone()
+    }
+
+    pub fn get_version(&self) -> String {
+        self.version.clone()
     }
 
     pub fn set_source(&mut self, source: &Name) {

@@ -78,17 +78,19 @@ pub struct SlimHeader {
     pub source: ::core::option::Option<Name>,
     #[prost(message, optional, tag = "2")]
     pub destination: ::core::option::Option<Name>,
-    #[prost(string, tag = "4")]
+    #[prost(string, tag = "3")]
     pub identity: ::prost::alloc::string::String,
-    #[prost(uint32, tag = "3")]
+    #[prost(uint32, tag = "4")]
     pub fanout: u32,
-    #[prost(uint64, optional, tag = "5")]
-    pub recv_from: ::core::option::Option<u64>,
+    #[prost(string, tag = "5")]
+    pub version: ::prost::alloc::string::String,
     #[prost(uint64, optional, tag = "6")]
-    pub forward_to: ::core::option::Option<u64>,
+    pub recv_from: ::core::option::Option<u64>,
     #[prost(uint64, optional, tag = "7")]
+    pub forward_to: ::core::option::Option<u64>,
+    #[prost(uint64, optional, tag = "8")]
     pub incoming_conn: ::core::option::Option<u64>,
-    #[prost(bool, optional, tag = "8")]
+    #[prost(bool, optional, tag = "9")]
     pub error: ::core::option::Option<bool>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
@@ -196,6 +198,22 @@ pub mod command_payload {
         Ping(super::PingPayload),
     }
 }
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Participant {
+    #[prost(message, optional, tag = "1")]
+    pub name: ::core::option::Option<Name>,
+    #[prost(message, optional, tag = "2")]
+    pub settings: ::core::option::Option<ParticipantSettings>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ParticipantSettings {
+    /// participant produces data messages
+    #[prost(bool, tag = "1")]
+    pub sends_data: bool,
+    /// participant consumes data messages
+    #[prost(bool, tag = "2")]
+    pub receives_data: bool,
+}
 /// Discovery Request
 /// The destination is Optional. If present the message should be forwarded
 /// to the destination in the payload.
@@ -235,6 +253,8 @@ pub struct JoinReplyPayload {
     /// to be used only is MLS is enabled
     #[prost(bytes = "vec", optional, tag = "1")]
     pub key_package: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    #[prost(message, optional, tag = "2")]
+    pub settings: ::core::option::Option<ParticipantSettings>,
 }
 /// Leave Request
 /// The destination is Optional. If present the message should be forwarded
@@ -265,10 +285,10 @@ pub struct MlsPayload {
 pub struct GroupAddPayload {
     /// new participant to add
     #[prost(message, optional, tag = "1")]
-    pub new_participant: ::core::option::Option<Name>,
+    pub new_participant: ::core::option::Option<Participant>,
     /// new list of participants
     #[prost(message, repeated, tag = "2")]
-    pub participants: ::prost::alloc::vec::Vec<Name>,
+    pub participants: ::prost::alloc::vec::Vec<Participant>,
     /// used only when MLS is enabled
     #[prost(message, optional, tag = "3")]
     pub mls: ::core::option::Option<MlsPayload>,
@@ -292,7 +312,7 @@ pub struct GroupRemovePayload {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GroupWelcomePayload {
     #[prost(message, repeated, tag = "1")]
-    pub participants: ::prost::alloc::vec::Vec<Name>,
+    pub participants: ::prost::alloc::vec::Vec<Participant>,
     /// used only when MLS is enabled
     #[prost(message, optional, tag = "2")]
     pub mls: ::core::option::Option<MlsPayload>,
@@ -308,8 +328,8 @@ pub struct GroupClosePayload {
 /// sent on mls key rotation
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct GroupProposalPayload {
-    /// Original name of the endpoint that crated the proposal name
-    /// this may by different from the packet source since it is
+    /// Original name of the endpoint that created the proposal
+    /// this may be different from the packet source since it is
     /// forwarded by the moderator on the channel to all the
     /// group participants
     #[prost(message, optional, tag = "1")]

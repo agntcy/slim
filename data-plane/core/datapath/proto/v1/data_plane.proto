@@ -57,12 +57,13 @@ message Link {
 message SLIMHeader {
   Name source = 1;
   Name destination = 2;
-  string identity = 4;
-  uint32 fanout = 3;
-  optional uint64 recv_from = 5;
-  optional uint64 forward_to = 6;
-  optional uint64 incoming_conn = 7;
-  optional bool error = 8;
+  string identity = 3;
+  uint32 fanout = 4;
+  string version = 5;
+  optional uint64 recv_from = 6;
+  optional uint64 forward_to = 7;
+  optional uint64 incoming_conn = 8;
+  optional bool error = 9;
 }
 
 message SessionHeader {
@@ -150,6 +151,16 @@ message CommandPayload {
   }
 }
 
+message Participant {
+  Name name = 1;
+  ParticipantSettings settings = 2;
+}
+
+message ParticipantSettings {
+  bool sends_data = 1; // participant produces data messages
+  bool receives_data = 2; // participant consumes data messages
+}
+
 // Payloads for Command messages
 
 // Discovery Request
@@ -183,6 +194,7 @@ message TimerSettings {
 message JoinReplyPayload {
   // to be used only is MLS is enabled
   optional bytes key_package = 1;
+  ParticipantSettings settings = 2;
 }
 
 // Leave Request
@@ -209,9 +221,9 @@ message MlsPayload {
 // sent when a new participant is added
 message GroupAddPayload {
   // new participant to add
-  Name new_participant = 1;
+  Participant new_participant = 1;
   // new list of participants
-  repeated Name participants = 2;
+  repeated Participant participants = 2;
   // used only when MLS is enabled
   optional MlsPayload mls = 3;
 }
@@ -230,7 +242,7 @@ message GroupRemovePayload {
 // Group Welcome
 // sent on group join
 message GroupWelcomePayload {
-  repeated Name participants = 1;
+  repeated Participant participants = 1;
   // used only when MLS is enabled
   optional MlsPayload mls = 2;
 }
@@ -244,8 +256,8 @@ message GroupClosePayload {
 // Group Proposal
 // sent on mls key rotation
 message GroupProposalPayload {
-  // Original name of the endpoint that crated the proposal name
-  // this may by different from the packet source since it is
+  // Original name of the endpoint that created the proposal
+  // this may be different from the packet source since it is
   // forwarded by the moderator on the channel to all the
   // group participants
   Name source = 1;
