@@ -96,6 +96,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "bincode",
+ "clap",
  "display-error-chain",
  "drain",
  "futures",
