@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Third-party crates
-use tokio::sync::oneshot;
+use crate::runtime::channel::oneshot;
 use tracing::debug;
 
 use slim_datapath::api::ProtoMessage as Message;

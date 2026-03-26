@@ -75,7 +75,8 @@ where
 
 /// Implementation of MessageHandler trait for SessionParticipant
 /// This allows the participant to be used as a layer in the generic layer system
-#[async_trait]
+#[cfg_attr(feature = "native", async_trait)]
+#[cfg_attr(feature = "wasm", async_trait(?Send))]
 impl<P, V, I> MessageHandler for SessionParticipant<P, V, I>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -608,7 +609,7 @@ mod tests {
     use slim_datapath::Status;
     use slim_datapath::api::{CommandPayload, ProtoSessionType};
     use slim_datapath::messages::Name;
-    use tokio::sync::mpsc;
+    use crate::runtime::channel::mpsc;
 
     // --- Test Helpers -----------------------------------------------------------------------
 

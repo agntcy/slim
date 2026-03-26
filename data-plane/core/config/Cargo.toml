@@ -13,7 +13,9 @@ name = "generate-schema"
 path = "src/schema/generate_schema.rs"
 
 [features]
-default = ["grpc", "websocket-native"]
+default = ["native"]
+native = ["grpc", "websocket-native"]
+wasm = ["websocket-wasm"]
 grpc = [
     "dep:agntcy-slim-auth",
     "dep:display-error-chain",
@@ -71,7 +73,7 @@ websocket-native = [
 websocket-wasm = ["dep:gloo-net"]
 
 [dependencies]
-agntcy-slim-auth = { workspace = true, optional = true }
+agntcy-slim-auth = { workspace = true, optional = true, features = ["native"] }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true, optional = true }

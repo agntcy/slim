@@ -11,7 +11,7 @@ use slim_auth::errors::AuthError;
 use slim_datapath::api::{ProtoMessage, ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::messages::utils::MessageError;
 use slim_mls::errors::MlsError;
-use tonic::Status;
+use crate::runtime::Status;
 
 use crate::SessionMessage;
 

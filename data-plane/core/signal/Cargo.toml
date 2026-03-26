@@ -8,6 +8,11 @@ description = "Small library to handle OS signals."
 [lib]
 name = "slim_signal"
 
+[features]
+default = ["native"]
+native = ["tokio"]
+wasm = []
+
 [dependencies]
-tokio = { version = "1", features = ["macros", "signal"] }
+tokio = { version = "1", features = ["macros", "signal"], optional = true }
 tracing = { workspace = true }

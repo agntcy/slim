@@ -8,39 +8,71 @@ description = "Authentication utilities for the Agntcy Slim framework"
 [lib]
 name = "slim_auth"
 
-[dependencies]
-async-trait = { workspace = true }
-aws-lc-rs = { workspace = true }
-base64 = { workspace = true }
-display-error-chain = { workspace = true }
-futures = { workspace = true }
-headers = { workspace = true }
+[features]
+default = ["native"]
+native = [
+    "dep:aws-lc-rs",
+    "dep:display-error-chain",
+    "dep:futures",
+    "dep:headers",
+    "dep:jsonwebtoken-aws-lc",
+    "dep:notify",
+    "dep:oauth2",
+    "dep:parking_lot",
+    "dep:pin-project",
+    "dep:reqwest",
+    "dep:tokio",
+    "dep:tokio-util",
+    "dep:tower",
+    "dep:tower-layer",
+    "dep:tower-service",
+    "dep:url",
+    "dep:wiremock",
+    "native-spiffe",
+]
+native-spiffe = ["dep:spiffe"]
+wasm = [
+    "dep:parking_lot",
+    "dep:getrandom",
+]
 
+[dependencies]
+# Always available (core types, traits, metadata)
+async-trait = { workspace = true }
+base64 = { workspace = true }
 http = { workspace = true }
-jsonwebtoken-aws-lc = { workspace = true }
-notify = { workspace = true }
-oauth2 = { workspace = true, features = ["reqwest"] }
-parking_lot = { workspace = true }
-pin-project = { workspace = true }
 prost-types = { workspace = true }
 rand = { workspace = true }
-reqwest = { workspace = true }
 schemars = { workspace = true }
-serde = { workspace = true }
-
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-tokio-util = { workspace = true }
-tower = { workspace = true }
-tower-layer = { workspace = true }
-tower-service = { workspace = true }
 tracing = { workspace = true }
-url = { workspace = true }
-wiremock = { workspace = true }
+
+# WASM support for randomness
+getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
+
+# Native-only dependencies
+aws-lc-rs = { workspace = true, optional = true }
+display-error-chain = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
+headers = { workspace = true, optional = true }
+jsonwebtoken-aws-lc = { workspace = true, optional = true }
+notify = { workspace = true, optional = true }
+oauth2 = { workspace = true, features = ["reqwest"], optional = true }
+parking_lot = { workspace = true, optional = true }
+pin-project = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"], optional = true }
+tokio-util = { workspace = true, optional = true }
+tower = { workspace = true, optional = true }
+tower-layer = { workspace = true, optional = true }
+tower-service = { workspace = true, optional = true }
+url = { workspace = true, optional = true }
+wiremock = { workspace = true, optional = true }
 
 [target.'cfg(not(target_family = "windows"))'.dependencies]
-spiffe = { workspace = true }
+spiffe = { workspace = true, optional = true }
 
 [dev-dependencies]
 agntcy-slim-config = { path = "../config" }
@@ -48,4 +80,3 @@ agntcy-slim-testing = { path = "../../testing" }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "fs"] }
 tokio-test = { workspace = true }
 tracing-test = { workspace = true }
-# uuid moved to optional dependency under [dependencies] for feature = "testutils"

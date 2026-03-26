@@ -10,7 +10,26 @@ name = "slim_service"
 crate-type = ["lib"]
 
 [features]
-default = ["session"]
+default = ["native", "session"]
+native = [
+    "agntcy-slim-auth/native",
+    "agntcy-slim-config/native",
+    "agntcy-slim-controller/native",
+    "agntcy-slim-datapath/native",
+    "agntcy-slim-mls/native",
+    "agntcy-slim-session?/native",
+    "display-error-chain",
+    "tokio",
+    "tokio-util",
+]
+wasm = [
+    "agntcy-slim-auth/wasm",
+    "agntcy-slim-config/wasm",
+    "agntcy-slim-controller/wasm",
+    "agntcy-slim-datapath/wasm",
+    "agntcy-slim-mls/wasm",
+    "agntcy-slim-session?/wasm",
+]
 session = ["agntcy-slim-session"]
 
 [dependencies]
@@ -21,13 +40,13 @@ agntcy-slim-datapath = { workspace = true }
 agntcy-slim-mls = { workspace = true }
 agntcy-slim-session = { workspace = true, optional = true }
 async-trait = { workspace = true }
-display-error-chain = { workspace = true }
+display-error-chain = { workspace = true, optional = true }
 futures = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
-tokio-util = { workspace = true }
+tokio = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true }
 tracing = { workspace = true }
 
 [dev-dependencies]

@@ -17,10 +17,10 @@ default = ["multicore"]
 multicore = ["tokio/rt-multi-thread", "num_cpus"]
 
 [dependencies]
-agntcy-slim-config = { workspace = true }
-agntcy-slim-service = { workspace = true }
-agntcy-slim-signal = { workspace = true }
-agntcy-slim-tracing = { workspace = true }
+agntcy-slim-config = { workspace = true, features = ["native"] }
+agntcy-slim-service = { workspace = true, features = ["native"] }
+agntcy-slim-signal = { workspace = true, features = ["native"] }
+agntcy-slim-tracing = { workspace = true, features = ["native"] }
 anyhow = { workspace = true }
 clap = { workspace = true }
 duration-string = { workspace = true }

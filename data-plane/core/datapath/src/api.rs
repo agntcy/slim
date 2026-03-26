@@ -4,6 +4,7 @@
 //! gRPC bindings for data plane service.
 pub(crate) mod proto;
 
+// Proto message types — always available (pure prost, no tonic needed)
 pub use proto::dataplane::v1::ApplicationPayload;
 pub use proto::dataplane::v1::CommandPayload;
 pub use proto::dataplane::v1::Content;
@@ -29,9 +30,13 @@ pub use proto::dataplane::v1::SessionType as ProtoSessionType;
 pub use proto::dataplane::v1::SlimHeader;
 pub use proto::dataplane::v1::Subscribe as ProtoSubscribe;
 pub use proto::dataplane::v1::Unsubscribe as ProtoUnsubscribe;
-pub use proto::dataplane::v1::data_plane_service_client::DataPlaneServiceClient;
-pub use proto::dataplane::v1::data_plane_service_server::DataPlaneServiceServer;
 pub use proto::dataplane::v1::message::MessageType;
 pub use proto::dataplane::v1::message::MessageType::Publish as ProtoPublishType;
 pub use proto::dataplane::v1::message::MessageType::Subscribe as ProtoSubscribeType;
 pub use proto::dataplane::v1::message::MessageType::Unsubscribe as ProtoUnsubscribeType;
+
+// gRPC service types — native only (depend on tonic)
+#[cfg(feature = "native")]
+pub use proto::dataplane::v1::data_plane_service_client::DataPlaneServiceClient;
+#[cfg(feature = "native")]
+pub use proto::dataplane::v1::data_plane_service_server::DataPlaneServiceServer;
