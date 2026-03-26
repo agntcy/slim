@@ -41,6 +41,7 @@ tonic-prost-build = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 tracing-test = { workspace = true, features = ["no-env-filter"] }
 
 [[bench]]
