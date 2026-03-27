@@ -193,38 +193,44 @@ impl Connections {
         Ok(())
     }
 
-    /// Next pool slot index in round-robin order among active slots whose connection id is not
-    /// `except_conn`. Updates thread-local [`LAST_USED_POOL_INDEX`].
+    /// Next pool slot index for a connection other than `except_conn`.
+    ///
+    /// Single-connection case is O(1) on [`Self::index`]. Otherwise walks pool slots in ring order
+    /// starting after the thread-local last index (see `next_slot` below), without allocating.
     fn next_round_robin_pool_index(&self, except_conn: u64) -> Option<usize> {
-        // Build eligible slot indices using `max_set`/`get` (occupied slots with conn != except).
-        let mut eligible = Vec::new();
-        for idx in 0..=self.pool.max_set() {
-            if self.pool.get(idx).is_some_and(|c| c.conn_id != except_conn) {
-                eligible.push(idx);
+        if self.index.len() == 1 {
+            if self.index.contains_key(&except_conn) {
+                debug!("the only available connection cannot be used");
+                return None;
+            }
+            let (&conn_id, &slot_idx) = self.index.iter().next().unwrap();
+            debug_assert!(self.pool.get(slot_idx).is_some_and(|c| c.conn_id == conn_id));
+            LAST_USED_POOL_INDEX.with(|c| c.set(slot_idx));
+            return Some(slot_idx);
+        }
+
+        let num_slots = self.pool.max_set() + 1;
+        let last_raw = LAST_USED_POOL_INDEX.with(|c| c.get());
+        // First slot to try: advance one past last pick, wrapped into [0, num_slots).
+        let next_slot = if last_raw == LAST_USED_POOL_INDEX_NONE {
+            0
+        } else {
+            (last_raw + 1) % num_slots
+        };
+
+        // Ring traversal without per-step `%`: indices next_slot..end, then 0..next_slot.
+        for i in (next_slot..num_slots).chain(0..next_slot) {
+            if let Some(c) = self.pool.get(i)
+                && c.conn_id != except_conn
+            {
+                LAST_USED_POOL_INDEX.with(|c| c.set(i));
+                return Some(i);
             }
         }
 
-        if eligible.is_empty() {
-            LAST_USED_POOL_INDEX.with(|c| c.set(LAST_USED_POOL_INDEX_NONE));
-            debug!("no output connection available");
-            return None;
-        }
-
-        let n = eligible.len();
-        let last_raw = LAST_USED_POOL_INDEX.with(|c| c.get());
-        let next_pos = if last_raw == LAST_USED_POOL_INDEX_NONE {
-            0
-        } else {
-            eligible
-                .iter()
-                .position(|&idx| idx == last_raw)
-                .map(|p| (p + 1) % n)
-                .unwrap_or(0)
-        };
-
-        let idx = eligible[next_pos];
-        LAST_USED_POOL_INDEX.with(|c| c.set(idx));
-        Some(idx)
+        LAST_USED_POOL_INDEX.with(|c| c.set(LAST_USED_POOL_INDEX_NONE));
+        debug!("no output connection available");
+        None
     }
 
     fn get_one(&self, except_conn: u64) -> Option<u64> {
