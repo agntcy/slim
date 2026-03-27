@@ -187,7 +187,7 @@ fn generate_rpc_id() -> String {
 }
 
 async fn send_invite(session_tx: &SessionTx, member: &Name) -> Result<(), RpcError> {
-    tracing::info!("Inviting member to rpc channel.. {}", member);
+    tracing::debug!("Inviting member to rpc channel.. {}", member);
     session_tx
         .controller()
         .invite_participant(member)
