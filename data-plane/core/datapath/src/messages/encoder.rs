@@ -86,6 +86,11 @@ impl Name {
     // NULL_COMPONENT is used to represent a component that is not set
     pub const NULL_COMPONENT: u64 = u64::MAX;
 
+    /// Returns true if `id` is a reserved values
+    pub const fn is_reserved_id(id: u64) -> bool {
+        id == Self::NULL_COMPONENT
+    }
+
     pub fn from_strings(components: [impl Into<String>; 3]) -> Self {
         let strings = components.map(Into::into);
 

@@ -109,7 +109,7 @@ impl TestEnv {
 
         let server = Arc::new(Server::new_internal(
             server_app.clone(),
-            server_name.clone(),
+            server_app.app_name().clone(),
             server_notifications,
         ));
 
@@ -124,9 +124,10 @@ impl TestEnv {
             )
             .unwrap();
         let client_app = Arc::new(client_app);
+
         let channel = Channel::new_with_members_internal(
             client_app.clone(),
-            vec![server_name.clone()],
+            vec![server_app.app_name().clone()],
             false,
             None,
         )

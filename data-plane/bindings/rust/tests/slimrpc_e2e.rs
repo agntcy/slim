@@ -488,7 +488,7 @@ impl TestEnv {
 
         // Create server using UniFFI constructor
         println!("Creating RPC server...");
-        let server = Arc::new(Server::new(&server_app, server_name.clone()));
+        let server = Arc::new(Server::new(&server_app, server_app.name().clone()));
         println!("RPC server created");
 
         println!("TestEnv::new completed for {}", test_name);
