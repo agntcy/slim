@@ -42,7 +42,7 @@ public static class SlimRpcChannelFactory
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(members);
-        var innerNames = members.Select(m => m._inner).ToArray();
+        var innerNames = members.Select(m => m._inner).ToList();
         return uniffi.slim_bindings.Channel.NewGroupWithConnection(app._inner, innerNames, connectionId);
     }
 }
