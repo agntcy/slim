@@ -44,21 +44,21 @@ var _ = Describe("Routing", func() {
 		replacementsA := map[string]string{
 			"0.0.0.0:46357":          fmt.Sprintf("0.0.0.0:%d", dataPlaneAPort),
 			"0.0.0.0:46358":          fmt.Sprintf("0.0.0.0:%d", controllerAPort),
-			"http://localhost:46357":  fmt.Sprintf("http://localhost:%d", dataPlaneAPort),
+			"http://localhost:46357": fmt.Sprintf("http://localhost:%d", dataPlaneAPort),
 			"http://127.0.0.1:46357": fmt.Sprintf("http://127.0.0.1:%d", dataPlaneAPort),
 		}
 		replacementsB := map[string]string{
 			"0.0.0.0:46357":          fmt.Sprintf("0.0.0.0:%d", dataPlaneBPort),
 			"0.0.0.0:46358":          fmt.Sprintf("0.0.0.0:%d", controllerBPort),
-			"http://localhost:46357":  fmt.Sprintf("http://localhost:%d", dataPlaneBPort),
+			"http://localhost:46357": fmt.Sprintf("http://localhost:%d", dataPlaneBPort),
 			"http://127.0.0.1:46357": fmt.Sprintf("http://127.0.0.1:%d", dataPlaneBPort),
 		}
 		clientReplacementsA := map[string]string{
-			"http://localhost:46357":  fmt.Sprintf("http://localhost:%d", dataPlaneAPort),
+			"http://localhost:46357": fmt.Sprintf("http://localhost:%d", dataPlaneAPort),
 			"http://127.0.0.1:46357": fmt.Sprintf("http://127.0.0.1:%d", dataPlaneAPort),
 		}
 		clientReplacementsB := map[string]string{
-			"http://localhost:46357":  fmt.Sprintf("http://localhost:%d", dataPlaneBPort),
+			"http://localhost:46357": fmt.Sprintf("http://localhost:%d", dataPlaneBPort),
 			"http://127.0.0.1:46357": fmt.Sprintf("http://127.0.0.1:%d", dataPlaneBPort),
 		}
 		jsonReplacements := map[string]string{

@@ -36,8 +36,8 @@ var _ = Describe("Link Negotiation", func() {
 			nodeBPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46357":         fmt.Sprintf("0.0.0.0:%d", serverPort),
-				"0.0.0.0:46481":         fmt.Sprintf("0.0.0.0:%d", nodeBPort),
+				"0.0.0.0:46357":          fmt.Sprintf("0.0.0.0:%d", serverPort),
+				"0.0.0.0:46481":          fmt.Sprintf("0.0.0.0:%d", nodeBPort),
 				"http://localhost:46480": fmt.Sprintf("http://localhost:%d", serverPort),
 			}
 			serverConfig := writeTempConfig(tempDir, "./testdata/server.yaml", "server.yaml", replacements)
@@ -79,7 +79,7 @@ var _ = Describe("Link Negotiation", func() {
 			serverPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46357":         fmt.Sprintf("0.0.0.0:%d", serverPort),
+				"0.0.0.0:46357":          fmt.Sprintf("0.0.0.0:%d", serverPort),
 				"http://localhost:46357": fmt.Sprintf("http://localhost:%d", serverPort),
 			}
 
@@ -117,8 +117,8 @@ var _ = Describe("Link Negotiation", func() {
 			nodeBPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46357":         fmt.Sprintf("0.0.0.0:%d", serverPort),
-				"0.0.0.0:46481":         fmt.Sprintf("0.0.0.0:%d", nodeBPort),
+				"0.0.0.0:46357":          fmt.Sprintf("0.0.0.0:%d", serverPort),
+				"0.0.0.0:46481":          fmt.Sprintf("0.0.0.0:%d", nodeBPort),
 				"http://localhost:46480": fmt.Sprintf("http://localhost:%d", serverPort),
 			}
 			serverConfig := writeTempConfig(tempDir, "./testdata/server.yaml", "server-v120.yaml", replacements)
@@ -165,7 +165,7 @@ var _ = Describe("Link Negotiation", func() {
 			serverPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46357":         fmt.Sprintf("0.0.0.0:%d", serverPort),
+				"0.0.0.0:46357":          fmt.Sprintf("0.0.0.0:%d", serverPort),
 				"http://localhost:46357": fmt.Sprintf("http://localhost:%d", serverPort),
 			}
 
