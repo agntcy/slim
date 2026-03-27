@@ -302,7 +302,7 @@ tasks:
     deps:
       - task: adapter:bindings:build:all
         vars:
-       	  PROFILE: {{.PROFILE}}
+          PROFILE: {{.PROFILE}}
     cmds:
       - echo "Running tests with coverage..."
       - go test -v -coverprofile=coverage.out ./...
@@ -326,8 +326,8 @@ tasks:
     desc: Build all example binaries
     deps:
       - task: generate
-          vars:
-       	    PROFILE: {{.PROFILE}}
+        vars:
+          PROFILE: {{.PROFILE}}
     dir: examples/slimrpc/simple
     cmds:
       - go build -o slimrpc-go-server ./cmd/server
