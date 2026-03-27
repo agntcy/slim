@@ -38,7 +38,7 @@ async fn run_participant_task(name: Name, port: u16) -> Result<(), ServiceError>
     let svc = build_client_service(port, &name);
     let (_app, mut rx, _conn_id, _svc) = create_and_subscribe_app(svc, &name).await?;
 
-    let moderator = Name::from_strings(["org", "ns", "moderator"]).with_id(1);
+    let moderator = Name::from_strings(["org", "ns", "moderator"]);
     let channel_name = Name::from_strings(["channel", "channel", "channel"]);
 
     let name_clone = name.clone();
@@ -70,7 +70,7 @@ async fn run_participant_task(name: Name, port: u16) -> Result<(), ServiceError>
                                                         let msg_id = msg.get_id();
                                                         let blob = &publish.get_payload().as_application_payload().unwrap().blob;
                                                         if let Ok(val) = String::from_utf8(blob.to_vec()) {
-                                                            if publisher == session_moderator_clone {
+                                                            if publisher.components_strings() == session_moderator_clone.components_strings() {
                                                                 if val != *"hello there" { continue; }
                                                                 info!(msg_id, "received message from moderator, sending ack");
                                                                 let payload = msg_id.to_ne_bytes().to_vec();
@@ -143,7 +143,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let span = info_span!("participant", name = %p);
         tokio::spawn(
             async move {
-                let _ = run_participant_task(p.with_id(1), port).await;
+                let _ = run_participant_task(p, port).await;
             }
             .instrument(span),
         );
@@ -156,7 +156,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let moderator_span = info_span!("moderator");
     let _moderator_guard = moderator_span.enter();
 
-    let name = Name::from_strings(["org", "ns", "moderator"]).with_id(1);
+    let name = Name::from_strings(["org", "ns", "moderator"]);
     let channel_name = Name::from_strings(["channel", "channel", "channel"]);
 
     let svc = build_client_service(dataplane_port, &name);
@@ -259,7 +259,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut to_add = tot_participants - 1;
     let mut to_remove = 0;
     for i in 1..max_packets {
-        println!("moderator: send message {}", i);
+        println!("Moderator: send message {}", i);
 
         // set fanout > 1 to send the message in broadcast
         let flags = SlimHeaderFlags::new(10, None, None, None, None);

@@ -326,7 +326,11 @@ impl Channel {
         let members = self
             .initial_members
             .iter()
-            .map(|m| (m.clone(), false))
+            .map(|m| {
+                let mut name = m.clone();
+                name.reset_id();
+                (name, false)
+            })
             .collect();
         Ok((cs.tx.clone(), cs.dispatcher.clone(), members))
     }

@@ -470,21 +470,9 @@ pub(crate) async fn create_app_async_internal(
     // Validate token
     let _identity_token = identity_provider.get_token()?;
 
-    // Get ID from token and generate name with token ID
-    let token_id = identity_provider.get_id()?;
-
-    // Use a hash of the token ID to convert to u64 for name generation
-    let id_hash = {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        token_id.hash(&mut hasher);
-        hasher.finish()
-    };
-    let app_name = base_name.with_id(id_hash);
-
     // Create the app using the provided service
     let (app, rx) = service.create_app_with_direction(
-        &app_name,
+        &base_name,
         identity_provider,
         identity_verifier,
         direction.into(),
