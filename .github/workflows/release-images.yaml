@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
 
@@ -60,7 +60,7 @@ jobs:
 
       - name: List all targets
         id: all-targets
-        uses: docker/bake-action/subaction/list-targets@a4d7f0b5b91c14a296d792d4ec53a9db17f02e67 # v5.5.0
+        uses: docker/bake-action/subaction/list-targets@4a9a8d494466d37134e2bfca2d3a8de8fb2681ad # v5.13.0
         with:
           target: ${{ steps.resolve.outputs.target }}
         continue-on-error: true
@@ -90,7 +90,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
       - name: Trigger CSIT integration CI
