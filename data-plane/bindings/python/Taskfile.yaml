@@ -31,7 +31,6 @@ tasks:
   python:bindings:venv:
     status:
       - test -d .venv
-    internal: true
     cmds:
       - uv venv
 
@@ -268,16 +267,14 @@ tasks:
 
   python:bindings:install-examples:
     desc: "Install slim-bindings with examples dependencies"
-    deps:
-      - python:bindings:venv
     cmds:
       - uv pip install 'slim-bindings[examples]'
 
   python:build:
     desc: "Build Python bindings and install example dependencies"
-    deps:
-      - python:bindings:build
-      - python:bindings:install-examples
+    cmds:
+      - task: python:bindings:build
+      - task: python:bindings:install-examples
 
   python:examples:server:
     desc: "Run the server example"
