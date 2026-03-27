@@ -1,18 +1,32 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 
 use parking_lot::{RawRwLock, RwLock, lock_api::RwLockWriteGuard};
-use rand::Rng;
+use rand::{Rng, SeedableRng, rngs::SmallRng};
 use tracing::{debug, error, warn};
 
 use super::SubscriptionTable;
 use super::pool::Pool;
 use crate::errors::DataPathError;
 use crate::messages::Name;
+
+/// Sentinel for round-robin pool slot: none chosen yet. Real pool indices are far below `usize::MAX`.
+const LAST_USED_POOL_INDEX_NONE: usize = usize::MAX;
+
+thread_local! {
+    static THREAD_RNG: RefCell<SmallRng> = RefCell::new(SmallRng::from_os_rng());
+    /// Per-thread round-robin cursor for [`Connections::next_round_robin_pool_index`].
+    static LAST_USED_POOL_INDEX: Cell<usize> = const { Cell::new(LAST_USED_POOL_INDEX_NONE) };
+}
+
+fn random_index(upper: usize) -> usize {
+    THREAD_RNG.with(|rng| rng.borrow_mut().random_range(0..upper))
+}
 
 #[derive(Debug, Clone)]
 struct InternalName(Name);
@@ -179,36 +193,57 @@ impl Connections {
         Ok(())
     }
 
-    fn get_one(&self, except_conn: u64) -> Option<u64> {
+    /// Next pool slot index for a connection other than `except_conn`.
+    ///
+    /// Single-connection case is O(1) on [`Self::index`]. Otherwise walks pool slots in ring order
+    /// starting after the thread-local last index (see `next_slot` below), without allocating.
+    fn next_round_robin_pool_index(&self, except_conn: u64) -> Option<usize> {
         if self.index.len() == 1 {
-            if self.index.contains_key(&except_conn) {
+            let (&conn_id, &slot_idx) = self
+                .index
+                .iter()
+                .next()
+                .expect("len == 1 implies exactly one index entry");
+            if conn_id == except_conn {
                 debug!("the only available connection cannot be used");
                 return None;
-            } else {
-                let val = self.index.iter().next().unwrap();
-                return Some(*val.0);
+            }
+            debug_assert!(
+                self.pool
+                    .get(slot_idx)
+                    .is_some_and(|c| c.conn_id == conn_id)
+            );
+            LAST_USED_POOL_INDEX.with(|c| c.set(slot_idx));
+            return Some(slot_idx);
+        }
+
+        let num_slots = self.pool.max_set() + 1;
+        let last_raw = LAST_USED_POOL_INDEX.with(|c| c.get());
+        // First slot to try: advance one past last pick, wrapped into [0, num_slots).
+        let next_slot = if last_raw == LAST_USED_POOL_INDEX_NONE {
+            0
+        } else {
+            (last_raw + 1) % num_slots
+        };
+
+        // Ring traversal without per-step `%`: indices next_slot..end, then 0..next_slot.
+        for i in (next_slot..num_slots).chain(0..next_slot) {
+            if let Some(c) = self.pool.get(i)
+                && c.conn_id != except_conn
+            {
+                LAST_USED_POOL_INDEX.with(|c| c.set(i));
+                return Some(i);
             }
         }
 
-        // we need to iterate and find a value starting from a random point in the pool
-        let mut rng = rand::rng();
-        let index = rng.random_range(0..self.pool.max_set() + 1);
-        let mut stop = false;
-        let mut i = index;
-        while !stop {
-            let opt = self.pool.get(i);
-            if let Some(opt) = opt
-                && opt.conn_id != except_conn
-            {
-                return Some(opt.conn_id);
-            }
-            i = (i + 1) % (self.pool.max_set() + 1);
-            if i == index {
-                stop = true;
-            }
-        }
+        LAST_USED_POOL_INDEX.with(|c| c.set(LAST_USED_POOL_INDEX_NONE));
         debug!("no output connection available");
         None
+    }
+
+    fn get_one(&self, except_conn: u64) -> Option<u64> {
+        self.next_round_robin_pool_index(except_conn)
+            .and_then(|idx| self.pool.get(idx).map(|conn| conn.conn_id))
     }
 
     fn get_all(&self, except_conn: u64) -> Option<Vec<u64>> {
@@ -384,23 +419,21 @@ impl NameState {
                     }
                 }
 
-                // we need to iterate and find a value starting from a random point
-                let conns: Vec<u64> = refs[index].keys().copied().collect();
-                let mut rng = rand::rng();
-                let pos = rng.random_range(0..conns.len());
-                let mut stop = false;
-                let mut i = pos;
-                while !stop {
-                    if conns[i] != incoming_conn {
-                        return Some(conns[i]);
-                    }
-                    i = (i + 1) % conns.len();
-                    if i == pos {
-                        stop = true;
-                    }
+                let eligible_count = refs[index]
+                    .keys()
+                    .filter(|&&conn_id| conn_id != incoming_conn)
+                    .count();
+                if eligible_count == 0 {
+                    debug!("no output connection available");
+                    return None;
                 }
-                debug!("no output connection available");
-                None
+
+                let selected = random_index(eligible_count);
+                refs[index]
+                    .keys()
+                    .filter(|&&conn_id| conn_id != incoming_conn)
+                    .nth(selected)
+                    .copied()
             }
         }
     }
