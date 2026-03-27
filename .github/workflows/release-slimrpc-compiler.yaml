@@ -21,7 +21,7 @@ jobs:
       contents: write
     steps:
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2
         with:
           name: "${{ github.ref_name }}"
 
@@ -69,14 +69,14 @@ jobs:
               exclude: true
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
           workspace: ./data-plane
 
-      - uses: taiki-e/upload-rust-binary-action@f391289bcff6a7f36b6301c0a74199657bbb4561 # v1.28.0
+      - uses: taiki-e/upload-rust-binary-action@0e34102c043ded9f2ca39f7af5cd99a540c61aff # v1.29.1
         with:
           bin: protoc-gen-slimrpc-python
           target: ${{ matrix.platform.target }}
@@ -86,7 +86,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           manifest-path: ./data-plane/slimrpc-compiler/Cargo.toml
 
-      - uses: taiki-e/upload-rust-binary-action@f391289bcff6a7f36b6301c0a74199657bbb4561 # v1.28.0
+      - uses: taiki-e/upload-rust-binary-action@0e34102c043ded9f2ca39f7af5cd99a540c61aff # v1.29.1
         with:
           bin: protoc-gen-slimrpc-go
           target: ${{ matrix.platform.target }}
@@ -96,7 +96,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           manifest-path: ./data-plane/slimrpc-compiler/Cargo.toml
 
-      - uses: taiki-e/upload-rust-binary-action@f391289bcff6a7f36b6301c0a74199657bbb4561 # v1.28.0
+      - uses: taiki-e/upload-rust-binary-action@0e34102c043ded9f2ca39f7af5cd99a540c61aff # v1.29.1
         with:
           bin: protoc-gen-slimrpc-csharp
           target: ${{ matrix.platform.target }}
