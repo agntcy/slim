@@ -326,8 +326,6 @@ func TestSubscribeUnsubscribe(t *testing.T) {
 	app := setupTestApp(t, "subscribe-test")
 	defer app.Destroy()
 
-	subscribeName := slim.NewName("org", "sub", "topic")
-
 	// Test subscribe
 	err := app.Subscribe(app.Name(), nil)
 	if err != nil {
