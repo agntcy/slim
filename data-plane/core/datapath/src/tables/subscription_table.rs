@@ -199,11 +199,15 @@ impl Connections {
     /// starting after the thread-local last index (see `next_slot` below), without allocating.
     fn next_round_robin_pool_index(&self, except_conn: u64) -> Option<usize> {
         if self.index.len() == 1 {
-            if self.index.contains_key(&except_conn) {
+            let (&conn_id, &slot_idx) = self
+                .index
+                .iter()
+                .next()
+                .expect("len == 1 implies exactly one index entry");
+            if conn_id == except_conn {
                 debug!("the only available connection cannot be used");
                 return None;
             }
-            let (&conn_id, &slot_idx) = self.index.iter().next().unwrap();
             debug_assert!(self.pool.get(slot_idx).is_some_and(|c| c.conn_id == conn_id));
             LAST_USED_POOL_INDEX.with(|c| c.set(slot_idx));
             return Some(slot_idx);
