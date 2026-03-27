@@ -8,6 +8,7 @@ use std::{
 
 use async_trait::async_trait;
 use display_error_chain::ErrorChainExt;
+use rand::seq::IteratorRandom;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
@@ -438,7 +439,7 @@ where
         let participants_vec: Vec<Name> = self
             .group_list
             .iter()
-            .map(|(n, id)| n.clone().with_id(*id))
+            .map(|(n, p)| n.clone().with_id(p.get_name().id()))
             .collect();
 
         // Remove participant from group list
@@ -775,18 +776,15 @@ where
             .join_complete(msg.get_id())?;
 
         // at this point the participant is part of the group so we can add it to the list
-        let participant = msg.extract_join_reply()?.participant.ok_or(SessionError::MissingParticipantSettings)?;
-        let mut new_name = participant.get_name()?;
+        let new_participant = msg.extract_join_reply()?.participant.ok_or(SessionError::MissingParticipantSettings)?;
+        let mut new_name = new_participant.get_name()?;
         // notify the local session that a new participant was added to the group
         debug!(session_name = %new_name, "add endpoint");
-        self.add_endpoint(&participant).await?;
+        self.add_endpoint(&new_participant).await?;
 
         new_name.reset_id();
         self.group_list
             .insert(new_name, participant);
-
-
-        // TO CONTINUE FROM HERE
 
         // get mls data if MLS is enabled
         let (commit, welcome) = if let Some(mls_state) = &mut self.mls_state {
@@ -810,17 +808,13 @@ where
         };
 
         // Create participants list for the messages to send
-        let mut participants_vec = vec![];
-        for (n, id) in &self.group_list {
-            let name = n.clone().with_id(*id);
-            participants_vec.push(name);
-        }
+        let mut participants_vec = self.group_list.iter().collect();
 
         // send the group update
         if participants_vec.len() > 2 {
             debug!("participant len is > 2, send a group update");
             let update_payload = CommandPayload::builder()
-                .group_add(msg.get_source().clone(), participants_vec.clone(), commit)
+                .group_add(new_participant, participants_vec, commit)
                 .as_content();
             let add_msg_id = rand::random::<u32>();
             debug!(id = %add_msg_id, "send add update to channel");
@@ -892,7 +886,8 @@ where
             return Ok(());
         }
 
-        debug!("Create RemoveParticipant task with ack_tx");
+        debug!("Create RemoveParticipant task");
+        self.current_task = Some(ModeratorTask::Remove(RemoveParticipant::new(ack_tx, None)));
         // adjust the message according to the sender:
         // - if coming from the controller (destination in the payload) we need to modify source and destination
         // - if coming from the app (empty payload) we need to add the participant id to the destination
@@ -928,11 +923,14 @@ where
             None => (msg.get_dst(), None),
         };
 
-        self.current_task = Some(ModeratorTask::Remove(RemoveParticipant::new(ack_tx, ack)));
-
+        // set the ack message in the task if required
+        if let Some(ack_msg) = ack {
+            self.current_task.as_mut().unwrap().set_ack_msg(ack_msg);
+        }
+        
         // Look up participant ID in group list
         let id = match self.group_list.get(&dst_without_id) {
-            Some(id) => *id,
+            Some(p) => p.get_name().id(),
             None => {
                 let err = SessionError::ParticipantNotFound(dst_without_id);
                 return Err(self.handle_task_error(err));
@@ -1115,7 +1113,7 @@ where
         let participants: Vec<_> = self
             .group_list
             .iter()
-            .map(|(k, v)| k.clone().with_id(*v))
+            .map(|(k, v)| k.clone().with_id(v.get_name().id()))
             .collect();
 
         if participants.len() == 1 {
@@ -1315,9 +1313,11 @@ where
 
         // add ourself to the participants
         let mut local_name = self.common.settings.source.clone();
+        let settings = self.common.settings.direction.to_participant_settings();
+        let participant = Participant::new(local_name, settings);
         let id = local_name.id();
         local_name.reset_id();
-        self.group_list.insert(local_name, id);
+        self.group_list.insert(local_name, participant);
 
         Ok(())
     }

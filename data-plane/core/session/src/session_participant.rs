@@ -6,7 +6,7 @@ use std::{collections::HashSet, time::Duration};
 use async_trait::async_trait;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
-    api::{CommandPayload, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType},
+    api::{CommandPayload, ParticipantSettings, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType},
     messages::{
         Name,
         utils::{LEAVING_SESSION, TRUE_VAL},
@@ -37,7 +37,7 @@ where
     moderator_name: Option<Name>,
 
     /// list of participants
-    group_list: HashSet<Name>,
+    group_list: HashMap<Name, ParticipantSettings>,
 
     /// mls state
     mls_state: Option<MlsState<P, V>>,
@@ -66,7 +66,7 @@ where
 
         SessionParticipant {
             moderator_name: None,
-            group_list: HashSet::new(),
+            group_list: HashMap::new(),
             mls_state: None,
             common,
             conn_id: None,
@@ -231,7 +231,7 @@ where
         }
     }
 
-    async fn add_endpoint(&mut self, endpoint: &Name) -> Result<(), SessionError> {
+    async fn add_endpoint(&mut self, endpoint: &Participant) -> Result<(), SessionError> {
         self.inner.add_endpoint(endpoint).await
     }
 
@@ -248,7 +248,7 @@ where
     }
 
     fn participants_list(&self) -> Vec<Name> {
-        self.group_list.iter().cloned().collect()
+        self.group_list.keys().cloned().collect()
     }
 
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {
@@ -350,7 +350,7 @@ where
             .add_route(source.clone(), msg.get_incoming_conn())
             .await?;
 
-        let payload = if let Some(mls_state) = &mut self.mls_state {
+        let key_package = if let Some(mls_state) = &mut self.mls_state {
             debug!("mls enabled, create the package key");
             let key = mls_state.generate_key_package()?;
             Some(key)
@@ -358,7 +358,9 @@ where
             None
         };
 
-        let content = CommandPayload::builder().join_reply(payload).as_content();
+        let settings = self.common.settings.direction.to_participant_settings();
+
+        let content = CommandPayload::builder().join_reply(key_package, settings).as_content();
 
         debug!("send join reply message");
         let reply = self.common.create_control_message(
@@ -391,9 +393,9 @@ where
             .as_command_payload()?
             .as_welcome_payload()?
             .participants;
-        for n in list {
-            let name = Name::from(n);
-            self.group_list.insert(name.clone());
+        for p in list {
+            let name = Name::from(p.name);
+            self.group_list.insert(p);
 
             if name != self.common.settings.source {
                 debug!(name = %msg.get_source(), "add endpoint to the session");
@@ -404,7 +406,7 @@ where
                         .add_route(name.clone(), msg.get_incoming_conn())
                         .await?;
                 }
-                self.add_endpoint(&name).await?;
+                self.add_endpoint(p).await?;
             }
         }
 
@@ -419,6 +421,7 @@ where
         self.common.send_to_slim(ack).await
     }
 
+    // TODO FROM HERE
     async fn on_group_update_message(
         &mut self,
         msg: Message,
