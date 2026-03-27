@@ -11,6 +11,7 @@ package common
 
 import (
 	"fmt"
+	"os"
 
 	slim "github.com/agntcy/slim-bindings-go"
 )
@@ -20,6 +21,15 @@ const (
 	DefaultServerEndpoint = "http://localhost:46357"
 	DefaultSharedSecret   = "my_shared_secret_for_testing_purposes_only"
 )
+
+// ServerEndpoint returns the SLIM server endpoint.
+// It checks the SLIM_ADDR environment variable first, falling back to DefaultServerEndpoint.
+func ServerEndpoint() string {
+	if addr := os.Getenv("SLIM_ADDR"); addr != "" {
+		return addr
+	}
+	return DefaultServerEndpoint
+}
 
 // CreateAndConnectApp creates a SLIM app with shared secret authentication
 // and connects it to a SLIM server.

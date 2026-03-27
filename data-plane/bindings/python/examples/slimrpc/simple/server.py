@@ -83,7 +83,7 @@ class TestService(TestServicer):
             )
 
 
-async def amain(instance: str) -> None:
+async def amain(instance: str, server: str) -> None:
     slim_bindings.uniffi_set_event_loop(asyncio.get_running_loop())  # type: ignore[arg-type]
 
     # Initialize service
@@ -91,7 +91,7 @@ async def amain(instance: str) -> None:
     runtime_config = slim_bindings.new_runtime_config()
     service_config = slim_bindings.new_service_config()
 
-    tracing_config.log_level = "debug"
+    tracing_config.log_level = "info"
 
     slim_bindings.initialize_with_configs(
         tracing_config=tracing_config,
@@ -105,7 +105,7 @@ async def amain(instance: str) -> None:
     local_name = slim_bindings.Name(NAME_ORG, NAME_NS, instance)
 
     # Connect to SLIM
-    client_config = slim_bindings.new_insecure_client_config(SLIM_ADDR)
+    client_config = slim_bindings.new_insecure_client_config(server)
     conn_id = await service.connect_async(client_config)
 
     # Create app with shared secret
@@ -115,14 +115,17 @@ async def amain(instance: str) -> None:
     await local_app.subscribe_async(local_name, conn_id)
 
     # Create server
-    server = slim_bindings.Server.new_with_connection(local_app, local_name, conn_id)
+    rpc_server = slim_bindings.Server.new_with_connection(
+        local_app, local_name, conn_id
+    )
 
     # Add servicer
-    add_TestServicer_to_server(TestService(), server)
+    add_TestServicer_to_server(TestService(), rpc_server)
 
     # Run server
+    print("SLIM_RPC_SERVER_READY", flush=True)
     logger.info(f"Server '{instance}' starting...")
-    await server.serve_async()
+    await rpc_server.serve_async()
 
 
 def main() -> None:
@@ -136,10 +139,15 @@ def main() -> None:
         help="Instance name used as the SLIM app name (default: server). "
         "Use server1/server2 when running alongside client_group.py.",
     )
+    parser.add_argument(
+        "--server",
+        default=SLIM_ADDR,
+        help="SLIM server endpoint (default: from SLIM_ADDR env var or http://localhost:46357)",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.DEBUG)
     try:
-        asyncio.run(amain(args.instance))
+        asyncio.run(amain(args.instance, args.server))
     except KeyboardInterrupt:
         print("Server interrupted by user.")

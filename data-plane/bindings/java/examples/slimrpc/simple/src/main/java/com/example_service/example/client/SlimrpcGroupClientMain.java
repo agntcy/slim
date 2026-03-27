@@ -19,6 +19,7 @@ import io.agntcy.slim.bindings.slimrpc.MulticastClientBidiStream;
 import io.agntcy.slim.bindings.slimrpc.MulticastResponseStream;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -31,31 +32,47 @@ import java.util.List;
  * <p>Start two server instances (server1 and server2) before running this client.
  */
 public final class SlimrpcGroupClientMain {
-    private static final List<Name> SERVER_NAMES = List.of(
-            new Name(Common.NAME_ORG, Common.NAME_NS, "server1"),
-            new Name(Common.NAME_ORG, Common.NAME_NS, "server2")
-    );
 
     public static void main(String[] args) throws Exception {
+        String serverAddr = Common.getServerEndpoint();
+        String serversStr = "server1,server2";
+        for (int i = 0; i < args.length; i++) {
+            if ("--server".equals(args[i]) && i + 1 < args.length) {
+                serverAddr = args[i + 1];
+            } else if ("--servers".equals(args[i]) && i + 1 < args.length) {
+                serversStr = args[i + 1];
+            }
+        }
+
+        List<Name> serverNames = new ArrayList<>();
+        for (String s : serversStr.split(",")) {
+            serverNames.add(new Name(Common.NAME_ORG, Common.NAME_NS, s.trim()));
+        }
+
         SlimBindings.initializeWithDefaults();
         Service service = SlimBindings.getGlobalService();
 
         Name localName = new Name(Common.NAME_ORG, Common.NAME_NS, "client");
         App app = service.createAppWithSecret(localName, Common.DEFAULT_SHARED_SECRET);
 
-        ClientConfig clientConfig = SlimBindings.newInsecureClientConfig(Common.DEFAULT_SERVER_ENDPOINT);
+        ClientConfig clientConfig = SlimBindings.newInsecureClientConfig(serverAddr);
         long connId = service.connect(clientConfig);
         app.subscribe(localName, connId);
 
         // Group channel targeting all server instances
-        Channel channel = Channel.newGroupWithConnection(app, SERVER_NAMES, connId);
+        Channel channel = Channel.newGroupWithConnection(app, serverNames, connId);
         TestSlimrpc.TestGroupClient client = new TestSlimrpc.TestGroupClientImpl(channel);
 
         try {
+            System.out.println("SLIM_RPC_GROUP_CLIENT_STARTED");
             runMulticastUnary(client);
             runMulticastUnaryStream(client);
             runMulticastStreamUnary(client);
             runMulticastStreamStream(client);
+            System.out.println("SLIM_RPC_GROUP_CLIENT_DONE");
+        } catch (Exception e) {
+            System.err.println("Group client error: " + e.getMessage());
+            throw e;
         } finally {
             channel.closeAsync(null);
         }

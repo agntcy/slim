@@ -82,4 +82,21 @@ tasks:
           USE_LOCAL_BINDINGS: "{{.USE_LOCAL_BINDINGS}}"
           FORCE_LOCAL_BINDINGS: "{{.FORCE_LOCAL_BINDINGS}}"
     cmds:
-      - go -C ./integration test -v -failfast -test.v -test.paniconexit0 -ginkgo.timeout 5m -timeout 5m -ginkgo.v .
+      - go -C ./integration test -v -failfast -test.paniconexit0 -ginkgo.timeout 5m -timeout 5m .
+
+  tests:build-slimrpc-examples:
+    desc: "Build all slimrpc example binaries for cross-language testing"
+    deps:
+      - data-plane:build
+    cmds:
+      - task -d ../data-plane/bindings/go build
+      - task -d ../data-plane/bindings/python python:build
+      - task -d ../data-plane/bindings/java build
+      - task -d ../data-plane/bindings/dotnet build
+
+  tests:integration:slimrpc:
+    desc: "Run cross-language slimrpc integration tests"
+    deps:
+      - tests:build-slimrpc-examples
+    cmds:
+      - go -C ./integration test -v -failfast -test.paniconexit0 -ginkgo.timeout 5m -timeout 5m -ginkgo.focus "SlimRPC cross-language" .

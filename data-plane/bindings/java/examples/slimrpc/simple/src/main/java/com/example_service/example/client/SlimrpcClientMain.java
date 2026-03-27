@@ -26,6 +26,13 @@ import java.util.concurrent.Executors;
 
 public final class SlimrpcClientMain {
     public static void main(String[] args) throws Exception {
+        String serverAddr = Common.getServerEndpoint();
+        for (int i = 0; i < args.length; i++) {
+            if ("--server".equals(args[i]) && i + 1 < args.length) {
+                serverAddr = args[i + 1];
+            }
+        }
+
         SlimBindings.initializeWithDefaults();
         Service service = SlimBindings.getGlobalService();
 
@@ -33,7 +40,7 @@ public final class SlimrpcClientMain {
         Name remoteName = new Name(Common.NAME_ORG, Common.NAME_NS, "server");
 
         App app = service.createAppWithSecret(localName, Common.DEFAULT_SHARED_SECRET);
-        ClientConfig clientConfig = SlimBindings.newInsecureClientConfig(Common.DEFAULT_SERVER_ENDPOINT);
+        ClientConfig clientConfig = SlimBindings.newInsecureClientConfig(serverAddr);
         long connId = service.connect(clientConfig);
         app.subscribe(localName, connId);
 
@@ -46,6 +53,7 @@ public final class SlimrpcClientMain {
                 .setExampleInteger(42)
                 .build();
 
+        System.out.println("SLIM_RPC_CLIENT_STARTED");
         System.out.println("=== Unary-Unary ===");
         ExampleResponse response = client.ExampleUnaryUnary(request, Duration.ofSeconds(10), null);
         System.out.println("Response: " + response);
@@ -126,5 +134,6 @@ public final class SlimrpcClientMain {
         }
 
         sendFuture.join();
+        System.out.println("SLIM_RPC_CLIENT_DONE");
     }
 }

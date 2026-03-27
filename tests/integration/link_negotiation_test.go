@@ -36,11 +36,11 @@ var _ = Describe("Link Negotiation", func() {
 			nodeBPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46480":         fmt.Sprintf("0.0.0.0:%d", serverPort),
+				"0.0.0.0:46357":         fmt.Sprintf("0.0.0.0:%d", serverPort),
 				"0.0.0.0:46481":         fmt.Sprintf("0.0.0.0:%d", nodeBPort),
 				"http://localhost:46480": fmt.Sprintf("http://localhost:%d", serverPort),
 			}
-			serverConfig := writeTempConfig(tempDir, "./testdata/link-neg-server-config.yaml", "server.yaml", replacements)
+			serverConfig := writeTempConfig(tempDir, "./testdata/server.yaml", "server.yaml", replacements)
 			nodeBConfig := writeTempConfig(tempDir, "./testdata/link-neg-node-with-client-config.yaml", "node-b.yaml", replacements)
 
 			serverSession, err := gexec.Start(
@@ -79,13 +79,12 @@ var _ = Describe("Link Negotiation", func() {
 			serverPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46480":         fmt.Sprintf("0.0.0.0:%d", serverPort),
-				"http://localhost:46480": fmt.Sprintf("http://localhost:%d", serverPort),
-				"localhost:46482":        fmt.Sprintf("localhost:%d", serverPort),
+				"0.0.0.0:46357":         fmt.Sprintf("0.0.0.0:%d", serverPort),
+				"http://localhost:46357": fmt.Sprintf("http://localhost:%d", serverPort),
 			}
 
 			// Old server: slim-v1.1.0, predates link negotiation.
-			legacyServerConfig := writeTempConfig(tempDir, "./testdata/link-neg-server-config.yaml", "legacy-server.yaml", replacements)
+			legacyServerConfig := writeTempConfig(tempDir, "./testdata/server.yaml", "legacy-server.yaml", replacements)
 			legacyServerSession, err := gexec.Start(
 				exec.Command(legacySlimPath, "--config", legacyServerConfig),
 				GinkgoWriter, GinkgoWriter,
@@ -96,7 +95,7 @@ var _ = Describe("Link Negotiation", func() {
 			Eventually(legacyServerSession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
 
 			// New client connects to old server; sends link negotiation that will never be answered.
-			newClientConfig := writeTempConfig(tempDir, "./testdata/link-neg-client-only-config.yaml", "new-client.yaml", replacements)
+			newClientConfig := writeTempConfig(tempDir, "./testdata/client.yaml", "new-client.yaml", replacements)
 			newClientSession, err := gexec.Start(
 				exec.Command(slimPath, "--config", newClientConfig),
 				GinkgoWriter, GinkgoWriter,
@@ -118,11 +117,11 @@ var _ = Describe("Link Negotiation", func() {
 			nodeBPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46480":         fmt.Sprintf("0.0.0.0:%d", serverPort),
+				"0.0.0.0:46357":         fmt.Sprintf("0.0.0.0:%d", serverPort),
 				"0.0.0.0:46481":         fmt.Sprintf("0.0.0.0:%d", nodeBPort),
 				"http://localhost:46480": fmt.Sprintf("http://localhost:%d", serverPort),
 			}
-			serverConfig := writeTempConfig(tempDir, "./testdata/link-neg-server-config.yaml", "server-v120.yaml", replacements)
+			serverConfig := writeTempConfig(tempDir, "./testdata/server.yaml", "server-v120.yaml", replacements)
 			nodeBConfig := writeTempConfig(tempDir, "./testdata/link-neg-node-with-client-config.yaml", "node-b-v120.yaml", replacements)
 
 			serverSession, err := gexec.Start(
@@ -166,12 +165,12 @@ var _ = Describe("Link Negotiation", func() {
 			serverPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46480":  fmt.Sprintf("0.0.0.0:%d", serverPort),
-				"localhost:46482": fmt.Sprintf("localhost:%d", serverPort),
+				"0.0.0.0:46357":         fmt.Sprintf("0.0.0.0:%d", serverPort),
+				"http://localhost:46357": fmt.Sprintf("http://localhost:%d", serverPort),
 			}
 
 			// New server with debug logging.
-			newServerConfig := writeTempConfig(tempDir, "./testdata/link-neg-server-config.yaml", "new-server.yaml", replacements)
+			newServerConfig := writeTempConfig(tempDir, "./testdata/server.yaml", "new-server.yaml", replacements)
 			newServerSession, err := gexec.Start(
 				exec.Command(slimPath, "--config", newServerConfig),
 				GinkgoWriter, GinkgoWriter,
@@ -182,7 +181,7 @@ var _ = Describe("Link Negotiation", func() {
 			Eventually(newServerSession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
 
 			// Old client: slim-v1.1.0, connects but never sends link negotiation.
-			legacyClientConfig := writeTempConfig(tempDir, "./testdata/link-neg-client-only-config.yaml", "legacy-client.yaml", replacements)
+			legacyClientConfig := writeTempConfig(tempDir, "./testdata/client.yaml", "legacy-client.yaml", replacements)
 			legacyClientSession, err := gexec.Start(
 				exec.Command(legacySlimPath, "--config", legacyClientConfig),
 				GinkgoWriter, GinkgoWriter,

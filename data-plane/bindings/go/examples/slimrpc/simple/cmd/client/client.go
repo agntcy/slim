@@ -5,6 +5,8 @@ package main
 
 import (
 	"context"
+	"flag"
+	"fmt"
 	"log"
 	"time"
 
@@ -14,6 +16,9 @@ import (
 )
 
 func main() {
+	server := flag.String("server", common.ServerEndpoint(), "SLIM server endpoint")
+	flag.Parse()
+
 	// Initialize SLIM with defaults
 	slim_bindings.InitializeWithDefaults()
 
@@ -30,7 +35,7 @@ func main() {
 	}
 
 	// Connect to SLIM
-	clientConfig := slim_bindings.NewInsecureClientConfig(common.DefaultServerEndpoint)
+	clientConfig := slim_bindings.NewInsecureClientConfig(*server)
 	connId, err := service.Connect(clientConfig)
 	if err != nil {
 		log.Fatalf("Failed to connect: %v", err)
@@ -49,6 +54,8 @@ func main() {
 
 	// Call method
 	ctx := context.Background()
+
+	fmt.Println("SLIM_RPC_CLIENT_STARTED")
 
 	// 1. Unary-Unary
 	log.Println("=== Unary-Unary ===")
@@ -149,4 +156,6 @@ func main() {
 
 	// Give time for messages to be sent
 	time.Sleep(1 * time.Second)
+
+	fmt.Println("SLIM_RPC_CLIENT_DONE")
 }

@@ -6,8 +6,10 @@
 These values are consistent across all language bindings (Go, Python, Java, C#).
 """
 
+import os
+
 # Default SLIM server endpoint.
-SLIM_ADDR = "http://localhost:46357"
+SLIM_ADDR = os.environ.get("SLIM_ADDR", "http://localhost:46357")
 
 # Shared secret used for authentication in all examples.
 SHARED_SECRET = "my_shared_secret_for_testing_purposes_only"

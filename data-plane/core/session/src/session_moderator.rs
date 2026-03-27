@@ -1130,7 +1130,6 @@ where
     }
 
     async fn on_leave_reply(&mut self, msg: Message) -> Result<(), SessionError> {
-        println!("Leave reply!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
         debug!(
             from = %msg.get_source(),
             id = %msg.get_id(),

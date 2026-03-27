@@ -22,7 +22,7 @@ class Program
 
         var serverOption = new Option<string>(
             name: "--server",
-            getDefaultValue: () => CommonHelpers.DefaultServerEndpoint,
+            getDefaultValue: () => CommonHelpers.GetServerEndpoint(),
             description: "SLIM server endpoint");
 
         var sharedSecretOption = new Option<string>(
@@ -42,12 +42,19 @@ class Program
         rootCommand.AddOption(sharedSecretOption);
         rootCommand.AddOption(instanceOption);
 
+        var serversOption = new Option<string>(
+            name: "--servers",
+            getDefaultValue: () => "server1,server2",
+            description: "Comma-separated server instance names for group-client mode");
+        rootCommand.AddOption(serversOption);
+
         rootCommand.SetHandler(async (context) =>
         {
             var mode = context.ParseResult.GetValueForOption(modeOption)!;
             var server = context.ParseResult.GetValueForOption(serverOption)!;
             var sharedSecret = context.ParseResult.GetValueForOption(sharedSecretOption)!;
             var instance = context.ParseResult.GetValueForOption(instanceOption)!;
+            var servers = context.ParseResult.GetValueForOption(serversOption)!;
 
             if (mode.Equals("server", StringComparison.OrdinalIgnoreCase))
             {
@@ -59,7 +66,7 @@ class Program
             }
             else if (mode.Equals("group-client", StringComparison.OrdinalIgnoreCase))
             {
-                await RunGroupClientAsync(server, sharedSecret);
+                await RunGroupClientAsync(server, sharedSecret, servers);
             }
             else
             {
@@ -83,6 +90,7 @@ class Program
             var impl = new TestServerImpl();
             TestServerRegistration.RegisterTestServer(slimServer, impl);
 
+            Console.WriteLine("SLIM_RPC_SERVER_READY");
             Console.WriteLine($"Server '{instance}' starting... (Ctrl+C to stop)");
             var serveTask = slimServer.ServeAsync();
             Console.CancelKeyPress += (_, e) =>
@@ -113,6 +121,7 @@ class Program
 
             var request = new ExampleRequest { ExampleString = "hello", ExampleInteger = 1 };
 
+            Console.WriteLine("SLIM_RPC_CLIENT_STARTED");
             Console.WriteLine("=== Unary-Unary ===");
             try
             {
@@ -167,83 +176,92 @@ class Program
                 Console.WriteLine($"Stream-Stream failed: {ex.Message}");
             }
 
+            Console.WriteLine("SLIM_RPC_CLIENT_DONE");
             Console.WriteLine("\nDone.");
         }
     }
-    static async Task RunGroupClientAsync(string serverEndpoint, string sharedSecret)
+    static async Task RunGroupClientAsync(string serverEndpoint, string sharedSecret, string servers)
     {
         var (app, connId) = CommonHelpers.CreateAndConnectApp("agntcy/grpc/client", serverEndpoint, sharedSecret);
         using (app)
         {
             // Group channel targeting multiple server instances
-            using var server1 = SlimName.Parse("agntcy/grpc/server1");
-            using var server2 = SlimName.Parse("agntcy/grpc/server2");
-            var serverNames = new[] { server1, server2 };
+            var serverInstances = servers.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var serverNames = serverInstances.Select(s => SlimName.Parse($"agntcy/grpc/{s}")).ToArray();
 
-            using var channel = SlimRpcChannelFactory.CreateGroupChannel(app, serverNames, connId);
-            var client = new TestGroupClient(channel);
-
-            var request = new ExampleRequest { ExampleString = "hello", ExampleInteger = 1 };
-
-            Console.WriteLine("=== Multicast Unary-Unary ===");
             try
             {
-                await foreach (var item in client.ExampleUnaryUnaryAsync(request, TimeSpan.FromSeconds(5)))
-                {
-                    Console.WriteLine($"  [{item.Context}] {item.Value}");
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Multicast Unary-Unary failed: {ex.Message}");
-            }
+                using var channel = SlimRpcChannelFactory.CreateGroupChannel(app, serverNames, connId);
+                var client = new TestGroupClient(channel);
 
-            Console.WriteLine("\n=== Multicast Unary-Stream ===");
-            try
-            {
-                await foreach (var item in client.ExampleUnaryStreamAsync(request, TimeSpan.FromSeconds(5)))
-                {
-                    Console.WriteLine($"  [{item.Context}] {item.Value}");
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Multicast Unary-Stream failed: {ex.Message}");
-            }
+                var request = new ExampleRequest { ExampleString = "hello", ExampleInteger = 1 };
 
-            Console.WriteLine("\n=== Multicast Stream-Unary ===");
-            async IAsyncEnumerable<ExampleRequest> StreamRequests()
-            {
-                await Task.Yield();
-                for (var i = 0; i < 3; i++)
-                    yield return new ExampleRequest { ExampleInteger = i, ExampleString = $"item {i}" };
-            }
-            try
-            {
-                await foreach (var item in client.ExampleStreamUnaryAsync(StreamRequests(), TimeSpan.FromSeconds(5)))
+                Console.WriteLine("SLIM_RPC_GROUP_CLIENT_STARTED");
+                Console.WriteLine("=== Multicast Unary-Unary ===");
+                try
                 {
-                    Console.WriteLine($"  [{item.Context}] {item.Value}");
+                    await foreach (var item in client.ExampleUnaryUnaryAsync(request, TimeSpan.FromSeconds(5)))
+                    {
+                        Console.WriteLine($"  [{item.Context}] {item.Value}");
+                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Multicast Stream-Unary failed: {ex.Message}");
-            }
-
-            Console.WriteLine("\n=== Multicast Stream-Stream ===");
-            try
-            {
-                await foreach (var item in client.ExampleStreamStreamAsync(StreamRequests(), TimeSpan.FromSeconds(5)))
+                catch (Exception ex)
                 {
-                    Console.WriteLine($"  [{item.Context}] {item.Value}");
+                    Console.WriteLine($"Multicast Unary-Unary failed: {ex.Message}");
                 }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Multicast Stream-Stream failed: {ex.Message}");
-            }
 
-            Console.WriteLine("\nDone.");
+                Console.WriteLine("\n=== Multicast Unary-Stream ===");
+                try
+                {
+                    await foreach (var item in client.ExampleUnaryStreamAsync(request, TimeSpan.FromSeconds(5)))
+                    {
+                        Console.WriteLine($"  [{item.Context}] {item.Value}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Multicast Unary-Stream failed: {ex.Message}");
+                }
+
+                Console.WriteLine("\n=== Multicast Stream-Unary ===");
+                async IAsyncEnumerable<ExampleRequest> StreamRequests()
+                {
+                    await Task.Yield();
+                    for (var i = 0; i < 3; i++)
+                        yield return new ExampleRequest { ExampleInteger = i, ExampleString = $"item {i}" };
+                }
+                try
+                {
+                    await foreach (var item in client.ExampleStreamUnaryAsync(StreamRequests(), TimeSpan.FromSeconds(5)))
+                    {
+                        Console.WriteLine($"  [{item.Context}] {item.Value}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Multicast Stream-Unary failed: {ex.Message}");
+                }
+
+                Console.WriteLine("\n=== Multicast Stream-Stream ===");
+                try
+                {
+                    await foreach (var item in client.ExampleStreamStreamAsync(StreamRequests(), TimeSpan.FromSeconds(5)))
+                    {
+                        Console.WriteLine($"  [{item.Context}] {item.Value}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Multicast Stream-Stream failed: {ex.Message}");
+                }
+
+                Console.WriteLine("SLIM_RPC_GROUP_CLIENT_DONE");
+                Console.WriteLine("\nDone.");
+            }
+            finally
+            {
+                foreach (var name in serverNames) name.Dispose();
+            }
         }
     }
 }

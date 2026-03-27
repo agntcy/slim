@@ -50,7 +50,7 @@ var _ = Describe("Group management through control plane with timeout", func() {
 
 		tempDir = newTempDir("slim-integration-gm-timeout-")
 		serverAConfig = writeTempConfig(tempDir, "./testdata/server-a-config-cp.yaml", "server-a-config-cp.yaml", replacements)
-		moderatorConfig = writeTempConfig(tempDir, "./testdata/moderator-config.yaml", "moderator-config.yaml", replacements)
+		moderatorConfig = writeTempConfig(tempDir, "./testdata/client.yaml", "moderator-config.yaml", replacements)
 		controlPlaneConfig = writeTempConfig(tempDir, "./testdata/control-plane-config.yaml", "control-plane-config.yaml", replacements)
 
 		// start control plane

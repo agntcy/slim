@@ -5,8 +5,10 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -139,14 +141,19 @@ func runMulticastStreamStream(client pb.TestGroupClient) {
 }
 
 func main() {
+	server := flag.String("server", common.ServerEndpoint(), "SLIM server endpoint")
+	servers := flag.String("servers", "server1,server2", "Comma-separated server instance names")
+	flag.Parse()
+
 	slim_bindings.InitializeWithDefaults()
 
 	service := slim_bindings.GetGlobalService()
 
 	localName := slim_bindings.NewName("agntcy", "grpc", "client")
-	serverNames := []*slim_bindings.Name{
-		slim_bindings.NewName("agntcy", "grpc", "server1"),
-		slim_bindings.NewName("agntcy", "grpc", "server2"),
+	serverInstances := strings.Split(*servers, ",")
+	serverNames := make([]*slim_bindings.Name, len(serverInstances))
+	for i, s := range serverInstances {
+		serverNames[i] = slim_bindings.NewName("agntcy", "grpc", strings.TrimSpace(s))
 	}
 
 	app, err := service.CreateAppWithSecret(localName, common.DefaultSharedSecret)
@@ -154,7 +161,7 @@ func main() {
 		log.Fatalf("Failed to create app: %v", err)
 	}
 
-	clientConfig := slim_bindings.NewInsecureClientConfig(common.DefaultServerEndpoint)
+	clientConfig := slim_bindings.NewInsecureClientConfig(*server)
 	connId, err := service.Connect(clientConfig)
 	if err != nil {
 		log.Fatalf("Failed to connect: %v", err)
@@ -172,10 +179,14 @@ func main() {
 
 	client := pb.NewTestGroupClient(channel)
 
+	fmt.Println("SLIM_RPC_GROUP_CLIENT_STARTED")
+
 	runMulticastUnary(client)
 	runMulticastUnaryStream(client)
 	runMulticastStreamUnary(client)
 	runMulticastStreamStream(client)
+
+	fmt.Println("SLIM_RPC_GROUP_CLIENT_DONE")
 
 	// Give time for messages to be sent
 	time.Sleep(1 * time.Second)

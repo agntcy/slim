@@ -41,24 +41,38 @@ var _ = Describe("Routing", func() {
 		controllerAPort = reservePort()
 		controllerBPort = reservePort()
 
-		replacements := map[string]string{
+		replacementsA := map[string]string{
 			"0.0.0.0:46357":          fmt.Sprintf("0.0.0.0:%d", dataPlaneAPort),
 			"0.0.0.0:46358":          fmt.Sprintf("0.0.0.0:%d", controllerAPort),
-			"0.0.0.0:46367":          fmt.Sprintf("0.0.0.0:%d", dataPlaneBPort),
-			"0.0.0.0:46368":          fmt.Sprintf("0.0.0.0:%d", controllerBPort),
-			"http://localhost:46357": fmt.Sprintf("http://localhost:%d", dataPlaneAPort),
-			"http://localhost:46367": fmt.Sprintf("http://localhost:%d", dataPlaneBPort),
+			"http://localhost:46357":  fmt.Sprintf("http://localhost:%d", dataPlaneAPort),
+			"http://127.0.0.1:46357": fmt.Sprintf("http://127.0.0.1:%d", dataPlaneAPort),
+		}
+		replacementsB := map[string]string{
+			"0.0.0.0:46357":          fmt.Sprintf("0.0.0.0:%d", dataPlaneBPort),
+			"0.0.0.0:46358":          fmt.Sprintf("0.0.0.0:%d", controllerBPort),
+			"http://localhost:46357":  fmt.Sprintf("http://localhost:%d", dataPlaneBPort),
+			"http://127.0.0.1:46357": fmt.Sprintf("http://127.0.0.1:%d", dataPlaneBPort),
+		}
+		clientReplacementsA := map[string]string{
+			"http://localhost:46357":  fmt.Sprintf("http://localhost:%d", dataPlaneAPort),
+			"http://127.0.0.1:46357": fmt.Sprintf("http://127.0.0.1:%d", dataPlaneAPort),
+		}
+		clientReplacementsB := map[string]string{
+			"http://localhost:46357":  fmt.Sprintf("http://localhost:%d", dataPlaneBPort),
+			"http://127.0.0.1:46357": fmt.Sprintf("http://127.0.0.1:%d", dataPlaneBPort),
+		}
+		jsonReplacements := map[string]string{
 			"http://127.0.0.1:46357": fmt.Sprintf("http://127.0.0.1:%d", dataPlaneAPort),
 			"http://127.0.0.1:46367": fmt.Sprintf("http://127.0.0.1:%d", dataPlaneBPort),
 		}
 
 		tempDir = newTempDir("slim-integration-routing-")
-		serverAConfig = writeTempConfig(tempDir, "./testdata/server-a-config.yaml", "server-a-config.yaml", replacements)
-		serverBConfig = writeTempConfig(tempDir, "./testdata/server-b-config.yaml", "server-b-config.yaml", replacements)
-		clientAConfig = writeTempConfig(tempDir, "./testdata/client-a-config.yaml", "client-a-config.yaml", replacements)
-		clientBConfig = writeTempConfig(tempDir, "./testdata/client-b-config.yaml", "client-b-config.yaml", replacements)
-		clientAConfigVia = writeTempConfig(tempDir, "./testdata/client-a-config-data.json", "client-a-config-data.json", replacements)
-		clientBConfigVia = writeTempConfig(tempDir, "./testdata/client-b-config-data.json", "client-b-config-data.json", replacements)
+		serverAConfig = writeTempConfig(tempDir, "./testdata/server-with-controller.yaml", "server-a-config.yaml", replacementsA)
+		serverBConfig = writeTempConfig(tempDir, "./testdata/server-with-controller.yaml", "server-b-config.yaml", replacementsB)
+		clientAConfig = writeTempConfig(tempDir, "./testdata/client.yaml", "client-a-config.yaml", clientReplacementsA)
+		clientBConfig = writeTempConfig(tempDir, "./testdata/client.yaml", "client-b-config.yaml", clientReplacementsB)
+		clientAConfigVia = writeTempConfig(tempDir, "./testdata/client-a-config-data.json", "client-a-config-data.json", jsonReplacements)
+		clientBConfigVia = writeTempConfig(tempDir, "./testdata/client-b-config-data.json", "client-b-config-data.json", jsonReplacements)
 
 		// start SLIMs
 		var errA, errB error

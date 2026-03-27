@@ -27,6 +27,15 @@ public class Common {
     public static final String DEFAULT_SERVER_ENDPOINT = "http://localhost:46357";
     public static final String DEFAULT_SHARED_SECRET = "my_shared_secret_for_testing_purposes_only";
 
+    /**
+     * Returns the SLIM server endpoint.
+     * Checks the SLIM_ADDR environment variable first, falling back to DEFAULT_SERVER_ENDPOINT.
+     */
+    public static String getServerEndpoint() {
+        String env = System.getenv("SLIM_ADDR");
+        return (env != null && !env.isEmpty()) ? env : DEFAULT_SERVER_ENDPOINT;
+    }
+
     /** Name org component used across all examples. */
     public static final String NAME_ORG = "agntcy";
 

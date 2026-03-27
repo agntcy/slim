@@ -22,6 +22,15 @@ public static class CommonHelpers
     public const string DefaultSharedSecret = "my_shared_secret_for_testing_purposes_only";
 
     /// <summary>
+    /// Returns the SLIM server endpoint.
+    /// Checks the SLIM_ADDR environment variable first, falling back to DefaultServerEndpoint.
+    /// </summary>
+    public static string GetServerEndpoint() =>
+        Environment.GetEnvironmentVariable("SLIM_ADDR") is string addr && addr.Length > 0
+            ? addr
+            : DefaultServerEndpoint;
+
+    /// <summary>
     /// Creates a SLIM app with shared secret authentication and connects it to a SLIM server.
     /// 
     /// This is a convenience function that combines:

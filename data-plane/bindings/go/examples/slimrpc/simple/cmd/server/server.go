@@ -110,6 +110,7 @@ func (s *TestServiceImpl) ExampleStreamStream(ctx context.Context, stream slimrp
 func main() {
 	// instance allows running multiple servers (e.g. server1, server2 for group example)
 	instance := flag.String("instance", "server", "Instance name used as the SLIM app name")
+	serverAddr := flag.String("server", common.ServerEndpoint(), "SLIM server endpoint")
 	flag.Parse()
 
 	// Initialize SLIM with defaults
@@ -127,7 +128,7 @@ func main() {
 	}
 
 	// Connect to SLIM
-	clientConfig := slim_bindings.NewInsecureClientConfig(common.DefaultServerEndpoint)
+	clientConfig := slim_bindings.NewInsecureClientConfig(*serverAddr)
 	connId, err := service.Connect(clientConfig)
 	if err != nil {
 		log.Fatalf("Failed to connect: %v", err)
@@ -150,6 +151,7 @@ func main() {
 
 	// Start server in a goroutine
 	go func() {
+		fmt.Println("SLIM_RPC_SERVER_READY")
 		log.Printf("Server '%s' starting...", *instance)
 		if err := server.Serve(); err != nil {
 			log.Printf("Server error: %v", err)

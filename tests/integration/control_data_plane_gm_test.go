@@ -54,9 +54,9 @@ var _ = Describe("Group management through control plane", func() {
 
 		tempDir = newTempDir("slim-integration-gm-")
 		serverAConfig = writeTempConfig(tempDir, "./testdata/server-a-config-cp.yaml", "server-a-config-cp.yaml", replacements)
-		clientAConfig = writeTempConfig(tempDir, "./testdata/client-a-config.yaml", "client-a-config.yaml", replacements)
-		clientCConfig = writeTempConfig(tempDir, "./testdata/client-c-config.yaml", "client-c-config.yaml", replacements)
-		moderatorConfig = writeTempConfig(tempDir, "./testdata/moderator-config.yaml", "moderator-config.yaml", replacements)
+		clientAConfig = writeTempConfig(tempDir, "./testdata/client.yaml", "client-a-config.yaml", replacements)
+		clientCConfig = writeTempConfig(tempDir, "./testdata/client.yaml", "client-c-config.yaml", replacements)
+		moderatorConfig = writeTempConfig(tempDir, "./testdata/client.yaml", "moderator-config.yaml", replacements)
 		controlPlaneConfig = writeTempConfig(tempDir, "./testdata/control-plane-config.yaml", "control-plane-config.yaml", replacements)
 
 		// start control plane

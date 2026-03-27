@@ -31,15 +31,18 @@ public final class SlimrpcServerMain {
     public static void main(String[] args) throws Exception {
         // Parse --instance flag (default: "server")
         String instance = "server";
+        String serverAddr = Common.getServerEndpoint();
         for (int i = 0; i < args.length; i++) {
             if ("--instance".equals(args[i]) && i + 1 < args.length) {
                 instance = args[i + 1];
+            } else if ("--server".equals(args[i]) && i + 1 < args.length) {
+                serverAddr = args[i + 1];
             }
         }
 
         RuntimeConfig runtime = SlimBindings.newRuntimeConfig();
         TracingConfig tracing = SlimBindings.newTracingConfigWith(
-                "debug",
+                "info",
                 Boolean.TRUE,
                 Boolean.FALSE,
                 java.util.List.of());
@@ -52,7 +55,7 @@ public final class SlimrpcServerMain {
         Name localName = new Name(Common.NAME_ORG, Common.NAME_NS, instance);
         App app = service.createAppWithSecret(localName, Common.DEFAULT_SHARED_SECRET);
 
-        ClientConfig clientConfig = SlimBindings.newInsecureClientConfig(Common.DEFAULT_SERVER_ENDPOINT);
+        ClientConfig clientConfig = SlimBindings.newInsecureClientConfig(serverAddr);
         long connId = service.connect(clientConfig);
         app.subscribe(localName, connId);
 
@@ -161,7 +164,7 @@ public final class SlimrpcServerMain {
             }
         });
 
-        System.out.println("SlimRPC server '" + instance + "' ready on " + Common.DEFAULT_SERVER_ENDPOINT);
+        System.out.println("SLIM_RPC_SERVER_READY");
         rpcServer.serve();
     }
 }
