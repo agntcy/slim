@@ -99,7 +99,7 @@ tasks:
     status:
       - which uniffi-bindgen-cs
     cmds:
-      - cargo install uniffi-bindgen-cs --git https://github.com/NordSecurity/uniffi-bindgen-cs.git --tag v0.10.0+v0.29.4
+      - cargo install uniffi-bindgen-cs --git https://github.com/NordSecurity/uniffi-bindgen-cs.git --tag v0.10.0+v0.29.4 --config net.git-fetch-with-cli=true
     silent: true
 
 
@@ -251,6 +251,7 @@ tasks:
   build:
     desc: "Build the .NET solution (expects UniFFI bindings already generated; runs slimrpc proto codegen for the example)"
     deps:
+      - task: generate
       - task: slimrpc:generate-proto
     cmds:
       - |

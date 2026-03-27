@@ -61,12 +61,6 @@ tasks:
         cp "$WORKTREE/data-plane/target/debug/examples/receiver" .dist/bin/receiver-legacy
         cp "$WORKTREE/data-plane/target/debug/examples/sender" .dist/bin/sender-legacy
 
-  tests:build-current-test-apps:
-    desc: "Build receiver and sender test apps from current branch"
-    dir: ".."
-    cmds:
-      - cargo build --manifest-path data-plane/Cargo.toml --config data-plane/.cargo/config.toml -p agntcy-slim-bindings --examples
-
   tests:integration:
     desc: "Run integration tests"
     vars:
@@ -74,21 +68,14 @@ tasks:
       FORCE_LOCAL_BINDINGS: '{{.FORCE_LOCAL_BINDINGS | default "false"}}'
     deps:
       - data-plane:build
-      - data-plane:slimctl:build
       - tests:build-legacy-binaries
-      - tests:build-current-test-apps
       - tests:build-slimrpc-examples
-      - task: control-plane:build
-        vars:
-          USE_LOCAL_BINDINGS: "{{.USE_LOCAL_BINDINGS}}"
-          FORCE_LOCAL_BINDINGS: "{{.FORCE_LOCAL_BINDINGS}}"
+      - control-plane:build
     cmds:
       - go -C ./integration test -v -failfast -test.paniconexit0 -ginkgo.timeout 5m -timeout 5m .
 
   tests:build-slimrpc-examples:
     desc: "Build all slimrpc example binaries for cross-language testing"
-    deps:
-      - data-plane:build
     cmds:
       - task -d ../data-plane/bindings/go build
       - task -d ../data-plane/bindings/python python:build

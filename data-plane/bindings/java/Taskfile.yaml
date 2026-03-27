@@ -23,7 +23,7 @@ vars:
   BINDINGS_VERSION:
     sh: 'mvn -f pom.xml help:evaluate -Dexpression=project.version -q -DforceStdout'
   BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
-  PROFILE: '{{.PROFILE | default "release"}}'
+  PROFILE: '{{.PROFILE | default "debug"}}'
   CURRENT_TARGET:
     sh: 'rustc -vV | sed -n "s|host: ||p"'
   TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
@@ -68,7 +68,7 @@ tasks:
       - which uniffi-bindgen-java
     cmds:
       - echo "Installing uniffi-bindgen-java..."
-      - cargo install uniffi-bindgen-java --git https://github.com/IronCoreLabs/uniffi-bindgen-java --tag 0.2.1
+      - cargo install uniffi-bindgen-java --git https://github.com/IronCoreLabs/uniffi-bindgen-java --tag 0.2.1 --config net.git-fetch-with-cli=true
       - echo "uniffi-bindgen-java installed"
 
   generate:
