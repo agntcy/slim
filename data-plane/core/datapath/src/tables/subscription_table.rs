@@ -208,7 +208,11 @@ impl Connections {
                 debug!("the only available connection cannot be used");
                 return None;
             }
-            debug_assert!(self.pool.get(slot_idx).is_some_and(|c| c.conn_id == conn_id));
+            debug_assert!(
+                self.pool
+                    .get(slot_idx)
+                    .is_some_and(|c| c.conn_id == conn_id)
+            );
             LAST_USED_POOL_INDEX.with(|c| c.set(slot_idx));
             return Some(slot_idx);
         }
