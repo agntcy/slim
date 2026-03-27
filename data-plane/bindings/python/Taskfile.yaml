@@ -28,16 +28,8 @@ tasks:
     cmds:
       - task -l- -
 
-  python:bindings:venv:
-    status:
-      - test -d .venv
-    cmds:
-      - uv venv
-
   python:bindings:devdeps:
     internal: true
-    deps:
-      - python:bindings:venv
     cmds:
       - uv sync --group linting --group testing
 
@@ -53,8 +45,6 @@ tasks:
 
   python:bindings:build:
     desc: "Build the Python bindings using Maturin"
-    deps:
-      - python:bindings:venv
     vars:
       PROFILE: '{{.PROFILE | default "debug"}}'
       RELEASE:
@@ -82,7 +72,6 @@ tasks:
     desc: "Generate Python wheels for multiple Python versions (3.10, 3.11, 3.12, 3.13, 3.14) using Maturin"
     deps:
       - tools:zig
-      - python:bindings:venv
     vars:
       INTERPRETERS: '{{.INTERPRETERS | default "3.10 3.11 3.12 3.13 3.14"}}'
     cmds:
