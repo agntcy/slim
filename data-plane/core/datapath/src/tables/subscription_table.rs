@@ -1,11 +1,10 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use parking_lot::{RawRwLock, RwLock, lock_api::RwLockWriteGuard};
 use rand::{Rng, SeedableRng, rngs::SmallRng};
@@ -16,17 +15,18 @@ use super::pool::Pool;
 use crate::errors::DataPathError;
 use crate::messages::Name;
 
+/// Sentinel for round-robin pool slot: none chosen yet. Real pool indices are far below `usize::MAX`.
+const LAST_USED_POOL_INDEX_NONE: usize = usize::MAX;
+
 thread_local! {
     static THREAD_RNG: RefCell<SmallRng> = RefCell::new(SmallRng::from_os_rng());
+    /// Per-thread round-robin cursor for [`Connections::next_round_robin_pool_index`].
+    static LAST_USED_POOL_INDEX: Cell<usize> = const { Cell::new(LAST_USED_POOL_INDEX_NONE) };
 }
 
 fn random_index(upper: usize) -> usize {
     THREAD_RNG.with(|rng| rng.borrow_mut().random_range(0..upper))
 }
-
-/// Sentinel for `Connections::last_used_pool_index`: no slot chosen yet. Real pool indices are
-/// always far below `usize::MAX`.
-const LAST_USED_POOL_INDEX_NONE: usize = usize::MAX;
 
 #[derive(Debug, Clone)]
 struct InternalName(Name);
@@ -140,8 +140,6 @@ struct Connections {
     index: HashMap<u64, usize>,
     // pool of all connections ids that can to be used in the match
     pool: Pool<ConnId>,
-    /// Last pool slot index chosen by round-robin ([`LAST_USED_POOL_INDEX_NONE`] until first use).
-    last_used_pool_index: AtomicUsize,
 }
 
 impl Default for Connections {
@@ -149,7 +147,6 @@ impl Default for Connections {
         Connections {
             index: HashMap::new(),
             pool: Pool::with_capacity(2),
-            last_used_pool_index: AtomicUsize::new(LAST_USED_POOL_INDEX_NONE),
         }
     }
 }
@@ -197,7 +194,7 @@ impl Connections {
     }
 
     /// Next pool slot index in round-robin order among active slots whose connection id is not
-    /// `except_conn`. Updates `last_used_pool_index`.
+    /// `except_conn`. Updates thread-local [`LAST_USED_POOL_INDEX`].
     fn next_round_robin_pool_index(&self, except_conn: u64) -> Option<usize> {
         // Build eligible slot indices using `max_set`/`get` (occupied slots with conn != except).
         let mut eligible = Vec::new();
@@ -208,14 +205,13 @@ impl Connections {
         }
 
         if eligible.is_empty() {
-            self.last_used_pool_index
-                .store(LAST_USED_POOL_INDEX_NONE, Ordering::Relaxed);
+            LAST_USED_POOL_INDEX.with(|c| c.set(LAST_USED_POOL_INDEX_NONE));
             debug!("no output connection available");
             return None;
         }
 
         let n = eligible.len();
-        let last_raw = self.last_used_pool_index.load(Ordering::Relaxed);
+        let last_raw = LAST_USED_POOL_INDEX.with(|c| c.get());
         let next_pos = if last_raw == LAST_USED_POOL_INDEX_NONE {
             0
         } else {
@@ -227,7 +223,7 @@ impl Connections {
         };
 
         let idx = eligible[next_pos];
-        self.last_used_pool_index.store(idx, Ordering::Relaxed);
+        LAST_USED_POOL_INDEX.with(|c| c.set(idx));
         Some(idx)
     }
 
