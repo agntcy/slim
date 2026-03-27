@@ -106,9 +106,10 @@ pub use transport_protocol::TransportProtocol as ServerTransportProtocol;
 
 // SLIMRpc re-exports
 pub use slimrpc::{
-    BidiStreamHandler, Channel, Codec, Context, DEADLINE_KEY, Decoder, Encoder, HandlerResponse,
-    HandlerType, InvalidRpcCode, MAX_TIMEOUT, RequestStreamWriter, ResponseSink, ResponseStream,
-    ResponseStreamReader, RpcCode, RpcError, STATUS_CODE_KEY, Server,
+    BidiStreamHandler, Channel, Codec, Context, DEADLINE_KEY, DecodedStream, Decoder, Encoder,
+    HandlerType, InvalidRpcCode, MAX_TIMEOUT, MulticastBidiStreamHandler, MulticastResponseReader,
+    MulticastStreamMessage, RawStream, RequestStreamWriter, ResponseSink, ResponseStreamReader,
+    RpcCode, RpcError, RpcMessageContext, RpcMulticastItem, STATUS_CODE_KEY, Server,
     SessionContext as RpcSessionContext, StreamMessage, StreamStreamHandler, StreamUnaryHandler,
     UnaryStreamHandler, UnaryUnaryHandler, UniffiRequestStream as RequestStream,
     build_method_subscription_name,

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0-rc.1](https://github.com/agntcy/slim/compare/slim-bindings-v1.3.0-rc.0...slim-bindings-v1.3.0-rc.1) - 2026-03-26
+
+### Added
+
+- Fix dotnet bindings ([#1403](https://github.com/agntcy/slim/pull/1403))
+- MLS identity key integration and security dependency upgrades ([#1394](https://github.com/agntcy/slim/pull/1394))
+- add link negotiation protocol between SLIM nodes ([#1353](https://github.com/agntcy/slim/pull/1353))
+
+### Other
+
+- upgrade versions for 1.3.0-rc.1 ([#1406](https://github.com/agntcy/slim/pull/1406))
+
 ## [1.3.0-rc.0](https://github.com/agntcy/slim/compare/slim-bindings-v1.2.0...slim-bindings-v1.3.0-rc.0) - 2026-03-20
 
 ### Added

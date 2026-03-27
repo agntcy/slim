@@ -33,14 +33,16 @@ use crate::{
     },
     session_controller::SessionControllerCommon,
     session_settings::SessionSettings,
+    subscription_manager::{SubscriptionManager, SubscriptionOps},
     traits::{MessageHandler, ProcessingState},
 };
 
-pub struct SessionModerator<P, V, I>
+pub struct SessionModerator<P, V, I, M = SubscriptionManager>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
     I: MessageHandler + Send + Sync + 'static,
+    M: SubscriptionOps,
 {
     /// Queue of tasks to be performed by the moderator
     /// Each task contains a message and an optional ack channel
@@ -56,7 +58,7 @@ where
     group_list: HashMap<Name, u64>,
 
     /// Common settings
-    common: SessionControllerCommon<P, V>,
+    common: SessionControllerCommon<P, V, M>,
 
     /// Postponed message to be sent after current task completion
     postponed_message: Option<Message>,
@@ -71,13 +73,14 @@ where
     inner: I,
 }
 
-impl<P, V, I> SessionModerator<P, V, I>
+impl<P, V, I, M> SessionModerator<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
     I: MessageHandler + Send + Sync + 'static,
+    M: SubscriptionOps,
 {
-    pub(crate) fn new(inner: I, settings: SessionSettings<P, V>) -> Self {
+    pub(crate) fn new(inner: I, settings: SessionSettings<P, V, M>) -> Self {
         let common = SessionControllerCommon::new(settings);
 
         SessionModerator {
@@ -97,11 +100,12 @@ where
 /// Implementation of MessageHandler trait for SessionModerator
 /// This allows the moderator to be used as a layer in the generic layer system
 #[async_trait]
-impl<P, V, I> MessageHandler for SessionModerator<P, V, I>
+impl<P, V, I, M> MessageHandler for SessionModerator<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
     I: MessageHandler + Send + Sync + 'static,
+    M: SubscriptionOps,
 {
     async fn init(&mut self) -> Result<(), SessionError> {
         // Initialize MLS
@@ -292,10 +296,10 @@ where
             && let Some(conn) = self.conn_id
         {
             self.common
-                .delete_route(&self.common.settings.destination, conn)
+                .delete_route(self.common.settings.destination.clone(), conn)
                 .await?;
             self.common
-                .delete_subscription(&self.common.settings.destination, conn)
+                .delete_subscription(self.common.settings.destination.clone(), conn)
                 .await?;
         }
 
@@ -308,11 +312,12 @@ where
     }
 }
 
-impl<P, V, I> SessionModerator<P, V, I>
+impl<P, V, I, M> SessionModerator<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
     I: MessageHandler + Send + Sync + 'static,
+    M: SubscriptionOps,
 {
     /// Helper method to handle MessageError
     /// Extracts context from the error and routes to appropriate handler
@@ -491,7 +496,7 @@ where
                 // the effect of it is to create the session itself with
                 // the right settings. We need to set a route to the controller and send back the ack
                 self.common
-                    .add_route(&message.get_source(), message.get_incoming_conn())
+                    .add_route(message.get_source(), message.get_incoming_conn())
                     .await
                     .map_err(|e| self.handle_task_error(e))?;
 
@@ -601,7 +606,7 @@ where
                 // same connection from where we got the message from the controller
                 let dst = Name::from(dst_name);
                 self.common
-                    .add_route(&dst, msg.get_incoming_conn())
+                    .add_route(dst.clone(), msg.get_incoming_conn())
                     .await
                     .map_err(|e| self.handle_task_error(e))?;
 
@@ -671,7 +676,7 @@ where
 
         // set a route to the remote participant
         self.common
-            .add_route(&msg.get_source(), msg.get_incoming_conn())
+            .add_route(msg.get_source(), msg.get_incoming_conn())
             .await?;
 
         // if this is a multicast session we need to add a route for the channel
@@ -680,7 +685,10 @@ where
         // different connections. In case the route exists already it will be just ignored
         if self.common.settings.config.session_type == ProtoSessionType::Multicast {
             self.common
-                .add_route(&self.common.settings.destination, msg.get_incoming_conn())
+                .add_route(
+                    self.common.settings.destination.clone(),
+                    msg.get_incoming_conn(),
+                )
                 .await?;
         }
 
@@ -1131,7 +1139,7 @@ where
 
         // delete the route to the source of the message
         self.common
-            .delete_route(&msg.get_source(), msg.get_incoming_conn())
+            .delete_route(msg.get_source(), msg.get_incoming_conn())
             .await?;
 
         // notify the sender and see if we can pick another task
@@ -1267,9 +1275,8 @@ where
             self.common.settings.destination = remote;
         } else {
             // if this is a multicast session we need to subscribe for the channel name
-            self.common
-                .add_subscription(&self.common.settings.destination, conn)
-                .await?;
+            let destination = self.common.settings.destination.clone();
+            self.common.add_subscription(destination, conn).await?;
         }
 
         // create mls group if needed
@@ -1328,6 +1335,30 @@ mod tests {
 
     // --- Test Helpers -----------------------------------------------------------------------
 
+    /// Drives `fut` to completion while automatically resolving any subscription
+    /// ACKs that arrive on `rx_slim` (simulating the SLIM datapath ACK response).
+    async fn run_with_acks<F, T>(
+        fut: F,
+        rx_slim: &mut mpsc::Receiver<Result<Message, Status>>,
+        sub_mgr: &crate::subscription_manager::SubscriptionManager,
+    ) -> T
+    where
+        F: std::future::Future<Output = T>,
+    {
+        let mut pinned = Box::pin(fut);
+        loop {
+            tokio::select! {
+                res = &mut pinned => return res,
+                msg = rx_slim.recv() => {
+                    if let Some(Ok(msg)) = msg && let Some(ack_id) = msg.get_subscription_id() {
+                        let ack = Message::builder().build_subscription_ack(ack_id, true, "");
+                        sub_mgr.resolve_ack(ack.get_subscription_ack());
+                    }
+                }
+            }
+        }
+    }
+
     fn make_name(parts: &[&str; 3]) -> Name {
         Name::from_strings([parts[0], parts[1], parts[2]]).with_id(0)
     }
@@ -1348,6 +1379,8 @@ mod tests {
         let (tx_session, _rx_session) = mpsc::channel(16);
         let (tx_session_layer, rx_session_layer) = mpsc::channel(16);
 
+        let subscription_manager =
+            crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
         let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app);
 
         let config = SessionConfig {
@@ -1370,6 +1403,8 @@ mod tests {
             identity_provider,
             identity_verifier,
             graceful_shutdown_timeout: None,
+            subscription_manager,
+            service_id: String::new(),
         };
 
         let inner = MockInnerHandler::new();
@@ -1511,31 +1546,22 @@ mod tests {
             )
             .build_publish()
             .unwrap();
-        let result = moderator.process_control_message(join_msg, None).await;
+        let sub_mgr = moderator.common.settings.subscription_manager.clone();
+        // The JoinRequest handler calls add_route (ACK-awaiting) then sends GroupAck.
+        // run_with_acks drives the future while auto-resolving the route subscribe ACK.
+        let result = run_with_acks(
+            moderator.process_control_message(join_msg, None),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
         assert!(result.is_ok());
-        let subscribe_msg = rx_slim.recv().await.unwrap().unwrap();
-        assert!(
-            matches!(
-                subscribe_msg.get_type(),
-                slim_datapath::api::MessageType::Subscribe(_)
-            ),
-            "First message should be a Subscribe message"
-        );
-        assert_eq!(
-            subscribe_msg.get_source(),
-            destination,
-            "Subscribe message source should match"
-        );
-        assert_eq!(
-            subscribe_msg.get_dst(),
-            source,
-            "Subscribe message destination should match"
-        );
+        // The route subscribe was consumed by run_with_acks; GroupAck is the next message.
         let ack_msg = rx_slim.recv().await.unwrap().unwrap();
         assert_eq!(
             ack_msg.get_session_message_type(),
             ProtoSessionMessageType::GroupAck,
-            "Second message should be a GroupAck"
+            "Should have sent a GroupAck"
         );
     }
 
@@ -1594,13 +1620,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_moderator_join_sets_subscribed() {
-        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        let (mut moderator, mut rx_slim, _rx_session_layer) = setup_moderator();
         moderator.init().await.unwrap();
 
         assert!(!moderator.subscribed);
 
+        let sub_mgr = moderator.common.settings.subscription_manager.clone();
         let remote = make_name(&["remote", "app", "v1"]).with_id(200);
-        let result = moderator.join(remote, 12345).await;
+        let result = run_with_acks(moderator.join(remote, 12345), &mut rx_slim, &sub_mgr).await;
 
         assert!(result.is_ok());
         assert!(moderator.subscribed);
@@ -1612,14 +1639,19 @@ mod tests {
         let (mut moderator, mut rx_slim, _rx_session_layer) = setup_moderator();
         moderator.init().await.unwrap();
 
+        let sub_mgr = moderator.common.settings.subscription_manager.clone();
         let remote = make_name(&["remote", "app", "v1"]).with_id(200);
 
-        // First join
-        moderator.join(remote.clone(), 12345).await.unwrap();
-        let first_subscribe = rx_slim.try_recv();
-        assert!(first_subscribe.is_ok());
+        // First join — run_with_acks drains and ACKs the subscribe message
+        run_with_acks(
+            moderator.join(remote.clone(), 12345),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await
+        .unwrap();
 
-        // Second join should do nothing
+        // Second join should do nothing (already subscribed)
         moderator.join(remote, 12345).await.unwrap();
         let second_subscribe = rx_slim.try_recv();
         assert!(second_subscribe.is_err()); // No message should be sent
@@ -1731,6 +1763,8 @@ mod tests {
         let (tx_session, _rx_session) = mpsc::channel(16);
         let (tx_session_layer, _rx_session_layer) = mpsc::channel(16);
 
+        let subscription_manager =
+            crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
         let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app);
 
         let config = SessionConfig {
@@ -1753,6 +1787,8 @@ mod tests {
             identity_provider,
             identity_verifier,
             graceful_shutdown_timeout: None,
+            subscription_manager,
+            service_id: String::new(),
         };
 
         let inner = MockInnerHandler::new();
@@ -1799,11 +1835,13 @@ mod tests {
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;
 
-        let (tx_slim, _rx_slim) = mpsc::channel(16);
+        let (tx_slim, mut rx_slim) = mpsc::channel(16);
         let (tx_app, mut rx_app) = mpsc::unbounded_channel();
         let (tx_session, _rx_session) = mpsc::channel(16);
         let (tx_session_layer, _rx_session_layer) = mpsc::channel(16);
 
+        let subscription_manager =
+            crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
         let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app);
 
         let config = SessionConfig {
@@ -1826,6 +1864,8 @@ mod tests {
             identity_provider,
             identity_verifier,
             graceful_shutdown_timeout: None,
+            subscription_manager,
+            service_id: String::new(),
         };
 
         let inner = MockInnerHandler::new();
@@ -1834,7 +1874,14 @@ mod tests {
 
         // Set up moderator as joined (this adds moderator to group_list)
         let remote = Name::from_strings(["agntcy", "ns", "participant"]).with_id(200);
-        moderator.join(remote.clone(), 12345).await.unwrap();
+        let sub_mgr = moderator.common.settings.subscription_manager.clone();
+        run_with_acks(
+            moderator.join(remote.clone(), 12345),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await
+        .unwrap();
 
         // Add one participant to the group (now we have moderator + participant = 2 total)
         // Use the naming convention requested: agntcy/ns/participant
@@ -1927,6 +1974,8 @@ mod tests {
         let (tx_session, _rx_session) = mpsc::channel(16);
         let (tx_session_layer, _rx_session_layer) = mpsc::channel(16);
 
+        let subscription_manager =
+            crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
         let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app);
 
         let config = SessionConfig {
@@ -1949,6 +1998,8 @@ mod tests {
             identity_provider,
             identity_verifier,
             graceful_shutdown_timeout: None,
+            subscription_manager,
+            service_id: String::new(),
         };
 
         let inner = MockInnerHandler::new();
@@ -1957,7 +2008,14 @@ mod tests {
 
         // Set up moderator as joined
         let remote = Name::from_strings(["agntcy", "ns", "participant1"]).with_id(200);
-        moderator.join(remote.clone(), 12345).await.unwrap();
+        let sub_mgr = moderator.common.settings.subscription_manager.clone();
+        run_with_acks(
+            moderator.join(remote.clone(), 12345),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await
+        .unwrap();
 
         // Add three participants to the group
         let mut participant1 = Name::from_strings(["agntcy", "ns", "participant1"]);

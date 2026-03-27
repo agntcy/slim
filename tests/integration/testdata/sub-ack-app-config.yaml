@@ -1,0 +1,23 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+# Application/client node used for subscription ACK compatibility tests.
+# Connects as a client to an upstream relay.
+
+tracing:
+  log_level: debug
+  display_thread_names: true
+  display_thread_ids: true
+
+runtime:
+  n_cores: 0
+  thread_name: "slim-sub-ack-app"
+  drain_timeout: 10s
+
+services:
+  slim/0:
+    dataplane:
+      clients:
+        - endpoint: "http://localhost:46490"
+          tls:
+            insecure: true

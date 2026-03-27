@@ -23,6 +23,7 @@ mod session_participant;
 pub mod session_receiver;
 pub mod session_sender;
 mod session_settings;
+pub mod subscription_manager;
 pub mod timer;
 pub mod timer_factory;
 pub mod traits;
@@ -59,3 +60,4 @@ pub use common::{AppChannelReceiver, SESSION_UNSPECIFIED};
 // Re-export specific items that need to be publicly accessible
 pub use completion_handle::CompletionHandle;
 pub use notification::Notification;
+pub use subscription_manager::{AutoAckManager, SubscriptionOps};

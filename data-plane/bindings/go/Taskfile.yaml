@@ -41,6 +41,8 @@ tasks:
   patch-cgo-directives:
     desc: Patch generated Go bindings with proper cgo directives
     internal: true
+    vars:
+      VERSION: '{{.VERSION | default "devel"}}'
     cmds:
       - echo "🔧 Patching cgo directives..."
       - |
@@ -52,11 +54,11 @@ tasks:
 
         /*
         #cgo CFLAGS: -I${SRCDIR}
-        #cgo linux,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings -lslim_bindings_x86_64_linux_gnu -lm
-        #cgo linux,arm64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings -lslim_bindings_aarch64_linux_gnu -lm
-        #cgo darwin,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings -lslim_bindings_x86_64_darwin -Wl,-undefined,dynamic_lookup
-        #cgo darwin,arm64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings -lslim_bindings_aarch64_darwin -Wl,-undefined,dynamic_lookup
-        #cgo windows,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings -lslim_bindings_x86_64_windows_gnu -lws2_32 -lbcrypt -ladvapi32 -luserenv -lntdll -lgcc_eh -lgcc -lkernel32 -lole32
+        #cgo linux,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings/{{.VERSION}} -lslim_bindings_x86_64_linux_gnu -lm
+        #cgo linux,arm64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings/{{.VERSION}} -lslim_bindings_aarch64_linux_gnu -lm
+        #cgo darwin,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings/{{.VERSION}} -lslim_bindings_x86_64_darwin -Wl,-undefined,dynamic_lookup
+        #cgo darwin,arm64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings/{{.VERSION}} -lslim_bindings_aarch64_darwin -Wl,-undefined,dynamic_lookup
+        #cgo windows,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings/{{.VERSION}} -lslim_bindings_x86_64_windows_gnu -lws2_32 -lbcrypt -ladvapi32 -luserenv -lntdll -lgcc_eh -lgcc -lkernel32 -lole32
         #include <slim_bindings.h>
         */
         import "C"
@@ -121,6 +123,8 @@ tasks:
       # exists and sources have not changed (sources/generates fingerprinting).
       - task: adapter:bindings:build:all
       - task: install-uniffi-bindgen-go
+    vars:
+      VERSION: '{{.VERSION | default "devel"}}'
     cmds:
       - echo "🔧 Generating Go bindings from compiled library..."
       - |
@@ -130,6 +134,8 @@ tasks:
       - task: copy-library
       - task: patch-header
       - task: patch-cgo-directives
+        vars:
+          VERSION: '{{.VERSION}}'
       - echo "✅ Bindings generated in slim_bindings/"
     silent: true
 
@@ -137,6 +143,8 @@ tasks:
     desc: Generate Go bindings using a cached native library
     deps:
       - task: install-uniffi-bindgen-go
+    vars:
+      VERSION: '{{.VERSION | default "devel"}}'
     cmds:
       - echo "🔧 Generating Go bindings from cached library..."
       - |
@@ -190,7 +198,7 @@ tasks:
         esac
 
         GOPATH_DIR=$(go env GOPATH)
-        CACHE_DIR="$GOPATH_DIR/.cgo-cache/slim-bindings"
+        CACHE_DIR="$GOPATH_DIR/.cgo-cache/slim-bindings/{{.VERSION}}"
         LIB_PATH="$CACHE_DIR/$LIB_NAME"
 
         if [ ! -f "$LIB_PATH" ]; then
@@ -204,6 +212,8 @@ tasks:
 
       - task: patch-header
       - task: patch-cgo-directives
+        vars:
+          VERSION: '{{.VERSION}}'
       - echo "✅ Bindings generated in slim_bindings/"
     silent: true
 

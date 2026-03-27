@@ -2,18 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
-use parking_lot::RwLock;
 use slim_datapath::messages::Name;
 use slim_service::{ServiceError, SlimHeaderFlags};
 use slim_session::{Notification, SessionConfig};
 use slim_testing::build_client_service;
-use slim_testing::common::{
-    DEFAULT_SERVICE_ID, create_and_subscribe_app, reserve_local_port, run_slim_node,
-};
+use slim_testing::common::{create_and_subscribe_app, reserve_local_port, run_slim_node};
+use slim_tracing::TracingConfiguration;
+use tracing::{Instrument, error, info, info_span};
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -35,12 +33,12 @@ impl Args {
 }
 
 async fn run_participant_task(name: Name, port: u16) -> Result<(), ServiceError> {
-    println!("Participant {} task starting...", name);
+    info!("task starting on port {}", port);
 
-    let svc = build_client_service(port, DEFAULT_SERVICE_ID);
+    let svc = build_client_service(port, &name);
     let (_app, mut rx, _conn_id, _svc) = create_and_subscribe_app(svc, &name).await?;
 
-    let moderator = Name::from_strings(["org", "ns", "moderator"]).with_id(1);
+    let moderator = Name::from_strings(["org", "ns", "moderator"]);
     let channel_name = Name::from_strings(["channel", "channel", "channel"]);
 
     let name_clone = name.clone();
@@ -50,54 +48,56 @@ async fn run_participant_task(name: Name, port: u16) -> Result<(), ServiceError>
         tokio::select! {
             msg_result = rx.recv() => {
                 match msg_result {
-                    None => { println!("Participant {}: end of stream, close app", name_clone); break; }
+                    None => { info!("end of stream, close app"); break; }
                     Some(res) => match res {
                         Ok(notification) => match notification {
                             Notification::NewSession(session_ctx) => {
-                                println!("New session created on participant {}", name_clone);
+                                info!("new session created");
                                 let session_moderator_clone = moderator_clone.clone();
                                 let session_channel_name_clone = channel_name_clone.clone();
                                 let session_name = name_clone.clone();
-                                session_ctx.spawn_receiver(move |mut rx, weak| async move {
-                                    loop{
-                                        match rx.recv().await {
-                                            None => {
-                                                println!("Session receiver: end of stream on participant {}", session_name);
-                                                break;
-                                            }
-                                            Some(Ok(msg)) => {
-                                                if let Some(slim_datapath::api::ProtoPublishType(publish)) = msg.message_type.as_ref() {
-                                                    let publisher = msg.get_slim_header().get_source();
-                                                    let msg_id = msg.get_id();
-                                                    let blob = &publish.get_payload().as_application_payload().unwrap().blob;
-                                                    if let Ok(val) = String::from_utf8(blob.to_vec()) {
-                                                        if publisher == session_moderator_clone {
-                                                            if val != *"hello there" { continue; }
-                                                            println!("received message {} on participant {}", msg_id, session_name);
-                                                            let payload = msg_id.to_ne_bytes().to_vec();
-                                                            let flags = SlimHeaderFlags::new(10, None, None, None, None);
-                                                            if let Some(session_arc) = weak.upgrade() &&
-                                                                session_arc.publish_with_flags(&session_channel_name_clone, flags, payload, None, None).await.is_err() {
-                                                                panic!("an error occurred sending publication from moderator");
+                                session_ctx.spawn_receiver(move |mut rx, weak| {
+                                    async move {
+                                        loop {
+                                            match rx.recv().await {
+                                                None => {
+                                                    info!("session receiver: end of stream");
+                                                    break;
+                                                }
+                                                Some(Ok(msg)) => {
+                                                    if let Some(slim_datapath::api::ProtoPublishType(publish)) = msg.message_type.as_ref() {
+                                                        let publisher = msg.get_slim_header().get_source();
+                                                        let msg_id = msg.get_id();
+                                                        let blob = &publish.get_payload().as_application_payload().unwrap().blob;
+                                                        if let Ok(val) = String::from_utf8(blob.to_vec()) {
+                                                            if publisher.components_strings() == session_moderator_clone.components_strings() {
+                                                                if val != *"hello there" { continue; }
+                                                                info!(msg_id, "received message from moderator, sending ack");
+                                                                let payload = msg_id.to_ne_bytes().to_vec();
+                                                                let flags = SlimHeaderFlags::new(10, None, None, None, None);
+                                                                if let Some(session_arc) = weak.upgrade() &&
+                                                                    session_arc.publish_with_flags(&session_channel_name_clone, flags, payload, None, None).await.is_err() {
+                                                                    panic!("an error occurred sending publication from moderator");
+                                                                }
                                                             }
-                                                        }
-                                                    } else { println!("Participant {}: error parsing message", session_name); }
+                                                        } else { error!("error parsing message blob"); }
+                                                    }
+                                                }
+                                                Some(Err(e)) => {
+                                                    error!("session receiver error: {:?}", e);
+                                                    break;
                                                 }
                                             }
-                                            Some(Err(e)) => {
-                                                println!("Session receiver: error {:?}", e);
-                                                break;
-                                            }
                                         }
-                                    }
+                                    }.instrument(info_span!("session_receiver", participant = %session_name))
                                 });
                             }
                             _ => {
-                                println!("Unexpected notification type");
+                                info!("unexpected notification type");
                                 continue;
                             }
                         }
-                        Err(e) => { println!("Participant {} received error message: {:?}", name, e); }
+                        Err(e) => { error!("received error message: {:?}", e); }
                     }
                 }
             }
@@ -113,17 +113,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let mls_enabled = !*args.mls_disabled();
 
+    let tracing = TracingConfiguration::default();
+    let _guard = tracing.setup_tracing_subscriber();
+
     if mls_enabled {
-        println!("start test with msl enabled");
+        info!("start test with mls enabled");
     } else {
-        println!("start test with msl disabled");
+        info!("start test with mls disabled");
     }
     let dataplane_port = reserve_local_port();
+    info!(dataplane_port, "reserved data plane port");
 
     // start slim node
-    tokio::spawn(async move {
-        let _ = run_slim_node(dataplane_port).await;
-    });
+    tokio::spawn(
+        async move {
+            let _ = run_slim_node(dataplane_port).await;
+        }
+        .instrument(info_span!("slim_node", port = dataplane_port)),
+    );
 
     // start clients
     let tot_participants = 5;
@@ -133,19 +140,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let p = Name::from_strings(["org", "ns", &format!("t{}", i)]);
         participants.push(p.clone());
         let port = dataplane_port;
-        tokio::spawn(async move {
-            let _ = run_participant_task(p.with_id(1), port).await;
-        });
+        let span = info_span!("participant", name = %p);
+        tokio::spawn(
+            async move {
+                let _ = run_participant_task(p, port).await;
+            }
+            .instrument(span),
+        );
     }
 
     // wait for all the processes to start
     tokio::time::sleep(tokio::time::Duration::from_millis(10000)).await;
 
     // start moderator
-    let name = Name::from_strings(["org", "ns", "moderator"]).with_id(1);
+    let moderator_span = info_span!("moderator");
+    let _moderator_guard = moderator_span.enter();
+
+    let name = Name::from_strings(["org", "ns", "moderator"]);
     let channel_name = Name::from_strings(["channel", "channel", "channel"]);
 
-    let svc = build_client_service(dataplane_port, DEFAULT_SERVICE_ID);
+    let svc = build_client_service(dataplane_port, &name);
 
     let (app, _rx, conn_id, _svc) = create_and_subscribe_app(svc, &name).await?;
 
@@ -174,7 +188,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // invite N-1 participants
     for c in participants.iter().take(tot_participants - 1) {
-        println!("Invite participant {}", c);
+        info!("inviting participant {}", c);
         let handler = session_ctx
             .session_arc()
             .unwrap()
@@ -188,7 +202,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // listen for messages
     let max_packets = 100;
-    let recv_msgs = Arc::new(RwLock::new(vec![0; max_packets]));
+    let recv_msgs = std::sync::Arc::new(parking_lot::RwLock::new(vec![0; max_packets]));
     let recv_msgs_clone = recv_msgs.clone();
 
     // Clone the Arc to session for later use
@@ -245,7 +259,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut to_add = tot_participants - 1;
     let mut to_remove = 0;
     for i in 1..max_packets {
-        println!("moderator: send message {}", i);
+        println!("Moderator: send message {}", i);
 
         // set fanout > 1 to send the message in broadcast
         let flags = SlimHeaderFlags::new(10, None, None, None, None);
@@ -331,6 +345,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.delete_session(session_arc.as_ref())?;
     drop(session_arc);
     handle.await.expect("error deleting session");
-    println!("test succeeded");
+    info!("test succeeded");
     Ok(())
 }

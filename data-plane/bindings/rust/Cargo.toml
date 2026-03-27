@@ -1,6 +1,6 @@
 [package]
 name = "agntcy-slim-bindings"
-version = "1.3.0-rc.0"
+version = "1.3.0-rc.1"
 edition = { workspace = true }
 license = { workspace = true }
 description = "UniFFI bindings and FFI adapter for SLIM data plane - enables language integrations (Go, Swift, Kotlin, etc.)"
@@ -30,7 +30,6 @@ drain = { workspace = true }
 futures = { workspace = true }
 futures-timer = { workspace = true }
 parking_lot = { workspace = true }
-rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -47,6 +46,15 @@ uniffi = { workspace = true, features = ["build"] }
 [dev-dependencies]
 agntcy-slim-testing = { workspace = true }
 bincode = { workspace = true }
+clap = { workspace = true }
 test-fork = { workspace = true }
 tokio-test = { workspace = true }
 tracing-test = { workspace = true }
+
+[[example]]
+name = "receiver"
+path = "examples/receiver.rs"
+
+[[example]]
+name = "sender"
+path = "examples/sender.rs"
