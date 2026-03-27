@@ -167,7 +167,7 @@ func main() {
 		log.Fatalf("Failed to connect: %v", err)
 	}
 
-	if err := app.Subscribe(localName, &connId); err != nil {
+	if err := app.Subscribe(app.Name(), &connId); err != nil {
 		log.Fatalf("Failed to subscribe: %v", err)
 	}
 

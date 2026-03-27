@@ -42,7 +42,7 @@ public final class SlimrpcClientMain {
         App app = service.createAppWithSecret(localName, Common.DEFAULT_SHARED_SECRET);
         ClientConfig clientConfig = SlimBindings.newInsecureClientConfig(serverAddr);
         long connId = service.connect(clientConfig);
-        app.subscribe(localName, connId);
+        app.subscribe(app.name(), connId);
 
         Channel channel = Channel.newWithConnection(app, remoteName, connId);
 

@@ -57,7 +57,7 @@ public final class SlimrpcServerMain {
 
         ClientConfig clientConfig = SlimBindings.newInsecureClientConfig(serverAddr);
         long connId = service.connect(clientConfig);
-        app.subscribe(localName, connId);
+        app.subscribe(app.name(), connId);
 
         Server rpcServer = Server.newWithConnection(app, localName, connId);
         TestSlimrpc.registerTestServer(rpcServer, new TestSlimrpc.UnimplementedTestServer() {

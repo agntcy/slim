@@ -41,11 +41,11 @@ tasks:
           git fetch origin {{.LEGACY_BRANCH}}:{{.LEGACY_BRANCH}} || \
           git fetch origin refs/heads/{{.LEGACY_BRANCH}}:refs/heads/{{.LEGACY_BRANCH}}
         fi
-        
+
         WORKTREE=$(mktemp -d)
         trap 'git worktree remove --force "$WORKTREE"' EXIT
         git worktree add "$WORKTREE" {{.LEGACY_BRANCH}}
-        
+
         # Build slim, sdk-mock, and the test apps
         cargo build --manifest-path "$WORKTREE/data-plane/Cargo.toml" \
           --config "$WORKTREE/data-plane/.cargo/config.toml" \
@@ -54,7 +54,7 @@ tasks:
           -p slim-examples \
           -p agntcy-slim-bindings \
           --examples
-        
+
         mkdir -p .dist/bin
         cp "$WORKTREE/data-plane/target/debug/slim" .dist/bin/slim-legacy
         cp "$WORKTREE/data-plane/target/debug/sdk-mock" .dist/bin/sdk-mock-legacy
@@ -77,6 +77,7 @@ tasks:
       - data-plane:slimctl:build
       - tests:build-legacy-binaries
       - tests:build-current-test-apps
+      - tests:build-slimrpc-examples
       - task: control-plane:build
         vars:
           USE_LOCAL_BINDINGS: "{{.USE_LOCAL_BINDINGS}}"

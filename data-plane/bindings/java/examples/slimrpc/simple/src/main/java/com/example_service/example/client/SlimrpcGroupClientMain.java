@@ -57,7 +57,7 @@ public final class SlimrpcGroupClientMain {
 
         ClientConfig clientConfig = SlimBindings.newInsecureClientConfig(serverAddr);
         long connId = service.connect(clientConfig);
-        app.subscribe(localName, connId);
+        app.subscribe(app.name(), connId);
 
         // Group channel targeting all server instances
         Channel channel = Channel.newGroupWithConnection(app, serverNames, connId);
