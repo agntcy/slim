@@ -93,7 +93,6 @@ impl Name {
     // CONTROL_CHANNEL_ID is the id for the control channel name.
     pub const CONTROL_CHANNEL_ID: u64 = u64::MAX - 3; // ends with 0xfc (control))
 
-
     /// Returns true if `id` is one of the reserved values
     /// Notice that u64::MAX - 1 (ends with 0xfe) is not used at the moment
     /// and it reserved for future use.

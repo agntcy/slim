@@ -3,7 +3,7 @@
 
 use async_trait::async_trait;
 use slim_datapath::{
-    api::{ProtoMessage as Message, ProtoSessionMessageType},
+    api::{Participant, ProtoMessage as Message, ProtoSessionMessageType},
     messages::Name,
 };
 
@@ -141,7 +141,8 @@ impl Session {
     }
 
     pub async fn add_endpoint(&mut self, endpoint: &Participant) -> Result<(), SessionError> {
-        debug!(%endpoint, local_name = %self.local_name, "add participant");
+        let name = endpoint.get_name()?;
+        debug!(%name, local_name = %self.local_name, "add participant");
         if let Some(sender) = self.sender.as_mut() {
             sender.add_endpoint(endpoint).await?;
         }
@@ -192,9 +193,7 @@ impl Session {
                     // message from slim to the app, give it to the receiver
                     match self.receiver {
                         Some(ref mut receiver) => receiver.on_message(message).await,
-                        None => {
-                            Err(SessionError::SessionReceiverShutdown)
-                        }
+                        None => Err(SessionError::SessionReceiverShutdown),
                     }
                 }
             }
@@ -210,14 +209,10 @@ impl Session {
                     }
                 }
             }
-            ProtoSessionMessageType::RtxReply => {
-                match self.receiver {
-                    Some(ref mut receiver) => receiver.on_message(message).await,
-                    None => {
-                        Err(SessionError::SessionReceiverShutdown)
-                    }
-                }
-            }
+            ProtoSessionMessageType::RtxReply => match self.receiver {
+                Some(ref mut receiver) => receiver.on_message(message).await,
+                None => Err(SessionError::SessionReceiverShutdown),
+            },
             _ => {
                 if let Some(tx) = ack_tx {
                     let _ = tx.send(Ok(()));
@@ -236,24 +231,20 @@ impl Session {
         name: Option<Name>,
     ) -> Result<(), SessionError> {
         match message_type {
-            ProtoSessionMessageType::Msg => {
-                match self.sender {
-                    Some(ref mut sender) => sender.on_timer_timeout(id).await,
-                    None => Err(SessionError::SessionSenderShutdown),
-                }
-            }
-            ProtoSessionMessageType::RtxRequest => {
-                match self.receiver {
-                    Some(ref mut receiver) => {
-                        if let Some(name) = name {
-                            receiver.on_timer_timeout(id, name).await
-                        } else {
-                            Err(SessionError::MissingParticipantNameOnTimer)
-                        }
+            ProtoSessionMessageType::Msg => match self.sender {
+                Some(ref mut sender) => sender.on_timer_timeout(id).await,
+                None => Err(SessionError::SessionSenderShutdown),
+            },
+            ProtoSessionMessageType::RtxRequest => match self.receiver {
+                Some(ref mut receiver) => {
+                    if let Some(name) = name {
+                        receiver.on_timer_timeout(id, name).await
+                    } else {
+                        Err(SessionError::MissingParticipantNameOnTimer)
                     }
-                    None => Err(SessionError::SessionReceiverShutdown),
                 }
-            }
+                None => Err(SessionError::SessionReceiverShutdown),
+            },
             _ => Err(SessionError::SessionMessageTypeUnexpected(message_type)),
         }
     }
@@ -265,24 +256,20 @@ impl Session {
         name: Option<Name>,
     ) -> Result<(), SessionError> {
         match message_type {
-            ProtoSessionMessageType::Msg => {
-                match self.sender {
-                    Some(ref mut sender) => sender.on_timer_failure(id),
-                    None => Err(SessionError::SessionSenderShutdown),
-                }
-            }
-            ProtoSessionMessageType::RtxRequest => {
-                match self.receiver {
-                    Some(ref mut receiver) => {
-                        if let Some(name) = name {
-                            receiver.on_timer_failure(id, name).await
-                        } else {
-                            Err(SessionError::MissingParticipantNameOnTimer)
-                        }
+            ProtoSessionMessageType::Msg => match self.sender {
+                Some(ref mut sender) => sender.on_timer_failure(id),
+                None => Err(SessionError::SessionSenderShutdown),
+            },
+            ProtoSessionMessageType::RtxRequest => match self.receiver {
+                Some(ref mut receiver) => {
+                    if let Some(name) = name {
+                        receiver.on_timer_failure(id, name).await
+                    } else {
+                        Err(SessionError::MissingParticipantNameOnTimer)
                     }
-                    None => Err(SessionError::SessionReceiverShutdown),
                 }
-            }
+                None => Err(SessionError::SessionReceiverShutdown),
+            },
             _ => Err(SessionError::SessionMessageTypeUnexpected(message_type)),
         }
     }
@@ -303,10 +290,7 @@ impl MessageHandler for Session {
         self.on_message(message).await
     }
 
-    async fn add_endpoint(
-        &mut self,
-        endpoint: &slim_datapath::messages::Name,
-    ) -> Result<(), SessionError> {
+    async fn add_endpoint(&mut self, endpoint: &Participant) -> Result<(), SessionError> {
         self.add_endpoint(endpoint).await
     }
 
@@ -315,7 +299,8 @@ impl MessageHandler for Session {
     }
 
     fn needs_drain(&self) -> bool {
-        !(self.sender.as_ref().map_or(false, |s| s.drain_completed()) && self.receiver.as_ref().map_or(false, |r| r.drain_completed()))
+        !(self.sender.as_ref().is_some_and(|s| s.drain_completed())
+            && self.receiver.as_ref().is_some_and(|r| r.drain_completed()))
     }
 
     fn processing_state(&self) -> ProcessingState {
@@ -333,7 +318,7 @@ mod tests {
     use crate::transmitter::SessionTransmitter;
 
     use super::*;
-    use slim_datapath::api::ProtoSessionType;
+    use slim_datapath::api::{ParticipantSettings, ProtoSessionType};
     use std::{collections::HashMap, time::Duration};
     use tokio::time::timeout;
     use tracing_test::traced_test;
@@ -372,7 +357,10 @@ mod tests {
 
         // Add the remote endpoint to the session sender
         session
-            .add_endpoint(&remote_name)
+            .add_endpoint(&Participant::new(
+                remote_name.clone(),
+                ParticipantSettings::default(),
+            ))
             .await
             .expect("error adding participant");
 
@@ -722,7 +710,10 @@ mod tests {
 
         // Add receiver as endpoint for sender
         sender_session
-            .add_endpoint(&receiver_name)
+            .add_endpoint(&Participant::new(
+                receiver_name.clone(),
+                ParticipantSettings::default(),
+            ))
             .await
             .expect("error adding participant");
 
@@ -754,7 +745,10 @@ mod tests {
 
         // Add sender as endpoint for receiver
         receiver_session
-            .add_endpoint(&sender_name)
+            .add_endpoint(&Participant::new(
+                sender_name.clone(),
+                ParticipantSettings::default(),
+            ))
             .await
             .expect("error adding participant");
 

@@ -335,7 +335,6 @@ where
         let id = self.id.unwrap();
         let source = self.source.clone().unwrap();
         let destination = self.destination.clone().unwrap();
-        let control = self.control.clone().unwrap();
         let config = self.config.clone().unwrap();
 
         let role = if config.initiator {

@@ -441,7 +441,8 @@ mod tests {
     use crate::SubscriptionAckError;
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::api::{
-        CommandPayload, ProtoMessage, ProtoSessionMessageType, ProtoSessionType,
+        CommandPayload, Participant, ParticipantSettings, ProtoMessage, ProtoSessionMessageType,
+        ProtoSessionType,
     };
     use slim_datapath::messages::utils::SlimHeaderFlags;
     use slim_testing::utils::TEST_VALID_SECRET;
@@ -831,8 +832,12 @@ mod tests {
         );
 
         // Send GroupWelcome message to complete the handshake
+        let participants = vec![
+            Participant::new(source.clone(), ParticipantSettings::default()),
+            Participant::new(dest.clone(), ParticipantSettings::default()),
+        ];
         let welcome_payload = CommandPayload::builder()
-            .group_welcome(vec![source.clone(), dest.clone()], None)
+            .group_welcome(participants, None)
             .as_content();
 
         let welcome_message = Message::builder()

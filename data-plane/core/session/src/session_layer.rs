@@ -15,7 +15,9 @@ use tokio::sync::mpsc::Sender;
 use tracing::{Instrument, debug, error, warn};
 
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_datapath::api::{ParticipantSettings, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType};
+use slim_datapath::api::{
+    ParticipantSettings, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType,
+};
 use slim_datapath::messages::Name;
 
 use crate::common::SessionMessage;
@@ -1142,20 +1144,20 @@ mod tests {
     #[test]
     fn test_direction_to_participant_settings() {
         let s = Direction::Send.to_participant_settings();
-        assert_eq!(s.sends_data, Some(true));
-        assert_eq!(s.receives_data, Some(false));
+        assert!(s.sends_data);
+        assert!(!s.receives_data);
 
         let s = Direction::Recv.to_participant_settings();
-        assert_eq!(s.sends_data, Some(false));
-        assert_eq!(s.receives_data, Some(true));
+        assert!(!s.sends_data);
+        assert!(s.receives_data);
 
         let s = Direction::Bidirectional.to_participant_settings();
-        assert_eq!(s.sends_data, Some(true));
-        assert_eq!(s.receives_data, Some(true));
+        assert!(s.sends_data);
+        assert!(s.receives_data);
 
         let s = Direction::None.to_participant_settings();
-        assert_eq!(s.sends_data, Some(false));
-        assert_eq!(s.receives_data, Some(false));
+        assert!(!s.sends_data);
+        assert!(!s.receives_data);
     }
 
     #[tokio::test]

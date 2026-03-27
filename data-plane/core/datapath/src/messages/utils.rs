@@ -1,12 +1,13 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::arch::aarch64::vreinterpret_s16_f64;
 use std::fmt::Display;
 use std::{collections::HashMap, time::Duration};
 
 use super::encoder::Name;
-use crate::api::proto::dataplane::v1::{GroupClosePayload, GroupNackPayload, Participant, ParticipantSettings, PingPayload};
+use crate::api::proto::dataplane::v1::{
+    GroupClosePayload, GroupNackPayload, Participant, ParticipantSettings, PingPayload,
+};
 use crate::api::{
     Content, LinkNegotiationPayload, MessageType, ProtoLink, ProtoLinkMessageType, ProtoLinkType,
     ProtoMessage, ProtoName, ProtoPublish, ProtoPublishType, ProtoSessionType, ProtoSubscribe,
@@ -122,8 +123,8 @@ impl From<&Name> for ProtoName {
 impl ParticipantSettings {
     pub fn new(sends_data: bool, receives_data: bool) -> Self {
         Self {
-            sends_data: sends_data,
-            receives_data: receives_data,
+            sends_data,
+            receives_data,
         }
     }
 
@@ -159,7 +160,7 @@ impl Participant {
         match &self.settings {
             Some(settings) => Ok(settings),
             None => Err(MessageError::ParticipantSettingsNotFound),
-        }   
+        }
     }
 }
 
@@ -1155,8 +1156,15 @@ impl CommandPayloadBuilder {
     }
 
     /// Creates a join reply payload
-    pub fn join_reply(self, key_package: Option<Vec<u8>>, settings: ParticipantSettings) -> CommandPayload {
-        let payload = JoinReplyPayload { key_package, settings: Some(settings) };
+    pub fn join_reply(
+        self,
+        key_package: Option<Vec<u8>>,
+        participant: Participant,
+    ) -> CommandPayload {
+        let payload = JoinReplyPayload {
+            key_package,
+            participant: Some(participant),
+        };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::JoinReply(payload)),
         }
@@ -1219,11 +1227,12 @@ impl CommandPayloadBuilder {
     }
 
     /// Creates a group welcome payload
-    pub fn group_welcome(self, participants: Vec<Participant>, mls: Option<MlsPayload>) -> CommandPayload {
-        let payload = GroupWelcomePayload {
-            participants,
-            mls,
-        };
+    pub fn group_welcome(
+        self,
+        participants: Vec<Participant>,
+        mls: Option<MlsPayload>,
+    ) -> CommandPayload {
+        let payload = GroupWelcomePayload { participants, mls };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::GroupWelcome(payload)),
         }
@@ -2027,6 +2036,7 @@ mod tests {
             destination: None,
             identity: String::new(),
             fanout: 0,
+            version: version().to_string(),
             recv_from: None,
             forward_to: None,
             incoming_conn: None,
@@ -2213,9 +2223,12 @@ mod tests {
         assert!(extracted.timer_settings.is_some());
 
         // Test join reply
-        let payload = CommandPayload::builder().join_reply(Some(vec![1, 2, 3]));
+        let participant = Participant::new(dest.clone(), ParticipantSettings::default());
+        let payload =
+            CommandPayload::builder().join_reply(Some(vec![1, 2, 3]), participant.clone());
         let extracted = payload.as_join_reply_payload().unwrap();
         assert_eq!(extracted.key_package, Some(vec![1, 2, 3]));
+        assert_eq!(extracted.participant, Some(participant));
 
         // Test leave request
         let payload = CommandPayload::builder().leave_request(Some(dest.clone()));
@@ -2226,14 +2239,17 @@ mod tests {
         assert!(payload.as_leave_reply_payload().is_ok());
 
         // Test group add
-        let participants = vec![dest.clone()];
-        let payload = CommandPayload::builder().group_add(dest.clone(), participants.clone(), None);
+        let participant = Participant::new(dest.clone(), ParticipantSettings::default());
+        let participants = vec![participant.clone()];
+        let payload =
+            CommandPayload::builder().group_add(participant.clone(), participants.clone(), None);
         let extracted = payload.as_group_add_payload().unwrap();
-        assert!(extracted.new_participant.is_some());
+        assert_eq!(extracted.new_participant, Some(participant));
+        assert_eq!(extracted.participants, participants);
 
         // Test group remove
         let payload =
-            CommandPayload::builder().group_remove(dest.clone(), participants.clone(), None);
+            CommandPayload::builder().group_remove(dest.clone(), vec![dest.clone()], None);
         let extracted = payload.as_group_remove_payload().unwrap();
         assert!(extracted.removed_participant.is_some());
 
