@@ -100,6 +100,11 @@ impl Name {
         id >= Self::CONTROL_CHANNEL_ID
     }
 
+    /// Returns true if `id` is a reserved values
+    pub const fn is_reserved_id(id: u64) -> bool {
+        id == Self::NULL_COMPONENT
+    }
+
     pub fn from_strings(components: [impl Into<String>; 3]) -> Self {
         let strings = components.map(Into::into);
 

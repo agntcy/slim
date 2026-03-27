@@ -112,6 +112,29 @@ where
         direction: Direction,
         service_id: String,
     ) -> Self {
+        // Always generate the ID from identity token, ignoring any ID in the provided name
+        let app_name_with_id = match identity_provider.get_id() {
+            Ok(token_id) => {
+                // Use a hash of the token ID to convert to u64 for name generation
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::{Hash, Hasher};
+
+                let mut hasher = DefaultHasher::new();
+                token_id.hash(&mut hasher);
+                let id_hash = hasher.finish();
+
+                app_name.clone().with_id(id_hash)
+            }
+            Err(e) => {
+                // If we can't get the token ID, log a warning and use the name as-is
+                tracing::warn!(
+                    "Failed to get identity token ID: {}, using name without ID",
+                    e
+                );
+                app_name.clone()
+            }
+        };
+
         // Create identity interceptor
         let identity_interceptor = Arc::new(IdentityInterceptor::new(
             identity_provider.clone(),
@@ -130,7 +153,7 @@ where
         // Create the session layer
         let service_id_clone = service_id.clone();
         let session_layer = Arc::new(SessionLayer::new(
-            app_name.clone(),
+            app_name_with_id.clone(),
             identity_provider,
             identity_verifier,
             conn_id,
@@ -147,7 +170,7 @@ where
         let subscription_manager = session_layer.subscription_manager();
 
         Self {
-            app_name: app_name.clone(),
+            app_name: app_name_with_id,
             service_id: service_id_clone,
             session_layer,
             cancel_token,
@@ -463,7 +486,7 @@ mod tests {
 
     /// Helper: Create a test app name
     fn create_test_name(suffix: &str) -> Name {
-        Name::from_strings(["org", "ns", suffix]).with_id(0)
+        Name::from_strings(["org", "ns", suffix])
     }
 
     /// Helper: Create a test app with SharedSecret auth
@@ -926,8 +949,12 @@ mod tests {
         // Verify receiver gets the message
         let msg = receive_message(&mut receiver_session).await;
         assert_eq!(msg.get_session_message_type(), ProtoSessionMessageType::Msg);
-        assert_eq!(msg.get_source(), source);
-        assert_eq!(msg.get_dst(), dst);
+        let mut test_source = msg.get_source();
+        test_source.reset_id();
+        assert_eq!(test_source, source);
+        let mut test_dst = msg.get_dst();
+        test_dst.reset_id();
+        assert_eq!(test_dst, dst);
         assert_eq!(
             msg.get_payload()
                 .unwrap()
@@ -969,9 +996,8 @@ mod tests {
     async fn run_p2p_subscription_test(config: P2PTestConfig) {
         let service = create_test_service(config.test_name);
 
-        let subscriber_name =
-            Name::from_strings(["org", "ns", config.subscriber_suffix]).with_id(0);
-        let publisher_name = Name::from_strings(["org", "ns", config.publisher_suffix]).with_id(0);
+        let subscriber_name = Name::from_strings(["org", "ns", config.subscriber_suffix]);
+        let publisher_name = Name::from_strings(["org", "ns", config.publisher_suffix]);
 
         let (subscriber_app, mut subscriber_notifications) =
             create_test_app(&service, &subscriber_name, "a");
@@ -983,13 +1009,16 @@ mod tests {
             && config.subscription_names[0] == "subscriber"
         {
             // Special case: subscribe to the subscriber's own name
-            vec![subscriber_name.clone()]
+            vec![subscriber_app.app_name().clone()]
         } else {
             // Generate multiple subscription names
             config
                 .subscription_names
                 .iter()
-                .map(|suffix| Name::from_strings(["org", "ns", suffix]).with_id(0))
+                .map(|suffix| {
+                    Name::from_strings(["org", "ns", suffix])
+                        .with_id(subscriber_app.app_name().id())
+                })
                 .collect()
         };
 
@@ -1050,6 +1079,7 @@ mod tests {
 
             // Check that the source matches is in sub_names_set
             let src = session_arc.source();
+
             assert!(sub_names_set.contains(src));
 
             // Verify it's a point-to-point session
@@ -1057,7 +1087,7 @@ mod tests {
 
             // Verify the destination is the publisher app (from subscriber's perspective)
             let dst = session_arc.dst();
-            assert_eq!(dst, &publisher_name);
+            assert_eq!(dst, publisher_app.app_name());
         }
 
         // Verify we created sessions for each subscription
@@ -1126,7 +1156,7 @@ mod tests {
         }
 
         // Create multicast channel name
-        let channel_name = Name::from_strings(["org", "ns", config.channel_suffix]).with_id(0);
+        let channel_name = Name::from_strings(["org", "ns", config.channel_suffix]);
 
         // Have all participants subscribe to the channel
         for app in &participant_apps {
