@@ -23,7 +23,6 @@ use crate::{
 // Marker types for builder states
 pub struct NotReady;
 pub struct Ready;
-
 // Marker types for target types
 pub struct ForController;
 pub struct ForParticipant;
@@ -119,6 +118,7 @@ where
     id: Option<u32>,
     source: Option<Name>,
     destination: Option<Name>,
+    control: Option<Name>,
     config: Option<SessionConfig>,
     identity_provider: Option<P>,
     identity_verifier: Option<V>,
@@ -144,6 +144,7 @@ where
             id: None,
             source: None,
             destination: None,
+            control: None,
             config: None,
             identity_provider: None,
             identity_verifier: None,
@@ -170,6 +171,11 @@ where
 
     pub fn with_destination(mut self, destination: Name) -> Self {
         self.destination = Some(destination);
+        self
+    }
+
+    pub fn with_control(mut self, control: Name) -> Self {
+        self.control = Some(control);
         self
     }
 
@@ -222,6 +228,7 @@ where
             id: self.id,
             source: self.source,
             destination: self.destination,
+            control: self.control,
             config: self.config,
             identity_provider: self.identity_provider,
             identity_verifier: self.identity_verifier,
@@ -246,6 +253,7 @@ where
         if self.id.is_none()
             || self.source.is_none()
             || self.destination.is_none()
+            || self.control.is_none()
             || self.config.is_none()
             || self.identity_provider.is_none()
             || self.identity_verifier.is_none()
@@ -259,6 +267,7 @@ where
             id: self.id,
             source: self.source,
             destination: self.destination,
+            control: self.control,
             config: self.config,
             identity_provider: self.identity_provider,
             identity_verifier: self.identity_verifier,
@@ -326,6 +335,7 @@ where
         let id = self.id.unwrap();
         let source = self.source.clone().unwrap();
         let destination = self.destination.clone().unwrap();
+        let control = self.control.clone().unwrap();
         let config = self.config.clone().unwrap();
 
         let role = if config.initiator {
@@ -393,7 +403,9 @@ where
             id: self.id.unwrap(),
             source: self.source.unwrap(),
             destination: self.destination.unwrap(),
+            control: self.control.unwrap(),
             config: self.config.unwrap(),
+            direction: self.direction,
             tx,
             tx_session: tx_session.clone(),
             tx_to_session_layer: self.tx_to_session_layer.unwrap(),

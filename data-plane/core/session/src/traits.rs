@@ -49,7 +49,7 @@ pub trait MessageHandler: Send + Sync {
     /// Default implementation does nothing for layers that don't manage endpoints.
     async fn add_endpoint(
         &mut self,
-        _endpoint: &slim_datapath::messages::Name,
+        _endpoint: &slim_datapath::api::Participant,
     ) -> Result<(), SessionError> {
         Ok(())
     }

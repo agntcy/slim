@@ -23,8 +23,8 @@ use crate::{
 
 pub(crate) struct Session {
     local_name: Name,
-    sender: SessionSender,
-    receiver: SessionReceiver,
+    sender: Option<SessionSender>,
+    receiver: Option<SessionReceiver>,
     processing_state: ProcessingState,
 }
 
@@ -49,23 +49,30 @@ impl Session {
 
         let (shutdown_send, shutdown_receive) = direction.to_flags();
 
-        let sender = SessionSender::new(
-            timer_settings.clone(),
-            session_id,
-            session_config.session_type,
-            tx.clone(),
-            Some(tx_signals.clone()),
-            shutdown_send,
-        );
-        let receiver = SessionReceiver::new(
-            timer_settings,
-            session_id,
-            local_name.clone(),
-            session_config.session_type,
-            tx.clone(),
-            Some(tx_signals.clone()),
-            shutdown_receive,
-        );
+        let sender = if shutdown_send {
+            None
+        } else {
+            Some(SessionSender::new(
+                timer_settings.clone(),
+                session_id,
+                session_config.session_type,
+                tx.clone(),
+                Some(tx_signals.clone()),
+            ))
+        };
+
+        let receiver = if shutdown_receive {
+            None
+        } else {
+            Some(SessionReceiver::new(
+                timer_settings,
+                session_id,
+                local_name.clone(),
+                session_config.session_type,
+                tx.clone(),
+                Some(tx_signals.clone()),
+            ))
+        };
 
         Session {
             local_name: local_name.clone(),
@@ -100,7 +107,10 @@ impl Session {
                     "received message error: {:?}", error,
                 );
 
-                self.sender.on_slim_failure(error)
+                match self.sender {
+                    Some(ref mut sender) => sender.on_slim_failure(error),
+                    None => Err(SessionError::SessionSenderShutdown),
+                }
             }
             SessionMessage::TimerTimeout {
                 message_id,
@@ -116,8 +126,12 @@ impl Session {
             } => self.on_timer_failure(message_id, message_type, name).await,
             SessionMessage::StartDrain { grace_period: _ } => {
                 self.processing_state = ProcessingState::Draining;
-                self.sender.start_drain();
-                self.receiver.start_drain();
+                if let Some(sender) = self.sender.as_mut() {
+                    sender.start_drain();
+                }
+                if let Some(receiver) = self.receiver.as_mut() {
+                    receiver.start_drain();
+                }
                 Ok(())
             }
             _ => Err(SessionError::SessionMessageInternalUnexpected(Box::new(
@@ -126,20 +140,31 @@ impl Session {
         }
     }
 
-    pub async fn add_endpoint(&mut self, endpoint: &Name) -> Result<(), SessionError> {
+    pub async fn add_endpoint(&mut self, endpoint: &Participant) -> Result<(), SessionError> {
         debug!(%endpoint, local_name = %self.local_name, "add participant");
-        self.sender.add_endpoint(endpoint).await
+        if let Some(sender) = self.sender.as_mut() {
+            sender.add_endpoint(endpoint).await?;
+        }
+        Ok(())
     }
 
     pub fn remove_endpoint(&mut self, endpoint: &Name) {
         debug!(%endpoint, local_name = %self.local_name, "remove participant");
-        self.sender.remove_endpoint(endpoint);
-        self.receiver.remove_endpoint(endpoint);
+        if let Some(sender) = self.sender.as_mut() {
+            sender.remove_endpoint(endpoint)
+        }
+        if let Some(receiver) = self.receiver.as_mut() {
+            receiver.remove_endpoint(endpoint);
+        }
     }
 
     pub fn close(&mut self) {
-        self.sender.close();
-        self.receiver.close();
+        if let Some(sender) = self.sender.as_mut() {
+            sender.close();
+        }
+        if let Some(receiver) = self.receiver.as_mut() {
+            receiver.close();
+        }
     }
 
     async fn on_application_message(
@@ -151,17 +176,48 @@ impl Session {
         match message.get_session_message_type() {
             ProtoSessionMessageType::Msg => {
                 if direction == MessageDirection::South {
-                    // message from app to slim, give it to the sender with ack
-                    self.sender.on_message(message, ack_tx).await
+                    // message from the app to slim, give it to the sender
+                    // TODO: create functions for these matches
+                    match self.sender {
+                        Some(ref mut sender) => sender.on_message(message, ack_tx).await,
+                        None => {
+                            // sender is shutdown, send an error
+                            if let Some(tx) = ack_tx {
+                                let _ = tx.send(Err(SessionError::SessionSenderShutdown));
+                            }
+                            Err(SessionError::SessionSenderShutdown)
+                        }
+                    }
                 } else {
                     // message from slim to the app, give it to the receiver
-                    self.receiver.on_message(message).await
+                    match self.receiver {
+                        Some(ref mut receiver) => receiver.on_message(message).await,
+                        None => {
+                            Err(SessionError::SessionReceiverShutdown)
+                        }
+                    }
                 }
             }
             ProtoSessionMessageType::MsgAck | ProtoSessionMessageType::RtxRequest => {
-                self.sender.on_message(message, ack_tx).await
+                match self.sender {
+                    Some(ref mut sender) => sender.on_message(message, ack_tx).await,
+                    None => {
+                        // sender is shutdown, send an error
+                        if let Some(tx) = ack_tx {
+                            let _ = tx.send(Err(SessionError::SessionSenderShutdown));
+                        }
+                        Err(SessionError::SessionSenderShutdown)
+                    }
+                }
             }
-            ProtoSessionMessageType::RtxReply => self.receiver.on_message(message).await,
+            ProtoSessionMessageType::RtxReply => {
+                match self.receiver {
+                    Some(ref mut receiver) => receiver.on_message(message).await,
+                    None => {
+                        Err(SessionError::SessionReceiverShutdown)
+                    }
+                }
+            }
             _ => {
                 if let Some(tx) = ack_tx {
                     let _ = tx.send(Ok(()));
@@ -180,9 +236,23 @@ impl Session {
         name: Option<Name>,
     ) -> Result<(), SessionError> {
         match message_type {
-            ProtoSessionMessageType::Msg => self.sender.on_timer_timeout(id).await,
+            ProtoSessionMessageType::Msg => {
+                match self.sender {
+                    Some(ref mut sender) => sender.on_timer_timeout(id).await,
+                    None => Err(SessionError::SessionSenderShutdown),
+                }
+            }
             ProtoSessionMessageType::RtxRequest => {
-                self.receiver.on_timer_timeout(id, name.unwrap()).await
+                match self.receiver {
+                    Some(ref mut receiver) => {
+                        if let Some(name) = name {
+                            receiver.on_timer_timeout(id, name).await
+                        } else {
+                            Err(SessionError::MissingParticipantNameOnTimer)
+                        }
+                    }
+                    None => Err(SessionError::SessionReceiverShutdown),
+                }
             }
             _ => Err(SessionError::SessionMessageTypeUnexpected(message_type)),
         }
@@ -195,9 +265,23 @@ impl Session {
         name: Option<Name>,
     ) -> Result<(), SessionError> {
         match message_type {
-            ProtoSessionMessageType::Msg => self.sender.on_timer_failure(id),
+            ProtoSessionMessageType::Msg => {
+                match self.sender {
+                    Some(ref mut sender) => sender.on_timer_failure(id),
+                    None => Err(SessionError::SessionSenderShutdown),
+                }
+            }
             ProtoSessionMessageType::RtxRequest => {
-                self.receiver.on_timer_failure(id, name.unwrap()).await
+                match self.receiver {
+                    Some(ref mut receiver) => {
+                        if let Some(name) = name {
+                            receiver.on_timer_failure(id, name).await
+                        } else {
+                            Err(SessionError::MissingParticipantNameOnTimer)
+                        }
+                    }
+                    None => Err(SessionError::SessionReceiverShutdown),
+                }
             }
             _ => Err(SessionError::SessionMessageTypeUnexpected(message_type)),
         }
@@ -231,7 +315,7 @@ impl MessageHandler for Session {
     }
 
     fn needs_drain(&self) -> bool {
-        !(self.sender.drain_completed() && self.receiver.drain_completed())
+        !(self.sender.as_ref().map_or(false, |s| s.drain_completed()) && self.receiver.as_ref().map_or(false, |r| r.drain_completed()))
     }
 
     fn processing_state(&self) -> ProcessingState {

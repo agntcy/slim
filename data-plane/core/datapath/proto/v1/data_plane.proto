@@ -194,7 +194,7 @@ message TimerSettings {
 message JoinReplyPayload {
   // to be used only is MLS is enabled
   optional bytes key_package = 1;
-  ParticipantSettings settings = 2;
+  Participant participant = 2;
 }
 
 // Leave Request

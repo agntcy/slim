@@ -176,6 +176,7 @@ mod tests {
                 .with_id(id)
                 .with_source(source)
                 .with_destination(destination)
+                .with_control(destination.clone()) // in P2P sessions, control and destination are the same
                 .with_config(cfg)
                 .with_identity_provider(DummyProvider)
                 .with_identity_verifier(DummyVerifier)

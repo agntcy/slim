@@ -12,7 +12,7 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
         CommandPayload, MlsPayload, ProtoMessage as Message, ProtoSessionMessageType,
-        ProtoSessionType,
+        ProtoSessionType, Participant,
     },
     messages::{
         Name,
@@ -55,7 +55,9 @@ where
     mls_state: Option<MlsModeratorState<P, V>>,
 
     /// List of group participants
-    group_list: HashMap<Name, u64>,
+    /// The key is the participant name without ID
+    /// The value contains the full and name and the participant settings
+    group_list: HashMap<Name, Participant>,
 
     /// Common settings
     common: SessionControllerCommon<P, V, M>,
@@ -219,7 +221,7 @@ where
                 // We need to close the session for all the participants
                 // Create the leave message
                 let p = CommandPayload::builder().leave_request(None).as_content();
-                let destination = self.common.settings.destination.clone();
+                let destination = self.common.settings.control.clone();
                 let mut leave_msg = self.common.create_control_message(
                     &destination,
                     ProtoSessionMessageType::LeaveRequest,
@@ -262,7 +264,7 @@ where
         }
     }
 
-    async fn add_endpoint(&mut self, endpoint: &Name) -> Result<(), SessionError> {
+    async fn add_endpoint(&mut self, endpoint: &Participant) -> Result<(), SessionError> {
         self.inner.add_endpoint(endpoint).await
     }
 
@@ -271,9 +273,9 @@ where
     }
 
     fn needs_drain(&self) -> bool {
-        !(self.common.sender.drain_completed()
-            && !self.inner.needs_drain()
-            && self.tasks_todo.is_empty())
+        !self.common.sender.drain_completed()
+            || self.inner.needs_drain()
+            || !self.tasks_todo.is_empty()
     }
     fn processing_state(&self) -> ProcessingState {
         self.common.processing_state
@@ -282,7 +284,12 @@ where
     fn participants_list(&self) -> Vec<Name> {
         self.group_list
             .iter()
-            .map(|(name, id)| name.clone().with_id(*id))
+            .map(|(name, p)| {
+                let id = p.name.as_ref()
+                    .map(|n| Name::from(n).id())
+                    .unwrap_or(Name::NULL_COMPONENT); // the name should always be present
+                name.clone().with_id(id)
+            })
             .collect()
     }
 
@@ -300,6 +307,12 @@ where
                 .await?;
             self.common
                 .delete_subscription(self.common.settings.destination.clone(), conn)
+                .await?;
+            self.common
+                .delete_route(self.common.settings.control.clone(), conn)
+                .await?;
+            self.common
+                .delete_subscription(self.common.settings.control.clone(), conn)
                 .await?;
         }
 
@@ -583,6 +596,8 @@ where
 
         // now the moderator is busy - create the task first
         debug!("Create AddParticipant task with ack_tx");
+        self.current_task = Some(ModeratorTask::Add(AddParticipant::new(ack_tx, None)));
+
         // check if there is a destination name in the payload. If yes recreate the message
         // with the right destination and send it out
         let payload = msg.extract_discovery_request().map_err(|e| {
@@ -626,7 +641,11 @@ where
                 (msg, None)
             }
         };
-        self.current_task = Some(ModeratorTask::Add(AddParticipant::new(ack_tx, ack)));
+       
+        // set the ack message in the task if required
+        if let Some(ack_msg) = ack {
+            self.current_task.as_mut().unwrap().set_ack_msg(ack_msg);
+        }
 
         // check if the participant is already part of the group
         let new_participant_name = discovery.get_dst();
@@ -690,6 +709,12 @@ where
                     msg.get_incoming_conn(),
                 )
                 .await?;
+            self.common
+                .add_route(
+                    self.common.settings.control.clone(),
+                    msg.get_incoming_conn(),
+                )
+                .await?;
         }
 
         // an endpoint replied to the discovery message
@@ -697,6 +722,7 @@ where
         let msg_id = rand::random::<u32>();
 
         let channel = if self.common.settings.config.session_type == ProtoSessionType::Multicast {
+            // using the destination as channel name, the control name can be recreated by the participants
             Some(self.common.settings.destination.clone())
         } else {
             None
@@ -749,15 +775,18 @@ where
             .join_complete(msg.get_id())?;
 
         // at this point the participant is part of the group so we can add it to the list
-        let mut new_participant_name = msg.get_source().clone();
-        let new_participant_id = new_participant_name.id();
-        new_participant_name.reset_id();
-        self.group_list
-            .insert(new_participant_name, new_participant_id);
-
+        let participant = msg.extract_join_reply()?.participant.ok_or(SessionError::MissingParticipantSettings)?;
+        let mut new_name = participant.get_name()?;
         // notify the local session that a new participant was added to the group
-        debug!(session_name = %msg.get_source(), "add endpoint");
-        self.add_endpoint(&msg.get_source()).await?;
+        debug!(session_name = %new_name, "add endpoint");
+        self.add_endpoint(&participant).await?;
+
+        new_name.reset_id();
+        self.group_list
+            .insert(new_name, participant);
+
+
+        // TO CONTINUE FROM HERE
 
         // get mls data if MLS is enabled
         let (commit, welcome) = if let Some(mls_state) = &mut self.mls_state {

@@ -83,10 +83,6 @@ pub struct SessionReceiver {
 
     /// drain state - when true, no new messages from app are accepted
     draining_state: ReceiverDrainStatus,
-
-    /// shutdown receive flag. if set no message is delivered to the app
-    /// the receiver will simply send acks on message reception
-    shutdown_receive: bool,
 }
 
 #[allow(dead_code)]
@@ -101,7 +97,6 @@ impl SessionReceiver {
         session_type: ProtoSessionType,
         tx: SessionTransmitter,
         tx_signals: Option<Sender<SessionMessage>>,
-        shutdown_receive: bool,
     ) -> Self {
         let factory = if let Some(settings) = timer_settings
             && let Some(tx) = tx_signals
@@ -110,10 +105,6 @@ impl SessionReceiver {
         } else {
             None
         };
-
-        tracing::debug!(
-           %shutdown_receive, "creating session receiver"
-        );
 
         SessionReceiver {
             buffer: HashMap::new(),
@@ -124,7 +115,6 @@ impl SessionReceiver {
             local_name,
             tx,
             draining_state: ReceiverDrainStatus::NotDraining,
-            shutdown_receive,
         }
     }
 
@@ -162,16 +152,6 @@ impl SessionReceiver {
     }
 
     pub async fn on_publish_message(&mut self, message: Message) -> Result<(), SessionError> {
-        // if shutdown_receive is true we just ack the message and do not deliver it to the app
-        if self.shutdown_receive {
-            debug!(
-                id = %message.get_id(),
-                source = %message.get_source(),
-                "receiver is disabled, do not deliver message to app",
-            );
-            return Ok(());
-        }
-
         if self.timer_factory.is_none() || message.contains_metadata(PUBLISH_TO) {
             debug!(
                 id = %message.get_id(),

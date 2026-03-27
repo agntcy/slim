@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 
 use rand::Rng;
-use slim_datapath::api::ProtoSessionType;
+use slim_datapath::api::{Participant, ProtoSessionType};
 use slim_datapath::messages::utils::{MAX_PUBLISH_ID, PUBLISH_TO};
 use slim_datapath::{api::ProtoMessage as Message, messages::Name};
 use tokio::sync::mpsc::Sender;
@@ -12,6 +12,7 @@ use tokio::sync::oneshot;
 use tracing::debug;
 
 use crate::common::new_message_from_session_fields;
+use crate::session::Session;
 use crate::transmitter::SessionTransmitter;
 use crate::{
     SessionError, Transmitter,
@@ -85,10 +86,6 @@ pub struct SessionSender {
 
     /// oneshot senders to signal when network acks are received for each message
     ack_notifiers: HashMap<u32, oneshot::Sender<Result<(), SessionError>>>,
-
-    // shutdown_send flag. if set no message is sent to the network
-    // and all messages are dropped
-    shutdown_send: bool,
 }
 
 #[allow(dead_code)]
@@ -101,7 +98,6 @@ impl SessionSender {
         session_type: ProtoSessionType,
         tx: SessionTransmitter,
         tx_signals: Option<Sender<SessionMessage>>,
-        shutdown_send: bool,
     ) -> Self {
         let factory = if let Some(settings) = timer_settings
             && let Some(tx) = tx_signals
@@ -110,10 +106,6 @@ impl SessionSender {
         } else {
             None
         };
-
-        debug!(
-           %shutdown_send, "creating session sender"
-        );
 
         SessionSender {
             buffer: ProducerBuffer::with_capacity(512),
@@ -128,7 +120,6 @@ impl SessionSender {
             to_flush: false,
             draining_state: SenderDrainStatus::NotDraining,
             ack_notifiers: HashMap::new(),
-            shutdown_send,
         }
     }
 
@@ -198,16 +189,6 @@ impl SessionSender {
         mut message: Message,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<(), SessionError> {
-        // if shutdown_send is true we drop all messages but we signal success
-        // to the application using the ack channel if provided
-        if self.shutdown_send {
-            debug!(message_id = %message.get_id(), "sender is shutdown, drop message");
-            if let Some(tx) = ack_tx {
-                let _ = tx.send(Err(SessionError::SessionSenderShutdown));
-            }
-            return Err(SessionError::SessionSenderShutdown);
-        }
-
         let is_publish_to = message.metadata.contains_key(PUBLISH_TO);
 
         // if is_publish_to and the message destination is not
@@ -494,12 +475,21 @@ impl SessionSender {
         self.on_failure(message_id, error)
     }
 
-    pub async fn add_endpoint(&mut self, endpoint: &Name) -> Result<(), SessionError> {
+    pub async fn add_endpoint(&mut self, endpoint: &Participant) -> Result<(), SessionError> {
+        let settings = endpoint.settings.as_ref().ok_or(SessionError::MalformedParticipant)?;
+        let proto_name = endpoint.name.as_ref().ok_or(SessionError::MalformedParticipant)?;
+        let name = Name::from(proto_name);
+
+        if !settings.is_receiver() {
+            debug!(%name, "new participant will not receive data messages, do not add it to the endpoint list");
+            return Ok(());
+        }
+
         // add endpoint to the list
-        self.endpoints_list.insert(endpoint.clone());
+        self.endpoints_list.insert(name.clone());
 
         debug!(
-            %endpoint,
+            %name,
             list_len = %self.endpoints_list.len(),
             "add endpoint",
         );

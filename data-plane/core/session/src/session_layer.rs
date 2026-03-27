@@ -15,7 +15,7 @@ use tokio::sync::mpsc::Sender;
 use tracing::{Instrument, debug, error, warn};
 
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType};
+use slim_datapath::api::{ParticipantSettings, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::messages::Name;
 
 use crate::common::SessionMessage;
@@ -53,6 +53,28 @@ impl Direction {
             Direction::Recv => (true, false),
             Direction::Bidirectional => (false, false),
             Direction::None => (true, true),
+        }
+    }
+
+    pub fn to_participant_settings(self) -> ParticipantSettings {
+        match self {
+            // None (absent) means true, so only set fields explicitly when false
+            Direction::Send => ParticipantSettings {
+                sends_data: true,
+                receives_data: false,
+            },
+            Direction::Recv => ParticipantSettings {
+                sends_data: false,
+                receives_data: true,
+            },
+            Direction::Bidirectional => ParticipantSettings {
+                sends_data: true,
+                receives_data: true,
+            },
+            Direction::None => ParticipantSettings {
+                sends_data: false,
+                receives_data: false,
+            },
         }
     }
 }
@@ -303,12 +325,22 @@ where
             ));
 
             tx.add_interceptor(identity_interceptor);
+            let (data_name, control_name) =
+                if session_config.session_type == ProtoSessionType::PointToPoint {
+                    (destination.clone(), destination.clone())
+                } else {
+                    // For multicast, the destination is the channel name, and control is derived from it
+                    let data_name = destination.clone().with_id(Name::DATA_CHANNEL_ID);
+                    let control_name = destination.clone().with_id(Name::CONTROL_CHANNEL_ID);
+                    (data_name, control_name)
+                };
 
             // Build the session controller (this is async, so no locks are held)
             let builder = SessionController::builder()
                 .with_id(session_id)
                 .with_source(local_name.clone())
-                .with_destination(destination.clone())
+                .with_destination(data_name)
+                .with_control(control_name)
                 .with_config(session_config.clone())
                 .with_identity_provider(self.identity_provider.clone())
                 .with_identity_verifier(self.identity_verifier.clone())
@@ -1105,6 +1137,25 @@ mod tests {
         }
 
         assert_eq!(session_layer.pool_size(), 5);
+    }
+
+    #[test]
+    fn test_direction_to_participant_settings() {
+        let s = Direction::Send.to_participant_settings();
+        assert_eq!(s.sends_data, Some(true));
+        assert_eq!(s.receives_data, Some(false));
+
+        let s = Direction::Recv.to_participant_settings();
+        assert_eq!(s.sends_data, Some(false));
+        assert_eq!(s.receives_data, Some(true));
+
+        let s = Direction::Bidirectional.to_participant_settings();
+        assert_eq!(s.sends_data, Some(true));
+        assert_eq!(s.receives_data, Some(true));
+
+        let s = Direction::None.to_participant_settings();
+        assert_eq!(s.sends_data, Some(false));
+        assert_eq!(s.receives_data, Some(false));
     }
 
     #[tokio::test]

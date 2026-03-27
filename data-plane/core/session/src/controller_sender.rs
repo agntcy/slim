@@ -207,7 +207,8 @@ impl ControllerSender {
                 if self.group_name.is_none() {
                     if self.session_type == ProtoSessionType::PointToPoint {
                         // in p2p session the group name is equal to the remote name
-                        // in the join request message
+                        // in the join request message. Data and control messages
+                        // are distributed using the same name.
                         debug!(
                             destination = %message.get_dst(),
                             "update group name on join request message for p2p session",
@@ -221,7 +222,8 @@ impl ControllerSender {
                             .channel
                             .as_ref()
                             .ok_or(SessionError::MissingGroupNameInJoinRequest)?;
-                        let group_name = Name::from(name);
+                        let mut group_name = Name::from(name);
+                        group_name.set_id(Name::CONTROL_CHANNEL_ID);
                         debug!(
                             destination = %group_name,
                             "update group name on join request message for multicast session",
@@ -687,6 +689,7 @@ mod tests {
     use crate::transmitter::SessionTransmitter;
 
     use super::*;
+    use slim_auth::jwt::S;
     use slim_datapath::{
         api::{CommandPayload, ProtoSessionMessageType, ProtoSessionType},
         messages::Name,
@@ -917,8 +920,8 @@ mod tests {
         let payload = CommandPayload::builder().join_reply(None);
 
         let reply = Message::builder()
-            .source(source.clone())
-            .destination(remote.clone())
+            .source(remote.clone())
+            .destination(source.clone())
             .identity("")
             .session_type(ProtoSessionType::Multicast)
             .session_message_type(ProtoSessionMessageType::JoinReply)
@@ -1036,8 +1039,8 @@ mod tests {
         let payload = CommandPayload::builder().leave_reply();
 
         let reply = Message::builder()
-            .source(source.clone())
-            .destination(remote.clone())
+            .source(remote.clone())
+            .destination(source.clone())
             .identity("")
             .session_type(ProtoSessionType::Multicast)
             .session_message_type(ProtoSessionMessageType::LeaveReply)
@@ -1156,8 +1159,8 @@ mod tests {
         let payload = CommandPayload::builder().group_ack();
 
         let ack = Message::builder()
-            .source(source.clone())
-            .destination(remote.clone())
+            .source(remote.clone())
+            .destination(source.clone())
             .identity("")
             .session_type(ProtoSessionType::Multicast)
             .session_message_type(ProtoSessionMessageType::GroupAck)
@@ -1188,7 +1191,7 @@ mod tests {
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
         let source = Name::from_strings(["org", "ns", "source"]);
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let group = Name::from_strings(["org", "ns", "group"]);
         let session_id = 1;
 
         let mut sender = ControllerSender::new(

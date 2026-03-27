@@ -1155,8 +1155,8 @@ impl CommandPayloadBuilder {
     }
 
     /// Creates a join reply payload
-    pub fn join_reply(self, key_package: Option<Vec<u8>>) -> CommandPayload {
-        let payload = JoinReplyPayload { key_package };
+    pub fn join_reply(self, key_package: Option<Vec<u8>>, settings: ParticipantSettings) -> CommandPayload {
+        let payload = JoinReplyPayload { key_package, settings: Some(settings) };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::JoinReply(payload)),
         }
@@ -1184,16 +1184,13 @@ impl CommandPayloadBuilder {
     /// Creates a group add payload
     pub fn group_add(
         self,
-        new_participant: Name,
-        participants: Vec<Name>,
+        new_participant: Participant,
+        participants: Vec<Participant>,
         mls: Option<MlsPayload>,
     ) -> CommandPayload {
-        let proto_new_participant = Some(ProtoName::from(&new_participant));
-        let proto_participants = participants.iter().map(ProtoName::from).collect();
-
         let payload = GroupAddPayload {
-            new_participant: proto_new_participant,
-            participants: proto_participants,
+            new_participant: Some(new_participant),
+            participants,
             mls,
         };
         CommandPayload {
@@ -1222,11 +1219,9 @@ impl CommandPayloadBuilder {
     }
 
     /// Creates a group welcome payload
-    pub fn group_welcome(self, participants: Vec<Name>, mls: Option<MlsPayload>) -> CommandPayload {
-        let proto_participants = participants.iter().map(ProtoName::from).collect();
-
+    pub fn group_welcome(self, participants: Vec<Participant>, mls: Option<MlsPayload>) -> CommandPayload {
         let payload = GroupWelcomePayload {
-            participants: proto_participants,
+            participants,
             mls,
         };
         CommandPayload {

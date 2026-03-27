@@ -254,7 +254,7 @@ pub struct JoinReplyPayload {
     #[prost(bytes = "vec", optional, tag = "1")]
     pub key_package: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
     #[prost(message, optional, tag = "2")]
-    pub settings: ::core::option::Option<ParticipantSettings>,
+    pub participant: ::core::option::Option<Participant>,
 }
 /// Leave Request
 /// The destination is Optional. If present the message should be forwarded
