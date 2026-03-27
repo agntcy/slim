@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0-rc.2](https://github.com/agntcy/slim/compare/slimctl-v1.3.0-rc.1...slimctl-v1.3.0-rc.2) - 2026-03-27
+
+### Other
+
+- updated the following local packages: agntcy-slim-datapath, agntcy-slim-service, agntcy-slim
+
 ## [1.3.0-rc.1](https://github.com/agntcy/slim/compare/slimctl-v1.3.0-rc.0...slimctl-v1.3.0-rc.1) - 2026-03-26
 
 ### Other

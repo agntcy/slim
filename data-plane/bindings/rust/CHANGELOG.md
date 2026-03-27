@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0-rc.2](https://github.com/agntcy/slim/compare/slim-bindings-v1.3.0-rc.1...slim-bindings-v1.3.0-rc.2) - 2026-03-27
+
+### Added
+
+- add backward compatibility integration tests ([#1402](https://github.com/agntcy/slim/pull/1402))
+- multicast RPC support ([#1335](https://github.com/agntcy/slim/pull/1335))
+
+### Other
+
+- move app ID generation from bindings to core application layer ([#1408](https://github.com/agntcy/slim/pull/1408))
+- reduce allocations in slimrpc Rust bindings ([#1336](https://github.com/agntcy/slim/pull/1336))
+
 ## [1.3.0-rc.1](https://github.com/agntcy/slim/compare/slim-bindings-v1.3.0-rc.0...slim-bindings-v1.3.0-rc.1) - 2026-03-26
 
 ### Added
