@@ -20,7 +20,7 @@ pub mod channel {
     }
 }
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", not(feature = "native")))]
 pub mod channel {
     pub mod mpsc {
         use std::pin::Pin;
@@ -220,24 +220,24 @@ where
     tokio::spawn(future)
 }
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", not(feature = "native")))]
 pub struct JoinHandle<T> {
     _marker: std::marker::PhantomData<T>,
 }
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", not(feature = "native")))]
 impl<T> std::fmt::Debug for JoinHandle<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("JoinHandle").finish()
     }
 }
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", not(feature = "native")))]
 impl<T> JoinHandle<T> {
     pub fn abort(&self) {}
 }
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", not(feature = "native")))]
 impl<T> std::future::Future for JoinHandle<T> {
     type Output = Result<T, JoinError>;
     fn poll(
@@ -251,21 +251,21 @@ impl<T> std::future::Future for JoinHandle<T> {
 }
 
 /// Error returned when a JoinHandle fails (WASM stub).
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", not(feature = "native")))]
 #[derive(Debug)]
 pub struct JoinError;
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", not(feature = "native")))]
 impl std::fmt::Display for JoinError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "JoinError")
     }
 }
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", not(feature = "native")))]
 impl std::error::Error for JoinError {}
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", not(feature = "native")))]
 pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
 where
     F: std::future::Future + 'static,
@@ -283,7 +283,7 @@ where
 #[cfg(feature = "native")]
 pub use tokio_util::sync::CancellationToken;
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", not(feature = "native")))]
 mod cancellation {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -380,7 +380,7 @@ mod cancellation {
     }
 }
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", not(feature = "native")))]
 pub use cancellation::CancellationToken;
 
 // ── Status type ──
@@ -396,7 +396,7 @@ pub async fn sleep(duration: std::time::Duration) {
     tokio::time::sleep(duration).await;
 }
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", not(feature = "native")))]
 pub async fn sleep(duration: std::time::Duration) {
     let millis = duration.as_millis().min(u32::MAX as u128) as u32;
     gloo_timers::future::TimeoutFuture::new(millis).await;
@@ -420,7 +420,7 @@ pub async fn select_timer_or_cancel(
             _ = cancellation_token.cancelled() => SelectResult::Cancelled,
         }
     }
-    #[cfg(feature = "wasm")]
+    #[cfg(all(feature = "wasm", not(feature = "native")))]
     {
         use std::task::{Context, Poll};
 
@@ -459,7 +459,7 @@ pub async fn select_recv_or_cancel<T>(
             _ = cancellation_token.cancelled() => None,
         }
     }
-    #[cfg(feature = "wasm")]
+    #[cfg(all(feature = "wasm", not(feature = "native")))]
     {
         use std::pin::Pin;
         use std::task::{Context, Poll};
@@ -533,7 +533,7 @@ impl std::future::Future for Deadline {
 #[cfg(feature = "native")]
 impl Unpin for Deadline {}
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", not(feature = "native")))]
 pub struct Deadline {
     /// None means the deadline is effectively infinite (not set).
     remaining_ms: Option<u32>,
@@ -541,7 +541,7 @@ pub struct Deadline {
     timer: Option<core::pin::Pin<Box<gloo_timers::future::TimeoutFuture>>>,
 }
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", not(feature = "native")))]
 impl Deadline {
     pub fn after(duration: std::time::Duration) -> Self {
         let ms = duration.as_millis().min(u32::MAX as u128) as u32;
@@ -610,7 +610,7 @@ pub async fn select_processing<T>(
             }
         }
     }
-    #[cfg(feature = "wasm")]
+    #[cfg(all(feature = "wasm", not(feature = "native")))]
     {
         use std::pin::Pin;
         use std::task::{Context, Poll};

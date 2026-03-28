@@ -49,7 +49,7 @@ mod imp {
     }
 }
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", not(feature = "native")))]
 mod imp {
     /// In WASM there are no OS signals. This future will pend forever.
     /// Callers should use their own cancellation mechanism (e.g. CancellationToken).

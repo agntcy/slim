@@ -16,9 +16,9 @@ pub trait MaybeSend: Send {}
 #[cfg(feature = "native")]
 impl<T: Send> MaybeSend for T {}
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", not(feature = "native")))]
 pub trait MaybeSend {}
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", not(feature = "native")))]
 impl<T> MaybeSend for T {}
 
 #[cfg(feature = "native")]
@@ -26,9 +26,9 @@ pub trait MaybeSync: Sync {}
 #[cfg(feature = "native")]
 impl<T: Sync> MaybeSync for T {}
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", not(feature = "native")))]
 pub trait MaybeSync {}
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", not(feature = "native")))]
 impl<T> MaybeSync for T {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

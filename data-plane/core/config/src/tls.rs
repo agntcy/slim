@@ -1,23 +1,23 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-#[cfg(any(feature = "grpc", feature = "websocket-native"))]
+#[cfg(feature = "native")]
 pub mod client;
-#[cfg(any(feature = "grpc", feature = "websocket-native"))]
+#[cfg(feature = "native")]
 pub mod common;
-#[cfg(any(feature = "grpc", feature = "websocket-native"))]
+#[cfg(feature = "native")]
 pub mod errors;
-#[cfg(any(feature = "grpc", feature = "websocket-native"))]
+#[cfg(feature = "native")]
 pub mod provider;
-#[cfg(any(feature = "grpc", feature = "websocket-native"))]
+#[cfg(feature = "native")]
 pub mod root_store_builder;
-#[cfg(any(feature = "grpc", feature = "websocket-native"))]
+#[cfg(feature = "native")]
 pub mod server;
 
-#[cfg(any(feature = "grpc", feature = "websocket-native"))]
+#[cfg(feature = "native")]
 pub use root_store_builder::RootStoreBuilder;
 
-#[cfg(not(any(feature = "grpc", feature = "websocket-native")))]
+#[cfg(not(feature = "native"))]
 pub mod errors {
     use thiserror::Error;
 
@@ -28,7 +28,7 @@ pub mod errors {
     }
 }
 
-#[cfg(not(any(feature = "grpc", feature = "websocket-native")))]
+#[cfg(not(feature = "native"))]
 pub mod client {
     use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
@@ -124,7 +124,7 @@ pub mod client {
     }
 }
 
-#[cfg(not(any(feature = "grpc", feature = "websocket-native")))]
+#[cfg(not(feature = "native"))]
 pub mod server {
     use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
