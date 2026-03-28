@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! WASM-compatible tracing configuration.
-//! Uses console-based tracing subscriber instead of OpenTelemetry.
+//! Routes log output to the browser's `console.log` via `web-sys`.
 
 use serde::Deserialize;
+use std::io::{self, Write};
 use thiserror::Error;
 use tracing::Level;
 use tracing_subscriber::{Layer, fmt, layer::SubscriberExt, util::SubscriberInitExt};
@@ -13,6 +14,43 @@ use tracing_subscriber::{Layer, fmt, layer::SubscriberExt, util::SubscriberInitE
 pub enum ConfigError {
     #[error("error setting up tracing subscriber")]
     TracingSetupError(#[from] tracing_subscriber::util::TryInitError),
+}
+
+/// A writer that buffers a single log line and flushes it to `console.log`.
+struct ConsoleWriter(Vec<u8>);
+
+impl Write for ConsoleWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        let msg = String::from_utf8_lossy(&self.0);
+        let msg = msg.trim_end(); // remove trailing newline
+        if !msg.is_empty() {
+            web_sys::console::log_1(&msg.into());
+        }
+        self.0.clear();
+        Ok(())
+    }
+}
+
+impl Drop for ConsoleWriter {
+    fn drop(&mut self) {
+        let _ = self.flush();
+    }
+}
+
+/// MakeWriter that produces ConsoleWriter instances.
+struct ConsoleMakeWriter;
+
+impl<'a> fmt::MakeWriter<'a> for ConsoleMakeWriter {
+    type Writer = ConsoleWriter;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        ConsoleWriter(Vec::with_capacity(256))
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -75,6 +113,7 @@ impl TracingConfiguration {
 
     pub fn setup_tracing_subscriber(&self) -> Result<OtelGuard, ConfigError> {
         let fmt_layer = fmt::layer()
+            .with_writer(ConsoleMakeWriter)
             .with_ansi(false)
             .without_time()
             .with_line_number(true)

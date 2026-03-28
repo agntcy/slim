@@ -10,6 +10,8 @@ use mls_rs_core::identity::MemberValidationContext;
 use tracing::debug;
 
 use slim_auth::identity_claims::IdentityClaims;
+#[cfg(feature = "native")]
+use slim_auth::errors::AuthError;
 use slim_auth::traits::Verifier;
 
 use crate::errors::MlsError;
@@ -40,13 +42,25 @@ where
             .ok_or(MlsError::NotBasicCredential)?;
         let credential_data = std::str::from_utf8(&basic_cred.identifier)?;
 
-        // Verify token and extract claims (sync only — mls_build_async is not set)
-        let claims: serde_json::Value = self
-            .identity_verifier
-            .try_get_claims(credential_data)
-            .map_err(|e| {
-                MlsError::verification_failed(format!("could not get claims from token: {}", e))
-            })?;
+        // Verify token and extract claims.
+        // On WASM, try_get_claims always succeeds (synchronous HMAC verification),
+        // so the async fallback is only needed on native (e.g., for OAuth2/SPIFFE
+        // verifiers that require async network calls).
+        let claims: serde_json::Value = match self.identity_verifier.try_get_claims(credential_data)
+        {
+            Ok(claims) => claims,
+            #[cfg(feature = "native")]
+            Err(AuthError::WouldBlockOn) => {
+                // Fallback to async verification
+                self.identity_verifier.get_claims(credential_data).await?
+            }
+            Err(e) => {
+                return Err(MlsError::verification_failed(format!(
+                    "could not get claims from token: {}",
+                    e
+                )));
+            }
+        };
 
         // Extract identity claims using the abstraction
         let identity_claims = IdentityClaims::from_json(&claims)?;

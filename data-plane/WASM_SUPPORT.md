@@ -10,58 +10,71 @@
    - `wasm` feature: Uses `mls-rs-crypto-webcrypto` (SubtleCrypto for browser)
    - Type alias `CryptoProviderImpl` switches automatically based on feature
 
-## ⚠️ Current Blockers for WASM
+3. **MLS Identity Provider Send Fix**: Fixed `Send` bound mismatch in `core/mls/src/identity_provider.rs`
+   - The upstream `mls-rs-core::IdentityProvider` trait requires `Send` futures
+   - On WASM, `Verifier::get_claims()` returns `!Send` futures via `async_trait(?Send)`
+   - Fix: Gate the async `get_claims` fallback behind `#[cfg(feature = "native")]` — on WASM, `try_get_claims` (synchronous HMAC) always succeeds, so the async path is unreachable
 
-### Tokio/Mio Issue
-The MLS crate cannot compile for WASM because of transitive dependencies:
-```
-MLS → Auth → Tokio + tokio-util + other deps
-MLS → Datapath → Tokio features
-```
+4. **Controller Proto gRPC Gating**: Fixed `build.rs` module path (`controller.proto.v1` instead of `controller.v1`) so generated gRPC client/server stubs are properly gated behind `#[cfg(feature = "native")]`
 
-These pull in `mio` which has this error on WASM:
-```
-error: This wasm target is unsupported by mio. If using Tokio, disable the net feature.
-```
-
-## 🛣️ Path to Full WASM Support
-
-### Option 1: Feature-Gate Tokio in Dependencies (Recommended)
-1. Make `tokio` optional in `core/auth/Cargo.toml`
-2. Make `tokio` optional in `core/datapath/Cargo.toml`  
-3. Use feature flags like `#[cfg(feature = "runtime-tokio")]` to conditionally compile tokio-dependent code
-4. Create minimal/alternative implementations for WASM (e.g., simple trait implementations that don't need async runtimes)
-
-### Option 2: Separate WASM Build
-1. Create a minimal `slim-wasm` library that doesn't depend on auth/datapath
-2. Implement trait stubs that work in-browser
-3. Use `no_std` + `wasm-bindgen` for a lighter WASM build
-
-### Option 3: Use MLS Only When Not WASM
-1. Keep session/service crates WASM-optional for MLS
-2. Build config + crypto only for WASM initially
-3. Phase in full MLS support later
+5. **Full Crate WASM Compilation**: All data-plane crates now compile for `wasm32-unknown-unknown`:
+   - `agntcy-slim-config` (websocket-wasm)
+   - `agntcy-slim-auth` (wasm)
+   - `agntcy-slim-datapath` (wasm)
+   - `agntcy-slim-tracing` (wasm)
+   - `agntcy-slim-signal` (wasm)
+   - `agntcy-slim-mls` (wasm)
+   - `agntcy-slim-session` (wasm)
+   - `agntcy-slim-controller` (wasm)
+   - `agntcy-slim-service` (wasm, session)
 
 ## Testing WASM Builds
 
 ```bash
-# WebSocket client only (works today)
 cd data-plane
+
+# Individual crate checks
 cargo check -p agntcy-slim-config --target wasm32-unknown-unknown --no-default-features --features websocket-wasm
-
-# Native build (works with full features)
-cargo check -p agntcy-slim-mls --features native
-
-# MLS WASM (would work after fixing dependency blocker)
+cargo check -p agntcy-slim-auth --target wasm32-unknown-unknown --no-default-features --features wasm
+cargo check -p agntcy-slim-datapath --target wasm32-unknown-unknown --no-default-features --features wasm
+cargo check -p agntcy-slim-tracing --target wasm32-unknown-unknown --no-default-features --features wasm
+cargo check -p agntcy-slim-signal --target wasm32-unknown-unknown --no-default-features --features wasm
 cargo check -p agntcy-slim-mls --target wasm32-unknown-unknown --no-default-features --features wasm
+cargo check -p agntcy-slim-session --target wasm32-unknown-unknown --no-default-features --features wasm
+cargo check -p agntcy-slim-controller --target wasm32-unknown-unknown --no-default-features --features wasm
+
+# Full service (with session)
+cargo check -p agntcy-slim-service --target wasm32-unknown-unknown --no-default-features --features wasm,session
+
+# Native build (verify no regressions)
+cargo check -p agntcy-slim-service --features native,session
 ```
 
 ## Browser Runtime Architecture
 
 For running data-plane in the browser:
-1. **Communication**: ✅ WebSocket support ready (`websocket-wasm` feature)
-2. **Crypto**: ✅ MLS WebCrypto provider available (needs tokio fix)
-3. **Session Management**: ⏳ Requires tokio removal from dependencies
-4. **Auth**: ⏳ Needs simplified WASM-compatible implementation
+1. **Communication**: ✅ WebSocket support ready (`websocket-wasm` feature via gloo-net)
+2. **Crypto**: ✅ MLS WebCrypto provider working (`mls-rs-crypto-webcrypto`)
+3. **Session Management**: ✅ Platform abstraction via `core/session/src/runtime.rs` (futures-channel, gloo-timers, wasm-bindgen-futures)
+4. **Auth**: ✅ HMAC-SHA256 via pure-Rust `hmac`+`sha2` crates
+5. **MLS Identity**: ✅ Send bound fix applied, compiles for WASM
+6. **Tracing**: ✅ Console-based fallback (no OpenTelemetry on WASM)
+7. **Controller**: ✅ API types available, gRPC client/server gated behind native
 
-The websocket-wasm foundation is ready today. Full data-plane browser support requires solving the tokio/mio incompatibility.
+All compilation blockers have been resolved. The full data-plane service compiles for `wasm32-unknown-unknown`.
+
+## Known WASM Limitations
+
+- **No WebSocket server**: Browser can only act as a WebSocket client, not accept connections
+- **Auth headers**: Browser WebSocket API cannot set custom HTTP headers; use `websocket_auth_query_param` instead
+- **Bounded channels**: WASM `channel(buffer)` ignores the buffer parameter (always unbounded)
+- **JoinHandle**: WASM `spawn()` returns a fire-and-forget handle; awaiting it never resolves
+- **Timer precision**: Durations > 1 day treated as infinite; capped at u32::MAX milliseconds (~49.7 days)
+- **No gRPC**: tonic/HTTP2 server not available in browser; all communication via WebSocket
+
+## Next Steps
+
+1. Create a `wasm-bindgen` entry point exposing a JavaScript-callable API for SLIM session initialization
+2. Add Taskfile entries for full WASM build checks
+3. Add CI workflow for `wasm32-unknown-unknown` target verification
+4. Test end-to-end browser ↔ native SLIM communication via WebSocket

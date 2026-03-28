@@ -18,7 +18,6 @@ pub mod metadata;
 pub mod oidc;
 #[cfg(feature = "native")]
 pub mod resolver;
-#[cfg(feature = "native")]
 pub mod shared_secret;
 #[cfg(all(feature = "native", not(target_family = "windows")))]
 pub mod spire;
