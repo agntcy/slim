@@ -1,57 +1,57 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-#[cfg(feature = "grpc")]
+#[cfg(feature = "native")]
 use display_error_chain::ErrorChainExt;
 use duration_string::DurationString;
-#[cfg(feature = "grpc")]
+#[cfg(feature = "native")]
 use futures::FutureExt;
-#[cfg(feature = "grpc")]
+#[cfg(feature = "native")]
 use futures::Stream;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "grpc")]
+#[cfg(feature = "native")]
 use std::convert::Infallible;
-#[cfg(feature = "grpc")]
+#[cfg(feature = "native")]
 use std::future::Future;
-#[cfg(all(feature = "grpc", target_family = "unix"))]
+#[cfg(all(feature = "native", target_family = "unix"))]
 use std::path::PathBuf;
-#[cfg(feature = "grpc")]
+#[cfg(feature = "native")]
 use std::pin::Pin;
-#[cfg(feature = "grpc")]
+#[cfg(feature = "native")]
 use std::sync::Arc;
 use std::time::Duration;
-#[cfg(feature = "grpc")]
+#[cfg(feature = "native")]
 use std::{net::SocketAddr, str::FromStr};
-#[cfg(feature = "grpc")]
+#[cfg(feature = "native")]
 use tokio::io::{AsyncRead, AsyncWrite};
-#[cfg(all(feature = "grpc", target_family = "unix"))]
+#[cfg(all(feature = "native", target_family = "unix"))]
 use tokio::net::UnixListener;
-#[cfg(all(feature = "grpc", target_family = "unix"))]
+#[cfg(all(feature = "native", target_family = "unix"))]
 use tokio_stream::wrappers::UnixListenerStream;
-#[cfg(feature = "grpc")]
+#[cfg(feature = "native")]
 use tokio_util::sync::CancellationToken;
-#[cfg(feature = "grpc")]
+#[cfg(feature = "native")]
 use tonic::transport::server::TcpIncoming;
-#[cfg(feature = "grpc")]
+#[cfg(feature = "native")]
 use tower_http::BoxError;
-#[cfg(feature = "grpc")]
+#[cfg(feature = "native")]
 use tracing::debug;
 
-#[cfg(feature = "grpc")]
+#[cfg(feature = "native")]
 use crate::auth::ServerAuthenticator;
 use crate::auth::basic::Config as BasicAuthenticationConfig;
-#[cfg(any(feature = "grpc", feature = "websocket-native"))]
+#[cfg(feature = "native")]
 use crate::auth::jwt::Config as JwtAuthenticationConfig;
 use crate::component::configuration::Configuration;
 use crate::grpc::errors::ConfigError;
 use crate::transport::TransportProtocol;
-#[cfg(any(feature = "grpc", feature = "websocket-native"))]
+#[cfg(feature = "native")]
 use slim_auth::metadata::MetadataMap;
-#[cfg(not(any(feature = "grpc", feature = "websocket-native")))]
+#[cfg(not(feature = "native"))]
 type MetadataMap = std::collections::HashMap<String, serde_json::Value>;
 
-#[cfg(feature = "grpc")]
+#[cfg(feature = "native")]
 use crate::tls::common::RustlsConfigLoader;
 use crate::tls::server::TlsServerConfig as TLSSetting;
 
@@ -90,7 +90,7 @@ pub enum AuthenticationConfig {
     /// Basic authentication configuration.
     Basic(BasicAuthenticationConfig),
     /// JWT authentication configuration.
-    #[cfg(any(feature = "grpc", feature = "websocket-native"))]
+    #[cfg(feature = "native")]
     Jwt(JwtAuthenticationConfig),
     /// None
     #[default]
@@ -260,7 +260,7 @@ impl Configuration for ServerConfig {
 }
 
 /// ServerFuture is a type alias for a boxed future that returns a Result<(), tonic::transport::Error>.
-#[cfg(feature = "grpc")]
+#[cfg(feature = "native")]
 type ServerFuture = Pin<Box<dyn Future<Output = Result<(), tonic::transport::Error>> + Send>>;
 
 /// Convert ServerConfig to IncomingServerConfig
@@ -333,7 +333,7 @@ impl ServerConfig {
         Self { auth, ..self }
     }
 
-    #[cfg(all(feature = "grpc", target_family = "unix"))]
+    #[cfg(all(feature = "native", target_family = "unix"))]
     fn parse_unix_socket_path(endpoint: &str) -> Result<PathBuf, ConfigError> {
         let path = endpoint.strip_prefix("unix://").unwrap_or(endpoint);
 
@@ -350,7 +350,7 @@ impl ServerConfig {
         Ok(PathBuf::from(path_part))
     }
 
-    #[cfg(feature = "grpc")]
+    #[cfg(feature = "native")]
     fn create_server_builder(&self) -> tonic::transport::Server {
         let builder: tonic::transport::Server =
             tonic::transport::Server::builder().accept_http1(false);
@@ -378,7 +378,7 @@ impl ServerConfig {
         builder.max_connection_age(self.keepalive.max_connection_age.into())
     }
 
-    #[cfg(feature = "grpc")]
+    #[cfg(feature = "native")]
     async fn serve_with_incoming<S, I, IO, IE>(
         &self,
         svc: &[S],
@@ -443,7 +443,7 @@ impl ServerConfig {
         }
     }
 
-    #[cfg(feature = "grpc")]
+    #[cfg(feature = "native")]
     pub(crate) async fn to_grpc_server_future<S>(
         &self,
         svc: &[S],
@@ -511,7 +511,7 @@ impl ServerConfig {
         }
     }
 
-    #[cfg(feature = "grpc")]
+    #[cfg(feature = "native")]
     pub(crate) async fn run_grpc_server<S>(
         &self,
         svc: &[S],
@@ -566,7 +566,7 @@ impl ServerConfig {
     }
 }
 
-#[cfg(all(test, feature = "grpc"))]
+#[cfg(all(test, feature = "native"))]
 mod tests {
     use super::*;
     use crate::testutils::{Empty, helloworld::greeter_server::GreeterServer};

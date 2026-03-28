@@ -99,7 +99,7 @@ pub async fn build_client_handshake_auth(
                 bearer_token: None,
             })
         }
-        #[cfg(any(feature = "grpc", feature = "websocket-native"))]
+        #[cfg(feature = "native")]
         ClientAuthConfig::StaticJwt(static_jwt) => {
             use slim_auth::traits::TokenProvider;
 
@@ -111,7 +111,7 @@ pub async fn build_client_handshake_auth(
                 bearer_token: Some(token),
             })
         }
-        #[cfg(any(feature = "grpc", feature = "websocket-native"))]
+        #[cfg(feature = "native")]
         ClientAuthConfig::Jwt(jwt) => {
             use slim_auth::traits::TokenProvider;
 
