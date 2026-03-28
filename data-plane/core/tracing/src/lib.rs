@@ -8,7 +8,7 @@ mod native;
 #[cfg(feature = "native")]
 pub use native::*;
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", not(feature = "native")))]
 mod wasm;
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", not(feature = "native")))]
 pub use wasm::*;

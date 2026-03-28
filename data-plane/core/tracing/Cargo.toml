@@ -23,6 +23,7 @@ native = [
 wasm = [
     "dep:tracing-subscriber",
     "dep:getrandom",
+    "dep:web-sys",
     "uuid/js",
 ]
 
@@ -48,3 +49,6 @@ getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
 
 # Shared optional (used by both native and wasm)
 tracing-subscriber = { workspace = true, optional = true }
+
+# WASM browser console output
+web-sys = { version = "0.3", features = ["console"], optional = true }

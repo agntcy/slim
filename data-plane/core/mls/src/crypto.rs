@@ -9,7 +9,7 @@
 #[cfg(feature = "native")]
 pub use mls_rs_crypto_awslc::AwsLcCryptoProvider as CryptoProviderImpl;
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", not(feature = "native")))]
 pub use mls_rs_crypto_webcrypto::WebCryptoProvider as CryptoProviderImpl;
 
 pub fn default_crypto_provider() -> CryptoProviderImpl {

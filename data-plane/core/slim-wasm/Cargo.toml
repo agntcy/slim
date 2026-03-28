@@ -1,0 +1,36 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "agntcy-slim-wasm"
+edition = { workspace = true }
+license = { workspace = true }
+version = "0.1.0"
+description = "WASM/browser entry point for SLIM data plane."
+
+[lib]
+name = "slim_wasm"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+agntcy-slim-auth = { workspace = true, default-features = false, features = ["wasm"] }
+agntcy-slim-config = { workspace = true, default-features = false, features = ["wasm"] }
+agntcy-slim-datapath = { workspace = true, default-features = false, features = ["wasm"] }
+agntcy-slim-session = { workspace = true, default-features = false, features = ["wasm"] }
+agntcy-slim-mls = { workspace = true, default-features = false, features = ["wasm"] }
+agntcy-slim-tracing = { workspace = true, default-features = false, features = ["wasm"] }
+
+futures = { workspace = true }
+js-sys = "0.3"
+parking_lot = { workspace = true }
+prost = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+console_error_panic_hook = "0.1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+gloo-net = "0.6"

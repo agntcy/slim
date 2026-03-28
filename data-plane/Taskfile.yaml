@@ -196,3 +196,17 @@ tasks:
         vars:
           ARGS: "{{.GLOBAL_ARGS}} --all-targets --locked --all-features"
       - task: data-plane:core:test
+
+  # WASM (wasm32-unknown-unknown) build checks
+  data-plane:check:wasm:
+    desc: "Check all crates compile for wasm32-unknown-unknown"
+    cmds:
+      - task: data-plane:check:websocket-wasm
+      - cargo check -p agntcy-slim-auth --target wasm32-unknown-unknown --no-default-features --features wasm --locked
+      - cargo check -p agntcy-slim-datapath --target wasm32-unknown-unknown --no-default-features --features wasm --locked
+      - cargo check -p agntcy-slim-tracing --target wasm32-unknown-unknown --no-default-features --features wasm --locked
+      - cargo check -p agntcy-slim-signal --target wasm32-unknown-unknown --no-default-features --features wasm --locked
+      - cargo check -p agntcy-slim-mls --target wasm32-unknown-unknown --no-default-features --features wasm --locked
+      - cargo check -p agntcy-slim-session --target wasm32-unknown-unknown --no-default-features --features wasm --locked
+      - cargo check -p agntcy-slim-controller --target wasm32-unknown-unknown --no-default-features --features wasm --locked
+      - cargo check -p agntcy-slim-service --target wasm32-unknown-unknown --no-default-features --features wasm,session --locked
