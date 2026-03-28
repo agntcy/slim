@@ -11,6 +11,7 @@ members = [
     "core/session",
     "core/signal",
     "core/slim",
+    "core/slim-wasm",
     "core/tracing",
     "examples",
     "slimctl",

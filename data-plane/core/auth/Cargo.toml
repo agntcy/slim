@@ -32,7 +32,9 @@ native = [
 ]
 native-spiffe = ["dep:spiffe"]
 wasm = [
+    "dep:hmac",
     "dep:parking_lot",
+    "dep:sha2",
     "dep:getrandom",
 ]
 
@@ -49,8 +51,10 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 
-# WASM support for randomness
+# WASM support
 getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
+hmac = { version = "0.12", optional = true }
+sha2 = { version = "0.10", optional = true }
 
 # Native-only dependencies
 aws-lc-rs = { workspace = true, optional = true }

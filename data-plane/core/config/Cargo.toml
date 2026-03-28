@@ -14,13 +14,15 @@ path = "src/schema/generate_schema.rs"
 
 [features]
 default = ["native"]
-native = ["grpc", "websocket-native"]
-wasm = ["websocket-wasm"]
-grpc = [
+native = [
     "dep:agntcy-slim-auth",
+    "dep:bytes",
     "dep:display-error-chain",
     "dep:drain",
+    "dep:fastwebsockets",
     "dep:futures",
+    "dep:http-body-util",
+    "dep:hyper",
     "hyper-util/client-proxy-system",
     "dep:hyper-rustls",
     "dep:hyper-util",
@@ -47,30 +49,7 @@ grpc = [
     "dep:tower-layer",
     "dep:tower-service",
 ]
-websocket-native = [
-    "dep:agntcy-slim-auth",
-    "dep:bytes",
-    "dep:drain",
-    "dep:fastwebsockets",
-    "dep:http-body-util",
-    "dep:hyper",
-    "dep:hyper-util",
-    "dep:parking_lot",
-    "dep:rustls",
-    "dep:rustls-native-certs",
-    "dep:rustls-pki-types",
-    "dep:tokio",
-    "tokio/io-util",
-    "tokio/macros",
-    "tokio/net",
-    "tokio/rt",
-    "tokio/rt-multi-thread",
-    "tokio/sync",
-    "tokio/time",
-    "dep:tokio-rustls",
-    "dep:tokio-util",
-]
-websocket-wasm = ["dep:gloo-net"]
+wasm = ["dep:gloo-net"]
 
 [dependencies]
 agntcy-slim-auth = { workspace = true, optional = true, features = ["native"] }

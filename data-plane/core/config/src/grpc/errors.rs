@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::auth::ConfigAuthError;
-#[cfg(any(feature = "grpc", feature = "websocket-native"))]
+#[cfg(feature = "native")]
 use slim_auth::errors::AuthError;
 use thiserror::Error;
 
@@ -44,10 +44,10 @@ pub enum ConfigError {
     WebSocketWasmUnsupportedTarget,
 
     // Network / transport
-    #[cfg(feature = "grpc")]
+    #[cfg(feature = "native")]
     #[error("transport error")]
     TransportError(#[from] tonic::transport::Error),
-    #[cfg(not(feature = "grpc"))]
+    #[cfg(not(feature = "native"))]
     #[error("transport error")]
     TransportError,
     #[error("gRPC support is disabled at compile time")]
@@ -61,10 +61,10 @@ pub enum ConfigError {
     #[error("websocket connection error")]
     WebSocketConnection(#[source] std::io::Error),
     #[error("websocket handshake error")]
-    #[cfg(feature = "websocket-native")]
+    #[cfg(feature = "native")]
     WebSocketHandshake(#[source] fastwebsockets::WebSocketError),
     #[error("websocket handshake error: {0}")]
-    #[cfg(not(feature = "websocket-native"))]
+    #[cfg(not(feature = "native"))]
     WebSocketHandshake(String),
     #[error("websocket request error")]
     WebSocketRequest(#[source] http::Error),
@@ -98,7 +98,7 @@ pub enum ConfigError {
     TlsConfig(#[from] crate::tls::errors::ConfigError),
 
     // Authentication
-    #[cfg(any(feature = "grpc", feature = "websocket-native"))]
+    #[cfg(feature = "native")]
     #[error("auth error")]
     AuthError(#[from] AuthError),
     #[error("auth config error")]

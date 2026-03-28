@@ -2,21 +2,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod basic;
-#[cfg(any(feature = "grpc", feature = "websocket-native"))]
+#[cfg(feature = "native")]
 pub mod identity;
-#[cfg(any(feature = "grpc", feature = "websocket-native"))]
+#[cfg(feature = "native")]
 pub mod jwt;
-#[cfg(any(feature = "grpc", feature = "websocket-native"))]
+#[cfg(feature = "native")]
 pub mod oidc;
 #[cfg(all(
     not(target_family = "windows"),
-    any(feature = "grpc", feature = "websocket-native")
+    feature = "native"
 ))]
 pub mod spire;
-#[cfg(any(feature = "grpc", feature = "websocket-native"))]
+#[cfg(feature = "native")]
 pub mod static_jwt;
 
-#[cfg(any(feature = "grpc", feature = "websocket-native"))]
+#[cfg(feature = "native")]
 use slim_auth::errors::AuthError as SlimAuthError;
 
 use thiserror::Error;
@@ -35,7 +35,7 @@ pub enum ConfigAuthError {
     AuthOidcEmptyClientSecret,
 
     // Propagated auth library errors
-    #[cfg(any(feature = "grpc", feature = "websocket-native"))]
+    #[cfg(feature = "native")]
     #[error("internal auth error")]
     AuthInternalError(#[from] SlimAuthError),
 

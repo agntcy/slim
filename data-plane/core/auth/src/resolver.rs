@@ -34,11 +34,14 @@ pub struct JwksCache {
 ///
 /// Example usage:
 ///
-/// ```
+/// ```rust,ignore
+/// use slim_auth::resolver::KeyResolver;
+/// use std::time::Duration;
+///
 /// let resolver = KeyResolver::new()
 ///     .with_jwks_ttl(Duration::from_secs(1800));  // 30 minute cache TTL
 ///
-/// let jwt = Jwt::builder()
+/// let jwt = slim_auth::builder::JwtBuilder::new()
 ///     .issuer("https://your-oidc-provider.com")
 ///     .key_resolver(resolver)
 ///     .build()?;
