@@ -2,13 +2,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod basic;
+#[cfg(feature = "native")]
 pub mod identity;
+#[cfg(feature = "native")]
 pub mod jwt;
+#[cfg(feature = "native")]
 pub mod oidc;
-#[cfg(not(target_family = "windows"))]
+#[cfg(all(
+    not(target_family = "windows"),
+    feature = "native"
+))]
 pub mod spire;
+#[cfg(feature = "native")]
 pub mod static_jwt;
 
+#[cfg(feature = "native")]
 use slim_auth::errors::AuthError as SlimAuthError;
 
 use thiserror::Error;
@@ -27,6 +35,7 @@ pub enum ConfigAuthError {
     AuthOidcEmptyClientSecret,
 
     // Propagated auth library errors
+    #[cfg(feature = "native")]
     #[error("internal auth error")]
     AuthInternalError(#[from] SlimAuthError),
 

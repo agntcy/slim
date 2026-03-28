@@ -17,15 +17,14 @@
 //! use slim_service::Service;
 //! use slim_config::component::ComponentBuilder;
 //! use slim_auth::shared_secret::SharedSecret;
-//! use slim_auth::testutils::TEST_VALID_SECRET;
 //! use slim_datapath::messages::Name;
 //!
 //! // Create service instance (handles message processing)
 //! let service = Service::builder().build("svc-0".to_string()).expect("Failed to create service");
 //!
 //! // Create authentication components
-//! let provider = SharedSecret::new("myapp", TEST_VALID_SECRET)?;
-//! let verifier = SharedSecret::new("myapp", TEST_VALID_SECRET)?;
+//! let provider = SharedSecret::new("myapp", "shared-secret-value-0123456789abcdef").unwrap();
+//! let verifier = SharedSecret::new("myapp", "shared-secret-value-0123456789abcdef").unwrap();
 //!
 //! // Create an app for messaging
 //! let app_name = Name::from_strings(["org", "ns", "app"]);
@@ -34,10 +33,11 @@
 //! ```
 
 pub mod errors;
+#[cfg(feature = "native")]
 #[macro_use]
 pub mod service;
 
-#[cfg(feature = "session")]
+#[cfg(all(feature = "native", feature = "session"))]
 pub mod app;
 
 // Third-party crates
@@ -45,4 +45,5 @@ pub use slim_datapath::messages::utils::SlimHeaderFlags;
 
 // Local crate
 pub use errors::{ServiceError, SubscriptionAckError};
+#[cfg(feature = "native")]
 pub use service::{KIND, Service, ServiceBuilder, ServiceConfiguration};

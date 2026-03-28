@@ -8,6 +8,7 @@ pub mod component;
 pub mod grpc;
 pub mod provider;
 pub mod server;
+#[cfg(feature = "native")]
 pub mod testutils;
 pub mod tls;
 pub mod transport;

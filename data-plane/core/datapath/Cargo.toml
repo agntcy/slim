@@ -8,31 +8,56 @@ description = "Core data plane functionality for SLIM"
 [lib]
 name = "slim_datapath"
 
+[features]
+default = ["native"]
+native = [
+    "dep:agntcy-slim-config",
+    "dep:agntcy-slim-tracing",
+    "dep:display-error-chain",
+    "dep:drain",
+    "dep:fastwebsockets",
+    "dep:h2",
+    "dep:opentelemetry",
+    "dep:tokio",
+    "dep:tokio-stream",
+    "dep:tokio-util",
+    "dep:tonic",
+    "dep:tonic-prost",
+    "dep:tracing-opentelemetry",
+]
+wasm = [
+    "dep:getrandom",
+]
+
 [dependencies]
-agntcy-slim-config = { workspace = true }
-agntcy-slim-tracing = { workspace = true }
+# Always available (core types, messages, tables)
 bincode = { workspace = true }
 bit-vec = { workspace = true }
-display-error-chain = { workspace = true }
-drain = { workspace = true }
-fastwebsockets = { workspace = true }
-h2 = { workspace = true }
+getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
 http = { workspace = true }
-opentelemetry = { workspace = true }
 parking_lot = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
-tokio-stream = { workspace = true }
-tokio-util = { workspace = true }
-tonic = { workspace = true }
-tonic-prost = { workspace = true }
 tracing = { workspace = true }
-tracing-opentelemetry = { workspace = true }
 twox-hash = { workspace = true }
+
+# Native-only dependencies
+agntcy-slim-config = { workspace = true, optional = true, features = ["native"] }
+agntcy-slim-tracing = { workspace = true, optional = true, features = ["native"] }
+display-error-chain = { workspace = true, optional = true }
+drain = { workspace = true, optional = true }
+fastwebsockets = { workspace = true, optional = true }
+h2 = { workspace = true, optional = true }
+opentelemetry = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+tokio-stream = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true }
+tonic = { workspace = true, optional = true }
+tonic-prost = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
 
 [build-dependencies]
 protoc-bin-vendored = { workspace = true }

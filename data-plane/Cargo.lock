@@ -47,7 +47,9 @@ dependencies = [
  "base64 0.22.1",
  "display-error-chain",
  "futures",
+ "getrandom 0.3.4",
  "headers",
+ "hmac",
  "http",
  "jsonwebtoken-aws-lc",
  "notify",
@@ -60,6 +62,7 @@ dependencies = [
  "schemars 1.2.0",
  "serde",
  "serde_json",
+ "sha2",
  "spiffe",
  "thiserror 2.0.17",
  "tokio",
@@ -123,6 +126,7 @@ dependencies = [
  "duration-string",
  "fastwebsockets",
  "futures",
+ "gloo-net",
  "http",
  "http-body-util",
  "hyper",
@@ -204,6 +208,7 @@ dependencies = [
  "display-error-chain",
  "drain",
  "fastwebsockets",
+ "getrandom 0.3.4",
  "h2",
  "http",
  "opentelemetry",
@@ -234,10 +239,12 @@ dependencies = [
  "agntcy-slim-datapath",
  "async-trait",
  "base64 0.22.1",
+ "getrandom 0.3.4",
  "hex",
  "mls-rs",
  "mls-rs-core",
  "mls-rs-crypto-awslc",
+ "mls-rs-crypto-webcrypto",
  "serde_json",
  "tempfile",
  "thiserror 2.0.17",
@@ -279,6 +286,10 @@ dependencies = [
  "agntcy-slim-testing",
  "async-trait",
  "display-error-chain",
+ "futures-channel",
+ "futures-core",
+ "getrandom 0.3.4",
+ "gloo-timers",
  "parking_lot",
  "rand 0.9.2",
  "serde",
@@ -288,6 +299,7 @@ dependencies = [
  "tonic",
  "tracing",
  "tracing-test",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]
@@ -332,6 +344,7 @@ name = "agntcy-slim-tracing"
 version = "0.3.4"
 dependencies = [
  "agntcy-slim-config",
+ "getrandom 0.3.4",
  "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -344,6 +357,31 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "uuid",
+ "web-sys",
+]
+
+[[package]]
+name = "agntcy-slim-wasm"
+version = "0.1.0"
+dependencies = [
+ "agntcy-slim-auth",
+ "agntcy-slim-config",
+ "agntcy-slim-datapath",
+ "agntcy-slim-mls",
+ "agntcy-slim-session",
+ "agntcy-slim-tracing",
+ "console_error_panic_hook",
+ "futures",
+ "gloo-net",
+ "js-sys",
+ "parking_lot",
+ "prost",
+ "serde",
+ "serde_json",
+ "tracing",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]
@@ -991,6 +1029,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
+name = "console_error_panic_hook"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
+dependencies = [
+ "cfg-if",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1189,6 +1237,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
 dependencies = [
  "const-oid",
+ "der_derive",
+ "zeroize",
 ]
 
 [[package]]
@@ -1203,6 +1253,17 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "rusticata-macros",
+]
+
+[[package]]
+name = "der_derive"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8034092389675178f570469e6c3b0465d3d30b4505c294a6550db47f3c17ad18"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.114",
 ]
 
 [[package]]
@@ -1223,6 +1284,7 @@ checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
  "block-buffer",
  "crypto-common",
+ "subtle",
 ]
 
 [[package]]
@@ -1562,6 +1624,52 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
+name = "gloo-net"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c06f627b1a58ca3d42b45d6104bf1e1a03799df472df00988b6ba21accc10580"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "futures-sink",
+ "gloo-utils",
+ "http",
+ "js-sys",
+ "pin-project",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "gloo-timers"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbb143cf96099802033e0d4f4963b19fd2e0b728bcf076cd9cf7f6634f092994"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "gloo-utils"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b5555354113b18c547c1d3a98fbf7fb32a9ff4f6fa112ce823a21641a0ba3aa"
+dependencies = [
+ "js-sys",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
 name = "goblin"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1672,6 +1780,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest",
 ]
 
 [[package]]
@@ -2443,8 +2560,8 @@ dependencies = [
  "aws-lc-sys",
  "maybe-async",
  "mls-rs-core",
- "mls-rs-crypto-hpke",
- "mls-rs-crypto-traits",
+ "mls-rs-crypto-hpke 0.17.0",
+ "mls-rs-crypto-traits 0.18.0",
  "mls-rs-identity-x509",
  "thiserror 2.0.17",
  "zeroize",
@@ -2460,7 +2577,22 @@ dependencies = [
  "cfg-if",
  "maybe-async",
  "mls-rs-core",
- "mls-rs-crypto-traits",
+ "mls-rs-crypto-traits 0.18.0",
+ "thiserror 2.0.17",
+ "zeroize",
+]
+
+[[package]]
+name = "mls-rs-crypto-hpke"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3c2a99e5fde9b7226b4cbc733fb82d36d89b3c7821481fe9d8db29bae7140b9"
+dependencies = [
+ "async-trait",
+ "cfg-if",
+ "maybe-async",
+ "mls-rs-core",
+ "mls-rs-crypto-traits 0.19.0",
  "thiserror 2.0.17",
  "zeroize",
 ]
@@ -2474,6 +2606,41 @@ dependencies = [
  "async-trait",
  "maybe-async",
  "mls-rs-core",
+]
+
+[[package]]
+name = "mls-rs-crypto-traits"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07ffba3ef010884c3ea68005d54d8e64ad3b9960f4d1763db01595aa9d1c751b"
+dependencies = [
+ "async-trait",
+ "maybe-async",
+ "mls-rs-core",
+ "zeroize",
+]
+
+[[package]]
+name = "mls-rs-crypto-webcrypto"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2a881e347c38ff18e62ea721c214e04b64d7fb32e8837050dd70cf834c59f75"
+dependencies = [
+ "async-trait",
+ "const-oid",
+ "der",
+ "js-sys",
+ "maybe-async",
+ "mls-rs-core",
+ "mls-rs-crypto-hpke 0.18.0",
+ "mls-rs-crypto-traits 0.19.0",
+ "serde",
+ "serde-wasm-bindgen",
+ "thiserror 2.0.17",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "zeroize",
 ]
 
 [[package]]
@@ -3448,7 +3615,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3704,6 +3871,17 @@ checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
  "serde_derive",
+]
+
+[[package]]
+name = "serde-wasm-bindgen"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
+dependencies = [
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -5154,15 +5332,6 @@ name = "windows-sys"
 version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d"
-dependencies = [
- "windows-targets 0.52.6",
-]
-
-[[package]]
-name = "windows-sys"
-version = "0.59.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
 dependencies = [
  "windows-targets 0.52.6",
 ]

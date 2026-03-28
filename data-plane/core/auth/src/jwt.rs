@@ -187,7 +187,9 @@ impl<T> Jwt<T> {
     /// Internal constructor used by the builder.
     ///
     /// This should not be called directly. Use the builder pattern instead:
-    /// ```
+    /// ```rust,ignore
+    /// use slim_auth::jwt::Jwt;
+    ///
     /// let jwt = Jwt::builder()
     ///     .issuer("my-issuer")
     ///     .audience("my-audience")

@@ -10,16 +10,42 @@ include = ["src/**", "build.rs", "proto/**"]
 [lib]
 name = "slim_controller"
 
+[features]
+default = ["native"]
+native = [
+    "agntcy-slim-auth/native",
+    "agntcy-slim-config/native",
+    "agntcy-slim-datapath/native",
+    "agntcy-slim-session/native",
+    "agntcy-slim-signal/native",
+    "agntcy-slim-tracing/native",
+    "display-error-chain",
+    "drain",
+    "h2",
+    "tokio",
+    "tokio-stream",
+    "tokio-util",
+    "tonic",
+    "tonic-prost",
+]
+wasm = [
+    "agntcy-slim-auth/wasm",
+    "agntcy-slim-config/wasm",
+    "agntcy-slim-datapath/wasm",
+    "agntcy-slim-session/wasm",
+    "agntcy-slim-tracing/wasm",
+]
+
 [dependencies]
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-session = { workspace = true }
-agntcy-slim-signal = { workspace = true }
+agntcy-slim-signal = { workspace = true, optional = true }
 agntcy-slim-tracing = { workspace = true }
-display-error-chain = { workspace = true }
-drain = { workspace = true }
-h2 = { workspace = true }
+display-error-chain = { workspace = true, optional = true }
+drain = { workspace = true, optional = true }
+h2 = { workspace = true, optional = true }
 parking_lot = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }
@@ -27,11 +53,11 @@ rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-tokio-stream = { workspace = true }
-tokio-util = { workspace = true }
-tonic = { workspace = true }
-tonic-prost = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"], optional = true }
+tokio-stream = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true }
+tonic = { workspace = true, optional = true }
+tonic-prost = { workspace = true, optional = true }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 
