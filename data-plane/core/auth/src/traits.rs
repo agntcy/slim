@@ -63,7 +63,8 @@ impl StandardClaims {
 }
 
 /// Trait for verifying JWT tokens
-#[async_trait]
+#[cfg_attr(feature = "native", async_trait)]
+#[cfg_attr(feature = "wasm", async_trait(?Send))]
 pub trait Verifier {
     /// Initializes the verifier asynchronously.
     async fn initialize(&mut self) -> Result<(), AuthError>;
@@ -104,7 +105,8 @@ pub trait Signer {
 }
 
 /// Trait for providing JWT claims
-#[async_trait]
+#[cfg_attr(feature = "native", async_trait)]
+#[cfg_attr(feature = "wasm", async_trait(?Send))]
 pub trait TokenProvider {
     /// Initializes the token provider asynchronously.
     /// Usage notes:
