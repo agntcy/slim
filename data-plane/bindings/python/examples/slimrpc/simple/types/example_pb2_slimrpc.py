@@ -100,6 +100,109 @@ class TestStub:
 
 
 
+class TestGroupStub:
+    """Multicast (group) client stub for Test.
+
+    Requires a channel created with ``Channel.new_group*`` targeting multiple
+    server instances. All methods are async generators that yield
+    ``(source, response)`` tuples — one pair per incoming message.
+    """
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A slim_bindings.Channel created with Channel.new_group*.
+        """
+        self._channel = channel
+
+    async def ExampleUnaryUnary(self, request: pb2.ExampleRequest, timeout: Optional[timedelta] = None, metadata: Optional[dict[str, str]] = None):
+        """Multicast ExampleUnaryUnary: one response per server."""
+        reader = await self._channel.call_multicast_unary_async(
+            "example_service.Test",
+            "ExampleUnaryUnary",
+            pb2.ExampleRequest.SerializeToString(request),
+            timeout,
+            metadata,
+        )
+        while True:
+            msg = await reader.next_async()
+            if msg.is_end():
+                break
+            if msg.is_error():
+                raise msg.error
+            if msg.is_data():
+                yield msg.item.context, pb2.ExampleResponse.FromString(msg.item.message)
+
+    async def ExampleUnaryStream(self, request: pb2.ExampleRequest, timeout: Optional[timedelta] = None, metadata: Optional[dict[str, str]] = None):
+        """Multicast ExampleUnaryStream: streaming responses per server."""
+        reader = await self._channel.call_multicast_unary_stream_async(
+            "example_service.Test",
+            "ExampleUnaryStream",
+            pb2.ExampleRequest.SerializeToString(request),
+            timeout,
+            metadata,
+        )
+        while True:
+            msg = await reader.next_async()
+            if msg.is_end():
+                break
+            if msg.is_error():
+                raise msg.error
+            if msg.is_data():
+                yield msg.item.context, pb2.ExampleResponse.FromString(msg.item.message)
+
+    async def ExampleStreamUnary(self, request_iterator, timeout: Optional[timedelta] = None, metadata: Optional[dict[str, str]] = None):
+        """Multicast ExampleStreamUnary: one response per server after streaming requests."""
+        handler = self._channel.call_multicast_stream_unary(
+            "example_service.Test",
+            "ExampleStreamUnary",
+            timeout,
+            metadata,
+        )
+        async for request in request_iterator:
+            await handler.send_async(pb2.ExampleRequest.SerializeToString(request))
+        await handler.close_send_async()
+        while True:
+            msg = await handler.recv_async()
+            if msg.is_end():
+                break
+            if msg.is_error():
+                raise msg.error
+            if msg.is_data():
+                yield msg.item.context, pb2.ExampleResponse.FromString(msg.item.message)
+
+    async def ExampleStreamStream(self, request_iterator, timeout: Optional[timedelta] = None, metadata: Optional[dict[str, str]] = None):
+        """Multicast ExampleStreamStream: streaming requests and responses."""
+        handler = self._channel.call_multicast_stream_stream(
+            "example_service.Test",
+            "ExampleStreamStream",
+            timeout,
+            metadata,
+        )
+
+        async def send_requests():
+            async for request in request_iterator:
+                await handler.send_async(pb2.ExampleRequest.SerializeToString(request))
+            await handler.close_send_async()
+
+        import asyncio
+        send_task = asyncio.create_task(send_requests())
+
+        try:
+            while True:
+                msg = await handler.recv_async()
+                if msg.is_end():
+                    break
+                if msg.is_error():
+                    raise msg.error
+                if msg.is_data():
+                    yield msg.item.context, pb2.ExampleResponse.FromString(msg.item.message)
+        finally:
+            await send_task
+
+
+
 class TestServicer:
     """Server servicer for Test. Implement this class to provide your service logic."""
 

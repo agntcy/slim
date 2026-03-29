@@ -17,13 +17,13 @@ includes:
     internal: true
 
 env:
-  SHARED_SECRET: "demo-secret-key-for-examples012345"
+  SHARED_SECRET: "my_shared_secret_for_testing_purposes_only"
 
 vars:
   BINDINGS_VERSION:
     sh: 'mvn -f pom.xml help:evaluate -Dexpression=project.version -q -DforceStdout'
   BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
-  PROFILE: '{{.PROFILE | default "release"}}'
+  PROFILE: '{{.PROFILE | default "debug"}}'
   CURRENT_TARGET:
     sh: 'rustc -vV | sed -n "s|host: ||p"'
   TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
@@ -67,9 +67,9 @@ tasks:
     status:
       - which uniffi-bindgen-java
     cmds:
-      - echo "📦 Installing uniffi-bindgen-java..."
-      - cargo install uniffi-bindgen-java --git https://github.com/IronCoreLabs/uniffi-bindgen-java --tag 0.2.1
-      - echo "✅ uniffi-bindgen-java installed"
+      - echo "Installing uniffi-bindgen-java..."
+      - cargo install uniffi-bindgen-java --git https://github.com/IronCoreLabs/uniffi-bindgen-java --tag 0.2.1 --config net.git-fetch-with-cli=true
+      - echo "uniffi-bindgen-java installed"
 
   generate:
     desc: Generate Java bindings from compiled Rust library
@@ -79,9 +79,9 @@ tasks:
           PROFILE: "{{.PROFILE}}"
       - install-uniffi-bindgen-java
     cmds:
-      - echo "🔧 Generating Java bindings from compiled library..."
+      - echo "Generating Java bindings from compiled library..."
       - task: copy-libraries
-      - echo "🔍 Checking library file exists:"
+      - echo "Checking library file exists:"
       - ls -lah '{{.LIB_PATH}}'
       - |
         uniffi-bindgen-java generate \
@@ -89,7 +89,7 @@ tasks:
           --out-dir generated/uniffi \
           --config uniffi.toml
       - task: patch-bindings
-      - echo "✅ Bindings generated in generated/"
+      - echo "Bindings generated in generated/"
 
   copy-libraries:
     desc: Copy native libraries from target folder to generated/native structure
@@ -133,23 +133,23 @@ tasks:
           esac
 
           if [[ ! -f "$src" ]]; then
-            echo "  ⚠️  $target: library not found ($src)"
+            echo "  $target: library not found ($src)"
             continue
           fi
 
           native_dir="generated/native/$java_path"
           mkdir -p "$native_dir"
           cp "$src" "$native_dir/$lib_name"
-          echo "  ✅ $target → $java_path/$lib_name"
+          echo "  $target → $java_path/$lib_name"
           library_count=$((library_count + 1))
         done
 
         if [[ $library_count -eq 0 ]]; then
-          echo "⚠️  No libraries found under {{.TARGET_DIR}}"
+          echo "No libraries found under {{.TARGET_DIR}}"
           exit 1
         fi
 
-        echo "📊 Total libraries copied: $library_count"
+        echo "Total libraries copied: $library_count"
 
   patch-bindings:
     desc: Patch generated Java bindings to fix compatibility issues
@@ -158,36 +158,41 @@ tasks:
       - ./patch-bindings.sh
 
   build:
-    desc: Build Java code and create JAR
+    desc: Build Java bindings and all examples
     deps:
       - generate
     cmds:
-      - echo "🔨 Building Java bindings..."
+      - echo "Building Java bindings..."
       - mvn clean package -DskipTests
-      - echo "✅ Build complete"
+      - echo "Installing bindings to local Maven repository..."
+      - mvn install -DskipTests -q
+      - echo "Compiling examples..."
+      - cd examples && mvn clean compile -q && mvn install -DskipTests -q
+      - cd examples/slimrpc/simple && mvn clean compile -q
+      - echo "Build complete"
 
   test:
     desc: Run Java bindings tests
     deps:
       - generate
     cmds:
-      - echo "🧪 Running Java bindings tests..."
+      - echo "Running Java bindings tests..."
       - |
         if [[ -n "{{.LIB_PATH}}" && "{{.LIB_PATH}}" == generated/native/* ]]; then
           mvn test -Duniffi.component.slim_bindings.libraryOverride="$(pwd)/{{.LIB_PATH}}"
         else
           mvn test
         fi
-      - echo "✅ Tests complete"
+      - echo "Tests complete"
 
   install:
     desc: Install Java bindings JAR to local Maven repository
     deps:
       - build
     cmds:
-      - echo "📦 Installing Java bindings to local Maven repository..."
+      - echo "Installing Java bindings to local Maven repository..."
       - mvn install -DskipTests
-      - echo "✅ Installed to local Maven repository"
+      - echo "Installed to local Maven repository"
 
   publish:maven-central:
     desc: Publish Java bindings to Maven Central (requires MVN_TOKEN_NAME, MVN_TOKEN_PASSWORD, GPG_SIGNING_KEY, GPG_PASSPHRASE, PUBLISH_VERSION)
@@ -209,12 +214,12 @@ tasks:
   clean:
     desc: Clean build artifacts and generated code
     cmds:
-      - echo "🧹 Cleaning build artifacts..."
+      - echo "Cleaning build artifacts..."
       - rm -rf generated/
       - rm -rf target/
       - mvn clean 2>/dev/null || true
       - cd examples && mvn clean 2>/dev/null || true
-      - echo "✅ Clean complete"
+      - echo "Clean complete"
 
   # ==========================================================================
   # Examples Tasks
@@ -223,10 +228,10 @@ tasks:
   examples:install:bindings:
     desc: Install Java bindings JAR to local Maven repository
     cmds:
-      - echo "📦 Installing Java bindings to Maven local repository..."
+      - echo "Installing Java bindings to Maven local repository..."
       - |
         if [ ! -f target/slim-bindings-java-{{.BINDINGS_VERSION}}.jar ]; then
-          echo "⚠️  Java bindings JAR not found, building first..."
+          echo "Java bindings JAR not found, building first..."
           task build
         fi
       - |
@@ -237,23 +242,23 @@ tasks:
           -Dversion={{.BINDINGS_VERSION}} \
           -Dpackaging=jar \
           -DgeneratePom=true
-      - echo "✅ Java bindings installed to ~/.m2/repository/io/agntcy/slim/slim-bindings-java/{{.BINDINGS_VERSION}}/"
+      - echo "Java bindings installed to ~/.m2/repository/io/agntcy/slim/slim-bindings-java/{{.BINDINGS_VERSION}}/"
 
   examples:compile:
     desc: Compile Java examples
     deps:
       - examples:install:bindings
     cmds:
-      - echo "🔨 Compiling Java examples..."
+      - echo "Compiling Java examples..."
       - cd examples && mvn clean compile
-      - echo "✅ Java compilation complete"
+      - echo "Java compilation complete"
 
   examples:server:
     desc: Run the SLIM server example
     deps:
-      - examples:compile
+      - build
     cmds:
-      - echo "🚀 Starting SLIM server..."
+      - echo "Starting SLIM server..."
       - cd examples && mvn exec:java@server -Dexec.args="{{.CLI_ARGS}}"
     vars:
       CLI_ARGS: '{{.CLI_ARGS | default ""}}'
@@ -261,7 +266,7 @@ tasks:
   examples:p2p:alice:
     desc: "Point to Point example - Alice listens for messages and echoes them"
     deps:
-      - examples:compile
+      - build
     cmds:
       - |
         cd examples && mvn exec:java@p2p \
@@ -272,7 +277,7 @@ tasks:
   examples:p2p:no-mls:bob:
     desc: "Point to Point example - Bob sends unencrypted messages to Alice"
     deps:
-      - examples:compile
+      - build
     cmds:
       - |
         cd examples && mvn exec:java@p2p \
@@ -283,7 +288,7 @@ tasks:
   examples:p2p:mls:bob:
     desc: "Point to Point example - Bob sends encrypted messages to Alice"
     deps:
-      - examples:compile
+      - build
     cmds:
       - |
         cd examples && mvn exec:java@p2p \
@@ -294,7 +299,7 @@ tasks:
   examples:group:moderator:
     desc: "Group moderator - Creates channel, invites participants"
     deps:
-      - examples:compile
+      - build
     cmds:
       - |
         cd examples && mvn exec:java@group \
@@ -305,7 +310,7 @@ tasks:
   examples:group:client-1:
     desc: "Group participant - Waits for invitation"
     deps:
-      - examples:compile
+      - build
     cmds:
       - |
         cd examples && mvn exec:java@group \
@@ -316,7 +321,7 @@ tasks:
   examples:group:client-2:
     desc: "Group participant - Waits for invitation"
     deps:
-      - examples:compile
+      - build
     cmds:
       - |
         cd examples && mvn exec:java@group \
@@ -327,35 +332,48 @@ tasks:
   examples:rpc:compile:
     desc: Compile SlimRPC Java examples
     deps:
-      - examples:install:bindings
+      - examples:compile
     cmds:
-      - echo "🔨 Compiling SlimRPC Java examples..."
+      - echo "Installing examples project to local Maven repo..."
+      - cd examples && mvn install -DskipTests -q
+      - echo "Compiling SlimRPC Java examples..."
       - cd examples/slimrpc/simple && mvn clean compile
-      - echo "✅ SlimRPC compilation complete"
+      - echo "SlimRPC compilation complete"
 
   examples:rpc:server:
     desc: Run the SlimRPC server example
     deps:
-      - examples:rpc:compile
+      - build
     cmds:
-      - echo "🚀 Starting SlimRPC server..."
-      - cd examples/slimrpc/simple && mvn exec:java@server
+      - echo "Starting SlimRPC server (instance={{.INSTANCE}})..."
+      - cd examples/slimrpc/simple && mvn exec:java@server -Dexec.args="--instance {{.INSTANCE}}"
     vars:
+      INSTANCE: '{{.INSTANCE | default "server"}}'
       CLI_ARGS: '{{.CLI_ARGS | default ""}}'
 
   examples:rpc:client:
     desc: Run the SlimRPC client example
     deps:
-      - examples:rpc:compile
+      - build
     cmds:
-      - echo "🚀 Starting SlimRPC client..."
+      - echo "Starting SlimRPC client..."
       - cd examples/slimrpc/simple && mvn exec:java@client
+    vars:
+      CLI_ARGS: '{{.CLI_ARGS | default ""}}'
+
+  examples:rpc:group-client:
+    desc: Run the SlimRPC group (multicast) client example
+    deps:
+      - build
+    cmds:
+      - echo "Starting SlimRPC group client..."
+      - cd examples/slimrpc/simple && mvn exec:java@group-client
     vars:
       CLI_ARGS: '{{.CLI_ARGS | default ""}}'
 
   examples:clean:
     desc: Clean Maven build artifacts for examples
     cmds:
-      - echo "🧹 Cleaning Java example build artifacts..."
+      - echo "Cleaning Java example build artifacts..."
       - cd examples && mvn clean
-      - echo "✅ Clean complete"
+      - echo "Clean complete"

@@ -42,6 +42,21 @@ jobs:
         with:
           workspace: ./data-plane
 
+      - name: Setup Java
+        uses: ./.github/actions/setup-java
+        with:
+          java-version: '21'
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Setup UV
+        uses: ./.github/actions/setup-python
+        with:
+          uv-install: true
+
       - name: Run integration test suite
         working-directory: ./tests
         run: task tests:integration

@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package exampleservice;
+package example_service;
 
 service Test {
   rpc ExampleUnaryUnary(ExampleRequest) returns (ExampleResponse);

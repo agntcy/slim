@@ -41,11 +41,11 @@ tasks:
           git fetch origin {{.LEGACY_BRANCH}}:{{.LEGACY_BRANCH}} || \
           git fetch origin refs/heads/{{.LEGACY_BRANCH}}:refs/heads/{{.LEGACY_BRANCH}}
         fi
-        
+
         WORKTREE=$(mktemp -d)
         trap 'git worktree remove --force "$WORKTREE"' EXIT
         git worktree add "$WORKTREE" {{.LEGACY_BRANCH}}
-        
+
         # Build slim, sdk-mock, and the test apps
         cargo build --manifest-path "$WORKTREE/data-plane/Cargo.toml" \
           --config "$WORKTREE/data-plane/.cargo/config.toml" \
@@ -54,18 +54,12 @@ tasks:
           -p slim-examples \
           -p agntcy-slim-bindings \
           --examples
-        
+
         mkdir -p .dist/bin
         cp "$WORKTREE/data-plane/target/debug/slim" .dist/bin/slim-legacy
         cp "$WORKTREE/data-plane/target/debug/sdk-mock" .dist/bin/sdk-mock-legacy
         cp "$WORKTREE/data-plane/target/debug/examples/receiver" .dist/bin/receiver-legacy
         cp "$WORKTREE/data-plane/target/debug/examples/sender" .dist/bin/sender-legacy
-
-  tests:build-current-test-apps:
-    desc: "Build receiver and sender test apps from current branch"
-    dir: ".."
-    cmds:
-      - cargo build --manifest-path data-plane/Cargo.toml --config data-plane/.cargo/config.toml -p agntcy-slim-bindings --examples
 
   tests:integration:
     desc: "Run integration tests"
@@ -74,12 +68,23 @@ tasks:
       FORCE_LOCAL_BINDINGS: '{{.FORCE_LOCAL_BINDINGS | default "false"}}'
     deps:
       - data-plane:build
-      - data-plane:slimctl:build
       - tests:build-legacy-binaries
-      - tests:build-current-test-apps
-      - task: control-plane:build
-        vars:
-          USE_LOCAL_BINDINGS: "{{.USE_LOCAL_BINDINGS}}"
-          FORCE_LOCAL_BINDINGS: "{{.FORCE_LOCAL_BINDINGS}}"
+      - tests:build-slimrpc-examples
+      - control-plane:build
     cmds:
-      - go -C ./integration test -v -failfast -test.v -test.paniconexit0 -ginkgo.timeout 5m -timeout 5m -ginkgo.v .
+      - go -C ./integration test -v -failfast -test.paniconexit0 -ginkgo.timeout 5m -timeout 5m .
+
+  tests:build-slimrpc-examples:
+    desc: "Build all slimrpc example binaries for cross-language testing"
+    cmds:
+      - task -d ../data-plane/bindings/go build
+      - task -d ../data-plane/bindings/python python:build
+      - task -d ../data-plane/bindings/java build
+      - task -d ../data-plane/bindings/dotnet build
+
+  tests:integration:slimrpc:
+    desc: "Run cross-language slimrpc integration tests"
+    deps:
+      - tests:build-slimrpc-examples
+    cmds:
+      - go -C ./integration test -v -failfast -test.paniconexit0 -ginkgo.timeout 5m -timeout 5m -ginkgo.focus "SlimRPC cross-language" .
