@@ -23,7 +23,7 @@ env:
 
 vars:
   BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
-  PROFILE: '{{.PROFILE | default "release"}}'
+  PROFILE: '{{.PROFILE | default "debug"}}'
   CURRENT_TARGET:
     sh: 'rustc -vV | sed -n "s|host: ||p"'
   TARGET: "{{.TARGET | default .CURRENT_TARGET}}"

@@ -36,7 +36,7 @@ tasks:
   python:bindings:lint:
     desc: "Lint the Python bindings"
     deps:
-       - python:bindings:devdeps
+      - python:bindings:devdeps
     cmds:
       - uv sync --group linting
       - uv run ruff check
@@ -62,8 +62,8 @@ tasks:
     desc: "Test the Python bindings"
     deps:
       - python:bindings:build
-      - python:bindings:devdeps
     cmds:
+      - task: python:bindings:devdeps
       - uv run pytest -s {{.TESTS}}
     vars:
       TARGET: '{{.TESTS | default ""}}'

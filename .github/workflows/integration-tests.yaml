@@ -44,6 +44,8 @@ jobs:
 
       - name: Setup Java
         uses: ./.github/actions/setup-java
+        with:
+          java-version: '21'
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
