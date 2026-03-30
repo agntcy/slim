@@ -61,7 +61,7 @@ find "$BINDINGS_DIR" -name "*.java" -type f -exec sed -i.bak \
   {} \;
 
 # Fix 5: Duplicate variable names in pattern matching for sealed types
-# When sealed interface records have fields named "value", the pattern variable 
+# When sealed interface records have fields named "value", the pattern variable
 # conflicts with the field name in switch expressions
 #
 # Changes:
@@ -117,7 +117,7 @@ find "$BINDINGS_DIR" -name "*.java" -type f -exec sed -i.bak \
   -e 's/sink\.close()/sink.closeStream()/g' \
   {} \;
 
-# Fix 6: UniFFI contract version mismatch  
+# Fix 6: UniFFI contract version mismatch
 # uniffi-bindgen-java 0.2.1 generates contract version 29, but needs to match Rust uniffi version
 # After testing, Rust uniffi 0.28.3 uses contract version 29, not 28
 #

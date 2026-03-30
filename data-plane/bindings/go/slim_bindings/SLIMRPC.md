@@ -173,7 +173,7 @@ func (s *TestServiceImpl) ExampleUnaryUnary(ctx context.Context, req *pb.Example
 
 func (s *TestServiceImpl) ExampleUnaryStream(req *pb.ExampleRequest, stream slimrpc.ResponseStream[*pb.ExampleResponse]) error {
     log.Printf("Received unary-stream request: %+v", req)
-    
+
     // Generate response stream
     for i := int64(0); i < 5; i++ {
         if err := stream.Send(&pb.ExampleResponse{
@@ -193,36 +193,36 @@ The SLIM-specific server setup:
 func main() {
     // Initialize SLIM with defaults
     slim_bindings.InitializeWithDefaults()
-    
+
     service := slim_bindings.GetGlobalService()
-    
+
     // Create local name
     localName := slim_bindings.NewName("agntcy", "grpc", "server")
-    
+
     // Create app with shared secret
     app, err := service.CreateAppWithSecret(localName, "my_shared_secret_for_testing_purposes_only")
     if err != nil {
         log.Fatalf("Failed to create app: %v", err)
     }
-    
+
     // Connect to SLIM
     clientConfig := slim_bindings.NewInsecureClientConfig("http://localhost:46357")
     connId, err := service.Connect(clientConfig)
     if err != nil {
         log.Fatalf("Failed to connect: %v", err)
     }
-    
+
     // Subscribe to local name
-    if err := app.Subscribe(localName, &connId); err != nil {
+    if err := app.Subscribe(app.Name(), &connId); err != nil {
         log.Fatalf("Failed to subscribe: %v", err)
     }
-    
+
     // Create server
     server := slim_bindings.ServerNewWithConnection(app, localName, &connId)
-    
+
     // Register service
     pb.RegisterTestServer(server, &TestServiceImpl{})
-    
+
     // Start server
     log.Println("Server starting...")
     if err := server.Serve(); err != nil {
@@ -251,57 +251,57 @@ the generated client methods:
 func main() {
     // Initialize SLIM with defaults
     slim_bindings.InitializeWithDefaults()
-    
+
     service := slim_bindings.GetGlobalService()
-    
+
     // Create local and remote names
     localName := slim_bindings.NewName("agntcy", "grpc", "client")
     remoteName := slim_bindings.NewName("agntcy", "grpc", "server")
-    
+
     // Create app with shared secret
     app, err := service.CreateAppWithSecret(localName, "my_shared_secret_for_testing_purposes_only")
     if err != nil {
         log.Fatalf("Failed to create app: %v", err)
     }
-    
+
     // Connect to SLIM
     clientConfig := slim_bindings.NewInsecureClientConfig("http://localhost:46357")
     connId, err := service.Connect(clientConfig)
     if err != nil {
         log.Fatalf("Failed to connect: %v", err)
     }
-    
+
     // Subscribe to local name
-    if err := app.Subscribe(localName, &connId); err != nil {
+    if err := app.Subscribe(app.Name(), &connId); err != nil {
         log.Fatalf("Failed to subscribe: %v", err)
     }
-    
+
     // Create channel
     channel := slim_bindings.ChannelNewWithConnection(app, remoteName, &connId)
-    
+
     // Create client
     client := pb.NewTestClient(channel)
-    
+
     ctx := context.Background()
-    
+
     // Call unary method
     request := &pb.ExampleRequest{
         ExampleInteger: 1,
         ExampleString:  "hello",
     }
-    
+
     response, err := client.ExampleUnaryUnary(ctx, request)
     if err != nil {
         log.Fatalf("ExampleUnaryUnary failed: %v", err)
     }
     log.Printf("Response: %+v", response)
-    
+
     // Call streaming method
     streamClient, err := client.ExampleUnaryStream(ctx, request)
     if err != nil {
         log.Fatalf("ExampleUnaryStream failed: %v", err)
     }
-    
+
     for {
         resp, err := streamClient.Recv()
         if err != nil {

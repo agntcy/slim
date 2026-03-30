@@ -3,7 +3,7 @@
 // source: example.proto
 // Protobuf Java Version: 4.29.3
 
-package com.exampleservice;
+package com.example_service;
 
 public final class ExampleProto {
   private ExampleProto() {}
@@ -26,15 +26,15 @@ public final class ExampleProto {
         (com.google.protobuf.ExtensionRegistryLite) registry);
   }
   static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_exampleservice_ExampleRequest_descriptor;
+    internal_static_example_service_ExampleRequest_descriptor;
   static final 
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_exampleservice_ExampleRequest_fieldAccessorTable;
+      internal_static_example_service_ExampleRequest_fieldAccessorTable;
   static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_exampleservice_ExampleResponse_descriptor;
+    internal_static_example_service_ExampleResponse_descriptor;
   static final 
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
-      internal_static_exampleservice_ExampleResponse_fieldAccessorTable;
+      internal_static_example_service_ExampleResponse_fieldAccessorTable;
 
   public static com.google.protobuf.Descriptors.FileDescriptor
       getDescriptor() {
@@ -44,41 +44,41 @@ public final class ExampleProto {
       descriptor;
   static {
     java.lang.String[] descriptorData = {
-      "\n\rexample.proto\022\016exampleservice\"`\n\016Examp" +
-      "leRequest\022%\n\016example_string\030\001 \001(\tR\rexamp" +
-      "leString\022\'\n\017example_integer\030\002 \001(\003R\016examp" +
-      "leInteger\"a\n\017ExampleResponse\022%\n\016example_" +
-      "string\030\001 \001(\tR\rexampleString\022\'\n\017example_i" +
-      "nteger\030\002 \001(\003R\016exampleInteger2\352\002\n\004Test\022T\n" +
-      "\021ExampleUnaryUnary\022\036.exampleservice.Exam" +
-      "pleRequest\032\037.exampleservice.ExampleRespo" +
-      "nse\022W\n\022ExampleUnaryStream\022\036.exampleservi" +
-      "ce.ExampleRequest\032\037.exampleservice.Examp" +
-      "leResponse0\001\022W\n\022ExampleStreamUnary\022\036.exa" +
-      "mpleservice.ExampleRequest\032\037.exampleserv" +
-      "ice.ExampleResponse(\001\022Z\n\023ExampleStreamSt" +
-      "ream\022\036.exampleservice.ExampleRequest\032\037.e" +
-      "xampleservice.ExampleResponse(\0010\001Bz\n\022com" +
-      ".exampleserviceB\014ExampleProtoP\001\242\002\003EXX\252\002\016" +
-      "Exampleservice\312\002\016Exampleservice\342\002\032Exampl" +
-      "eservice\\GPBMetadata\352\002\016Exampleserviceb\006p" +
-      "roto3"
+      "\n\rexample.proto\022\017example_service\"`\n\016Exam" +
+      "pleRequest\022%\n\016example_string\030\001 \001(\tR\rexam" +
+      "pleString\022\'\n\017example_integer\030\002 \001(\003R\016exam" +
+      "pleInteger\"a\n\017ExampleResponse\022%\n\016example" +
+      "_string\030\001 \001(\tR\rexampleString\022\'\n\017example_" +
+      "integer\030\002 \001(\003R\016exampleInteger2\362\002\n\004Test\022V" +
+      "\n\021ExampleUnaryUnary\022\037.example_service.Ex" +
+      "ampleRequest\032 .example_service.ExampleRe" +
+      "sponse\022Y\n\022ExampleUnaryStream\022\037.example_s" +
+      "ervice.ExampleRequest\032 .example_service." +
+      "ExampleResponse0\001\022Y\n\022ExampleStreamUnary\022" +
+      "\037.example_service.ExampleRequest\032 .examp" +
+      "le_service.ExampleResponse(\001\022\\\n\023ExampleS" +
+      "treamStream\022\037.example_service.ExampleReq" +
+      "uest\032 .example_service.ExampleResponse(\001" +
+      "0\001B{\n\023com.example_serviceB\014ExampleProtoP" +
+      "\001\242\002\003EXX\252\002\016ExampleService\312\002\016ExampleServic" +
+      "e\342\002\032ExampleService\\GPBMetadata\352\002\016Example" +
+      "Serviceb\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
         new com.google.protobuf.Descriptors.FileDescriptor[] {
         });
-    internal_static_exampleservice_ExampleRequest_descriptor =
+    internal_static_example_service_ExampleRequest_descriptor =
       getDescriptor().getMessageTypes().get(0);
-    internal_static_exampleservice_ExampleRequest_fieldAccessorTable = new
+    internal_static_example_service_ExampleRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_exampleservice_ExampleRequest_descriptor,
+        internal_static_example_service_ExampleRequest_descriptor,
         new java.lang.String[] { "ExampleString", "ExampleInteger", });
-    internal_static_exampleservice_ExampleResponse_descriptor =
+    internal_static_example_service_ExampleResponse_descriptor =
       getDescriptor().getMessageTypes().get(1);
-    internal_static_exampleservice_ExampleResponse_fieldAccessorTable = new
+    internal_static_example_service_ExampleResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
-        internal_static_exampleservice_ExampleResponse_descriptor,
+        internal_static_example_service_ExampleResponse_descriptor,
         new java.lang.String[] { "ExampleString", "ExampleInteger", });
     descriptor.resolveAllFeaturesImmutable();
   }
