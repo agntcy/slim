@@ -856,8 +856,8 @@ mod tests {
 
         // Send GroupWelcome message to complete the handshake
         let participants = vec![
-            Participant::new(source.clone(), ParticipantSettings::default()),
-            Participant::new(dest.clone(), ParticipantSettings::default()),
+            Participant::new(source.clone(), ParticipantSettings::bidirectional()),
+            Participant::new(dest.clone(), ParticipantSettings::bidirectional()),
         ];
         let welcome_payload = CommandPayload::builder()
             .group_welcome(participants, None)

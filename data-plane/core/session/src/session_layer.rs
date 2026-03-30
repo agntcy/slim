@@ -327,22 +327,13 @@ where
             ));
 
             tx.add_interceptor(identity_interceptor);
-            let (data_name, control_name) =
-                if session_config.session_type == ProtoSessionType::PointToPoint {
-                    (destination.clone(), destination.clone())
-                } else {
-                    // For multicast, the destination is the channel name, and control is derived from it
-                    let data_name = destination.clone().with_id(Name::DATA_CHANNEL_ID);
-                    let control_name = destination.clone().with_id(Name::CONTROL_CHANNEL_ID);
-                    (data_name, control_name)
-                };
 
             // Build the session controller (this is async, so no locks are held)
+            // The builder will automatically force DATA_CHANNEL_ID for multicast destinations
             let builder = SessionController::builder()
                 .with_id(session_id)
                 .with_source(local_name.clone())
-                .with_destination(data_name)
-                .with_control(control_name)
+                .with_destination(destination.clone())
                 .with_config(session_config.clone())
                 .with_identity_provider(self.identity_provider.clone())
                 .with_identity_verifier(self.identity_verifier.clone())

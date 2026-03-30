@@ -1640,7 +1640,8 @@ mod tests {
         moderator.init().await.unwrap();
 
         let endpoint_name = make_name(&["participant", "app", "v1"]).with_id(400);
-        let endpoint = Participant::new(endpoint_name.clone(), ParticipantSettings::default());
+        let endpoint =
+            Participant::new(endpoint_name.clone(), ParticipantSettings::bidirectional());
 
         // Add endpoint
         let result = moderator.add_endpoint(&endpoint).await;
@@ -1721,21 +1722,21 @@ mod tests {
             make_name(&["participant1", "app", "v1"]),
             Participant::new(
                 make_name(&["participant1", "app", "v1"]).with_id(401),
-                ParticipantSettings::default(),
+                ParticipantSettings::bidirectional(),
             ),
         );
         moderator.group_list.insert(
             make_name(&["participant2", "app", "v1"]),
             Participant::new(
                 make_name(&["participant2", "app", "v1"]).with_id(402),
-                ParticipantSettings::default(),
+                ParticipantSettings::bidirectional(),
             ),
         );
         moderator.group_list.insert(
             make_name(&["participant3", "app", "v1"]),
             Participant::new(
                 make_name(&["participant3", "app", "v1"]).with_id(403),
-                ParticipantSettings::default(),
+                ParticipantSettings::bidirectional(),
             ),
         );
 
@@ -1939,8 +1940,10 @@ mod tests {
         // Add one participant to the group (now we have moderator + participant = 2 total)
         // Use the naming convention requested: agntcy/ns/participant
         let mut participant_name = Name::from_strings(["agntcy", "ns", "participant"]);
-        let participant =
-            Participant::new(participant_name.clone(), ParticipantSettings::default());
+        let participant = Participant::new(
+            participant_name.clone(),
+            ParticipantSettings::bidirectional(),
+        );
         // Fill in participant settings as needed
         let participant_id = 401u64;
         participant_name.reset_id(); // Remove ID before inserting into group_list
@@ -2082,12 +2085,18 @@ mod tests {
         let mut participant1_name = Name::from_strings(["agntcy", "ns", "participant1"]);
         let mut participant2_name = Name::from_strings(["agntcy", "ns", "participant2"]);
         let mut participant3_name = Name::from_strings(["agntcy", "ns", "participant3"]);
-        let participant1 =
-            Participant::new(participant1_name.clone(), ParticipantSettings::default());
-        let participant2 =
-            Participant::new(participant2_name.clone(), ParticipantSettings::default());
-        let participant3 =
-            Participant::new(participant3_name.clone(), ParticipantSettings::default());
+        let participant1 = Participant::new(
+            participant1_name.clone(),
+            ParticipantSettings::bidirectional(),
+        );
+        let participant2 = Participant::new(
+            participant2_name.clone(),
+            ParticipantSettings::bidirectional(),
+        );
+        let participant3 = Participant::new(
+            participant3_name.clone(),
+            ParticipantSettings::bidirectional(),
+        );
 
         participant1_name.reset_id(); // Remove ID before inserting into group_list
         participant2_name.reset_id();

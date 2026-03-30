@@ -841,10 +841,14 @@ mod tests {
 
         let participant1_name = make_name(&["participant1", "app", "v1"]).with_id(401);
         let participant2_name = make_name(&["participant2", "app", "v1"]).with_id(402);
-        let participant1 =
-            Participant::new(participant1_name.clone(), ParticipantSettings::default());
-        let participant2 =
-            Participant::new(participant2_name.clone(), ParticipantSettings::default());
+        let participant1 = Participant::new(
+            participant1_name.clone(),
+            ParticipantSettings::bidirectional(),
+        );
+        let participant2 = Participant::new(
+            participant2_name.clone(),
+            ParticipantSettings::bidirectional(),
+        );
 
         let welcome_msg = Message::builder()
             .source(moderator.clone())
@@ -890,8 +894,10 @@ mod tests {
         participant.moderator_name = Some(moderator.clone());
 
         let new_participant_name = make_name(&["new_participant", "app", "v1"]).with_id(500);
-        let new_participant =
-            Participant::new(new_participant_name.clone(), ParticipantSettings::default());
+        let new_participant = Participant::new(
+            new_participant_name.clone(),
+            ParticipantSettings::bidirectional(),
+        );
 
         let add_msg = Message::builder()
             .source(moderator.clone())
@@ -944,7 +950,7 @@ mod tests {
         let removed_participant_name = make_name(&["removed", "app", "v1"]).with_id(500);
         participant.group_list.insert(
             removed_participant_name.clone(),
-            ParticipantSettings::default(),
+            ParticipantSettings::bidirectional(),
         );
 
         let remove_msg = Message::builder()
@@ -1263,7 +1269,8 @@ mod tests {
         participant.init().await.unwrap();
 
         let endpoint_name = make_name(&["endpoint", "app", "v1"]);
-        let endpoint = Participant::new(endpoint_name.clone(), ParticipantSettings::default());
+        let endpoint =
+            Participant::new(endpoint_name.clone(), ParticipantSettings::bidirectional());
 
         // Add endpoint
         let result = participant.add_endpoint(&endpoint).await;

@@ -121,21 +121,37 @@ impl From<&Name> for ProtoName {
 }
 
 impl ParticipantSettings {
-    pub fn new(sends_data: bool, receives_data: bool) -> Self {
+    /// Creates bidirectional participant settings (both sends and receives data).
+    /// This is the most common configuration for participants in a session.
+    pub fn bidirectional() -> Self {
         Self {
-            sends_data,
-            receives_data,
+            sends_data: true,
+            receives_data: true,
+        }
+    }
+
+    /// Creates send-only participant settings.
+    pub fn send_only() -> Self {
+        Self {
+            sends_data: true,
+            receives_data: false,
+        }
+    }
+
+    /// Creates receive-only participant settings.
+    pub fn receive_only() -> Self {
+        Self {
+            sends_data: false,
+            receives_data: true,
         }
     }
 
     /// Returns whether this participant produces data messages.
-    /// `None` means the participant is an old sender, in that case return always true.
     pub fn is_sender(&self) -> bool {
         self.sends_data
     }
 
     /// Returns whether this participant consumes data messages.
-    /// `None` means the participant is an old sender, in that case return always true.
     pub fn is_receiver(&self) -> bool {
         self.receives_data
     }
@@ -2223,7 +2239,7 @@ mod tests {
         assert!(extracted.timer_settings.is_some());
 
         // Test join reply
-        let participant = Participant::new(dest.clone(), ParticipantSettings::default());
+        let participant = Participant::new(dest.clone(), ParticipantSettings::bidirectional());
         let payload =
             CommandPayload::builder().join_reply(Some(vec![1, 2, 3]), participant.clone());
         let extracted = payload.as_join_reply_payload().unwrap();
@@ -2239,7 +2255,7 @@ mod tests {
         assert!(payload.as_leave_reply_payload().is_ok());
 
         // Test group add
-        let participant = Participant::new(dest.clone(), ParticipantSettings::default());
+        let participant = Participant::new(dest.clone(), ParticipantSettings::bidirectional());
         let participants = vec![participant.clone()];
         let payload =
             CommandPayload::builder().group_add(participant.clone(), participants.clone(), None);
@@ -2338,5 +2354,26 @@ mod tests {
         let msg = ProtoMessage::builder().build_link_negotiation("my-id", "1.2.3", true);
         assert!(msg.is_link());
         assert!(msg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_participant_settings_convenience_methods() {
+        let bidirectional = ParticipantSettings::bidirectional();
+        assert!(bidirectional.sends_data);
+        assert!(bidirectional.receives_data);
+        assert!(bidirectional.is_sender());
+        assert!(bidirectional.is_receiver());
+
+        let send_only = ParticipantSettings::send_only();
+        assert!(send_only.sends_data);
+        assert!(!send_only.receives_data);
+        assert!(send_only.is_sender());
+        assert!(!send_only.is_receiver());
+
+        let receive_only = ParticipantSettings::receive_only();
+        assert!(!receive_only.sends_data);
+        assert!(receive_only.receives_data);
+        assert!(!receive_only.is_sender());
+        assert!(receive_only.is_receiver());
     }
 }

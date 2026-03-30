@@ -612,7 +612,7 @@ mod tests {
             Some(tx_signal),
         );
         let remote_name = Name::from_strings(["org", "ns", "remote"]);
-        let remote = Participant::new(remote_name.clone(), ParticipantSettings::new(true, true));
+        let remote = Participant::new(remote_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote)
@@ -692,7 +692,7 @@ mod tests {
             Some(tx_signal),
         );
         let remote_name = Name::from_strings(["org", "ns", "remote"]);
-        let remote = Participant::new(remote_name.clone(), ParticipantSettings::new(true, true));
+        let remote = Participant::new(remote_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote)
@@ -831,7 +831,7 @@ mod tests {
             Some(tx_signal),
         );
         let remote_name = Name::from_strings(["org", "ns", "remote"]);
-        let remote = Participant::new(remote_name.clone(), ParticipantSettings::new(true, true));
+        let remote = Participant::new(remote_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote)
@@ -915,9 +915,9 @@ mod tests {
         let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
         let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
         let remote3_name = Name::from_strings(["org", "ns", "remote3"]);
-        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::new(true, true));
-        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::new(true, true));
-        let remote3 = Participant::new(remote3_name.clone(), ParticipantSettings::new(true, true));
+        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::bidirectional());
+        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::bidirectional());
+        let remote3 = Participant::new(remote3_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote1)
@@ -1037,9 +1037,9 @@ mod tests {
         let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
         let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
         let remote3_name = Name::from_strings(["org", "ns", "remote3"]);
-        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::new(true, true));
-        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::new(true, true));
-        let remote3 = Participant::new(remote3_name.clone(), ParticipantSettings::new(true, true));
+        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::bidirectional());
+        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::bidirectional());
+        let remote3 = Participant::new(remote3_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote1)
@@ -1222,9 +1222,9 @@ mod tests {
         let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
         let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
         let remote3_name = Name::from_strings(["org", "ns", "remote3"]);
-        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::new(true, true));
-        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::new(true, true));
-        let remote3 = Participant::new(remote3_name.clone(), ParticipantSettings::new(true, true));
+        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::bidirectional());
+        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::bidirectional());
+        let remote3 = Participant::new(remote3_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote1)
@@ -1334,9 +1334,9 @@ mod tests {
         let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
         let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
         let remote3_name = Name::from_strings(["org", "ns", "remote3"]);
-        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::new(true, true));
-        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::new(true, true));
-        let remote3 = Participant::new(remote3_name.clone(), ParticipantSettings::new(true, true));
+        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::bidirectional());
+        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::bidirectional());
+        let remote3 = Participant::new(remote3_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote1)
@@ -1471,7 +1471,7 @@ mod tests {
             Some(tx_signal),
         );
         let remote_name = Name::from_strings(["org", "ns", "remote"]);
-        let remote = Participant::new(remote_name.clone(), ParticipantSettings::new(true, true));
+        let remote = Participant::new(remote_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote)
@@ -1618,7 +1618,7 @@ mod tests {
             Some(tx_signal),
         );
         let remote_name = Name::from_strings(["org", "ns", "remote"]);
-        let remote = Participant::new(remote_name.clone(), ParticipantSettings::new(true, true));
+        let remote = Participant::new(remote_name.clone(), ParticipantSettings::bidirectional());
 
         // DO NOT add any endpoints - this is the key part of the test
 
@@ -1691,9 +1691,9 @@ mod tests {
         let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
         let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
         let remote3_name = Name::from_strings(["org", "ns", "remote3"]);
-        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::new(true, true));
-        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::new(true, true));
-        let remote3 = Participant::new(remote3_name.clone(), ParticipantSettings::new(true, true));
+        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::bidirectional());
+        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::bidirectional());
+        let remote3 = Participant::new(remote3_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote1)
@@ -1769,7 +1769,7 @@ mod tests {
         );
         let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
         let unknown_remote_name = Name::from_strings(["org", "ns", "unknown"]);
-        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::new(true, true));
+        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote1)
@@ -1819,7 +1819,7 @@ mod tests {
             Some(tx_signal),
         );
         let remote_name = Name::from_strings(["org", "ns", "remote"]);
-        let remote = Participant::new(remote_name.clone(), ParticipantSettings::new(true, true));
+        let remote = Participant::new(remote_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote)
@@ -1879,8 +1879,8 @@ mod tests {
         );
         let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
         let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
-        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::new(true, true));
-        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::new(true, true));
+        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::bidirectional());
+        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote1)
@@ -1964,8 +1964,8 @@ mod tests {
         );
         let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
         let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
-        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::new(true, true));
-        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::new(true, true));
+        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::bidirectional());
+        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote1)
@@ -2055,8 +2055,8 @@ mod tests {
         );
         let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
         let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
-        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::new(true, true));
-        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::new(true, true));
+        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::bidirectional());
+        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote1)
@@ -2128,7 +2128,7 @@ mod tests {
             Some(tx_signal),
         );
         let remote_name = Name::from_strings(["org", "ns", "remote"]);
-        let remote = Participant::new(remote_name.clone(), ParticipantSettings::new(true, true));
+        let remote = Participant::new(remote_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote)
@@ -2213,8 +2213,8 @@ mod tests {
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
         let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
-        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::new(true, true));
-        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::new(true, true));
+        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::bidirectional());
+        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote1)

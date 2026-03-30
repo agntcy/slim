@@ -921,7 +921,7 @@ mod tests {
         // Create the join reply
         let payload = CommandPayload::builder().join_reply(
             None,
-            Participant::new(remote.clone(), ParticipantSettings::default()),
+            Participant::new(remote.clone(), ParticipantSettings::bidirectional()),
         );
 
         let reply = Message::builder()
@@ -1079,8 +1079,8 @@ mod tests {
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let source_name = Name::from_strings(["org", "ns", "source"]);
         let remote_name = Name::from_strings(["org", "ns", "remote"]);
-        let source = Participant::new(source_name.clone(), ParticipantSettings::default());
-        let remote = Participant::new(remote_name.clone(), ParticipantSettings::default());
+        let source = Participant::new(source_name.clone(), ParticipantSettings::bidirectional());
+        let remote = Participant::new(remote_name.clone(), ParticipantSettings::bidirectional());
 
         let session_id = 1;
 
@@ -1219,11 +1219,11 @@ mod tests {
         // This should wait for acks from both participant2 (already in group) and participant1 (being added)
         let participant1 = Name::from_strings(["org", "ns", "participant1"]);
         let payload = CommandPayload::builder().group_add(
-            Participant::new(participant1.clone(), ParticipantSettings::default()),
+            Participant::new(participant1.clone(), ParticipantSettings::bidirectional()),
             vec![
-                Participant::new(participant1.clone(), ParticipantSettings::default()),
-                Participant::new(participant2.clone(), ParticipantSettings::default()),
-                Participant::new(source.clone(), ParticipantSettings::default()),
+                Participant::new(participant1.clone(), ParticipantSettings::bidirectional()),
+                Participant::new(participant2.clone(), ParticipantSettings::bidirectional()),
+                Participant::new(source.clone(), ParticipantSettings::bidirectional()),
             ],
             None, // mls_commit
         );
@@ -1374,11 +1374,11 @@ mod tests {
         // This should wait for acks from both participant2 (already in group) and participant1 (being added)
         let participant1 = Name::from_strings(["org", "ns", "participant1"]);
         let payload = CommandPayload::builder().group_add(
-            Participant::new(participant1.clone(), ParticipantSettings::default()),
+            Participant::new(participant1.clone(), ParticipantSettings::bidirectional()),
             vec![
-                Participant::new(participant1.clone(), ParticipantSettings::default()),
-                Participant::new(participant2.clone(), ParticipantSettings::default()),
-                Participant::new(source.clone(), ParticipantSettings::default()),
+                Participant::new(participant1.clone(), ParticipantSettings::bidirectional()),
+                Participant::new(participant2.clone(), ParticipantSettings::bidirectional()),
+                Participant::new(source.clone(), ParticipantSettings::bidirectional()),
             ],
             None, // mls
         );
@@ -2446,7 +2446,7 @@ mod tests {
         // Send join reply to clear pending state
         let reply_payload = CommandPayload::builder().join_reply(
             None,
-            Participant::new(remote.clone(), ParticipantSettings::default()),
+            Participant::new(remote.clone(), ParticipantSettings::bidirectional()),
         );
         let join_reply = Message::builder()
             .source(remote.clone())
@@ -2589,7 +2589,7 @@ mod tests {
         // Send join reply to clear pending state
         let reply_payload = CommandPayload::builder().join_reply(
             None,
-            Participant::new(participant.clone(), ParticipantSettings::default()),
+            Participant::new(participant.clone(), ParticipantSettings::bidirectional()),
         );
         let join_reply = Message::builder()
             .source(participant.clone())

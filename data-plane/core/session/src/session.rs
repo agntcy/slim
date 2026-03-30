@@ -107,10 +107,7 @@ impl Session {
                     "received message error: {:?}", error,
                 );
 
-                match self.sender {
-                    Some(ref mut sender) => sender.on_slim_failure(error),
-                    None => Err(SessionError::SessionSenderShutdown),
-                }
+                self.with_sender_without_ack(|sender| sender.on_slim_failure(error))
             }
             SessionMessage::TimerTimeout {
                 message_id,
@@ -168,6 +165,54 @@ impl Session {
         }
     }
 
+    /// Helper to call sender methods with ack_tx error handling
+    async fn with_sender<'a, F, Fut>(
+        &'a mut self,
+        ack_tx: Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
+        f: F,
+    ) -> Result<(), SessionError>
+    where
+        F: FnOnce(
+            &'a mut SessionSender,
+            Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
+        ) -> Fut,
+        Fut: std::future::Future<Output = Result<(), SessionError>> + 'a,
+    {
+        match self.sender {
+            Some(ref mut sender) => f(sender, ack_tx).await,
+            None => {
+                let error = SessionError::SessionSenderShutdown;
+                if let Some(tx) = ack_tx {
+                    let _ = tx.send(Err(error));
+                }
+                Err(SessionError::SessionSenderShutdown)
+            }
+        }
+    }
+
+    /// Helper to call sender methods without ack_tx
+    fn with_sender_without_ack<F, R>(&mut self, f: F) -> Result<R, SessionError>
+    where
+        F: FnOnce(&mut SessionSender) -> Result<R, SessionError>,
+    {
+        match self.sender {
+            Some(ref mut sender) => f(sender),
+            None => Err(SessionError::SessionSenderShutdown),
+        }
+    }
+
+    /// Helper to call receiver methods
+    async fn with_receiver<'a, F, Fut>(&'a mut self, f: F) -> Result<(), SessionError>
+    where
+        F: FnOnce(&'a mut SessionReceiver) -> Fut,
+        Fut: std::future::Future<Output = Result<(), SessionError>> + 'a,
+    {
+        match self.receiver {
+            Some(ref mut receiver) => f(receiver).await,
+            None => Err(SessionError::SessionReceiverShutdown),
+        }
+    }
+
     async fn on_application_message(
         &mut self,
         message: Message,
@@ -178,41 +223,22 @@ impl Session {
             ProtoSessionMessageType::Msg => {
                 if direction == MessageDirection::South {
                     // message from the app to slim, give it to the sender
-                    // TODO: create functions for these matches
-                    match self.sender {
-                        Some(ref mut sender) => sender.on_message(message, ack_tx).await,
-                        None => {
-                            // sender is shutdown, send an error
-                            if let Some(tx) = ack_tx {
-                                let _ = tx.send(Err(SessionError::SessionSenderShutdown));
-                            }
-                            Err(SessionError::SessionSenderShutdown)
-                        }
-                    }
+                    self.with_sender(ack_tx, |sender, ack_tx| sender.on_message(message, ack_tx))
+                        .await
                 } else {
                     // message from slim to the app, give it to the receiver
-                    match self.receiver {
-                        Some(ref mut receiver) => receiver.on_message(message).await,
-                        None => Err(SessionError::SessionReceiverShutdown),
-                    }
+                    self.with_receiver(|receiver| receiver.on_message(message))
+                        .await
                 }
             }
             ProtoSessionMessageType::MsgAck | ProtoSessionMessageType::RtxRequest => {
-                match self.sender {
-                    Some(ref mut sender) => sender.on_message(message, ack_tx).await,
-                    None => {
-                        // sender is shutdown, send an error
-                        if let Some(tx) = ack_tx {
-                            let _ = tx.send(Err(SessionError::SessionSenderShutdown));
-                        }
-                        Err(SessionError::SessionSenderShutdown)
-                    }
-                }
+                self.with_sender(ack_tx, |sender, ack_tx| sender.on_message(message, ack_tx))
+                    .await
             }
-            ProtoSessionMessageType::RtxReply => match self.receiver {
-                Some(ref mut receiver) => receiver.on_message(message).await,
-                None => Err(SessionError::SessionReceiverShutdown),
-            },
+            ProtoSessionMessageType::RtxReply => {
+                self.with_receiver(|receiver| receiver.on_message(message))
+                    .await
+            }
             _ => {
                 if let Some(tx) = ack_tx {
                     let _ = tx.send(Ok(()));
@@ -231,20 +257,18 @@ impl Session {
         name: Option<Name>,
     ) -> Result<(), SessionError> {
         match message_type {
-            ProtoSessionMessageType::Msg => match self.sender {
-                Some(ref mut sender) => sender.on_timer_timeout(id).await,
-                None => Err(SessionError::SessionSenderShutdown),
-            },
-            ProtoSessionMessageType::RtxRequest => match self.receiver {
-                Some(ref mut receiver) => {
-                    if let Some(name) = name {
-                        receiver.on_timer_timeout(id, name).await
-                    } else {
-                        Err(SessionError::MissingParticipantNameOnTimer)
-                    }
+            ProtoSessionMessageType::Msg => {
+                self.with_sender(None, |sender, _| sender.on_timer_timeout(id))
+                    .await
+            }
+            ProtoSessionMessageType::RtxRequest => {
+                if let Some(name) = name {
+                    self.with_receiver(|receiver| receiver.on_timer_timeout(id, name))
+                        .await
+                } else {
+                    Err(SessionError::MissingParticipantNameOnTimer)
                 }
-                None => Err(SessionError::SessionReceiverShutdown),
-            },
+            }
             _ => Err(SessionError::SessionMessageTypeUnexpected(message_type)),
         }
     }
@@ -256,20 +280,17 @@ impl Session {
         name: Option<Name>,
     ) -> Result<(), SessionError> {
         match message_type {
-            ProtoSessionMessageType::Msg => match self.sender {
-                Some(ref mut sender) => sender.on_timer_failure(id),
-                None => Err(SessionError::SessionSenderShutdown),
-            },
-            ProtoSessionMessageType::RtxRequest => match self.receiver {
-                Some(ref mut receiver) => {
-                    if let Some(name) = name {
-                        receiver.on_timer_failure(id, name).await
-                    } else {
-                        Err(SessionError::MissingParticipantNameOnTimer)
-                    }
+            ProtoSessionMessageType::Msg => {
+                self.with_sender_without_ack(|sender| sender.on_timer_failure(id))
+            }
+            ProtoSessionMessageType::RtxRequest => {
+                if let Some(name) = name {
+                    self.with_receiver(|receiver| receiver.on_timer_failure(id, name))
+                        .await
+                } else {
+                    Err(SessionError::MissingParticipantNameOnTimer)
                 }
-                None => Err(SessionError::SessionReceiverShutdown),
-            },
+            }
             _ => Err(SessionError::SessionMessageTypeUnexpected(message_type)),
         }
     }
@@ -359,7 +380,7 @@ mod tests {
         session
             .add_endpoint(&Participant::new(
                 remote_name.clone(),
-                ParticipantSettings::new(false, true), // Receives data only
+                ParticipantSettings::receive_only(), // Receives data only
             ))
             .await
             .expect("error adding participant");
@@ -712,7 +733,7 @@ mod tests {
         sender_session
             .add_endpoint(&Participant::new(
                 receiver_name.clone(),
-                ParticipantSettings::new(true, true), // Can send and receive
+                ParticipantSettings::bidirectional(),
             ))
             .await
             .expect("error adding participant");
@@ -747,7 +768,7 @@ mod tests {
         receiver_session
             .add_endpoint(&Participant::new(
                 sender_name.clone(),
-                ParticipantSettings::new(true, true), // Can send and receive
+                ParticipantSettings::bidirectional(),
             ))
             .await
             .expect("error adding participant");
