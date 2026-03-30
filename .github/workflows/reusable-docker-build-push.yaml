@@ -72,6 +72,7 @@ jobs:
       - name: Build and push
         uses: docker/bake-action@82490499d2e5613fcead7e128237ef0b0ea210f7 # v7.0.0
         with:
+          source: .
           files: |
             ${{ inputs.bake-file }}
             ${{ steps.metadata.outputs.bake-file }}
