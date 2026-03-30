@@ -32,17 +32,14 @@ vars:
   LIB_NAME: slim_bindings
   _DEFAULT_LIB_PATH:
     sh: |
-      # Detect OS to determine library extension
+      # Detect OS to determine static library extension
       OS=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
       case "$OS" in
         mingw*|msys*|cygwin*)
           echo "{{.SERVICE_TARGET}}/{{.LIB_NAME}}.lib"
           ;;
-        darwin*)
-          echo "{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.dylib"
-          ;;
         *)
-          echo "{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.so"
+          echo "{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.a"
           ;;
       esac
   LIB_PATH: "{{.LIB_PATH | default ._DEFAULT_LIB_PATH}}"
