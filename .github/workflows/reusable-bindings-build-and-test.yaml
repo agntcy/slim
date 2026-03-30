@@ -339,42 +339,35 @@ jobs:
             CONTAINER_IMAGE="python:$PYTHON_VERSION-slim"
           fi
 
-          # Define Docker flags
-          DOCKER_FLAGS=(
-            --rm
-            --platform "$PLATFORM"
-            -v "$(pwd)/wheels:/wheels"
-            -v "$(pwd):/repo:ro"
-            -w /workspace
-          )
-
-          # Define test script
-          TEST_SCRIPT='
-            # Create test directory
-            TEST_DIR=$(mktemp -d)
-            cd $TEST_DIR
-            echo "📂 Testing in: $TEST_DIR"
-
-            # Find and install the wheel
-            WHEEL=$(find /wheels -name "*'"$PYTHON_PLATFORM"'*.whl" | head -1)
-            if [ -z "$WHEEL" ]; then
-              echo "❌ No wheel found for platform '"$PYTHON_PLATFORM"'"
-              exit 1
-            fi
-
-            echo "📦 Installing wheel: $WHEEL"
-            pip install "$WHEEL"
-            echo "✅ Wheel installed successfully"
-
-            # Run installation test
-            python /repo/.github/tests/python/test_installation.py
-
-            echo ""
-            echo "🎉 All tests passed on '"$PLATFORM_TARGET"'!"
-          '
-
           # Run test in container
-          docker run "${DOCKER_FLAGS[@]}" "$CONTAINER_IMAGE" sh -c "$TEST_SCRIPT"
+          docker run --rm \
+            --platform "$PLATFORM" \
+            -v "$(pwd)/wheels:/wheels" \
+            -v "$(pwd):/repo:ro" \
+            -w /workspace \
+            -e "PYTHON_PLATFORM=$PYTHON_PLATFORM" \
+            -e "PLATFORM_TARGET=$PLATFORM_TARGET" \
+            "$CONTAINER_IMAGE" \
+            sh -c '
+              TEST_DIR=$(mktemp -d)
+              cd "$TEST_DIR"
+              echo "📂 Testing in: $TEST_DIR"
+
+              WHEEL=$(find /wheels -name "*${PYTHON_PLATFORM}*.whl" | head -1)
+              if [ -z "$WHEEL" ]; then
+                echo "❌ No wheel found for platform $PYTHON_PLATFORM"
+                exit 1
+              fi
+
+              echo "📦 Installing wheel: $WHEEL"
+              pip install "$WHEEL"
+              echo "✅ Wheel installed successfully"
+
+              python /repo/.github/tests/python/test_installation.py
+
+              echo ""
+              echo "🎉 All tests passed on $PLATFORM_TARGET!"
+            '
 
       - name: Test wheel installation and usage (Windows/macOS)
         if: matrix.platform.os != 'linux'
