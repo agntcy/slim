@@ -36,8 +36,10 @@ jobs:
           submodules: "true"
 
       - name: Print chart path
+        env:
+          CHART_PATH: ${{ inputs.chart-path }}
         run: |
-          echo "Chart path: ${{ inputs.chart-path }}"
+          echo "Chart path: $CHART_PATH"
 
       - name: Setup K8s
         uses: ./.github/actions/setup-k8s
@@ -46,8 +48,10 @@ jobs:
 
       - name: Add dependencies
         shell: bash
+        env:
+          DEPENDENCIES: ${{ inputs.dependencies }}
         run: |
-          IFS=$'\n' readarray -t dependencies <<< "${{ inputs.dependencies }}"
+          IFS=$'\n' readarray -t dependencies <<< "$DEPENDENCIES"
           for dependency in "${dependencies[@]}"; do
             # Skip line if it is empty
             if [[ -z "${dependency//[[:space:]]/}" ]]; then
@@ -61,17 +65,21 @@ jobs:
           done
 
       - name: Run chart-testing (lint & test)
+        env:
+          TARGET_BRANCH: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref_name }}
+          CHART_PATH: ${{ inputs.chart-path }}
+          CONFIG_FILE: ${{ inputs.config-file }}
         run: |
           args=(
             --debug
-            --target-branch=${{ github.event_name == 'pull_request' && github.base_ref || github.ref_name }}
-            --chart-dirs ${{ inputs.chart-path }}
+            --target-branch="$TARGET_BRANCH"
+            --chart-dirs "$CHART_PATH"
             --validate-maintainers=false
             --check-version-increment=false
           )
 
-          if [[ -f "${{ inputs.config-file }}" ]]; then
-            args+=("--config ${{ inputs.config-file }}")
+          if [[ -f "$CONFIG_FILE" ]]; then
+            args+=("--config $CONFIG_FILE")
           fi
 
           ct lint-and-install "${args[@]}"

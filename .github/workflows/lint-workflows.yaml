@@ -76,4 +76,8 @@ jobs:
       - name: Verify actions are pinned
         uses: suzuki-shunsuke/pinact-action@cf51507d80d4d6522a07348e3d58790290eaf0b6 # v2.0.0
         with:
-          verify: true
+          skip_push: "true"
+          verify: "true"
+          excludes: |
+            # aquasecurity org has IP allowlist that blocks GitHub-hosted runners
+            aquasecurity/trivy-action

@@ -317,13 +317,15 @@ jobs:
 
       - name: Test wheel installation and usage (Linux with container)
         if: matrix.platform.os == 'linux'
+        env:
+          PLATFORM_TARGET: ${{ matrix.platform.target }}
+          PYTHON_PLATFORM: ${{ matrix.platform.python-platform }}
         run: |
           echo "📦 Testing Python wheel"
-          echo "🖥️  Platform: ${{ matrix.platform.target }}"
+          echo "🖥️  Platform: $PLATFORM_TARGET"
 
           # Determine platform for container selection
-          # shellcheck disable=SC2193,SC2016
-          if [[ "${{ matrix.platform.target }}" == *"aarch64"* ]]; then
+          if [[ "$PLATFORM_TARGET" == *"aarch64"* ]]; then
             PLATFORM="linux/arm64"
             echo "🔧 Using ARM64 platform"
           else
@@ -332,11 +334,10 @@ jobs:
           fi
 
           # Determine libc variant for container selection
-          # shellcheck disable=SC2193,SC2016
-          if [[ "${{ matrix.platform.target }}" == *"musl"* ]]; then
-            CONTAINER_IMAGE="python:${{ env.PYTHON_VERSION }}-alpine"
+          if [[ "$PLATFORM_TARGET" == *"musl"* ]]; then
+            CONTAINER_IMAGE="python:$PYTHON_VERSION-alpine"
           else
-            CONTAINER_IMAGE="python:${{ env.PYTHON_VERSION }}-slim"
+            CONTAINER_IMAGE="python:$PYTHON_VERSION-slim"
           fi
 
           # Define Docker flags
@@ -356,9 +357,9 @@ jobs:
             echo "📂 Testing in: $TEST_DIR"
 
             # Find and install the wheel
-            WHEEL=$(find /wheels -name "*${{ matrix.platform.python-platform }}*.whl" | head -1)
+            WHEEL=$(find /wheels -name "*'"$PYTHON_PLATFORM"'*.whl" | head -1)
             if [ -z "$WHEEL" ]; then
-              echo "❌ No wheel found for platform ${{ matrix.platform.python-platform }}"
+              echo "❌ No wheel found for platform '"$PYTHON_PLATFORM"'"
               exit 1
             fi
 
@@ -370,7 +371,7 @@ jobs:
             python /repo/.github/tests/python/test_installation.py
 
             echo ""
-            echo "🎉 All tests passed on ${{ matrix.platform.target }}!"
+            echo "🎉 All tests passed on '"$PLATFORM_TARGET"'!"
           '
 
           # Run test in container
@@ -378,16 +379,20 @@ jobs:
 
       - name: Test wheel installation and usage (Windows/macOS)
         if: matrix.platform.os != 'linux'
+        env:
+          PLATFORM_TARGET: ${{ matrix.platform.target }}
+          PLATFORM_RUNNER: ${{ matrix.platform.runner }}
+          PYTHON_PLATFORM: ${{ matrix.platform.python-platform }}
         run: |
           echo "📦 Testing Python wheel"
-          echo "🖥️  Platform: ${{ matrix.platform.target }}"
-          echo "🏃 Runner: ${{ matrix.platform.runner }}"
+          echo "🖥️  Platform: $PLATFORM_TARGET"
+          echo "🏃 Runner: $PLATFORM_RUNNER"
           echo "📂 Testing in current directory"
 
           # Find and install the wheel for this platform
-          WHEEL=$(find ./wheels -name "*${{ matrix.platform.python-platform }}*.whl" | head -1)
+          WHEEL=$(find ./wheels -name "*${PYTHON_PLATFORM}*.whl" | head -1)
           if [ -z "$WHEEL" ]; then
-            echo "❌ No wheel found for platform ${{ matrix.platform.python-platform }}"
+            echo "❌ No wheel found for platform $PYTHON_PLATFORM"
             echo "Available wheels:"
             find ./wheels -name "*.whl"
             exit 1
@@ -401,12 +406,14 @@ jobs:
           python ./.github/tests/python/test_installation.py
 
           echo ""
-          echo "🎉 All tests passed on ${{ matrix.platform.target }}!"
+          echo "🎉 All tests passed on $PLATFORM_TARGET!"
 
       - name: Test result summary
         if: success()
+        env:
+          PLATFORM_TARGET: ${{ matrix.platform.target }}
         run: |
-          echo "✅ Python wheel verification completed successfully on ${{ matrix.platform.target }}"
+          echo "✅ Python wheel verification completed successfully on $PLATFORM_TARGET"
           echo "The wheel can be safely published."
 
   dotnet-bindings-build-and-test:
