@@ -24,9 +24,9 @@ func testP2PSession(tempDir string, getSlimPath, getSenderPath, getReceiverPath 
 	slimPort := reservePort()
 
 	replacements := map[string]string{
-		"0.0.0.0:46480": fmt.Sprintf("0.0.0.0:%d", slimPort),
+		"0.0.0.0:46357": fmt.Sprintf("0.0.0.0:%d", slimPort),
 	}
-	slimConfig := writeTempConfig(tempDir, "./testdata/backward-compat-server-config.yaml", "slim.yaml", replacements)
+	slimConfig := writeTempConfig(tempDir, "./testdata/server.yaml", "slim.yaml", replacements)
 
 	// Start SLIM node
 	slimSession, err := gexec.Start(
@@ -79,9 +79,9 @@ func testGroupSession(tempDir string, getSlimPath, getModeratorPath, getParticip
 	slimPort := reservePort()
 
 	replacements := map[string]string{
-		"0.0.0.0:46480": fmt.Sprintf("0.0.0.0:%d", slimPort),
+		"0.0.0.0:46357": fmt.Sprintf("0.0.0.0:%d", slimPort),
 	}
-	slimConfig := writeTempConfig(tempDir, "./testdata/backward-compat-server-config.yaml", "slim.yaml", replacements)
+	slimConfig := writeTempConfig(tempDir, "./testdata/server.yaml", "slim.yaml", replacements)
 
 	// Start SLIM node
 	slimSession, err := gexec.Start(

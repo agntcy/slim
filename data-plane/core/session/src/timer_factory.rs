@@ -22,7 +22,8 @@ struct ReliableTimerObserver {
 #[async_trait]
 impl TimerObserver for ReliableTimerObserver {
     async fn on_timeout(&self, message_id: u32, timeouts: u32) {
-        self.tx
+        if let Err(e) = self
+            .tx
             .send(SessionMessage::TimerTimeout {
                 message_id,
                 message_type: self.message_type,
@@ -30,12 +31,17 @@ impl TimerObserver for ReliableTimerObserver {
                 timeouts,
             })
             .await
-            .expect("failed to send timer timeout");
+        {
+            // The session processing loop has already exited (session closed).
+            // The timer fired after the receiver was dropped; nothing to do.
+            debug!(%message_id, error = %e, "timer timeout: session already closed, dropping");
+        }
     }
 
     async fn on_failure(&self, message_id: u32, timeouts: u32) {
         // remove the state for the lost message
-        self.tx
+        if let Err(e) = self
+            .tx
             .send(SessionMessage::TimerFailure {
                 message_id,
                 message_type: self.message_type,
@@ -43,7 +49,10 @@ impl TimerObserver for ReliableTimerObserver {
                 timeouts,
             })
             .await
-            .expect("failed to send timer failure");
+        {
+            // Same race: session closed before the failure notification arrived.
+            debug!(%message_id, error = %e, "timer failure: session already closed, dropping");
+        }
     }
 
     async fn on_stop(&self, message_id: u32) {

@@ -326,10 +326,8 @@ func TestSubscribeUnsubscribe(t *testing.T) {
 	app := setupTestApp(t, "subscribe-test")
 	defer app.Destroy()
 
-	subscribeName := slim.NewName("org", "sub", "topic")
-
 	// Test subscribe
-	err := app.Subscribe(subscribeName, nil)
+	err := app.Subscribe(app.Name(), nil)
 	if err != nil {
 		t.Logf("Subscribe failed (expected without network): %v", err)
 	} else {
@@ -337,7 +335,7 @@ func TestSubscribeUnsubscribe(t *testing.T) {
 	}
 
 	// Test unsubscribe
-	err = app.Unsubscribe(subscribeName, nil)
+	err = app.Unsubscribe(app.Name(), nil)
 	if err != nil {
 		t.Logf("Unsubscribe failed (expected without network): %v", err)
 	} else {

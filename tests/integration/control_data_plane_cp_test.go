@@ -47,26 +47,36 @@ var _ = Describe("Routing", func() {
 		controlPlaneSouthPort = reservePort()
 		controllerBPort := reservePort()
 
-		replacements := map[string]string{
+		serverAReplacements := map[string]string{
 			"0.0.0.0:46357":          fmt.Sprintf("0.0.0.0:%d", dataPlaneAPort),
+			"http://127.0.0.1:50052": fmt.Sprintf("http://127.0.0.1:%d", controlPlaneSouthPort),
+		}
+
+		serverBReplacements := map[string]string{
 			"0.0.0.0:46367":          fmt.Sprintf("0.0.0.0:%d", dataPlaneBPort),
 			"0.0.0.0:46368":          fmt.Sprintf("0.0.0.0:%d", controllerBPort),
-			"http://localhost:46357": fmt.Sprintf("http://localhost:%d", dataPlaneAPort),
-			"http://localhost:46367": fmt.Sprintf("http://localhost:%d", dataPlaneBPort),
-			"http://127.0.0.1:46357": fmt.Sprintf("http://127.0.0.1:%d", dataPlaneAPort),
-			"http://127.0.0.1:46367": fmt.Sprintf("http://127.0.0.1:%d", dataPlaneBPort),
-			"http://127.0.0.1:50051": fmt.Sprintf("http://127.0.0.1:%d", controlPlaneNorthPort),
 			"http://127.0.0.1:50052": fmt.Sprintf("http://127.0.0.1:%d", controlPlaneSouthPort),
-			"httpPort: 50051":        fmt.Sprintf("httpPort: %d", controlPlaneNorthPort),
-			"httpPort: 50052":        fmt.Sprintf("httpPort: %d", controlPlaneSouthPort),
+		}
+
+		clientAReplacements := map[string]string{
+			"http://localhost:46357": fmt.Sprintf("http://localhost:%d", dataPlaneAPort),
+		}
+
+		clientBReplacements := map[string]string{
+			"http://localhost:46357": fmt.Sprintf("http://localhost:%d", dataPlaneBPort),
+		}
+
+		controlPlaneReplacements := map[string]string{
+			"httpPort: 50051": fmt.Sprintf("httpPort: %d", controlPlaneNorthPort),
+			"httpPort: 50052": fmt.Sprintf("httpPort: %d", controlPlaneSouthPort),
 		}
 
 		tempDir = newTempDir("slim-integration-control-plane-")
-		serverAConfig = writeTempConfig(tempDir, "./testdata/server-a-config-cp.yaml", "server-a-config-cp.yaml", replacements)
-		serverBConfig = writeTempConfig(tempDir, "./testdata/server-b-config-cp.yaml", "server-b-config-cp.yaml", replacements)
-		clientAConfig = writeTempConfig(tempDir, "./testdata/client-a-config.yaml", "client-a-config.yaml", replacements)
-		clientBConfig = writeTempConfig(tempDir, "./testdata/client-b-config.yaml", "client-b-config.yaml", replacements)
-		controlPlaneConfig = writeTempConfig(tempDir, "./testdata/control-plane-config.yaml", "control-plane-config.yaml", replacements)
+		serverAConfig = writeTempConfig(tempDir, "./testdata/server-a-config-cp.yaml", "server-a-config-cp.yaml", serverAReplacements)
+		serverBConfig = writeTempConfig(tempDir, "./testdata/server-b-config-cp.yaml", "server-b-config-cp.yaml", serverBReplacements)
+		clientAConfig = writeTempConfig(tempDir, "./testdata/client.yaml", "client-a-config.yaml", clientAReplacements)
+		clientBConfig = writeTempConfig(tempDir, "./testdata/client.yaml", "client-b-config.yaml", clientBReplacements)
+		controlPlaneConfig = writeTempConfig(tempDir, "./testdata/control-plane-config.yaml", "control-plane-config.yaml", controlPlaneReplacements)
 	})
 
 	AfterEach(func() {

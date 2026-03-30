@@ -1,8 +1,15 @@
+import argparse
 import asyncio
 import logging
 from collections.abc import AsyncIterable
 
 import slim_bindings
+from examples.constants import (
+    NAME_NS,
+    NAME_ORG,
+    SHARED_SECRET,
+    SLIM_ADDR,
+)
 from examples.slimrpc.simple.types.example_pb2 import ExampleRequest, ExampleResponse
 from examples.slimrpc.simple.types.example_pb2_slimrpc import (
     TestServicer,
@@ -76,7 +83,7 @@ class TestService(TestServicer):
             )
 
 
-async def amain() -> None:
+async def amain(instance: str, server: str) -> None:
     slim_bindings.uniffi_set_event_loop(asyncio.get_running_loop())  # type: ignore[arg-type]
 
     # Initialize service
@@ -94,38 +101,53 @@ async def amain() -> None:
 
     service = slim_bindings.get_global_service()
 
-    # Create local name
-    local_name = slim_bindings.Name("agntcy", "grpc", "server")
+    # Create local name (instance allows running multiple servers, e.g. server1, server2)
+    local_name = slim_bindings.Name(NAME_ORG, NAME_NS, instance)
 
     # Connect to SLIM
-    client_config = slim_bindings.new_insecure_client_config("http://localhost:46357")
+    client_config = slim_bindings.new_insecure_client_config(server)
     conn_id = await service.connect_async(client_config)
 
     # Create app with shared secret
-    local_app = service.create_app_with_secret(
-        local_name, "my_shared_secret_for_testing_purposes_only"
-    )
+    local_app = service.create_app_with_secret(local_name, SHARED_SECRET)
 
     # Subscribe to local name
     await local_app.subscribe_async(local_name, conn_id)
 
     # Create server
-    server = slim_bindings.Server.new_with_connection(local_app, local_name, conn_id)
+    rpc_server = slim_bindings.Server.new_with_connection(
+        local_app, local_name, conn_id
+    )
 
     # Add servicer
-    add_TestServicer_to_server(TestService(), server)
+    add_TestServicer_to_server(TestService(), rpc_server)
 
     # Run server
-    logger.info("Server starting...")
-    await server.serve_async()
+    print("SLIM_RPC_SERVER_READY", flush=True)
+    logger.info(f"Server '{instance}' starting...")
+    await rpc_server.serve_async()
 
 
 def main() -> None:
     """
     Main entry point for the server.
     """
+    parser = argparse.ArgumentParser(description="SlimRPC example server")
+    parser.add_argument(
+        "--instance",
+        default="server",
+        help="Instance name used as the SLIM app name (default: server). "
+        "Use server1/server2 when running alongside client_group.py.",
+    )
+    parser.add_argument(
+        "--server",
+        default=SLIM_ADDR,
+        help="SLIM server endpoint (default: from SLIM_ADDR env var or http://localhost:46357)",
+    )
+    args = parser.parse_args()
+
     logging.basicConfig(level=logging.DEBUG)
     try:
-        asyncio.run(amain())
+        asyncio.run(amain(args.instance, args.server))
     except KeyboardInterrupt:
         print("Server interrupted by user.")

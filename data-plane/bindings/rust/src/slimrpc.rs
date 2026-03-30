@@ -177,6 +177,14 @@ pub const SERVICE_KEY: &str = "service";
 /// Key used in metadata for the RPC method name
 pub const METHOD_KEY: &str = "method";
 
+/// Key used in metadata to mark a message as a client request.
+/// Present on all client-originated messages (data frames and EOS).
+/// Absent on server responses so the server can tell them apart.
+pub const RPC_DIR_KEY: &str = "slimrpc-dir";
+
+/// Value for [`RPC_DIR_KEY`] that marks a message as a client request.
+pub const RPC_DIR_REQ: &str = "req";
+
 /// Maximum timeout in seconds (10 hours)
 pub const MAX_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(36000);
 
