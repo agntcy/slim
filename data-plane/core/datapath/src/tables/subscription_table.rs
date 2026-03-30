@@ -462,8 +462,7 @@ impl NameState {
             let Some(conn_id) = refs
                 .keys()
                 .copied()
-                .filter(|&conn_id| conn_id != incoming_conn)
-                .next()
+                .find(|&conn_id| conn_id != incoming_conn)
             else {
                 debug!("the only available connection cannot be used");
                 return None;
