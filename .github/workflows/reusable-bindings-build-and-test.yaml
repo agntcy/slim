@@ -161,8 +161,10 @@ jobs:
           cache-enabled: false
       - name: Build library
         working-directory: ./data-plane/bindings/rust
+        env:
+          PLATFORM_TARGET: ${{ matrix.platform.target }}
         run: |
-          task bindings:build:all TARGET=${{ matrix.platform.target }} PROFILE=release
+          task bindings:build:all TARGET="$PLATFORM_TARGET" PROFILE=release
       - name: Upload libs
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
@@ -176,7 +178,9 @@ jobs:
       - name: Generate python wheels
         if: "!contains(matrix.platform.target, 'windows-gnu')"
         working-directory: ./data-plane/bindings/python
-        run: task python:bindings:packaging TARGET=${{ matrix.platform.target }} PROFILE=release
+        env:
+          PLATFORM_TARGET: ${{ matrix.platform.target }}
+        run: task python:bindings:packaging TARGET="$PLATFORM_TARGET" PROFILE=release
       - name: Upload wheels
         if: "!contains(matrix.platform.target, 'windows-gnu')"
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
@@ -232,9 +236,11 @@ jobs:
           rm -rf "$GITHUB_WORKSPACE/target-artifacts"
 
       - name: Generate Go bindings
+        env:
+          TAG_NAME: ${{ inputs.tag-name }}
         run: |
           # Extract version from tag name if present (e.g., slim-bindings-v1.3.0 -> v1.3.0)
-          VERSION="${{ inputs.tag-name }}"
+          VERSION="$TAG_NAME"
           VERSION="${VERSION#slim-bindings-}"
           VERSION="${VERSION:-devel}"
 
@@ -410,6 +416,8 @@ jobs:
 
   dotnet-bindings-build-and-test:
     name: "Dotnet Bindings Build and Test"
+    permissions:
+      contents: read
     needs:
       - generate-matrix
       - build-libraries
@@ -422,6 +430,8 @@ jobs:
 
   kotlin-bindings-build-and-test:
     name: "Kotlin Bindings Build and Test"
+    permissions:
+      contents: read
     needs:
       - generate-matrix
       - build-libraries
@@ -432,6 +442,8 @@ jobs:
 
   java-bindings-build-and-test:
     name: "Java Bindings Build and Test"
+    permissions:
+      contents: read
     needs:
       - generate-matrix
       - build-libraries

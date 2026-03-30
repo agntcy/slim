@@ -10,6 +10,9 @@ on:
       - 'slim-*'
       - 'control-plane-*'
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -17,6 +20,8 @@ concurrency:
 jobs:
   prepare-build:
     name: Prepare Build
+    permissions:
+      contents: read
     outputs:
       matrix: ${{ steps.all-targets.outputs.matrix }}
       image-tag: ${{ steps.resolve.outputs.version }}
@@ -88,6 +93,8 @@ jobs:
   test-integration:
     name: Run integration tests
     needs: [ build-push ]
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

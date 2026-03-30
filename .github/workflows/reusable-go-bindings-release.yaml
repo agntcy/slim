@@ -78,8 +78,10 @@ jobs:
           find ./downloaded_slim_bindings -type f -ls
 
       - name: Clone target repository
+        env:
+          GH_TOKEN: ${{ secrets.gh-token }}
         run: |
-          git clone https://x-access-token:${{ secrets.gh-token }}@github.com/${{ env.GO_BINDINGS_REPO }}.git ./target-repo
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${GO_BINDINGS_REPO}.git" ./target-repo
 
       - name: Update target repository
         run: |
@@ -95,11 +97,15 @@ jobs:
           popd
 
       - name: Commit and push to pre-release branch
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
         run: |
           pushd ./target-repo
 
           # Extract version from tag name (remove 'slim-bindings-' prefix)
-          VERSION="${{ github.ref_name }}"
+          VERSION="${REF_NAME}"
           VERSION="${VERSION#slim-bindings-}"
           echo "📦 Extracted version: $VERSION"
 
@@ -110,7 +116,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add ${{ env.FILES_TO_RELEASE }}
+          git add $FILES_TO_RELEASE
 
           # Check if there are changes to commit
           if git diff --cached --quiet; then
@@ -120,7 +126,7 @@ jobs:
 
           git commit -m "Release $VERSION
 
-          Generated from https://github.com/${{ github.repository }}/commit/${{ github.sha }}
+          Generated from https://github.com/${REPO}/commit/${SHA}
 
           Platforms:
           - linux/amd64 (x86_64-unknown-linux-gnu)
@@ -351,10 +357,14 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/slim-bindings-')
     steps:
       - name: Clone target repository
+        env:
+          GH_TOKEN: ${{ secrets.gh-token }}
         run: |
-          git clone https://x-access-token:${{ secrets.gh-token }}@github.com/${{ env.GO_BINDINGS_REPO }}.git ./target-repo
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${GO_BINDINGS_REPO}.git" ./target-repo
 
       - name: Merge to main and create tag
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
           cd ./target-repo
 
@@ -363,7 +373,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           # Extract version from tag name
-          VERSION="${{ github.ref_name }}"
+          VERSION="${REF_NAME}"
           VERSION="${VERSION#slim-bindings-}"
           PRE_RELEASE_BRANCH="pre-release-$VERSION"
 
@@ -390,11 +400,14 @@ jobs:
 
       - name: Cleanup pre-release branch
         if: always() # Run even if previous steps fail
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          JOB_STATUS: ${{ job.status }}
         run: |
           cd ./target-repo
 
           # Extract version from tag name
-          VERSION="${{ github.ref_name }}"
+          VERSION="${REF_NAME}"
           VERSION="${VERSION#slim-bindings-}"
           PRE_RELEASE_BRANCH="pre-release-$VERSION"
 
@@ -409,7 +422,7 @@ jobs:
 
           # If the merge step failed, we need to delete the tag too
           # (it's pointing to pre-release branch, not main)
-          if [ "${{ job.status }}" != "success" ]; then
+          if [ "$JOB_STATUS" != "success" ]; then
             echo "⚠️  Job failed - cleaning up pre-release tag as well"
             if git ls-remote --tags origin "$VERSION" | grep -q "$VERSION"; then
               git push origin --delete "$VERSION" && echo "✅ Deleted pre-release tag: $VERSION" || echo "⚠️  Failed to delete tag"
@@ -421,11 +434,13 @@ jobs:
           echo "✅ Cleanup complete"
 
       - name: Release complete
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          VERSION="${{ github.ref_name }}"
+          VERSION="${REF_NAME}"
           VERSION="${VERSION#slim-bindings-}"
           echo ""
           echo "🎉 Release $VERSION complete!"
-          echo "✅ Go bindings published to https://github.com/${{ env.GO_BINDINGS_REPO }}"
+          echo "✅ Go bindings published to https://github.com/${GO_BINDINGS_REPO}"
           echo "✅ Tagged as $VERSION"
           echo "✅ All tests passed on 8 platforms"

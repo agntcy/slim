@@ -90,8 +90,10 @@ jobs:
       # Extract version from tag name (e.g., slim-bindings-v0.7.0 -> 0.7.0)
       - name: Extract version from tag
         id: extract-version
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          TAG_NAME="${{ github.ref_name }}"
+          TAG_NAME="$REF_NAME"
           # Remove 'slim-bindings-' prefix if present
           VERSION="${TAG_NAME#slim-bindings-}"
           # Remove leading 'v' if present (e.g., v1.0.0 -> 1.0.0)
@@ -103,10 +105,13 @@ jobs:
       - name: Publish to GitHub Packages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXTRACTED_VERSION: ${{ steps.extract-version.outputs.version }}
+          STEP_MAVEN_GROUP_ID: ${{ env.MAVEN_GROUP_ID }}
+          STEP_MAVEN_ARTIFACT_ID: ${{ env.MAVEN_ARTIFACT_ID }}
         run: |
           echo "Building and publishing Kotlin bindings to GitHub Packages..."
 
-          VERSION="${{ steps.extract-version.outputs.version }}"
+          VERSION="$EXTRACTED_VERSION"
           echo "Publishing version: $VERSION"
 
           # Build and publish using Gradle
@@ -116,7 +121,7 @@ jobs:
             --stacktrace
 
           echo "✅ Successfully published to GitHub Packages"
-          echo "Package: ${{ env.MAVEN_GROUP_ID }}:${{ env.MAVEN_ARTIFACT_ID }}:$VERSION"
+          echo "Package: $STEP_MAVEN_GROUP_ID:$STEP_MAVEN_ARTIFACT_ID:$VERSION"
           echo "📦 View at: https://github.com/${{ github.repository }}/packages"
 
       # Publish to Maven Central (when credentials are provided)
@@ -128,9 +133,10 @@ jobs:
           MVN_TOKEN_PASSWORD: ${{ secrets.MVN_TOKEN_PASSWORD }}
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          EXTRACTED_VERSION: ${{ steps.extract-version.outputs.version }}
         run: |
           echo "Publishing Kotlin bindings to Maven Central..."
-          VERSION="${{ steps.extract-version.outputs.version }}"
+          VERSION="$EXTRACTED_VERSION"
           echo "Publishing version: $VERSION"
           ./gradlew publishMavenPublicationToMavenCentralRepository -PpublishVersion="$VERSION" --no-daemon --stacktrace
           # OSSRH Staging API: transfer deployment to Central Portal (required for maven-publish plugin)

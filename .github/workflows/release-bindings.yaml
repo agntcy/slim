@@ -9,6 +9,9 @@ on:
     tags:
       - 'slim-bindings-*'
 
+permissions:
+  contents: read
+
 env:
   LIBRARY_NAME: slim_bindings
   GO_BINDINGS_REPO: agntcy/slim-bindings-go

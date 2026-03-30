@@ -9,6 +9,9 @@ on:
     tags:
       - 'helm-*'
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -16,6 +19,8 @@ concurrency:
 jobs:
   prepare-build:
     name: Prepare Build
+    permissions:
+      contents: read
     outputs:
       release_tag: ${{ steps.resolve.outputs.release_tag }}
     runs-on: ubuntu-latest
@@ -48,6 +53,8 @@ jobs:
 
   test-integration:
     name: Run integration tests
+    permissions:
+      contents: read
     needs: [ release ]
     runs-on: ubuntu-latest
     steps:

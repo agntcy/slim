@@ -52,11 +52,13 @@ runs:
     - name: Install Poetry
       if: ${{ inputs.poetry-install == 'true' }}
       shell: bash
+      env:
+        POETRY_VERSION: ${{ inputs.poetry-version }}
       run: |
         if [[ -f ~/.local/bin/poetry ]]; then
           echo "Poetry already installed"
         else
-          curl -sSL https://install.python-poetry.org | POETRY_VERSION=${{ inputs.poetry-version }} python3 -
+          curl -sSL https://install.python-poetry.org | POETRY_VERSION=$POETRY_VERSION python3 -
         fi
 
     - name: Install uv (unix)

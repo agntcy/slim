@@ -60,6 +60,9 @@ runs:
     - name: Setup Kind cluster
       if: ${{ inputs.kind-create-cluster == 'true' }}
       shell: bash
+      env:
+        KIND_CLUSTER_GATEWAY: ${{ inputs.kind-cluster-gateway }}
+        KIND_CLUSTER_NAME: ${{ inputs.kind-cluster-name }}
       run: |
         # Create cluster config
         KIND_CONFIG_FILE=$(mktemp -p /tmp)
@@ -67,10 +70,10 @@ runs:
         kind: Cluster
         apiVersion: kind.x-k8s.io/v1alpha4
         networking:
-          apiServerAddress: "${{ inputs.kind-cluster-gateway }}"
+          apiServerAddress: "$KIND_CLUSTER_GATEWAY"
           apiServerPort: 6443
         EOF
 
         # Create cluster
-        kind create cluster --config $KIND_CONFIG_FILE --name ${{ inputs.kind-cluster-name }}
+        kind create cluster --config $KIND_CONFIG_FILE --name $KIND_CLUSTER_NAME
         kubectl cluster-info

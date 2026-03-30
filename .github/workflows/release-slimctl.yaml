@@ -118,8 +118,10 @@ jobs:
 
       - name: Compute SHA256 for darwin archives
         id: sha256
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ steps.version.outputs.tag }}"
           gh release download "$TAG" \
             --pattern "slimctl-darwin-*.tar.gz" \
             --dir /tmp/slimctl-release
@@ -127,16 +129,14 @@ jobs:
           ARM64_SHA=$(shasum -a 256 /tmp/slimctl-release/slimctl-darwin-arm64.tar.gz | cut -d' ' -f1)
           echo "amd64=$AMD64_SHA" >> "$GITHUB_OUTPUT"
           echo "arm64=$ARM64_SHA" >> "$GITHUB_OUTPUT"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create Homebrew cask
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          AMD64_SHA: ${{ steps.sha256.outputs.amd64 }}
+          ARM64_SHA: ${{ steps.sha256.outputs.arm64 }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          TAG="${{ steps.version.outputs.tag }}"
-          AMD64_SHA="${{ steps.sha256.outputs.amd64 }}"
-          ARM64_SHA="${{ steps.sha256.outputs.arm64 }}"
-
           mkdir -p ./Casks
           cat > ./Casks/slimctl.rb << EOF
           cask "slimctl" do

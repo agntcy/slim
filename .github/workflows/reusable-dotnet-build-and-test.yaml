@@ -104,10 +104,12 @@ jobs:
           done
 
       - name: Build, test and pack
+        env:
+          TAG_NAME: ${{ inputs.tag-name }}
         run: |
           TAG_NAME_PARAM=""
-          if [[ -n "${{ inputs.tag-name }}" ]]; then
-            TAG_NAME_PARAM="TAG_NAME=${{ inputs.tag-name }}"
+          if [[ -n "$TAG_NAME" ]]; then
+            TAG_NAME_PARAM="TAG_NAME=$TAG_NAME"
           fi
 
           task slimrpc:generate-proto

@@ -86,8 +86,10 @@ jobs:
           poetry-install: false
 
       - name: lint
+        env:
+          TASK_PREFIX: ${{ inputs.task-prefix }}
         run: |
-          task ${{ inputs.task-prefix }}:lint
+          task ${TASK_PREFIX}:lint
 
   test-coverage:
     runs-on: ${{ inputs.runner }}
@@ -111,8 +113,10 @@ jobs:
           workspace: ${{ inputs.working-directory }}
 
       - name: Run `coverage`
+        env:
+          TASK_PREFIX: ${{ inputs.task-prefix }}
         run: |
-          task ${{ inputs.task-prefix }}:test:coverage
+          task ${TASK_PREFIX}:test:coverage
 
   unittest-matrix:
     runs-on: ${{ inputs.runner }}
@@ -144,8 +148,10 @@ jobs:
           poetry-install: false
 
       - name: Run Unit Tests
+        env:
+          TASK_PREFIX: ${{ inputs.task-prefix }}
         run: |
-          task ${{ inputs.task-prefix }}:test
+          task ${TASK_PREFIX}:test
 
   unittest:
     runs-on: ${{ inputs.runner }}
@@ -199,5 +205,10 @@ jobs:
           cache-enabled: ${{ matrix.profile != 'release' }}
 
       - name: Build
+        env:
+          TASK_PREFIX: ${{ inputs.task-prefix }}
+          ARCH: ${{ matrix.arch }}
+          OS: ${{ matrix.os }}
+          PROFILE: ${{ matrix.profile }}
         run: |
-          task ${{ inputs.task-prefix }}:build TARGET=${{matrix.arch}}-unknown-${{ matrix.os }}-gnu PROFILE=${{ matrix.profile }}
+          task ${TASK_PREFIX}:build TARGET=${ARCH}-unknown-${OS}-gnu PROFILE=${PROFILE}
