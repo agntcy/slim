@@ -106,16 +106,16 @@ jobs:
         env:
           TAG_NAME: ${{ inputs.tag-name }}
         run: |
-          TAG_NAME_PARAM=""
-          if [[ -n "$TAG_NAME" ]]; then
-            TAG_NAME_PARAM="TAG_NAME=$TAG_NAME"
-          fi
-
           task slimrpc:generate-proto
           task lint
           task build PROFILE=release
           task test
-          task pack OUTPUT_DIR=./nupkg "$TAG_NAME_PARAM"
+
+          pack_args=(pack OUTPUT_DIR=./nupkg)
+          if [[ -n "$TAG_NAME" ]]; then
+            pack_args+=("TAG_NAME=$TAG_NAME")
+          fi
+          task "${pack_args[@]}"
 
       - name: Upload NuGet packages
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
