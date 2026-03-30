@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.10](https://github.com/agntcy/slim/compare/slim-service-v0.8.9...slim-service-v0.8.10) - 2026-03-30
+
+### Other
+
+- move app ID generation from bindings to core application layer ([#1408](https://github.com/agntcy/slim/pull/1408))
+
 ## [0.8.9](https://github.com/agntcy/slim/compare/slim-service-v0.8.8...slim-service-v0.8.9) - 2026-03-26
 
 ### Added

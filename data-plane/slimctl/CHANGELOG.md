@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0-rc.3](https://github.com/agntcy/slim/compare/slimctl-v1.3.0-rc.1...slimctl-v1.3.0-rc.3) - 2026-03-30
+
+### Other
+
+- 1.3.0 release candidate 3 ([#1420](https://github.com/agntcy/slim/pull/1420))
+
 ## [1.3.0-rc.1](https://github.com/agntcy/slim/compare/slimctl-v1.3.0-rc.0...slimctl-v1.3.0-rc.1) - 2026-03-26
 
 ### Other

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.10](https://github.com/agntcy/slim/compare/slim-session-v0.1.9...slim-session-v0.1.10) - 2026-03-30
+
+### Added
+
+- slimrcp multicast examples ([#1346](https://github.com/agntcy/slim/pull/1346))
+
 ## [0.1.9](https://github.com/agntcy/slim/compare/slim-session-v0.1.8...slim-session-v0.1.9) - 2026-03-26
 
 ### Added
