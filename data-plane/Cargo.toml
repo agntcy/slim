@@ -38,7 +38,7 @@ resolver = "2"
 
 [workspace.dependencies]
 # Local dependencies
-agntcy-slim = { path = "core/slim", version = "1.3.0-rc.4" }
+agntcy-slim = { path = "core/slim", version = "1.3.0-rc.3" }
 agntcy-slim-auth = { path = "core/auth", version = "0.6.1" }
 agntcy-slim-bindings = { path = "bindings/rust", version = "1.3.0-rc.3" }
 agntcy-slim-config = { path = "core/config", version = "0.8.1" }
