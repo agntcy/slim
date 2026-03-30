@@ -71,22 +71,25 @@ jobs:
         id: extract-version
         run: |
           # Use Agntcy.Slim (not Agntcy.Slim.SlimRpc) for version metadata
-          PACKAGE=$(ls ./nupkg/Agntcy.Slim.*.nupkg | grep -v SlimRpc | head -1)
+          PACKAGE=""
+          for f in ./nupkg/Agntcy.Slim.*.nupkg; do
+            [[ "$f" != *SlimRpc* ]] && PACKAGE="$f" && break
+          done
           FILENAME=$(basename "$PACKAGE")
           # Extract version from Agntcy.Slim.X.Y.Z.nupkg
           VERSION=$(echo "$FILENAME" | sed -n 's/Agntcy\.Slim\.\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*.*\)\.nupkg/\1/p')
           echo "Extracted version: $VERSION"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Determine if pre-release
         id: prerelease
         run: |
           VERSION="${{ steps.extract-version.outputs.version }}"
           if [[ "$VERSION" =~ (alpha|beta|rc) ]]; then
-            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
             echo "This is a pre-release version"
           else
-            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
             echo "This is a stable release"
           fi
 

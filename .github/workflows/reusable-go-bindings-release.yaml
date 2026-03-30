@@ -222,13 +222,15 @@ jobs:
           echo "🔧 Using QEMU ARM64 emulation"
 
           # Determine Go arch for ARM64
+          # shellcheck disable=SC2193 # ${{ }} is expanded by GitHub Actions before shell execution
           if [[ "${{ matrix.platform.target }}" == *"aarch64"* ]]; then
-            GO_ARCH="arm64"
+            export GO_ARCH="arm64"
           else
-            GO_ARCH="amd64"
+            export GO_ARCH="amd64"
           fi
 
           # Determine libc variant
+          # shellcheck disable=SC2193 # ${{ }} is expanded by GitHub Actions before shell execution
           if [[ "${{ matrix.platform.target }}" == *"musl"* ]]; then
             ALPINE_VARIANT="alpine:latest"
           else
@@ -237,10 +239,10 @@ jobs:
 
           # Run test in ARM64 container
           docker run --rm --platform linux/arm64 \
-            -v $(pwd):/workspace \
-            -v $(pwd):/repo:ro \
+            -v "$(pwd)":/workspace \
+            -v "$(pwd)":/repo:ro \
             -w /workspace \
-            $ALPINE_VARIANT \
+            "$ALPINE_VARIANT" \
             sh -c "
               # Install dependencies
               if command -v apk >/dev/null; then
@@ -296,6 +298,7 @@ jobs:
           echo "🏃 Runner: ${{ matrix.platform.runner }}"
 
           # For Windows MinGW, we need to ensure MinGW tools are in PATH
+          # shellcheck disable=SC2193 # ${{ }} is expanded by GitHub Actions before shell execution
           if [[ "${{ matrix.platform.target }}" == "x86_64-pc-windows-gnu" ]]; then
             echo "🔧 Setting up MinGW environment"
             # GitHub Windows runners have MinGW installed
@@ -308,15 +311,15 @@ jobs:
           echo "✅ Created test module"
 
           # Fetch the bindings using the version tag
-          go get github.com/${{ env.GO_BINDINGS_REPO }}@$VERSION
+          go get "github.com/${{ env.GO_BINDINGS_REPO }}@$VERSION"
           echo "✅ Fetched bindings package version $VERSION"
 
           # Run the setup tool to download native libraries
-          go run github.com/${{ env.GO_BINDINGS_REPO }}/cmd/slim-bindings-setup@$VERSION
+          go run "github.com/${{ env.GO_BINDINGS_REPO }}/cmd/slim-bindings-setup@$VERSION"
           echo "✅ Downloaded native libraries"
 
           # Copy test program from repo
-          cp $GITHUB_WORKSPACE/.github/tests/go/test_installation.go main.go
+          cp "$GITHUB_WORKSPACE/.github/tests/go/test_installation.go" main.go
 
           # Run the test program
           go run main.go

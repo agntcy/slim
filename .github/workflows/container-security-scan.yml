@@ -96,11 +96,11 @@ jobs:
 
       - name: Debug artifact contents
         run: |
-          echo "Downloaded artifact directory tree:" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          find trivy-artifacts -maxdepth 3 -type f -print >> $GITHUB_STEP_SUMMARY || true
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Downloaded artifact directory tree:" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          find trivy-artifacts -maxdepth 3 -type f -print >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Generate summary
         run: |

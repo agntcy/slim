@@ -29,7 +29,7 @@ jobs:
       - name: Resolve release tag
         id: resolve
         run: |
-          echo "release_tag=$(echo ${GITHUB_REF#refs/*/} | sed 's/^helm-//')" >> $GITHUB_OUTPUT
+          tag="${GITHUB_REF#refs/*/}"; echo "release_tag=${tag#helm-}" >> "$GITHUB_OUTPUT"
 
   release:
     name: Release Helm charts

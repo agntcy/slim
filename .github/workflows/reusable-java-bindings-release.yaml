@@ -109,7 +109,7 @@ jobs:
           # Remove leading 'v' if present (e.g., v1.0.0 -> 1.0.0)
           VERSION="${VERSION#v}"
           echo "Extracted version: $VERSION"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       # Build and publish to GitHub Packages
       - name: Publish to GitHub Packages

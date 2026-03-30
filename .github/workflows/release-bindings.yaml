@@ -73,7 +73,7 @@ jobs:
           # Each platform's libraries are in ./artifacts/bindings-<target>/
           # We'll zip each platform's libraries separately
 
-          for platform_dir in ./artifacts/bindings-*/; do
+          for platform_dir in "./artifacts/bindings-"*/; do
             if [ -d "$platform_dir" ]; then
               platform_name=$(basename "$platform_dir" | sed 's/^bindings-//')
               echo "📦 Preparing libraries for platform: $platform_name"

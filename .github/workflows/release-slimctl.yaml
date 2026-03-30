@@ -113,8 +113,8 @@ jobs:
         run: |
           TAG=${GITHUB_REF#refs/tags/}
           VERSION=${TAG#slimctl-v}
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Compute SHA256 for darwin archives
         id: sha256
@@ -125,8 +125,8 @@ jobs:
             --dir /tmp/slimctl-release
           AMD64_SHA=$(shasum -a 256 /tmp/slimctl-release/slimctl-darwin-amd64.tar.gz | cut -d' ' -f1)
           ARM64_SHA=$(shasum -a 256 /tmp/slimctl-release/slimctl-darwin-arm64.tar.gz | cut -d' ' -f1)
-          echo "amd64=$AMD64_SHA" >> $GITHUB_OUTPUT
-          echo "arm64=$ARM64_SHA" >> $GITHUB_OUTPUT
+          echo "amd64=$AMD64_SHA" >> "$GITHUB_OUTPUT"
+          echo "arm64=$ARM64_SHA" >> "$GITHUB_OUTPUT"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

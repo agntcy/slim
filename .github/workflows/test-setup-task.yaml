@@ -56,7 +56,6 @@ jobs:
       - name: Display outputs
         shell: bash
         run: |
-          echo "Cache hit: ${{ steps.setup-task.outputs.cache-hit }}"
           echo "Version: ${{ steps.setup-task.outputs.version }}"
 
   test-cache-prime:
@@ -74,5 +73,4 @@ jobs:
       - name: Display outputs
         shell: bash
         run: |
-          echo "Prime cache hit: ${{ steps.prime.outputs.cache-hit }}"
           echo "Version: ${{ steps.prime.outputs.version }}"
