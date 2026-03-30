@@ -7,7 +7,6 @@ use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 
 use parking_lot::{RawRwLock, RwLock, lock_api::RwLockWriteGuard};
-use rand::{Rng, SeedableRng, rngs::SmallRng};
 use tracing::{debug, error, warn};
 
 use super::SubscriptionTable;
@@ -15,17 +14,16 @@ use super::pool::Pool;
 use crate::errors::DataPathError;
 use crate::messages::Name;
 
-/// Sentinel for round-robin pool slot: none chosen yet. Real pool indices are far below `usize::MAX`.
+/// Sentinel for round-robin cursors: none chosen yet. Real indices are far below `usize::MAX`.
 const LAST_USED_POOL_INDEX_NONE: usize = usize::MAX;
 
 thread_local! {
-    static THREAD_RNG: RefCell<SmallRng> = RefCell::new(SmallRng::from_os_rng());
-    /// Per-thread round-robin cursor for [`Connections::next_round_robin_pool_index`].
+    /// Per-thread round-robin cursor for [`Connections::next_round_robin_pool_index`] (pool slot).
     static LAST_USED_POOL_INDEX: Cell<usize> = const { Cell::new(LAST_USED_POOL_INDEX_NONE) };
-}
-
-fn random_index(upper: usize) -> usize {
-    THREAD_RNG.with(|rng| rng.borrow_mut().random_range(0..upper))
+    /// Last picked position in the sorted non-incoming connection id list for [`NameState::get_one_connection`]
+    /// (key = `(name id, 0 = local pool / 1 = remote pool)`).
+    static LAST_USED_NON_INCOMING_CONN_RR_POS: RefCell<HashMap<(u64, u8), usize>> =
+        RefCell::new(HashMap::new());
 }
 
 #[derive(Debug, Clone)]
@@ -379,63 +377,59 @@ impl NameState {
         incoming_conn: u64,
         get_local_connection: bool,
     ) -> Option<u64> {
-        let mut index = 0;
-        if !get_local_connection {
-            index = 1;
-        }
+        let side = if get_local_connection { 0 } else { 1 };
+        let pool = &self.connections[side];
 
         if id == Name::NULL_COMPONENT {
-            return self.connections[index].get_one(incoming_conn);
+            return pool.get_one(incoming_conn);
         }
 
-        let val = self.ids.get(&id);
-        match val {
-            None => {
-                // If there is only 1 connection for the name, we can still
-                // try to use it
-                if self.connections[index].index.len() == 1 {
-                    return self.connections[index].get_one(incoming_conn);
-                }
-
-                // We cannot return any connection for this name
-                debug!(name = %id, "cannot find out connection, name does not exists");
-                None
+        let Some(name_refs) = self.ids.get(&id) else {
+            if pool.index.len() == 1 {
+                return pool.get_one(incoming_conn);
             }
-            Some(refs) => {
-                if refs[index].is_empty() {
-                    // no connections available
-                    return None;
-                }
+            debug!(name = %id, "cannot find out connection, name does not exists");
+            return None;
+        };
 
-                if refs[index].len() == 1 {
-                    // Get the single connection id
-                    let conn_id = *refs[index].keys().next().unwrap();
-                    if conn_id == incoming_conn {
-                        // cannot return the incoming connection
-                        debug!("the only available connection cannot be used");
-                        return None;
-                    } else {
-                        return Some(conn_id);
-                    }
-                }
-
-                let eligible_count = refs[index]
-                    .keys()
-                    .filter(|&&conn_id| conn_id != incoming_conn)
-                    .count();
-                if eligible_count == 0 {
-                    debug!("no output connection available");
-                    return None;
-                }
-
-                let selected = random_index(eligible_count);
-                refs[index]
-                    .keys()
-                    .filter(|&&conn_id| conn_id != incoming_conn)
-                    .nth(selected)
-                    .copied()
-            }
+        let refs = &name_refs[side];
+        if refs.is_empty() {
+            return None;
         }
+
+        let rr_key = (id, side as u8);
+        let mut non_incoming_conn_ids: Vec<u64> = Vec::with_capacity(refs.len());
+        non_incoming_conn_ids.extend(refs.keys().copied().filter(|&c| c != incoming_conn));
+
+        if non_incoming_conn_ids.is_empty() {
+            LAST_USED_NON_INCOMING_CONN_RR_POS.with(|m| {
+                m.borrow_mut().insert(rr_key, LAST_USED_POOL_INDEX_NONE);
+            });
+            debug!("the only available connection cannot be used");
+            return None;
+        }
+
+        if non_incoming_conn_ids.len() == 1 {
+            return Some(non_incoming_conn_ids[0]);
+        }
+
+        non_incoming_conn_ids.sort_unstable();
+        let n = non_incoming_conn_ids.len();
+
+        let conn_id = LAST_USED_NON_INCOMING_CONN_RR_POS.with(|m| {
+            let mut map = m.borrow_mut();
+            let last_raw = *map.get(&rr_key).unwrap_or(&LAST_USED_POOL_INDEX_NONE);
+            let next_pos = if last_raw == LAST_USED_POOL_INDEX_NONE {
+                0
+            } else {
+                (last_raw + 1) % n
+            };
+            let picked = non_incoming_conn_ids[next_pos];
+            map.insert(rr_key, next_pos);
+            picked
+        });
+
+        Some(conn_id)
     }
 
     fn get_all_connections(
@@ -444,49 +438,46 @@ impl NameState {
         incoming_conn: u64,
         get_local_connection: bool,
     ) -> Option<Vec<u64>> {
-        let mut index = 0;
-        if !get_local_connection {
-            index = 1;
-        }
+        let side = if get_local_connection { 0 } else { 1 };
+        let pool = &self.connections[side];
 
         if id == Name::NULL_COMPONENT {
-            return self.connections[index].get_all(incoming_conn);
+            return pool.get_all(incoming_conn);
         }
 
-        let val = self.ids.get(&id);
-        match val {
-            None => {
-                debug!(%id, "cannot find out connection, id does not exists");
-                None
+        let Some(name_refs) = self.ids.get(&id) else {
+            if pool.index.len() == 1 {
+                return pool.get_all(incoming_conn);
             }
-            Some(refs) => {
-                if refs[index].is_empty() {
-                    // should never happen
-                    return None;
-                }
+            debug!(name = %id, "cannot find out connection, name does not exists");
+            return None;
+        };
 
-                if refs[index].len() == 1 {
-                    // Get the single connection id
-                    let conn_id = *refs[index].keys().next().unwrap();
-                    if conn_id == incoming_conn {
-                        // cannot return the incoming connection
-                        debug!("the only available connection cannot be used");
-                        return None;
-                    } else {
-                        return Some(vec![conn_id]);
-                    }
-                }
+        let refs = &name_refs[side];
+        if refs.is_empty() {
+            return None;
+        }
 
-                // we need to iterate over the refs and exclude the incoming connection
-                let mut out = Vec::new();
-                for conn_id in refs[index].keys() {
-                    if *conn_id != incoming_conn {
-                        out.push(*conn_id);
-                    }
-                }
-                if out.is_empty() { None } else { Some(out) }
+        if refs.len() == 1 {
+            let Some(conn_id) = refs
+                .keys()
+                .copied()
+                .filter(|&conn_id| conn_id != incoming_conn)
+                .next()
+            else {
+                debug!("the only available connection cannot be used");
+                return None;
+            };
+            return Some(vec![conn_id]);
+        }
+
+        let mut out = Vec::new();
+        for conn_id in refs.keys() {
+            if *conn_id != incoming_conn {
+                out.push(*conn_id);
             }
         }
+        if out.is_empty() { None } else { Some(out) }
     }
 }
 
