@@ -52,8 +52,8 @@ jobs:
         id: set-matrix
         run: |
           # Define the complete platform matrix
-          # shellcheck disable=SC2089
-          MATRIX='{
+          MATRIX=$(cat <<'MATRIX_EOF'
+          {
             "platform": [
               {
                 "runner": "ubuntu-24.04",
@@ -127,16 +127,15 @@ jobs:
                 }
               }
             ]
-          }'
+          }
+          MATRIX_EOF
+          )
 
           # Output full matrix for build job
-          # shellcheck disable=SC2090
           echo "matrix=$(echo "$MATRIX" | jq -c .)" >> "$GITHUB_OUTPUT"
 
           # Create filtered matrix (exclude windows-gnu for Python tests)
-          # shellcheck disable=SC2090
           MATRIX_NO_WIN_GNU=$(echo "$MATRIX" | jq -c '{platform: [.platform[] | select(.target != "x86_64-pc-windows-gnu")], exclude: .exclude}')
-          # shellcheck disable=SC2090
           echo "matrix-no-windows-gnu=$(echo "$MATRIX_NO_WIN_GNU" | jq -c .)" >> "$GITHUB_OUTPUT"
 
   build-libraries:
