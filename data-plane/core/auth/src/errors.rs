@@ -3,7 +3,7 @@
 
 use http::StatusCode;
 #[cfg(feature = "native")]
-use jsonwebtoken_aws_lc::jwk::KeyAlgorithm;
+use jsonwebtoken::jwk::KeyAlgorithm;
 
 #[cfg(all(feature = "native", not(target_family = "windows")))]
 use spiffe::{

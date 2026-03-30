@@ -22,4 +22,5 @@ pub mod shared_secret;
 #[cfg(all(feature = "native", not(target_family = "windows")))]
 pub mod spire;
 pub mod traits;
+#[cfg(feature = "native")]
 pub mod utils;
