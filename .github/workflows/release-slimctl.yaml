@@ -20,7 +20,7 @@ jobs:
       contents: write
     steps:
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
         with:
           name: "${{ github.ref_name }}"
 
@@ -71,7 +71,7 @@ jobs:
             build-tool: cargo
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
@@ -83,7 +83,7 @@ jobs:
           mkdir -p .cargo
           cp data-plane/.cargo/config.toml .cargo/config.toml
 
-      - uses: taiki-e/upload-rust-binary-action@f391289bcff6a7f36b6301c0a74199657bbb4561 # v1.28.0
+      - uses: taiki-e/upload-rust-binary-action@0e34102c043ded9f2ca39f7af5cd99a540c61aff # v1.29.1
         with:
           bin: slimctl
           target: ${{ matrix.platform.target }}
@@ -102,7 +102,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Extract version from tag
         id: version
@@ -160,7 +160,7 @@ jobs:
           EOF
 
       - name: Create Pull Request for Homebrew cask
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@c0f553fe549906ede9cf27b5156039d195d2ece0 # v8.1.0
         with:
           commit-message: Update Homebrew cask for slimctl
           title: Update slimctl cask to latest version

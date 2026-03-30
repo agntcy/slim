@@ -18,12 +18,12 @@ jobs:
   prepare-build:
     name: Prepare Build
     outputs:
-      targets: ${{ steps.all-targets.outputs.targets }}
+      matrix: ${{ steps.all-targets.outputs.matrix }}
       image-tag: ${{ steps.resolve.outputs.version }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
 
@@ -60,7 +60,7 @@ jobs:
 
       - name: List all targets
         id: all-targets
-        uses: docker/bake-action/subaction/list-targets@a4d7f0b5b91c14a296d792d4ec53a9db17f02e67 # v5.5.0
+        uses: docker/bake-action/subaction/matrix@82490499d2e5613fcead7e128237ef0b0ea210f7 # v7.0.0
         with:
           target: ${{ steps.resolve.outputs.target }}
         continue-on-error: true
@@ -68,11 +68,11 @@ jobs:
   build-push:
     name: Build docker image - ${{ matrix.target }}
     needs: [prepare-build]
-    if: ${{ needs.prepare-build.outputs.targets != '[]' && needs.prepare-build.outputs.targets != '' }}
+    if: ${{ needs.prepare-build.outputs.matrix != '[]' && needs.prepare-build.outputs.matrix != '' }}
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.prepare-build.outputs.targets) }}
+        include: ${{ fromJson(needs.prepare-build.outputs.matrix) }}
     uses: ./.github/workflows/reusable-docker-build-push.yaml
     permissions:
       contents: 'read'
@@ -90,7 +90,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
       - name: Trigger CSIT integration CI
