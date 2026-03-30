@@ -139,6 +139,7 @@ where
                         source = %message.get_source(),
                         "received  message",
                     );
+                    println!("control message received: {:?}, direction{:?}, dst {}", message.get_session_message_type(), direction, message.get_dst());
                     self.process_control_message(message, ack_tx).await
                 } else {
                     // this is a application message. if direction (needs to go to the remote endpoint) and
@@ -152,6 +153,8 @@ where
                             .get_slim_header_mut()
                             .set_destination(&self.common.settings.destination);
                     }
+
+                    println!("data message received: {:?}, direction{:?}, dst {}", message.get_session_message_type(), direction, message.get_dst());
 
                     // Apply MLS encryption/decryption if enabled
                     if let Some(mls_state) = &mut self.mls_state {
@@ -313,9 +316,7 @@ where
             self.common
                 .delete_route(self.common.settings.control.clone(), conn)
                 .await?;
-            self.common
-                .delete_subscription(self.common.settings.control.clone(), conn)
-                .await?;
+            // Note: No subscription to control channel - moderator only sends to it
         }
 
         // Shutdown inner layer
@@ -484,7 +485,7 @@ where
 
         self.common
             .send_control_message(
-                &self.common.settings.destination.clone(),
+                &self.common.settings.control.clone(),
                 ProtoSessionMessageType::GroupRemove,
                 msg_id,
                 update_payload,
@@ -824,7 +825,7 @@ where
             debug!(id = %add_msg_id, "send add update to channel");
             self.common
                 .send_control_message(
-                    &self.common.settings.destination.clone(),
+                    &self.common.settings.control.clone(),
                     ProtoSessionMessageType::GroupAdd,
                     add_msg_id,
                     update_payload,
@@ -1126,7 +1127,7 @@ where
             return Ok(());
         }
 
-        let destination = self.common.settings.destination.clone();
+        let destination = self.common.settings.control.clone();
         let close_id = rand::random::<u32>();
         let close = self.common.create_control_message(
             &destination,

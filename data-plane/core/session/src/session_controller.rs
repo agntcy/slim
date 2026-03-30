@@ -715,7 +715,7 @@ where
                 debug!(%name, %conn, %subscription_id, "subscription deleted");
             }
             None => {
-                tracing::warn!(
+                tracing::debug!(
                     %name, %conn,
                     "no subscription_id found for subscription, skipping delete"
                 );

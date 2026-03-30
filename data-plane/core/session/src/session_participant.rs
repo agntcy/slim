@@ -119,6 +119,7 @@ where
                         source = %message.get_source(),
                         "received message",
                     );
+                    println!("control message received: {:?}, direction{:?}, dst {}", message.get_session_message_type(), direction, message.get_dst());
                     self.process_control_message(message).await
                 } else {
                     // Apply MLS encryption/decryption if enabled
@@ -126,6 +127,7 @@ where
                         mls_state.process_message(&mut message, direction)?;
                     }
 
+                    println!("data message received: {:?}, direction{:?}, dst {}", message.get_session_message_type(), direction, message.get_dst());
                     self.inner
                         .on_message(SessionMessage::OnMessage {
                             message,
