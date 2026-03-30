@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-name: rust-build-and-test
+
+name: reusable-rust-build-and-test
 on:
   workflow_call:
     inputs:

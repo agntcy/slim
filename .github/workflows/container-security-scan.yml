@@ -1,6 +1,8 @@
 # Copyright AGNTCiY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
-name: Container Security Scan
+
+---
+name: ci-container-security-scan
 
 on:
   # Nightly scan on main branch only; manual dispatch allowed.

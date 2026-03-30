@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-name: Lint GitHub Actions Workflows
+name: ci-lint-gha
 
 on:
   push:

@@ -1,6 +1,10 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
 ---
 
-name: python-build-and-test
+name: reusable-python-build-and-test
+
 on:
   workflow_call:
     inputs:

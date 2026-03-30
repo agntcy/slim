@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-name: Release Bindings
+name: ci-release-bindings
 
 on:
   push:
