@@ -222,7 +222,7 @@ jobs:
           echo "🔧 Using QEMU ARM64 emulation"
 
           # Determine Go arch for ARM64
-          # shellcheck disable=SC2193 # ${{ }} is expanded by GitHub Actions before shell execution
+          # shellcheck disable=SC2193
           if [[ "${{ matrix.platform.target }}" == *"aarch64"* ]]; then
             export GO_ARCH="arm64"
           else
@@ -230,7 +230,7 @@ jobs:
           fi
 
           # Determine libc variant
-          # shellcheck disable=SC2193 # ${{ }} is expanded by GitHub Actions before shell execution
+          # shellcheck disable=SC2193
           if [[ "${{ matrix.platform.target }}" == *"musl"* ]]; then
             ALPINE_VARIANT="alpine:latest"
           else
@@ -298,7 +298,7 @@ jobs:
           echo "🏃 Runner: ${{ matrix.platform.runner }}"
 
           # For Windows MinGW, we need to ensure MinGW tools are in PATH
-          # shellcheck disable=SC2193 # ${{ }} is expanded by GitHub Actions before shell execution
+          # shellcheck disable=SC2193
           if [[ "${{ matrix.platform.target }}" == "x86_64-pc-windows-gnu" ]]; then
             echo "🔧 Setting up MinGW environment"
             # GitHub Windows runners have MinGW installed

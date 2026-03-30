@@ -57,7 +57,7 @@ jobs:
             # Split the dependency into name and repo
             IFS='@' read -r name repo <<< "${dependency}"
 
-            echo helm repo add ${name} ${repo}
+            echo helm repo add "${name}" "${repo}"
           done
 
       - name: Run chart-testing (lint & test)
