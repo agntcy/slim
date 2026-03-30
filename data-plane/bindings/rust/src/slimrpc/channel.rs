@@ -34,6 +34,7 @@ use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_datapath::api::ProtoSessionType;
 use slim_datapath::messages::Name;
 use slim_service::app::App as SlimApp;
+use slim_session::errors::SessionError;
 
 // ── Multicast response types ──────────────────────────────────────────────────
 
@@ -59,8 +60,8 @@ pub struct MulticastItem<T> {
 
 use super::{
     BidiStreamHandler, Context, METHOD_KEY, Metadata, MulticastBidiStreamHandler,
-    MulticastResponseReader, RPC_ID_KEY, ReceivedMessage, RequestStreamWriter,
-    ResponseStreamReader, RpcCode, RpcError, SERVICE_KEY, STATUS_CODE_KEY,
+    MulticastResponseReader, RPC_DIR_KEY, RPC_DIR_REQ, RPC_ID_KEY, ReceivedMessage,
+    RequestStreamWriter, ResponseStreamReader, RpcCode, RpcError, SERVICE_KEY, STATUS_CODE_KEY,
     calculate_timeout_duration,
     codec::{Decoder, Encoder},
     send_eos,
@@ -150,6 +151,9 @@ async fn response_dispatcher_task(mut session_rx: SessionRx, dispatcher: Arc<Res
                     tracing::trace!(%rpc_id, "Received message for unknown rpc-id, dropping");
                 }
             }
+            Err(SessionError::ParticipantDisconnected(name)) => {
+                tracing::debug!(%name, "Response dispatcher: group member disconnected, continuing");
+            }
             Err(e) => {
                 tracing::debug!(error = %e, "Response dispatcher: session closed");
                 dispatcher.close_all();
@@ -183,6 +187,7 @@ fn generate_rpc_id() -> String {
 }
 
 async fn send_invite(session_tx: &SessionTx, member: &Name) -> Result<(), RpcError> {
+    tracing::debug!("Inviting member to rpc channel.. {}", member);
     session_tx
         .controller()
         .invite_participant(member)
@@ -211,6 +216,7 @@ fn first_msg_metadata(ctx: &Context, service: &str, method: &str, rpc_id: &str) 
     meta.insert(SERVICE_KEY.to_string(), service.to_string());
     meta.insert(METHOD_KEY.to_string(), method.to_string());
     meta.insert(RPC_ID_KEY.to_string(), rpc_id.to_string());
+    meta.insert(RPC_DIR_KEY.to_string(), RPC_DIR_REQ.to_string());
     meta
 }
 
@@ -218,6 +224,7 @@ fn first_msg_metadata(ctx: &Context, service: &str, method: &str, rpc_id: &str) 
 fn continuation_metadata(rpc_id: &str) -> Metadata {
     let mut meta = HashMap::new();
     meta.insert(RPC_ID_KEY.to_string(), rpc_id.to_string());
+    meta.insert(RPC_DIR_KEY.to_string(), RPC_DIR_REQ.to_string());
     meta
 }
 
@@ -365,6 +372,13 @@ impl Channel {
         // Invite all members whenever the GROUP session is (re)created.
         if self.is_group {
             for member in &self.initial_members {
+                if let Some(conn_id) = self.connection_id {
+                    self.app.set_route(member, conn_id).await.map_err(|e| {
+                        RpcError::internal(format!(
+                            "Failed to set route for group member {member}: {e}"
+                        ))
+                    })?;
+                }
                 send_invite(&session_tx, member).await?;
             }
         }
@@ -464,8 +478,18 @@ impl Channel {
                 .await?;
             handles.push(handle);
         }
-        let results = join_all(handles).await;
-        for result in results {
+        // The client EOS always carries RPC_DIR_KEY so the server can distinguish
+        // it from an echoed server EOS.  When the request stream was empty we also
+        // include service + method so the server can dispatch without a data frame.
+        let mut eos_meta = HashMap::from([(RPC_DIR_KEY.to_string(), RPC_DIR_REQ.to_string())]);
+        if first {
+            eos_meta.insert(SERVICE_KEY.to_string(), service_name.to_string());
+            eos_meta.insert(METHOD_KEY.to_string(), method_name.to_string());
+        }
+        handles.push(send_eos(session, session.destination(), rpc_id, Some(eos_meta)).await?);
+
+        // Wait for all (data + EOS) acks in a single batch.
+        for result in join_all(handles).await {
             result.map_err(|e| {
                 RpcError::internal(format!(
                     "Failed to complete sending {}-{}: {}",
@@ -1155,6 +1179,53 @@ impl Channel {
             timeout,
             metadata,
         ))
+    }
+
+    /// Close the persistent SLIM session held by this channel, if any.
+    ///
+    /// `timeout` optionally bounds how long to wait for the session layer to
+    /// confirm the close before giving up and proceeding with cleanup anyway.
+    /// Pass `None` to wait indefinitely.
+    ///
+    /// After this call the channel can still be used; a new session will be
+    /// created automatically on the next RPC call.
+    pub fn close(&self, timeout: Option<Duration>) -> Result<(), RpcError> {
+        crate::get_runtime().block_on(self.close_async(timeout))
+    }
+
+    /// Async version of [`close`](Self::close).
+    pub async fn close_async(&self, timeout: Option<Duration>) -> Result<(), RpcError> {
+        let mut guard = self.session.lock().await;
+        let Some(cs) = guard.take() else {
+            return Ok(());
+        };
+
+        let close_future = cs.tx.close(self.app.as_ref());
+        futures::pin_mut!(close_future);
+
+        if let Some(duration) = timeout {
+            // Bound the wait with a futures-timer delay so this works across
+            // all async runtimes exposed by the bindings.
+            let delay = Delay::new(duration);
+            futures::pin_mut!(delay);
+            match futures::future::select(close_future, delay).await {
+                futures::future::Either::Left((Err(e), _)) => {
+                    tracing::warn!(error = %e, "Error closing session");
+                }
+                futures::future::Either::Right(_) => {
+                    tracing::warn!("Timeout waiting for session close");
+                }
+                _ => {}
+            }
+        } else if let Err(e) = close_future.await {
+            tracing::warn!(error = %e, "Error closing session");
+        }
+
+        // Closing the session tx drops the underlying receive channel; the
+        // dispatcher task detects the closed channel and exits naturally.
+        let _ = cs.task.await;
+
+        Ok(())
     }
 }
 

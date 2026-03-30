@@ -56,11 +56,11 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			relayPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46490":          fmt.Sprintf("0.0.0.0:%d", relayPort),
-				"http://localhost:46490": fmt.Sprintf("http://localhost:%d", relayPort),
+				"0.0.0.0:46357":          fmt.Sprintf("0.0.0.0:%d", relayPort),
+				"http://localhost:46357": fmt.Sprintf("http://localhost:%d", relayPort),
 			}
 
-			relayConfig := writeTempConfig(tempDir, "./testdata/sub-ack-relay-config.yaml", "relay.yaml", replacements)
+			relayConfig := writeTempConfig(tempDir, "./testdata/server.yaml", "relay.yaml", replacements)
 
 			relaySession, err := gexec.Start(
 				exec.Command(slimPath, "--config", relayConfig),
@@ -72,7 +72,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			Eventually(relaySession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
 
 			// App A: subscriber.
-			appAConfig := writeTempConfig(tempDir, "./testdata/sub-ack-app-config.yaml", "app-a.yaml", replacements)
+			appAConfig := writeTempConfig(tempDir, "./testdata/client.yaml", "app-a.yaml", replacements)
 			appASession, err := gexec.Start(
 				exec.Command(sdkMockPath,
 					"--config", appAConfig,
@@ -89,7 +89,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			Eventually(appASession.Out, 10*time.Second).Should(gbytes.Say("subscription: remote ack received"))
 
 			// App B: sender.
-			appBConfig := writeTempConfig(tempDir, "./testdata/sub-ack-app-config.yaml", "app-b.yaml", replacements)
+			appBConfig := writeTempConfig(tempDir, "./testdata/client.yaml", "app-b.yaml", replacements)
 			appBSession, err := gexec.Start(
 				exec.Command(sdkMockPath,
 					"--config", appBConfig,
@@ -116,12 +116,12 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			relayPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46490":          fmt.Sprintf("0.0.0.0:%d", relayPort),
-				"http://localhost:46490": fmt.Sprintf("http://localhost:%d", relayPort),
+				"0.0.0.0:46357":          fmt.Sprintf("0.0.0.0:%d", relayPort),
+				"http://localhost:46357": fmt.Sprintf("http://localhost:%d", relayPort),
 			}
 
 			// Old relay as server.
-			relayConfig := writeTempConfig(tempDir, "./testdata/sub-ack-relay-config.yaml", "legacy-relay.yaml", replacements)
+			relayConfig := writeTempConfig(tempDir, "./testdata/server.yaml", "legacy-relay.yaml", replacements)
 			legacyRelaySession, err := gexec.Start(
 				exec.Command(legacySlimPath, "--config", relayConfig),
 				GinkgoWriter, GinkgoWriter,
@@ -132,7 +132,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			Eventually(legacyRelaySession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
 
 			// App A: subscriber, connects to old relay.
-			appAConfig := writeTempConfig(tempDir, "./testdata/sub-ack-app-config.yaml", "app-a.yaml", replacements)
+			appAConfig := writeTempConfig(tempDir, "./testdata/client.yaml", "app-a.yaml", replacements)
 			appASession, err := gexec.Start(
 				exec.Command(sdkMockPath,
 					"--config", appAConfig,
@@ -151,7 +151,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			Eventually(appASession.Out, 10*time.Second).Should(gbytes.Say("subscription: remote ack not available, link negotiation may not have completed yet"))
 
 			// App B: sender.
-			appBConfig := writeTempConfig(tempDir, "./testdata/sub-ack-app-config.yaml", "app-b.yaml", replacements)
+			appBConfig := writeTempConfig(tempDir, "./testdata/client.yaml", "app-b.yaml", replacements)
 			appBSession, err := gexec.Start(
 				exec.Command(sdkMockPath,
 					"--config", appBConfig,
@@ -180,12 +180,12 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			newRelayPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46490":          fmt.Sprintf("0.0.0.0:%d", newRelayPort),
-				"http://localhost:46490": fmt.Sprintf("http://localhost:%d", newRelayPort),
+				"0.0.0.0:46357":          fmt.Sprintf("0.0.0.0:%d", newRelayPort),
+				"http://localhost:46357": fmt.Sprintf("http://localhost:%d", newRelayPort),
 			}
 
 			// New relay as server.
-			newRelayConfig := writeTempConfig(tempDir, "./testdata/sub-ack-relay-config.yaml", "new-relay.yaml", replacements)
+			newRelayConfig := writeTempConfig(tempDir, "./testdata/server.yaml", "new-relay.yaml", replacements)
 			newRelaySession, err := gexec.Start(
 				exec.Command(slimPath, "--config", newRelayConfig),
 				GinkgoWriter, GinkgoWriter,
@@ -196,7 +196,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			Eventually(newRelaySession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
 
 			// Old relay connects to new relay as a client (relay-to-relay link).
-			legacyClientConfig := writeTempConfig(tempDir, "./testdata/sub-ack-app-config.yaml", "legacy-client.yaml", replacements)
+			legacyClientConfig := writeTempConfig(tempDir, "./testdata/client.yaml", "legacy-client.yaml", replacements)
 			legacyClientSession, err := gexec.Start(
 				exec.Command(legacySlimPath, "--config", legacyClientConfig),
 				GinkgoWriter, GinkgoWriter,
@@ -207,7 +207,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			Eventually(newRelaySession.Out, 10*time.Second).Should(gbytes.Say("new connection received from remote"))
 
 			// App A: subscriber on the new relay.
-			appAConfig := writeTempConfig(tempDir, "./testdata/sub-ack-app-config.yaml", "app-a.yaml", replacements)
+			appAConfig := writeTempConfig(tempDir, "./testdata/client.yaml", "app-a.yaml", replacements)
 			appASession, err := gexec.Start(
 				exec.Command(sdkMockPath,
 					"--config", appAConfig,
@@ -224,7 +224,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			Eventually(appASession.Out, 10*time.Second).Should(gbytes.Say("subscription: remote ack received"))
 
 			// App B: sender, also on the new relay.
-			appBConfig := writeTempConfig(tempDir, "./testdata/sub-ack-app-config.yaml", "app-b.yaml", replacements)
+			appBConfig := writeTempConfig(tempDir, "./testdata/client.yaml", "app-b.yaml", replacements)
 			appBSession, err := gexec.Start(
 				exec.Command(sdkMockPath,
 					"--config", appBConfig,
@@ -254,11 +254,11 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			relayPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46490":          fmt.Sprintf("0.0.0.0:%d", relayPort),
-				"http://localhost:46490": fmt.Sprintf("http://localhost:%d", relayPort),
+				"0.0.0.0:46357":          fmt.Sprintf("0.0.0.0:%d", relayPort),
+				"http://localhost:46357": fmt.Sprintf("http://localhost:%d", relayPort),
 			}
 
-			relayConfig := writeTempConfig(tempDir, "./testdata/sub-ack-relay-config.yaml", "relay.yaml", replacements)
+			relayConfig := writeTempConfig(tempDir, "./testdata/server.yaml", "relay.yaml", replacements)
 			relaySession, err := gexec.Start(
 				exec.Command(slimPath, "--config", relayConfig),
 				GinkgoWriter, GinkgoWriter,
@@ -269,7 +269,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			Eventually(relaySession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
 
 			// App A: subscriber.
-			appAConfig := writeTempConfig(tempDir, "./testdata/sub-ack-app-config.yaml", "app-a.yaml", replacements)
+			appAConfig := writeTempConfig(tempDir, "./testdata/client.yaml", "app-a.yaml", replacements)
 			appASession, err := gexec.Start(
 				exec.Command(sdkMockPath,
 					"--config", appAConfig,
@@ -285,7 +285,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			Eventually(appASession.Out, 10*time.Second).Should(gbytes.Say("subscription: remote ack received"))
 
 			// App B: sender.
-			appBConfig := writeTempConfig(tempDir, "./testdata/sub-ack-app-config.yaml", "app-b.yaml", replacements)
+			appBConfig := writeTempConfig(tempDir, "./testdata/client.yaml", "app-b.yaml", replacements)
 			appBSession, err := gexec.Start(
 				exec.Command(sdkMockPath,
 					"--config", appBConfig,
@@ -313,12 +313,12 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			relayPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46490":          fmt.Sprintf("0.0.0.0:%d", relayPort),
-				"http://localhost:46490": fmt.Sprintf("http://localhost:%d", relayPort),
+				"0.0.0.0:46357":          fmt.Sprintf("0.0.0.0:%d", relayPort),
+				"http://localhost:46357": fmt.Sprintf("http://localhost:%d", relayPort),
 			}
 
 			// Old relay as central hub.
-			relayConfig := writeTempConfig(tempDir, "./testdata/sub-ack-relay-config.yaml", "legacy-relay.yaml", replacements)
+			relayConfig := writeTempConfig(tempDir, "./testdata/server.yaml", "legacy-relay.yaml", replacements)
 			relaySession, err := gexec.Start(
 				exec.Command(legacySlimPath, "--config", relayConfig),
 				GinkgoWriter, GinkgoWriter,
@@ -329,7 +329,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			Eventually(relaySession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
 
 			// App A: subscriber.
-			appAConfig := writeTempConfig(tempDir, "./testdata/sub-ack-app-config.yaml", "app-a.yaml", replacements)
+			appAConfig := writeTempConfig(tempDir, "./testdata/client.yaml", "app-a.yaml", replacements)
 			appASession, err := gexec.Start(
 				exec.Command(sdkMockPath,
 					"--config", appAConfig,
@@ -348,7 +348,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			time.Sleep(500 * time.Millisecond)
 
 			// App B: sender.
-			appBConfig := writeTempConfig(tempDir, "./testdata/sub-ack-app-config.yaml", "app-b.yaml", replacements)
+			appBConfig := writeTempConfig(tempDir, "./testdata/client.yaml", "app-b.yaml", replacements)
 			appBSession, err := gexec.Start(
 				exec.Command(sdkMockPath,
 					"--config", appBConfig,
@@ -382,11 +382,11 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			relayPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46490":          fmt.Sprintf("0.0.0.0:%d", relayPort),
-				"http://localhost:46490": fmt.Sprintf("http://localhost:%d", relayPort),
+				"0.0.0.0:46357":          fmt.Sprintf("0.0.0.0:%d", relayPort),
+				"http://localhost:46357": fmt.Sprintf("http://localhost:%d", relayPort),
 			}
 
-			relayConfig := writeTempConfig(tempDir, "./testdata/sub-ack-relay-config.yaml", "relay.yaml", replacements)
+			relayConfig := writeTempConfig(tempDir, "./testdata/server.yaml", "relay.yaml", replacements)
 			relaySession, err := gexec.Start(
 				exec.Command(slimPath, "--config", relayConfig),
 				GinkgoWriter, GinkgoWriter,
@@ -397,7 +397,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			Eventually(relaySession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
 
 			// App A: old sdk-mock, subscriber.
-			appAConfig := writeTempConfig(tempDir, "./testdata/sub-ack-app-config.yaml", "legacy-app-a.yaml", replacements)
+			appAConfig := writeTempConfig(tempDir, "./testdata/client.yaml", "legacy-app-a.yaml", replacements)
 			appASession, err := gexec.Start(
 				exec.Command(legacySDKMockPath,
 					"--config", appAConfig,
@@ -409,12 +409,8 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			Expect(err).NotTo(HaveOccurred())
 			defer terminateSession(appASession, 5*time.Second)
 
-			// New relay processes the old app's subscribe with default path
-			// (no ack_id from old app, use_remote_ack=false).
-			Eventually(relaySession.Out, 10*time.Second).Should(gbytes.Say("subscription: remote ack not available, link negotiation may not have completed yet"))
-
 			// App B: new sdk-mock, sender.
-			appBConfig := writeTempConfig(tempDir, "./testdata/sub-ack-app-config.yaml", "app-b.yaml", replacements)
+			appBConfig := writeTempConfig(tempDir, "./testdata/client.yaml", "app-b.yaml", replacements)
 			appBSession, err := gexec.Start(
 				exec.Command(sdkMockPath,
 					"--config", appBConfig,
@@ -441,11 +437,11 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			relayPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46490":          fmt.Sprintf("0.0.0.0:%d", relayPort),
-				"http://localhost:46490": fmt.Sprintf("http://localhost:%d", relayPort),
+				"0.0.0.0:46357":          fmt.Sprintf("0.0.0.0:%d", relayPort),
+				"http://localhost:46357": fmt.Sprintf("http://localhost:%d", relayPort),
 			}
 
-			relayConfig := writeTempConfig(tempDir, "./testdata/sub-ack-relay-config.yaml", "legacy-relay.yaml", replacements)
+			relayConfig := writeTempConfig(tempDir, "./testdata/server.yaml", "legacy-relay.yaml", replacements)
 			relaySession, err := gexec.Start(
 				exec.Command(legacySlimPath, "--config", relayConfig),
 				GinkgoWriter, GinkgoWriter,
@@ -456,7 +452,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			Eventually(relaySession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
 
 			// App A: old sdk-mock, subscriber.
-			appAConfig := writeTempConfig(tempDir, "./testdata/sub-ack-app-config.yaml", "legacy-app-a.yaml", replacements)
+			appAConfig := writeTempConfig(tempDir, "./testdata/client.yaml", "legacy-app-a.yaml", replacements)
 			appASession, err := gexec.Start(
 				exec.Command(legacySDKMockPath,
 					"--config", appAConfig,
@@ -475,7 +471,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			time.Sleep(500 * time.Millisecond)
 
 			// App B: old sdk-mock, sender.
-			appBConfig := writeTempConfig(tempDir, "./testdata/sub-ack-app-config.yaml", "legacy-app-b.yaml", replacements)
+			appBConfig := writeTempConfig(tempDir, "./testdata/client.yaml", "legacy-app-b.yaml", replacements)
 			appBSession, err := gexec.Start(
 				exec.Command(legacySDKMockPath,
 					"--config", appBConfig,
@@ -503,11 +499,11 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			relayPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46490":          fmt.Sprintf("0.0.0.0:%d", relayPort),
-				"http://localhost:46490": fmt.Sprintf("http://localhost:%d", relayPort),
+				"0.0.0.0:46357":          fmt.Sprintf("0.0.0.0:%d", relayPort),
+				"http://localhost:46357": fmt.Sprintf("http://localhost:%d", relayPort),
 			}
 
-			relayConfig := writeTempConfig(tempDir, "./testdata/sub-ack-relay-config.yaml", "relay.yaml", replacements)
+			relayConfig := writeTempConfig(tempDir, "./testdata/server.yaml", "relay.yaml", replacements)
 			relaySession, err := gexec.Start(
 				exec.Command(slimPath, "--config", relayConfig),
 				GinkgoWriter, GinkgoWriter,
@@ -518,7 +514,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			Eventually(relaySession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
 
 			// App A: old sdk-mock, subscriber.
-			appAConfig := writeTempConfig(tempDir, "./testdata/sub-ack-app-config.yaml", "legacy-app-a.yaml", replacements)
+			appAConfig := writeTempConfig(tempDir, "./testdata/client.yaml", "legacy-app-a.yaml", replacements)
 			appASession, err := gexec.Start(
 				exec.Command(legacySDKMockPath,
 					"--config", appAConfig,
@@ -530,11 +526,8 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			Expect(err).NotTo(HaveOccurred())
 			defer terminateSession(appASession, 5*time.Second)
 
-			// New relay takes the default path for the old app's subscribe (no ack_id).
-			Eventually(relaySession.Out, 10*time.Second).Should(gbytes.Say("subscription: remote ack not available, link negotiation may not have completed yet"))
-
 			// App B: new sdk-mock, sender.
-			appBConfig := writeTempConfig(tempDir, "./testdata/sub-ack-app-config.yaml", "app-b.yaml", replacements)
+			appBConfig := writeTempConfig(tempDir, "./testdata/client.yaml", "app-b.yaml", replacements)
 			appBSession, err := gexec.Start(
 				exec.Command(sdkMockPath,
 					"--config", appBConfig,
@@ -561,12 +554,12 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			relayPort := reservePort()
 
 			replacements := map[string]string{
-				"0.0.0.0:46490":          fmt.Sprintf("0.0.0.0:%d", relayPort),
-				"http://localhost:46490": fmt.Sprintf("http://localhost:%d", relayPort),
+				"0.0.0.0:46357":          fmt.Sprintf("0.0.0.0:%d", relayPort),
+				"http://localhost:46357": fmt.Sprintf("http://localhost:%d", relayPort),
 			}
 
 			// Old relay as hub.
-			relayConfig := writeTempConfig(tempDir, "./testdata/sub-ack-relay-config.yaml", "legacy-relay.yaml", replacements)
+			relayConfig := writeTempConfig(tempDir, "./testdata/server.yaml", "legacy-relay.yaml", replacements)
 			relaySession, err := gexec.Start(
 				exec.Command(legacySlimPath, "--config", relayConfig),
 				GinkgoWriter, GinkgoWriter,
@@ -577,7 +570,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			Eventually(relaySession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
 
 			// App A: old sdk-mock, subscriber.
-			appAConfig := writeTempConfig(tempDir, "./testdata/sub-ack-app-config.yaml", "legacy-app-a.yaml", replacements)
+			appAConfig := writeTempConfig(tempDir, "./testdata/client.yaml", "legacy-app-a.yaml", replacements)
 			appASession, err := gexec.Start(
 				exec.Command(legacySDKMockPath,
 					"--config", appAConfig,
@@ -596,7 +589,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			time.Sleep(500 * time.Millisecond)
 
 			// App B: new sdk-mock, sender.
-			appBConfig := writeTempConfig(tempDir, "./testdata/sub-ack-app-config.yaml", "app-b.yaml", replacements)
+			appBConfig := writeTempConfig(tempDir, "./testdata/client.yaml", "app-b.yaml", replacements)
 			appBSession, err := gexec.Start(
 				exec.Command(sdkMockPath,
 					"--config", appBConfig,

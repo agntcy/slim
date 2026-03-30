@@ -21,12 +21,12 @@ includes:
     internal: true
 
 env:
-  SHARED_SECRET: "demo-secret-key-for-examples012345"
+  SHARED_SECRET: "my_shared_secret_for_testing_purposes_only"
 
 tasks:
   default:
     cmds:
-      - task -l
+      - task -l- -
 
   python:bindings:devdeps:
     internal: true
@@ -36,7 +36,7 @@ tasks:
   python:bindings:lint:
     desc: "Lint the Python bindings"
     deps:
-       - python:bindings:devdeps
+      - python:bindings:devdeps
     cmds:
       - uv sync --group linting
       - uv run ruff check
@@ -50,19 +50,20 @@ tasks:
       RELEASE:
         sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
     cmds:
-      - echo "🔨 Building Python bindings..."
+      - echo "Building Python bindings..."
+      - uv sync
       - task: rust:run-command
         vars:
           COMMAND: |
             uv run maturin develop --uv {{.RELEASE}}
-      - echo "✅ Build complete"
+      - echo "Build complete"
 
   python:bindings:test:
     desc: "Test the Python bindings"
     deps:
       - python:bindings:build
-      - python:bindings:devdeps
     cmds:
+      - task: python:bindings:devdeps
       - uv run pytest -s {{.TESTS}}
     vars:
       TARGET: '{{.TESTS | default ""}}'
@@ -144,7 +145,7 @@ tasks:
             ARCH="aarch64"
             ;;
           *)
-            echo "❌ Unsupported architecture: $ARCH"
+            echo "Unsupported architecture: $ARCH"
             exit 1
             ;;
         esac
@@ -169,19 +170,19 @@ tasks:
               WHEEL_FILE="dist/slim_bindings-{{.VERSION}}-py3-none-win_${ARCH}.whl"
               ;;
             *)
-              echo "❌ Unsupported OS: $OS"
+              echo "Unsupported OS: $OS"
               exit 1
               ;;
           esac
         fi
 
-        echo "🔍 Detected system: $OS ($ARCH)"
-        echo "🧪 Testing wheel installation: $WHEEL_FILE"
+        echo "Detected system: $OS ($ARCH)"
+        echo "Testing wheel installation: $WHEEL_FILE"
         echo "Python versions: {{.INTERPRETERS}}"
         echo ""
 
         if [ ! -f "$WHEEL_FILE" ]; then
-          echo "❌ Wheel file not found: $WHEEL_FILE"
+          echo "Wheel file not found: $WHEEL_FILE"
           echo ""
           echo "Available wheels in dist/:"
           ls -1 dist/*.whl 2>/dev/null || echo "  (no wheels found)"
@@ -199,18 +200,18 @@ tasks:
 
           if uv venv "$VENV_DIR" --python "${py_version}" 2>&1; then
             if uv pip install --python "$VENV_DIR" "$WHEEL_FILE" 2>&1; then
-              if uv run --python "$VENV_DIR" python -c "import slim_bindings; print('  ✅ Module imported successfully')" 2>&1; then
-                echo "  ✅ Python ${py_version}: Installation and import successful"
+              if uv run --python "$VENV_DIR" python -c "import slim_bindings; print('  Module imported successfully')" 2>&1; then
+                echo "  Python ${py_version}: Installation and import successful"
               else
-                echo "  ❌ Python ${py_version}: Import failed"
+                echo "  Python ${py_version}: Import failed"
                 FAILED=$((FAILED + 1))
               fi
             else
-              echo "  ❌ Python ${py_version}: Installation failed"
+              echo "  Python ${py_version}: Installation failed"
               FAILED=$((FAILED + 1))
             fi
           else
-            echo "  ❌ Python ${py_version}: Failed to create venv"
+            echo "  Python ${py_version}: Failed to create venv"
             FAILED=$((FAILED + 1))
           fi
 
@@ -219,16 +220,16 @@ tasks:
         done
 
         if [ $FAILED -eq 0 ]; then
-          echo "✅ All Python versions tested successfully!"
+          echo "All Python versions tested successfully!"
         else
-          echo "❌ $FAILED Python version(s) failed"
+          echo "$FAILED Python version(s) failed"
           exit 1
         fi
 
   python:bindings:clean:
     desc: Clean build artifacts
     cmds:
-      - echo "🧹 Cleaning build artifacts..."
+      - echo "Cleaning build artifacts..."
       - uv pip uninstall -y slim-bindings 2>/dev/null || true
       - rm -rf ../rust/target/debug/libslim_bindings.so
       - rm -rf ../rust/target/debug/libslim_bindings.dylib
@@ -251,15 +252,23 @@ tasks:
       - rm -rf examples/__pycache__/
       - rm -rf examples/*/__pycache__/
       - rm -rf tests/__pycache__/
-      - echo "✅ Clean complete"
+      - echo "Clean complete"
 
   python:bindings:install-examples:
     desc: "Install slim-bindings with examples dependencies"
     cmds:
       - uv pip install 'slim-bindings[examples]'
 
-  python:example:server:
+  python:build:
+    desc: "Build Python bindings and install example dependencies"
+    cmds:
+      - task: python:bindings:build
+      - task: python:bindings:install-examples
+
+  python:examples:server:
     desc: "Run the server example"
+    deps:
+      - python:build
     env:
       SLIM_INSTANCE_ID: server
     cmds:
@@ -267,10 +276,10 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python:example:p2p:alice:
+  python:examples:p2p:alice:
     desc: "Point to Point example - Alice will listen for messages and echo them"
     deps:
-      - python:bindings:install-examples
+      - python:build
     cmds:
       - |
         uv run slim-bindings-p2p                                                      \
@@ -279,10 +288,10 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python:example:p2p:no-mls:bob:
+  python:examples:p2p:no-mls:bob:
     desc: "Point to Point example - Bob will send unencrypted messages to Alice"
     deps:
-      - python:bindings:install-examples
+      - python:build
     env:
       SLIM_INSTANCE_ID: bob
     cmds:
@@ -295,10 +304,10 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python:example:p2p:mls:bob:
+  python:examples:p2p:mls:bob:
     desc: "Point to Point example - Bob will send encrypted messages to Alice"
     deps:
-      - python:bindings:install-examples
+      - python:build
     env:
       SLIM_INSTANCE_ID: bob
     cmds:
@@ -312,10 +321,10 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python:example:group:moderator:
+  python:examples:group:moderator:
     desc: "group moderator example - Creates a channel, invites participants, and sends encrypted messages"
     deps:
-      - python:bindings:install-examples
+      - python:build
     cmds:
       - |
         uv run slim-bindings-group                                                    \
@@ -328,10 +337,10 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python:example:group:client-1:
+  python:examples:group:client-1:
     desc: "Group client example - Waits to be invited to a channel and receives encrypted messages"
     deps:
-      - python:bindings:install-examples
+      - python:build
     cmds:
       - |
         uv run slim-bindings-group                                                    \
@@ -340,15 +349,46 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python:example:group:client-2:
+  python:examples:group:client-2:
     desc: "Group client example - Waits to be invited to a channel and receives encrypted messages"
     deps:
-      - python:bindings:install-examples
+      - python:build
     cmds:
       - |
         uv run slim-bindings-group                                                    \
           --local agntcy/ns/client-2                                                  \
           --shared-secret $SHARED_SECRET{{.EXTRA_ARGS}}
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  python:examples:rpc:server:
+    desc: "Run the SlimRPC server example"
+    deps:
+      - python:build
+    cmds:
+      - echo "Starting SlimRPC server..."
+      - uv run slim-bindings-simple-rpc-server --instance {{.INSTANCE}} {{.EXTRA_ARGS}}
+    vars:
+      INSTANCE: '{{.INSTANCE | default "server"}}'
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  python:examples:rpc:client:
+    desc: "Run the SlimRPC client example"
+    deps:
+      - python:build
+    cmds:
+      - echo "Starting SlimRPC client..."
+      - uv run slim-bindings-simple-rpc-client {{.EXTRA_ARGS}}
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  python:examples:rpc:group-client:
+    desc: "Run the SlimRPC group (multicast) client example"
+    deps:
+      - python:build
+    cmds:
+      - echo "Starting SlimRPC group client..."
+      - uv run slim-bindings-simple-rpc-client-group {{.EXTRA_ARGS}}
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 

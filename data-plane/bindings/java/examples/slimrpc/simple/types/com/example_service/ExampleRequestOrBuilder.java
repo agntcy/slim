@@ -3,10 +3,10 @@
 // source: example.proto
 // Protobuf Java Version: 4.29.3
 
-package com.exampleservice;
+package com.example_service;
 
 public interface ExampleRequestOrBuilder extends
-    // @@protoc_insertion_point(interface_extends:exampleservice.ExampleRequest)
+    // @@protoc_insertion_point(interface_extends:example_service.ExampleRequest)
     com.google.protobuf.MessageOrBuilder {
 
   /**

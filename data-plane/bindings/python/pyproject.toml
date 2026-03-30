@@ -51,6 +51,7 @@ slim-bindings-p2p = "examples.point_to_point:main"
 slim-bindings-server = "examples.slim:main"
 slim-bindings-simple-rpc-server = "examples.slimrpc.simple.server:main"
 slim-bindings-simple-rpc-client = "examples.slimrpc.simple.client:main"
+slim-bindings-simple-rpc-client-group = "examples.slimrpc.simple.client_group:main"
 
 [dependency-groups]
 building = [

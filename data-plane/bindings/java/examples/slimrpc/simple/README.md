@@ -44,6 +44,17 @@ In the third terminal, run the rpc client:
 task examples:rpc:client
 ```
 
+### Group (Multicast) Client
+
+To run the group client, start two server instances (server1 and server2) and then:
+
+```bash
+task examples:rpc:group-client
+```
+
+The group client broadcasts RPCs to multiple server instances using `TestGroupClient`
+and demonstrates all four multicast streaming patterns.
+
 ## Code Structure
 
 ### Server (`src/main/java/.../SlimrpcServerMain.java`)
@@ -94,9 +105,42 @@ StreamMessage msg = stream.recv();
 ## Features
 
 - All 4 RPC patterns (unary-unary, unary-stream, stream-unary, stream-stream)
+- Multicast (group) RPC across multiple server instances
 - Type-safe client and server interfaces
 - Synchronous stream wrappers for blocking send/recv
 - Automatic serialization/deserialization
 - Proper error handling with RPC exception conversion
 - Stream end detection (null return)
 - Forward-compatible server with unimplemented method stubs
+
+### Group Client (`src/main/java/.../SlimrpcGroupClientMain.java`)
+
+Demonstrates multicast RPC using a group channel that targets multiple server instances:
+
+#### 1. Multicast Unary-Unary
+```java
+Channel channel = Channel.newGroupWithConnection(app, serverNames, connId);
+TestSlimrpc.TestGroupClient client = new TestSlimrpc.TestGroupClientImpl(channel);
+MulticastResponseStream<ExampleResponse> stream = client.ExampleUnaryUnary(request, timeout, null);
+// Iterate: each item carries a context (source server) and the response
+```
+
+#### 2. Multicast Unary-Stream (Server Streaming)
+```java
+MulticastResponseStream<ExampleResponse> stream = client.ExampleUnaryStream(request, timeout, null);
+// Iterate multicast items from all servers
+```
+
+#### 3. Multicast Stream-Unary (Client Streaming)
+```java
+MulticastClientBidiStream<ExampleRequest, ExampleResponse> stream = client.ExampleStreamUnary(timeout, null);
+stream.send(request);
+stream.closeSend();
+// Receive one multicast response per server
+```
+
+#### 4. Multicast Stream-Stream (Bidirectional Streaming)
+```java
+MulticastClientBidiStream<ExampleRequest, ExampleResponse> stream = client.ExampleStreamStream(timeout, null);
+// Send in background thread, receive multicast items
+```
