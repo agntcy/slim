@@ -289,8 +289,12 @@ tasks:
 
   test:
     desc: Run all tests
+    vars:
+      VERSION: '{{.VERSION | default "devel"}}'
     deps:
       - task: generate
+        vars:
+          VERSION: '{{.VERSION}}'
     cmds:
       - echo "Running all tests..."
       - go test -v ./...
