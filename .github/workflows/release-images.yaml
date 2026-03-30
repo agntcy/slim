@@ -10,6 +10,9 @@ on:
       - 'slim-*'
       - 'control-plane-*'
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -17,6 +20,8 @@ concurrency:
 jobs:
   prepare-build:
     name: Prepare Build
+    permissions:
+      contents: read
     outputs:
       matrix: ${{ steps.all-targets.outputs.matrix }}
       image-tag: ${{ steps.resolve.outputs.version }}
@@ -25,6 +30,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Filter target
@@ -51,8 +57,8 @@ jobs:
           version=${_target##*-v}
 
           # set target and version as output
-          echo target=${target} >> ${GITHUB_OUTPUT}
-          echo version=${version} >> ${GITHUB_OUTPUT}
+          echo "target=${target}" >> "${GITHUB_OUTPUT}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
           # Print the target and version
           echo "Target: $target"
@@ -87,11 +93,14 @@ jobs:
   test-integration:
     name: Run integration tests
     needs: [ build-push ]
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          persist-credentials: false
           fetch-depth: 0
       - name: Trigger CSIT integration CI
         uses: ./.github/actions/trigger-integrations

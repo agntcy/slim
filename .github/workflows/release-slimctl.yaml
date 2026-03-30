@@ -72,6 +72,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
@@ -103,36 +105,38 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Extract version from tag
         id: version
         run: |
           TAG=${GITHUB_REF#refs/tags/}
           VERSION=${TAG#slimctl-v}
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Compute SHA256 for darwin archives
         id: sha256
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ steps.version.outputs.tag }}"
           gh release download "$TAG" \
             --pattern "slimctl-darwin-*.tar.gz" \
             --dir /tmp/slimctl-release
           AMD64_SHA=$(shasum -a 256 /tmp/slimctl-release/slimctl-darwin-amd64.tar.gz | cut -d' ' -f1)
           ARM64_SHA=$(shasum -a 256 /tmp/slimctl-release/slimctl-darwin-arm64.tar.gz | cut -d' ' -f1)
-          echo "amd64=$AMD64_SHA" >> $GITHUB_OUTPUT
-          echo "arm64=$ARM64_SHA" >> $GITHUB_OUTPUT
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          echo "amd64=$AMD64_SHA" >> "$GITHUB_OUTPUT"
+          echo "arm64=$ARM64_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Create Homebrew cask
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          AMD64_SHA: ${{ steps.sha256.outputs.amd64 }}
+          ARM64_SHA: ${{ steps.sha256.outputs.arm64 }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          TAG="${{ steps.version.outputs.tag }}"
-          AMD64_SHA="${{ steps.sha256.outputs.amd64 }}"
-          ARM64_SHA="${{ steps.sha256.outputs.arm64 }}"
-
           mkdir -p ./Casks
           cat > ./Casks/slimctl.rb << EOF
           cask "slimctl" do

@@ -52,7 +52,8 @@ jobs:
         id: set-matrix
         run: |
           # Define the complete platform matrix
-          MATRIX='{
+          MATRIX=$(cat <<'MATRIX_EOF'
+          {
             "platform": [
               {
                 "runner": "ubuntu-24.04",
@@ -126,14 +127,16 @@ jobs:
                 }
               }
             ]
-          }'
+          }
+          MATRIX_EOF
+          )
 
           # Output full matrix for build job
-          echo "matrix=$(echo $MATRIX | jq -c .)" >> $GITHUB_OUTPUT
+          echo "matrix=$(echo "$MATRIX" | jq -c .)" >> "$GITHUB_OUTPUT"
 
           # Create filtered matrix (exclude windows-gnu for Python tests)
-          MATRIX_NO_WIN_GNU=$(echo $MATRIX | jq -c '{platform: [.platform[] | select(.target != "x86_64-pc-windows-gnu")], exclude: .exclude}')
-          echo "matrix-no-windows-gnu=$(echo $MATRIX_NO_WIN_GNU | jq -c .)" >> $GITHUB_OUTPUT
+          MATRIX_NO_WIN_GNU=$(echo "$MATRIX" | jq -c '{platform: [.platform[] | select(.target != "x86_64-pc-windows-gnu")], exclude: .exclude}')
+          echo "matrix-no-windows-gnu=$(echo "$MATRIX_NO_WIN_GNU" | jq -c .)" >> "$GITHUB_OUTPUT"
 
   build-libraries:
     needs: generate-matrix
@@ -149,6 +152,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
@@ -156,8 +161,10 @@ jobs:
           cache-enabled: false
       - name: Build library
         working-directory: ./data-plane/bindings/rust
+        env:
+          PLATFORM_TARGET: ${{ matrix.platform.target }}
         run: |
-          task bindings:build:all TARGET=${{ matrix.platform.target }} PROFILE=release
+          task bindings:build:all TARGET="$PLATFORM_TARGET" PROFILE=release
       - name: Upload libs
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
@@ -171,7 +178,9 @@ jobs:
       - name: Generate python wheels
         if: "!contains(matrix.platform.target, 'windows-gnu')"
         working-directory: ./data-plane/bindings/python
-        run: task python:bindings:packaging TARGET=${{ matrix.platform.target }} PROFILE=release
+        env:
+          PLATFORM_TARGET: ${{ matrix.platform.target }}
+        run: task python:bindings:packaging TARGET="$PLATFORM_TARGET" PROFILE=release
       - name: Upload wheels
         if: "!contains(matrix.platform.target, 'windows-gnu')"
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
@@ -193,6 +202,8 @@ jobs:
     steps:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
@@ -224,9 +235,11 @@ jobs:
           rm -rf "$GITHUB_WORKSPACE/target-artifacts"
 
       - name: Generate Go bindings
+        env:
+          TAG_NAME: ${{ inputs.tag-name }}
         run: |
           # Extract version from tag name if present (e.g., slim-bindings-v1.3.0 -> v1.3.0)
-          VERSION="${{ inputs.tag-name }}"
+          VERSION="$TAG_NAME"
           VERSION="${VERSION#slim-bindings-}"
           VERSION="${VERSION:-devel}"
 
@@ -279,6 +292,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup QEMU for ARM64 emulation
         if: matrix.platform.use_qemu == true
@@ -306,12 +321,15 @@ jobs:
 
       - name: Test wheel installation and usage (Linux with container)
         if: matrix.platform.os == 'linux'
+        env:
+          PLATFORM_TARGET: ${{ matrix.platform.target }}
+          PYTHON_PLATFORM: ${{ matrix.platform.python-platform }}
         run: |
           echo "📦 Testing Python wheel"
-          echo "🖥️  Platform: ${{ matrix.platform.target }}"
+          echo "🖥️  Platform: $PLATFORM_TARGET"
 
           # Determine platform for container selection
-          if [[ "${{ matrix.platform.target }}" == *"aarch64"* ]]; then
+          if [[ "$PLATFORM_TARGET" == *"aarch64"* ]]; then
             PLATFORM="linux/arm64"
             echo "🔧 Using ARM64 platform"
           else
@@ -320,61 +338,58 @@ jobs:
           fi
 
           # Determine libc variant for container selection
-          if [[ "${{ matrix.platform.target }}" == *"musl"* ]]; then
-            CONTAINER_IMAGE="python:${{ env.PYTHON_VERSION }}-alpine"
+          if [[ "$PLATFORM_TARGET" == *"musl"* ]]; then
+            CONTAINER_IMAGE="python:$PYTHON_VERSION-alpine"
           else
-            CONTAINER_IMAGE="python:${{ env.PYTHON_VERSION }}-slim"
+            CONTAINER_IMAGE="python:$PYTHON_VERSION-slim"
           fi
 
-          # Define Docker flags
-          DOCKER_FLAGS=(
-            --rm
-            --platform "$PLATFORM"
-            -v "$(pwd)/wheels:/wheels"
-            -v "$(pwd):/repo:ro"
-            -w /workspace
-          )
-
-          # Define test script
-          TEST_SCRIPT='
-            # Create test directory
-            TEST_DIR=$(mktemp -d)
-            cd $TEST_DIR
-            echo "📂 Testing in: $TEST_DIR"
-
-            # Find and install the wheel
-            WHEEL=$(find /wheels -name "*${{ matrix.platform.python-platform }}*.whl" | head -1)
-            if [ -z "$WHEEL" ]; then
-              echo "❌ No wheel found for platform ${{ matrix.platform.python-platform }}"
-              exit 1
-            fi
-
-            echo "📦 Installing wheel: $WHEEL"
-            pip install "$WHEEL"
-            echo "✅ Wheel installed successfully"
-
-            # Run installation test
-            python /repo/.github/tests/python/test_installation.py
-
-            echo ""
-            echo "🎉 All tests passed on ${{ matrix.platform.target }}!"
-          '
-
           # Run test in container
-          docker run "${DOCKER_FLAGS[@]}" "$CONTAINER_IMAGE" sh -c "$TEST_SCRIPT"
+          docker run --rm \
+            --platform "$PLATFORM" \
+            -v "$(pwd)/wheels:/wheels" \
+            -v "$(pwd):/repo:ro" \
+            -w /workspace \
+            -e "PYTHON_PLATFORM=$PYTHON_PLATFORM" \
+            -e "PLATFORM_TARGET=$PLATFORM_TARGET" \
+            "$CONTAINER_IMAGE" \
+            sh -c '
+              TEST_DIR=$(mktemp -d)
+              cd "$TEST_DIR"
+              echo "📂 Testing in: $TEST_DIR"
+
+              WHEEL=$(find /wheels -name "*${PYTHON_PLATFORM}*.whl" | head -1)
+              if [ -z "$WHEEL" ]; then
+                echo "❌ No wheel found for platform $PYTHON_PLATFORM"
+                exit 1
+              fi
+
+              echo "📦 Installing wheel: $WHEEL"
+              pip install "$WHEEL"
+              echo "✅ Wheel installed successfully"
+
+              python /repo/.github/tests/python/test_installation.py
+
+              echo ""
+              echo "🎉 All tests passed on $PLATFORM_TARGET!"
+            '
 
       - name: Test wheel installation and usage (Windows/macOS)
         if: matrix.platform.os != 'linux'
+        env:
+          PLATFORM_TARGET: ${{ matrix.platform.target }}
+          PLATFORM_RUNNER: ${{ matrix.platform.runner }}
+          PYTHON_PLATFORM: ${{ matrix.platform.python-platform }}
         run: |
           echo "📦 Testing Python wheel"
-          echo "🖥️  Platform: ${{ matrix.platform.target }}"
-          echo "🏃 Runner: ${{ matrix.platform.runner }}"
+          echo "🖥️  Platform: $PLATFORM_TARGET"
+          echo "🏃 Runner: $PLATFORM_RUNNER"
           echo "📂 Testing in current directory"
 
           # Find and install the wheel for this platform
-          WHEEL=$(find ./wheels -name "*${{ matrix.platform.python-platform }}*.whl" | head -1)
+          WHEEL=$(find ./wheels -name "*${PYTHON_PLATFORM}*.whl" | head -1)
           if [ -z "$WHEEL" ]; then
-            echo "❌ No wheel found for platform ${{ matrix.platform.python-platform }}"
+            echo "❌ No wheel found for platform $PYTHON_PLATFORM"
             echo "Available wheels:"
             find ./wheels -name "*.whl"
             exit 1
@@ -388,16 +403,20 @@ jobs:
           python ./.github/tests/python/test_installation.py
 
           echo ""
-          echo "🎉 All tests passed on ${{ matrix.platform.target }}!"
+          echo "🎉 All tests passed on $PLATFORM_TARGET!"
 
       - name: Test result summary
         if: success()
+        env:
+          PLATFORM_TARGET: ${{ matrix.platform.target }}
         run: |
-          echo "✅ Python wheel verification completed successfully on ${{ matrix.platform.target }}"
+          echo "✅ Python wheel verification completed successfully on $PLATFORM_TARGET"
           echo "The wheel can be safely published."
 
   dotnet-bindings-build-and-test:
     name: "Dotnet Bindings Build and Test"
+    permissions:
+      contents: read
     needs:
       - generate-matrix
       - build-libraries
@@ -410,6 +429,8 @@ jobs:
 
   kotlin-bindings-build-and-test:
     name: "Kotlin Bindings Build and Test"
+    permissions:
+      contents: read
     needs:
       - generate-matrix
       - build-libraries
@@ -420,6 +441,8 @@ jobs:
 
   java-bindings-build-and-test:
     name: "Java Bindings Build and Test"
+    permissions:
+      contents: read
     needs:
       - generate-matrix
       - build-libraries

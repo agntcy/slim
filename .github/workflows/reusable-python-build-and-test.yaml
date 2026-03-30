@@ -1,6 +1,10 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
 ---
 
-name: python-build-and-test
+name: reusable-python-build-and-test
+
 on:
   workflow_call:
     inputs:
@@ -60,14 +64,18 @@ jobs:
     steps:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - name: Setup UV
         id: setup-uv
         uses: ./.github/actions/setup-python
         with:
           uv-install: true
       - name: lint
+        env:
+          PREFIX: ${{ inputs.prefix }}
         run: |
-          task ${{ inputs.prefix }}:lint
+          task "${PREFIX}:lint"
 
   pytest:
     runs-on: ubuntu-latest
@@ -79,6 +87,7 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          persist-credentials: false
           fetch-depth: 0
       - name: Setup UV
         id: setup-uv
@@ -86,8 +95,10 @@ jobs:
         with:
           uv-install: true
       - name: Run test
+        env:
+          PREFIX: ${{ inputs.prefix }}
         run: |
-          task ${{ inputs.prefix }}:test
+          task "${PREFIX}:test"
 
   pypackage:
     runs-on: ubuntu-latest
@@ -99,6 +110,7 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          persist-credentials: false
           fetch-depth: 0
       - name: Setup UV
         id: setup-uv
@@ -106,8 +118,10 @@ jobs:
         with:
           uv-install: true
       - name: Build package
+        env:
+          PREFIX: ${{ inputs.prefix }}
         run: |
-          task ${{ inputs.prefix }}:packaging
+          task "${PREFIX}:packaging"
       - name: Show packages
         run: |
           ls -la ./dist

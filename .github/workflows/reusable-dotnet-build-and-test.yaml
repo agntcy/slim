@@ -56,6 +56,8 @@ jobs:
     steps:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
@@ -101,17 +103,19 @@ jobs:
           done
 
       - name: Build, test and pack
+        env:
+          TAG_NAME: ${{ inputs.tag-name }}
         run: |
-          TAG_NAME_PARAM=""
-          if [[ -n "${{ inputs.tag-name }}" ]]; then
-            TAG_NAME_PARAM="TAG_NAME=${{ inputs.tag-name }}"
-          fi
-
           task slimrpc:generate-proto
           task lint
           task build PROFILE=release
           task test
-          task pack OUTPUT_DIR=./nupkg $TAG_NAME_PARAM
+
+          pack_args=(pack OUTPUT_DIR=./nupkg)
+          if [[ -n "$TAG_NAME" ]]; then
+            pack_args+=("TAG_NAME=$TAG_NAME")
+          fi
+          task "${pack_args[@]}"
 
       - name: Upload NuGet packages
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0

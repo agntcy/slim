@@ -1,8 +1,6 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
-# CI: All GitHub Actions upgraded to latest versions and pinned to commit SHAs
-
 ---
 name: ci-test-and-build-control-plane
 
@@ -24,7 +22,7 @@ concurrency:
 
 permissions:
   contents: read
-  actions: write
+  actions: read
 
 jobs:
   control-plane-build-and-test:

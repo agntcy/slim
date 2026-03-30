@@ -1,8 +1,6 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
-# CI: All GitHub Actions upgraded to latest versions and pinned to commit SHAs
-
 ---
 name: ci-test-and-build-data-plane
 
@@ -25,6 +23,9 @@ on:
       - '.github/workflows/reusable-bindings-build-and-test.yaml'
       - '.github/actions/setup-rust/action.yaml'
       - 'data-plane/**'
+
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

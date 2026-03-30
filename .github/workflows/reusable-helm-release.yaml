@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-name: Release
+name: reusable-helm-release
 
 on:
   workflow_call:
@@ -33,6 +33,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Login to GitHub Container Registry
@@ -50,9 +51,11 @@ jobs:
       - name: Set chart name
         id: chart-name
         shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
-          echo "Resolving chart name from release tag: ${{ inputs.release_tag }}"
-          _chart_name=${{ inputs.release_tag }}
+          echo "Resolving chart name from release tag: $RELEASE_TAG"
+          _chart_name=$RELEASE_TAG
 
           # Extract the chart name from the release tag
           echo "value=${_chart_name%-v*}" >> "$GITHUB_OUTPUT"
@@ -63,19 +66,27 @@ jobs:
 
       - name: Helm lint
         shell: bash
+        env:
+          CHART_NAME: ${{ steps.chart-name.outputs.value }}
         run: |
           ## By convention the name of the chart is the name of the folder under charts/
-          helm lint charts/${{ steps.chart-name.outputs.value }} --with-subcharts
+          helm lint "charts/$CHART_NAME" --with-subcharts
 
       - name: Helm package
         id: build
         shell: bash
+        env:
+          CHART_NAME: ${{ steps.chart-name.outputs.value }}
+          CHART_VERSION: ${{ steps.chart-name.outputs.version }}
         run: |
-          helm package charts/${{ steps.chart-name.outputs.value }} --dependency-update --version ${{ steps.chart-name.outputs.version }}
-          echo "package=${{ steps.chart-name.outputs.value }}-${{ steps.chart-name.outputs.version }}.tgz" >> "$GITHUB_OUTPUT"
+          helm package "charts/$CHART_NAME" --dependency-update --version "$CHART_VERSION"
+          echo "package=${CHART_NAME}-${CHART_VERSION}.tgz" >> "$GITHUB_OUTPUT"
 
       - name: Helm push to GHCR OCI registry
         shell: bash
+        env:
+          HELM_PACKAGE: ${{ steps.build.outputs.package }}
+          REGISTRY: ${{ inputs.registry }}
         run: |
-          echo "🚧 Pushing ${{ steps.build.outputs.package }} to GHCR OCI registry"
-          helm push ${{ steps.build.outputs.package }} oci://${{ inputs.registry }}/helm
+          echo "🚧 Pushing $HELM_PACKAGE to GHCR OCI registry"
+          helm push "$HELM_PACKAGE" "oci://$REGISTRY/helm"

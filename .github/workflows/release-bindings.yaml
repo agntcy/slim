@@ -2,12 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-name: Release Bindings
+name: ci-release-bindings
 
 on:
   push:
     tags:
       - 'slim-bindings-*'
+
+permissions:
+  contents: read
 
 env:
   LIBRARY_NAME: slim_bindings
@@ -39,6 +42,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       # Download all library artifacts from build-libraries job
       - name: Download all library artifacts
@@ -71,7 +76,7 @@ jobs:
           # Each platform's libraries are in ./artifacts/bindings-<target>/
           # We'll zip each platform's libraries separately
 
-          for platform_dir in ./artifacts/bindings-*/; do
+          for platform_dir in "./artifacts/bindings-"*/; do
             if [ -d "$platform_dir" ]; then
               platform_name=$(basename "$platform_dir" | sed 's/^bindings-//')
               echo "📦 Preparing libraries for platform: $platform_name"
@@ -88,7 +93,7 @@ jobs:
                 LIB_NAME="${LIBRARY_NAME}_${ARCH}_${OS}"
               fi
 
-              for file in "$platform_dir"/lib${LIBRARY_NAME}* "$platform_dir"/${LIBRARY_NAME}.*; do
+              for file in "$platform_dir"/lib"${LIBRARY_NAME}"* "$platform_dir"/"${LIBRARY_NAME}".*; do
                 if [ -f "$file" ]; then
                   filename=$(basename "$file")
                   new_filename="${filename/${LIBRARY_NAME}/${LIB_NAME}}"

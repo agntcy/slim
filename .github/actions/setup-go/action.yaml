@@ -48,8 +48,10 @@ runs:
         key: go-cache-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
 
     - id: set-cache-hit
-      run: echo "cache-hit=${{ steps.go-cache.outputs.cache-hit }}" >> $GITHUB_OUTPUT
+      run: echo "cache-hit=$CACHE_HIT" >> $GITHUB_OUTPUT
       shell: bash
+      env:
+        CACHE_HIT: ${{ steps.go-cache.outputs.cache-hit }}
 
     - name: Update GITHUB_PATH
       run: echo "$HOME/.local/bin" >> $GITHUB_PATH

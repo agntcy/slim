@@ -1,6 +1,8 @@
 # Copyright AGNTCiY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
-name: Container Security Scan
+
+---
+name: ci-container-security-scan
 
 on:
   # Nightly scan on main branch only; manual dispatch allowed.
@@ -10,13 +12,15 @@ on:
 
 permissions:
   contents: read
-  security-events: write # for uploading SARIF
   actions: read
-  issues: write # create issues for critical CVEs
 
 jobs:
   trivy-scan:
     name: Trivy Image Scan (Pull from GHCR)
+    permissions:
+      contents: read
+      security-events: write # for uploading SARIF
+      issues: write # create issues for critical CVEs
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -37,6 +41,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Log in to GHCR
         uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
@@ -45,9 +51,12 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Pull image (explicit version)
+        env:
+          IMAGE_REPO: ${{ matrix.repo }}
+          IMAGE_VERSION: ${{ matrix.version }}
         run: |
           set -euo pipefail
-          IMAGE_REF="${{ matrix.repo }}:${{ matrix.version }}"
+          IMAGE_REF="${IMAGE_REPO}:${IMAGE_VERSION}"
           echo "Pulling $IMAGE_REF"
           docker pull "$IMAGE_REF"
           docker image inspect "$IMAGE_REF" >/dev/null 2>&1
@@ -78,12 +87,17 @@ jobs:
 
   summarize:
     name: Summarize Results
+    permissions:
+      contents: read
+      issues: write # create issues for critical CVEs
     needs: [trivy-scan]
     runs-on: ubuntu-latest
     if: always()
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Download artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -92,11 +106,11 @@ jobs:
 
       - name: Debug artifact contents
         run: |
-          echo "Downloaded artifact directory tree:" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          find trivy-artifacts -maxdepth 3 -type f -print >> $GITHUB_STEP_SUMMARY || true
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Downloaded artifact directory tree:" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          find trivy-artifacts -maxdepth 3 -type f -print >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Generate summary
         run: |
