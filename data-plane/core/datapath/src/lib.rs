@@ -33,7 +33,10 @@ pub struct Status {
 #[cfg(not(feature = "native"))]
 impl Status {
     pub fn new(code: u32, message: impl Into<String>) -> Self {
-        Self { code, message: message.into() }
+        Self {
+            code,
+            message: message.into(),
+        }
     }
 
     pub fn internal(message: impl Into<String>) -> Self {
