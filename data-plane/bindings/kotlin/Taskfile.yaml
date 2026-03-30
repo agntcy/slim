@@ -19,11 +19,11 @@ includes:
     internal: true
 
 env:
-  SHARED_SECRET: "demo-secret-key-for-examples012345"
+  SHARED_SECRET: "my_shared_secret_for_testing_purposes_only"
 
 vars:
   BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
-  PROFILE: '{{.PROFILE | default "release"}}'
+  PROFILE: '{{.PROFILE | default "debug"}}'
   CURRENT_TARGET:
     sh: 'rustc -vV | sed -n "s|host: ||p"'
   TARGET: "{{.TARGET | default .CURRENT_TARGET}}"

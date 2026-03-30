@@ -413,6 +413,125 @@ const REGISTER_STREAM_UNARY_METHOD: &str = r#"	server.RegisterStreamUnary("{{PAC
 const REGISTER_STREAM_STREAM_METHOD: &str = r#"	server.RegisterStreamStream("{{PACKAGE_NAME}}.{{SERVICE_NAME}}", "{{METHOD_NAME}}", &{{SERVICE_NAME}}_{{METHOD_NAME}}_Handler{impl: impl})
 "#;
 
+const GROUP_CLIENT_INTERFACE_TEMPLATE: &str = r#"
+// {{SERVICE_NAME}}GroupClient is the multicast (group) client API for {{SERVICE_NAME}} service.
+// Requires a *slim_bindings.Channel created with ChannelNewGroup* targeting multiple server instances.
+type {{SERVICE_NAME}}GroupClient interface {
+{{GROUP_CLIENT_METHODS}}
+}
+
+type {{SERVICE_NAME}}GroupClientImpl struct {
+	channel *slim_bindings.Channel
+}
+
+// New{{SERVICE_NAME}}GroupClient creates a new multicast {{SERVICE_NAME}} client.
+func New{{SERVICE_NAME}}GroupClient(channel *slim_bindings.Channel) {{SERVICE_NAME}}GroupClient {
+	return &{{SERVICE_NAME}}GroupClientImpl{channel: channel}
+}
+
+{{GROUP_CLIENT_METHOD_IMPLS}}
+"#;
+
+const UNARY_UNARY_GROUP_CLIENT_METHOD: &str = r#"	{{METHOD_NAME}}(ctx context.Context, req *{{INPUT_TYPE}}) (slimrpc.MulticastResponseStream[*{{OUTPUT_TYPE}}], error)
+"#;
+
+const UNARY_UNARY_GROUP_CLIENT_IMPL: &str = r#"
+func (c *{{SERVICE_NAME}}GroupClientImpl) {{METHOD_NAME}}(ctx context.Context, req *{{INPUT_TYPE}}) (slimrpc.MulticastResponseStream[*{{OUTPUT_TYPE}}], error) {
+	reqBytes, err := proto.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var timeout *time.Duration
+	if deadline, ok := ctx.Deadline(); ok {
+		t := time.Until(deadline)
+		timeout = &t
+	}
+
+	var metadata *map[string]string
+	if md, ok := slimrpc.MetadataFromContext(ctx); ok {
+		metadata = &md
+	}
+
+	reader, err := c.channel.CallMulticastUnaryAsync("{{PACKAGE_NAME}}.{{SERVICE_NAME}}", "{{METHOD_NAME}}", reqBytes, timeout, metadata)
+	if err != nil {
+		return nil, err
+	}
+	return slimrpc.NewMulticastResponseStream[*{{OUTPUT_TYPE}}](reader), nil
+}
+"#;
+
+const UNARY_STREAM_GROUP_CLIENT_METHOD: &str = r#"	{{METHOD_NAME}}(ctx context.Context, req *{{INPUT_TYPE}}) (slimrpc.MulticastResponseStream[*{{OUTPUT_TYPE}}], error)
+"#;
+
+const UNARY_STREAM_GROUP_CLIENT_IMPL: &str = r#"
+func (c *{{SERVICE_NAME}}GroupClientImpl) {{METHOD_NAME}}(ctx context.Context, req *{{INPUT_TYPE}}) (slimrpc.MulticastResponseStream[*{{OUTPUT_TYPE}}], error) {
+	reqBytes, err := proto.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var timeout *time.Duration
+	if deadline, ok := ctx.Deadline(); ok {
+		t := time.Until(deadline)
+		timeout = &t
+	}
+
+	var metadata *map[string]string
+	if md, ok := slimrpc.MetadataFromContext(ctx); ok {
+		metadata = &md
+	}
+
+	reader, err := c.channel.CallMulticastUnaryStreamAsync("{{PACKAGE_NAME}}.{{SERVICE_NAME}}", "{{METHOD_NAME}}", reqBytes, timeout, metadata)
+	if err != nil {
+		return nil, err
+	}
+	return slimrpc.NewMulticastResponseStream[*{{OUTPUT_TYPE}}](reader), nil
+}
+"#;
+
+const STREAM_UNARY_GROUP_CLIENT_METHOD: &str = r#"	{{METHOD_NAME}}(ctx context.Context) (slimrpc.MulticastClientBidiStream[*{{INPUT_TYPE}}, *{{OUTPUT_TYPE}}], error)
+"#;
+
+const STREAM_UNARY_GROUP_CLIENT_IMPL: &str = r#"
+func (c *{{SERVICE_NAME}}GroupClientImpl) {{METHOD_NAME}}(ctx context.Context) (slimrpc.MulticastClientBidiStream[*{{INPUT_TYPE}}, *{{OUTPUT_TYPE}}], error) {
+	var timeout *time.Duration
+	if deadline, ok := ctx.Deadline(); ok {
+		t := time.Until(deadline)
+		timeout = &t
+	}
+
+	var metadata *map[string]string
+	if md, ok := slimrpc.MetadataFromContext(ctx); ok {
+		metadata = &md
+	}
+
+	handler := c.channel.CallMulticastStreamUnary("{{PACKAGE_NAME}}.{{SERVICE_NAME}}", "{{METHOD_NAME}}", timeout, metadata)
+	return slimrpc.NewMulticastClientBidiStream[*{{INPUT_TYPE}}, *{{OUTPUT_TYPE}}](handler), nil
+}
+"#;
+
+const STREAM_STREAM_GROUP_CLIENT_METHOD: &str = r#"	{{METHOD_NAME}}(ctx context.Context) (slimrpc.MulticastClientBidiStream[*{{INPUT_TYPE}}, *{{OUTPUT_TYPE}}], error)
+"#;
+
+const STREAM_STREAM_GROUP_CLIENT_IMPL: &str = r#"
+func (c *{{SERVICE_NAME}}GroupClientImpl) {{METHOD_NAME}}(ctx context.Context) (slimrpc.MulticastClientBidiStream[*{{INPUT_TYPE}}, *{{OUTPUT_TYPE}}], error) {
+	var timeout *time.Duration
+	if deadline, ok := ctx.Deadline(); ok {
+		t := time.Until(deadline)
+		timeout = &t
+	}
+
+	var metadata *map[string]string
+	if md, ok := slimrpc.MetadataFromContext(ctx); ok {
+		metadata = &md
+	}
+
+	handler := c.channel.CallMulticastStreamStream("{{PACKAGE_NAME}}.{{SERVICE_NAME}}", "{{METHOD_NAME}}", timeout, metadata)
+	return slimrpc.NewMulticastClientBidiStream[*{{INPUT_TYPE}}, *{{OUTPUT_TYPE}}](handler), nil
+}
+"#;
+
 // --- END TEMPLATE DEFINITIONS ---
 
 /// Parse a `go_package` option value into an (import_path, package_alias) pair.
@@ -603,6 +722,8 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
             let mut unimplemented_methods = String::new();
             let mut handler_impls = String::new();
             let mut register_methods = String::new();
+            let mut group_client_methods = String::new();
+            let mut group_client_method_impls = String::new();
 
             // Generate methods
             for method in &service.method {
@@ -825,6 +946,43 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
                         );
                     }
                 }
+
+                // Generate group client methods for each method
+                let (group_client_method_tmpl, group_client_impl_tmpl) =
+                    match (is_client_streaming, is_server_streaming) {
+                        (false, false) => (
+                            UNARY_UNARY_GROUP_CLIENT_METHOD,
+                            UNARY_UNARY_GROUP_CLIENT_IMPL,
+                        ),
+                        (false, true) => (
+                            UNARY_STREAM_GROUP_CLIENT_METHOD,
+                            UNARY_STREAM_GROUP_CLIENT_IMPL,
+                        ),
+                        (true, false) => (
+                            STREAM_UNARY_GROUP_CLIENT_METHOD,
+                            STREAM_UNARY_GROUP_CLIENT_IMPL,
+                        ),
+                        (true, true) => (
+                            STREAM_STREAM_GROUP_CLIENT_METHOD,
+                            STREAM_STREAM_GROUP_CLIENT_IMPL,
+                        ),
+                    };
+
+                group_client_methods.push_str(
+                    &group_client_method_tmpl
+                        .replace("{{METHOD_NAME}}", &method_name)
+                        .replace("{{INPUT_TYPE}}", &input_type)
+                        .replace("{{OUTPUT_TYPE}}", &output_type),
+                );
+
+                group_client_method_impls.push_str(
+                    &group_client_impl_tmpl
+                        .replace("{{SERVICE_NAME}}", &service_name)
+                        .replace("{{METHOD_NAME}}", &method_name)
+                        .replace("{{INPUT_TYPE}}", &input_type)
+                        .replace("{{OUTPUT_TYPE}}", &output_type)
+                        .replace("{{PACKAGE_NAME}}", &package_name),
+                );
             }
 
             // Generate client interface
@@ -842,6 +1000,13 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
                 .replace("{{HANDLER_IMPLS}}", &handler_impls)
                 .replace("{{REGISTER_METHODS}}", register_methods.trim_end());
             service_definitions.push_str(&server_interface);
+
+            // Generate group client interface (included in the main file)
+            let group_client_interface = GROUP_CLIENT_INTERFACE_TEMPLATE
+                .replace("{{SERVICE_NAME}}", &service_name)
+                .replace("{{GROUP_CLIENT_METHODS}}", group_client_methods.trim_end())
+                .replace("{{GROUP_CLIENT_METHOD_IMPLS}}", &group_client_method_impls);
+            service_definitions.push_str(&group_client_interface);
         }
 
         if services_found {
@@ -1306,5 +1471,81 @@ mod tests {
             content
         );
         assert!(content.contains("*emptypb.Empty"));
+    }
+
+    #[test]
+    fn test_generate_group_client() {
+        // Test that a group file is generated with all four multicast method types
+        let methods = vec![
+            MethodDescriptorProto {
+                name: Some("ExampleUnaryUnary".to_string()),
+                input_type: Some(".example.Request".to_string()),
+                output_type: Some(".example.Response".to_string()),
+                client_streaming: Some(false),
+                server_streaming: Some(false),
+                ..Default::default()
+            },
+            MethodDescriptorProto {
+                name: Some("ExampleUnaryStream".to_string()),
+                input_type: Some(".example.Request".to_string()),
+                output_type: Some(".example.Response".to_string()),
+                client_streaming: Some(false),
+                server_streaming: Some(true),
+                ..Default::default()
+            },
+            MethodDescriptorProto {
+                name: Some("ExampleStreamUnary".to_string()),
+                input_type: Some(".example.Request".to_string()),
+                output_type: Some(".example.Response".to_string()),
+                client_streaming: Some(true),
+                server_streaming: Some(false),
+                ..Default::default()
+            },
+            MethodDescriptorProto {
+                name: Some("ExampleStreamStream".to_string()),
+                input_type: Some(".example.Request".to_string()),
+                output_type: Some(".example.Response".to_string()),
+                client_streaming: Some(true),
+                server_streaming: Some(true),
+                ..Default::default()
+            },
+        ];
+        let service = ServiceDescriptorProto {
+            name: Some("Test".to_string()),
+            method: methods,
+            ..Default::default()
+        };
+        let file = create_test_file_descriptor("example.proto", "example", vec![service]);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["example.proto".to_string()],
+            proto_file: vec![file],
+            ..Default::default()
+        };
+
+        let response = generate(request).unwrap();
+
+        // Single file generated containing both regular and group stubs
+        assert_eq!(response.file.len(), 1);
+
+        let file_name = response.file[0].name.as_ref().unwrap();
+        assert_eq!(file_name, "example_slimrpc.pb.go");
+
+        let content = response.file[0].content.as_ref().unwrap();
+
+        // No build tag
+        assert!(!content.contains("//go:build slim_multicast"));
+
+        // TestGroupClient interface
+        assert!(content.contains("TestGroupClient interface"));
+
+        // Constructor function
+        assert!(content.contains("NewTestGroupClient"));
+
+        // All four channel methods referenced
+        assert!(content.contains("CallMulticastUnaryAsync"));
+        assert!(content.contains("CallMulticastUnaryStreamAsync"));
+        assert!(content.contains("CallMulticastStreamUnary"));
+        assert!(content.contains("CallMulticastStreamStream"));
     }
 }

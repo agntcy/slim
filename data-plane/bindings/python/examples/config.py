@@ -20,6 +20,8 @@ from typing import Any
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from examples.constants import SLIM_ADDR
+
 
 class AuthMode(str, Enum):
     """Authentication mode for SLIM applications."""
@@ -58,7 +60,7 @@ class BaseConfig(BaseSettings):
 
     # Service connection
     slim: str = Field(
-        default="http://127.0.0.1:46357",
+        default=SLIM_ADDR,
         description="SLIM remote endpoint URL (used when slim_client_config is not set)",
     )
 

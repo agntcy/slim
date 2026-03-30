@@ -110,7 +110,7 @@ jobs:
 
           task slimrpc:generate-proto
           task lint
-          task build
+          task build PROFILE=release
           task test
           task pack OUTPUT_DIR=./nupkg $TAG_NAME_PARAM
 
