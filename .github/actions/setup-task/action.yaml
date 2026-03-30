@@ -24,7 +24,7 @@ runs:
   using: "composite"
   steps:
     - name: Setup Task
-      uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2
+      uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2.0.0
       with:
         version: ${{ inputs.version }}
         repo-token: ${{ inputs.github-token }}
