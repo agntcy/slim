@@ -67,20 +67,22 @@ tasks:
       USE_LOCAL_BINDINGS: '{{.USE_LOCAL_BINDINGS | default "false"}}'
       FORCE_LOCAL_BINDINGS: '{{.FORCE_LOCAL_BINDINGS | default "false"}}'
     deps:
-      - data-plane:build
+      - task: data-plane:build
+        vars:
+          ARGS: "--workspace --bins --locked --exclude agntcy-slim-bindings"
       - tests:build-legacy-binaries
-      - tests:build-slimrpc-examples
       - control-plane:build
     cmds:
+      - task: tests:build-slimrpc-examples
       - go -C ./integration test -v -failfast -test.paniconexit0 -ginkgo.timeout 5m -timeout 5m .
 
   tests:build-slimrpc-examples:
     desc: "Build all slimrpc example binaries for cross-language testing"
     cmds:
       - task -d ../data-plane/bindings/go build
-      - task -d ../data-plane/bindings/python python:build
       - task -d ../data-plane/bindings/java build
       - task -d ../data-plane/bindings/dotnet build
+      - task -d ../data-plane/bindings/python python:build
 
   tests:integration:slimrpc:
     desc: "Run cross-language slimrpc integration tests"
