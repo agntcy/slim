@@ -260,9 +260,16 @@ jobs:
           fi
 
       - name: Run Go bindings tests
+        env:
+          TAG_NAME: ${{ inputs.tag-name }}
         run: |
+          # Extract version from tag name if present (e.g., slim-bindings-v1.3.0 -> v1.3.0)
+          VERSION="$TAG_NAME"
+          VERSION="${VERSION#slim-bindings-}"
+          VERSION="${VERSION:-devel}"
+
           echo "Running Go bindings tests..."
-          task test PROFILE=release
+          task test PROFILE=release VERSION="$VERSION"
 
       - name: Upload Generated Go code
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
