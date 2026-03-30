@@ -93,7 +93,7 @@ jobs:
                 LIB_NAME="${LIBRARY_NAME}_${ARCH}_${OS}"
               fi
 
-              for file in "$platform_dir"/lib${LIBRARY_NAME}* "$platform_dir"/${LIBRARY_NAME}.*; do
+              for file in "$platform_dir"/lib"${LIBRARY_NAME}"* "$platform_dir"/"${LIBRARY_NAME}".*; do
                 if [ -f "$file" ]; then
                   filename=$(basename "$file")
                   new_filename="${filename/${LIBRARY_NAME}/${LIB_NAME}}"

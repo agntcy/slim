@@ -116,7 +116,7 @@ jobs:
           task lint
           task build PROFILE=release
           task test
-          task pack OUTPUT_DIR=./nupkg $TAG_NAME_PARAM
+          task pack OUTPUT_DIR=./nupkg "$TAG_NAME_PARAM"
 
       - name: Upload NuGet packages
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0

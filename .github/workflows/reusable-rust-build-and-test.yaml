@@ -89,7 +89,7 @@ jobs:
         env:
           TASK_PREFIX: ${{ inputs.task-prefix }}
         run: |
-          task ${TASK_PREFIX}:lint
+          task "${TASK_PREFIX}:lint"
 
   test-coverage:
     runs-on: ${{ inputs.runner }}
@@ -116,7 +116,7 @@ jobs:
         env:
           TASK_PREFIX: ${{ inputs.task-prefix }}
         run: |
-          task ${TASK_PREFIX}:test:coverage
+          task "${TASK_PREFIX}:test:coverage"
 
   unittest-matrix:
     runs-on: ${{ inputs.runner }}
@@ -151,7 +151,7 @@ jobs:
         env:
           TASK_PREFIX: ${{ inputs.task-prefix }}
         run: |
-          task ${TASK_PREFIX}:test
+          task "${TASK_PREFIX}:test"
 
   unittest:
     runs-on: ${{ inputs.runner }}
@@ -211,4 +211,4 @@ jobs:
           OS: ${{ matrix.os }}
           PROFILE: ${{ matrix.profile }}
         run: |
-          task ${TASK_PREFIX}:build TARGET=${ARCH}-unknown-${OS}-gnu PROFILE=${PROFILE}
+          task "${TASK_PREFIX}:build" TARGET="${ARCH}-unknown-${OS}-gnu" PROFILE="${PROFILE}"

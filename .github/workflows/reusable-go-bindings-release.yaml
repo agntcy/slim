@@ -116,7 +116,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add $FILES_TO_RELEASE
+          git add "$FILES_TO_RELEASE"
 
           # Check if there are changes to commit
           if git diff --cached --quiet; then

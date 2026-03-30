@@ -75,7 +75,7 @@ jobs:
         env:
           PREFIX: ${{ inputs.prefix }}
         run: |
-          task ${PREFIX}:lint
+          task "${PREFIX}:lint"
 
   pytest:
     runs-on: ubuntu-latest
@@ -98,7 +98,7 @@ jobs:
         env:
           PREFIX: ${{ inputs.prefix }}
         run: |
-          task ${PREFIX}:test
+          task "${PREFIX}:test"
 
   pypackage:
     runs-on: ubuntu-latest
@@ -121,7 +121,7 @@ jobs:
         env:
           PREFIX: ${{ inputs.prefix }}
         run: |
-          task ${PREFIX}:packaging
+          task "${PREFIX}:packaging"
       - name: Show packages
         run: |
           ls -la ./dist

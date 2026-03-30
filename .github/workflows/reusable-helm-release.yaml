@@ -70,7 +70,7 @@ jobs:
           CHART_NAME: ${{ steps.chart-name.outputs.value }}
         run: |
           ## By convention the name of the chart is the name of the folder under charts/
-          helm lint charts/$CHART_NAME --with-subcharts
+          helm lint "charts/$CHART_NAME" --with-subcharts
 
       - name: Helm package
         id: build
@@ -79,7 +79,7 @@ jobs:
           CHART_NAME: ${{ steps.chart-name.outputs.value }}
           CHART_VERSION: ${{ steps.chart-name.outputs.version }}
         run: |
-          helm package charts/$CHART_NAME --dependency-update --version $CHART_VERSION
+          helm package "charts/$CHART_NAME" --dependency-update --version "$CHART_VERSION"
           echo "package=${CHART_NAME}-${CHART_VERSION}.tgz" >> "$GITHUB_OUTPUT"
 
       - name: Helm push to GHCR OCI registry
@@ -89,4 +89,4 @@ jobs:
           REGISTRY: ${{ inputs.registry }}
         run: |
           echo "🚧 Pushing $HELM_PACKAGE to GHCR OCI registry"
-          helm push $HELM_PACKAGE oci://$REGISTRY/helm
+          helm push "$HELM_PACKAGE" "oci://$REGISTRY/helm"
