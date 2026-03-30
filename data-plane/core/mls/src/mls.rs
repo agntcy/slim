@@ -8,7 +8,6 @@ use mls_rs::{
     group::ReceivedMessage,
     identity::{SigningIdentity, basic::BasicCredential},
 };
-#[cfg(test)]
 use mls_rs::{CipherSuiteProvider, CryptoProvider};
 
 use crate::crypto::CryptoProviderImpl;
@@ -144,7 +143,7 @@ where
         Ok((private_key, signing_identity))
     }
 
-    async fn generate_key_pair() -> Result<(SignatureSecretKey, SignaturePublicKey), MlsError> {
+    fn generate_key_pair() -> Result<(SignatureSecretKey, SignaturePublicKey), MlsError> {
         let crypto_provider = crate::crypto::default_crypto_provider();
         let cipher_suite_provider = crypto_provider
             .cipher_suite_provider(CIPHERSUITE)
