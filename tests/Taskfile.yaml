@@ -67,9 +67,7 @@ tasks:
       USE_LOCAL_BINDINGS: '{{.USE_LOCAL_BINDINGS | default "false"}}'
       FORCE_LOCAL_BINDINGS: '{{.FORCE_LOCAL_BINDINGS | default "false"}}'
     deps:
-      - task: data-plane:build
-        vars:
-          ARGS: "--workspace --bins --locked --exclude agntcy-slim-bindings"
+      - data-plane:build
       - tests:build-legacy-binaries
       - control-plane:build
     cmds:
