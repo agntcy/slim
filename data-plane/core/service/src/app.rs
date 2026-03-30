@@ -1228,9 +1228,10 @@ mod tests {
             // Verify it's a multicast session
             assert_eq!(session_arc.session_type(), ProtoSessionType::Multicast);
 
-            // For multicast sessions, the destination is also the channel name
+            // For multicast sessions, the destination is the channel name with DATA_CHANNEL_ID
             let dst = session_arc.dst();
-            assert_eq!(dst, &channel_name);
+            let expected_dst = channel_name.clone().with_id(Name::DATA_CHANNEL_ID);
+            assert_eq!(dst, &expected_dst);
 
             total_received_sessions += participant_sessions.len();
         }

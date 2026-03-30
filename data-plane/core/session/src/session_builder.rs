@@ -561,6 +561,7 @@ mod tests {
                 .with_id(1)
                 .with_source(create_test_name("source"))
                 .with_destination(create_test_name("dest"))
+                .with_control(create_test_name("dest"))
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -737,6 +738,7 @@ mod tests {
                 .with_id(1)
                 .with_source(create_test_name("source"))
                 .with_destination(create_test_name("dest"))
+                .with_control(create_test_name("dest"))
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -895,10 +897,12 @@ mod tests {
         assert!(builder.source.is_none());
 
         // Continue building
+        let dest = create_test_name("dest");
         let (tx_to_session, _) = mpsc::channel(10);
         let builder = builder
             .with_source(create_test_name("source"))
-            .with_destination(create_test_name("dest"))
+            .with_destination(dest.clone())
+            .with_control(dest.clone())
             .with_config(create_test_config(true))
             .with_identity_provider(MockTokenProvider)
             .with_identity_verifier(MockVerifier)
@@ -920,6 +924,7 @@ mod tests {
         builder.id = Some(1);
         builder.source = Some(create_test_name("source"));
         builder.destination = Some(create_test_name("dest"));
+        builder.control = Some(create_test_name("dest"));
         builder.config = Some(create_test_config(true));
         builder.identity_provider = Some(MockTokenProvider);
         builder.identity_verifier = Some(MockVerifier);
@@ -1102,11 +1107,13 @@ mod tests {
         let (tx_to_session, _rx_from_session) = mpsc::channel(10);
         let config = create_test_config(false); // participant (not initiator)
 
+        let dest = create_test_name("moderator");
         let builder =
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
                 .with_id(1)
                 .with_source(create_test_name("participant"))
-                .with_destination(create_test_name("moderator"))
+                .with_destination(dest.clone())
+                .with_control(dest) // P2P: control is same as destination
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -1132,11 +1139,13 @@ mod tests {
         let mut config = create_test_config(true); // moderator (initiator)
         config.session_type = ProtoSessionType::PointToPoint;
 
+        let dest = create_test_name("participant");
         let builder =
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
                 .with_id(2)
                 .with_source(create_test_name("moderator"))
-                .with_destination(create_test_name("participant"))
+                .with_destination(dest.clone())
+                .with_control(dest) // P2P: control is same as destination
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -1168,11 +1177,15 @@ mod tests {
         let mut config = create_test_config(true); // moderator (initiator)
         config.session_type = ProtoSessionType::Multicast;
 
+        let dest = create_test_name("group");
+        let data_channel = dest.clone().with_id(Name::DATA_CHANNEL_ID);
+        let control_channel = dest.with_id(Name::CONTROL_CHANNEL_ID);
         let builder =
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
                 .with_id(3)
                 .with_source(create_test_name("moderator"))
-                .with_destination(create_test_name("group"))
+                .with_destination(data_channel) // Multicast: use DATA_CHANNEL_ID
+                .with_control(control_channel) // Multicast: use CONTROL_CHANNEL_ID
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -1201,11 +1214,13 @@ mod tests {
         let mut config = create_test_config(false);
         config.mls_enabled = false;
 
+        let dest = create_test_name("dest");
         let builder =
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
                 .with_id(4)
                 .with_source(create_test_name("source"))
-                .with_destination(create_test_name("dest"))
+                .with_destination(dest.clone())
+                .with_control(dest)
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -1223,11 +1238,13 @@ mod tests {
         config.max_retries = Some(5);
         config.interval = Some(std::time::Duration::from_millis(500));
 
+        let dest = create_test_name("dest");
         let builder =
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
                 .with_id(5)
                 .with_source(create_test_name("source"))
-                .with_destination(create_test_name("dest"))
+                .with_destination(dest.clone())
+                .with_control(dest)
                 .with_config(config.clone())
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -1255,11 +1272,13 @@ mod tests {
         metadata.insert("version".to_string(), "1.0".to_string());
         config.metadata = metadata.clone();
 
+        let dest = create_test_name("dest");
         let builder =
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
                 .with_id(6)
                 .with_source(create_test_name("source"))
-                .with_destination(create_test_name("dest"))
+                .with_destination(dest.clone())
+                .with_control(dest)
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -1289,6 +1308,7 @@ mod tests {
                 .with_id(7)
                 .with_source(source.clone())
                 .with_destination(destination.clone())
+                .with_control(destination.clone())
                 .with_config(create_test_config(false))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -1308,22 +1328,26 @@ mod tests {
         let (tx_to_session1, _) = mpsc::channel(10);
         let (tx_to_session2, _) = mpsc::channel(10);
 
+        let dest1 = create_test_name("dest1");
         let builder1 =
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
                 .with_id(100)
                 .with_source(create_test_name("source1"))
-                .with_destination(create_test_name("dest1"))
+                .with_destination(dest1.clone())
+                .with_control(dest1)
                 .with_config(create_test_config(false))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_tx(create_test_transmitter())
                 .with_tx_to_session_layer(tx_to_session1);
 
+        let dest2 = create_test_name("dest2");
         let builder2 =
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
                 .with_id(200)
                 .with_source(create_test_name("source2"))
-                .with_destination(create_test_name("dest2"))
+                .with_destination(dest2.clone())
+                .with_control(dest2)
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -1350,15 +1374,17 @@ mod tests {
         let mut config = create_test_config(false);
         config.session_type = ProtoSessionType::Unspecified;
 
+        let dest = create_test_name("dest");
         let builder =
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
                 .with_id(8)
                 .with_source(create_test_name("source"))
-                .with_destination(create_test_name("dest"))
+                .with_destination(dest.clone())
+                .with_control(dest)
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
-               .with_tx(create_test_transmitter())
+                .with_tx(create_test_transmitter())
                 .with_tx_to_session_layer(tx_to_session);
 
         let controller = builder.ready().unwrap().build();

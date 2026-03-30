@@ -2527,7 +2527,10 @@ mod tests {
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
         let source = Name::from_strings(["org", "ns", "source"]);
-        let channel_name = Name::from_strings(["org", "ns", "channel"]);
+        let data_channel_name =
+            Name::from_strings(["org", "ns", "channel"]).with_id(Name::DATA_CHANNEL_ID);
+        let control_channel_name =
+            Name::from_strings(["org", "ns", "channel"]).with_id(Name::CONTROL_CHANNEL_ID);
         let participant = Name::from_strings(["org", "ns", "participant"]);
         let session_id = 1;
 
@@ -2545,10 +2548,10 @@ mod tests {
 
         // Simulate sending a join request with channel name in payload
         let payload = CommandPayload::builder().join_request(
-            false,                      // enable_mls
-            None,                       // max_retries
-            None,                       // timer_duration
-            Some(channel_name.clone()), // channel name
+            false,                           // enable_mls
+            None,                            // max_retries
+            None,                            // timer_duration
+            Some(data_channel_name.clone()), // channel name
         );
 
         let join_request = Message::builder()
@@ -2579,7 +2582,7 @@ mod tests {
         // Verify group_name was set to the channel name from payload
         assert_eq!(
             sender.group_name,
-            Some(channel_name.clone()),
+            Some(control_channel_name.clone()),
             "Group name should be set to channel name from JoinRequest payload in multicast session"
         );
 
@@ -2647,7 +2650,7 @@ mod tests {
         );
         assert_eq!(
             ping.get_dst(),
-            channel_name,
+            control_channel_name,
             "Ping destination should be the channel/group name in multicast session"
         );
     }

@@ -355,11 +355,11 @@ mod tests {
             Direction::Bidirectional,
         );
 
-        // Add the remote endpoint to the session sender
+        // Add the remote endpoint to the session sender (should receive messages)
         session
             .add_endpoint(&Participant::new(
                 remote_name.clone(),
-                ParticipantSettings::default(),
+                ParticipantSettings::new(false, true), // Receives data only
             ))
             .await
             .expect("error adding participant");
@@ -708,11 +708,11 @@ mod tests {
             Direction::Bidirectional,
         );
 
-        // Add receiver as endpoint for sender
+        // Add receiver as endpoint for sender (receiver should receive data)
         sender_session
             .add_endpoint(&Participant::new(
                 receiver_name.clone(),
-                ParticipantSettings::default(),
+                ParticipantSettings::new(true, true), // Can send and receive
             ))
             .await
             .expect("error adding participant");
@@ -743,11 +743,11 @@ mod tests {
             Direction::Bidirectional,
         );
 
-        // Add sender as endpoint for receiver
+        // Add sender as endpoint for receiver (sender can send and receive)
         receiver_session
             .add_endpoint(&Participant::new(
                 sender_name.clone(),
-                ParticipantSettings::default(),
+                ParticipantSettings::new(true, true), // Can send and receive
             ))
             .await
             .expect("error adding participant");

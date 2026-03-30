@@ -139,7 +139,6 @@ where
                         source = %message.get_source(),
                         "received  message",
                     );
-                    println!("control message received: {:?}, direction{:?}, dst {}", message.get_session_message_type(), direction, message.get_dst());
                     self.process_control_message(message, ack_tx).await
                 } else {
                     // this is a application message. if direction (needs to go to the remote endpoint) and
@@ -153,8 +152,6 @@ where
                             .get_slim_header_mut()
                             .set_destination(&self.common.settings.destination);
                     }
-
-                    println!("data message received: {:?}, direction{:?}, dst {}", message.get_session_message_type(), direction, message.get_dst());
 
                     // Apply MLS encryption/decryption if enabled
                     if let Some(mls_state) = &mut self.mls_state {
