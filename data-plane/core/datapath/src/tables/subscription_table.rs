@@ -20,7 +20,7 @@ const LAST_USED_REF_POS_NONE: usize = usize::MAX;
 thread_local! {
     /// Per-thread round-robin state for [`Connections::get_one`]: last **used** pool slot
     /// (initialized to `0` before the first pick).
-    static LAST_USED_POOL_INDEX: Cell<usize> = const { Cell::new(0 as usize) };
+    static LAST_USED_POOL_INDEX: Cell<usize> = const { Cell::new(0_usize) };
     /// Last picked position in the sorted non-incoming connection id list for [`NameState::get_one_connection`]
     /// (key = `(name id, 0 = local pool / 1 = remote pool)`).
     static LAST_USED_NON_INCOMING_CONN_RR_POS: RefCell<HashMap<(u64, u8), usize>> =
