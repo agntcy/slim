@@ -14,15 +14,13 @@ use super::pool::Pool;
 use crate::errors::DataPathError;
 use crate::messages::Name;
 
-/// Sentinel for round-robin position maps that still use "uninitialized" state.
-const LAST_USED_REF_POS_NONE: usize = usize::MAX;
-
 thread_local! {
     /// Per-thread round-robin state for [`Connections::get_one`]: last **used** pool slot
     /// (initialized to `0` before the first pick).
     static LAST_USED_POOL_INDEX: Cell<usize> = const { Cell::new(0_usize) };
-    /// Last picked position in the sorted non-incoming connection id list for [`NameState::get_one_connection`]
-    /// (key = `(name id, 0 = local pool / 1 = remote pool)`).
+    /// Last picked index in the sorted non-incoming connection id list for [`NameState::get_one_connection`]
+    /// (key = `(name id, 0 = local pool / 1 = remote pool)`). Missing keys use `0_usize` like
+    /// [`LAST_USED_POOL_INDEX`] before the first pick for that key.
     static LAST_USED_NON_INCOMING_CONN_RR_POS: RefCell<HashMap<(u64, u8), usize>> =
         RefCell::new(HashMap::new());
 }
@@ -408,12 +406,8 @@ impl NameState {
 
         let conn_id = LAST_USED_NON_INCOMING_CONN_RR_POS.with(|m| {
             let mut map = m.borrow_mut();
-            let last_raw = *map.get(&rr_key).unwrap_or(&LAST_USED_REF_POS_NONE);
-            let next_pos = if last_raw == LAST_USED_REF_POS_NONE {
-                0
-            } else {
-                (last_raw + 1) % n
-            };
+            let last_pos = *map.get(&rr_key).unwrap_or(&0_usize);
+            let next_pos = (last_pos + 1) % n;
             let picked = non_incoming_conn_ids[next_pos];
             map.insert(rr_key, next_pos);
             picked
