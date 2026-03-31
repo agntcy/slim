@@ -7,32 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.3.0](https://github.com/agntcy/slim/compare/protoc-slimrpc-plugin-v1.3.0-rc.3...protoc-slimrpc-plugin-v1.3.0) - 2026-03-31
-
-### Other
-
-- release notes for 1.3.0 ([#1429](https://github.com/agntcy/slim/pull/1429))
-
-## [1.3.0-rc.3](https://github.com/agntcy/slim/compare/protoc-slimrpc-plugin-v1.3.0-rc.1...protoc-slimrpc-plugin-v1.3.0-rc.3) - 2026-03-30
+## [1.3.0](https://github.com/agntcy/slim/compare/protoc-slimrpc-plugin-v1.2.0...protoc-slimrpc-plugin-v1.3.0) - 2026-03-31
 
 ### Added
 
 - slimrcp multicast examples ([#1346](https://github.com/agntcy/slim/pull/1346))
-
-### Other
-
-- 1.3.0 release candidate 3 ([#1420](https://github.com/agntcy/slim/pull/1420))
-
-## [1.3.0](https://github.com/agntcy/slim/compare/protoc-slimrpc-plugin-v1.2.0...protoc-slimrpc-plugin-v1.3.0-rc.1) - 2026-03-26
-
-### Added
-
 - Fix dotnet bindings ([#1403](https://github.com/agntcy/slim/pull/1403))
 - Add slimrpc support for .NET (C#) ([#1345](https://github.com/agntcy/slim/pull/1345))
-
-### Other
-
-- upgrade versions for 1.3.0-rc.1 ([#1406](https://github.com/agntcy/slim/pull/1406))
 
 ## [1.2.0](https://github.com/agntcy/slim/compare/protoc-slimrpc-plugin-v1.1.0...protoc-slimrpc-plugin-v1.2.0) - 2026-03-20
 

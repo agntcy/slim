@@ -7,29 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.3.1](https://github.com/agntcy/slim/compare/slim-v1.3.0...slim-v1.3.1) - 2026-03-31
-
-### Other
-
-- update Cargo.lock dependencies
-
-## [1.3.0-rc.4](https://github.com/agntcy/slim/compare/slim-v1.3.0-rc.3...slim-v1.3.0-rc.4) - 2026-03-30
-
-### Other
-
-- update Cargo.lock dependencies
-
-## [1.3.0-rc.2](https://github.com/agntcy/slim/compare/slim-v1.3.0-rc.1...slim-v1.3.0-rc.2) - 2026-03-26
-
-### Other
-
-- update Cargo.lock dependencies
-
-## [1.3.0-rc.0](https://github.com/agntcy/slim/compare/slim-v1.1.0...slim-v1.3.0-rc.0) - 2026-03-20
+## [1.3.0](https://github.com/agntcy/slim/compare/slim-v1.1.0...slim-v1.3.0) - 2026-03-30
 
 ### Added
 
 - add agntcy-slim-version crate as single source of truth for version and build info ([#1360](https://github.com/agntcy/slim/pull/1360))
+
+### Other
+
+- update Cargo.lock dependencies
 
 ## [1.1.0](https://github.com/agntcy/slim/compare/slim-v1.0.2...slim-v1.1.0) - 2026-02-27
 
