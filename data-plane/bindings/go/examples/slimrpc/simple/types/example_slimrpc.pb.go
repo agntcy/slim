@@ -24,11 +24,11 @@ type TestClient interface {
 }
 
 type TestClientImpl struct {
-	channel *slim_bindings.Channel
+	channel slim_bindings.ChannelInterface
 }
 
 // NewTestClient creates a new Test client.
-func NewTestClient(channel *slim_bindings.Channel) TestClient {
+func NewTestClient(channel slim_bindings.ChannelInterface) TestClient {
 	return &TestClientImpl{
 		channel: channel,
 	}
@@ -203,7 +203,7 @@ func (UnimplementedTestServer) ExampleStreamStream(ctx context.Context, stream s
 
 
 // RegisterTestServer registers the server with slim_bindings.
-func RegisterTestServer(server *slim_bindings.Server, impl TestServer) {
+func RegisterTestServer(server slim_bindings.ServerInterface, impl TestServer) {
 	server.RegisterUnaryUnary("example_service.Test", "ExampleUnaryUnary", &Test_ExampleUnaryUnary_Handler{impl: impl})
 	server.RegisterUnaryStream("example_service.Test", "ExampleUnaryStream", &Test_ExampleUnaryStream_Handler{impl: impl})
 	server.RegisterUnaryStream("example_service.Test", "ExampleUnaryStreamTwo", &Test_ExampleUnaryStreamTwo_Handler{impl: impl})
@@ -424,7 +424,7 @@ func (h *Test_ExampleStreamStream_Handler) Handle(stream *slim_bindings.RequestS
 
 
 // TestGroupClient is the multicast (group) client API for Test service.
-// Requires a *slim_bindings.Channel created with ChannelNewGroup* targeting multiple server instances.
+// Requires a slim_bindings.ChannelInterface backed by a channel created with ChannelNewGroup* targeting multiple server instances.
 type TestGroupClient interface {
 	ExampleUnaryUnary(ctx context.Context, req *ExampleRequest) (slimrpc.MulticastResponseStream[*ExampleResponse], error)
 	ExampleUnaryStream(ctx context.Context, req *ExampleRequest) (slimrpc.MulticastResponseStream[*ExampleResponse], error)
@@ -434,11 +434,11 @@ type TestGroupClient interface {
 }
 
 type TestGroupClientImpl struct {
-	channel *slim_bindings.Channel
+	channel slim_bindings.ChannelInterface
 }
 
 // NewTestGroupClient creates a new multicast Test client.
-func NewTestGroupClient(channel *slim_bindings.Channel) TestGroupClient {
+func NewTestGroupClient(channel slim_bindings.ChannelInterface) TestGroupClient {
 	return &TestGroupClientImpl{channel: channel}
 }
 

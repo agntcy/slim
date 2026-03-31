@@ -40,11 +40,11 @@ type {{SERVICE_NAME}}Client interface {
 }
 
 type {{SERVICE_NAME}}ClientImpl struct {
-	channel *slim_bindings.Channel
+	channel slim_bindings.ChannelInterface
 }
 
 // New{{SERVICE_NAME}}Client creates a new {{SERVICE_NAME}} client.
-func New{{SERVICE_NAME}}Client(channel *slim_bindings.Channel) {{SERVICE_NAME}}Client {
+func New{{SERVICE_NAME}}Client(channel slim_bindings.ChannelInterface) {{SERVICE_NAME}}Client {
 	return &{{SERVICE_NAME}}ClientImpl{
 		channel: channel,
 	}
@@ -188,7 +188,7 @@ type Unimplemented{{SERVICE_NAME}}Server struct {
 {{UNIMPLEMENTED_METHODS}}
 
 // Register{{SERVICE_NAME}}Server registers the server with slim_bindings.
-func Register{{SERVICE_NAME}}Server(server *slim_bindings.Server, impl {{SERVICE_NAME}}Server) {
+func Register{{SERVICE_NAME}}Server(server slim_bindings.ServerInterface, impl {{SERVICE_NAME}}Server) {
 {{REGISTER_METHODS}}
 }
 
@@ -415,17 +415,17 @@ const REGISTER_STREAM_STREAM_METHOD: &str = r#"	server.RegisterStreamStream("{{P
 
 const GROUP_CLIENT_INTERFACE_TEMPLATE: &str = r#"
 // {{SERVICE_NAME}}GroupClient is the multicast (group) client API for {{SERVICE_NAME}} service.
-// Requires a *slim_bindings.Channel created with ChannelNewGroup* targeting multiple server instances.
+// Requires a slim_bindings.ChannelInterface backed by a channel created with ChannelNewGroup* targeting multiple server instances.
 type {{SERVICE_NAME}}GroupClient interface {
 {{GROUP_CLIENT_METHODS}}
 }
 
 type {{SERVICE_NAME}}GroupClientImpl struct {
-	channel *slim_bindings.Channel
+	channel slim_bindings.ChannelInterface
 }
 
 // New{{SERVICE_NAME}}GroupClient creates a new multicast {{SERVICE_NAME}} client.
-func New{{SERVICE_NAME}}GroupClient(channel *slim_bindings.Channel) {{SERVICE_NAME}}GroupClient {
+func New{{SERVICE_NAME}}GroupClient(channel slim_bindings.ChannelInterface) {{SERVICE_NAME}}GroupClient {
 	return &{{SERVICE_NAME}}GroupClientImpl{channel: channel}
 }
 
