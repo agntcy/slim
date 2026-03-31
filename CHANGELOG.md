@@ -85,7 +85,7 @@ All notable changes to this project will be documented in this file.
 
 ### Compatibility Matrix
 
-All components with the same major version (v1.x.x) are compatible with each other.
+All core components with the same major version (v1.x.x) are compatible with each other.
 
 | Component                    | Version | Compatible With                                                              |
 | ---------------------------- | ------- | ---------------------------------------------------------------------------- |
