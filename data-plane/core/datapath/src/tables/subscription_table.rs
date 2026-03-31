@@ -225,7 +225,7 @@ impl Connections {
         let next_slot = if last_used == LAST_USED_POOL_INDEX_NONE {
             0
         } else {
-            (last_used % num_slots + 1) % num_slots
+            (last_used + 1) % num_slots
         };
 
         // Ring traversal without per-step `%`: indices next_slot..end, then 0..next_slot.
@@ -401,9 +401,6 @@ impl NameState {
         non_incoming_conn_ids.extend(refs.keys().copied().filter(|&c| c != incoming_conn));
 
         if non_incoming_conn_ids.is_empty() {
-            LAST_USED_NON_INCOMING_CONN_RR_POS.with(|m| {
-                m.borrow_mut().insert(rr_key, LAST_USED_REF_POS_NONE);
-            });
             debug!("the only available connection cannot be used");
             return None;
         }
