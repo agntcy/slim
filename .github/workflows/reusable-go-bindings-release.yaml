@@ -116,7 +116,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add "$FILES_TO_RELEASE"
+          read -ra files <<< "$FILES_TO_RELEASE"
+          git add "${files[@]}"
 
           # Check if there are changes to commit
           if git diff --cached --quiet; then
