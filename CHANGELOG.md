@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
 - MLS identity key integration and security dependency upgrades ([#1394](https://github.com/agntcy/slim/pull/1394))
 - Add in-process benchmark tooling for data-plane profiling ([#1389](https://github.com/agntcy/slim/pull/1389))
 - Add backward compatibility integration tests for P2P and Group sessions across current and legacy SLIM nodes ([#1402](https://github.com/agntcy/slim/pull/1402))
+- Move app ID generation from bindings to core application layer ([#1408](https://github.com/agntcy/slim/pull/1408))
 
 ##### Bindings
 
@@ -40,32 +41,17 @@ All notable changes to this project will be documented in this file.
 
 ##### Core
 
-- Fix race condition between subscription forwarding and link negotiation ([#1404](https://github.com/agntcy/slim/pull/1404))
 - Fix session invite ACK timing — delay until MLS update sequence completes ([#1393](https://github.com/agntcy/slim/pull/1393))
 - Fix `node_id` override in slim service config to allow different service IDs ([#1348](https://github.com/agntcy/slim/pull/1348))
 - Fix deployment templates ([#1370](https://github.com/agntcy/slim/pull/1370))
-- Correct YouTube channel link in README ([#1355](https://github.com/agntcy/slim/pull/1355))
-
-##### Bindings
-
-- Fix Go bindings test task overriding version with default `devel` value ([#1421](https://github.com/agntcy/slim/pull/1421))
 
 #### 🔧 Infrastructure & Tooling
 
 - Pin versions of all GitHub Actions to prevent supply chain attacks ([#1416](https://github.com/agntcy/slim/pull/1416))
 - Add GitHub Actions workflow linter ([#1417](https://github.com/agntcy/slim/pull/1417))
-- Fix `FILES_TO_RELEASE` word splitting using bash array in Go release workflow ([#1427](https://github.com/agntcy/slim/pull/1427))
 - Fix CI cache usage and disable caching for release builds ([#1228](https://github.com/agntcy/slim/pull/1228))
-- Fix file renaming during release process ([#1409](https://github.com/agntcy/slim/pull/1409))
-- Move app ID generation from bindings to core application layer ([#1408](https://github.com/agntcy/slim/pull/1408))
-- Avoid per-message allocations in benchmark hot loop ([#1397](https://github.com/agntcy/slim/pull/1397))
 - Refactor Taskfiles to avoid rebuilds when source is unchanged ([#1261](https://github.com/agntcy/slim/pull/1261))
 - Update README with new language bindings ([#1339](https://github.com/agntcy/slim/pull/1339))
-
-#### 📦 Packaging & Dependencies
-
-- Bump `google.golang.org/grpc` from 1.73.0 to 1.79.3 ([#1401](https://github.com/agntcy/slim/pull/1401))
-- Bump `google.golang.org/grpc` from 1.72.1 to 1.79.3 in `/internal/tools` ([#1395](https://github.com/agntcy/slim/pull/1395))
 
 ### Component Versions Summary
 
