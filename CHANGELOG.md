@@ -13,7 +13,6 @@ All notable changes to this project will be documented in this file.
 ##### Core
 
 - **Link Negotiation Protocol**: New link negotiation protocol between SLIM nodes for improved connection establishment and management ([#1353](https://github.com/agntcy/slim/pull/1353))
-- **WebSocket Transport Configuration**: WebSocket-aware transport configuration with backward-compatible config model supporting `grpc` (default) and `websocket` transport selection, including scheme validation and explicit error handling ([#1333](https://github.com/agntcy/slim/pull/1333))
 - Add `agntcy-slim-version` crate as single source of truth for version and build info ([#1360](https://github.com/agntcy/slim/pull/1360))
 - Add acknowledgment for remote subscriptions ([#1364](https://github.com/agntcy/slim/pull/1364))
 - MLS identity key integration and security dependency upgrades ([#1394](https://github.com/agntcy/slim/pull/1394))
