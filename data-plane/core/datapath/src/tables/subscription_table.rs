@@ -18,10 +18,10 @@ thread_local! {
     /// Per-thread round-robin state for [`Connections::get_one`]: last **used** pool slot
     /// (initialized to `0` before the first pick).
     static LAST_USED_POOL_INDEX: Cell<usize> = const { Cell::new(0_usize) };
-    /// Last picked index in the sorted non-incoming connection id list for [`NameState::get_one_connection`]
-    /// (key = `(name id, 0 = local pool / 1 = remote pool)`). Missing keys use `0_usize` like
-    /// [`LAST_USED_POOL_INDEX`] before the first pick for that key.
-    static LAST_USED_NON_INCOMING_CONN_RR_POS: RefCell<HashMap<(u64, u8), usize>> =
+    /// Per-name round-robin (RR): last **used connection position** (index in the sorted candidate list) for
+    /// [`NameState::get_one_connection`] (key = `(name id, 0 = local pool / 1 = remote pool)`).
+    /// Missing keys use `0_usize` like [`LAST_USED_POOL_INDEX`] before the first pick for that key.
+    static LAST_USED_CONN_POS: RefCell<HashMap<(u64, u8), usize>> =
         RefCell::new(HashMap::new());
 }
 
@@ -404,7 +404,7 @@ impl NameState {
         non_incoming_conn_ids.sort_unstable();
         let n = non_incoming_conn_ids.len();
 
-        let conn_id = LAST_USED_NON_INCOMING_CONN_RR_POS.with(|m| {
+        let conn_id = LAST_USED_CONN_POS.with(|m| {
             let mut map = m.borrow_mut();
             let last_pos = *map.get(&rr_key).unwrap_or(&0_usize);
             let next_pos = (last_pos + 1) % n;
