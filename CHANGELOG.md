@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 - Add acknowledgment for remote subscriptions ([#1364](https://github.com/agntcy/slim/pull/1364))
 - MLS identity key integration and security dependency upgrades ([#1394](https://github.com/agntcy/slim/pull/1394))
 - Add in-process benchmark tooling for data-plane profiling ([#1389](https://github.com/agntcy/slim/pull/1389))
+- Add backward compatibility integration tests for P2P and Group sessions across current and legacy SLIM nodes ([#1402](https://github.com/agntcy/slim/pull/1402))
 
 ##### Bindings
 
@@ -25,8 +26,7 @@ All notable changes to this project will be documented in this file.
 - Expose JSON config in bindings for programmatic configuration ([#1366](https://github.com/agntcy/slim/pull/1366))
 - Add versioning to Go bindings cache ([#1398](https://github.com/agntcy/slim/pull/1398))
 - Add linter support and formatting tasks to .NET SDK ([#1378](https://github.com/agntcy/slim/pull/1378))
-- Add backward compatibility integration tests for P2P and Group sessions across current and legacy SLIM nodes ([#1402](https://github.com/agntcy/slim/pull/1402))
-- Fix and improve .NET bindings ([#1403](https://github.com/agntcy/slim/pull/1403))
+- Linter for .NET bindings ([#1403](https://github.com/agntcy/slim/pull/1403))
 
 ##### SLIMRPC
 
