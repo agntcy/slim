@@ -8,27 +8,12 @@ All notable changes to this project will be documented in this file.
 
 ### Key Highlights
 
-#### 🎯 Major Features Added
-
-##### Core
-
-- **Link Negotiation Protocol**: New link negotiation protocol between SLIM nodes for improved connection establishment and management ([#1353](https://github.com/agntcy/slim/pull/1353))
-
-##### Bindings
-
-- **Java Bindings**: New Java language bindings generated with UniFFI 0.29 for Java 21, including p2p and group communication examples matching the Python bindings ([#1197](https://github.com/agntcy/slim/pull/1197))
-
-##### SLIMRPC
-
-- **Java SLIMRPC Plugin**: New protoc plugin for Java to generate client and server stubs for SLIMRPC, with example applications and utilities ([#1342](https://github.com/agntcy/slim/pull/1342))
-- **Multicast RPC Support**: Full multicast RPC support across all language bindings (Python, Go, Java, .NET), including multicast channel support in the SLIMRPC compiler and cross-language integration tests ([#1335](https://github.com/agntcy/slim/pull/1335), [#1346](https://github.com/agntcy/slim/pull/1346))
-- **SLIMRPC .NET (C#) Support**: Full SLIMRPC code generation and runtime support for .NET/C# ([#1345](https://github.com/agntcy/slim/pull/1345))
-- **SLIMRPC Session Reuse & Method Demultiplexing**: SLIMRPC sessions can now be reused across multiple RPC calls with automatic method demultiplexing ([#1334](https://github.com/agntcy/slim/pull/1334))
-
 #### 🚀 Features
 
 ##### Core
 
+- **Link Negotiation Protocol**: New link negotiation protocol between SLIM nodes for improved connection establishment and management ([#1353](https://github.com/agntcy/slim/pull/1353))
+- **WebSocket Transport Configuration**: WebSocket-aware transport configuration with backward-compatible config model supporting `grpc` (default) and `websocket` transport selection, including scheme validation and explicit error handling ([#1333](https://github.com/agntcy/slim/pull/1333))
 - Add `agntcy-slim-version` crate as single source of truth for version and build info ([#1360](https://github.com/agntcy/slim/pull/1360))
 - Add acknowledgment for remote subscriptions ([#1364](https://github.com/agntcy/slim/pull/1364))
 - MLS identity key integration and security dependency upgrades ([#1394](https://github.com/agntcy/slim/pull/1394))
@@ -36,6 +21,7 @@ All notable changes to this project will be documented in this file.
 
 ##### Bindings
 
+- **Java Bindings**: New Java language bindings generated with UniFFI 0.29 for Java 21, including p2p and group communication examples matching the Python bindings ([#1197](https://github.com/agntcy/slim/pull/1197))
 - Upgrade all language bindings to UniFFI 0.29 ([#1321](https://github.com/agntcy/slim/pull/1321))
 - Expose JSON config in bindings for programmatic configuration ([#1366](https://github.com/agntcy/slim/pull/1366))
 - Add versioning to Go bindings cache ([#1398](https://github.com/agntcy/slim/pull/1398))
@@ -45,6 +31,10 @@ All notable changes to this project will be documented in this file.
 
 ##### SLIMRPC
 
+- **Multicast RPC Support**: Full multicast RPC support across all language bindings (Python, Go, Java, .NET), including multicast channel support in the SLIMRPC compiler and cross-language integration tests ([#1335](https://github.com/agntcy/slim/pull/1335), [#1346](https://github.com/agntcy/slim/pull/1346))
+- **SLIMRPC Session Reuse & Method Demultiplexing**: SLIMRPC sessions can now be reused across multiple RPC calls with automatic method demultiplexing ([#1334](https://github.com/agntcy/slim/pull/1334))
+- **SLIMRPC .NET (C#) Support**: Full SLIMRPC code generation and runtime support for .NET/C# ([#1345](https://github.com/agntcy/slim/pull/1345))
+- **Java SLIMRPC Plugin**: New protoc plugin for Java to generate client and server stubs for SLIMRPC, with example applications and utilities ([#1342](https://github.com/agntcy/slim/pull/1342))
 - Reduce allocations in SLIMRPC Rust bindings ([#1336](https://github.com/agntcy/slim/pull/1336))
 
 #### 🐛 Bug Fixes
