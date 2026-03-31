@@ -13,7 +13,6 @@ All notable changes to this project will be documented in this file.
 ##### Core
 
 - **Link Negotiation Protocol**: New link negotiation protocol between SLIM nodes for improved connection establishment and management ([#1353](https://github.com/agntcy/slim/pull/1353))
-- **WebSocket Transport Configuration**: WebSocket-aware transport configuration with backward-compatible config model supporting `grpc` (default) and `websocket` transport selection, including scheme validation and explicit error handling ([#1333](https://github.com/agntcy/slim/pull/1333))
 
 ##### Bindings
 
@@ -135,7 +134,6 @@ SLIMRPC v1.3.0 introduces protocol-level changes due to session reuse, method de
 - **slim-bindings v1.3.0** adds Java language bindings alongside the existing Python, Go, Kotlin, and .NET support
 - **protoc-slimrpc-plugin v1.3.0** adds Java and .NET code generation, plus multicast RPC support
 - **UniFFI 0.29**: All language bindings have been upgraded to UniFFI 0.29 — this is a build-time change and does not affect the public API
-- **WebSocket transport**: Config-level support for selecting `websocket` transport is available; existing `grpc` deployments are unaffected (default remains `grpc`)
 - All other SLIM components (core data plane, bindings, slimctl) remain backward compatible with v1.2.x — only the SLIMRPC protocol is affected by the breaking change (see SLIMRPC Compatibility above)
 
 ### Migration Notes
