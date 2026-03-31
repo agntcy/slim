@@ -14,15 +14,13 @@ use super::pool::Pool;
 use crate::errors::DataPathError;
 use crate::messages::Name;
 
-/// Sentinel: no pool slot used yet on this thread (see [`Connections::get_one`]).
-const LAST_USED_POOL_INDEX_NONE: usize = usize::MAX;
 /// Sentinel for round-robin position maps that still use "uninitialized" state.
 const LAST_USED_REF_POS_NONE: usize = usize::MAX;
 
 thread_local! {
-    /// Per-thread round-robin state for [`Connections::get_one`]: last **used** pool slot, or
-    /// [`LAST_USED_POOL_INDEX_NONE`] until the first successful pick on this thread.
-    static LAST_USED_POOL_INDEX: Cell<usize> = const { Cell::new(LAST_USED_POOL_INDEX_NONE) };
+    /// Per-thread round-robin state for [`Connections::get_one`]: last **used** pool slot
+    /// (initialized to `0` before the first pick).
+    static LAST_USED_POOL_INDEX: Cell<usize> = const { Cell::new(0 as usize) };
     /// Last picked position in the sorted non-incoming connection id list for [`NameState::get_one_connection`]
     /// (key = `(name id, 0 = local pool / 1 = remote pool)`).
     static LAST_USED_NON_INCOMING_CONN_RR_POS: RefCell<HashMap<(u64, u8), usize>> =
@@ -222,11 +220,7 @@ impl Connections {
         // First slot to try: one past last used, wrapped into [0, num_slots).
         // Read last-used slot once; compute where to start this scan (no write here).
         let last_used = LAST_USED_POOL_INDEX.with(|c| c.get());
-        let next_slot = if last_used == LAST_USED_POOL_INDEX_NONE {
-            0
-        } else {
-            (last_used + 1) % num_slots
-        };
+        let next_slot = (last_used + 1) % num_slots;
 
         // Ring traversal without per-step `%`: indices next_slot..end, then 0..next_slot.
         for i in (next_slot..num_slots).chain(0..next_slot) {
@@ -401,7 +395,7 @@ impl NameState {
         non_incoming_conn_ids.extend(refs.keys().copied().filter(|&c| c != incoming_conn));
 
         if non_incoming_conn_ids.is_empty() {
-            debug!("the only available connection cannot be used");
+            debug!("no output connection available");
             return None;
         }
 
@@ -442,9 +436,6 @@ impl NameState {
         }
 
         let Some(name_refs) = self.ids.get(&id) else {
-            if pool.index.len() == 1 {
-                return pool.get_all(incoming_conn);
-            }
             debug!(name = %id, "cannot find out connection, name does not exists");
             return None;
         };
