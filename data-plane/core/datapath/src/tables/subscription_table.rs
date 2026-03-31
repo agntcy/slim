@@ -14,11 +14,14 @@ use super::pool::Pool;
 use crate::errors::DataPathError;
 use crate::messages::Name;
 
-/// Sentinel for round-robin cursors: none chosen yet. Real indices are far below `usize::MAX`.
+/// Sentinel: no pool slot used yet on this thread (see [`Connections::get_one`]).
 const LAST_USED_POOL_INDEX_NONE: usize = usize::MAX;
+/// Sentinel for round-robin position maps that still use "uninitialized" state.
+const LAST_USED_REF_POS_NONE: usize = usize::MAX;
 
 thread_local! {
-    /// Per-thread round-robin cursor for [`Connections::next_round_robin_pool_index`] (pool slot).
+    /// Per-thread round-robin state for [`Connections::get_one`]: last **used** pool slot, or
+    /// [`LAST_USED_POOL_INDEX_NONE`] until the first successful pick on this thread.
     static LAST_USED_POOL_INDEX: Cell<usize> = const { Cell::new(LAST_USED_POOL_INDEX_NONE) };
     /// Last picked position in the sorted non-incoming connection id list for [`NameState::get_one_connection`]
     /// (key = `(name id, 0 = local pool / 1 = remote pool)`).
@@ -191,11 +194,11 @@ impl Connections {
         Ok(())
     }
 
-    /// Next pool slot index for a connection other than `except_conn`.
+    /// Pick a connection id other than `except_conn` using round-robin over pool slots.
     ///
     /// Single-connection case is O(1) on [`Self::index`]. Otherwise walks pool slots in ring order
-    /// starting after the thread-local last index (see `next_slot` below), without allocating.
-    fn next_round_robin_pool_index(&self, except_conn: u64) -> Option<usize> {
+    /// starting from one slot after the thread-local last-used index, without allocating.
+    fn get_one(&self, except_conn: u64) -> Option<u64> {
         if self.index.len() == 1 {
             let (&conn_id, &slot_idx) = self
                 .index
@@ -212,16 +215,17 @@ impl Connections {
                     .is_some_and(|c| c.conn_id == conn_id)
             );
             LAST_USED_POOL_INDEX.with(|c| c.set(slot_idx));
-            return Some(slot_idx);
+            return Some(conn_id);
         }
 
         let num_slots = self.pool.max_set() + 1;
-        let last_raw = LAST_USED_POOL_INDEX.with(|c| c.get());
-        // First slot to try: advance one past last pick, wrapped into [0, num_slots).
-        let next_slot = if last_raw == LAST_USED_POOL_INDEX_NONE {
+        // First slot to try: one past last used, wrapped into [0, num_slots).
+        // Read last-used slot once; compute where to start this scan (no write here).
+        let last_used = LAST_USED_POOL_INDEX.with(|c| c.get());
+        let next_slot = if last_used == LAST_USED_POOL_INDEX_NONE {
             0
         } else {
-            (last_raw + 1) % num_slots
+            (last_used % num_slots + 1) % num_slots
         };
 
         // Ring traversal without per-step `%`: indices next_slot..end, then 0..next_slot.
@@ -229,19 +233,14 @@ impl Connections {
             if let Some(c) = self.pool.get(i)
                 && c.conn_id != except_conn
             {
+                // Store the last **used** slot; next call will start at `(i + 1) % num_slots`.
                 LAST_USED_POOL_INDEX.with(|c| c.set(i));
-                return Some(i);
+                return Some(c.conn_id);
             }
         }
 
-        LAST_USED_POOL_INDEX.with(|c| c.set(LAST_USED_POOL_INDEX_NONE));
         debug!("no output connection available");
         None
-    }
-
-    fn get_one(&self, except_conn: u64) -> Option<u64> {
-        self.next_round_robin_pool_index(except_conn)
-            .and_then(|idx| self.pool.get(idx).map(|conn| conn.conn_id))
     }
 
     fn get_all(&self, except_conn: u64) -> Option<Vec<u64>> {
@@ -403,7 +402,7 @@ impl NameState {
 
         if non_incoming_conn_ids.is_empty() {
             LAST_USED_NON_INCOMING_CONN_RR_POS.with(|m| {
-                m.borrow_mut().insert(rr_key, LAST_USED_POOL_INDEX_NONE);
+                m.borrow_mut().insert(rr_key, LAST_USED_REF_POS_NONE);
             });
             debug!("the only available connection cannot be used");
             return None;
@@ -418,8 +417,8 @@ impl NameState {
 
         let conn_id = LAST_USED_NON_INCOMING_CONN_RR_POS.with(|m| {
             let mut map = m.borrow_mut();
-            let last_raw = *map.get(&rr_key).unwrap_or(&LAST_USED_POOL_INDEX_NONE);
-            let next_pos = if last_raw == LAST_USED_POOL_INDEX_NONE {
+            let last_raw = *map.get(&rr_key).unwrap_or(&LAST_USED_REF_POS_NONE);
+            let next_pos = if last_raw == LAST_USED_REF_POS_NONE {
                 0
             } else {
                 (last_raw + 1) % n
