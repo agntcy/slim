@@ -4,6 +4,176 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## v1.3.0 (31 March 2026)
+
+### Key Highlights
+
+#### 🎯 Major Features Added
+
+##### Core
+
+- **Link Negotiation Protocol**: New link negotiation protocol between SLIM nodes for improved connection establishment and management ([#1353](https://github.com/agntcy/slim/pull/1353))
+- **WebSocket Transport Configuration**: WebSocket-aware transport configuration with backward-compatible config model supporting `grpc` (default) and `websocket` transport selection, including scheme validation and explicit error handling ([#1333](https://github.com/agntcy/slim/pull/1333))
+
+##### Bindings
+
+- **Java Bindings**: New Java language bindings generated with UniFFI 0.29 for Java 21, including p2p and group communication examples matching the Python bindings ([#1197](https://github.com/agntcy/slim/pull/1197))
+
+##### SLIMRPC
+
+- **Java SLIMRPC Plugin**: New protoc plugin for Java to generate client and server stubs for SLIMRPC, with example applications and utilities ([#1342](https://github.com/agntcy/slim/pull/1342))
+- **Multicast RPC Support**: Full multicast RPC support across all language bindings (Python, Go, Java, .NET), including multicast channel support in the SLIMRPC compiler and cross-language integration tests ([#1335](https://github.com/agntcy/slim/pull/1335), [#1346](https://github.com/agntcy/slim/pull/1346))
+- **SLIMRPC .NET (C#) Support**: Full SLIMRPC code generation and runtime support for .NET/C# ([#1345](https://github.com/agntcy/slim/pull/1345))
+- **SLIMRPC Session Reuse & Method Demultiplexing**: SLIMRPC sessions can now be reused across multiple RPC calls with automatic method demultiplexing ([#1334](https://github.com/agntcy/slim/pull/1334))
+
+#### 🚀 Features
+
+##### Core
+
+- Add `agntcy-slim-version` crate as single source of truth for version and build info ([#1360](https://github.com/agntcy/slim/pull/1360))
+- Add acknowledgment for remote subscriptions ([#1364](https://github.com/agntcy/slim/pull/1364))
+- MLS identity key integration and security dependency upgrades ([#1394](https://github.com/agntcy/slim/pull/1394))
+- Add in-process benchmark tooling for data-plane profiling ([#1389](https://github.com/agntcy/slim/pull/1389))
+
+##### Bindings
+
+- Upgrade all language bindings to UniFFI 0.29 ([#1321](https://github.com/agntcy/slim/pull/1321))
+- Expose JSON config in bindings for programmatic configuration ([#1366](https://github.com/agntcy/slim/pull/1366))
+- Add versioning to Go bindings cache ([#1398](https://github.com/agntcy/slim/pull/1398))
+- Add linter support and formatting tasks to .NET SDK ([#1378](https://github.com/agntcy/slim/pull/1378))
+- Add backward compatibility integration tests for P2P and Group sessions across current and legacy SLIM nodes ([#1402](https://github.com/agntcy/slim/pull/1402))
+- Fix and improve .NET bindings ([#1403](https://github.com/agntcy/slim/pull/1403))
+
+##### SLIMRPC
+
+- Reduce allocations in SLIMRPC Rust bindings ([#1336](https://github.com/agntcy/slim/pull/1336))
+
+#### 🐛 Bug Fixes
+
+##### Core
+
+- Fix race condition between subscription forwarding and link negotiation ([#1404](https://github.com/agntcy/slim/pull/1404))
+- Fix session invite ACK timing — delay until MLS update sequence completes ([#1393](https://github.com/agntcy/slim/pull/1393))
+- Fix `node_id` override in slim service config to allow different service IDs ([#1348](https://github.com/agntcy/slim/pull/1348))
+- Fix deployment templates ([#1370](https://github.com/agntcy/slim/pull/1370))
+- Correct YouTube channel link in README ([#1355](https://github.com/agntcy/slim/pull/1355))
+
+##### Bindings
+
+- Fix Go bindings test task overriding version with default `devel` value ([#1421](https://github.com/agntcy/slim/pull/1421))
+
+#### 🔧 Infrastructure & Tooling
+
+- Pin versions of all GitHub Actions to prevent supply chain attacks ([#1416](https://github.com/agntcy/slim/pull/1416))
+- Add GitHub Actions workflow linter ([#1417](https://github.com/agntcy/slim/pull/1417))
+- Fix `FILES_TO_RELEASE` word splitting using bash array in Go release workflow ([#1427](https://github.com/agntcy/slim/pull/1427))
+- Fix CI cache usage and disable caching for release builds ([#1228](https://github.com/agntcy/slim/pull/1228))
+- Fix file renaming during release process ([#1409](https://github.com/agntcy/slim/pull/1409))
+- Move app ID generation from bindings to core application layer ([#1408](https://github.com/agntcy/slim/pull/1408))
+- Avoid per-message allocations in benchmark hot loop ([#1397](https://github.com/agntcy/slim/pull/1397))
+- Refactor Taskfiles to avoid rebuilds when source is unchanged ([#1261](https://github.com/agntcy/slim/pull/1261))
+- Update README with new language bindings ([#1339](https://github.com/agntcy/slim/pull/1339))
+
+#### 📦 Packaging & Dependencies
+
+- Bump `google.golang.org/grpc` from 1.73.0 to 1.79.3 ([#1401](https://github.com/agntcy/slim/pull/1401))
+- Bump `google.golang.org/grpc` from 1.72.1 to 1.79.3 in `/internal/tools` ([#1395](https://github.com/agntcy/slim/pull/1395))
+
+### Component Versions Summary
+
+| Component                   | Latest Version | Release Date |
+| --------------------------- | -------------- | ------------ |
+| slim                        | v1.3.0         | 2026-03-31   |
+| slim-bindings               | v1.3.0         | 2026-03-31   |
+| protoc-slimrpc-plugin       | v1.3.0         | 2026-03-31   |
+| slimctl                     | v1.3.0         | 2026-03-31   |
+| control-plane               | v1.0.0         | 2026-01-30   |
+| helm-slim                   | v1.0.0         | 2026-02-02   |
+| helm-slim-control-plane     | v1.0.0         | 2026-01-30   |
+
+### Release Artifacts
+
+- **Container Images**: Available on GitHub Container Registry
+  - `ghcr.io/agntcy/slim:v1.3.0`
+- **Python Packages**: Published to PyPI
+  - `slim-bindings==1.3.0`
+- **Java Packages**: Published to GitHub Packages (Maven/Gradle)
+  - `io.agntcy:slim-bindings:1.3.0`
+- **Kotlin Packages**: Published to GitHub Packages (Maven/Gradle)
+  - `io.agntcy:slim-bindings-kotlin:1.3.0`
+- **.NET Packages**: Published to NuGet
+  - `Agntcy.Slim==1.3.0`
+- **Rust Crates**: Published to crates.io
+  - `agntcy-slim==1.3.0`
+  - `agntcy-protoc-slimrpc-plugin==1.3.0`
+  - `agntcy-slimctl==1.3.0`
+- **Go Bindings**: Available at [github.com/agntcy/slim-bindings-go](https://github.com/agntcy/slim-bindings-go)
+
+### Compatibility Matrix
+
+All components with the same major version (v1.x.x) are compatible with each other.
+
+| Component                    | Version | Compatible With                                                              |
+| ---------------------------- | ------- | ---------------------------------------------------------------------------- |
+| **slim**                     | v1.3.0  | Data plane runtime                                                           |
+| **slim-bindings**            | v1.3.0  | Python 3.10+, Go 1.21+ (with CGO), Java 21+, Kotlin (JVM 17+), .NET 8.0+   |
+| **protoc-slimrpc-plugin**    | v1.3.0  | protoc 3.x+, supports Python, Go, Java, and .NET code generation            |
+| **slimctl**                  | v1.3.0  | CLI tool (Linux x64/arm64, macOS x64/arm64, Windows x64)                    |
+| **control-plane**            | v1.0.0  | Control plane services                                                       |
+| **helm charts**              | v1.0.0  | Kubernetes deployment                                                        |
+
+#### SLIMRPC Compatibility
+
+| Component                    | Version | Compatible With                                                              |
+| ---------------------------- | ------- | ---------------------------------------------------------------------------- |
+| **slimrpc**                  | v1.3.0  | ⚠ **Protocol not compatible with v1.2.x** — all peers must run v1.3.0       |
+
+SLIMRPC v1.3.0 introduces protocol-level changes due to session reuse, method demultiplexing ([#1334](https://github.com/agntcy/slim/pull/1334)), and multicast RPC support ([#1335](https://github.com/agntcy/slim/pull/1335)). A v1.3.0 SLIMRPC client cannot interoperate with a v1.2.x SLIMRPC server, and vice versa. All communicating peers must be upgraded to v1.3.0 simultaneously. Existing generated stubs will continue to work after the upgrade; regenerating them with `protoc-slimrpc-plugin` v1.3.0 is only required to access the new multicast RPC features.
+
+#### Compatibility Notes
+
+- **slim-bindings v1.3.0** adds Java language bindings alongside the existing Python, Go, Kotlin, and .NET support
+- **protoc-slimrpc-plugin v1.3.0** adds Java and .NET code generation, plus multicast RPC support
+- **UniFFI 0.29**: All language bindings have been upgraded to UniFFI 0.29 — this is a build-time change and does not affect the public API
+- **WebSocket transport**: Config-level support for selecting `websocket` transport is available; existing `grpc` deployments are unaffected (default remains `grpc`)
+- All other SLIM components (core data plane, bindings, slimctl) remain backward compatible with v1.2.x — only the SLIMRPC protocol is affected by the breaking change (see SLIMRPC Compatibility above)
+
+### Migration Notes
+
+#### ⚠ SLIMRPC Breaking Change
+
+SLIMRPC v1.3.0 is **not compatible at the protocol level** with SLIMRPC v1.2.x due to protocol changes introduced by session reuse, method demultiplexing, and multicast RPC support. If your application uses SLIMRPC:
+
+1. **Upgrade all peers at once.** All services communicating via SLIMRPC must be upgraded to v1.3.0 together. Mixed deployments (e.g., a v1.3.0 client talking to a v1.2.x server) will fail.
+2. **Update dependencies.** Ensure all language-specific SLIMRPC runtime packages are updated to v1.3.0 (`slim-bindings==1.3.0` for Python, `io.agntcy:slim-bindings:1.3.0` for Java/Kotlin, `Agntcy.Slim==1.3.0` for .NET, etc.).
+3. **Regenerate stubs (only for multicast).** Existing generated stubs will continue to work with the v1.3.0 runtime. Re-running `protoc` with `protoc-slimrpc-plugin` v1.3.0 is only necessary if you want to use the new multicast RPC features.
+
+> **Note:** This breaking change applies **only to SLIMRPC**. The core SLIM data plane, session management, and non-RPC bindings APIs remain fully backward compatible with v1.2.x.
+
+#### Java Bindings
+
+Java bindings for SLIM are now available. They require Java 21+ and are generated using UniFFI 0.29. Refer to the examples under `data-plane/bindings/java/` for p2p and group communication patterns equivalent to the Python bindings examples.
+
+#### Java SLIMRPC Plugin
+
+A new `protoc-gen-slimrpc-java` plugin is available for generating SLIMRPC client and server stubs for Java. See the SLIMRPC Java example under the bindings examples for usage.
+
+#### SLIMRPC .NET Support
+
+SLIMRPC code generation and runtime support is now available for .NET/C#. Use the `protoc-gen-slimrpc-csharp` plugin to generate client and server stubs. Refer to the .NET examples for integration guidance.
+
+#### Multicast RPC
+
+A new multicast RPC channel type is available in SLIMRPC. To use multicast in your `.proto` service definitions, define methods that target multiple receivers. The SLIMRPC compiler generates the appropriate multicast stubs for Python, Go, Java, and .NET. See the multicast examples under each language's bindings directory.
+
+#### SLIMRPC Session Reuse
+
+SLIMRPC now supports session reuse with automatic method demultiplexing. Previously, each RPC call required a new session. With this change, a single session can handle multiple RPC methods, reducing connection overhead. This is transparent to existing code — no migration is required, but new applications can take advantage of persistent sessions for better performance.
+
+#### UniFFI 0.29 Upgrade
+
+All language bindings have been upgraded from UniFFI 0.28 to 0.29. If you build bindings from source, ensure your UniFFI tooling is updated to 0.29.x. Pre-built packages are unaffected.
+
 ## v1.2.0 (27 February 2026)
 
 ### Key Highlights
@@ -250,7 +420,7 @@ The API remains largely the same, but the implementation is now in Rust for bett
   - Complete examples (point-to-point, group, simple) ([#979](https://github.com/agntcy/slim/pull/979))
   - Integration and unit tests ([#1071](https://github.com/agntcy/slim/pull/1071))
   - Taskfile automation for building and testing ([#979](https://github.com/agntcy/slim/pull/979))
-  
+
 - **Python Bindings**:
   - Migrated to UniFFI from PyO3 for consistency ([#1046](https://github.com/agntcy/slim/pull/1046), [#1116](https://github.com/agntcy/slim/pull/1116))
   - Improved package installability verification ([#1062](https://github.com/agntcy/slim/pull/1062))
@@ -291,7 +461,7 @@ The API remains largely the same, but the implementation is now in Rust for bett
 #### ⚠ Breaking Changes
 
 - **Error Handling Refactor**: Unified typed error handling replaces string-based errors across all core crates ([#976](https://github.com/agntcy/slim/pull/976))
-- **Bindings API Changes**: 
+- **Bindings API Changes**:
   - Renamed `BindingsAdapter` → `App`, `BindingsSessionContext` → `Session` ([#1104](https://github.com/agntcy/slim/pull/1104))
   - Use `Duration` type for timeouts instead of integers ([#1073](https://github.com/agntcy/slim/pull/1073))
   - Moved received message to `message_context` ([#1087](https://github.com/agntcy/slim/pull/1087))
@@ -555,7 +725,7 @@ except Exception as e:
    session_id = session.session_id()
    source = session.source()
    destination = session.destination()
-   
+
    # Use stored values later instead of calling methods again
    ```
 
@@ -619,11 +789,11 @@ local_app = service.create_app(local_name, provider_config, verifier_config)
 v0.7.x - Shared Secret:
 ```python
 provider = slim_bindings.IdentityProvider.SharedSecret(
-    identity=identity, 
+    identity=identity,
     shared_secret=secret
 )
 verifier = slim_bindings.IdentityVerifier.SharedSecret(
-    identity=identity, 
+    identity=identity,
     shared_secret=secret
 )
 local_app = slim_bindings.Slim(local_name, provider, verifier)
