@@ -1,19 +1,19 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use bincode::{Decode, Encode};
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 use twox_hash::XxHash64;
 
 use crate::api::ProtoName;
 
-#[derive(Clone, Encode, Decode)]
+#[derive(Clone)]
 pub struct Name {
     /// The hashed components of the name
     components: [u64; 4],
 
     // Store the original string representation of the components
-    strings: Box<[String; 3]>,
+    strings: Arc<[String; 3]>,
 }
 
 impl Hash for Name {
@@ -73,7 +73,7 @@ impl From<&ProtoName> for Name {
                 encoded.component_2,
                 encoded.component_3,
             ],
-            strings: Box::new([
+            strings: Arc::new([
                 strings.str_component_0.clone(),
                 strings.str_component_1.clone(),
                 strings.str_component_2.clone(),
@@ -101,7 +101,7 @@ impl Name {
                 calculate_hash(&strings[2]),
                 Self::NULL_COMPONENT,
             ],
-            strings: Box::new(strings),
+            strings: Arc::new(strings),
         }
     }
 
