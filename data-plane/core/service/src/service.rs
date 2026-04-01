@@ -802,10 +802,10 @@ mod tests {
         let mut config = SessionConfig::default()
             .with_session_type(slim_datapath::api::ProtoSessionType::PointToPoint);
         config.initiator = true;
-        let (send_session, completion_handle) = pub_app
-            .create_session(config, subscriber_name.clone(), None)
-            .await
-            .unwrap();
+        let mut dest = subscriber_name.clone();
+        dest.reset_id();
+        let (send_session, completion_handle) =
+            pub_app.create_session(config, dest, None).await.unwrap();
 
         completion_handle.await.expect("session creation failed");
 
