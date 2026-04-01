@@ -271,11 +271,11 @@ tasks:
   generate-proto:
     desc: "Generate proto files for the Python bindings"
     deps:
-      - task: rust:toolchain:run-command
+      - task: rust:run-command
         vars:
           COMMAND: |
             cargo build --package agntcy-protoc-slimrpc-plugin --bin protoc-gen-slimrpc-go --release
-      - task: tools:buf
+      - task: buf
     cmds:
       - |
         # Find all the buf.gen.yaml files in the current directory and its subdirectories
