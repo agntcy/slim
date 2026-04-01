@@ -45,6 +45,11 @@ fn pick_one(n: usize, except: u64, get: impl Fn(usize) -> Option<u64>) -> Option
     None
 }
 
+#[cfg(test)]
+fn reset_next_index_for_test() {
+    NEXT_INDEX.with(|c| c.set(0));
+}
+
 #[derive(Debug, Clone)]
 struct InternalName(Name);
 
@@ -1180,5 +1185,115 @@ mod tests {
             matches!(err, Err(DataPathError::NoMatch(_))),
             "No connections should remain"
         );
+    }
+
+    /// Covers `pick_one` early exit, full-ring skip, and `next_index` round-robin.
+    #[test]
+    fn pick_one_and_next_index_helpers() {
+        reset_next_index_for_test();
+        assert_eq!(pick_one(0, 0, |_| Some(1)), None);
+
+        reset_next_index_for_test();
+        assert_eq!(
+            pick_one(1, 42, |_| Some(42)),
+            None,
+            "only candidate equals except"
+        );
+
+        reset_next_index_for_test();
+        let values = [10_u64, 20, 30];
+        assert_eq!(
+            pick_one(3, 99, |i| Some(values[i])),
+            Some(10),
+            "cursor 0, first acceptable"
+        );
+        assert_eq!(
+            pick_one(3, 99, |i| Some(values[i])),
+            Some(20),
+            "cursor advanced"
+        );
+        assert_eq!(pick_one(3, 99, |i| Some(values[i])), Some(30));
+        assert_eq!(pick_one(3, 99, |i| Some(values[i])), Some(10));
+
+        reset_next_index_for_test();
+        assert_eq!(
+            pick_one(2, 10, |i| Some([10, 20][i])),
+            Some(20),
+            "skip first slot when it matches except"
+        );
+
+        reset_next_index_for_test();
+        assert_eq!(
+            pick_one(3, 0, |i| if i == 1 { None } else { Some([1, 2, 3][i]) }),
+            Some(1),
+            "ignore None from get"
+        );
+    }
+
+    /// Unknown `name.id()` with a single connection in the pool uses `pool.get_one` fallback.
+    #[test]
+    fn get_one_connection_unknown_id_single_pool_conn_fallback() {
+        reset_next_index_for_test();
+        let base = Name::from_strings(["agntcy", "default", "rr-fallback"]);
+        let name_known = base.clone().with_id(1);
+        let name_unknown = base.clone().with_id(999);
+        let t = SubscriptionTableImpl::default();
+
+        assert!(t.add_subscription(name_known, 42, false, 1).is_ok());
+        assert_eq!(t.match_one(&name_unknown, 100).unwrap(), 42);
+    }
+
+    /// Unknown `name.id()` with zero or multiple pool entries returns `NoMatch`.
+    #[test]
+    fn get_one_connection_unknown_id_no_fallback_when_pool_not_singleton() {
+        reset_next_index_for_test();
+        let base = Name::from_strings(["agntcy", "default", "rr-nofallback"]);
+        let name_known = base.clone().with_id(1);
+        let name_unknown = base.clone().with_id(888);
+        let t = SubscriptionTableImpl::default();
+
+        assert!(t.add_subscription(name_known.clone(), 10, false, 1).is_ok());
+        assert!(t.add_subscription(name_known, 20, false, 2).is_ok());
+
+        let err = t.match_one(&name_unknown, 100);
+        assert!(
+            matches!(err, Err(DataPathError::NoMatch(_))),
+            "pool has 2 remote conns, id missing -> no singleton fallback"
+        );
+    }
+
+    /// Named id exists but only connection equals `incoming_conn` -> `pick_one` finds nothing.
+    #[test]
+    fn get_one_connection_only_candidate_is_incoming() {
+        reset_next_index_for_test();
+        let name = Name::from_strings(["agntcy", "default", "only-incoming"]).with_id(7);
+        let t = SubscriptionTableImpl::default();
+        assert!(t.add_subscription(name.clone(), 55, false, 1).is_ok());
+        let err = t.match_one(&name, 55);
+        assert!(matches!(err, Err(DataPathError::NoMatch(_))));
+    }
+
+    /// `Connections::get_all` when the sole indexed connection is excluded.
+    #[test]
+    fn match_all_null_name_single_conn_excluded() {
+        let name = Name::from_strings(["agntcy", "default", "null-single"]);
+        let t = SubscriptionTableImpl::default();
+        assert!(t.add_subscription(name.clone(), 77, false, 1).is_ok());
+        let err = t.match_all(&name, 77);
+        assert!(matches!(err, Err(DataPathError::NoMatch(_))));
+    }
+
+    /// `get_all_connections` multi-ref path with `Vec::with_capacity` and non-empty output.
+    #[test]
+    fn get_all_connections_multi_sorted_excludes_incoming() {
+        let name = Name::from_strings(["agntcy", "default", "multi-all"]).with_id(3);
+        let t = SubscriptionTableImpl::default();
+        assert!(t.add_subscription(name.clone(), 1, true, 1).is_ok());
+        assert!(t.add_subscription(name.clone(), 2, true, 2).is_ok());
+        assert!(t.add_subscription(name.clone(), 3, true, 3).is_ok());
+
+        let mut out = t.match_all(&name, 2).unwrap();
+        out.sort_unstable();
+        assert_eq!(out, vec![1, 3]);
     }
 }
