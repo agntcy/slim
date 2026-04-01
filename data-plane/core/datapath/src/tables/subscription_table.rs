@@ -437,7 +437,7 @@ impl NameState {
             return Some(vec![conn_id]);
         }
 
-        let mut out = Vec::new();
+        let mut out = Vec::with_capacity(refs.len());
         for conn_id in refs.keys() {
             if *conn_id != incoming_conn {
                 out.push(*conn_id);
