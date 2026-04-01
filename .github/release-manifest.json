@@ -1,5 +1,5 @@
 {
-  "charts/slim": "1.4.0",
+  "charts/slim": "1.3.0",
   "data-plane/testing": "0.7.1",
   "control-plane/control-plane": "1.0.0",
   "charts/slim-control-plane": "1.0.0"
