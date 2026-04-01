@@ -28,10 +28,10 @@ jobs:
         include:
           - image: slim-node
             repo: ghcr.io/${{ github.repository_owner }}/slim
-            version: 1.0.0
+            version: latest
           - image: slim-controller
             repo: ghcr.io/${{ github.repository_owner }}/slim/control-plane
-            version: 1.0.0
+            version: latest
           - image: spire-server
             repo: ghcr.io/spiffe/spire-server
             version: 1.14.1
