@@ -28,6 +28,23 @@ fn next_index(n: usize) -> usize {
     })
 }
 
+/// Round-robin over `0..n`: advance [`next_index`], then return the first `i` where `get(i)` is
+/// `Some(val)` and `val != except`.
+fn pick_one(n: usize, except: u64, get: impl Fn(usize) -> Option<u64>) -> Option<u64> {
+    if n == 0 {
+        return None;
+    }
+    let start = next_index(n);
+    for i in (start..n).chain(0..start) {
+        if let Some(val) = get(i)
+            && val != except
+        {
+            return Some(val);
+        }
+    }
+    None
+}
+
 #[derive(Debug, Clone)]
 struct InternalName(Name);
 
@@ -196,36 +213,13 @@ impl Connections {
     /// Pick a connection id other than `except_conn` using pseudo-random selection
     fn get_one(&self, except_conn: u64) -> Option<u64> {
         let num_slots = self.pool.max_set() + 1;
-        if self.index.len() == 1 {
-            let (&conn_id, &slot_idx) = self
-                .index
-                .iter()
-                .next()
-                .expect("len == 1 implies exactly one index entry");
-            if conn_id == except_conn {
-                debug!("the only available connection cannot be used");
-                return None;
-            }
-            debug_assert!(
-                self.pool
-                    .get(slot_idx)
-                    .is_some_and(|c| c.conn_id == conn_id)
-            );
-            let _ = next_index(num_slots);
-            return Some(conn_id);
+        let result = pick_one(num_slots, except_conn, |i| {
+            self.pool.get(i).map(|c| c.conn_id)
+        });
+        if result.is_none() {
+            debug!("no output connection available");
         }
-
-        let start = next_index(num_slots);
-        for i in (start..num_slots).chain(0..start) {
-            if let Some(c) = self.pool.get(i)
-                && c.conn_id != except_conn
-            {
-                return Some(c.conn_id);
-            }
-        }
-
-        debug!("no output connection available");
-        None
+        result
     }
 
     fn get_all(&self, except_conn: u64) -> Option<Vec<u64>> {
@@ -389,17 +383,9 @@ impl NameState {
             return None;
         }
 
-        if non_incoming_conn_ids.len() == 1 {
-            return Some(non_incoming_conn_ids[0]);
-        }
-
         non_incoming_conn_ids.sort_unstable();
         let n = non_incoming_conn_ids.len();
-
-        let idx = next_index(n);
-        let conn_id = non_incoming_conn_ids[idx];
-
-        Some(conn_id)
+        pick_one(n, incoming_conn, |i| Some(non_incoming_conn_ids[i]))
     }
 
     fn get_all_connections(
