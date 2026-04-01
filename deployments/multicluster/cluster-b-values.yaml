@@ -49,11 +49,11 @@ slim:
                   type: spire
                   socket_path: unix:/tmp/spire-agent/public/api.sock  
                 trust_domains:
-                  - cluster-b.example
+                  - example.org
           clients: []
         controller:
           clients:
-            - endpoint: "https://slim-control.admin.example:50052"
+            - endpoint: "https://slim-control.example.org:50052"
               tls:
                 #insecure: true
                 insecure_skip_verify: false
@@ -64,7 +64,7 @@ slim:
                   type: spire
                   socket_path: unix:/tmp/spire-agent/public/api.sock
                   trust_domains:
-                    - admin.example                     
+                    - example.org
 
 
   # This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
@@ -96,6 +96,3 @@ slim:
 
 spire:
   enabled: true
-  trustedDomains:
-  - spiffe://admin.example  
-  - spiffe://cluster-a.example 

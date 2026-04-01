@@ -1,0 +1,59 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+#
+# SPIRE nested root (admin cluster) — used with spiffe/spire-nested Helm chart.
+# Install: helm upgrade --install spire spiffe/spire-nested -n spire --create-namespace \
+#   -f spire-root-values.yaml --set global.spire.trustDomain="$SPIFFE_TRUST_DOMAIN"
+
+tags:
+  nestedRoot: true
+
+global:
+  spire:
+    # Overridden by Taskfile (--set global.spire.trustDomain).
+    trustDomain: example.org
+    clusterName: admin-cluster
+    recommendations:
+      # Single namespace (release namespace) for simpler Kind / docs.
+      enabled: false
+    caSubject:
+      country: US
+      organization: SLIM Example Org
+      commonName: example.org
+
+# Align SPIRE Controller Manager class with slim chart ClusterSPIFFEID (.Values.spire class).
+# Federation bundle endpoint (HTTPS, default port 8443) is exposed on the same LoadBalancer Service.
+# tls.spire (https_spiffe) presents an SVID without DNS SAN matching spire.<admin>, so trust_bundle_url
+# HTTPS clients fail hostname verification. Use https_web + Secret spire-root-federation-tls (Taskfile).
+root-spire-server:
+  service:
+    type: LoadBalancer
+  # Local admin cluster only (PSAT). Workload-cluster upstream agents use join_token on root (no child kubeconfigs here).
+  nodeAttestor:
+    k8sPSAT:
+      serviceAccountAllowList:
+        - spire:spire-agent-upstream
+    joinToken:
+      enabled: true
+  federation:
+    enabled: true
+    tls:
+      spire:
+        enabled: false
+      externalSecret:
+        enabled: true
+        secretName: spire-root-federation-tls
+  controllerManager:
+    className: spire-spire
+
+internal-spire-server:
+  controllerManager:
+    className: spire-spire
+
+external-spire-server:
+  controllerManager:
+    className: spire-spire
+
+# Workload agent socket basename → /tmp/spire-agent/public/api.sock (matches slim dataplane paths).
+downstream-spire-agent-full:
+  socketPath: /run/spire/agent-sockets/api.sock

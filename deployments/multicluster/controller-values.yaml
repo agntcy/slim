@@ -40,9 +40,7 @@ config:
 
 spire:
   enabled: true
-  trustedDomains:  
-  - spiffe://cluster-a.example
-  - spiffe://cluster-b.example
+  # Single trust domain (nested SPIRE); omit federatesWith on ClusterSPIFFEID
 
 service:
   type: LoadBalancer

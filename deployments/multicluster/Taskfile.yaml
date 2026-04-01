@@ -23,7 +23,16 @@ vars:
   CLUSTER_ADMIN_TRUST_DOMAIN: '{{ .CLUSTER_ADMIN_TRUST_DOMAIN | default "admin.example" }}'
   CLUSTER_A_TRUST_DOMAIN: '{{ .CLUSTER_A_TRUST_DOMAIN | default "cluster-a.example" }}'
   CLUSTER_B_TRUST_DOMAIN: '{{ .CLUSTER_B_TRUST_DOMAIN | default "cluster-b.example" }}'
-  
+  # Single SPIFFE trust domain for nested SPIRE (all clusters); Kind cluster names stay *.
+  SPIFFE_TRUST_DOMAIN: '{{ .SPIFFE_TRUST_DOMAIN | default "example.org" }}'
+  SPIRE_NAMESPACE: '{{ .SPIRE_NAMESPACE | default "spire" }}'
+  SPIRE_CRDS_CHART_VERSION: '{{ .SPIRE_CRDS_CHART_VERSION | default "0.5.0" }}'
+  SPIRE_NESTED_CHART_VERSION: '{{ .SPIRE_NESTED_CHART_VERSION | default "0.28.3" }}'
+  # Root SPIRE federation bundle endpoint port (same LB IP as spire-root-server gRPC).
+  SPIRE_FEDERATION_BUNDLE_PORT: '{{ .SPIRE_FEDERATION_BUNDLE_PORT | default "8443" }}'
+  # TTL (seconds) for join tokens minted by spire:child:join-tokens:ensure.
+  SPIRE_JOIN_TOKEN_TTL_SEC: '{{ .SPIRE_JOIN_TOKEN_TTL_SEC | default "86400" }}'
+
 #  Suppress task name and command output by default
 silent: true
 
@@ -49,128 +58,216 @@ tasks:
       - kind delete cluster --name {{ .CLUSTER_A_TRUST_DOMAIN }}
       - kind delete cluster --name {{ .CLUSTER_B_TRUST_DOMAIN }}
       - rm -f ./*.spiffe
-      - rm -f ./*.example.yaml
 
-  spire:server:deploy:
+  spire:crds:install:
     internal: true
-    desc: Deploy SPIRE server
-    vars:
-      TRUST_DOMAIN: '{{ .TRUST_DOMAIN | default "" }}'
-      SERVICE_TYPE: '{{ .SERVICE_TYPE | default "LoadBalancer" }}'
-      BUNDLE_PATH: '{{ .BUNDLE_PATH | default "spire-bundle.spiffe" }}'    
+    desc: Install SPIRE CRDs on the current cluster
+    dir: "{{.TASKFILE_DIR}}"
+    cmds:
+      - helm repo add spiffe https://spiffe.github.io/helm-charts-hardened/ 2>/dev/null || true
+      - helm repo update
+      - |
+        helm upgrade --install spire-crds spire-crds \
+          --repo https://spiffe.github.io/helm-charts-hardened/ \
+          --version "{{ .SPIRE_CRDS_CHART_VERSION }}" \
+          --namespace {{ .SPIRE_NAMESPACE }} \
+          --create-namespace \
+          --wait \
+          --wait-for-jobs \
+          --timeout "15m"
+
+  spire:federation:tls:ensure:
+    internal: true
+    desc: Create spire-root-federation-tls (https_web SAN=spire.<admin>) on current cluster
+    dir: "{{.TASKFILE_DIR}}"
     cmds:
       - |
-        helm upgrade --install  \
-        spire-crds \
-        spire-crds \
-        --repo https://spiffe.github.io/helm-charts-hardened/ \
-        --namespace {{ .SPIRE_NAMESPACE }} \
-        --create-namespace \
-        --wait \
-        --wait-for-jobs \
-        --timeout "15m"
+        set -e
+        NS="{{ .SPIRE_NAMESPACE }}"
+        FED_DNS="spire.{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}"
+        TMP="{{.TASKFILE_DIR}}/.task-federation"
+        mkdir -p "$TMP"
+        kubectl get namespace "$NS" >/dev/null 2>&1 || kubectl create namespace "$NS"
+        printf '%s\n' \
+          '[req]' \
+          'distinguished_name = req_distinguished_name' \
+          'req_extensions = v3_req' \
+          'prompt = no' \
+          '[req_distinguished_name]' \
+          "CN = ${FED_DNS}" \
+          '[v3_req]' \
+          "subjectAltName = DNS:${FED_DNS}" \
+          >"$TMP/openssl.cnf"
+        openssl req -x509 -newkey rsa:2048 -sha256 -days 825 -nodes \
+          -keyout "$TMP/tls.key" -out "$TMP/tls.crt" \
+          -config "$TMP/openssl.cnf" -extensions v3_req
+        kubectl create secret tls spire-root-federation-tls \
+          --cert="$TMP/tls.crt" --key="$TMP/tls.key" -n "$NS" \
+          --dry-run=client -o yaml | kubectl apply -f -
+
+  spire:federation:ca:sync-to-child:
+    internal: true
+    desc: Copy federation TLS cert from admin cluster to ConfigMap on current context (for upstream agent SSL_CERT_FILE)
+    dir: "{{.TASKFILE_DIR}}"
+    cmds:
       - |
-        helm upgrade --install spire spire \
-        --repo https://spiffe.github.io/helm-charts-hardened/ \
-        --set global.spire.trustDomain="{{ .TRUST_DOMAIN }}" \
-        --set global.ca.subject.country="US" \
-        --set global.ca.subject.organization="SLIM Example Org" \
-        --set global.ca.subject.commonName="{{ .TRUST_DOMAIN }}" \
-        --set spire-server.service.type="{{ .SERVICE_TYPE }}" \
-        --set spire-server.federation.enabled="true" \
-        --namespace {{ .SPIRE_NAMESPACE }} \
-        --create-namespace \
-        --wait \
-        --wait-for-jobs \
-        --timeout "15m"
+        set -e
+        ADMIN_CTX="kind-{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}"
+        NS="{{ .SPIRE_NAMESPACE }}"
+        TMP="{{.TASKFILE_DIR}}/.task-federation"
+        mkdir -p "$TMP"
+        kubectl --context "$ADMIN_CTX" get secret spire-root-federation-tls -n "$NS" \
+          -o jsonpath='{.data.tls\.crt}' | base64 -d >"$TMP/federation-ca.crt"
+        kubectl get namespace "$NS" >/dev/null 2>&1 || kubectl create namespace "$NS"
+        kubectl create configmap spire-federation-bundle-ca \
+          --from-file=ca.crt="$TMP/federation-ca.crt" -n "$NS" \
+          --dry-run=client -o yaml | kubectl apply -f -
+
+  spire:root:deploy:
+    internal: true
+    desc: Deploy nested SPIRE root (spire-nested, admin cluster; current kubectl context)
+    dir: "{{.TASKFILE_DIR}}"
+    deps: [spire:crds:install]
+    cmds:
+      - task: spire:federation:tls:ensure
       - |
-        kubectl get configmap -n {{ .SPIRE_NAMESPACE }} spire-bundle -o json | jq '.data."bundle.spiffe"' -r > {{ .BUNDLE_PATH }}      
+        set -e
+        helm upgrade --install spire spire-nested \
+          --repo https://spiffe.github.io/helm-charts-hardened/ \
+          --version "{{ .SPIRE_NESTED_CHART_VERSION }}" \
+          --namespace {{ .SPIRE_NAMESPACE }} \
+          --create-namespace \
+          --values spire-root-values.yaml \
+          --set global.spire.trustDomain="{{ .SPIFFE_TRUST_DOMAIN }}" \
+          --set global.spire.caSubject.commonName="{{ .SPIFFE_TRUST_DOMAIN }}" \
+          --wait \
+          --wait-for-jobs \
+          --timeout "15m"
+
+  spire:child:join-tokens:ensure:
+    internal: true
+    desc: Mint per-node join tokens on root SPIRE; create Secret spire-upstream-agent-join-tokens on current (child) context
+    dir: "{{.TASKFILE_DIR}}"
+    requires:
+      vars: [SPIRE_CHILD_CLUSTER_NAME]
+    cmds:
+      - |
+        set -euo pipefail
+        ADMIN_CTX="kind-{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}"
+        NS="{{ .SPIRE_NAMESPACE }}"
+        CLUSTER="{{ .SPIRE_CHILD_CLUSTER_NAME }}"
+        TRUST="{{ .SPIFFE_TRUST_DOMAIN }}"
+        TTL="{{ .SPIRE_JOIN_TOKEN_TTL_SEC }}"
+        ROOT_POD=$(kubectl --context "$ADMIN_CTX" get pods -n "$NS" -l app.kubernetes.io/name=root-server,app.kubernetes.io/component=server -o jsonpath='{.items[0].metadata.name}')
+        [ -n "$ROOT_POD" ]
+        kubectl get namespace "$NS" >/dev/null 2>&1 || kubectl create namespace "$NS"
+        TMP="$(mktemp -d)"
+        trap 'rm -rf "$TMP"' EXIT
+        nodes=$(kubectl get nodes -o jsonpath='{.items[*].metadata.name}')
+        [ -n "$nodes" ]
+        declare -a args=()
+        for node in $nodes; do
+          sid="spiffe://${TRUST}/nested/upstream/${CLUSTER}/${node}"
+          tok=$(kubectl --context "$ADMIN_CTX" exec -n "$NS" "$ROOT_POD" -c root-spire-server -- \
+            /opt/spire/bin/spire-server token generate -spiffeID "$sid" -ttl "$TTL" 2>/dev/null | sed 's/^Token: //' | tr -d '\r\n')
+          [ -n "$tok" ]
+          printf '%s' "$tok" >"$TMP/$node"
+          args+=(--from-file="$node=$TMP/$node")
+        done
+        kubectl create secret generic spire-upstream-agent-join-tokens -n "$NS" "${args[@]}" \
+          --dry-run=client -o yaml | kubectl apply -f -
+
+        # Create downstream registration entries on the root server for the child internal server.
+        # The root controller manager only watches the admin cluster (no kubeconfigs), so we must
+        # manually register the child internal server workload under each upstream agent node.
+        INTERNAL_SERVER_SPIFFE_ID="spiffe://${TRUST}/ns/spire/sa/spire-internal-server"
+        for node in $nodes; do
+          PARENT_ID="spiffe://${TRUST}/nested/upstream/${CLUSTER}/${node}"
+          existing=$(kubectl --context "$ADMIN_CTX" exec -n "$NS" "$ROOT_POD" -c root-spire-server -- \
+            /opt/spire/bin/spire-server entry show -parentID "$PARENT_ID" -spiffeID "$INTERNAL_SERVER_SPIFFE_ID" 2>/dev/null \
+            | grep -c "^Entry ID" || true)
+          if [ "${existing:-0}" -gt "0" ]; then
+            echo "  Downstream entry for ${CLUSTER}/${node} internal-server already exists, skipping"
+          else
+            kubectl --context "$ADMIN_CTX" exec -n "$NS" "$ROOT_POD" -c root-spire-server -- \
+              /opt/spire/bin/spire-server entry create \
+              -parentID "$PARENT_ID" \
+              -spiffeID "$INTERNAL_SERVER_SPIFFE_ID" \
+              -selector k8s:ns:spire \
+              -selector k8s:sa:spire-internal-server \
+              -downstream
+            echo "  Created downstream entry for ${CLUSTER}/${node} internal-server"
+          fi
+        done
+
+  spire:child:deploy:
+    internal: true
+    desc: Deploy nested SPIRE child on current cluster (upstream = root SPIRE LB DNS name)
+    dir: "{{.TASKFILE_DIR}}"
+    deps: [spire:crds:install]
+    requires:
+      vars: [SPIRE_CHILD_CLUSTER_NAME]
+    cmds:
+      - task: spire:federation:ca:sync-to-child
+      - task: spire:child:join-tokens:ensure
+        vars:
+          SPIRE_CHILD_CLUSTER_NAME: "{{ .SPIRE_CHILD_CLUSTER_NAME }}"
+      - |
+        set -e
+        NS="{{ .SPIRE_NAMESPACE }}"
+        POST_RENDER="{{.TASKFILE_DIR}}/scripts/spire-upstream-agent-post-render.rb"
+        helm upgrade --install spire spire-nested \
+          --repo https://spiffe.github.io/helm-charts-hardened/ \
+          --version "{{ .SPIRE_NESTED_CHART_VERSION }}" \
+          --namespace "$NS" \
+          --create-namespace \
+          --values spire-child-values.yaml \
+          --set global.spire.trustDomain="{{ .SPIFFE_TRUST_DOMAIN }}" \
+          --set global.spire.caSubject.commonName="{{ .SPIFFE_TRUST_DOMAIN }}" \
+          --set global.spire.clusterName="{{ .SPIRE_CHILD_CLUSTER_NAME }}" \
+          --set global.spire.upstreamSpireAddress="spire.{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}" \
+          --set upstream-spire-agent.trustBundleURL="https://spire.{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}:{{ .SPIRE_FEDERATION_BUNDLE_PORT }}" \
+          --post-renderer "$POST_RENDER"
+
+        # Wait for core SPIRE components in dependency order.
+        # The OIDC discovery provider has a known init chicken-and-egg:
+        # its init container needs the downstream agent socket, which only appears
+        # after the downstream agent is ready, which needs the bundle configmap,
+        # which the internal server publishes once it has its upstream SVID.
+        # We wait for the critical chain, then restart the OIDC provider to clear backoff.
+        echo "Waiting for upstream-spire-agent DaemonSet..."
+        kubectl rollout status daemonset/spire-agent-upstream -n "$NS" --timeout=10m
+        echo "Waiting for spire-internal-server StatefulSet..."
+        kubectl rollout status statefulset/spire-internal-server -n "$NS" --timeout=10m
+        echo "Waiting for spire-agent-downstream DaemonSet..."
+        kubectl rollout status daemonset/spire-agent-downstream -n "$NS" --timeout=10m
+        echo "Bouncing spiffe-oidc-discovery-provider to clear CrashLoopBackOff..."
+        kubectl rollout restart deployment/spiffe-oidc-discovery-provider -n "$NS"
+        kubectl rollout status deployment/spiffe-oidc-discovery-provider -n "$NS" --timeout=5m
 
   spire:deploy:
-    desc: Set up federation between SPIRE servers
+    desc: |
+      Deploy nested SPIRE: root on admin cluster, children on cluster-a/cluster-b (single trust domain SPIFFE_TRUST_DOMAIN).
+      Order: admin root → wait spire-root-server LB → each workload cluster child.
+      Add /etc/hosts on the dev host for spire.<admin>. Child pods must resolve that host too (CoreDNS stub, etc.) for gRPC and HTTPS on the federation bundle port (SPIRE_FEDERATION_BUNDLE_PORT, default 8443).
     cmds:
-      - kubectl config use-context kind-{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}    
-      - task: spire:server:deploy
-        vars:
-          TRUST_DOMAIN: '{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}'
-          BUNDLE_PATH: ./{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}.spiffe
-          SPIRE_NAMESPACE: '{{ .SPIRE_NAMESPACE }}'
-      - task slim:wait-for-lb LB_HOSTNAME=spire.{{ .CLUSTER_ADMIN_TRUST_DOMAIN }} SVC_NAME=spire-server NAMESPACE='{{ .SPIRE_NAMESPACE }}'
-
-      - kubectl config use-context kind-{{ .CLUSTER_A_TRUST_DOMAIN }}    
-      - task: spire:server:deploy
-        vars:
-          TRUST_DOMAIN: '{{ .CLUSTER_A_TRUST_DOMAIN }}'
-          BUNDLE_PATH: ./{{ .CLUSTER_A_TRUST_DOMAIN }}.spiffe
-          SPIRE_NAMESPACE: '{{ .SPIRE_NAMESPACE }}'
-      - task slim:wait-for-lb LB_HOSTNAME=spire.{{ .CLUSTER_A_TRUST_DOMAIN }} SVC_NAME=spire-server NAMESPACE='{{ .SPIRE_NAMESPACE }}'
-
-      - kubectl config use-context kind-{{ .CLUSTER_B_TRUST_DOMAIN }}
-      - task: spire:server:deploy
-        vars:
-          TRUST_DOMAIN: '{{ .CLUSTER_B_TRUST_DOMAIN }}'
-          BUNDLE_PATH: ./{{ .CLUSTER_B_TRUST_DOMAIN }}.spiffe
-      - task slim:wait-for-lb LB_HOSTNAME=spire.{{ .CLUSTER_B_TRUST_DOMAIN }} SVC_NAME=spire-server NAMESPACE='{{ .SPIRE_NAMESPACE }}'
-
-  spire:federation:gen-resource:
-    internal: true
-    desc: Generate federation resource for a target trust domain
-    vars:
-      TARGET_DOMAIN: '{{ .TARGET_DOMAIN }}'
-    cmds:
-      - |
-        cat > {{ .TARGET_DOMAIN }}.yaml << EOF
-              apiVersion: spire.spiffe.io/v1alpha1
-              kind: ClusterFederatedTrustDomain
-              metadata:
-                name: {{ .TARGET_DOMAIN }}
-              spec:
-                className: spire-spire
-                trustDomain: spiffe://{{ .TARGET_DOMAIN }}
-                bundleEndpointURL: https://spire.{{ .TARGET_DOMAIN }}:8443
-                bundleEndpointProfile:
-                  type: https_spiffe
-                  endpointSPIFFEID: spiffe://{{ .TARGET_DOMAIN }}/spire/server
-                trustDomainBundle: |-
-                  $(cat ./{{ .TARGET_DOMAIN }}.spiffe)
-        EOF
-
-  spire:federation:deploy:
-    desc: Set up federation between clusters      
-    cmds:
-      - task: spire:federation:gen-resource
-        vars:
-          TARGET_DOMAIN: '{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}'
-      - task: spire:federation:gen-resource
-        vars:
-          TARGET_DOMAIN: '{{ .CLUSTER_A_TRUST_DOMAIN }}'
-      - task: spire:federation:gen-resource
-        vars:
-          TARGET_DOMAIN: '{{ .CLUSTER_B_TRUST_DOMAIN }}'
-
       - kubectl config use-context kind-{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}
-      - echo "Creating federation config on {{ .CLUSTER_ADMIN_TRUST_DOMAIN }} for {{ .CLUSTER_A_TRUST_DOMAIN }} ..."
-      - kubectl apply -f ./{{ .CLUSTER_A_TRUST_DOMAIN }}.yaml -n {{ .SPIRE_NAMESPACE }}
-
-      - kubectl config use-context kind-{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}
-      - echo "Creating federation config on {{ .CLUSTER_ADMIN_TRUST_DOMAIN }} for {{ .CLUSTER_B_TRUST_DOMAIN }} ..."
-      - kubectl apply -f ./{{ .CLUSTER_B_TRUST_DOMAIN }}.yaml -n {{ .SPIRE_NAMESPACE }}
+      - task: spire:root:deploy
+      - task: slim:wait-for-lb
+        vars:
+          LB_HOSTNAME: spire.{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}
+          SVC_NAME: spire-root-server
+          NAMESPACE: "{{ .SPIRE_NAMESPACE }}"
 
       - kubectl config use-context kind-{{ .CLUSTER_A_TRUST_DOMAIN }}
-      - echo "Creating federation config on {{ .CLUSTER_A_TRUST_DOMAIN }} for {{ .CLUSTER_ADMIN_TRUST_DOMAIN }} ..."
-      - kubectl apply -f ./{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}.yaml -n {{ .SPIRE_NAMESPACE }}
-
-      - kubectl config use-context kind-{{ .CLUSTER_A_TRUST_DOMAIN }}
-      - echo "Creating federation config on {{ .CLUSTER_A_TRUST_DOMAIN }} for {{ .CLUSTER_B_TRUST_DOMAIN }} ..."
-      - kubectl apply -f ./{{ .CLUSTER_B_TRUST_DOMAIN }}.yaml -n {{ .SPIRE_NAMESPACE }}
- 
-      - kubectl config use-context kind-{{ .CLUSTER_B_TRUST_DOMAIN }}
-      - echo "Creating federation config on {{ .CLUSTER_B_TRUST_DOMAIN }} for {{ .CLUSTER_ADMIN_TRUST_DOMAIN }} ..."
-      - kubectl apply -f ./{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}.yaml -n {{ .SPIRE_NAMESPACE }}
+      - task: spire:child:deploy
+        vars:
+          SPIRE_CHILD_CLUSTER_NAME: cluster-a
 
       - kubectl config use-context kind-{{ .CLUSTER_B_TRUST_DOMAIN }}
-      - echo "Creating federation config on {{ .CLUSTER_B_TRUST_DOMAIN }} for {{ .CLUSTER_A_TRUST_DOMAIN }} ..."
-      - kubectl apply -f ./{{ .CLUSTER_A_TRUST_DOMAIN }}.yaml -n {{ .SPIRE_NAMESPACE }}
+      - task: spire:child:deploy
+        vars:
+          SPIRE_CHILD_CLUSTER_NAME: cluster-b
 
   slim:controller:deploy:
     desc: Deploy Slim Controller
@@ -183,7 +280,10 @@ tasks:
           --set image.tag="{{ .SLIM_CONTROLLER_IMAGE_TAG }}" \
           --values controller-values.yaml   
 
-      - task slim:wait-for-lb LB_HOSTNAME=slim-control.{{ .CLUSTER_ADMIN_TRUST_DOMAIN }} SVC_NAME=slim-control   
+      - task: slim:wait-for-lb
+        vars:
+          LB_HOSTNAME: slim-control.{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}
+          SVC_NAME: slim-control
 
   slim:deploy:
     desc: Deploy Slim using the StatefulSet deployment strategy
@@ -204,7 +304,9 @@ tasks:
           --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" \
           --values cluster-a-values.yaml
 
-      - task slim:wait-for-lb LB_HOSTNAME=slim.{{ .CLUSTER_A_TRUST_DOMAIN }}         
+      - task: slim:wait-for-lb
+        vars:
+          LB_HOSTNAME: slim.{{ .CLUSTER_A_TRUST_DOMAIN }}
       # Deploy SLIM to cluster-b
       - kubectl config use-context kind-{{ .CLUSTER_B_TRUST_DOMAIN }}
       - |
@@ -214,7 +316,9 @@ tasks:
           --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" \
           --values cluster-b-values.yaml
 
-      - task slim:wait-for-lb LB_HOSTNAME=slim.{{ .CLUSTER_B_TRUST_DOMAIN }}     
+      - task: slim:wait-for-lb
+        vars:
+          LB_HOSTNAME: slim.{{ .CLUSTER_B_TRUST_DOMAIN }}
 
   slim:wait-for-lb:
     desc: Wait for LoadBalancer IP to be available (with timeout)

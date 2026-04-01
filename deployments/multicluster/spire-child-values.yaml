@@ -1,0 +1,54 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+#
+# SPIRE nested child (workload clusters) — used with spiffe/spire-nested Helm chart.
+# Pods must reach the root LB for gRPC (upstreamSpireAddress) and federation HTTPS bundle (trustBundleURL).
+#
+# Install example:
+#   helm upgrade --install spire spiffe/spire-nested -n spire --create-namespace \
+#     -f spire-child-values.yaml \
+#     --set global.spire.trustDomain="$SPIFFE_TRUST_DOMAIN" \
+#     --set global.spire.clusterName=cluster-a \
+#     --set global.spire.upstreamSpireAddress="$ROOT_SPIRE_HOST"
+
+tags:
+  nestedChildFull: true
+
+global:
+  spire:
+    trustDomain: example.org
+    clusterName: cluster-a
+    upstreamSpireAddress: spire.admin.example
+    recommendations:
+      enabled: false
+    caSubject:
+      country: US
+      organization: SLIM Example Org
+      commonName: example.org
+
+internal-spire-server:
+  controllerManager:
+    className: spire-spire
+
+external-root-spire-server-full:
+  controllerManager:
+    className: spire-spire
+
+# Bundle via HTTPS (no cross-cluster kubeconfig). trustBundleURL is set in Taskfile (root federation :8443).
+# Root serves https_web with a dev cert (DNS SAN spire.<admin>); CA is synced as ConfigMap + SSL_CERT_FILE (Go trust).
+upstream-spire-agent:
+  trustBundleFormat: spiffe
+  extraEnvVars:
+    - name: SSL_CERT_FILE
+      value: /etc/spire/federation-ca/ca.crt
+  extraVolumes:
+    - name: federation-bundle-ca
+      configMap:
+        name: spire-federation-bundle-ca
+  extraVolumeMounts:
+    - name: federation-bundle-ca
+      mountPath: /etc/spire/federation-ca
+      readOnly: true
+
+downstream-spire-agent-full:
+  socketPath: /run/spire/agent-sockets/api.sock
