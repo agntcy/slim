@@ -203,7 +203,6 @@ dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-tracing",
  "agntcy-slim-version",
- "bincode",
  "bit-vec",
  "criterion",
  "display-error-chain",
