@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2](https://github.com/agntcy/slim/compare/slim-auth-v0.6.1...slim-auth-v0.6.2) - 2026-03-31
+
+### Other
+
+- updated the following local packages: agntcy-slim-version
+
+## [0.6.1](https://github.com/agntcy/slim/compare/slim-auth-v0.6.0...slim-auth-v0.6.1) - 2026-03-30
+
+### Other
+
+- updated the following local packages: agntcy-slim-version
+
+## [0.6.0](https://github.com/agntcy/slim/compare/slim-auth-v0.5.2...slim-auth-v0.6.0) - 2026-03-26
+
+### Added
+
+- MLS identity key integration and security dependency upgrades ([#1394](https://github.com/agntcy/slim/pull/1394))
+
 ## [0.5.2](https://github.com/agntcy/slim/compare/slim-auth-v0.5.1...slim-auth-v0.5.2) - 2026-03-20
 
 ### Added

@@ -94,14 +94,14 @@ To deploy SLIM using the multi-cluster deployment strategy, follow these steps:
 ### 1. Set up the Kubernetes clusters
 
 ```bash
-task multi-cluster:up
+sudo task multi-cluster:up
 ```
 
->NOTE: thic command requres `sudo` to start Kind's `LoadBalancer` provider process on host.
+>NOTE: `sudo` is only required to start Kind's `LoadBalancer` provider process on host.
 
 <details>
 <summary>More Details on Cluster Setup</summary>
-
+  
 This step creates three Kind clusters:
 
 - `admin.example` - Administrative cluster hosting the Controller.
@@ -122,7 +122,7 @@ task spire:deploy
 
 <details>
 <summary>More Details on Federated Spire</summary>
-
+  
 This step deploys SPIRE Server, Agent and Controller on all three clusters with federation capabilities enabled. Unlike single-cluster deployments, federated SPIRE allows cross-cluster identity verification and certificate exchange across all clusters.
 
 Key federation configurations:
@@ -138,7 +138,7 @@ spire:
   enabled: true
   trustedDomains:
   - spiffe://admin.example        # Administrative cluster
-  - spiffe://cluster-a.example    # First workload cluster
+  - spiffe://cluster-a.example    # First workload cluster  
   - spiffe://cluster-b.example    # Second workload cluster
 ```
 
@@ -172,7 +172,7 @@ Add to your /etc/hosts: 172.18.0.7    spire.cluster-b.example
 
 <details>
 <summary>More Details</summary>
-
+  
 Since Kind clusters use LoadBalancer services, you need to add the assigned IP addresses to your local `/etc/hosts` file for proper DNS resolution. The wait-for-lb task will:
 
 - Wait for LoadBalancer IP assignment
@@ -195,7 +195,7 @@ task spire:federation:deploy
 
 <details>
 <summary>More Details on Federation Resources</summary>
-
+  
 This step creates the necessary Kubernetes resources to establish SPIRE federation between all three clusters:
 
 - **ClusterFederatedTrustDomain** resources for cross-cluster trust across all domains
@@ -228,7 +228,7 @@ task slim:controller:deploy
 
 <details>
 <summary>More Details on Controller configuration</summary>
-
+  
 The Controller is deployed only on the dedicated `admin.example` cluster but configured to accept connections from both workload clusters. Key multi-cluster configurations:
 
 ```yaml
@@ -291,18 +291,18 @@ services:
         - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
           metadata:
             local_endpoint: ${env:MY_POD_IP}
-            external_endpoint: "slim.cluster-a.example:{{ .Values.slim.service.data.port }}"
+            external_endpoint: "slim.cluster-a.example:{{ .Values.slim.service.data.port }}"             
           tls:
             #insecure: true
-            insecure_skip_verify: false
+            insecure_skip_verify: false   
             source:
               type: spire
-              socket_path: unix:/tmp/spire-agent/public/api.sock
+              socket_path: unix:/tmp/spire-agent/public/api.sock              
             ca_source:
               type: spire
-              socket_path: unix:/tmp/spire-agent/public/api.sock
+              socket_path: unix:/tmp/spire-agent/public/api.sock        
               trust_domains:
-                - cluster-b.example
+                - cluster-b.example  
 ```
 
 Group name identifies SLIM nodes in the same cluster (nodes can directly connect to each other using their pod IP `local_endpoint`).
@@ -320,12 +320,12 @@ controller:
         #insecure_skip_verify: false
         source:
           type: spire
-          socket_path: unix:/tmp/spire-agent/public/api.sock
+          socket_path: unix:/tmp/spire-agent/public/api.sock               
         ca_source:
           type: spire
           socket_path: unix:/tmp/spire-agent/public/api.sock
           trust_domains:
-            - admin.example
+            - admin.example 
 ```
 
 > Trust domain must be set for admin cluster to enable MTLS connection to Controller.
@@ -369,11 +369,11 @@ The sample applications demonstrate cross-cluster communication with centralized
 - **Alice (Receiver)** on cluster-a subscribes to messages and replies to received messages.
 - **Bob (Sender)** on cluster-b creates a new MLS session publishes messages and waits for reply.
 - Messages flow: Bob → SLIM(cluster-b) → SLIM(cluster-a) → Alice.
-
+  
 Each client uses SPIRE federation for authentication.
-
+  
 The centralized Controller automatically creates routes when Alice subscribes, enabling Bob's messages to reach Alice across clusters through the admin cluster coordination.
-
+  
 ```bash
 # Deploy receiver (Alice) on cluster-a
 kubectl config use-context kind-cluster-a.example
@@ -398,7 +398,7 @@ You should see 10 messages being sent and received.
 
 <details>
 <summary>Troubleshooting tips</summary>
-
+  
 Checkout SLIM node logs on each cluster:
 
 ```bash

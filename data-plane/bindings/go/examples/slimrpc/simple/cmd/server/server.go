@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -13,6 +14,7 @@ import (
 
 	slim_bindings "github.com/agntcy/slim-bindings-go"
 	"github.com/agntcy/slim-bindings-go/slimrpc"
+	"github.com/agntcy/slim/bindings/go/examples/common"
 	pb "github.com/agntcy/slim/bindings/go/examples/slimrpc/simple/types"
 )
 
@@ -106,29 +108,34 @@ func (s *TestServiceImpl) ExampleStreamStream(ctx context.Context, stream slimrp
 }
 
 func main() {
+	// instance allows running multiple servers (e.g. server1, server2 for group example)
+	instance := flag.String("instance", "server", "Instance name used as the SLIM app name")
+	serverAddr := flag.String("server", common.ServerEndpoint(), "SLIM server endpoint")
+	flag.Parse()
+
 	// Initialize SLIM with defaults
 	slim_bindings.InitializeWithDefaults()
 
 	service := slim_bindings.GetGlobalService()
 
 	// Create local name
-	localName := slim_bindings.NewName("agntcy", "grpc", "server")
+	localName := slim_bindings.NewName("agntcy", "grpc", *instance)
 
 	// Create app with shared secret
-	app, err := service.CreateAppWithSecret(localName, "my_shared_secret_for_testing_purposes_only")
+	app, err := service.CreateAppWithSecret(localName, common.DefaultSharedSecret)
 	if err != nil {
 		log.Fatalf("Failed to create app: %v", err)
 	}
 
 	// Connect to SLIM
-	clientConfig := slim_bindings.NewInsecureClientConfig("http://localhost:46357")
+	clientConfig := slim_bindings.NewInsecureClientConfig(*serverAddr)
 	connId, err := service.Connect(clientConfig)
 	if err != nil {
 		log.Fatalf("Failed to connect: %v", err)
 	}
 
 	// Subscribe to local name
-	if err := app.Subscribe(localName, &connId); err != nil {
+	if err := app.Subscribe(app.Name(), &connId); err != nil {
 		log.Fatalf("Failed to subscribe: %v", err)
 	}
 
@@ -144,7 +151,8 @@ func main() {
 
 	// Start server in a goroutine
 	go func() {
-		log.Println("Server starting...")
+		fmt.Println("SLIM_RPC_SERVER_READY")
+		log.Printf("Server '%s' starting...", *instance)
 		if err := server.Serve(); err != nil {
 			log.Printf("Server error: %v", err)
 		}

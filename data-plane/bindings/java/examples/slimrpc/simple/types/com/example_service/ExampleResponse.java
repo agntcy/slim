@@ -3,15 +3,15 @@
 // source: example.proto
 // Protobuf Java Version: 4.29.3
 
-package com.exampleservice;
+package com.example_service;
 
 /**
- * Protobuf type {@code exampleservice.ExampleRequest}
+ * Protobuf type {@code example_service.ExampleResponse}
  */
-public final class ExampleRequest extends
+public final class ExampleResponse extends
     com.google.protobuf.GeneratedMessage implements
-    // @@protoc_insertion_point(message_implements:exampleservice.ExampleRequest)
-    ExampleRequestOrBuilder {
+    // @@protoc_insertion_point(message_implements:example_service.ExampleResponse)
+    ExampleResponseOrBuilder {
 private static final long serialVersionUID = 0L;
   static {
     com.google.protobuf.RuntimeVersion.validateProtobufGencodeVersion(
@@ -20,27 +20,27 @@ private static final long serialVersionUID = 0L;
       /* minor= */ 29,
       /* patch= */ 3,
       /* suffix= */ "",
-      ExampleRequest.class.getName());
+      ExampleResponse.class.getName());
   }
-  // Use ExampleRequest.newBuilder() to construct.
-  private ExampleRequest(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
+  // Use ExampleResponse.newBuilder() to construct.
+  private ExampleResponse(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
     super(builder);
   }
-  private ExampleRequest() {
+  private ExampleResponse() {
     exampleString_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
       getDescriptor() {
-    return com.exampleservice.ExampleProto.internal_static_exampleservice_ExampleRequest_descriptor;
+    return com.example_service.ExampleProto.internal_static_example_service_ExampleResponse_descriptor;
   }
 
   @java.lang.Override
   protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internalGetFieldAccessorTable() {
-    return com.exampleservice.ExampleProto.internal_static_exampleservice_ExampleRequest_fieldAccessorTable
+    return com.example_service.ExampleProto.internal_static_example_service_ExampleResponse_fieldAccessorTable
         .ensureFieldAccessorsInitialized(
-            com.exampleservice.ExampleRequest.class, com.exampleservice.ExampleRequest.Builder.class);
+            com.example_service.ExampleResponse.class, com.example_service.ExampleResponse.Builder.class);
   }
 
   public static final int EXAMPLE_STRING_FIELD_NUMBER = 1;
@@ -139,10 +139,10 @@ private static final long serialVersionUID = 0L;
     if (obj == this) {
      return true;
     }
-    if (!(obj instanceof com.exampleservice.ExampleRequest)) {
+    if (!(obj instanceof com.example_service.ExampleResponse)) {
       return super.equals(obj);
     }
-    com.exampleservice.ExampleRequest other = (com.exampleservice.ExampleRequest) obj;
+    com.example_service.ExampleResponse other = (com.example_service.ExampleResponse) obj;
 
     if (!getExampleString()
         .equals(other.getExampleString())) return false;
@@ -169,44 +169,44 @@ private static final long serialVersionUID = 0L;
     return hash;
   }
 
-  public static com.exampleservice.ExampleRequest parseFrom(
+  public static com.example_service.ExampleResponse parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static com.exampleservice.ExampleRequest parseFrom(
+  public static com.example_service.ExampleResponse parseFrom(
       java.nio.ByteBuffer data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static com.exampleservice.ExampleRequest parseFrom(
+  public static com.example_service.ExampleResponse parseFrom(
       com.google.protobuf.ByteString data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static com.exampleservice.ExampleRequest parseFrom(
+  public static com.example_service.ExampleResponse parseFrom(
       com.google.protobuf.ByteString data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static com.exampleservice.ExampleRequest parseFrom(byte[] data)
+  public static com.example_service.ExampleResponse parseFrom(byte[] data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static com.exampleservice.ExampleRequest parseFrom(
+  public static com.example_service.ExampleResponse parseFrom(
       byte[] data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static com.exampleservice.ExampleRequest parseFrom(java.io.InputStream input)
+  public static com.example_service.ExampleResponse parseFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static com.exampleservice.ExampleRequest parseFrom(
+  public static com.example_service.ExampleResponse parseFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -214,26 +214,26 @@ private static final long serialVersionUID = 0L;
         .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
-  public static com.exampleservice.ExampleRequest parseDelimitedFrom(java.io.InputStream input)
+  public static com.example_service.ExampleResponse parseDelimitedFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input);
   }
 
-  public static com.exampleservice.ExampleRequest parseDelimitedFrom(
+  public static com.example_service.ExampleResponse parseDelimitedFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
   }
-  public static com.exampleservice.ExampleRequest parseFrom(
+  public static com.example_service.ExampleResponse parseFrom(
       com.google.protobuf.CodedInputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static com.exampleservice.ExampleRequest parseFrom(
+  public static com.example_service.ExampleResponse parseFrom(
       com.google.protobuf.CodedInputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -246,7 +246,7 @@ private static final long serialVersionUID = 0L;
   public static Builder newBuilder() {
     return DEFAULT_INSTANCE.toBuilder();
   }
-  public static Builder newBuilder(com.exampleservice.ExampleRequest prototype) {
+  public static Builder newBuilder(com.example_service.ExampleResponse prototype) {
     return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
   }
   @java.lang.Override
@@ -262,26 +262,26 @@ private static final long serialVersionUID = 0L;
     return builder;
   }
   /**
-   * Protobuf type {@code exampleservice.ExampleRequest}
+   * Protobuf type {@code example_service.ExampleResponse}
    */
   public static final class Builder extends
       com.google.protobuf.GeneratedMessage.Builder<Builder> implements
-      // @@protoc_insertion_point(builder_implements:exampleservice.ExampleRequest)
-      com.exampleservice.ExampleRequestOrBuilder {
+      // @@protoc_insertion_point(builder_implements:example_service.ExampleResponse)
+      com.example_service.ExampleResponseOrBuilder {
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
-      return com.exampleservice.ExampleProto.internal_static_exampleservice_ExampleRequest_descriptor;
+      return com.example_service.ExampleProto.internal_static_example_service_ExampleResponse_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return com.exampleservice.ExampleProto.internal_static_exampleservice_ExampleRequest_fieldAccessorTable
+      return com.example_service.ExampleProto.internal_static_example_service_ExampleResponse_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              com.exampleservice.ExampleRequest.class, com.exampleservice.ExampleRequest.Builder.class);
+              com.example_service.ExampleResponse.class, com.example_service.ExampleResponse.Builder.class);
     }
 
-    // Construct using com.exampleservice.ExampleRequest.newBuilder()
+    // Construct using com.example_service.ExampleResponse.newBuilder()
     private Builder() {
 
     }
@@ -303,17 +303,17 @@ private static final long serialVersionUID = 0L;
     @java.lang.Override
     public com.google.protobuf.Descriptors.Descriptor
         getDescriptorForType() {
-      return com.exampleservice.ExampleProto.internal_static_exampleservice_ExampleRequest_descriptor;
+      return com.example_service.ExampleProto.internal_static_example_service_ExampleResponse_descriptor;
     }
 
     @java.lang.Override
-    public com.exampleservice.ExampleRequest getDefaultInstanceForType() {
-      return com.exampleservice.ExampleRequest.getDefaultInstance();
+    public com.example_service.ExampleResponse getDefaultInstanceForType() {
+      return com.example_service.ExampleResponse.getDefaultInstance();
     }
 
     @java.lang.Override
-    public com.exampleservice.ExampleRequest build() {
-      com.exampleservice.ExampleRequest result = buildPartial();
+    public com.example_service.ExampleResponse build() {
+      com.example_service.ExampleResponse result = buildPartial();
       if (!result.isInitialized()) {
         throw newUninitializedMessageException(result);
       }
@@ -321,14 +321,14 @@ private static final long serialVersionUID = 0L;
     }
 
     @java.lang.Override
-    public com.exampleservice.ExampleRequest buildPartial() {
-      com.exampleservice.ExampleRequest result = new com.exampleservice.ExampleRequest(this);
+    public com.example_service.ExampleResponse buildPartial() {
+      com.example_service.ExampleResponse result = new com.example_service.ExampleResponse(this);
       if (bitField0_ != 0) { buildPartial0(result); }
       onBuilt();
       return result;
     }
 
-    private void buildPartial0(com.exampleservice.ExampleRequest result) {
+    private void buildPartial0(com.example_service.ExampleResponse result) {
       int from_bitField0_ = bitField0_;
       if (((from_bitField0_ & 0x00000001) != 0)) {
         result.exampleString_ = exampleString_;
@@ -340,16 +340,16 @@ private static final long serialVersionUID = 0L;
 
     @java.lang.Override
     public Builder mergeFrom(com.google.protobuf.Message other) {
-      if (other instanceof com.exampleservice.ExampleRequest) {
-        return mergeFrom((com.exampleservice.ExampleRequest)other);
+      if (other instanceof com.example_service.ExampleResponse) {
+        return mergeFrom((com.example_service.ExampleResponse)other);
       } else {
         super.mergeFrom(other);
         return this;
       }
     }
 
-    public Builder mergeFrom(com.exampleservice.ExampleRequest other) {
-      if (other == com.exampleservice.ExampleRequest.getDefaultInstance()) return this;
+    public Builder mergeFrom(com.example_service.ExampleResponse other) {
+      if (other == com.example_service.ExampleResponse.getDefaultInstance()) return this;
       if (!other.getExampleString().isEmpty()) {
         exampleString_ = other.exampleString_;
         bitField0_ |= 0x00000001;
@@ -515,23 +515,23 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    // @@protoc_insertion_point(builder_scope:exampleservice.ExampleRequest)
+    // @@protoc_insertion_point(builder_scope:example_service.ExampleResponse)
   }
 
-  // @@protoc_insertion_point(class_scope:exampleservice.ExampleRequest)
-  private static final com.exampleservice.ExampleRequest DEFAULT_INSTANCE;
+  // @@protoc_insertion_point(class_scope:example_service.ExampleResponse)
+  private static final com.example_service.ExampleResponse DEFAULT_INSTANCE;
   static {
-    DEFAULT_INSTANCE = new com.exampleservice.ExampleRequest();
+    DEFAULT_INSTANCE = new com.example_service.ExampleResponse();
   }
 
-  public static com.exampleservice.ExampleRequest getDefaultInstance() {
+  public static com.example_service.ExampleResponse getDefaultInstance() {
     return DEFAULT_INSTANCE;
   }
 
-  private static final com.google.protobuf.Parser<ExampleRequest>
-      PARSER = new com.google.protobuf.AbstractParser<ExampleRequest>() {
+  private static final com.google.protobuf.Parser<ExampleResponse>
+      PARSER = new com.google.protobuf.AbstractParser<ExampleResponse>() {
     @java.lang.Override
-    public ExampleRequest parsePartialFrom(
+    public ExampleResponse parsePartialFrom(
         com.google.protobuf.CodedInputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
@@ -550,17 +550,17 @@ private static final long serialVersionUID = 0L;
     }
   };
 
-  public static com.google.protobuf.Parser<ExampleRequest> parser() {
+  public static com.google.protobuf.Parser<ExampleResponse> parser() {
     return PARSER;
   }
 
   @java.lang.Override
-  public com.google.protobuf.Parser<ExampleRequest> getParserForType() {
+  public com.google.protobuf.Parser<ExampleResponse> getParserForType() {
     return PARSER;
   }
 
   @java.lang.Override
-  public com.exampleservice.ExampleRequest getDefaultInstanceForType() {
+  public com.example_service.ExampleResponse getDefaultInstanceForType() {
     return DEFAULT_INSTANCE;
   }
 

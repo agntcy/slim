@@ -64,7 +64,9 @@ jobs:
         working-directory: ${{ inputs.kotlin-bindings-working-directory }}
     steps:
       - name: Checkout source repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Java
         uses: ./.github/actions/setup-java
@@ -73,7 +75,7 @@ jobs:
 
       # Download generated Kotlin code
       - name: Download generated Kotlin code
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: kotlin-bindings-generated-code
           path: ${{ inputs.kotlin-bindings-working-directory }}/generated/
@@ -88,23 +90,28 @@ jobs:
       # Extract version from tag name (e.g., slim-bindings-v0.7.0 -> 0.7.0)
       - name: Extract version from tag
         id: extract-version
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          TAG_NAME="${{ github.ref_name }}"
+          TAG_NAME="$REF_NAME"
           # Remove 'slim-bindings-' prefix if present
           VERSION="${TAG_NAME#slim-bindings-}"
           # Remove leading 'v' if present (e.g., v1.0.0 -> 1.0.0)
           VERSION="${VERSION#v}"
           echo "Extracted version: $VERSION"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       # Build and publish to GitHub Packages
       - name: Publish to GitHub Packages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXTRACTED_VERSION: ${{ steps.extract-version.outputs.version }}
+          STEP_MAVEN_GROUP_ID: ${{ env.MAVEN_GROUP_ID }}
+          STEP_MAVEN_ARTIFACT_ID: ${{ env.MAVEN_ARTIFACT_ID }}
         run: |
           echo "Building and publishing Kotlin bindings to GitHub Packages..."
 
-          VERSION="${{ steps.extract-version.outputs.version }}"
+          VERSION="$EXTRACTED_VERSION"
           echo "Publishing version: $VERSION"
 
           # Build and publish using Gradle
@@ -114,7 +121,7 @@ jobs:
             --stacktrace
 
           echo "✅ Successfully published to GitHub Packages"
-          echo "Package: ${{ env.MAVEN_GROUP_ID }}:${{ env.MAVEN_ARTIFACT_ID }}:$VERSION"
+          echo "Package: $STEP_MAVEN_GROUP_ID:$STEP_MAVEN_ARTIFACT_ID:$VERSION"
           echo "📦 View at: https://github.com/${{ github.repository }}/packages"
 
       # Publish to Maven Central (when credentials are provided)
@@ -126,9 +133,10 @@ jobs:
           MVN_TOKEN_PASSWORD: ${{ secrets.MVN_TOKEN_PASSWORD }}
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          EXTRACTED_VERSION: ${{ steps.extract-version.outputs.version }}
         run: |
           echo "Publishing Kotlin bindings to Maven Central..."
-          VERSION="${{ steps.extract-version.outputs.version }}"
+          VERSION="$EXTRACTED_VERSION"
           echo "Publishing version: $VERSION"
           ./gradlew publishMavenPublicationToMavenCentralRepository -PpublishVersion="$VERSION" --no-daemon --stacktrace
           # OSSRH Staging API: transfer deployment to Central Portal (required for maven-publish plugin)
