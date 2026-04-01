@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
@@ -15,14 +15,17 @@ use crate::errors::DataPathError;
 use crate::messages::Name;
 
 thread_local! {
-    /// Per-thread round-robin state for [`Connections::get_one`]: last **used** pool slot
-    /// (initialized to `0` before the first pick).
-    static LAST_USED_POOL_INDEX: Cell<usize> = const { Cell::new(0_usize) };
-    /// Per-name round-robin (RR): last **used connection position** (index in the sorted candidate list) for
-    /// [`NameState::get_one_connection`] (key = `(name id, 0 = local pool / 1 = remote pool)`).
-    /// Missing keys use `0_usize` like [`LAST_USED_POOL_INDEX`] before the first pick for that key.
-    static LAST_USED_CONN_POS: RefCell<HashMap<(u64, u8), usize>> =
-        RefCell::new(HashMap::new());
+    /// Per-thread cursor for [`next_index`]: used by [`Connections::get_one`] and [`NameState::get_one_connection`].
+    static NEXT_INDEX: Cell<usize> = const { Cell::new(0_usize) };
+}
+
+/// Returns the current [`NEXT_INDEX`] modulo `n`, then sets it to `(that + 1) % n`.
+fn next_index(n: usize) -> usize {
+    NEXT_INDEX.with(|cell| {
+        let i = cell.get() % n;
+        cell.set(i + 1);
+        i
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -190,11 +193,9 @@ impl Connections {
         Ok(())
     }
 
-    /// Pick a connection id other than `except_conn` using round-robin over pool slots.
-    ///
-    /// Single-connection case is O(1) on [`Self::index`]. Otherwise walks pool slots in ring order
-    /// starting from one slot after the thread-local last-used index, without allocating.
+    /// Pick a connection id other than `except_conn` using pseudo-random selection
     fn get_one(&self, except_conn: u64) -> Option<u64> {
+        let num_slots = self.pool.max_set() + 1;
         if self.index.len() == 1 {
             let (&conn_id, &slot_idx) = self
                 .index
@@ -210,23 +211,15 @@ impl Connections {
                     .get(slot_idx)
                     .is_some_and(|c| c.conn_id == conn_id)
             );
-            LAST_USED_POOL_INDEX.with(|c| c.set(slot_idx));
+            let _ = next_index(num_slots);
             return Some(conn_id);
         }
 
-        let num_slots = self.pool.max_set() + 1;
-        // First slot to try: one past last used, wrapped into [0, num_slots).
-        // Read last-used slot once; compute where to start this scan (no write here).
-        let last_used = LAST_USED_POOL_INDEX.with(|c| c.get());
-        let next_slot = (last_used + 1) % num_slots;
-
-        // Ring traversal without per-step `%`: indices next_slot..end, then 0..next_slot.
-        for i in (next_slot..num_slots).chain(0..next_slot) {
+        let start = next_index(num_slots);
+        for i in (start..num_slots).chain(0..start) {
             if let Some(c) = self.pool.get(i)
                 && c.conn_id != except_conn
             {
-                // Store the last **used** slot; next call will start at `(i + 1) % num_slots`.
-                LAST_USED_POOL_INDEX.with(|c| c.set(i));
                 return Some(c.conn_id);
             }
         }
@@ -388,7 +381,6 @@ impl NameState {
             return None;
         }
 
-        let rr_key = (id, side as u8);
         let mut non_incoming_conn_ids: Vec<u64> = Vec::with_capacity(refs.len());
         non_incoming_conn_ids.extend(refs.keys().copied().filter(|&c| c != incoming_conn));
 
@@ -404,14 +396,8 @@ impl NameState {
         non_incoming_conn_ids.sort_unstable();
         let n = non_incoming_conn_ids.len();
 
-        let conn_id = LAST_USED_CONN_POS.with(|m| {
-            let mut map = m.borrow_mut();
-            let last_pos = *map.get(&rr_key).unwrap_or(&0_usize);
-            let next_pos = (last_pos + 1) % n;
-            let picked = non_incoming_conn_ids[next_pos];
-            map.insert(rr_key, next_pos);
-            picked
-        });
+        let idx = next_index(n);
+        let conn_id = non_incoming_conn_ids[idx];
 
         Some(conn_id)
     }
