@@ -375,17 +375,14 @@ impl NameState {
             return None;
         }
 
-        let mut non_incoming_conn_ids: Vec<u64> = Vec::with_capacity(refs.len());
-        non_incoming_conn_ids.extend(refs.keys().copied().filter(|&c| c != incoming_conn));
-
-        if non_incoming_conn_ids.is_empty() {
+        let mut conn_ids: Vec<u64> = refs.keys().copied().collect();
+        conn_ids.sort_unstable();
+        let n = conn_ids.len();
+        let result = pick_one(n, incoming_conn, |i| Some(conn_ids[i]));
+        if result.is_none() {
             debug!("no output connection available");
-            return None;
         }
-
-        non_incoming_conn_ids.sort_unstable();
-        let n = non_incoming_conn_ids.len();
-        pick_one(n, incoming_conn, |i| Some(non_incoming_conn_ids[i]))
+        result
     }
 
     fn get_all_connections(
