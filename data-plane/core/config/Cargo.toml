@@ -12,6 +12,9 @@ name = "slim_config"
 name = "generate-schema"
 path = "src/grpc/schema/generate_schema.rs"
 
+[features]
+oidc = ["agntcy-slim-auth/oidc"]
+
 [dependencies]
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-version = { workspace = true }
@@ -27,6 +30,7 @@ hyper-util = { workspace = true, features = ["client-proxy-system"] }
 lazy_static = { workspace = true }
 parking_lot = { workspace = true }
 prost = { workspace = true }
+rand = { workspace = true }
 regex = { workspace = true }
 rustls = { workspace = true }
 rustls-native-certs = { workspace = true }
@@ -37,7 +41,6 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-tokio-retry = { workspace = true }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tonic = { workspace = true }

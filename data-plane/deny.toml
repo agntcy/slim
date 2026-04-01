@@ -35,14 +35,21 @@ exceptions = [
 
 [bans]
 # TODO: Remove duplicate dependencies.
-multiple-versions = "allow"
+multiple-versions = "deny"
 wildcards = "allow"
 highlight = "all"
 deny = [
     # rustls-webpki is the correct one
     { name = "webpki" },
 ]
-skip = []
+skip = [
+    # getrandom 0.3 (via rand 0.9) vs 0.4 (via uuid / tempfile) — both uncontrollable
+    { name = "getrandom", version = "=0.3.4" },
+    # hashbrown 0.15 (via petgraph/prost-build) vs 0.16 (via indexmap) — both uncontrollable
+    { name = "hashbrown", version = "=0.15.5" },
+    # untrusted 0.7 (via aws-lc-rs) vs 0.9 (via rustls-webpki) — both uncontrollable
+    { name = "untrusted", version = "=0.7.1" },
+]
 
 [sources]
 unknown-registry = "deny"

@@ -4,6 +4,7 @@
 pub mod basic;
 pub mod identity;
 pub mod jwt;
+#[cfg(feature = "oidc")]
 pub mod oidc;
 #[cfg(not(target_family = "windows"))]
 pub mod spire;
@@ -21,8 +22,10 @@ pub enum ConfigAuthError {
     #[error("password cannot be empty")]
     AuthBasicEmptyPassword,
 
+    #[cfg(feature = "oidc")]
     #[error("client id cannot be empty")]
     AuthOidcEmptyClientId,
+    #[cfg(feature = "oidc")]
     #[error("client secret cannot be empty")]
     AuthOidcEmptyClientSecret,
 

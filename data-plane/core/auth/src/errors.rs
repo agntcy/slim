@@ -36,18 +36,25 @@ pub enum AuthError {
     JwtStaticUnsupportedCustomClaims,
 
     // OIDC/Oauth2 errors
+    #[cfg(feature = "oidc")]
     #[error("token_endpoint not found in discovery document")]
     OidcDiscoveryMissingTokenEndpoint,
+    #[cfg(feature = "oidc")]
     #[error("key not found: {0}")]
     OidcKeyNotFound(String),
+    #[cfg(feature = "oidc")]
     #[error("kid is missing and multiple keys are available")]
     OidcMissingKidWithMultipleKeys,
+    #[cfg(feature = "oidc")]
     #[error("OIDC Token Provider does not support custom claims")]
     OidcUnsupportedCustomClaims,
+    #[cfg(feature = "oidc")]
     #[error("OAuth2 request error: {0}")]
     OAuth2Request(Box<dyn std::error::Error + Send + Sync>),
+    #[cfg(feature = "oidc")]
     #[error("Token endpoint error: status {status}, body: {body}")]
     TokenEndpointError { status: u16, body: String },
+    #[cfg(feature = "oidc")]
     #[error("Invalid client credentials")]
     InvalidClientCredentials,
 

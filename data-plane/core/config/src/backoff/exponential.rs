@@ -1,11 +1,11 @@
 use crate::backoff::default_max_attempts;
 
 use super::Strategy;
+use crate::backoff::{ExponentialBackoffIter, jitter};
 use duration_string::DurationString;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use tokio_retry::strategy::{ExponentialBackoff, jitter};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(default)]
@@ -52,9 +52,7 @@ impl Default for Config {
 
 impl Strategy for Config {
     fn get_strategy(&self) -> Box<dyn Iterator<Item = Duration> + Send> {
-        let ret = ExponentialBackoff::from_millis(self.base)
-            .factor(self.factor)
-            .max_delay(self.max_delay.into())
+        let ret = ExponentialBackoffIter::new(self.base, self.factor, self.max_delay.into())
             .take(self.max_attempts);
         let jitter_flag = self.jitter;
 

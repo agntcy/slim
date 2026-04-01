@@ -9,6 +9,7 @@ pub mod identity_claims;
 pub mod jwt;
 pub mod jwt_middleware;
 pub mod metadata;
+#[cfg(feature = "oidc")]
 pub mod oidc;
 pub mod resolver;
 pub mod shared_secret;

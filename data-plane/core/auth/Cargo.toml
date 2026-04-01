@@ -8,6 +8,9 @@ description = "Authentication utilities for the Agntcy Slim framework"
 [lib]
 name = "slim_auth"
 
+[features]
+oidc = ["dep:oauth2"]
+
 [dependencies]
 agntcy-slim-version = { workspace = true }
 async-trait = { workspace = true }
@@ -21,7 +24,7 @@ jsonwebtoken = { workspace = true }
 mls-rs-core = { workspace = true }
 mls-rs-crypto-awslc = { workspace = true }
 notify = { workspace = true }
-oauth2 = { workspace = true, features = ["reqwest"] }
+oauth2 = { workspace = true, features = ["reqwest"], optional = true }
 parking_lot = { workspace = true }
 pin-project = { workspace = true }
 prost-types = { workspace = true }
