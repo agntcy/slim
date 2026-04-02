@@ -1,6 +1,10 @@
 import asyncio
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import slim_bindings
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore

@@ -1667,6 +1667,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "google-adk", extra = ["a2a"] },
     { name = "litellm" },
+    { name = "python-dotenv" },
     { name = "slima2a" },
 ]
 
@@ -1674,6 +1675,7 @@ dependencies = [
 requires-dist = [
     { name = "google-adk", extras = ["a2a"], specifier = ">=1.28.0" },
     { name = "litellm", specifier = ">=1.83.0" },
+    { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "slima2a", specifier = ">=0.3.0" },
 ]
 

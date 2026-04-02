@@ -4,6 +4,10 @@ import logging
 import os
 from uuid import uuid4
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import httpx
 from a2a.client import Client, ClientFactory, minimal_agent_card
 from a2a.types import Message, Part, Role, TextPart
