@@ -41,7 +41,11 @@ An annotated example is provided at `.a2acli.yaml.example`:
 slim:
   endpoint: "http://localhost:46357"
   local-name: "agntcy/cli/a2acli"
-  secret: "my_shared_secret"
+  secret: "my_shared_secret"        # used when spire.socket-path is not set
+  # spire:
+  #   socket-path: "/tmp/spire-agent/public/api.sock"
+  #   target-spiffe-id: "spiffe://example.org/agent"
+  #   jwt-audiences: ["my-audience"]
 
 # agents-dir: /path/to/my/.a2aagents
 ```
@@ -144,17 +148,35 @@ a2acli get-task --agent <digest> <task-id>
 | `--agents-dir` | | Path to agents directory (overrides auto-discovery) |
 | `--slim-endpoint` | | SLIM node URL, e.g. `http://localhost:46357`. When set, SLIM RPC transport is enabled. |
 | `--slim-local-name` | `agntcy/cli/a2acli` | Local SLIM identity (`namespace/group/name`) |
-| `--slim-secret` | | Shared secret for SLIM authentication |
+| `--slim-secret` | | Shared secret for SLIM authentication (used when `--spire-socket-path` is not set) |
+| `--spire-socket-path` | | SPIRE Workload API socket path. When set, SPIRE identity auth is used instead of shared secret. |
+| `--spire-target-spiffe-id` | | Target SPIFFE ID to request from SPIRE (optional) |
+| `--spire-jwt-audience` | | JWT audience to request from SPIRE; may be repeated (optional) |
 
 ## SLIM Transport
 
-When `--slim-endpoint` is provided, the CLI connects to a SLIM node and registers both the v0.3 and v1.0 SLIM RPC transports. The transport is selected automatically based on the `protocolVersion` declared in the agent's card.
+When `--slim-endpoint` is provided the CLI connects to a SLIM node and registers both the v0.3 and v1.0 SLIM RPC transports. The correct transport is selected automatically based on the `protocolVersion` declared in the agent's card.
+
+### Shared-secret auth
 
 ```bash
 a2acli send-message \
   --agent sha256:6a403dbd \
   --slim-endpoint http://localhost:46357 \
   --slim-secret "my_secret" \
+  "What pods are failing in my cluster?"
+```
+
+### SPIRE dynamic identity auth
+
+When `--spire-socket-path` is set the CLI uses SPIRE's Workload API for dynamic identity instead of a shared secret:
+
+```bash
+a2acli send-message \
+  --agent sha256:6a403dbd \
+  --slim-endpoint http://localhost:46357 \
+  --spire-socket-path /tmp/spire-agent/public/api.sock \
+  --spire-target-spiffe-id spiffe://example.org/agent \
   "What pods are failing in my cluster?"
 ```
 

@@ -14,11 +14,19 @@ import (
 
 const configFileName = ".a2acli.yaml"
 
+// SpireConfig holds SPIRE Workload API settings for dynamic identity auth.
+type SpireConfig struct {
+	SocketPath      string   `yaml:"socket-path"`
+	TargetSpiffeID  string   `yaml:"target-spiffe-id"`
+	JwtAudiences    []string `yaml:"jwt-audiences"`
+}
+
 // SlimConfig holds connection settings for the SLIM messaging node.
 type SlimConfig struct {
-	Endpoint  string `yaml:"endpoint"`
-	LocalName string `yaml:"local-name"`
-	Secret    string `yaml:"secret"`
+	Endpoint  string      `yaml:"endpoint"`
+	LocalName string      `yaml:"local-name"`
+	Secret    string      `yaml:"secret"`
+	Spire     SpireConfig `yaml:"spire"`
 }
 
 // Config is the top-level configuration for a2acli.

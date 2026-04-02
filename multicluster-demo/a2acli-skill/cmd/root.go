@@ -29,6 +29,10 @@ var (
 	slimSecret    string
 	slimApp       *slim_bindings.App
 	slimConnID    uint64
+
+	spireSocketPath     string
+	spireTargetSpiffeID string
+	spireJwtAudiences   []string
 )
 
 var rootCmd = &cobra.Command{
@@ -58,6 +62,15 @@ Each agent is identified by the SHA256 digest of its AgentCard file.`,
 		if !flags.Changed("slim-secret") && cfg.Slim.Secret != "" {
 			slimSecret = cfg.Slim.Secret
 		}
+		if !flags.Changed("spire-socket-path") && cfg.Slim.Spire.SocketPath != "" {
+			spireSocketPath = cfg.Slim.Spire.SocketPath
+		}
+		if !flags.Changed("spire-target-spiffe-id") && cfg.Slim.Spire.TargetSpiffeID != "" {
+			spireTargetSpiffeID = cfg.Slim.Spire.TargetSpiffeID
+		}
+		if !flags.Changed("spire-jwt-audience") && len(cfg.Slim.Spire.JwtAudiences) > 0 {
+			spireJwtAudiences = cfg.Slim.Spire.JwtAudiences
+		}
 
 		s, err := store.NewStore(agentsDir)
 		if err != nil {
@@ -74,17 +87,41 @@ Each agent is identified by the SHA256 digest of its AgentCard file.`,
 				return fmt.Errorf("invalid --slim-local-name %q: %w", slimLocalName, err)
 			}
 
-			app, err := svc.CreateAppWithSecret(localName, slimSecret)
-			if err != nil {
-				return fmt.Errorf("SLIM CreateApp failed: %w", err)
-			}
-			slimApp = app
-
 			connID, err := svc.Connect(slim_bindings.NewInsecureClientConfig(slimEndpoint))
 			if err != nil {
 				return fmt.Errorf("SLIM Connect failed: %w", err)
 			}
 			slimConnID = connID
+
+			var app *slim_bindings.App
+			if spireSocketPath != "" {
+				var socketPath *string
+				if spireSocketPath != "" {
+					socketPath = &spireSocketPath
+				}
+				var targetSpiffeID *string
+				if spireTargetSpiffeID != "" {
+					targetSpiffeID = &spireTargetSpiffeID
+				}
+				spireConfig := slim_bindings.SpireConfig{
+					SocketPath:     socketPath,
+					TargetSpiffeId: targetSpiffeID,
+					JwtAudiences:   spireJwtAudiences,
+					TrustDomains:   []string{},
+				}
+				providerConfig := slim_bindings.IdentityProviderConfigSpire{Config: spireConfig}
+				verifierConfig := slim_bindings.IdentityVerifierConfigSpire{Config: spireConfig}
+				app, err = svc.CreateApp(localName, providerConfig, verifierConfig)
+				if err != nil {
+					return fmt.Errorf("SLIM CreateApp (SPIRE) failed: %w", err)
+				}
+			} else {
+				app, err = svc.CreateAppWithSecret(localName, slimSecret)
+				if err != nil {
+					return fmt.Errorf("SLIM CreateApp (shared secret) failed: %w", err)
+				}
+			}
+			slimApp = app
 
 			if err := app.Subscribe(localName, &slimConnID); err != nil {
 				return fmt.Errorf("SLIM Subscribe failed: %w", err)
@@ -119,6 +156,9 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&slimEndpoint, "slim-endpoint", "", "SLIM node URL (e.g. http://localhost:46357)")
 	rootCmd.PersistentFlags().StringVar(&slimLocalName, "slim-local-name", "agntcy/cli/a2acli", "local SLIM name (namespace/group/name)")
 	rootCmd.PersistentFlags().StringVar(&slimSecret, "slim-secret", "", "shared secret for SLIM authentication")
+	rootCmd.PersistentFlags().StringVar(&spireSocketPath, "spire-socket-path", "", "SPIRE Workload API socket path; when set, SPIRE identity auth is used instead of shared secret")
+	rootCmd.PersistentFlags().StringVar(&spireTargetSpiffeID, "spire-target-spiffe-id", "", "target SPIFFE ID to request from SPIRE (optional)")
+	rootCmd.PersistentFlags().StringArrayVar(&spireJwtAudiences, "spire-jwt-audience", nil, "JWT audience(s) to request from SPIRE (may be repeated)")
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(getCardCmd)
 	rootCmd.AddCommand(sendMessageCmd)
