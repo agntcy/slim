@@ -4,7 +4,7 @@ go 1.25.2
 
 require (
 	github.com/a2aproject/a2a-go/v2 v2.1.0
-	github.com/agntcy/slim-a2a-go v0.0.0-00010101000000-000000000000
+	github.com/agntcy/slim-a2a-go v0.1.2-0.20260401172246-70b6faa0fdcf
 	github.com/agntcy/slim-bindings-go v1.2.0
 	github.com/spf13/cobra v1.8.1
 	gopkg.in/yaml.v3 v3.0.1
@@ -25,5 +25,3 @@ require (
 	google.golang.org/grpc v1.79.3 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
-
-replace github.com/agntcy/slim-a2a-go => ../../../slim-a2a-go

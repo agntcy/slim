@@ -2,6 +2,8 @@ github.com/a2aproject/a2a-go v0.3.12 h1:l5Yd0UgZrZyEuiMRlj3ybiqxmqXvVhJ8bTyWB7Zl
 github.com/a2aproject/a2a-go v0.3.12/go.mod h1:I7Cm+a1oL+UT6zMoP+roaRE5vdfUa1iQGVN8aSOuZ0I=
 github.com/a2aproject/a2a-go/v2 v2.1.0 h1:mtn3UR+B8RnIRYTVNUHmip8FMCK5Pe3Id2aNATOWEPw=
 github.com/a2aproject/a2a-go/v2 v2.1.0/go.mod h1:nm/NLcGWEQsVf7rgcLy74DyswS5BanPS6ubQhGhiQaA=
+github.com/agntcy/slim-a2a-go v0.1.2-0.20260401172246-70b6faa0fdcf h1:knjLwRn7xYhPHU7UwbuuO4h4l+/2SNhBTHkwjLU5apc=
+github.com/agntcy/slim-a2a-go v0.1.2-0.20260401172246-70b6faa0fdcf/go.mod h1:1kEll02lVUsyKmiMyw7/jW6Mf8icDRPEbMyMGmCjCEA=
 github.com/agntcy/slim-bindings-go v1.2.0 h1:ggVHse9e1DYNMQttippgoKkwJDCy5paXGCJuEOMOGGg=
 github.com/agntcy/slim-bindings-go v1.2.0/go.mod h1:XK0Ing+REEl8xG79HTMx52XzWK2THuTQA+Y7JTAn428=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
