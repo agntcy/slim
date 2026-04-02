@@ -1,0 +1,13 @@
+apiVersion: v2
+name: spire
+description: SPIRE - SPIFFE Runtime Environment
+type: application
+version: "0.28.3"
+appVersion: "1.14.2"
+dependencies:
+  - name: external-secrets-operator
+    version: "0.10.3"
+    repository: oci://ghcr.io/cisco-eti/phoenix/helm-charts
+  - name: spire-nested
+    version: "0.28.3"
+    repository: https://spiffe.github.io/helm-charts-hardened/

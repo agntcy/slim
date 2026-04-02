@@ -1,0 +1,10 @@
+apiVersion: v2
+name: spire
+description: SPIRE - SPIFFE Runtime Environment
+type: application
+version: "0.1.0"
+appVersion: "0.1.0"
+dependencies:
+  - name: spire-nested
+    version: "0.28.3"
+    repository: https://spiffe.github.io/helm-charts-hardened/
