@@ -606,7 +606,7 @@ where
     }
 
     async fn await_subscription_ack(
-        rx: tokio::sync::oneshot::Receiver<
+        rx: crate::runtime::channel::oneshot::Receiver<
             Result<(), crate::subscription_manager::SubscriptionAckError>,
         >,
     ) -> Result<(), SessionError> {
