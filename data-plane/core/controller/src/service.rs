@@ -23,7 +23,8 @@ use tracing::{debug, error, info};
 use crate::api::proto::api::v1::control_message::Payload;
 use crate::api::proto::api::v1::controller_service_server::ControllerServiceServer;
 use crate::api::proto::api::v1::{
-    self, ConnectionDetails, ConnectionListResponse, ConnectionType, SubscriptionListResponse,
+    self, ConnectionDetails, ConnectionDirection, ConnectionListResponse, ConnectionType,
+    SubscriptionListResponse,
 };
 use crate::api::proto::api::v1::{
     Ack, ConnectionEntry, ControlMessage, SubscriptionEntry,
@@ -694,6 +695,41 @@ fn remove_participant_message(
 }
 
 impl ControllerService {
+    fn resolve_subscription_connection(&self, subscription: &v1::Subscription) -> Option<u64> {
+        if let Some(link_id) = &subscription.link_id {
+            let mut resolved = None;
+            self.inner
+                .message_processor
+                .connection_table()
+                .for_each(|id, conn| {
+                    if resolved.is_none() && conn.link_id().as_deref() == Some(link_id.as_str()) {
+                        resolved = Some(id as u64);
+                    }
+                });
+            resolved
+        } else {
+            self.inner
+                .connections
+                .read()
+                .get(&subscription.connection_id)
+                .cloned()
+        }
+    }
+
+    fn resolve_subscription_direction(subscription: &v1::Subscription) -> ConnectionDirection {
+        subscription
+            .direction
+            .and_then(|value| ConnectionDirection::try_from(value).ok())
+            .unwrap_or(ConnectionDirection::Outgoing)
+    }
+
+    fn subscription_flags(subscription: &v1::Subscription, conn: u64) -> SlimHeaderFlags {
+        match Self::resolve_subscription_direction(subscription) {
+            ConnectionDirection::Outgoing => SlimHeaderFlags::default().with_recv_from(conn),
+            ConnectionDirection::Incoming => SlimHeaderFlags::default().with_forward_to(conn),
+        }
+    }
+
     /// Handle new control messages.
     async fn handle_new_control_message(
         &self,
@@ -771,12 +807,7 @@ impl ControllerService {
                             let mut subscription_success = true;
                             let mut subscription_error_msg = String::new();
 
-                            let conn = self
-                                .inner
-                                .connections
-                                .read()
-                                .get(&subscription.connection_id)
-                                .cloned();
+                            let conn = self.resolve_subscription_connection(subscription);
 
                             if let Some(conn) = conn {
                                 let source = Name::from_strings([
@@ -796,7 +827,7 @@ impl ControllerService {
                                     .source(source.clone())
                                     .destination(name.clone())
                                     .identity(&identity_token)
-                                    .flags(SlimHeaderFlags::default().with_recv_from(conn))
+                                    .flags(Self::subscription_flags(subscription, conn))
                                     .build_subscribe()
                                     .unwrap();
 
@@ -817,8 +848,12 @@ impl ControllerService {
                                 }
                             } else {
                                 subscription_success = false;
-                                subscription_error_msg =
-                                    format!("Connection {} not found", subscription.connection_id);
+                                subscription_error_msg = if let Some(link_id) = &subscription.link_id
+                                {
+                                    format!("Connection with link_id {} not found", link_id)
+                                } else {
+                                    format!("Connection {} not found", subscription.connection_id)
+                                };
                             }
 
                             // Add subscription status
@@ -834,12 +869,7 @@ impl ControllerService {
                             let mut subscription_success = true;
                             let mut subscription_error_msg = String::new();
 
-                            let conn = self
-                                .inner
-                                .connections
-                                .read()
-                                .get(&subscription.connection_id)
-                                .cloned();
+                            let conn = self.resolve_subscription_connection(subscription);
 
                             if let Some(conn) = conn {
                                 let source = Name::from_strings([
@@ -859,7 +889,7 @@ impl ControllerService {
                                     .source(source.clone())
                                     .destination(name.clone())
                                     .identity(&identity_token)
-                                    .flags(SlimHeaderFlags::default().with_recv_from(conn))
+                                    .flags(Self::subscription_flags(subscription, conn))
                                     .build_unsubscribe()
                                     .unwrap();
 
@@ -894,8 +924,12 @@ impl ControllerService {
                                 }
                             } else {
                                 subscription_success = false;
-                                subscription_error_msg =
-                                    format!("Connection {} not found", subscription.connection_id);
+                                subscription_error_msg = if let Some(link_id) = &subscription.link_id
+                                {
+                                    format!("Connection with link_id {} not found", link_id)
+                                } else {
+                                    format!("Connection {} not found", subscription.connection_id)
+                                };
                             }
 
                             // Add subscription status (for deletion)
@@ -950,6 +984,8 @@ impl ControllerService {
                                         id: cid,
                                         connection_type: ConnectionType::Local as i32,
                                         config_data: "{}".to_string(),
+                                        link_id: None,
+                                        direction: ConnectionDirection::Outgoing as i32,
                                     });
                                 }
 
@@ -962,6 +998,12 @@ impl ControllerService {
                                                 Some(data) => serde_json::to_string(data)
                                                     .unwrap_or_else(|_| "{}".to_string()),
                                                 None => "{}".to_string(),
+                                            },
+                                            link_id: conn.link_id(),
+                                            direction: if conn.is_outgoing() {
+                                                ConnectionDirection::Outgoing as i32
+                                            } else {
+                                                ConnectionDirection::Incoming as i32
                                             },
                                         });
                                     } else {
@@ -994,6 +1036,14 @@ impl ControllerService {
                             .message_processor
                             .connection_table()
                             .for_each(|id, conn| {
+                                info!(
+                                    conn_id = id,
+                                    local_addr = ?conn.local_addr(),
+                                    remote_addr = ?conn.remote_addr(),
+                                    is_outgoing = conn.is_outgoing(),
+                                    link_id = ?conn.link_id(),
+                                    "connection entry",
+                                );
                                 all_entries.push(ConnectionEntry {
                                     id: id as u64,
                                     connection_type: ConnectionType::Remote as i32,
@@ -1001,6 +1051,12 @@ impl ControllerService {
                                         Some(data) => serde_json::to_string(data)
                                             .unwrap_or_else(|_| "{}".to_string()),
                                         None => "{}".to_string(),
+                                    },
+                                    link_id: conn.link_id(),
+                                    direction: if conn.is_outgoing() {
+                                        ConnectionDirection::Outgoing as i32
+                                    } else {
+                                        ConnectionDirection::Incoming as i32
                                     },
                                 });
                             });
@@ -1358,6 +1414,8 @@ impl ControllerService {
             id: Some(dst.id()),
             connection_id: "n/a".to_string(),
             node_id: None,
+            link_id: None,
+            direction: None,
         };
 
         sub_vec.push(cmd);
@@ -1385,6 +1443,8 @@ impl ControllerService {
             id: Some(dst.id()),
             connection_id: "n/a".to_string(),
             node_id: None,
+            link_id: None,
+            direction: None,
         };
 
         unsub_vec.push(cmd);
@@ -1948,6 +2008,8 @@ mod tests {
                         id: Some(i as u64),
                         connection_id: "test-conn".to_string(),
                         node_id: None,
+                        link_id: None,
+                        direction: None,
                     }],
                     subscriptions_to_delete: vec![],
                 })),

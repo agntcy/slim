@@ -273,8 +273,12 @@ async fn connection_list(node_id: &str, opts: &ResolvedOpts) -> Result<()> {
     println!("Received connection list response: {}", resp.entries.len());
     for entry in &resp.entries {
         println!(
-            "Connection ID: {}, Connection type: {:?}, ConfigData: {}",
-            entry.id, entry.connection_type, entry.config_data
+            "Connection ID: {}, Connection type: {:?}, Direction: {:?}, LinkID: {:?}, ConfigData: {}",
+            entry.id,
+            entry.connection_type,
+            entry.direction(),
+            entry.link_id,
+            entry.config_data
         );
     }
     Ok(())
@@ -301,12 +305,29 @@ async fn route_list(node_id: &str, opts: &ResolvedOpts) -> Result<()> {
         let local_names: Vec<String> = e
             .local_connections
             .iter()
-            .map(|c| format!("local:{}", c.id))
+            .map(|c| {
+                format!(
+                    "local:{}:{:?}:{:?}:{}",
+                    c.id,
+                    c.direction(),
+                    c.link_id,
+                    c.config_data
+                )
+            })
             .collect();
         let remote_names: Vec<String> = e
             .remote_connections
             .iter()
-            .map(|c| format!("remote:{:?}:{}:{}", c.connection_type, c.config_data, c.id))
+            .map(|c| {
+                format!(
+                    "remote:{:?}:{:?}:{:?}:{}:{}",
+                    c.connection_type,
+                    c.direction(),
+                    c.link_id,
+                    c.config_data,
+                    c.id
+                )
+            })
             .collect();
         println!(
             "{}/{}/{} id={:?} local={:?} remote={:?}",
@@ -336,6 +357,8 @@ async fn route_add(
         id: Some(agent_id),
         connection_id: String::new(),
         node_id: None,
+        link_id: None,
+        direction: None,
     };
 
     let (cp_connection, final_dest_node) = if std::path::Path::new(destination).exists() {
@@ -389,6 +412,8 @@ async fn route_del(
         id: Some(agent_id),
         connection_id: String::new(),
         node_id: None,
+        link_id: None,
+        direction: None,
     };
 
     let mut req = DeleteRouteRequest {
