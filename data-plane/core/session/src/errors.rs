@@ -47,6 +47,10 @@ pub enum SessionError {
     SessionMessageTypeUnexpected(ProtoSessionMessageType),
     #[error("error getting the participants list")]
     ParticipantsListQueryFailed,
+    #[error("malformed participant settings")]
+    MalformedParticipant,
+    #[error("missing participant settings")]
+    MissingParticipantSettings,
     #[error("unexpected error")]
     UnexpectedError { source: Box<SessionError> },
 
@@ -125,6 +129,10 @@ pub enum SessionError {
     MessageReceiveRetryFailed { id: u32 },
     #[error("session sender is shutdown, cannot send messages")]
     SessionSenderShutdown,
+    #[error("session receiver is shutdown, cannot receive messages")]
+    SessionReceiverShutdown,
+    #[error("missing participant name on timer")]
+    MissingParticipantNameOnTimer,
 
     // Message construction and extraction contexts
     #[error("missing payload: {context}")]

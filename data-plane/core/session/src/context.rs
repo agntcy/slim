@@ -175,7 +175,7 @@ mod tests {
             SessionController::builder()
                 .with_id(id)
                 .with_source(source)
-                .with_destination(destination)
+                .with_destination(destination.clone())
                 .with_config(cfg)
                 .with_identity_provider(DummyProvider)
                 .with_identity_verifier(DummyVerifier)

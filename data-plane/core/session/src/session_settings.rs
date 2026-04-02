@@ -5,7 +5,7 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::messages::Name;
 
 use crate::{
-    SessionError,
+    Direction, SessionError,
     common::SessionMessage,
     session_config::SessionConfig,
     subscription_manager::{SubscriptionManager, SubscriptionOps},
@@ -37,10 +37,18 @@ where
     pub(crate) source: Name,
 
     /// Remote endpoint or group name
+    /// used to send application data
     pub(crate) destination: Name,
+
+    /// Group name for control messages
+    /// in P2P session is the same as destination
+    pub(crate) control: Name,
 
     /// Session configuration
     pub(crate) config: SessionConfig,
+
+    /// Direction for data message flow (send, receive, both, or none)
+    pub(crate) direction: Direction,
 
     /// Transmitter for sending messages to App and SLIM
     pub(crate) tx: SessionTransmitter,
