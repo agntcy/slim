@@ -5,7 +5,9 @@ use std::fmt::Display;
 use std::{collections::HashMap, time::Duration};
 
 use super::encoder::Name;
-use crate::api::proto::dataplane::v1::{GroupClosePayload, GroupNackPayload, PingPayload};
+use crate::api::proto::dataplane::v1::{
+    GroupClosePayload, GroupNackPayload, Participant, ParticipantSettings, PingPayload,
+};
 use crate::api::{
     Content, LinkNegotiationPayload, MessageType, ProtoLink, ProtoLinkMessageType, ProtoLinkType,
     ProtoMessage, ProtoName, ProtoPublish, ProtoPublishType, ProtoSessionType, ProtoSubscribe,
@@ -20,6 +22,7 @@ use crate::api::{
     },
 };
 
+use slim_version::version;
 use thiserror::Error;
 
 /// IS_MODERATOR is used in the Join request metadata to indicate whether a participant is the moderator/initiator of a session.
@@ -92,6 +95,10 @@ pub enum MessageError {
     BuilderErrorSourceRequired,
     #[error("builder error: destination is required")]
     BuilderErrorDestinationRequired,
+    #[error("participant name not found")]
+    ParticipantNameNotFound,
+    #[error("participant settings not found")]
+    ParticipantSettingsNotFound,
 }
 
 /// ProtoName from Name
@@ -109,6 +116,66 @@ impl From<&Name> for ProtoName {
                 str_component_1: name.components_strings()[1].clone(),
                 str_component_2: name.components_strings()[2].clone(),
             }),
+        }
+    }
+}
+
+impl ParticipantSettings {
+    /// Creates bidirectional participant settings (both sends and receives data).
+    /// This is the most common configuration for participants in a session.
+    pub fn bidirectional() -> Self {
+        Self {
+            sends_data: true,
+            receives_data: true,
+        }
+    }
+
+    /// Creates send-only participant settings.
+    pub fn send_only() -> Self {
+        Self {
+            sends_data: true,
+            receives_data: false,
+        }
+    }
+
+    /// Creates receive-only participant settings.
+    pub fn receive_only() -> Self {
+        Self {
+            sends_data: false,
+            receives_data: true,
+        }
+    }
+
+    /// Returns whether this participant produces data messages.
+    pub fn is_sender(&self) -> bool {
+        self.sends_data
+    }
+
+    /// Returns whether this participant consumes data messages.
+    pub fn is_receiver(&self) -> bool {
+        self.receives_data
+    }
+}
+
+impl Participant {
+    pub fn new(name: Name, settings: ParticipantSettings) -> Self {
+        Self {
+            name: Some(ProtoName::from(&name)),
+            settings: Some(settings),
+        }
+    }
+
+    pub fn get_name(&self) -> Result<Name, MessageError> {
+        match &self.name {
+            Some(name) => Ok(Name::from(name)),
+            None => Err(MessageError::ParticipantNameNotFound),
+        }
+    }
+
+    pub fn get_settings(&self) -> Result<&ParticipantSettings, MessageError> {
+        match &self.settings {
+            Some(settings) => Ok(settings),
+            None => Err(MessageError::ParticipantSettingsNotFound),
         }
     }
 }
@@ -225,6 +292,7 @@ impl SlimHeader {
             destination: Some(ProtoName::from(destination)),
             identity: identity.to_string(),
             fanout: flags.fanout,
+            version: version().to_string(),
             recv_from: flags.recv_from,
             forward_to: flags.forward_to,
             incoming_conn: flags.incoming_conn,
@@ -273,6 +341,10 @@ impl SlimHeader {
 
     pub fn get_identity(&self) -> String {
         self.identity.clone()
+    }
+
+    pub fn get_version(&self) -> String {
+        self.version.clone()
     }
 
     pub fn set_source(&mut self, source: &Name) {
@@ -1100,8 +1172,15 @@ impl CommandPayloadBuilder {
     }
 
     /// Creates a join reply payload
-    pub fn join_reply(self, key_package: Option<Vec<u8>>) -> CommandPayload {
-        let payload = JoinReplyPayload { key_package };
+    pub fn join_reply(
+        self,
+        key_package: Option<Vec<u8>>,
+        participant: Participant,
+    ) -> CommandPayload {
+        let payload = JoinReplyPayload {
+            key_package,
+            participant: Some(participant),
+        };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::JoinReply(payload)),
         }
@@ -1129,16 +1208,13 @@ impl CommandPayloadBuilder {
     /// Creates a group add payload
     pub fn group_add(
         self,
-        new_participant: Name,
-        participants: Vec<Name>,
+        new_participant: Participant,
+        participants: Vec<Participant>,
         mls: Option<MlsPayload>,
     ) -> CommandPayload {
-        let proto_new_participant = Some(ProtoName::from(&new_participant));
-        let proto_participants = participants.iter().map(ProtoName::from).collect();
-
         let payload = GroupAddPayload {
-            new_participant: proto_new_participant,
-            participants: proto_participants,
+            new_participant: Some(new_participant),
+            participants,
             mls,
         };
         CommandPayload {
@@ -1167,13 +1243,12 @@ impl CommandPayloadBuilder {
     }
 
     /// Creates a group welcome payload
-    pub fn group_welcome(self, participants: Vec<Name>, mls: Option<MlsPayload>) -> CommandPayload {
-        let proto_participants = participants.iter().map(ProtoName::from).collect();
-
-        let payload = GroupWelcomePayload {
-            participants: proto_participants,
-            mls,
-        };
+    pub fn group_welcome(
+        self,
+        participants: Vec<Participant>,
+        mls: Option<MlsPayload>,
+    ) -> CommandPayload {
+        let payload = GroupWelcomePayload { participants, mls };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::GroupWelcome(payload)),
         }
@@ -1977,6 +2052,7 @@ mod tests {
             destination: None,
             identity: String::new(),
             fanout: 0,
+            version: version().to_string(),
             recv_from: None,
             forward_to: None,
             incoming_conn: None,
@@ -2163,9 +2239,12 @@ mod tests {
         assert!(extracted.timer_settings.is_some());
 
         // Test join reply
-        let payload = CommandPayload::builder().join_reply(Some(vec![1, 2, 3]));
+        let participant = Participant::new(dest.clone(), ParticipantSettings::bidirectional());
+        let payload =
+            CommandPayload::builder().join_reply(Some(vec![1, 2, 3]), participant.clone());
         let extracted = payload.as_join_reply_payload().unwrap();
         assert_eq!(extracted.key_package, Some(vec![1, 2, 3]));
+        assert_eq!(extracted.participant, Some(participant));
 
         // Test leave request
         let payload = CommandPayload::builder().leave_request(Some(dest.clone()));
@@ -2176,14 +2255,17 @@ mod tests {
         assert!(payload.as_leave_reply_payload().is_ok());
 
         // Test group add
-        let participants = vec![dest.clone()];
-        let payload = CommandPayload::builder().group_add(dest.clone(), participants.clone(), None);
+        let participant = Participant::new(dest.clone(), ParticipantSettings::bidirectional());
+        let participants = vec![participant.clone()];
+        let payload =
+            CommandPayload::builder().group_add(participant.clone(), participants.clone(), None);
         let extracted = payload.as_group_add_payload().unwrap();
-        assert!(extracted.new_participant.is_some());
+        assert_eq!(extracted.new_participant, Some(participant));
+        assert_eq!(extracted.participants, participants);
 
         // Test group remove
         let payload =
-            CommandPayload::builder().group_remove(dest.clone(), participants.clone(), None);
+            CommandPayload::builder().group_remove(dest.clone(), vec![dest.clone()], None);
         let extracted = payload.as_group_remove_payload().unwrap();
         assert!(extracted.removed_participant.is_some());
 
@@ -2272,5 +2354,26 @@ mod tests {
         let msg = ProtoMessage::builder().build_link_negotiation("my-id", "1.2.3", true);
         assert!(msg.is_link());
         assert!(msg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_participant_settings_convenience_methods() {
+        let bidirectional = ParticipantSettings::bidirectional();
+        assert!(bidirectional.sends_data);
+        assert!(bidirectional.receives_data);
+        assert!(bidirectional.is_sender());
+        assert!(bidirectional.is_receiver());
+
+        let send_only = ParticipantSettings::send_only();
+        assert!(send_only.sends_data);
+        assert!(!send_only.receives_data);
+        assert!(send_only.is_sender());
+        assert!(!send_only.is_receiver());
+
+        let receive_only = ParticipantSettings::receive_only();
+        assert!(!receive_only.sends_data);
+        assert!(receive_only.receives_data);
+        assert!(!receive_only.is_sender());
+        assert!(receive_only.is_receiver());
     }
 }

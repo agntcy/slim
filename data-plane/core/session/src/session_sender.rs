@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 
 use rand::Rng;
-use slim_datapath::api::ProtoSessionType;
+use slim_datapath::api::{Participant, ProtoSessionType};
 use slim_datapath::messages::utils::{MAX_PUBLISH_ID, PUBLISH_TO};
 use slim_datapath::{api::ProtoMessage as Message, messages::Name};
 use tokio::sync::mpsc::Sender;
@@ -85,10 +85,6 @@ pub struct SessionSender {
 
     /// oneshot senders to signal when network acks are received for each message
     ack_notifiers: HashMap<u32, oneshot::Sender<Result<(), SessionError>>>,
-
-    // shutdown_send flag. if set no message is sent to the network
-    // and all messages are dropped
-    shutdown_send: bool,
 }
 
 #[allow(dead_code)]
@@ -101,7 +97,6 @@ impl SessionSender {
         session_type: ProtoSessionType,
         tx: SessionTransmitter,
         tx_signals: Option<Sender<SessionMessage>>,
-        shutdown_send: bool,
     ) -> Self {
         let factory = if let Some(settings) = timer_settings
             && let Some(tx) = tx_signals
@@ -110,10 +105,6 @@ impl SessionSender {
         } else {
             None
         };
-
-        debug!(
-           %shutdown_send, "creating session sender"
-        );
 
         SessionSender {
             buffer: ProducerBuffer::with_capacity(512),
@@ -128,7 +119,6 @@ impl SessionSender {
             to_flush: false,
             draining_state: SenderDrainStatus::NotDraining,
             ack_notifiers: HashMap::new(),
-            shutdown_send,
         }
     }
 
@@ -198,16 +188,6 @@ impl SessionSender {
         mut message: Message,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<(), SessionError> {
-        // if shutdown_send is true we drop all messages but we signal success
-        // to the application using the ack channel if provided
-        if self.shutdown_send {
-            debug!(message_id = %message.get_id(), "sender is shutdown, drop message");
-            if let Some(tx) = ack_tx {
-                let _ = tx.send(Err(SessionError::SessionSenderShutdown));
-            }
-            return Err(SessionError::SessionSenderShutdown);
-        }
-
         let is_publish_to = message.metadata.contains_key(PUBLISH_TO);
 
         // if is_publish_to and the message destination is not
@@ -494,12 +474,27 @@ impl SessionSender {
         self.on_failure(message_id, error)
     }
 
-    pub async fn add_endpoint(&mut self, endpoint: &Name) -> Result<(), SessionError> {
+    pub async fn add_endpoint(&mut self, endpoint: &Participant) -> Result<(), SessionError> {
+        let settings = endpoint
+            .settings
+            .as_ref()
+            .ok_or(SessionError::MalformedParticipant)?;
+        let proto_name = endpoint
+            .name
+            .as_ref()
+            .ok_or(SessionError::MalformedParticipant)?;
+        let name = Name::from(proto_name);
+
+        if !settings.is_receiver() {
+            debug!(%name, "new participant will not receive data messages, do not add it to the endpoint list");
+            return Ok(());
+        }
+
         // add endpoint to the list
-        self.endpoints_list.insert(endpoint.clone());
+        self.endpoints_list.insert(name.clone());
 
         debug!(
-            %endpoint,
+            %name,
             list_len = %self.endpoints_list.len(),
             "add endpoint",
         );
@@ -592,6 +587,7 @@ mod tests {
     use crate::transmitter::SessionTransmitter;
 
     use super::*;
+    use slim_datapath::api::ParticipantSettings;
     use std::time::Duration;
     use tokio::time::timeout;
     use tracing_test::traced_test;
@@ -614,9 +610,9 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
-            false,
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+        let remote = Participant::new(remote_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote)
@@ -627,7 +623,7 @@ mod tests {
         let source = Name::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
-            .destination(remote.clone())
+            .destination(remote_name.clone())
             .application_payload("test_payload", vec![1, 2, 3, 4])
             .build_publish()
             .unwrap();
@@ -694,9 +690,9 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
-            false,
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+        let remote = Participant::new(remote_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote)
@@ -707,7 +703,7 @@ mod tests {
         let source = Name::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
-            .destination(remote.clone())
+            .destination(remote_name.clone())
             .application_payload("test_payload", vec![1, 2, 3, 4])
             .build_publish()
             .unwrap();
@@ -833,9 +829,9 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
-            false,
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+        let remote = Participant::new(remote_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote)
@@ -846,7 +842,7 @@ mod tests {
         let source = Name::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
-            .destination(remote.clone())
+            .destination(remote_name.clone())
             .application_payload("test_payload", vec![1, 2, 3, 4])
             .build_publish()
             .unwrap();
@@ -876,7 +872,7 @@ mod tests {
 
         // receive an ack from the remote
         let mut ack = Message::builder()
-            .source(remote.clone())
+            .source(remote_name.clone())
             .destination(source.clone())
             .application_payload("", vec![])
             .build_publish()
@@ -914,12 +910,14 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            false,
         );
         let group = Name::from_strings(["org", "ns", "group"]);
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
-        let remote3 = Name::from_strings(["org", "ns", "remote3"]);
+        let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
+        let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
+        let remote3_name = Name::from_strings(["org", "ns", "remote3"]);
+        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::bidirectional());
+        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::bidirectional());
+        let remote3 = Participant::new(remote3_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote1)
@@ -968,7 +966,7 @@ mod tests {
 
         // receive acks from all 3 remotes
         let mut ack1 = Message::builder()
-            .source(remote1.clone())
+            .source(remote1_name.clone())
             .destination(source.clone())
             .application_payload("", vec![])
             .build_publish()
@@ -978,7 +976,7 @@ mod tests {
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
         let mut ack2 = Message::builder()
-            .source(remote2.clone())
+            .source(remote2_name.clone())
             .destination(source.clone())
             .application_payload("", vec![])
             .build_publish()
@@ -988,7 +986,7 @@ mod tests {
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
         let mut ack3 = Message::builder()
-            .source(remote3.clone())
+            .source(remote3_name.clone())
             .destination(source.clone())
             .application_payload("", vec![])
             .build_publish()
@@ -1034,12 +1032,14 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            false,
         );
         let group = Name::from_strings(["org", "ns", "group"]);
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
-        let remote3 = Name::from_strings(["org", "ns", "remote3"]);
+        let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
+        let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
+        let remote3_name = Name::from_strings(["org", "ns", "remote3"]);
+        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::bidirectional());
+        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::bidirectional());
+        let remote3 = Participant::new(remote3_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote1)
@@ -1088,7 +1088,7 @@ mod tests {
 
         // receive acks from only remote1 and remote3 (missing ack from remote2)
         let mut ack1 = Message::builder()
-            .source(remote1.clone())
+            .source(remote1_name.clone())
             .destination(source.clone())
             .application_payload("", vec![])
             .build_publish()
@@ -1098,7 +1098,7 @@ mod tests {
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
         let mut ack3 = Message::builder()
-            .source(remote3.clone())
+            .source(remote3_name.clone())
             .destination(source.clone())
             .application_payload("", vec![])
             .build_publish()
@@ -1147,7 +1147,7 @@ mod tests {
         );
         assert_eq!(retransmission.get_id(), 1);
         // The destination should be set to remote2 (the one that didn't ack)
-        assert_eq!(retransmission.get_dst(), remote2);
+        assert_eq!(retransmission.get_dst(), remote2_name);
 
         // Wait for second timeout signal and handle it
         let signal = timeout(Duration::from_millis(800), rx_signal.recv())
@@ -1178,7 +1178,7 @@ mod tests {
             slim_datapath::api::ProtoSessionMessageType::Msg
         );
         assert_eq!(retransmission2.get_id(), 1);
-        assert_eq!(retransmission2.get_dst(), remote2);
+        assert_eq!(retransmission2.get_dst(), remote2_name);
 
         // Wait for timer failure signal (but don't handle it since this test focuses on retransmission)
         let signal = timeout(Duration::from_millis(800), rx_signal.recv())
@@ -1217,12 +1217,14 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            false,
         );
         let group = Name::from_strings(["org", "ns", "group"]);
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
-        let remote3 = Name::from_strings(["org", "ns", "remote3"]);
+        let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
+        let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
+        let remote3_name = Name::from_strings(["org", "ns", "remote3"]);
+        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::bidirectional());
+        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::bidirectional());
+        let remote3 = Participant::new(remote3_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote1)
@@ -1271,7 +1273,7 @@ mod tests {
 
         // receive acks from only remote1 and remote3 (missing ack from remote2)
         let mut ack1 = Message::builder()
-            .source(remote1.clone())
+            .source(remote1_name.clone())
             .destination(source.clone())
             .application_payload("", vec![])
             .build_publish()
@@ -1281,7 +1283,7 @@ mod tests {
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
         let mut ack3 = Message::builder()
-            .source(remote3.clone())
+            .source(remote3_name.clone())
             .destination(source.clone())
             .application_payload("", vec![])
             .build_publish()
@@ -1301,7 +1303,7 @@ mod tests {
             .expect("error sending ack3");
 
         // remove endpoint 2
-        sender.remove_endpoint(&remote2);
+        sender.remove_endpoint(&remote2_name);
 
         // wait for timeout - this should expire as not timers should trigger
         let res = timeout(Duration::from_millis(800), rx_slim.recv()).await;
@@ -1327,12 +1329,14 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            false,
         );
         let group = Name::from_strings(["org", "ns", "group"]);
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
-        let remote3 = Name::from_strings(["org", "ns", "remote3"]);
+        let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
+        let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
+        let remote3_name = Name::from_strings(["org", "ns", "remote3"]);
+        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::bidirectional());
+        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::bidirectional());
+        let remote3 = Participant::new(remote3_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote1)
@@ -1381,7 +1385,7 @@ mod tests {
 
         // receive acks from only remote1 and remote3 (missing ack from remote2)
         let mut ack1 = Message::builder()
-            .source(remote1.clone())
+            .source(remote1_name.clone())
             .destination(source.clone())
             .application_payload("", vec![])
             .build_publish()
@@ -1391,7 +1395,7 @@ mod tests {
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
         let mut ack3 = Message::builder()
-            .source(remote3.clone())
+            .source(remote3_name.clone())
             .destination(source.clone())
             .application_payload("", vec![])
             .build_publish()
@@ -1412,7 +1416,7 @@ mod tests {
 
         // Send RTX request from endpoint 2 instead of removing it
         let mut rtx_request = Message::builder()
-            .source(remote2.clone())
+            .source(remote2_name.clone())
             .destination(source.clone())
             .application_payload("", vec![])
             .build_publish()
@@ -1441,7 +1445,7 @@ mod tests {
             slim_datapath::api::ProtoSessionMessageType::RtxReply
         );
         assert_eq!(rtx_reply.get_id(), 1);
-        assert_eq!(rtx_reply.get_dst(), remote2);
+        assert_eq!(rtx_reply.get_dst(), remote2_name);
 
         // wait for timeout - this should expire as timers should be stopped after RTX
         let res = timeout(Duration::from_millis(800), rx_slim.recv()).await;
@@ -1465,9 +1469,9 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
-            false,
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+        let remote = Participant::new(remote_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote)
@@ -1478,7 +1482,7 @@ mod tests {
         let source = Name::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
-            .destination(remote.clone())
+            .destination(remote_name.clone())
             .application_payload("test_payload", vec![1, 2, 3, 4])
             .build_publish()
             .unwrap();
@@ -1538,7 +1542,7 @@ mod tests {
 
         // Now simulate an RTX request from the remote
         let mut rtx_request = Message::builder()
-            .source(remote.clone())
+            .source(remote_name.clone())
             .destination(source.clone())
             .application_payload("", vec![])
             .build_publish()
@@ -1570,12 +1574,12 @@ mod tests {
             slim_datapath::api::ProtoSessionMessageType::RtxReply
         );
         assert_eq!(rtx_reply.get_id(), 1);
-        assert_eq!(rtx_reply.get_dst(), remote);
+        assert_eq!(rtx_reply.get_dst(), remote_name);
         assert_eq!(rtx_reply.get_slim_header().forward_to(), 123);
 
         // Now send an ack from the remote
         let mut ack = Message::builder()
-            .source(remote.clone())
+            .source(remote_name.clone())
             .destination(source.clone())
             .application_payload("", vec![])
             .build_publish()
@@ -1612,9 +1616,9 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
-            false,
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+        let remote = Participant::new(remote_name.clone(), ParticipantSettings::bidirectional());
 
         // DO NOT add any endpoints - this is the key part of the test
 
@@ -1622,7 +1626,7 @@ mod tests {
         let source = Name::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
-            .destination(remote.clone())
+            .destination(remote_name.clone())
             .application_payload("test_payload", vec![1, 2, 3, 4])
             .build_publish()
             .unwrap();
@@ -1683,11 +1687,13 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            false,
         );
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
-        let remote3 = Name::from_strings(["org", "ns", "remote3"]);
+        let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
+        let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
+        let remote3_name = Name::from_strings(["org", "ns", "remote3"]);
+        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::bidirectional());
+        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::bidirectional());
+        let remote3 = Participant::new(remote3_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote1)
@@ -1706,7 +1712,7 @@ mod tests {
         let source = Name::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
-            .destination(remote2.clone())
+            .destination(remote2_name.clone())
             .application_payload("test_payload", vec![1, 2, 3, 4])
             .build_publish()
             .unwrap();
@@ -1736,7 +1742,7 @@ mod tests {
         );
         // For publish_to messages, fanout should be 1 (not MAX_FANOUT)
         assert_eq!(received.get_slim_header().get_fanout(), 1);
-        assert_eq!(received.get_dst(), remote2);
+        assert_eq!(received.get_dst(), remote2_name);
 
         // Verify the message is NOT in the producer buffer (publish_to messages aren't buffered)
         assert!(sender.buffer.get(received.get_id() as usize).is_none());
@@ -1760,10 +1766,10 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            false,
         );
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let unknown_remote = Name::from_strings(["org", "ns", "unknown"]);
+        let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
+        let unknown_remote_name = Name::from_strings(["org", "ns", "unknown"]);
+        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote1)
@@ -1774,7 +1780,7 @@ mod tests {
         let source = Name::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
-            .destination(unknown_remote.clone())
+            .destination(unknown_remote_name.clone())
             .application_payload("test_payload", vec![1, 2, 3, 4])
             .build_publish()
             .unwrap();
@@ -1811,9 +1817,9 @@ mod tests {
             ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
-            false,
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+        let remote = Participant::new(remote_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote)
@@ -1824,7 +1830,7 @@ mod tests {
         let source = Name::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
-            .destination(remote.clone())
+            .destination(remote_name.clone())
             .application_payload("test_payload", vec![1, 2, 3, 4])
             .build_publish()
             .unwrap();
@@ -1870,10 +1876,11 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            false,
         );
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
+        let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
+        let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
+        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::bidirectional());
+        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote1)
@@ -1888,7 +1895,7 @@ mod tests {
         let source = Name::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
-            .destination(remote2.clone())
+            .destination(remote2_name.clone())
             .application_payload("test_payload", vec![1, 2, 3, 4])
             .build_publish()
             .unwrap();
@@ -1913,7 +1920,7 @@ mod tests {
 
         // Send an ack with PUBLISH_TO metadata
         let mut ack = Message::builder()
-            .source(remote2.clone())
+            .source(remote2_name.clone())
             .destination(source.clone())
             .application_payload("", vec![])
             .build_publish()
@@ -1954,10 +1961,11 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            false,
         );
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
+        let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
+        let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
+        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::bidirectional());
+        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote1)
@@ -1972,7 +1980,7 @@ mod tests {
         let source = Name::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
-            .destination(remote2.clone())
+            .destination(remote2_name.clone())
             .application_payload("test_payload", vec![1, 2, 3, 4])
             .build_publish()
             .unwrap();
@@ -2023,7 +2031,7 @@ mod tests {
             .expect("error message");
 
         assert_eq!(retransmission.get_id(), message_id);
-        assert_eq!(retransmission.get_dst(), remote2);
+        assert_eq!(retransmission.get_dst(), remote2_name);
     }
 
     #[tokio::test]
@@ -2044,10 +2052,11 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            false,
         );
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
+        let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
+        let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
+        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::bidirectional());
+        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote1)
@@ -2062,7 +2071,7 @@ mod tests {
         let source = Name::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
-            .destination(remote2.clone())
+            .destination(remote2_name.clone())
             .application_payload("test_payload", vec![1, 2, 3, 4])
             .build_publish()
             .unwrap();
@@ -2084,7 +2093,7 @@ mod tests {
             .expect("error message");
 
         // Remove the endpoint before timeout
-        sender.remove_endpoint(&remote2);
+        sender.remove_endpoint(&remote2_name);
 
         // No timeout signal should arrive since the timer was cleaned up when endpoint was removed
         // Wait to ensure no signal arrives
@@ -2117,9 +2126,9 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            false,
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+        let remote = Participant::new(remote_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote)
@@ -2130,7 +2139,7 @@ mod tests {
         let source = Name::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
-            .destination(remote.clone())
+            .destination(remote_name.clone())
             .application_payload("test_payload", vec![1, 2, 3, 4])
             .build_publish()
             .unwrap();
@@ -2158,7 +2167,7 @@ mod tests {
 
         // Send an ack
         let mut ack = Message::builder()
-            .source(remote.clone())
+            .source(remote_name.clone())
             .destination(source.clone())
             .application_payload("", vec![])
             .build_publish()
@@ -2200,11 +2209,12 @@ mod tests {
             ProtoSessionType::Multicast,
             tx,
             Some(tx_signal),
-            false,
         );
         let group = Name::from_strings(["org", "ns", "group"]);
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
+        let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
+        let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
+        let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::bidirectional());
+        let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::bidirectional());
 
         sender
             .add_endpoint(&remote1)
@@ -2246,7 +2256,7 @@ mod tests {
         // Send a PUBLISH_TO message
         let mut publish_to_msg = Message::builder()
             .source(source.clone())
-            .destination(remote1.clone())
+            .destination(remote1_name.clone())
             .application_payload("publish_to", vec![2])
             .build_publish()
             .unwrap();
@@ -2269,7 +2279,7 @@ mod tests {
         // PUBLISH_TO should have random ID (not sequential)
         assert_ne!(received_publish_to.get_id(), 2);
         assert_eq!(received_publish_to.get_slim_header().get_fanout(), 1);
-        assert_eq!(received_publish_to.get_dst(), remote1);
+        assert_eq!(received_publish_to.get_dst(), remote1_name);
 
         // Verify normal message is in buffer but PUBLISH_TO is not
         assert!(sender.buffer.get(1).is_some());
@@ -2279,388 +2289,5 @@ mod tests {
                 .get(received_publish_to.get_id() as usize)
                 .is_none()
         );
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_shutdown_send_sequential_messages() {
-        // Test: Send messages 1, 2, 3 sequentially with shutdown_send=true.
-        // Verify no messages reach SLIM, ack notifiers receive errors.
-        let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
-
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
-
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
-
-        let mut sender = SessionSender::new(
-            Some(settings),
-            10,
-            ProtoSessionType::PointToPoint,
-            tx,
-            Some(tx_signal),
-            true, // shutdown_send enabled
-        );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
-
-        sender
-            .add_endpoint(&remote)
-            .await
-            .expect("error adding participant");
-
-        let source = Name::from_strings(["org", "ns", "source"]);
-
-        // Send messages 1, 2, 3 sequentially with ack notifiers
-        for msg_id in 1..=3 {
-            let mut message = Message::builder()
-                .source(source.clone())
-                .destination(remote.clone())
-                .application_payload(
-                    &format!("test_payload_{}", msg_id),
-                    vec![msg_id as u8, (msg_id + 1) as u8],
-                )
-                .build_publish()
-                .unwrap();
-            message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
-
-            // Create oneshot channel for ack notification
-            let (ack_tx, ack_rx) = oneshot::channel();
-
-            let result = sender.on_message(message, Some(ack_tx)).await;
-
-            // Verify on_message returns error when shutdown_send is true
-            assert!(
-                result.is_err(),
-                "Expected error from on_message but got: {:?}",
-                result
-            );
-            assert!(
-                matches!(result, Err(SessionError::SessionSenderShutdown)),
-                "Expected SessionSenderShutdown error"
-            );
-
-            // Verify ack notifier receives error
-            let ack_result = timeout(Duration::from_millis(100), ack_rx)
-                .await
-                .unwrap_or_else(|_| panic!("timeout waiting for ack notification {}", msg_id))
-                .unwrap_or_else(|_| panic!("channel closed for message {}", msg_id));
-
-            assert!(
-                ack_result.is_err(),
-                "Expected error result but got: {:?}",
-                ack_result
-            );
-            assert!(
-                matches!(ack_result, Err(SessionError::SessionSenderShutdown)),
-                "Expected SessionSenderShutdown error in ack notifier"
-            );
-        }
-
-        // Verify no messages were sent to SLIM
-        let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
-        assert!(
-            res.is_err(),
-            "Expected no messages to SLIM but got: {:?}",
-            res
-        );
-
-        // Verify no timers were created (pending_acks should be empty)
-        assert!(sender.pending_acks.is_empty(), "Expected no pending acks");
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_shutdown_send_multiple_endpoints() {
-        // Test: Add multiple endpoints and send messages with shutdown_send=true.
-        // Verify no messages reach SLIM and an error is returned.
-        let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
-
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
-
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
-
-        let mut sender = SessionSender::new(
-            Some(settings),
-            10,
-            ProtoSessionType::Multicast,
-            tx,
-            Some(tx_signal),
-            true, // shutdown_send enabled
-        );
-        let group = Name::from_strings(["org", "ns", "group"]);
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
-        let remote3 = Name::from_strings(["org", "ns", "remote3"]);
-
-        sender
-            .add_endpoint(&remote1)
-            .await
-            .expect("error adding remote1");
-        sender
-            .add_endpoint(&remote2)
-            .await
-            .expect("error adding remote2");
-        sender
-            .add_endpoint(&remote3)
-            .await
-            .expect("error adding remote3");
-
-        let source = Name::from_strings(["org", "ns", "source"]);
-
-        // Send 3 messages to the group with ack notifiers
-        for msg_num in 1..=3 {
-            let mut message = Message::builder()
-                .source(source.clone())
-                .destination(group.clone())
-                .application_payload(&format!("test_payload_{}", msg_num), vec![msg_num as u8])
-                .build_publish()
-                .unwrap();
-            message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
-
-            let (ack_tx, ack_rx) = oneshot::channel();
-
-            let result = sender.on_message(message, Some(ack_tx)).await;
-
-            // Verify on_message returns error when shutdown_send is true
-            assert!(
-                result.is_err(),
-                "Expected error from on_message but got: {:?}",
-                result
-            );
-            assert!(
-                matches!(result, Err(SessionError::SessionSenderShutdown)),
-                "Expected SessionSenderShutdown error"
-            );
-
-            // Verify ack notifier receives error
-            let ack_result = timeout(Duration::from_millis(100), ack_rx)
-                .await
-                .unwrap_or_else(|_| panic!("timeout waiting for ack {}", msg_num))
-                .unwrap_or_else(|_| panic!("channel closed for message {}", msg_num));
-
-            assert!(
-                ack_result.is_err(),
-                "Expected error result but got: {:?}",
-                ack_result
-            );
-            assert!(
-                matches!(ack_result, Err(SessionError::SessionSenderShutdown)),
-                "Expected SessionSenderShutdown error in ack notifier"
-            );
-        }
-
-        // Verify no messages were sent to SLIM
-        let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
-        assert!(
-            res.is_err(),
-            "Expected no messages to SLIM but got: {:?}",
-            res
-        );
-
-        // Verify no timers were created
-        assert!(sender.pending_acks.is_empty(), "Expected no pending acks");
-        assert!(
-            sender.pending_acks_per_endpoint.is_empty(),
-            "Expected no pending acks per endpoint"
-        );
-
-        // Verify buffer is empty (messages not buffered when shutdown_send is true)
-        assert!(sender.buffer.get(1).is_none(), "Expected empty buffer");
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_shutdown_send_with_rtx_request() {
-        // Test: With shutdown_send=true, verify RTX requests get error responses
-        // since messages are not buffered.
-        let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
-
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
-
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
-
-        let mut sender = SessionSender::new(
-            Some(settings),
-            10,
-            ProtoSessionType::PointToPoint,
-            tx,
-            Some(tx_signal),
-            true, // shutdown_send enabled
-        );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
-        let source = Name::from_strings(["org", "ns", "source"]);
-
-        sender
-            .add_endpoint(&remote)
-            .await
-            .expect("error adding participant");
-
-        // Send a message (will be dropped due to shutdown_send)
-        let mut message = Message::builder()
-            .source(source.clone())
-            .destination(remote.clone())
-            .application_payload("test_payload", vec![1, 2, 3, 4])
-            .build_publish()
-            .unwrap();
-        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
-
-        let result = sender.on_message(message, None).await;
-        assert!(
-            result.is_err(),
-            "Expected error from on_message but got: {:?}",
-            result
-        );
-        assert!(
-            matches!(result, Err(SessionError::SessionSenderShutdown)),
-            "Expected SessionSenderShutdown error"
-        );
-
-        // Verify no message was sent to SLIM
-        let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
-        assert!(
-            res.is_err(),
-            "Expected no message to SLIM but got: {:?}",
-            res
-        );
-
-        // Now send an RTX request for message ID 1
-        let mut rtx_request = Message::builder()
-            .source(remote.clone())
-            .destination(source.clone())
-            .application_payload("", vec![])
-            .build_publish()
-            .unwrap();
-        rtx_request.get_session_header_mut().set_message_id(1);
-        rtx_request
-            .get_session_header_mut()
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxRequest);
-        rtx_request
-            .get_slim_header_mut()
-            .set_incoming_conn(Some(123));
-
-        sender
-            .on_message(rtx_request, None)
-            .await
-            .expect("error sending rtx request");
-
-        // Wait for RTX reply with error
-        let rtx_reply = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for rtx reply")
-            .expect("channel closed")
-            .expect("error in rtx reply");
-
-        // Verify the RTX reply has an error (message not in buffer)
-        assert_eq!(
-            rtx_reply.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::RtxReply
-        );
-        assert_eq!(rtx_reply.get_id(), 1);
-        assert_eq!(rtx_reply.get_dst(), remote);
-        assert!(
-            rtx_reply.get_error().is_some(),
-            "Expected error in RTX reply"
-        );
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_shutdown_send_with_buffer_flush() {
-        // Test: Send messages with shutdown_send=true BEFORE adding endpoints,
-        // then add endpoint. Verify messages are NOT flushed since shutdown_send prevents transmission.
-        let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
-
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
-
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
-
-        let mut sender = SessionSender::new(
-            Some(settings),
-            10,
-            ProtoSessionType::PointToPoint,
-            tx,
-            Some(tx_signal),
-            true, // shutdown_send enabled
-        );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
-        let source = Name::from_strings(["org", "ns", "source"]);
-
-        // Send 3 messages WITHOUT adding endpoint first (normally would be buffered for flush)
-        for msg_id in 1..=3 {
-            let mut message = Message::builder()
-                .source(source.clone())
-                .destination(remote.clone())
-                .application_payload(
-                    &format!("test_payload_{}", msg_id),
-                    vec![msg_id as u8, (msg_id + 1) as u8],
-                )
-                .build_publish()
-                .unwrap();
-            message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
-
-            let (ack_tx, ack_rx) = oneshot::channel();
-
-            let result = sender.on_message(message, Some(ack_tx)).await;
-
-            // Verify on_message returns error when shutdown_send is true
-            assert!(
-                result.is_err(),
-                "Expected error from on_message but got: {:?}",
-                result
-            );
-            assert!(
-                matches!(result, Err(SessionError::SessionSenderShutdown)),
-                "Expected SessionSenderShutdown error"
-            );
-
-            // Verify ack notifier receives error
-            let ack_result = timeout(Duration::from_millis(100), ack_rx)
-                .await
-                .unwrap_or_else(|_| panic!("timeout waiting for ack {}", msg_id))
-                .unwrap_or_else(|_| panic!("channel closed for message {}", msg_id));
-
-            assert!(
-                ack_result.is_err(),
-                "Expected error result but got: {:?}",
-                ack_result
-            );
-            assert!(
-                matches!(ack_result, Err(SessionError::SessionSenderShutdown)),
-                "Expected SessionSenderShutdown error in ack notifier"
-            );
-        }
-
-        // Verify no messages were sent to SLIM yet
-        let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
-        assert!(
-            res.is_err(),
-            "Expected no messages to SLIM but got: {:?}",
-            res
-        );
-
-        // Now add the endpoint (normally would trigger flush)
-        sender
-            .add_endpoint(&remote)
-            .await
-            .expect("error adding participant");
-
-        // Verify messages are still NOT sent to SLIM (shutdown_send prevents flush)
-        let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
-        assert!(
-            res.is_err(),
-            "Expected no messages after endpoint add but got: {:?}",
-            res
-        );
-
-        // Verify buffer is empty (messages not buffered when shutdown_send is true)
-        assert!(sender.buffer.get(1).is_none(), "Expected empty buffer");
-        assert!(!sender.to_flush, "Expected to_flush flag to be false");
     }
 }

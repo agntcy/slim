@@ -3,7 +3,7 @@
 
 use async_trait::async_trait;
 use slim_datapath::{
-    api::{ProtoMessage as Message, ProtoSessionMessageType},
+    api::{Participant, ProtoMessage as Message, ProtoSessionMessageType},
     messages::Name,
 };
 
@@ -23,8 +23,8 @@ use crate::{
 
 pub(crate) struct Session {
     local_name: Name,
-    sender: SessionSender,
-    receiver: SessionReceiver,
+    sender: Option<SessionSender>,
+    receiver: Option<SessionReceiver>,
     processing_state: ProcessingState,
 }
 
@@ -49,23 +49,30 @@ impl Session {
 
         let (shutdown_send, shutdown_receive) = direction.to_flags();
 
-        let sender = SessionSender::new(
-            timer_settings.clone(),
-            session_id,
-            session_config.session_type,
-            tx.clone(),
-            Some(tx_signals.clone()),
-            shutdown_send,
-        );
-        let receiver = SessionReceiver::new(
-            timer_settings,
-            session_id,
-            local_name.clone(),
-            session_config.session_type,
-            tx.clone(),
-            Some(tx_signals.clone()),
-            shutdown_receive,
-        );
+        let sender = if shutdown_send {
+            None
+        } else {
+            Some(SessionSender::new(
+                timer_settings.clone(),
+                session_id,
+                session_config.session_type,
+                tx.clone(),
+                Some(tx_signals.clone()),
+            ))
+        };
+
+        let receiver = if shutdown_receive {
+            None
+        } else {
+            Some(SessionReceiver::new(
+                timer_settings,
+                session_id,
+                local_name.clone(),
+                session_config.session_type,
+                tx.clone(),
+                Some(tx_signals.clone()),
+            ))
+        };
 
         Session {
             local_name: local_name.clone(),
@@ -100,7 +107,7 @@ impl Session {
                     "received message error: {:?}", error,
                 );
 
-                self.sender.on_slim_failure(error)
+                self.with_sender_without_ack(|sender| sender.on_slim_failure(error))
             }
             SessionMessage::TimerTimeout {
                 message_id,
@@ -116,8 +123,12 @@ impl Session {
             } => self.on_timer_failure(message_id, message_type, name).await,
             SessionMessage::StartDrain { grace_period: _ } => {
                 self.processing_state = ProcessingState::Draining;
-                self.sender.start_drain();
-                self.receiver.start_drain();
+                if let Some(sender) = self.sender.as_mut() {
+                    sender.start_drain();
+                }
+                if let Some(receiver) = self.receiver.as_mut() {
+                    receiver.start_drain();
+                }
                 Ok(())
             }
             _ => Err(SessionError::SessionMessageInternalUnexpected(Box::new(
@@ -126,20 +137,80 @@ impl Session {
         }
     }
 
-    pub async fn add_endpoint(&mut self, endpoint: &Name) -> Result<(), SessionError> {
-        debug!(%endpoint, local_name = %self.local_name, "add participant");
-        self.sender.add_endpoint(endpoint).await
+    pub async fn add_endpoint(&mut self, endpoint: &Participant) -> Result<(), SessionError> {
+        let name = endpoint.get_name()?;
+        debug!(%name, local_name = %self.local_name, "add participant");
+        if let Some(sender) = self.sender.as_mut() {
+            sender.add_endpoint(endpoint).await?;
+        }
+        Ok(())
     }
 
     pub fn remove_endpoint(&mut self, endpoint: &Name) {
         debug!(%endpoint, local_name = %self.local_name, "remove participant");
-        self.sender.remove_endpoint(endpoint);
-        self.receiver.remove_endpoint(endpoint);
+        if let Some(sender) = self.sender.as_mut() {
+            sender.remove_endpoint(endpoint)
+        }
+        if let Some(receiver) = self.receiver.as_mut() {
+            receiver.remove_endpoint(endpoint);
+        }
     }
 
     pub fn close(&mut self) {
-        self.sender.close();
-        self.receiver.close();
+        if let Some(sender) = self.sender.as_mut() {
+            sender.close();
+        }
+        if let Some(receiver) = self.receiver.as_mut() {
+            receiver.close();
+        }
+    }
+
+    /// Helper to call sender methods with ack_tx error handling
+    async fn with_sender<'a, F, Fut>(
+        &'a mut self,
+        ack_tx: Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
+        f: F,
+    ) -> Result<(), SessionError>
+    where
+        F: FnOnce(
+            &'a mut SessionSender,
+            Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
+        ) -> Fut,
+        Fut: std::future::Future<Output = Result<(), SessionError>> + 'a,
+    {
+        match self.sender {
+            Some(ref mut sender) => f(sender, ack_tx).await,
+            None => {
+                let error = SessionError::SessionSenderShutdown;
+                if let Some(tx) = ack_tx {
+                    let _ = tx.send(Err(error));
+                }
+                Err(SessionError::SessionSenderShutdown)
+            }
+        }
+    }
+
+    /// Helper to call sender methods without ack_tx
+    fn with_sender_without_ack<F, R>(&mut self, f: F) -> Result<R, SessionError>
+    where
+        F: FnOnce(&mut SessionSender) -> Result<R, SessionError>,
+    {
+        match self.sender {
+            Some(ref mut sender) => f(sender),
+            None => Err(SessionError::SessionSenderShutdown),
+        }
+    }
+
+    /// Helper to call receiver methods
+    async fn with_receiver<'a, F, Fut>(&'a mut self, f: F) -> Result<(), SessionError>
+    where
+        F: FnOnce(&'a mut SessionReceiver) -> Fut,
+        Fut: std::future::Future<Output = Result<(), SessionError>> + 'a,
+    {
+        match self.receiver {
+            Some(ref mut receiver) => f(receiver).await,
+            None => Err(SessionError::SessionReceiverShutdown),
+        }
     }
 
     async fn on_application_message(
@@ -151,17 +222,23 @@ impl Session {
         match message.get_session_message_type() {
             ProtoSessionMessageType::Msg => {
                 if direction == MessageDirection::South {
-                    // message from app to slim, give it to the sender with ack
-                    self.sender.on_message(message, ack_tx).await
+                    // message from the app to slim, give it to the sender
+                    self.with_sender(ack_tx, |sender, ack_tx| sender.on_message(message, ack_tx))
+                        .await
                 } else {
                     // message from slim to the app, give it to the receiver
-                    self.receiver.on_message(message).await
+                    self.with_receiver(|receiver| receiver.on_message(message))
+                        .await
                 }
             }
             ProtoSessionMessageType::MsgAck | ProtoSessionMessageType::RtxRequest => {
-                self.sender.on_message(message, ack_tx).await
+                self.with_sender(ack_tx, |sender, ack_tx| sender.on_message(message, ack_tx))
+                    .await
             }
-            ProtoSessionMessageType::RtxReply => self.receiver.on_message(message).await,
+            ProtoSessionMessageType::RtxReply => {
+                self.with_receiver(|receiver| receiver.on_message(message))
+                    .await
+            }
             _ => {
                 if let Some(tx) = ack_tx {
                     let _ = tx.send(Ok(()));
@@ -180,9 +257,17 @@ impl Session {
         name: Option<Name>,
     ) -> Result<(), SessionError> {
         match message_type {
-            ProtoSessionMessageType::Msg => self.sender.on_timer_timeout(id).await,
+            ProtoSessionMessageType::Msg => {
+                self.with_sender(None, |sender, _| sender.on_timer_timeout(id))
+                    .await
+            }
             ProtoSessionMessageType::RtxRequest => {
-                self.receiver.on_timer_timeout(id, name.unwrap()).await
+                if let Some(name) = name {
+                    self.with_receiver(|receiver| receiver.on_timer_timeout(id, name))
+                        .await
+                } else {
+                    Err(SessionError::MissingParticipantNameOnTimer)
+                }
             }
             _ => Err(SessionError::SessionMessageTypeUnexpected(message_type)),
         }
@@ -195,9 +280,16 @@ impl Session {
         name: Option<Name>,
     ) -> Result<(), SessionError> {
         match message_type {
-            ProtoSessionMessageType::Msg => self.sender.on_timer_failure(id),
+            ProtoSessionMessageType::Msg => {
+                self.with_sender_without_ack(|sender| sender.on_timer_failure(id))
+            }
             ProtoSessionMessageType::RtxRequest => {
-                self.receiver.on_timer_failure(id, name.unwrap()).await
+                if let Some(name) = name {
+                    self.with_receiver(|receiver| receiver.on_timer_failure(id, name))
+                        .await
+                } else {
+                    Err(SessionError::MissingParticipantNameOnTimer)
+                }
             }
             _ => Err(SessionError::SessionMessageTypeUnexpected(message_type)),
         }
@@ -219,10 +311,7 @@ impl MessageHandler for Session {
         self.on_message(message).await
     }
 
-    async fn add_endpoint(
-        &mut self,
-        endpoint: &slim_datapath::messages::Name,
-    ) -> Result<(), SessionError> {
+    async fn add_endpoint(&mut self, endpoint: &Participant) -> Result<(), SessionError> {
         self.add_endpoint(endpoint).await
     }
 
@@ -231,7 +320,8 @@ impl MessageHandler for Session {
     }
 
     fn needs_drain(&self) -> bool {
-        !(self.sender.drain_completed() && self.receiver.drain_completed())
+        !(self.sender.as_ref().is_some_and(|s| s.drain_completed())
+            && self.receiver.as_ref().is_some_and(|r| r.drain_completed()))
     }
 
     fn processing_state(&self) -> ProcessingState {
@@ -249,7 +339,7 @@ mod tests {
     use crate::transmitter::SessionTransmitter;
 
     use super::*;
-    use slim_datapath::api::ProtoSessionType;
+    use slim_datapath::api::{ParticipantSettings, ProtoSessionType};
     use std::{collections::HashMap, time::Duration};
     use tokio::time::timeout;
     use tracing_test::traced_test;
@@ -286,9 +376,12 @@ mod tests {
             Direction::Bidirectional,
         );
 
-        // Add the remote endpoint to the session sender
+        // Add the remote endpoint to the session sender (should receive messages)
         session
-            .add_endpoint(&remote_name)
+            .add_endpoint(&Participant::new(
+                remote_name.clone(),
+                ParticipantSettings::receive_only(), // Receives data only
+            ))
             .await
             .expect("error adding participant");
 
@@ -636,9 +729,12 @@ mod tests {
             Direction::Bidirectional,
         );
 
-        // Add receiver as endpoint for sender
+        // Add receiver as endpoint for sender (receiver should receive data)
         sender_session
-            .add_endpoint(&receiver_name)
+            .add_endpoint(&Participant::new(
+                receiver_name.clone(),
+                ParticipantSettings::bidirectional(),
+            ))
             .await
             .expect("error adding participant");
 
@@ -668,9 +764,12 @@ mod tests {
             Direction::Bidirectional,
         );
 
-        // Add sender as endpoint for receiver
+        // Add sender as endpoint for receiver (sender can send and receive)
         receiver_session
-            .add_endpoint(&sender_name)
+            .add_endpoint(&Participant::new(
+                sender_name.clone(),
+                ParticipantSettings::bidirectional(),
+            ))
             .await
             .expect("error adding participant");
 
