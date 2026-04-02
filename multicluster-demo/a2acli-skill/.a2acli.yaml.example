@@ -1,0 +1,14 @@
+# a2acli configuration file
+# Copy to .a2acli.yaml in your working directory or ~/.a2acli.yaml
+# All fields are optional. Command-line flags take precedence over this file.
+
+# Path to the agents directory containing AgentCard JSON files.
+# Defaults to .a2aagents in the current directory, then ~/.a2aagents.
+# agents-dir: /path/to/my/.a2aagents
+
+# SLIM RPC transport settings.
+# Set slim.endpoint to enable communication with agents deployed behind a SLIM node.
+slim:
+  endpoint: "http://localhost:46357"
+  local-name: "agntcy/cli/a2acli"
+  secret: "my_shared_secret"
