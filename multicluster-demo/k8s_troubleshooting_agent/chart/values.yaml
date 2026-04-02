@@ -1,0 +1,96 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/agntcy/k8s-troubleshooting-agent
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+
+# LLM model used by the agent. Must be a model name accepted by LiteLLM.
+# The corresponding API key should be provided via extraEnv (e.g. GEMINI_API_KEY).
+model: "gemini/gemini-2.0-flash"
+
+# SLIM connection settings
+slim:
+  url: "http://slim:46357"
+  namespace: "agntcy"
+  group: "demo"
+  name: "k8s_troubleshooting_agent"
+
+  # Shared-secret authentication.
+  # Ignored when spire.enabled is true.
+  # Provide either `secret` (plain-text, stored in a generated Secret) or
+  # `secretRef` (reference to an existing Secret).
+  secret: ""
+  secretRef:
+    # Name of an existing Secret containing the SLIM shared secret.
+    # When set, takes precedence over `secret`.
+    name: ""
+    key: "slim-secret"
+
+# SPIRE dynamic identity authentication.
+# When enabled, SPIRE takes precedence over the shared secret.
+spire:
+  enabled: false
+  # Path to the SPIRE agent socket mounted into the pod.
+  socketPath: "/tmp/spire-agent/public/api.sock"
+  # Optional target SPIFFE ID to request from SPIRE.
+  targetSpiffeId: ""
+  # Optional comma-separated JWT audience(s) to request from SPIRE.
+  jwtAudience: ""
+
+# Additional environment variables injected into the agent container.
+# Use this to supply LLM API keys (e.g. GEMINI_API_KEY) and any other
+# configuration not covered by the values above.
+extraEnv: []
+  # - name: GEMINI_API_KEY
+  #   valueFrom:
+  #     secretKeyRef:
+  #       name: my-api-keys
+  #       key: gemini-api-key
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created.
+  create: true
+  # Automatically mount a ServiceAccount's API credentials.
+  automount: true
+  # Annotations to add to the service account.
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template.
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+  # fsGroup: 2000
+
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+resources: {}
+  # limits:
+  #   cpu: 500m
+  #   memory: 512Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 256Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
