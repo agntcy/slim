@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.7.2](https://github.com/agntcy/slim/compare/slim-testutils-v0.7.1...slim-testutils-v0.7.2) (2026-04-02)
+
+
+### Features
+
+* ack for remote subscriptions ([#1364](https://github.com/agntcy/slim/issues/1364)) ([03d6432](https://github.com/agntcy/slim/commit/03d643293fe50e22a5a6f47bf975163c72c169f5))
+* add in-process benchmark tooling for data-plane profiling ([#1389](https://github.com/agntcy/slim/issues/1389)) ([2c0dbd4](https://github.com/agntcy/slim/commit/2c0dbd438432edba91c774012eb5fbe641665d28))
+* **bindings:** expose participant list to the application ([#1089](https://github.com/agntcy/slim/issues/1089)) ([c31f6ec](https://github.com/agntcy/slim/commit/c31f6ec2fa74964d7b306daac32a5b70bdf49630))
+* MLS identity key integration and security dependency upgrades ([#1394](https://github.com/agntcy/slim/issues/1394)) ([63c29c2](https://github.com/agntcy/slim/commit/63c29c26af196586003874959aba355e3c70a61a))
+* remove go implementation of slimctl and refactor workflows ([#1276](https://github.com/agntcy/slim/issues/1276)) ([1771288](https://github.com/agntcy/slim/commit/1771288c5f735b3a9449fe0aeb994b1cec7f7993))
+* update slimrpc compiler to use slimrpc in latest slim-bindings ([b7e9266](https://github.com/agntcy/slim/commit/b7e92662dc66d46d412aff0c375e6d0a4679a751))
+
+
+### Bug Fixes
+
+* [#1051](https://github.com/agntcy/slim/issues/1051) ([932b21c](https://github.com/agntcy/slim/commit/932b21c5daea64bf6aacd31b44c7e79f88bd8de7))
+* **bindings:** improve identity error handling ([#1042](https://github.com/agntcy/slim/issues/1042)) ([44002b5](https://github.com/agntcy/slim/commit/44002b51c598f3780645b8f3fac48f5e34a373cb))
+* **controller:** start the controller service only if the related config is provided ([#1054](https://github.com/agntcy/slim/issues/1054)) ([932b21c](https://github.com/agntcy/slim/commit/932b21c5daea64bf6aacd31b44c7e79f88bd8de7))
+* p2p integration test ([#1049](https://github.com/agntcy/slim/issues/1049)) ([430873d](https://github.com/agntcy/slim/commit/430873decdaa8f90773f9b5f862935cd06f781cf))
+* **session:** correctly remove routes on session close ([#1039](https://github.com/agntcy/slim/issues/1039)) ([df21fe3](https://github.com/agntcy/slim/commit/df21fe377bf0b416a123ef688d3beafc3bd0488b))
+* **slimctl:** improve testing stability and reporting ([#1234](https://github.com/agntcy/slim/issues/1234)) ([d04751a](https://github.com/agntcy/slim/commit/d04751a82e7f171401b89cba3948289d5b8fbac8))
+
+
+### Performance Improvements
+
+* **testing:** avoid per-message allocs in benchmark hot loop ([#1397](https://github.com/agntcy/slim/issues/1397)) ([fa3c3b7](https://github.com/agntcy/slim/commit/fa3c3b72419826a31b9b17bd54b930dc66bbb2ac))
+
 ## [0.7.1](https://github.com/agntcy/slim/compare/slim-testutils-v0.7.0...slim-testutils-v0.7.1) (2025-11-21)
 
 
