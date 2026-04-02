@@ -6,5 +6,6 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "google-adk[a2a]>=1.28.0",
+    "litellm>=1.83.0",
     "slima2a>=0.3.0",
 ]
