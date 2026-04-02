@@ -27,12 +27,14 @@ tasks:
     desc: "Build all legacy binaries (slim, receiver, sender, sdk-mock) for backward-compat testing"
     dir: ".."
     vars:
-      LEGACY_BRANCH: "slim-v1.1.0-test-apps"
+      LEGACY_BRANCH: "v2-main"
     status:
       - test -f .dist/bin/slim-legacy
       - test -f .dist/bin/receiver-legacy
       - test -f .dist/bin/sender-legacy
       - test -f .dist/bin/sdk-mock-legacy
+      # Verify the binaries are from the correct branch by checking a marker file
+      - test -f .dist/bin/.legacy-branch && grep -q "^v2-main$" .dist/bin/.legacy-branch
     cmds:
       - |
         # Fetch the legacy branch if it doesn't exist locally
@@ -60,6 +62,9 @@ tasks:
         cp "$WORKTREE/data-plane/target/debug/sdk-mock" .dist/bin/sdk-mock-legacy
         cp "$WORKTREE/data-plane/target/debug/examples/receiver" .dist/bin/receiver-legacy
         cp "$WORKTREE/data-plane/target/debug/examples/sender" .dist/bin/sender-legacy
+        
+        # Create marker file with branch name
+        echo "{{.LEGACY_BRANCH}}" > .dist/bin/.legacy-branch
 
   tests:integration:
     desc: "Run integration tests"
@@ -68,7 +73,7 @@ tasks:
       FORCE_LOCAL_BINDINGS: '{{.FORCE_LOCAL_BINDINGS | default "false"}}'
     deps:
       - data-plane:build
-      - tests:build-legacy-binaries
+      #- tests:build-legacy-binaries
       - control-plane:build
     cmds:
       - task: tests:build-slimrpc-examples

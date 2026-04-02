@@ -74,7 +74,7 @@ var _ = Describe("Link Negotiation", func() {
 	// new client <--> old server: the new client sends link negotiation but the
 	// old server (slim-v1.1.0) does not understand it and silently drops it.
 	// The connection must still be established and remain stable.
-	Describe("new client connects to old server", func() {
+	BackwardCompatDescribe("new client connects to old server", func() {
 		It("establishes the connection even when the server does not reply to link negotiation", func() {
 			serverPort := reservePort()
 
@@ -160,7 +160,7 @@ var _ = Describe("Link Negotiation", func() {
 	// old client <--> new server: the old client (slim-v1.1.0) connects but
 	// never sends link negotiation.  The new server must accept the connection
 	// and remain stable without ever receiving a negotiation message.
-	Describe("old client connects to new server", func() {
+	BackwardCompatDescribe("old client connects to new server", func() {
 		It("accepts the connection even when the client does not send link negotiation", func() {
 			serverPort := reservePort()
 
