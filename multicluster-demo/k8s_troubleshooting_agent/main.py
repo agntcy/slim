@@ -30,7 +30,7 @@ async def main() -> None:
     agent_card = AgentCard(
         name=root_agent.name,
         description=root_agent.description or "A Kubernetes troubleshooting agent",
-        url=f"{SLIM_URL}/",
+        url=f"{SLIM_NAMESPACE}/{SLIM_GROUP}/{SLIM_NAME}",
         version="1.0.0",
         default_input_modes=["text/plain"],
         default_output_modes=["text/plain"],
