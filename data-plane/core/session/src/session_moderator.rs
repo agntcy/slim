@@ -11,8 +11,8 @@ use display_error_chain::ErrorChainExt;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, MlsPayload, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
-        ProtoSessionType,
+        CommandPayload, MlsPayload, Participant, ProtoMessage as Message, ProtoName,
+        ProtoSessionMessageType, ProtoSessionType,
     },
     messages::utils::{DELETE_GROUP, DISCONNECTION_DETECTED, LEAVING_SESSION, TRUE_VAL},
 };
@@ -52,7 +52,9 @@ where
     mls_state: Option<MlsModeratorState<P, V>>,
 
     /// List of group participants
-    group_list: HashMap<ProtoName, u64>,
+    /// The key is the participant name without ID
+    /// The value contains the full and name and the participant settings
+    group_list: HashMap<ProtoName, Participant>,
 
     /// Common settings
     common: SessionControllerCommon<P, V, M>,
@@ -216,7 +218,7 @@ where
                 // We need to close the session for all the participants
                 // Create the leave message
                 let p = CommandPayload::builder().leave_request(None).as_content();
-                let destination = self.common.settings.destination.clone();
+                let destination = self.common.settings.control.clone();
                 let mut leave_msg = self.common.create_control_message(
                     &destination,
                     ProtoSessionMessageType::LeaveRequest,
@@ -259,7 +261,7 @@ where
         }
     }
 
-    async fn add_endpoint(&mut self, endpoint: &ProtoName) -> Result<(), SessionError> {
+    async fn add_endpoint(&mut self, endpoint: &Participant) -> Result<(), SessionError> {
         self.inner.add_endpoint(endpoint).await
     }
 
@@ -268,9 +270,9 @@ where
     }
 
     fn needs_drain(&self) -> bool {
-        !(self.common.sender.drain_completed()
-            && !self.inner.needs_drain()
-            && self.tasks_todo.is_empty())
+        !self.common.sender.drain_completed()
+            || self.inner.needs_drain()
+            || !self.tasks_todo.is_empty()
     }
     fn processing_state(&self) -> ProcessingState {
         self.common.processing_state
@@ -279,7 +281,14 @@ where
     fn participants_list(&self) -> Vec<ProtoName> {
         self.group_list
             .iter()
-            .map(|(name, id)| name.clone().with_id(*id))
+            .map(|(name, p)| {
+                let id = p
+                    .name
+                    .as_ref()
+                    .map(|n| n.id())
+                    .unwrap_or(ProtoName::NULL_COMPONENT); // the name should always be present
+                name.clone().with_id(id)
+            })
             .collect()
     }
 
@@ -292,9 +301,16 @@ where
         if self.common.settings.config.session_type == ProtoSessionType::Multicast
             && let Some(conn) = self.conn_id
         {
-            let dest_proto = self.common.settings.destination.clone();
-            self.common.delete_route(dest_proto.clone(), conn).await?;
-            self.common.delete_subscription(dest_proto, conn).await?;
+            self.common
+                .delete_route(self.common.settings.destination.clone(), conn)
+                .await?;
+            self.common
+                .delete_subscription(self.common.settings.destination.clone(), conn)
+                .await?;
+            self.common
+                .delete_route(self.common.settings.control.clone(), conn)
+                .await?;
+            // Note: No subscription to control channel - moderator only sends to it
         }
 
         // Shutdown inner layer
@@ -419,8 +435,8 @@ where
         let participants_vec: Vec<ProtoName> = self
             .group_list
             .iter()
-            .map(|(n, id)| n.clone().with_id(*id))
-            .collect();
+            .map(|(n, p)| p.get_name().map(|name| n.clone().with_id(name.id())))
+            .collect::<Result<Vec<ProtoName>, _>>()?;
 
         // Remove participant from group list
         let mut participant_no_id = participant.clone();
@@ -461,10 +477,9 @@ where
             .as_content();
         let msg_id = rand::random::<u32>();
 
-        let dest_proto = self.common.settings.destination.clone();
         self.common
             .send_control_message(
-                &dest_proto,
+                &self.common.settings.control.clone(),
                 ProtoSessionMessageType::GroupRemove,
                 msg_id,
                 update_payload,
@@ -578,6 +593,8 @@ where
 
         // now the moderator is busy - create the task first
         debug!("Create AddParticipant task with ack_tx");
+        self.current_task = Some(ModeratorTask::Add(AddParticipant::new(ack_tx, None)));
+
         // check if there is a destination name in the payload. If yes recreate the message
         // with the right destination and send it out
         let payload = msg.extract_discovery_request().map_err(|e| {
@@ -621,7 +638,11 @@ where
                 (msg, None)
             }
         };
-        self.current_task = Some(ModeratorTask::Add(AddParticipant::new(ack_tx, ack)));
+
+        // set the ack message in the task if required
+        if let Some(ack_msg) = ack {
+            self.current_task.as_mut().unwrap().set_ack_msg(ack_msg);
+        }
 
         // check if the participant is already part of the group
         let new_participant_name = discovery.get_dst();
@@ -685,6 +706,12 @@ where
                     msg.get_incoming_conn(),
                 )
                 .await?;
+            self.common
+                .add_route(
+                    self.common.settings.control.clone(),
+                    msg.get_incoming_conn(),
+                )
+                .await?;
         }
 
         // an endpoint replied to the discovery message
@@ -692,6 +719,7 @@ where
         let msg_id = rand::random::<u32>();
 
         let channel = if self.common.settings.config.session_type == ProtoSessionType::Multicast {
+            // using the destination as channel name, the control name can be recreated by the participants
             Some(self.common.settings.destination.clone())
         } else {
             None
@@ -744,15 +772,18 @@ where
             .join_complete(msg.get_id())?;
 
         // at this point the participant is part of the group so we can add it to the list
-        let mut new_participant_name = msg.get_source().clone();
-        let new_participant_id = new_participant_name.id();
-        new_participant_name.reset_id();
-        self.group_list
-            .insert(new_participant_name, new_participant_id);
-
+        let new_participant = msg
+            .extract_join_reply()?
+            .participant
+            .clone()
+            .ok_or(SessionError::MissingParticipantSettings)?;
+        let mut new_name = new_participant.get_name()?;
         // notify the local session that a new participant was added to the group
-        debug!(session_name = %msg.get_source(), "add endpoint");
-        self.add_endpoint(&msg.get_source()).await?;
+        debug!(session_name = %new_name, "add endpoint");
+        self.add_endpoint(&new_participant).await?;
+
+        new_name.reset_id();
+        self.group_list.insert(new_name, new_participant.clone());
 
         // get mls data if MLS is enabled
         let (commit, welcome) = if let Some(mls_state) = &mut self.mls_state {
@@ -776,23 +807,19 @@ where
         };
 
         // Create participants list for the messages to send
-        let mut participants_vec = vec![];
-        for (n, id) in &self.group_list {
-            let name = n.clone().with_id(*id);
-            participants_vec.push(name);
-        }
+        let participants_vec = self.group_list.values().cloned().collect::<Vec<_>>();
 
         // send the group update
         if participants_vec.len() > 2 {
             debug!("participant len is > 2, send a group update");
             let update_payload = CommandPayload::builder()
-                .group_add(msg.get_source().clone(), participants_vec.clone(), commit)
+                .group_add(new_participant, participants_vec.clone(), commit)
                 .as_content();
             let add_msg_id = rand::random::<u32>();
             debug!(id = %add_msg_id, "send add update to channel");
             self.common
                 .send_control_message(
-                    &self.common.settings.destination.clone(),
+                    &self.common.settings.control.clone(),
                     ProtoSessionMessageType::GroupAdd,
                     add_msg_id,
                     update_payload,
@@ -858,7 +885,8 @@ where
             return Ok(());
         }
 
-        debug!("Create RemoveParticipant task with ack_tx");
+        debug!("Create RemoveParticipant task");
+        self.current_task = Some(ModeratorTask::Remove(RemoveParticipant::new(ack_tx, None)));
         // adjust the message according to the sender:
         // - if coming from the controller (destination in the payload) we need to modify source and destination
         // - if coming from the app (empty payload) we need to add the participant id to the destination
@@ -894,11 +922,14 @@ where
             None => (msg.get_dst(), None),
         };
 
-        self.current_task = Some(ModeratorTask::Remove(RemoveParticipant::new(ack_tx, ack)));
+        // set the ack message in the task if required
+        if let Some(ack_msg) = ack {
+            self.current_task.as_mut().unwrap().set_ack_msg(ack_msg);
+        }
 
         // Look up participant ID in group list
         let id = match self.group_list.get(&dst_without_id) {
-            Some(id) => *id,
+            Some(p) => p.get_name()?.id(),
             None => {
                 let err = SessionError::ParticipantNotFound(dst_without_id);
                 return Err(self.handle_task_error(err));
@@ -1078,11 +1109,11 @@ where
         self.prepare_shutdown().await?;
 
         // Collect the participants and create the close message
-        let participants: Vec<_> = self
+        let participants: Vec<ProtoName> = self
             .group_list
             .iter()
-            .map(|(k, v)| k.clone().with_id(*v))
-            .collect();
+            .map(|(n, p)| p.get_name().map(|name| n.clone().with_id(name.id())))
+            .collect::<Result<Vec<ProtoName>, _>>()?;
 
         if participants.len() == 1 {
             // in this case the moderator is the only one remained
@@ -1090,7 +1121,7 @@ where
             return Ok(());
         }
 
-        let destination = self.common.settings.destination.clone();
+        let destination = self.common.settings.control.clone();
         let close_id = rand::random::<u32>();
         let close = self.common.create_control_message(
             &destination,
@@ -1290,9 +1321,10 @@ where
 
         // add ourself to the participants
         let mut local_name = self.common.settings.source.clone();
-        let id = local_name.id();
+        let settings = self.common.settings.direction.to_participant_settings();
+        let participant = Participant::new(local_name.clone(), settings);
         local_name.reset_id();
-        self.group_list.insert(local_name, id);
+        self.group_list.insert(local_name, participant);
 
         Ok(())
     }
@@ -1329,11 +1361,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Direction;
     use crate::session_config::SessionConfig;
     use crate::session_settings::SessionSettings;
     use crate::test_utils::{MockInnerHandler, MockTokenProvider, MockVerifier};
     use slim_datapath::Status;
-    use slim_datapath::api::{CommandPayload, ProtoSessionType};
+    use slim_datapath::api::{CommandPayload, ParticipantSettings, ProtoSessionType};
     use tokio::sync::mpsc;
 
     // --- Test Helpers -----------------------------------------------------------------------
@@ -1372,7 +1405,8 @@ mod tests {
         mpsc::Receiver<Result<SessionMessage, SessionError>>,
     ) {
         let source = make_name(&["local", "moderator", "v1"]).with_id(100);
-        let destination = make_name(&["channel", "name", "v1"]).with_id(200);
+        let destination = make_name(&["channel", "name", "v1"]).with_id(ProtoName::DATA_CHANNEL_ID);
+        let control = make_name(&["channel", "name", "v1"]).with_id(ProtoName::CONTROL_CHANNEL_ID);
 
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;
@@ -1399,7 +1433,9 @@ mod tests {
             id: 1,
             source,
             destination,
+            control,
             config,
+            direction: Direction::Bidirectional,
             tx,
             tx_session,
             tx_to_session_layer: tx_session_layer,
@@ -1608,7 +1644,9 @@ mod tests {
         let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
         moderator.init().await.unwrap();
 
-        let endpoint = make_name(&["participant", "app", "v1"]).with_id(400);
+        let endpoint_name = make_name(&["participant", "app", "v1"]).with_id(400);
+        let endpoint =
+            Participant::new(endpoint_name.clone(), ParticipantSettings::bidirectional());
 
         // Add endpoint
         let result = moderator.add_endpoint(&endpoint).await;
@@ -1616,7 +1654,7 @@ mod tests {
         assert_eq!(moderator.inner.get_endpoints_added_count().await, 1);
 
         // Remove endpoint
-        moderator.remove_endpoint(&endpoint);
+        moderator.remove_endpoint(&endpoint_name);
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
         assert_eq!(moderator.inner.get_endpoints_removed_count().await, 1);
     }
@@ -1685,15 +1723,27 @@ mod tests {
         moderator.init().await.unwrap();
 
         // Add some participants to group list
-        moderator
-            .group_list
-            .insert(make_name(&["participant1", "app", "v1"]), 401);
-        moderator
-            .group_list
-            .insert(make_name(&["participant2", "app", "v1"]), 402);
-        moderator
-            .group_list
-            .insert(make_name(&["participant3", "app", "v1"]), 403);
+        moderator.group_list.insert(
+            make_name(&["participant1", "app", "v1"]),
+            Participant::new(
+                make_name(&["participant1", "app", "v1"]).with_id(401),
+                ParticipantSettings::bidirectional(),
+            ),
+        );
+        moderator.group_list.insert(
+            make_name(&["participant2", "app", "v1"]),
+            Participant::new(
+                make_name(&["participant2", "app", "v1"]).with_id(402),
+                ParticipantSettings::bidirectional(),
+            ),
+        );
+        moderator.group_list.insert(
+            make_name(&["participant3", "app", "v1"]),
+            Participant::new(
+                make_name(&["participant3", "app", "v1"]).with_id(403),
+                ParticipantSettings::bidirectional(),
+            ),
+        );
 
         let delete_msg = Message::builder()
             .source(moderator.common.settings.source.clone())
@@ -1783,7 +1833,9 @@ mod tests {
             id: 1,
             source: source.clone(),
             destination: destination.clone(),
+            control: destination.clone(),
             config,
+            direction: Direction::Bidirectional,
             tx,
             tx_session,
             tx_to_session_layer: tx_session_layer,
@@ -1834,6 +1886,8 @@ mod tests {
         // Create moderator with agntcy/ns/moderator naming
         let source = ProtoName::from_strings(["agntcy", "ns", "moderator"]).with_id(100);
         let destination = ProtoName::from_strings(["agntcy", "ns", "chat"]);
+        let control = ProtoName::from_strings(["agntcy", "ns", "chat"])
+            .with_id(ProtoName::CONTROL_CHANNEL_ID);
 
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;
@@ -1860,7 +1914,9 @@ mod tests {
             id: 1,
             source: source.clone(),
             destination: destination.clone(),
+            control,
             config,
+            direction: Direction::Bidirectional,
             tx,
             tx_session,
             tx_to_session_layer: tx_session_layer,
@@ -1888,12 +1944,17 @@ mod tests {
 
         // Add one participant to the group (now we have moderator + participant = 2 total)
         // Use the naming convention requested: agntcy/ns/participant
-        let mut participant = ProtoName::from_strings(["agntcy", "ns", "participant"]);
+        let mut participant_name = ProtoName::from_strings(["agntcy", "ns", "participant"]);
+        let participant = Participant::new(
+            participant_name.clone(),
+            ParticipantSettings::bidirectional(),
+        );
+        // Fill in participant settings as needed
         let participant_id = 401u64;
-        participant.reset_id(); // Remove ID before inserting into group_list
+        participant_name.reset_id(); // Remove ID before inserting into group_list
         moderator
             .group_list
-            .insert(participant.clone(), participant_id);
+            .insert(participant_name.clone(), participant);
 
         // Verify we have exactly 2 participants (moderator + participant)
         assert_eq!(
@@ -1908,7 +1969,7 @@ mod tests {
         // Create a leave request message coming directly from the participant
         // When coming from participant directly (not controller), the source is the participant
         // and the destination is the moderator, with LEAVING_SESSION metadata set
-        let participant_with_id = participant.clone().with_id(participant_id);
+        let participant_with_id = participant_name.clone().with_id(participant_id);
         let mut leave_msg = Message::builder()
             .source(participant_with_id.clone())
             .destination(source.clone())
@@ -1967,7 +2028,10 @@ mod tests {
 
         // Create moderator with agntcy/ns/moderator naming
         let source = ProtoName::from_strings(["agntcy", "ns", "moderator"]).with_id(100);
-        let destination = ProtoName::from_strings(["agntcy", "ns", "chat"]);
+        let destination =
+            ProtoName::from_strings(["agntcy", "ns", "chat"]).with_id(ProtoName::DATA_CHANNEL_ID);
+        let control = ProtoName::from_strings(["agntcy", "ns", "chat"])
+            .with_id(ProtoName::CONTROL_CHANNEL_ID);
 
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;
@@ -1994,7 +2058,9 @@ mod tests {
             id: 1,
             source: source.clone(),
             destination: destination.clone(),
+            control: control.clone(),
             config,
+            direction: Direction::Bidirectional,
             tx,
             tx_session,
             tx_to_session_layer: tx_session_layer,
@@ -2021,20 +2087,38 @@ mod tests {
         .unwrap();
 
         // Add three participants to the group
-        let mut participant1 = ProtoName::from_strings(["agntcy", "ns", "participant1"]);
-        let mut participant2 = ProtoName::from_strings(["agntcy", "ns", "participant2"]);
-        let mut participant3 = ProtoName::from_strings(["agntcy", "ns", "participant3"]);
+        let mut participant1_name = ProtoName::from_strings(["agntcy", "ns", "participant1"]);
+        let mut participant2_name = ProtoName::from_strings(["agntcy", "ns", "participant2"]);
+        let mut participant3_name = ProtoName::from_strings(["agntcy", "ns", "participant3"]);
+        let participant1 = Participant::new(
+            participant1_name.clone(),
+            ParticipantSettings::bidirectional(),
+        );
+        let participant2 = Participant::new(
+            participant2_name.clone(),
+            ParticipantSettings::bidirectional(),
+        );
+        let participant3 = Participant::new(
+            participant3_name.clone(),
+            ParticipantSettings::bidirectional(),
+        );
 
-        participant1.reset_id(); // Remove ID before inserting into group_list
-        participant2.reset_id();
-        participant3.reset_id();
+        participant1_name.reset_id(); // Remove ID before inserting into group_list
+        participant2_name.reset_id();
+        participant3_name.reset_id();
 
-        moderator.group_list.insert(participant1.clone(), 401);
-        moderator.group_list.insert(participant2.clone(), 402);
-        moderator.group_list.insert(participant3.clone(), 403);
+        moderator
+            .group_list
+            .insert(participant1_name.clone(), participant1);
+        moderator
+            .group_list
+            .insert(participant2_name.clone(), participant2);
+        moderator
+            .group_list
+            .insert(participant3_name.clone(), participant3);
 
         // Create first leave request coming directly from participant1 with LEAVING_SESSION metadata
-        let participant1_with_id = participant1.clone().with_id(401);
+        let participant1_with_id = participant1_name.clone().with_id(401);
         let mut leave_msg1 = Message::builder()
             .source(participant1_with_id.clone())
             .destination(source.clone()) // sent to moderator
@@ -2057,7 +2141,7 @@ mod tests {
         leave_msg1.insert_metadata(LEAVING_SESSION.to_string(), TRUE_VAL.to_string());
 
         // Create second leave request coming directly from participant2 with LEAVING_SESSION metadata
-        let participant2_with_id = participant2.clone().with_id(402);
+        let participant2_with_id = participant2_name.clone().with_id(402);
         let mut leave_msg2 = Message::builder()
             .source(participant2_with_id.clone())
             .destination(source.clone()) // sent to moderator
@@ -2118,13 +2202,13 @@ mod tests {
 
         // Verify participant1 was removed from group (first task processed)
         assert!(
-            !moderator.group_list.contains_key(&participant1),
+            !moderator.group_list.contains_key(&participant1_name),
             "Participant1 should be removed after first leave request"
         );
 
         // Verify participant2 is still in group (second task queued, not processed yet)
         assert!(
-            moderator.group_list.contains_key(&participant2),
+            moderator.group_list.contains_key(&participant2_name),
             "Participant2 should still be in group (task queued, not processed)"
         );
     }
