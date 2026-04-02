@@ -27,6 +27,7 @@ native = [
 ]
 wasm = [
     "dep:getrandom",
+    "uuid/js",
 ]
 
 [dependencies]

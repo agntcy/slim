@@ -49,7 +49,7 @@ native = [
     "dep:tower-layer",
     "dep:tower-service",
 ]
-wasm = ["dep:gloo-net"]
+wasm = ["dep:gloo-net", "uuid/js"]
 
 [dependencies]
 agntcy-slim-auth = { workspace = true, optional = true, features = ["native"] }
@@ -71,6 +71,7 @@ hyper-util = { workspace = true, optional = true }
 lazy_static = { workspace = true }
 parking_lot = { workspace = true, optional = true }
 prost = { workspace = true, optional = true }
+rand = { workspace = true }
 regex = { workspace = true }
 rustls = { workspace = true, optional = true }
 rustls-native-certs = { workspace = true, optional = true }
@@ -102,6 +103,5 @@ tonic-prost-build = { workspace = true }
 
 [dev-dependencies]
 agntcy-slim-testing = { workspace = true }
-rand = { workspace = true }
 serde_json = { workspace = true }
 tracing-test = { workspace = true }
