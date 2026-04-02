@@ -1,0 +1,12 @@
+[project]
+name = "k8s-troubleshooting-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "google-adk[a2a]>=1.28.0",
+    "litellm>=1.83.0",
+    "python-dotenv>=1.2.2",
+    "slima2a>=0.3.0",
+]
