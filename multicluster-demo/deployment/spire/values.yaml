@@ -1,9 +1,5 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
-#
-# SPIRE nested root (admin cluster) — used with spiffe/spire-nested Helm chart.
-# Install: helm upgrade --install spire spiffe/spire-nested -n spire --create-namespace \
-#   -f spire-root-values.yaml --set global.spire.trustDomain="$SPIFFE_TRUST_DOMAIN"
 
 global:
   spire:
