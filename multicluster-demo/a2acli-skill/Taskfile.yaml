@@ -13,7 +13,7 @@ vars:
   BIN_DIR: bin
   SKILL_DIR: a2acli
   SCRIPTS_DIR: "{{.SKILL_DIR}}/scripts"
-  LDFLAGS: "-X google.golang.org/protobuf/reflect/protoregistry.conflictPolicy=warn"
+  LDFLAGS: "-X google.golang.org/protobuf/reflect/protoregistry.conflictPolicy=ignore"
 
 tasks:
   default:
@@ -53,6 +53,16 @@ tasks:
       - setup
     cmds:
       - go install -ldflags "{{.LDFLAGS}}" .
+
+  install-skill:
+    desc: Build and install the skill into ~/.claude/skills/
+    vars:
+      SKILLS_DIR: "{{.HOME}}/.claude/skills"
+    deps:
+      - build-skill
+    cmds:
+      - mkdir -p {{.SKILLS_DIR}}
+      - cp -r {{.SKILL_DIR}} {{.SKILLS_DIR}}/{{.SKILL_DIR}}
 
   clean:
     desc: Remove compiled binaries

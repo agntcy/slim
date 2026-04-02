@@ -2,11 +2,11 @@
 name: a2acli
 description: Interact with A2A protocol agents — list available agents, inspect their capabilities, send messages, and retrieve task results. Use when you need to communicate with or delegate work to another A2A-compatible AI agent, query an agent's skills, or check the status of an async task.
 license: Apache-2.0
-compatibility: Requires the `a2acli` binary to be built and available in PATH. Build it by running `task install` from the skill directory, or `task build-skill` to place the binary directly in this skill's `scripts/` directory. AgentCard JSON files must be present in a `.a2aagents` directory (in the current working directory or the user's home directory).
+compatibility: Requires the `a2acli` binary to be built. Run `task build-skill` from the skill directory to place the binary at `scripts/a2acli`. AgentCard JSON files must be present in a `.a2aagents` directory (in the current working directory or the user's home directory).
 metadata:
   author: tehsmash
   version: "0.1.0"
-allowed-tools: Bash(a2acli:*)
+allowed-tools: Bash(scripts/a2acli:*)
 ---
 
 # a2acli — A2A Protocol CLI
@@ -45,12 +45,12 @@ Each agent is identified by the **SHA256 digest** of its AgentCard JSON file (e.
 
 ## Commands
 
-### `a2acli list`
+### `scripts/a2acli list`
 
 List all available agents.
 
 ```
-a2acli list [--agents-dir <path>]
+scripts/a2acli list [--agents-dir <path>]
 ```
 
 **Output:**
@@ -62,17 +62,17 @@ code-review-agent     Reviews Go, Python and TypeScript code             sha256:
 
 ---
 
-### `a2acli get-card --agent <digest>`
+### `scripts/a2acli get-card --agent <digest>`
 
 Print the full AgentCard JSON for an agent, including all skills, capabilities, and supported interfaces.
 
 ```
-a2acli get-card --agent <digest>
+scripts/a2acli get-card --agent <digest>
 ```
 
 **Example:**
 ```
-a2acli get-card --agent sha256:3f7a2c1b
+scripts/a2acli get-card --agent sha256:3f7a2c1b
 ```
 
 **Output:** Pretty-printed AgentCard JSON, for example:
@@ -100,12 +100,12 @@ Use this command when you need to understand what an agent can do before sending
 
 ---
 
-### `a2acli send-message --agent <digest> [--return-immediately] "<message>"`
+### `scripts/a2acli send-message --agent <digest> [--return-immediately] "<message>"`
 
 Send a text message to an agent.
 
 ```
-a2acli send-message --agent <digest> [--return-immediately] "<message>"
+scripts/a2acli send-message --agent <digest> [--return-immediately] "<message>"
 ```
 
 **Flags:**
@@ -113,13 +113,13 @@ a2acli send-message --agent <digest> [--return-immediately] "<message>"
 
 **Example — synchronous response (agent replies with a Message):**
 ```
-$ a2acli send-message --agent sha256:3f7a2c1b "What is the weather in London tomorrow?"
+$ scripts/a2acli send-message --agent sha256:3f7a2c1b "What is the weather in London tomorrow?"
 The forecast for London tomorrow is partly cloudy with a high of 18°C and a low of 11°C.
 ```
 
 **Example — async response, poll until done (default):**
 ```
-$ a2acli send-message --agent sha256:9d4e8f2a "Review the code in main.go for security issues"
+$ scripts/a2acli send-message --agent sha256:9d4e8f2a "Review the code in main.go for security issues"
 Task ID: 01938f4a-1234-7abc-def0-123456789abc
 Waiting for task to complete...
 Status: TASK_STATE_WORKING
@@ -135,24 +135,24 @@ Found 2 potential issues:
 
 **Example — return immediately, retrieve result later:**
 ```
-$ a2acli send-message --agent sha256:9d4e8f2a --return-immediately "Generate a report"
+$ scripts/a2acli send-message --agent sha256:9d4e8f2a --return-immediately "Generate a report"
 Task ID: 01938f4a-1234-7abc-def0-123456789abc
 Status:  TASK_STATE_SUBMITTED
 ```
 
 ---
 
-### `a2acli get-task --agent <digest> "<task-id>"`
+### `scripts/a2acli get-task --agent <digest> "<task-id>"`
 
 Retrieve the current state of a task, including its status, history, and any artifacts.
 
 ```
-a2acli get-task --agent <digest> "<task-id>"
+scripts/a2acli get-task --agent <digest> "<task-id>"
 ```
 
 **Example:**
 ```
-$ a2acli get-task --agent sha256:9d4e8f2a "01938f4a-1234-7abc-def0-123456789abc"
+$ scripts/a2acli get-task --agent sha256:9d4e8f2a "01938f4a-1234-7abc-def0-123456789abc"
 ```
 
 **Output:** The full task as JSON:
@@ -193,32 +193,32 @@ $ a2acli get-task --agent sha256:9d4e8f2a "01938f4a-1234-7abc-def0-123456789abc"
 
 ```bash
 # 1. List available agents to find the one you need
-a2acli list
+scripts/a2acli list
 
 # 2. Inspect its capabilities and skills
-a2acli get-card --agent sha256:3f7a2c1b
+scripts/a2acli get-card --agent sha256:3f7a2c1b
 
 # 3. Send a message and wait for the result
-a2acli send-message --agent sha256:3f7a2c1b "Hello, what can you do?"
+scripts/a2acli send-message --agent sha256:3f7a2c1b "Hello, what can you do?"
 ```
 
 ### Fire-and-forget a long-running task
 
 ```bash
 # Submit the task and get the ID immediately
-a2acli send-message --agent sha256:9d4e8f2a --return-immediately "Analyze the sales data for Q1 2025"
+scripts/a2acli send-message --agent sha256:9d4e8f2a --return-immediately "Analyze the sales data for Q1 2025"
 # Task ID: 01938f4a-1234-7abc-def0-123456789abc
 # Status:  TASK_STATE_SUBMITTED
 
 # Check back later
-a2acli get-task --agent sha256:9d4e8f2a "01938f4a-1234-7abc-def0-123456789abc"
+scripts/a2acli get-task --agent sha256:9d4e8f2a "01938f4a-1234-7abc-def0-123456789abc"
 ```
 
 ### Use a non-default agents directory
 
 ```bash
-a2acli --agents-dir /path/to/my/agents list
-a2acli --agents-dir /path/to/my/agents send-message --agent sha256:3f7a2c1b "Hello"
+scripts/a2acli --agents-dir /path/to/my/agents list
+scripts/a2acli --agents-dir /path/to/my/agents send-message --agent sha256:3f7a2c1b "Hello"
 ```
 
 ---
