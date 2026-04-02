@@ -153,7 +153,10 @@ where
 
                     // Apply MLS encryption/decryption if enabled
                     if let Some(mls_state) = &mut self.mls_state {
+                        #[cfg(not(mls_build_async))]
                         mls_state.common.process_message(&mut message, direction)?;
+                        #[cfg(mls_build_async)]
+                        mls_state.common.process_message(&mut message, direction).await?;
                     }
 
                     self.inner
@@ -439,8 +442,14 @@ where
         // Compute MLS payload if needed
         let mls_payload = match self.mls_state.as_mut() {
             Some(state) => {
+                #[cfg(not(mls_build_async))]
                 let mls_content = state
                     .remove_participant(msg)
+                    .map_err(|e| self.handle_task_error(e))?;
+                #[cfg(mls_build_async)]
+                let mls_content = state
+                    .remove_participant(msg)
+                    .await
                     .map_err(|e| self.handle_task_error(e))?;
                 let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
                 Some(MlsPayload {
@@ -656,13 +665,14 @@ where
     }
 
     async fn on_discovery_reply(&mut self, msg: Message) -> Result<(), SessionError> {
-        debug!(
+        tracing::info!(
             source = %msg.get_source(),
             id = msg.get_id(),
-            "discovery reply",
+            "WASM DEBUG: on_discovery_reply entered",
         );
         // update sender status to stop timers
         self.common.sender.on_message(&msg).await?;
+        tracing::info!("WASM DEBUG: sender updated");
 
         // evolve the current task state
         // the discovery phase is completed
@@ -670,14 +680,17 @@ where
             .as_mut()
             .unwrap()
             .discovery_complete(msg.get_id())?;
+        tracing::info!("WASM DEBUG: discovery_complete done");
 
         // join the channel if needed
         self.join(msg.get_source(), msg.get_incoming_conn()).await?;
+        tracing::info!("WASM DEBUG: join done");
 
         // set a route to the remote participant
         self.common
             .add_route(msg.get_source(), msg.get_incoming_conn())
             .await?;
+        tracing::info!("WASM DEBUG: add_route done");
 
         // if this is a multicast session we need to add a route for the channel
         // on the connection from where we received the message. This has to be done
@@ -695,6 +708,7 @@ where
         // an endpoint replied to the discovery message
         // send a join message
         let msg_id = rand::random::<u32>();
+        tracing::info!(msg_id, "WASM DEBUG: about to build JoinRequest");
 
         let channel = if self.common.settings.config.session_type == ProtoSessionType::Multicast {
             Some(self.common.settings.destination.clone())
@@ -711,10 +725,10 @@ where
             )
             .as_content();
 
-        debug!(
+        tracing::info!(
             dst = %msg.get_slim_header().get_source(),
             id = msg_id,
-            "send join request",
+            "WASM DEBUG: sending JoinRequest now",
         );
         self.common
             .send_control_message(
@@ -727,6 +741,7 @@ where
             )
             .await?;
 
+        tracing::info!(msg_id, "WASM DEBUG: JoinRequest sent successfully");
         // evolve the current task state
         // start the join phase
         self.current_task.as_mut().unwrap().join_start(msg_id)
@@ -761,7 +776,10 @@ where
 
         // get mls data if MLS is enabled
         let (commit, welcome) = if let Some(mls_state) = &mut self.mls_state {
+            #[cfg(not(mls_build_async))]
             let (commit_payload, welcome_payload) = mls_state.add_participant(&msg)?;
+            #[cfg(mls_build_async)]
+            let (commit_payload, welcome_payload) = mls_state.add_participant(&msg).await?;
 
             // get the id of the commit, the welcome message has a random id
             let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
@@ -1281,6 +1299,9 @@ where
 
         // create mls group if needed
         if let Some(mls) = self.mls_state.as_mut() {
+            #[cfg(not(mls_build_async))]
+            mls.init_moderator()?;
+            #[cfg(mls_build_async)]
             mls.init_moderator().await?;
         }
 

@@ -35,6 +35,7 @@ native = [
 native-spiffe = ["dep:spiffe"]
 wasm = [
     "dep:hmac",
+    "dep:js-sys",
     "dep:parking_lot",
     "dep:sha2",
     "dep:getrandom",
@@ -57,6 +58,7 @@ tracing = { workspace = true }
 # WASM support
 getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
 hmac = { version = "0.12", optional = true }
+js-sys = { version = "0.3", optional = true }
 sha2 = { version = "0.10", optional = true }
 
 # Native-only dependencies

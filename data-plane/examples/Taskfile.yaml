@@ -122,3 +122,32 @@ tasks:
     dir: "."
     cmds:
       - docker compose down
+
+  run:browser:serve:
+    desc: "Serve the browser demo on http://localhost:8080"
+    dir: ".."
+    cmds:
+      - echo "Serving browser demo at http://localhost:8080/examples/browser/"
+      - python3 -m http.server 8080
+
+  run:browser:
+    desc: "Run browser demo (builds WASM, starts gateway, opens browser)"
+    dir: ".."
+    cmds:
+      - echo "Building WASM package..."
+      - wasm-pack build core/slim-wasm --target web --out-dir ../../pkg
+      - echo ""
+      - echo "═══════════════════════════════════════════════════════"
+      - echo "  SLIM Browser Demo — Setup Instructions"
+      - echo "═══════════════════════════════════════════════════════"
+      - echo ""
+      - echo "1. Start the SLIM gateway (in a separate terminal):"
+      - echo "   cd data-plane && cargo run --bin slim -- --config ./config/websocket/server-config.yaml"
+      - echo ""
+      - echo "2. (Optional) Start a native peer to chat with (in another terminal):"
+      - echo "   cd data-plane/examples && task run:mock-app:server-websocket"
+      - echo ""
+      - echo "3. Open http://localhost:8080/examples/browser/ in your browser"
+      - echo ""
+      - echo "Starting HTTP server..."
+      - python3 -m http.server 8080

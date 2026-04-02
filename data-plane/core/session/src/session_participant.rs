@@ -121,7 +121,10 @@ where
                 } else {
                     // Apply MLS encryption/decryption if enabled
                     if let Some(mls_state) = &mut self.mls_state {
+                        #[cfg(not(mls_build_async))]
                         mls_state.process_message(&mut message, direction)?;
+                        #[cfg(mls_build_async)]
+                        mls_state.process_message(&mut message, direction).await?;
                     }
 
                     self.inner
@@ -353,7 +356,10 @@ where
 
         let payload = if let Some(mls_state) = &mut self.mls_state {
             debug!("mls enabled, create the package key");
+            #[cfg(not(mls_build_async))]
             let key = mls_state.generate_key_package()?;
+            #[cfg(mls_build_async)]
+            let key = mls_state.generate_key_package().await?;
             Some(key)
         } else {
             None
@@ -381,7 +387,10 @@ where
         );
 
         if let Some(mls_state) = &mut self.mls_state {
+            #[cfg(not(mls_build_async))]
             mls_state.process_welcome_message(&msg)?;
+            #[cfg(mls_build_async)]
+            mls_state.process_welcome_message(&msg).await?;
         }
 
         self.join(&msg).await?;
@@ -433,8 +442,12 @@ where
 
         if let Some(mls_state) = &mut self.mls_state {
             debug!("process mls control update");
+            #[cfg(not(mls_build_async))]
             let ret =
                 mls_state.process_control_message(msg.clone(), &self.common.settings.source)?;
+            #[cfg(mls_build_async)]
+            let ret =
+                mls_state.process_control_message(msg.clone(), &self.common.settings.source).await?;
 
             if !ret {
                 debug!(

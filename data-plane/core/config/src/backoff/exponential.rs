@@ -77,11 +77,7 @@ fn apply_jitter(delay: Duration) -> Duration {
         return delay;
     }
 
-    // Keep jitter deterministic and dependency-free while still avoiding lockstep retries.
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos() as u64;
     let cap = delay.as_millis() as u64;
-    Duration::from_millis(now % (cap + 1))
+    let jitter: u64 = rand::random::<u64>() % (cap + 1);
+    Duration::from_millis(jitter)
 }

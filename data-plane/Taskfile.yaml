@@ -132,61 +132,22 @@ tasks:
     cmds:
       - cargo check --package agntcy-slim-config --no-default-features --locked
 
-  data-plane:check:grpc:
-    desc: "Check agntcy-slim-config compiles with grpc feature only"
+  data-plane:check:config-wasm:
+    desc: "Check agntcy-slim-config compiles with wasm feature for wasm target"
     cmds:
-      - cargo check --package agntcy-slim-config --no-default-features --features grpc --locked
-
-  data-plane:check:websocket-native:
-    desc: "Check agntcy-slim-config compiles with websocket-native feature only"
-    cmds:
-      - cargo check --package agntcy-slim-config --no-default-features --features websocket-native --locked
-
-  data-plane:check:websocket-wasm:
-    desc: "Check agntcy-slim-config compiles with websocket-wasm feature for wasm target"
-    cmds:
-      - cargo check --package agntcy-slim-config --no-default-features --features websocket-wasm --target wasm32-unknown-unknown --locked
+      - cargo check --package agntcy-slim-config --no-default-features --features wasm --target wasm32-unknown-unknown --locked
 
   data-plane:check:features:
     desc: "Check all feature combinations compile"
     cmds:
       - task: data-plane:check:no-default-features
-      - task: data-plane:check:grpc
-      - task: data-plane:check:websocket-native
-      - task: data-plane:check:websocket-wasm
-
-  # Feature-specific test tasks
-  data-plane:test:grpc:
-    desc: "Run tests with grpc feature only"
-    cmds:
-      - cargo test --package agntcy-slim-config --no-default-features --features grpc --locked
-
-  data-plane:test:websocket-native:
-    desc: "Run tests with websocket-native feature only"
-    cmds:
-      - cargo test --package agntcy-slim-config --no-default-features --features websocket-native --locked
-
-  data-plane:test:features:
-    desc: "Run tests for each feature individually"
-    cmds:
-      - task: data-plane:test:grpc
-      - task: data-plane:test:websocket-native
+      - task: data-plane:check:config-wasm
 
   # Build tasks for specific features
-  data-plane:build:grpc:
-    desc: "Build with grpc feature only"
+  data-plane:build:config-wasm:
+    desc: "Build with wasm feature for wasm target"
     cmds:
-      - cargo build --package agntcy-slim-config --no-default-features --features grpc --locked
-
-  data-plane:build:websocket-native:
-    desc: "Build with websocket-native feature only"
-    cmds:
-      - cargo build --package agntcy-slim-config --no-default-features --features websocket-native --locked
-
-  data-plane:build:websocket-wasm:
-    desc: "Build with websocket-wasm feature for wasm target"
-    cmds:
-      - cargo build --package agntcy-slim-config --no-default-features --features websocket-wasm --target wasm32-unknown-unknown --locked
+      - cargo build --package agntcy-slim-config --no-default-features --features wasm --target wasm32-unknown-unknown --locked
 
   # Enhanced coverage task that includes Python bindings coverage
   data-plane:coverage-full:
@@ -199,9 +160,9 @@ tasks:
 
   # WASM (wasm32-unknown-unknown) build checks
   data-plane:check:wasm:
-    desc: "Check all crates compile for wasm32-unknown-unknown"
+    desc: "Check all WASM-ready crates compile for wasm32-unknown-unknown"
     cmds:
-      - task: data-plane:check:websocket-wasm
+      - task: data-plane:check:config-wasm
       - cargo check -p agntcy-slim-auth --target wasm32-unknown-unknown --no-default-features --features wasm --locked
       - cargo check -p agntcy-slim-datapath --target wasm32-unknown-unknown --no-default-features --features wasm --locked
       - cargo check -p agntcy-slim-tracing --target wasm32-unknown-unknown --no-default-features --features wasm --locked
@@ -209,4 +170,4 @@ tasks:
       - cargo check -p agntcy-slim-mls --target wasm32-unknown-unknown --no-default-features --features wasm --locked
       - cargo check -p agntcy-slim-session --target wasm32-unknown-unknown --no-default-features --features wasm --locked
       - cargo check -p agntcy-slim-controller --target wasm32-unknown-unknown --no-default-features --features wasm --locked
-      - cargo check -p agntcy-slim-service --target wasm32-unknown-unknown --no-default-features --features wasm,session --locked
+      - cargo check -p agntcy-slim-service --target wasm32-unknown-unknown --no-default-features --features "wasm,session" --locked

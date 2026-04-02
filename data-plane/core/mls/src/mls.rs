@@ -143,7 +143,9 @@ where
         Ok((private_key, signing_identity))
     }
 
-    fn generate_key_pair() -> Result<(SignatureSecretKey, SignaturePublicKey), MlsError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    async fn generate_key_pair() -> Result<(SignatureSecretKey, SignaturePublicKey), MlsError> {
         let crypto_provider = crate::crypto::default_crypto_provider();
         let cipher_suite_provider = crypto_provider
             .cipher_suite_provider(CIPHERSUITE)
@@ -151,6 +153,7 @@ where
 
         cipher_suite_provider
             .signature_key_generate()
+            .await
             .map_err(MlsError::crypto_provider)
     }
 
@@ -199,11 +202,13 @@ where
         Ok(())
     }
 
-    pub fn create_group(&mut self) -> Result<Vec<u8>, MlsError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn create_group(&mut self) -> Result<Vec<u8>, MlsError> {
         debug!("Creating new MLS group");
         let client = self.client.as_ref().ok_or(MlsError::ClientNotInitialized)?;
 
-        let group = client.create_group(ExtensionList::default(), Default::default(), None)?;
+        let group = client.create_group(ExtensionList::default(), Default::default(), None).await?;
 
         let group_id = group.group_id().to_vec();
         self.group = Some(group);
@@ -215,19 +220,23 @@ where
         Ok(group_id)
     }
 
-    pub fn generate_key_package(&self) -> Result<KeyPackageMsg, MlsError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn generate_key_package(&self) -> Result<KeyPackageMsg, MlsError> {
         debug!("Generating key package");
         let client = self.client.as_ref().ok_or(MlsError::ClientNotInitialized)?;
 
         let key_package =
-            client.generate_key_package_message(Default::default(), Default::default(), None)?;
+            client.generate_key_package_message(Default::default(), Default::default(), None).await?;
 
         let ret = key_package.to_bytes()?;
 
         Ok(ret)
     }
 
-    pub fn add_member(&mut self, key_package_bytes: &[u8]) -> Result<MlsAddMemberResult, MlsError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn add_member(&mut self, key_package_bytes: &[u8]) -> Result<MlsAddMemberResult, MlsError> {
         debug!("Adding member to the MLS group");
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
         let key_package = MlsMessage::from_bytes(key_package_bytes)?;
@@ -239,12 +248,12 @@ where
         let old_roster = group.roster().members();
         let mut ids = HashSet::new();
         for m in old_roster {
-            let identifier = identity_provider.identity(&m.signing_identity, &m.extensions)?;
+            let identifier = identity_provider.identity(&m.signing_identity, &m.extensions).await?;
             ids.insert(identifier);
         }
 
         let commit = group.commit_builder().add_member(key_package)?;
-        let commit = commit.build()?;
+        let commit = commit.build().await?;
 
         // create the commit message to broadcast in the group
         let commit_msg = commit.commit_message.to_bytes()?;
@@ -254,15 +263,16 @@ where
             .welcome_messages
             .first()
             .ok_or(MlsError::NoWelcomeMessage)
-            .and_then(|w| w.to_bytes().map_err(MlsError::from))?;
+            .map(|w| w.to_bytes().map_err(MlsError::from))?
+            ?;
 
         // apply the commit locally
-        group.apply_pending_commit()?;
+        group.apply_pending_commit().await?;
 
         let new_roster = group.roster().members();
         let mut new_id = vec![];
         for m in new_roster {
-            let identifier = identity_provider.identity(&m.signing_identity, &m.extensions)?;
+            let identifier = identity_provider.identity(&m.signing_identity, &m.extensions).await?;
             if !ids.contains(&identifier) {
                 new_id = identifier;
                 break;
@@ -277,38 +287,44 @@ where
         Ok(ret)
     }
 
-    pub fn remove_member(&mut self, identity: &[u8]) -> Result<CommitMsg, MlsError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn remove_member(&mut self, identity: &[u8]) -> Result<CommitMsg, MlsError> {
         debug!("Removing member from the MLS group");
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
-        let m = group.member_with_identity(identity)?;
+        let m = group.member_with_identity(identity).await?;
 
         let commit = group.commit_builder().remove_member(m.index)?;
-        let commit = commit.build()?;
+        let commit = commit.build().await?;
 
         let commit_msg = commit.commit_message.to_bytes()?;
 
-        group.apply_pending_commit()?;
+        group.apply_pending_commit().await?;
 
         Ok(commit_msg)
     }
 
-    pub fn process_commit(&mut self, commit_message: &[u8]) -> Result<(), MlsError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn process_commit(&mut self, commit_message: &[u8]) -> Result<(), MlsError> {
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
         let commit = MlsMessage::from_bytes(commit_message)?;
 
         // process an incoming commit message
-        group.process_incoming_message(commit)?;
+        group.process_incoming_message(commit).await?;
         Ok(())
     }
 
-    pub fn process_welcome(&mut self, welcome_message: &[u8]) -> Result<Vec<u8>, MlsError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn process_welcome(&mut self, welcome_message: &[u8]) -> Result<Vec<u8>, MlsError> {
         debug!("Processing welcome message and joining MLS group");
         let client = self.client.as_ref().ok_or(MlsError::ClientNotInitialized)?;
 
         // process the welcome message and connect to the group
         let welcome = MlsMessage::from_bytes(welcome_message)?;
-        let (group, _) = client.join_group(None, &welcome, None)?;
+        let (group, _) = client.join_group(None, &welcome, None).await?;
 
         let group_id = group.group_id().to_vec();
         self.group = Some(group);
@@ -320,7 +336,9 @@ where
         Ok(group_id)
     }
 
-    pub fn process_proposal(
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn process_proposal(
         &mut self,
         proposal_message: &[u8],
         create_commit: bool,
@@ -328,7 +346,7 @@ where
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
         let proposal = MlsMessage::from_bytes(proposal_message)?;
 
-        group.process_incoming_message(proposal)?;
+        group.process_incoming_message(proposal).await?;
 
         if !create_commit {
             debug!("process proposal but do not create commit. return empty commit");
@@ -336,49 +354,55 @@ where
         }
 
         // create commit message from proposal
-        let commit = group.commit_builder().build()?;
+        let commit = group.commit_builder().build().await?;
 
         // apply the commit locally
-        group.apply_pending_commit()?;
+        group.apply_pending_commit().await?;
 
         // return the commit message
         let commit_msg = commit.commit_message.to_bytes()?;
         Ok(commit_msg)
     }
 
-    pub fn process_local_pending_proposal(&mut self) -> Result<CommitMsg, MlsError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn process_local_pending_proposal(&mut self) -> Result<CommitMsg, MlsError> {
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
         // create commit message from proposal
-        let commit = group.commit_builder().build()?;
+        let commit = group.commit_builder().build().await?;
 
         // apply the commit locally
-        group.apply_pending_commit()?;
+        group.apply_pending_commit().await?;
 
         // return the commit message
         let commit_msg = commit.commit_message.to_bytes()?;
         Ok(commit_msg)
     }
 
-    pub fn encrypt_message(&mut self, message: &[u8]) -> Result<Vec<u8>, MlsError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn encrypt_message(&mut self, message: &[u8]) -> Result<Vec<u8>, MlsError> {
         debug!("Encrypting MLS message");
 
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
-        let encrypted_msg = group.encrypt_application_message(message, Default::default())?;
+        let encrypted_msg = group.encrypt_application_message(message, Default::default()).await?;
 
         let msg = encrypted_msg.to_bytes()?;
         Ok(msg)
     }
 
-    pub fn decrypt_message(&mut self, encrypted_message: &[u8]) -> Result<Vec<u8>, MlsError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn decrypt_message(&mut self, encrypted_message: &[u8]) -> Result<Vec<u8>, MlsError> {
         debug!("Decrypting MLS message");
 
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
         let message = MlsMessage::from_bytes(encrypted_message)?;
 
-        match group.process_incoming_message(message)? {
+        match group.process_incoming_message(message).await? {
             ReceivedMessage::ApplicationMessage(app_msg) => Ok(app_msg.data().to_vec()),
             _ => Err(MlsError::verification_failed(
                 "Message was not an application message",
@@ -386,9 +410,11 @@ where
         }
     }
 
-    pub fn write_to_storage(&mut self) -> Result<(), MlsError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn write_to_storage(&mut self) -> Result<(), MlsError> {
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
-        group.write_to_storage()?;
+        group.write_to_storage().await?;
         Ok(())
     }
 
@@ -400,7 +426,9 @@ where
         self.group.as_ref().map(|g| g.current_epoch())
     }
 
-    pub fn create_rotation_proposal(&mut self) -> Result<ProposalMsg, MlsError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn create_rotation_proposal(&mut self) -> Result<ProposalMsg, MlsError> {
         // Ask the identity provider to generate new keys internally
         self.identity_provider.rotate_signature_keys()?;
 
@@ -414,7 +442,7 @@ where
             new_private_key.clone(),
             new_signing_identity,
             vec![],
-        )?;
+        ).await?;
 
         debug!(
             "Created credential rotation proposal, stored new keys and incremented credential version"
