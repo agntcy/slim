@@ -134,12 +134,28 @@ async fn route_list(opts: &ResolvedOpts) -> Result<()> {
                         let local_names: Vec<String> = e
                             .local_connections
                             .iter()
-                            .map(|c| format!("local:{}:{}", c.id, c.config_data))
+                            .map(|c| {
+                                format!(
+                                    "local:{}:{}:{:?}:{:?}",
+                                    c.id,
+                                    c.config_data,
+                                    c.link_id,
+                                    c.direction()
+                                )
+                            })
                             .collect();
                         let remote_names: Vec<String> = e
                             .remote_connections
                             .iter()
-                            .map(|c| format!("remote:{}:{}", c.id, c.config_data))
+                            .map(|c| {
+                                format!(
+                                    "remote:{}:{}:{:?}:{:?}",
+                                    c.id,
+                                    c.config_data,
+                                    c.link_id,
+                                    c.direction()
+                                )
+                            })
                             .collect();
                         println!(
                             "{}/{}/{} id={} local={:?} remote={:?}",
@@ -172,6 +188,8 @@ async fn route_add(route: &str, via: &str, config_file: &str, opts: &ResolvedOpt
         id: Some(agent_id),
         connection_id: conn.connection_id.clone(),
         node_id: None,
+        link_id: None,
+        direction: None,
     };
     let msg = ControlMessage {
         message_id: uuid::Uuid::new_v4().to_string(),
@@ -231,6 +249,8 @@ async fn route_del(route: &str, via: &str, endpoint: &str, opts: &ResolvedOpts) 
         id: Some(agent_id),
         connection_id: conn_id,
         node_id: None,
+        link_id: None,
+        direction: None,
     };
     let msg = ControlMessage {
         message_id: uuid::Uuid::new_v4().to_string(),
@@ -287,7 +307,13 @@ async fn connection_list(opts: &ResolvedOpts) -> Result<()> {
             Ok(Some(Ok(msg))) => {
                 if let Some(Payload::ConnectionListResponse(list_resp)) = msg.payload {
                     for e in &list_resp.entries {
-                        println!("id={} {}", e.id, e.config_data);
+                        println!(
+                            "id={} direction={:?} link_id={:?} {}",
+                            e.id,
+                            e.direction(),
+                            e.link_id,
+                            e.config_data
+                        );
                     }
                     break;
                 }

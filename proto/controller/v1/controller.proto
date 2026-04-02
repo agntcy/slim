@@ -59,6 +59,8 @@ message Subscription {
   google.protobuf.UInt64Value id = 4;
   string connection_id = 5;
   optional string node_id = 6;
+  optional string link_id = 7;
+  optional ConnectionDirection direction = 8;
 }
 
 message SubscriptionAck {
@@ -106,10 +108,17 @@ enum ConnectionType {
   CONNECTION_TYPE_REMOTE = 1;
 }
 
+enum ConnectionDirection {
+  CONNECTION_DIRECTION_OUTGOING = 0;
+  CONNECTION_DIRECTION_INCOMING = 1;
+}
+
 message ConnectionEntry {
   uint64 id = 1;
   ConnectionType connection_type = 2;
   string config_data = 3;
+  optional string link_id = 4;
+  ConnectionDirection direction = 5;
 }
 
 message ConnectionListRequest {}
