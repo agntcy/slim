@@ -56,7 +56,6 @@ pub fn init_tracing() {
 #[cfg(target_arch = "wasm32")]
 mod wasm_impl {
     use std::collections::HashMap;
-    use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
 
     use futures::stream::StreamExt;
@@ -66,15 +65,13 @@ mod wasm_impl {
 
     use slim_auth::shared_secret::SharedSecret;
     use slim_auth::traits::TokenProvider;
-    use slim_datapath::api::{MessageType, ProtoMessage, ProtoSessionType};
-    use slim_datapath::messages::utils::{
-        SUBSCRIPTION_ACK_ERROR, SUBSCRIPTION_ACK_ID, SUBSCRIPTION_ACK_SUCCESS, TRUE_VAL,
-    };
+    use slim_datapath::api::{ProtoMessage, ProtoSessionType};
     use slim_datapath::messages::Name;
     use slim_session::interceptor::{IdentityInterceptor, SessionInterceptorProvider};
     use slim_session::notification::Notification;
     use slim_session::runtime::CancellationToken;
     use slim_session::session_controller::SessionController;
+    use slim_session::subscription_manager::{SubscriptionManager, SubscriptionOps};
     use slim_session::transmitter::AppTransmitter;
     use slim_session::{Direction, SessionConfig, SessionError, SessionLayer, SlimChannelSender};
 
@@ -109,16 +106,7 @@ mod wasm_impl {
                 >,
             >,
         >,
-        #[allow(clippy::type_complexity)]
-        pending_acks: Arc<
-            parking_lot::Mutex<
-                HashMap<
-                    String,
-                    slim_session::runtime::channel::oneshot::Sender<Result<(), String>>,
-                >,
-            >,
-        >,
-        ack_counter: Arc<AtomicU64>,
+        subscription_manager: SubscriptionManager,
         on_message_cb: Arc<parking_lot::Mutex<Option<JsCallback>>>,
         cancel_token: CancellationToken,
     }
@@ -169,14 +157,6 @@ mod wasm_impl {
             let (tx_app, notification_rx) = slim_session::runtime::channel::mpsc::channel(64);
 
             let cancel_token = CancellationToken::new();
-            let pending_acks: Arc<
-                parking_lot::Mutex<
-                    HashMap<
-                        String,
-                        slim_session::runtime::channel::oneshot::Sender<Result<(), String>>,
-                    >,
-                >,
-            > = Arc::new(parking_lot::Mutex::new(HashMap::new()));
 
             // Create AppTransmitter (used by SessionLayer for interceptors)
             let transmitter = AppTransmitter {
@@ -190,7 +170,7 @@ mod wasm_impl {
             ));
             transmitter.add_interceptor(identity_interceptor);
 
-            // Create SessionLayer
+            // Create SessionLayer (it creates its own SubscriptionManager internally)
             let conn_id = 0u64;
             let session_layer = Arc::new(SessionLayer::new(
                 app_name.clone(),
@@ -201,7 +181,12 @@ mod wasm_impl {
                 tx_app,
                 transmitter,
                 Direction::Bidirectional,
+                String::new(),
             ));
+
+            // Use the SessionLayer's subscription manager so acks are resolved
+            // on the same pending_acks map that session controllers await on.
+            let subscription_manager = session_layer.subscription_manager();
 
             // Self-subscribe (so the gateway knows about us)
             let self_sub = ProtoMessage::builder()
@@ -245,7 +230,7 @@ mod wasm_impl {
             // Reads binary WebSocket frames, decodes protobuf, routes to SessionLayer
             let sl_clone = session_layer.clone();
             let cancel_read = cancel_token.child_token();
-            let pa_clone = pending_acks.clone();
+            let sub_mgr_clone = subscription_manager.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let mut stream = ws_stream;
                 loop {
@@ -262,7 +247,7 @@ mod wasm_impl {
                         Some(Ok(gloo_net::websocket::Message::Bytes(bytes))) => {
                             match ProtoMessage::decode(&bytes[..]) {
                                 Ok(msg) => {
-                                    route_incoming_message(msg, &sl_clone, &pa_clone).await;
+                                    route_incoming_message(msg, &sl_clone, &sub_mgr_clone);
                                 }
                                 Err(e) => {
                                     tracing::warn!("protobuf decode error: {e}");
@@ -289,8 +274,7 @@ mod wasm_impl {
                 tx_slim,
                 sessions: Arc::new(parking_lot::Mutex::new(HashMap::new())),
                 notification_rx: Arc::new(parking_lot::Mutex::new(Some(notification_rx))),
-                pending_acks,
-                ack_counter: Arc::new(AtomicU64::new(0)),
+                subscription_manager,
                 on_message_cb: Arc::new(parking_lot::Mutex::new(None)),
                 cancel_token,
             })
@@ -308,38 +292,20 @@ mod wasm_impl {
             let sub_name =
                 Name::from_strings([org, ns, name]).with_id(self.session_layer.app_id());
 
-            let ack_id = format!("sub-{}", self.ack_counter.fetch_add(1, Ordering::Relaxed));
+            let (subscription_id, ack_rx) = self
+                .subscription_manager
+                .subscribe(&self.app_name, &sub_name, None)
+                .await
+                .map_err(|e| JsError::new(&format!("subscribe error: {e}")))?;
 
-            let (ack_tx, ack_rx) = slim_session::runtime::channel::oneshot::channel();
-            self.pending_acks.lock().insert(ack_id.clone(), ack_tx);
+            SubscriptionManager::await_ack(ack_rx)
+                .await
+                .map_err(|e| JsError::new(&format!("subscription rejected: {e}")))?;
 
-            let mut msg = ProtoMessage::builder()
-                .source(self.app_name.clone())
-                .destination(sub_name.clone())
-                .metadata(SUBSCRIPTION_ACK_ID, &ack_id)
-                .build_subscribe()
-                .map_err(|e| JsError::new(&format!("build subscribe error: {e}")))?;
-
-            let identity = self
-                .session_layer
-                .get_identity_token()
-                .map_err(|e| JsError::new(&format!("identity error: {e}")))?;
-            msg.get_slim_header_mut().set_identity(identity);
-
-            self.tx_slim.send(Ok(msg)).await.map_err(|e| {
-                self.pending_acks.lock().remove(&ack_id);
-                JsError::new(&format!("send error: {e}"))
-            })?;
-
-            match ack_rx.await {
-                Ok(Ok(())) => {
-                    self.session_layer.add_app_name(sub_name);
-                    tracing::info!("subscribed to {org}/{ns}/{name}");
-                    Ok(())
-                }
-                Ok(Err(e)) => Err(JsError::new(&format!("subscription rejected: {e}"))),
-                Err(_) => Err(JsError::new("subscription ack channel closed")),
-            }
+            self.session_layer
+                .add_app_name(sub_name, subscription_id);
+            tracing::info!("subscribed to {org}/{ns}/{name}");
+            Ok(())
         }
 
         /// Unsubscribe from a name.
@@ -352,38 +318,23 @@ mod wasm_impl {
         ) -> Result<(), JsError> {
             let unsub_name = Name::from_strings([org, ns, name]);
 
-            let ack_id = format!("sub-{}", self.ack_counter.fetch_add(1, Ordering::Relaxed));
-
-            let (ack_tx, ack_rx) = slim_session::runtime::channel::oneshot::channel();
-            self.pending_acks.lock().insert(ack_id.clone(), ack_tx);
-
-            let mut msg = ProtoMessage::builder()
-                .source(self.app_name.clone())
-                .destination(unsub_name.clone())
-                .metadata(SUBSCRIPTION_ACK_ID, &ack_id)
-                .build_unsubscribe()
-                .map_err(|e| JsError::new(&format!("build unsubscribe error: {e}")))?;
-
-            let identity = self
+            let subscription_id = self
                 .session_layer
-                .get_identity_token()
-                .map_err(|e| JsError::new(&format!("identity error: {e}")))?;
-            msg.get_slim_header_mut().set_identity(identity);
+                .remove_app_name(&unsub_name)
+                .unwrap_or(0);
 
-            self.tx_slim.send(Ok(msg)).await.map_err(|e| {
-                self.pending_acks.lock().remove(&ack_id);
-                JsError::new(&format!("send error: {e}"))
-            })?;
+            let ack_rx = self
+                .subscription_manager
+                .unsubscribe(&self.app_name, &unsub_name, subscription_id, None)
+                .await
+                .map_err(|e| JsError::new(&format!("unsubscribe error: {e}")))?;
 
-            match ack_rx.await {
-                Ok(Ok(())) => {
-                    self.session_layer.remove_app_name(&unsub_name);
-                    tracing::info!("unsubscribed from {org}/{ns}/{name}");
-                    Ok(())
-                }
-                Ok(Err(e)) => Err(JsError::new(&format!("unsubscription rejected: {e}"))),
-                Err(_) => Err(JsError::new("unsubscription ack channel closed")),
-            }
+            SubscriptionManager::await_ack(ack_rx)
+                .await
+                .map_err(|e| JsError::new(&format!("unsubscription rejected: {e}")))?;
+
+            tracing::info!("unsubscribed from {org}/{ns}/{name}");
+            Ok(())
         }
 
         /// Create a session to a remote application.
@@ -705,45 +656,31 @@ mod wasm_impl {
     }
 
     /// Route an incoming protobuf message from the WebSocket.
-    async fn route_incoming_message(
+    ///
+    /// Subscription acks are resolved inline so the read loop stays responsive.
+    /// Publish messages are spawned into a separate task to avoid deadlocking
+    /// the read loop when session handling awaits subscription acks.
+    fn route_incoming_message(
         msg: ProtoMessage,
         session_layer: &Arc<SessionLayer<SharedSecret, SharedSecret, AppTransmitter>>,
-        pending_acks: &Arc<
-            parking_lot::Mutex<
-                HashMap<String, slim_session::runtime::channel::oneshot::Sender<Result<(), String>>>,
-            >,
-        >,
+        subscription_manager: &SubscriptionManager,
     ) {
-        match msg.message_type.as_ref() {
-            Some(MessageType::Publish(_)) => {
-                if let Err(e) = session_layer.handle_message_from_slim(msg).await {
-                    // Ignore subscription-not-found, which just means no local session yet
-                    if !matches!(e, SessionError::SubscriptionNotFound(_)) {
-                        tracing::warn!("handle message error: {e}");
-                    }
-                }
-            }
-            Some(MessageType::Subscribe(_)) | Some(MessageType::Unsubscribe(_)) => {
-                // Handle subscription acknowledgements from the gateway
-                if let Some(ack_id) = msg.get_metadata(SUBSCRIPTION_ACK_ID).cloned() {
-                    let success = msg
-                        .get_metadata(SUBSCRIPTION_ACK_SUCCESS)
-                        .map(|v| v == TRUE_VAL)
-                        .unwrap_or(false);
-                    let error = msg.get_metadata(SUBSCRIPTION_ACK_ERROR).cloned();
-
-                    let sender = pending_acks.lock().remove(&ack_id);
-                    if let Some(tx) = sender {
-                        let _ = tx.send(if success {
-                            Ok(())
-                        } else {
-                            Err(error.unwrap_or_else(|| "subscription rejected".to_string()))
-                        });
-                    }
-                }
-            }
-            None => {}
+        // Handle subscription acknowledgements inline (must not be spawned)
+        if msg.is_subscription_ack() {
+            subscription_manager.resolve_ack(msg.get_subscription_ack());
+            return;
         }
+
+        // Spawn ALL messages into a separate task to avoid deadlocking the
+        // read loop when session handling awaits subscription acks.
+        let sl = session_layer.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            if let Err(e) = sl.handle_message_from_slim(msg).await {
+                if !matches!(e, SessionError::SubscriptionNotFound(_)) {
+                    tracing::warn!("handle message error: {e}");
+                }
+            }
+        });
     }
 
     /// Convert a ProtoMessage into a JS object for the on_message callback.

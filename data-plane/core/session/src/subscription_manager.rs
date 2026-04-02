@@ -8,11 +8,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use futures::future::Either;
-use futures_timer::Delay;
 use parking_lot::Mutex;
 use thiserror::Error;
-use tokio::sync::oneshot;
+
+use crate::runtime::channel::oneshot;
 
 use slim_datapath::api::{ProtoMessage as Message, ProtoSubscriptionAck};
 use slim_datapath::messages::Name;
@@ -437,22 +436,31 @@ impl SubscriptionManager {
     }
 
     /// Await a previously registered ACK receiver, with a deadline of [`ACK_TIMEOUT`].
-    ///
-    /// Uses [`futures_timer::Delay`] rather than `tokio::time::timeout` so that
-    /// this function works correctly outside a Tokio runtime with the time driver
-    /// enabled (e.g. when called from UniFFI async bindings).
     pub async fn await_ack(
         ack_rx: oneshot::Receiver<Result<(), SubscriptionAckError>>,
     ) -> Result<(), SubscriptionAckError> {
-        futures::pin_mut!(ack_rx);
-        let delay = Delay::new(ACK_TIMEOUT);
-        futures::pin_mut!(delay);
+        use std::pin::Pin;
+        use std::task::{Context, Poll};
 
-        match futures::future::select(ack_rx, delay).await {
-            Either::Left((Ok(result), _)) => result,
-            Either::Left((Err(_), _)) => Err(SubscriptionAckError::ChannelClosed),
-            Either::Right(_) => Err(SubscriptionAckError::Timeout),
-        }
+        let timeout = crate::runtime::sleep(ACK_TIMEOUT);
+        let mut timeout = core::pin::pin!(timeout);
+        let mut ack_rx = core::pin::pin!(ack_rx);
+
+        std::future::poll_fn(|cx: &mut Context<'_>| {
+            // Check ack first
+            if let Poll::Ready(result) = Pin::new(&mut ack_rx).poll(cx) {
+                return Poll::Ready(match result {
+                    Ok(result) => result,
+                    Err(_) => Err(SubscriptionAckError::ChannelClosed),
+                });
+            }
+            // Check timeout
+            if let Poll::Ready(()) = timeout.as_mut().poll(cx) {
+                return Poll::Ready(Err(SubscriptionAckError::Timeout));
+            }
+            Poll::Pending
+        })
+        .await
     }
 
     /// Called by the App message loop to complete a waiting future for an ACK.

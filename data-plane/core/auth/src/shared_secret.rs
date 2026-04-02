@@ -59,8 +59,10 @@ use rand::{Rng, distr::Alphanumeric};
 use std::{
     collections::{HashSet, VecDeque},
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
 };
+
+#[cfg(feature = "native")]
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "native")]
 use aws_lc_rs::hmac as aws_hmac;
@@ -73,8 +75,22 @@ use sha2::Sha256;
 use crate::{
     errors::AuthError,
     traits::{TokenProvider, Verifier},
-    utils::generate_mls_signature_keys,
 };
+
+#[cfg(feature = "native")]
+use crate::utils::generate_mls_signature_keys;
+
+/// WASM fallback: generate random bytes as MLS signature key material.
+/// The keys are used as opaque blobs embedded in shared-secret tokens,
+/// not for actual MLS crypto operations in this context.
+#[cfg(all(feature = "wasm", not(feature = "native")))]
+fn generate_mls_signature_keys() -> Result<(Vec<u8>, Vec<u8>), AuthError> {
+    let mut secret = vec![0u8; 32];
+    let mut public = vec![0u8; 32];
+    rand::Fill::fill(&mut secret[..], &mut rand::rng());
+    rand::Fill::fill(&mut public[..], &mut rand::rng());
+    Ok((secret, public))
+}
 
 /// Minimum length (in bytes) required for the shared secret (baseline 256 bits).
 const MIN_SECRET_LEN: usize = 32;
@@ -372,11 +388,17 @@ impl SharedSecret {
         Ok(())
     }
 
+    #[cfg(feature = "native")]
     fn get_current_timestamp(&self) -> u64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs()
+    }
+
+    #[cfg(all(feature = "wasm", not(feature = "native")))]
+    fn get_current_timestamp(&self) -> u64 {
+        (js_sys::Date::now() / 1000.0) as u64
     }
 
     #[cfg(feature = "native")]
@@ -388,7 +410,7 @@ impl SharedSecret {
 
     #[cfg(all(feature = "wasm", not(feature = "native")))]
     fn create_hmac_raw(&self, message: &[u8]) -> Result<Vec<u8>, AuthError> {
-        let mut mac = Hmac::<Sha256>::new_from_slice(self.0.shared_secret.as_bytes())
+        let mut mac = Hmac::<Sha256>::new_from_slice(self.inner.shared_secret.as_bytes())
             .map_err(|_e| AuthError::HmacKeyMissing)?;
         mac.update(message);
         Ok(mac.finalize().into_bytes().to_vec())

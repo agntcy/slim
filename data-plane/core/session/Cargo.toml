@@ -45,6 +45,7 @@ futures-core = { version = "0.3", optional = true }
 futures-timer = { workspace = true, optional = true }
 getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
 gloo-timers = { version = "0.3", features = ["futures"], optional = true }
+maybe-async = "0.2.10"
 parking_lot = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
@@ -58,3 +59,7 @@ wasm-bindgen-futures = { version = "0.4", optional = true }
 [dev-dependencies]
 agntcy-slim-testing = { workspace = true }
 tracing-test = { workspace = true }
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = ["cfg(mls_build_async)"]

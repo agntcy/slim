@@ -121,7 +121,7 @@ async fn main() {
         .expect("invalid tracing configuration")
         .setup_tracing_subscriber();
 
-    info!(%config_file, %local_name, %remote_name, "starting client");
+    info!(%config_file, %local_name, remote_name = ?remote_name, "starting client");
 
     // get service
     let id = slim_config::component::id::ID::new_with_str("slim/0").unwrap();
@@ -150,10 +150,15 @@ async fn main() {
 
     app.subscribe(app.app_name(), Some(conn_id)).await.unwrap();
 
-    // Set a route for the remote app
-    let remote_app_name = Name::from_strings(["org", "default", remote_name]);
-    info!(remote_app = %remote_app_name, "allowing messages to remote app");
-    app.set_route(&remote_app_name, conn_id).await.unwrap();
+    // Set a route for the remote app (only if --remote-name was provided)
+    let remote_app_name = if let Some(rn) = remote_name {
+        let name = Name::from_strings(["org", "default", rn]);
+        info!(remote_app = %name, "allowing messages to remote app");
+        app.set_route(&name, conn_id).await.unwrap();
+        Some(name)
+    } else {
+        None
+    };
 
     // wait for the connection to be established
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -171,8 +176,11 @@ async fn main() {
             initiator: true,
             metadata: HashMap::new(),
         };
+        let dest = remote_app_name.clone()
+            .expect("--remote-name is required when sending a message");
+
         let session_ctx = app
-            .create_session(config, remote_app_name.clone(), None)
+            .create_session(config, dest.clone(), None)
             .await
             .expect("error creating p2p session");
 
@@ -183,16 +191,16 @@ async fn main() {
         let session = session_ctx.session_arc().unwrap();
 
         // Spawn receiver to handle incoming messages
-        spawn_session_receiver(session_ctx, local_name.to_string(), remote_app_name.clone());
+        spawn_session_receiver(session_ctx, local_name.to_string(), dest.clone());
 
         // Await session initialization
         init_ack.await.expect("error initializing p2p session");
 
-        info!(destination = %remote_app_name, "Sending message");
+        info!(destination = %dest, "Sending message");
 
         // publish message using session context
         session
-            .publish(&remote_app_name, msg.into(), None, None)
+            .publish(&dest, msg.into(), None, None)
             .await
             .unwrap();
 
@@ -219,11 +227,15 @@ async fn main() {
                         // Get session before spawning receiver
                         let session_arc = session.session_arc().unwrap();
 
+                        // Derive the peer name from the session (the source is the remote peer)
+                        let peer = session_arc.source().clone();
+                        info!(peer = %peer, "accepted incoming session");
+
                         // Use the extracted spawn_session_receiver function
                         spawn_session_receiver(
                             session,
                             local_name.to_string(),
-                            remote_app_name.clone(),
+                            peer,
                         );
 
                         // Save the session

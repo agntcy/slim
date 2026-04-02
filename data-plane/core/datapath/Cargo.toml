@@ -28,6 +28,7 @@ native = [
 otel_tracing = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
 wasm = [
     "dep:getrandom",
+    "uuid/js",
 ]
 
 [dependencies]
