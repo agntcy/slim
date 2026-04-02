@@ -468,7 +468,8 @@ mod tests {
     use crate::SubscriptionAckError;
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::api::{
-        CommandPayload, ProtoMessage, ProtoSessionMessageType, ProtoSessionType,
+        CommandPayload, Participant, ParticipantSettings, ProtoMessage, ProtoSessionMessageType,
+        ProtoSessionType,
     };
     use slim_datapath::messages::utils::SlimHeaderFlags;
     use slim_session::session_config::MlsSettings;
@@ -864,8 +865,12 @@ mod tests {
         );
 
         // Send GroupWelcome message to complete the handshake
+        let participants = vec![
+            Participant::new(source.clone(), ParticipantSettings::bidirectional()),
+            Participant::new(dest.clone(), ParticipantSettings::bidirectional()),
+        ];
         let welcome_payload = CommandPayload::builder()
-            .group_welcome(vec![source.clone(), dest.clone()], None)
+            .group_welcome(participants, None)
             .as_content();
 
         let welcome_message = Message::builder()
@@ -1236,9 +1241,10 @@ mod tests {
             // Verify it's a multicast session
             assert_eq!(session_arc.session_type(), ProtoSessionType::Multicast);
 
-            // For multicast sessions, the destination is also the channel name
+            // For multicast sessions, the destination is the channel name with DATA_CHANNEL_ID
             let dst = session_arc.dst();
-            assert_eq!(dst, &channel_name);
+            let expected_dst = channel_name.clone().with_id(ProtoName::DATA_CHANNEL_ID);
+            assert_eq!(dst, &expected_dst);
 
             total_received_sessions += participant_sessions.len();
         }

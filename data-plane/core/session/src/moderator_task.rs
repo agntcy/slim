@@ -59,6 +59,15 @@ impl ModeratorTask {
         }
     }
 
+    pub(crate) fn set_ack_msg(&mut self, msg: Message) {
+        match self {
+            ModeratorTask::Add(t) => t.ack_msg = Some(msg),
+            ModeratorTask::Remove(t) => t.ack_msg = Some(msg),
+            ModeratorTask::CloseOrDisconnect(t) => t.ack_msg = Some(msg),
+            ModeratorTask::Update(t) => t.ack_msg = Some(msg),
+        }
+    }
+
     pub(crate) fn failure_message(&self, err: SessionError) -> SessionError {
         match self {
             ModeratorTask::Add(_) => SessionError::ModeratorTaskAddFailed {
@@ -202,7 +211,7 @@ impl TaskUpdate for AddParticipant {
     fn discovery_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         debug!(
             %timer_id,
-            "start discovery on AddParticipan task",
+            "start discovery on AddParticipant task",
         );
         self.discovery.received = false;
         self.discovery.timer_id = timer_id;
@@ -214,7 +223,7 @@ impl TaskUpdate for AddParticipant {
             self.discovery.received = true;
             debug!(
                 %timer_id,
-                "discovery completed on AddParticipan task"
+                "discovery completed on AddParticipant task"
             );
             Ok(())
         } else {
@@ -223,7 +232,7 @@ impl TaskUpdate for AddParticipant {
     }
 
     fn join_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        debug!(%timer_id, "start join on AddParticipan task");
+        debug!(%timer_id, "start join on AddParticipant task");
         self.join.received = false;
         self.join.timer_id = timer_id;
         Ok(())
@@ -234,7 +243,7 @@ impl TaskUpdate for AddParticipant {
             self.join.received = true;
             debug!(
                 %timer_id,
-                "join completed on AddParticipan task"
+                "join completed on AddParticipant task"
             );
             Ok(())
         } else {
@@ -251,14 +260,14 @@ impl TaskUpdate for AddParticipant {
     }
 
     fn welcome_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        debug!(%timer_id, "start welcome on AddParticipan task");
+        debug!(%timer_id, "start welcome on AddParticipant task");
         self.welcome.received = false;
         self.welcome.timer_id = timer_id;
         Ok(())
     }
 
     fn commit_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        debug!(%timer_id, "start commit on AddParticipan task");
+        debug!(%timer_id, "start commit on AddParticipant task");
         self.commit.received = false;
         self.commit.timer_id = timer_id;
         Ok(())
@@ -273,13 +282,13 @@ impl TaskUpdate for AddParticipant {
             self.welcome.received = true;
             debug!(
                 %timer_id,
-                "welcome completed on AddParticipan task",
+                "welcome completed on AddParticipant task",
             );
         } else if self.commit.timer_id == timer_id {
             self.commit.received = true;
             debug!(
                 %timer_id,
-                "commit completed on AddParticipan task",
+                "commit completed on AddParticipant task",
             );
         } else {
             return Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id));

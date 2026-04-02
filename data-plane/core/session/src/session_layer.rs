@@ -16,7 +16,8 @@ use tracing::{Instrument, debug, error, warn};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{
-    EncodedName, ProtoMessage as Message, ProtoName, ProtoSessionMessageType, ProtoSessionType,
+    EncodedName, ParticipantSettings, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
+    ProtoSessionType,
 };
 
 use crate::common::SessionMessage;
@@ -54,6 +55,28 @@ impl Direction {
             Direction::Recv => (true, false),
             Direction::Bidirectional => (false, false),
             Direction::None => (true, true),
+        }
+    }
+
+    pub fn to_participant_settings(self) -> ParticipantSettings {
+        match self {
+            // None (absent) means true, so only set fields explicitly when false
+            Direction::Send => ParticipantSettings {
+                sends_data: true,
+                receives_data: false,
+            },
+            Direction::Recv => ParticipantSettings {
+                sends_data: false,
+                receives_data: true,
+            },
+            Direction::Bidirectional => ParticipantSettings {
+                sends_data: true,
+                receives_data: true,
+            },
+            Direction::None => ParticipantSettings {
+                sends_data: false,
+                receives_data: false,
+            },
         }
     }
 }
@@ -310,6 +333,7 @@ where
             tx.add_interceptor(identity_interceptor);
 
             // Build the session controller (this is async, so no locks are held)
+            // The builder will automatically force DATA_CHANNEL_ID for multicast destinations
             let builder = SessionController::builder()
                 .with_id(session_id)
                 .with_source(local_name.clone())
@@ -1110,6 +1134,25 @@ mod tests {
         }
 
         assert_eq!(session_layer.pool_size(), 5);
+    }
+
+    #[test]
+    fn test_direction_to_participant_settings() {
+        let s = Direction::Send.to_participant_settings();
+        assert!(s.sends_data);
+        assert!(!s.receives_data);
+
+        let s = Direction::Recv.to_participant_settings();
+        assert!(!s.sends_data);
+        assert!(s.receives_data);
+
+        let s = Direction::Bidirectional.to_participant_settings();
+        assert!(s.sends_data);
+        assert!(s.receives_data);
+
+        let s = Direction::None.to_participant_settings();
+        assert!(!s.sends_data);
+        assert!(!s.receives_data);
     }
 
     #[tokio::test]
