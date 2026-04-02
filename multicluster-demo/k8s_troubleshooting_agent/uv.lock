@@ -9,7 +9,7 @@ resolution-markers = [
 
 [[package]]
 name = "a2a-sdk"
-version = "0.3.25"
+version = "0.3.20"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-api-core" },
@@ -18,9 +18,15 @@ dependencies = [
     { name = "protobuf" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/55/83/3c99b276d09656cce039464509f05bf385e5600d6dc046a131bbcf686930/a2a_sdk-0.3.25.tar.gz", hash = "sha256:afda85bab8d6af0c5d15e82f326c94190f6be8a901ce562d045a338b7127242f", size = 270638, upload-time = "2026-03-10T13:08:46.417Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0a/c1/4c7968e44a318fbfaf82e142b2f63aedcf62ca8da5ee0cea6104a1a29580/a2a_sdk-0.3.20.tar.gz", hash = "sha256:f05bbdf4a8ada6be81dc7e7c73da3add767b20065195d94e8eb6d671d7ea658a", size = 229272, upload-time = "2025-12-03T15:48:22.349Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bd/f9/6a62520b7ecb945188a6e1192275f4732ff9341cd4629bc975a6c146aeab/a2a_sdk-0.3.25-py3-none-any.whl", hash = "sha256:2fce38faea82eb0b6f9f9c2bcf761b0d78612c80ef0e599b50d566db1b2654b5", size = 149609, upload-time = "2026-03-10T13:08:44.7Z" },
+    { url = "https://files.pythonhosted.org/packages/11/33/719a9331421ee5df0338505548b58b4129a6aca82bba5c8e0593ac8864c7/a2a_sdk-0.3.20-py3-none-any.whl", hash = "sha256:35da261aae28fd22440b61f8eb16a8343b60809e1f7ef028a06d01f17b48a8b9", size = 141547, upload-time = "2025-12-03T15:48:20.812Z" },
+]
+
+[package.optional-dependencies]
+telemetry = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-sdk" },
 ]
 
 [[package]]
@@ -1441,13 +1447,13 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "google-adk", extra = ["a2a"] },
-    { name = "uvicorn" },
+    { name = "slima2a" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "google-adk", extras = ["a2a"], specifier = ">=1.28.0" },
-    { name = "uvicorn", specifier = ">=0.42.0" },
+    { name = "slima2a", specifier = ">=0.3.0" },
 ]
 
 [[package]]
@@ -2543,6 +2549,34 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81", size = 34031, upload-time = "2024-12-04T17:35:28.174Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274", size = 11050, upload-time = "2024-12-04T17:35:26.475Z" },
+]
+
+[[package]]
+name = "slim-bindings"
+version = "1.3.0"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bd/7e/c1dc0f493274e8986abf248830d1f9307bfe351a705d231c3ec960c9b3bc/slim_bindings-1.3.0-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:255fe49242a09014a7e25912a7ca07b88f5bc61dd1cf989b3ce7322be647f190", size = 14656295, upload-time = "2026-03-31T15:26:48.49Z" },
+    { url = "https://files.pythonhosted.org/packages/a7/62/014b8e15a8da96030f478432f5d8c2101e2025346def29951d3e20bf59b7/slim_bindings-1.3.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:f020d0eea1aba44b3f57b0187a8a82882f16058f71c78e4df7428bc1c5b7d512", size = 14366290, upload-time = "2026-03-31T15:26:50.592Z" },
+    { url = "https://files.pythonhosted.org/packages/cd/f6/fe1048972e33bb919ec2cb3c9301398eb6afb3d65af6cc1277344675a9de/slim_bindings-1.3.0-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:65b6668c78956360fc4c70380908f2a2cee1d7f6914720882f74d40ebcd9ceff", size = 13007812, upload-time = "2026-03-31T15:26:52.875Z" },
+    { url = "https://files.pythonhosted.org/packages/a0/d4/c46f98481de243893b1c8d7043ac20fc8c9d16c14a5d49f78780dcc4d8e4/slim_bindings-1.3.0-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:0ecadbc39684bef1bcee4b054002758a559a8167b7a3a24e77c9890ca31a4a7d", size = 13473600, upload-time = "2026-03-31T15:26:54.787Z" },
+    { url = "https://files.pythonhosted.org/packages/8e/89/3f0d453d2b7e1fc6afef7bb3d4936f7d5b506db5cc90957667ea685e7b9d/slim_bindings-1.3.0-py3-none-musllinux_1_2_aarch64.whl", hash = "sha256:b5b47586eb6e9508e9d6f74565840490d3db829c9bd1c7ba257df63acc68fee2", size = 12916139, upload-time = "2026-03-31T15:26:56.905Z" },
+    { url = "https://files.pythonhosted.org/packages/08/82/7b286fd053a5d2ecaacc38f1cffb9455d48fd7bd7d2ee773661706047d13/slim_bindings-1.3.0-py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:a91820bcb36631eacc3c74de2a0c59e36060dece8a6ad7cfcea820d89023075a", size = 13370880, upload-time = "2026-03-31T15:26:59.04Z" },
+    { url = "https://files.pythonhosted.org/packages/51/17/32f5673d7d9f8995a116cf184061dbf44e4c532bc91c9311d7a723b92073/slim_bindings-1.3.0-py3-none-win_amd64.whl", hash = "sha256:4d7f8397161ebc9d1257d1160b6fb6701c2834e27b6619b291c02972cb9b7d2c", size = 12063227, upload-time = "2026-03-31T15:27:01.351Z" },
+    { url = "https://files.pythonhosted.org/packages/33/14/d02908623ddc41609a543dd8698b9fcb86cc272d98a58b98cfb83178cba7/slim_bindings-1.3.0-py3-none-win_arm64.whl", hash = "sha256:2224ba6fbd28b6c5c670624466e25ea392cc29a1b35275d96415e3c14e82d8a0", size = 11554094, upload-time = "2026-03-31T15:27:03.434Z" },
+]
+
+[[package]]
+name = "slima2a"
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "a2a-sdk", extra = ["telemetry"] },
+    { name = "slim-bindings" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9b/c7/e2a78170be1d09a2c8a58076adb6055eb5bb155428b3ea6b9af4708efdd3/slima2a-0.3.0.tar.gz", hash = "sha256:3d771f45485d6182526793a89fb07ff01842a972d2c35fdd481a11d04206bcbc", size = 142249, upload-time = "2026-02-17T15:38:15.026Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c5/a4/9f2f7c3276dad2b702ec1e4e1128688e765013ac8739ecabd7c84c623d05/slima2a-0.3.0-py3-none-any.whl", hash = "sha256:40330677ef04f061f55cc08f2a4b77dc2dfc1da3e860be85ddafc320663e8a94", size = 15858, upload-time = "2026-02-17T15:38:14.206Z" },
 ]
 
 [[package]]
