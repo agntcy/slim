@@ -1,0 +1,31 @@
+{
+  "name": "k8s_troubleshooting_agent",
+  "description": "An agent that helps troubleshoot Kubernetes clusters. Ask it about failing pods, misconfigurations, resource limits, or any cluster issue and it will diagnose and suggest fixes.",
+  "version": "1.0.0",
+  "supportedInterfaces": [
+    {
+      "url": "agntcy/demo/k8s_troubleshooting_agent",
+      "protocolBinding": "slimrpc",
+      "protocolVersion": "0.3"
+    }
+  ],
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": ["text/plain"],
+  "defaultOutputModes": ["text/plain"],
+  "skills": [
+    {
+      "id": "k8s_troubleshooting",
+      "name": "Kubernetes Troubleshooting",
+      "description": "Diagnose and resolve issues in Kubernetes clusters. Supports analysis of pod failures, deployment errors, resource constraints, networking problems, and manifest misconfigurations.",
+      "tags": ["kubernetes", "troubleshooting", "k8s", "devops"],
+      "examples": [
+        "What pods are failing in my cluster?",
+        "Why is my deployment stuck in Pending state?",
+        "How do I fix CrashLoopBackOff on my api-server pod?",
+        "My service is not routing traffic to the backend pods"
+      ]
+    }
+  ]
+}
