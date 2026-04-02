@@ -41,7 +41,7 @@ spire-root-server-0                               2/2     Running
 ## On-Prem
 
 The on-prem deployment is managed by ArgoCD. Values are
-included here for reference.
+in the correspondin espresso-iac repo.
 
 ### 1. Configure the upstream trust bundle
 
@@ -108,17 +108,7 @@ Save the generated token — you will need it in the next step.
 
 ### 4. Deploy the on-prem SPIRE chart
 
-This step is handled by ArgoCD, but you can also deploy
-manually. Switch your kubectl context to the **on-prem
-cluster** and run:
-
-```bash
-cd nested
-helm upgrade --install spire-crds spiffe/spire-crds \
-  -n spire-system --create-namespace
-helm upgrade --install spire . \
-  -n spire-system --create-namespace -f values.yaml
-```
+This step is handled by ArgoCD.
 
 ### 5. Inject the join token
 
