@@ -1669,6 +1669,7 @@ dependencies = [
     { name = "litellm" },
     { name = "python-dotenv" },
     { name = "slim-bindings" },
+    { name = "slim-mcp" },
     { name = "slima2a" },
 ]
 
@@ -1678,6 +1679,7 @@ requires-dist = [
     { name = "litellm", specifier = ">=1.83.0" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "slim-bindings", specifier = "<1.3.0" },
+    { name = "slim-mcp", specifier = ">=0.2.2" },
     { name = "slima2a", specifier = ">=0.3.0" },
 ]
 
@@ -2987,6 +2989,20 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/8c/6a/c58247afbaaf7057c9143c6170eb08111a05996337b4c51edb507cc5101a/slim_bindings-1.2.0-py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:74470934fca9278dfffbc979dee833d29335a6d74e89310c0eafcebe08038381", size = 13272688, upload-time = "2026-02-27T18:53:38.321Z" },
     { url = "https://files.pythonhosted.org/packages/06/92/baf8ee49db646f336914f1ecd9415f965402f4aa357bd228319a06581405/slim_bindings-1.2.0-py3-none-win_amd64.whl", hash = "sha256:1255250e8db8b3838d0ce940350f9202c4545f9175208366993cfae2f5a0221c", size = 12036097, upload-time = "2026-02-27T18:53:40.444Z" },
     { url = "https://files.pythonhosted.org/packages/3a/6b/03eaf28c9bb1578d02fceb65ddccf7884049cb010d865f58c8ae2c43f821/slim_bindings-1.2.0-py3-none-win_arm64.whl", hash = "sha256:8abb184c1d054a1c5fbd587e44d70c2dee13c69c71b9992d58915ca6e704a581", size = 11284386, upload-time = "2026-02-27T18:53:42.738Z" },
+]
+
+[[package]]
+name = "slim-mcp"
+version = "0.2.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "mcp" },
+    { name = "slim-bindings" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/46/77/ff76ae083271dca883c8ef6f2ec1cd392904e34695004c32160d2b0607aa/slim_mcp-0.2.2.tar.gz", hash = "sha256:942a4c0f0525ab9309ef8a5d7c78ab132e294a2f3e242b2c8ddf96d7837a2077", size = 164338, upload-time = "2026-04-03T11:27:35.637Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/00/7e/0203ff663c2f85da22f29fed7a12442a540393d352df018861d4e8be825c/slim_mcp-0.2.2-py3-none-any.whl", hash = "sha256:914d2881b4cb32b48d931b27818a601726ea5dcf514bc80c44acd1e1fb1ab2bc", size = 25228, upload-time = "2026-04-03T11:27:34.119Z" },
 ]
 
 [[package]]
