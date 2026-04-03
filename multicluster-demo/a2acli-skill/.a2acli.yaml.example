@@ -11,4 +11,13 @@
 slim:
   endpoint: "http://localhost:46357"
   local-name: "agntcy/cli/a2acli"
+
+  # Shared-secret auth (used when spire.socket-path is not set)
   secret: "my_shared_secret"
+
+  # SPIRE dynamic identity auth (takes precedence over secret when socket-path is set)
+  # spire:
+  #   socket-path: "/tmp/spire-agent/public/api.sock"
+  #   target-spiffe-id: "spiffe://example.org/agent"   # optional
+  #   jwt-audiences:                                    # optional
+  #     - "my-audience"
