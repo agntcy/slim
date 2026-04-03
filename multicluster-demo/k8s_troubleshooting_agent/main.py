@@ -1,9 +1,16 @@
 import asyncio
+import logging
 import os
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 import slim_bindings
 from a2a.server.request_handlers import DefaultRequestHandler
@@ -22,12 +29,20 @@ from slima2a.handler import SRPCHandler
 from slima2a.types.a2a_pb2_slimrpc import add_A2AServiceServicer_to_server
 
 from k8s_troubleshooting_agent.agent import root_agent
+from k8s_troubleshooting_agent.mcp_client import K8sMCPClient
+from k8s_troubleshooting_agent.tools import set_mcp_client
 
 SLIM_URL = os.getenv("SLIM_URL", "http://localhost:46357")
 SLIM_NAMESPACE = os.getenv("SLIM_NAMESPACE", "agntcy")
 SLIM_GROUP = os.getenv("SLIM_GROUP", "demo")
 SLIM_NAME = os.getenv("SLIM_NAME", "k8s_troubleshooting_agent")
 SLIM_SECRET = os.getenv("SLIM_SECRET", "secretsecretsecretsecretsecretsecret")
+
+# MCP proxy configuration
+MCP_PROXY_NAMESPACE = os.getenv("MCP_PROXY_NAMESPACE", "org")
+MCP_PROXY_GROUP = os.getenv("MCP_PROXY_GROUP", "mcp")
+MCP_PROXY_NAME = os.getenv("MCP_PROXY_NAME", "k8s-proxy")
+MCP_CLIENT_NAME = os.getenv("MCP_CLIENT_NAME", "k8s-mcp-client")
 
 
 async def main() -> None:
@@ -74,6 +89,15 @@ async def main() -> None:
         slim_url=SLIM_URL,
         secret=SLIM_SECRET,
     )
+
+    # Initialize MCP client after SLIM connection is established
+    mcp_client = K8sMCPClient(
+        local_app=local_app,
+        proxy_name=f"{MCP_PROXY_NAMESPACE}/{MCP_PROXY_GROUP}/{MCP_PROXY_NAME}",
+        connection_id=conn_id,
+    )
+    await mcp_client.set_proxy_route()
+    set_mcp_client(mcp_client)
 
     server = slim_bindings.Server.new_with_connection(local_app, local_name, conn_id)
     add_A2AServiceServicer_to_server(servicer, server)

@@ -10,4 +10,6 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "slima2a>=0.3.0",
     "slim-bindings<1.3.0",
+    "mcp>=1.0.0",
+    "slim-mcp>=0.2.2",
 ]
