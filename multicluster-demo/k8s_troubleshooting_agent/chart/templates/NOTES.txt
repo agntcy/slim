@@ -1,0 +1,18 @@
+The Kubernetes Troubleshooting Agent has been deployed.
+
+The agent connects to SLIM at: {{ .Values.slim.url }}
+and registers as: {{ .Values.slim.namespace }}/{{ .Values.slim.group }}/{{ .Values.slim.name }}
+
+{{- if .Values.spire.enabled }}
+
+Authentication: SPIRE dynamic identity (socket: {{ .Values.spire.socketPath }})
+{{- else }}
+Authentication: shared secret
+{{- end }}
+
+To send a message to the agent using a2acli:
+
+  a2acli send-message \
+    --agent <digest> \
+    --slim-endpoint {{ .Values.slim.url }} \
+    "What pods are failing in my cluster?"
