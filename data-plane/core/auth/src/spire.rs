@@ -61,19 +61,19 @@ use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use display_error_chain::ErrorChainExt;
-use futures::StreamExt;
 use jsonwebtoken::TokenData;
 use parking_lot::RwLock;
 use serde::de::DeserializeOwned;
 use serde_json::{self, Value};
 use spiffe::{
-    BundleSource, JwtBundleSet, JwtSvid, SvidSource, TrustDomain, WorkloadApiClient, X509Bundle,
-    X509Source, X509SourceBuilder, X509Svid,
+    JwtBundleSet, JwtSource as SpiffeJwtSource, JwtSourceBuilder as SpiffeJwtSourceBuilder,
+    JwtSvid, SpiffeId, TrustDomain, WorkloadApiClient, X509Bundle, X509Source, X509SourceBuilder,
+    X509Svid, bundle::BundleSource,
 };
 use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::errors::AuthError;
 use crate::identity_claims::IdentityClaims;
@@ -172,19 +172,153 @@ impl CustomClaimsCodec {
     }
 }
 
-/// Helper function to create a WorkloadApiClient based on configuration
-async fn create_workload_client(
-    socket_path: Option<&String>,
-) -> Result<WorkloadApiClient, AuthError> {
-    let client = match socket_path {
-        Some(path) => WorkloadApiClient::new_from_path(path).await?,
-        None => WorkloadApiClient::default().await?,
-    };
-
-    Ok(client)
+/// Thin caching wrapper around the library's [`SpiffeJwtSource`] that provides
+/// **sync** access to a background-refreshed JWT SVID, mirroring how
+/// [`X509Source`] exposes X.509 SVIDs.
+///
+/// The library's `JwtSource` handles:
+/// - Workload API connection management with automatic reconnection
+/// - Background streaming and caching of JWT bundles
+/// - On-demand JWT SVID fetching with retry
+///
+/// This wrapper adds:
+/// - A background task that periodically fetches a fresh JWT SVID and caches it
+/// - Sync `get_svid()` for the `TokenProvider::get_token()` contract
+#[derive(Clone)]
+struct CachedJwtSvid {
+    /// Library JWT source — manages bundles + on-demand SVID fetching.
+    source: SpiffeJwtSource,
+    /// Background-refreshed SVID cache for sync access.
+    cached_svid: Arc<RwLock<Option<JwtSvid>>>,
+    /// Cancellation token for the background refresh task.
+    cancellation_token: CancellationToken,
 }
 
-/// Builder for constructing a SpiffeIdentityManager
+impl CachedJwtSvid {
+    /// Create a new `CachedJwtSvid` from a ready library `JwtSource`.
+    ///
+    /// Performs an initial SVID fetch, then spawns a background task that
+    /// refreshes at ≈2/3 of the token lifetime.
+    async fn new(
+        source: SpiffeJwtSource,
+        audiences: Vec<String>,
+        target_spiffe_id: Option<String>,
+    ) -> Result<Self, AuthError> {
+        let cached_svid = Arc::new(RwLock::new(None));
+        let cancellation_token = CancellationToken::new();
+
+        let parsed_target: Option<SpiffeId> =
+            target_spiffe_id.as_deref().map(|s| s.parse()).transpose()?;
+
+        // Best-effort initial fetch — background task will retry if this fails.
+        match source
+            .get_jwt_svid_with_id(&audiences, parsed_target.as_ref())
+            .await
+        {
+            Ok(svid) => {
+                *cached_svid.write() = Some(svid);
+            }
+            Err(err) => {
+                warn!(error = %err, "jwt_source: initial SVID fetch failed; will retry in background");
+            }
+        }
+
+        // Spawn background SVID refresh task.
+        let bg_source = source.clone();
+        let bg_cache = cached_svid.clone();
+        let bg_cancel = cancellation_token.clone();
+        tokio::spawn(async move {
+            Self::background_refresh(bg_source, audiences, parsed_target, bg_cache, bg_cancel)
+                .await;
+        });
+
+        Ok(Self {
+            source,
+            cached_svid,
+            cancellation_token,
+        })
+    }
+
+    /// Background task: periodically fetches a fresh JWT SVID and updates the
+    /// cache.  Refresh interval is ≈2/3 of the token lifetime with exponential
+    /// backoff on failure (capped to avoid letting the token expire).
+    async fn background_refresh(
+        source: SpiffeJwtSource,
+        audiences: Vec<String>,
+        target_spiffe_id: Option<SpiffeId>,
+        cache: Arc<RwLock<Option<JwtSvid>>>,
+        cancel: CancellationToken,
+    ) {
+        let min_backoff = Duration::from_secs(1);
+        let max_backoff = Duration::from_secs(30);
+        let mut backoff = min_backoff;
+        let initial_delay = Duration::from_secs(30);
+
+        // pin next refresh on the stack
+        let mut next_refresh = std::pin::pin!(tokio::time::sleep_until(
+            tokio::time::Instant::now() + initial_delay
+        ));
+
+        loop {
+            tokio::select! {
+                _ = &mut next_refresh => {}
+                _ = cancel.cancelled() => {
+                    debug!("jwt_source: background refresh cancelled");
+                    return;
+                }
+            }
+
+            match source
+                .get_jwt_svid_with_id(&audiences, target_spiffe_id.as_ref())
+                .await
+            {
+                Ok(svid) => {
+                    let delay =
+                        calculate_refresh_interval(&svid).unwrap_or(Duration::from_secs(30));
+                    *cache.write() = Some(svid);
+                    backoff = min_backoff;
+                    let deadline = tokio::time::Instant::now() + delay;
+                    next_refresh.as_mut().reset(deadline);
+                    debug!(
+                        next_refresh_secs = delay.as_secs(),
+                        "jwt_source: SVID refreshed",
+                    );
+                }
+                Err(err) => {
+                    warn!(error = %err, "jwt_source: SVID refresh failed; backing off");
+                    let capped = calculate_backoff_with_token_expiry(
+                        backoff,
+                        cache.read().as_ref(),
+                        min_backoff,
+                    );
+                    let deadline = tokio::time::Instant::now() + capped;
+                    next_refresh.as_mut().reset(deadline);
+                    backoff = (backoff * 2).min(max_backoff);
+                }
+            }
+        }
+    }
+
+    /// Sync access to the most recently cached JWT SVID.
+    fn get_svid(&self) -> Option<JwtSvid> {
+        self.cached_svid.read().clone()
+    }
+
+    /// Sync access to the current JWT bundle set (delegated to the library source).
+    fn get_bundles(&self) -> Result<Arc<JwtBundleSet>, AuthError> {
+        self.source
+            .bundle_set()
+            .map_err(AuthError::SpiffeJwtSourceError)
+    }
+}
+
+impl Drop for CachedJwtSvid {
+    fn drop(&mut self) {
+        self.cancellation_token.cancel();
+    }
+}
+
+/// Builder for constructing a SpireIdentityManager
 pub struct SpireIdentityManagerBuilder {
     socket_path: Option<String>,
     target_spiffe_id: Option<String>,
@@ -231,7 +365,6 @@ impl SpireIdentityManagerBuilder {
             socket_path: self.socket_path,
             target_spiffe_id: self.target_spiffe_id,
             jwt_audiences: self.jwt_audiences,
-            client: None,
             x509_source: None,
             jwt_source: None,
             signature_keys,
@@ -245,9 +378,8 @@ pub struct SpireIdentityManager {
     socket_path: Option<String>,
     target_spiffe_id: Option<String>,
     jwt_audiences: Vec<String>,
-    client: Option<WorkloadApiClient>,
-    x509_source: Option<Arc<X509Source>>,
-    jwt_source: Option<Arc<JwtSource>>,
+    x509_source: Option<X509Source>,
+    jwt_source: Option<CachedJwtSvid>,
     /// MLS Ed25519 signature key pair: (secret_key_bytes, public_key_bytes).
     signature_keys: (Vec<u8>, Vec<u8>),
 }
@@ -270,48 +402,56 @@ impl SpireIdentityManager {
         Ok(audiences)
     }
 
-    /// Build a fresh JwtSource whose fetch audiences include the current pubkey claim.
+    /// Build a fresh [`CachedJwtSvid`] backed by the library's [`SpiffeJwtSource`].
     async fn build_jwt_source(
         audiences: Vec<String>,
         target_spiffe_id: Option<String>,
-        client: WorkloadApiClient,
-    ) -> Result<Arc<JwtSource>, AuthError> {
-        let mut builder = JwtSourceBuilder::new()
-            .with_audiences(audiences)
-            .with_client(client);
-        if let Some(target_id) = target_spiffe_id {
-            builder = builder.with_target_spiffe_id(target_id);
+        socket_path: Option<String>,
+    ) -> Result<CachedJwtSvid, AuthError> {
+        let mut builder = SpiffeJwtSourceBuilder::new();
+        if let Some(path) = socket_path.as_ref() {
+            builder = builder.endpoint(path);
         }
-        builder.build().await
+        let source = builder.build().await?;
+        CachedJwtSvid::new(source, audiences, target_spiffe_id).await
     }
 
     /// Initialize the spire identity manager (sources for X.509 & JWT)
     pub async fn initialize(&mut self) -> Result<(), AuthError> {
         info!("Initializing spire identity manager");
 
-        // Create WorkloadApiClient
-        let client = create_workload_client(self.socket_path.as_ref()).await?;
+        // Quick-fail: verify the Workload API is reachable before creating
+        // long-lived sources whose internal retry loops never give up.
+        // The client is intentionally dropped after the check.
+        let _client = match self.socket_path.as_ref() {
+            Some(path) => WorkloadApiClient::connect_to(path).await?,
+            None => WorkloadApiClient::connect_env().await?,
+        };
+        drop(_client);
 
         // Initialize X509Source for certificate management
-        let x509_source = X509SourceBuilder::new()
-            .with_client(client.clone())
-            .build()
-            .await?;
+        let mut x509_builder = X509SourceBuilder::new();
+        if let Some(path) = self.socket_path.as_ref() {
+            x509_builder = x509_builder.endpoint(path);
+        }
+        let x509_source = x509_builder.build().await?;
 
         self.x509_source = Some(x509_source);
 
-        // Initialize JwtSource with audiences that include the MLS pubkey as a
-        // custom-claim audience so every cached SVID carries it transparently.
+        // Initialize JwtSource (library) + cached SVID wrapper with audiences
+        // that include the MLS pubkey as a custom-claim audience so every
+        // cached SVID carries it transparently.
         let jwt_audiences = self.jwt_audiences_with_pubkey()?;
-        let jwt_source =
-            Self::build_jwt_source(jwt_audiences, self.target_spiffe_id.clone(), client.clone())
-                .await?;
+        let jwt_source = Self::build_jwt_source(
+            jwt_audiences,
+            self.target_spiffe_id.clone(),
+            self.socket_path.clone(),
+        )
+        .await?;
 
         self.jwt_source = Some(jwt_source);
 
         info!("spire provider initialized successfully");
-
-        self.client = Some(client);
 
         Ok(())
     }
@@ -322,12 +462,9 @@ impl SpireIdentityManager {
             .x509_source
             .as_ref()
             .ok_or(AuthError::SpiffeX509SourceNotInitialized)?;
-        let svid = x509_source
-            .get_svid()
-            .map_err(|e| AuthError::SpiffeX509SvidFetch { source: e })?
-            .ok_or(AuthError::SpiffeX509SvidMissing)?;
+        let svid = x509_source.svid()?;
         debug!(spiffe_id = %svid.spiffe_id(), "Retrieved X509 SVID");
-        Ok(svid)
+        Ok((*svid).clone())
     }
 
     /// Get the X.509 certificate (leaf) in PEM format
@@ -363,11 +500,11 @@ impl SpireIdentityManager {
 
     /// Get a cached JWT SVID (background refreshed)
     pub fn get_jwt_svid(&self) -> Result<JwtSvid, AuthError> {
-        let src = self
-            .jwt_source
+        self.jwt_source
             .as_ref()
-            .ok_or(AuthError::SpiffeJwtSourceNotInitialized)?;
-        src.get_svid().ok_or(AuthError::SpiffeJwtSvidMissing)
+            .ok_or(AuthError::SpiffeJwtSourceNotInitialized)?
+            .get_svid()
+            .ok_or(AuthError::SpiffeJwtSvidMissing)
     }
 
     /// Get X.509 bundle for the trust domain of our SVID (for verification use-cases)
@@ -378,50 +515,44 @@ impl SpireIdentityManager {
             .ok_or(AuthError::SpiffeX509SourceNotInitialized)?;
 
         // Derive trust domain from current SVID
-        let svid = x509_source
-            .get_svid()
-            .map_err(|e| AuthError::SpiffeX509SvidFetch { source: e })?
-            .ok_or(AuthError::SpiffeX509SvidMissing)?;
+        let svid = x509_source.svid()?;
 
         let td = svid.spiffe_id().trust_domain();
 
         x509_source
-            .get_bundle_for_trust_domain(td)
-            .map_err(|e| AuthError::SpiffeX509BundleFetch { source: e })?
+            .bundle_for_trust_domain(td)?
+            .map(|arc| (*arc).clone())
             .ok_or(AuthError::SpiffeX509BundleMissing(td.clone()))
     }
 
-    /// Get the X.509 bundle for an explicit trust domain (ignores config override)
-    pub async fn get_x509_bundle_for_trust_domain(
-        &mut self,
+    /// Get the X.509 bundle for an explicit trust domain.
+    ///
+    /// Uses the cached bundle set from the [`X509Source`], which streams
+    /// bundles for all trust domains in the background.
+    pub fn get_x509_bundle_for_trust_domain(
+        &self,
         trust_domain: impl Into<String>,
     ) -> Result<X509Bundle, AuthError> {
         let td_str = trust_domain.into();
-
-        let c = self
-            .client
-            .as_mut()
-            .ok_or(AuthError::SpiffeWorkloadApiUnavailable)?;
-
-        let bundles = c.fetch_x509_bundles().await?;
-
         let td = TrustDomain::new(&td_str)?;
 
-        bundles
-            .get_bundle(&td)
-            .cloned()
+        let x509_source = self
+            .x509_source
+            .as_ref()
+            .ok_or(AuthError::SpiffeX509SourceNotInitialized)?;
+
+        x509_source
+            .bundle_for_trust_domain(&td)?
+            .map(|arc| (*arc).clone())
             .ok_or(AuthError::SpiffeX509BundleMissing(td))
     }
 
-    /// Internal helper to access JWT bundles
-    fn get_jwt_bundles(&self) -> Result<JwtBundleSet, AuthError> {
-        let jwt_source = self
-            .jwt_source
+    /// Internal helper to access JWT bundles from the library's `JwtSource`.
+    fn get_jwt_bundles(&self) -> Result<Arc<JwtBundleSet>, AuthError> {
+        self.jwt_source
             .as_ref()
-            .ok_or(AuthError::SpiffeJwtSourceNotInitialized)?;
-        jwt_source
+            .ok_or(AuthError::SpiffeJwtSourceNotInitialized)?
             .get_bundles()
-            .ok_or(AuthError::SpiffeJwtBundleMissing)
     }
 }
 
@@ -452,20 +583,17 @@ impl TokenProvider for SpireIdentityManager {
     fn rotate_signature_keys(&mut self) -> Result<(), AuthError> {
         self.signature_keys = generate_mls_signature_keys()?;
 
-        // Rebuild the JwtSource so the next get_token() call returns a fresh SVID
-        // with the new pubkey embedded in its audiences.
+        // Rebuild the CachedJwtSvid so the next get_token() call returns a fresh
+        // SVID with the new pubkey embedded in its audiences.
         let new_audiences = self.jwt_audiences_with_pubkey()?;
         let target_spiffe_id = self.target_spiffe_id.clone();
-        let client = self
-            .client
-            .clone()
-            .ok_or(AuthError::SpiffeWorkloadApiUnavailable)?;
+        let socket_path = self.socket_path.clone();
 
         let new_jwt_source = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(Self::build_jwt_source(
                 new_audiences,
                 target_spiffe_id,
-                client,
+                socket_path,
             ))
         })?;
 
@@ -473,400 +601,6 @@ impl TokenProvider for SpireIdentityManager {
 
         Ok(())
     }
-}
-
-// JwtSource: background-refreshing source of JWT SVIDs modeled after X509Source APIs
-struct JwtSourceConfigInternal {
-    min_retry_backoff: Duration,
-    max_retry_backoff: Duration,
-}
-
-impl Default for JwtSourceConfigInternal {
-    fn default() -> Self {
-        Self {
-            min_retry_backoff: Duration::from_secs(1),
-            max_retry_backoff: Duration::from_secs(30),
-        }
-    }
-}
-
-/// A background-refreshing source of JWT SVIDs providing a sync `get_svid()` similar to `X509Source`.
-/// Builder for creating a JwtSource
-struct JwtSourceBuilder {
-    audiences: Vec<String>,
-    target_spiffe_id: Option<String>,
-    client: Option<WorkloadApiClient>,
-}
-
-impl JwtSourceBuilder {
-    /// Create a new JwtSourceBuilder with default values
-    pub fn new() -> Self {
-        Self {
-            audiences: Vec::new(),
-            target_spiffe_id: None,
-            client: None,
-        }
-    }
-
-    /// Set the JWT audiences
-    pub fn with_audiences(mut self, audiences: Vec<String>) -> Self {
-        self.audiences = audiences;
-        self
-    }
-
-    /// Set the target SPIFFE ID
-    pub fn with_target_spiffe_id(mut self, target_spiffe_id: String) -> Self {
-        self.target_spiffe_id = Some(target_spiffe_id);
-        self
-    }
-
-    /// Set the WorkloadApiClient
-    pub fn with_client(mut self, client: WorkloadApiClient) -> Self {
-        self.client = Some(client);
-        self
-    }
-
-    /// Build and initialize the JwtSource
-    pub async fn build(self) -> Result<Arc<JwtSource>, AuthError> {
-        JwtSource::new(self.audiences, self.target_spiffe_id, self.client).await
-    }
-}
-
-impl Default for JwtSourceBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-struct JwtSource {
-    _audiences: Vec<String>,
-    _target_spiffe_id: Option<String>,
-    current: Arc<RwLock<Option<JwtSvid>>>,
-    bundles: Arc<RwLock<Option<JwtBundleSet>>>,
-    cancellation_token: CancellationToken,
-}
-
-impl JwtSource {
-    // Helper: sleep for duration or return true if cancelled first.
-    async fn backoff_with_cancel(
-        duration: Duration,
-        cancellation_token: &CancellationToken,
-    ) -> bool {
-        tokio::select! {
-            _ = tokio::time::sleep(duration) => false,
-            _ = cancellation_token.cancelled() => true,
-        }
-    }
-
-    pub async fn new(
-        audiences: Vec<String>,
-        target_spiffe_id: Option<String>,
-        client: Option<WorkloadApiClient>,
-    ) -> Result<Arc<Self>, AuthError> {
-        let cfg = JwtSourceConfigInternal::default();
-
-        let current = Arc::new(RwLock::new(None));
-        let current_clone = current.clone();
-        let bundles = Arc::new(RwLock::new(None));
-        let audiences_clone = audiences.clone();
-        let target_clone = target_spiffe_id.clone();
-        let cancellation_token = CancellationToken::new();
-
-        // Get an initial JWT SVID
-        let mut workload_client = Self::initialize_client(client.clone()).await;
-
-        match fetch_once(
-            &mut workload_client,
-            &audiences_clone,
-            target_clone.as_ref(),
-        )
-        .await
-        {
-            Ok(svid) => {
-                let mut w = current.write();
-                *w = Some(svid);
-            }
-            Err(err) => {
-                tracing::warn!(error=%err, "jwt_source: initial fetch failed; will retry in background");
-            }
-        }
-
-        // Spawn background task for JWT SVID refresh
-        let token_clone = cancellation_token.clone();
-        tokio::spawn(async move {
-            Self::background_refresh_task(
-                workload_client,
-                audiences_clone,
-                target_clone,
-                current_clone,
-                token_clone,
-                cfg,
-            )
-            .await;
-        });
-
-        // Fetch initial JWT bundle before spawning background task
-        let bundle_client = Self::initialize_client(client).await;
-        match Self::fetch_jwt_bundle_once(bundle_client.clone(), &bundles).await {
-            Ok(()) => {
-                tracing::debug!("jwt_source: initial JWT bundle fetched successfully");
-            }
-            Err(err) => {
-                tracing::warn!(error=%err, "jwt_source: initial JWT bundle fetch failed; will retry in background");
-            }
-        }
-
-        // Spawn background task for JWT bundle streaming
-        let bundles_for_task = bundles.clone();
-        let token_clone = cancellation_token.clone();
-        tokio::spawn(async move {
-            Self::stream_jwt_bundles(bundle_client, bundles_for_task, token_clone).await;
-        });
-
-        Ok(Arc::new(Self {
-            _audiences: audiences,
-            _target_spiffe_id: target_spiffe_id,
-            current,
-            bundles,
-            cancellation_token,
-        }))
-    }
-
-    /// Background task that handles JWT refresh
-    async fn background_refresh_task(
-        mut client: WorkloadApiClient,
-        audiences: Vec<String>,
-        target_spiffe_id: Option<String>,
-        current: Arc<RwLock<Option<JwtSvid>>>,
-        cancellation_token: CancellationToken,
-        cfg: JwtSourceConfigInternal,
-    ) {
-        let mut backoff = cfg.min_retry_backoff;
-        let initial_duration = Duration::from_secs(30);
-        let mut refresh_timer: std::pin::Pin<Box<tokio::time::Sleep>> = Box::pin(
-            tokio::time::sleep_until(tokio::time::Instant::now() + initial_duration),
-        );
-
-        loop {
-            tokio::select! {
-                // Regular refresh (scheduled)
-                _ = &mut refresh_timer => {
-                    match Self::handle_regular_refresh(
-                        &mut client,
-                        &audiences,
-                        target_spiffe_id.as_ref(),
-                        &current,
-                        &mut backoff,
-                        &cfg,
-                        &mut refresh_timer,
-                    ).await {
-                        Ok(()) => {
-                            tracing::debug!(
-                                next_refresh = %refresh_timer.as_ref().deadline().duration_since(tokio::time::Instant::now()).as_secs(),
-                                "jwt_source: performed regular JWT SVID refresh",
-
-                            );
-                        },
-                        Err(err) => {
-                            tracing::warn!(error=%err, "jwt_source: regular refresh failed");
-                        }
-                    }
-                }
-
-                // Cancellation
-                _ = cancellation_token.cancelled() => {
-                    tracing::debug!("jwt_source: cancellation token signaled, shutting down");
-                    break;
-                }
-            }
-        }
-    }
-
-    /// Initialize the WorkloadApiClient, retrying if necessary
-    async fn initialize_client(client: Option<WorkloadApiClient>) -> WorkloadApiClient {
-        if let Some(c) = client {
-            return c;
-        }
-
-        loop {
-            match WorkloadApiClient::default().await {
-                Ok(client) => return client,
-                Err(err) => {
-                    tracing::warn!(error=%err, "jwt_source: failed to create WorkloadApiClient; retrying in 5s");
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                }
-            }
-        }
-    }
-
-    /// Handle regular JWT refresh with default audiences
-    async fn handle_regular_refresh(
-        client: &mut WorkloadApiClient,
-        audiences: &[String],
-        target_spiffe_id: Option<&String>,
-        current: &Arc<RwLock<Option<JwtSvid>>>,
-        backoff: &mut Duration,
-        cfg: &JwtSourceConfigInternal,
-        refresh_timer: &mut std::pin::Pin<Box<tokio::time::Sleep>>,
-    ) -> Result<(), AuthError> {
-        match fetch_once(client, audiences, target_spiffe_id).await {
-            Ok(svid) => {
-                // Store the new SVID
-                {
-                    let mut w = current.write();
-                    *w = Some(svid.clone());
-                }
-
-                // Reset backoff on success
-                *backoff = cfg.min_retry_backoff;
-
-                // Calculate next refresh time based on token lifetime
-                let next_duration = calculate_refresh_interval(&svid)?;
-
-                let deadline = tokio::time::Instant::now() + next_duration;
-                refresh_timer.as_mut().reset(deadline);
-
-                tracing::debug!(
-                    next_duration_secs = next_duration.as_secs(),
-                    deadline = ?deadline,
-                    "jwt_source: next refresh scheduled",
-                );
-
-                Ok(())
-            }
-            Err(err) => {
-                tracing::warn!(error=%err, "jwt_source: failed to fetch JWT SVID; backing off");
-
-                // Calculate exponential backoff, but cap it to prevent current token expiration
-                let next_backoff = calculate_backoff_with_token_expiry(
-                    *backoff,
-                    current.read().as_ref(),
-                    cfg.min_retry_backoff,
-                );
-
-                let deadline = tokio::time::Instant::now() + next_backoff;
-                refresh_timer.as_mut().reset(deadline);
-                *backoff = (*backoff * 2).min(cfg.max_retry_backoff);
-
-                Err(err)
-            }
-        }
-    }
-
-    /// Sync access to the current JWT SVID (if any). Returns Ok(Some) if present.
-    fn get_svid(&self) -> Option<JwtSvid> {
-        let guard = self.current.read();
-        guard.clone()
-    }
-
-    /// Get the current JWT bundles for verification (synchronous)
-    pub fn get_bundles(&self) -> Option<JwtBundleSet> {
-        let guard = self.bundles.read();
-        guard.clone()
-    }
-
-    /// Fetch JWT bundle once (helper for initialization)
-    async fn fetch_jwt_bundle_once(
-        mut client: WorkloadApiClient,
-        bundles: &Arc<RwLock<Option<JwtBundleSet>>>,
-    ) -> Result<(), String> {
-        match client.stream_jwt_bundles().await {
-            Ok(mut stream) => {
-                if let Some(result) = stream.next().await {
-                    match result {
-                        Ok(bundle_set) => {
-                            *bundles.write() = Some(bundle_set);
-                            Ok(())
-                        }
-                        Err(e) => Err(format!("Failed to read JWT bundle: {}", e)),
-                    }
-                } else {
-                    Err("JWT bundle stream ended without data".to_string())
-                }
-            }
-            Err(e) => Err(format!("Failed to start JWT bundle stream: {}", e)),
-        }
-    }
-
-    /// Background task to stream JWT bundles
-    async fn stream_jwt_bundles(
-        mut client: WorkloadApiClient,
-        bundles: Arc<RwLock<Option<JwtBundleSet>>>,
-        cancellation_token: CancellationToken,
-    ) {
-        loop {
-            match client.stream_jwt_bundles().await {
-                Ok(mut stream) => {
-                    // Stream consumption loop with a single outer select that always
-                    // listens for cancellation alongside stream progress.
-                    loop {
-                        tokio::select! {
-                            _ = cancellation_token.cancelled() => {
-                                tracing::debug!("jwt_source: bundle streaming cancelled");
-                                return;
-                            }
-                            item = stream.next() => {
-                                match item {
-                                    Some(Ok(bundle_set)) => {
-                                        *bundles.write() = Some(bundle_set);
-                                        tracing::trace!("jwt_source: updated JWT bundle cache");
-                                    }
-                                    Some(Err(e)) => {
-                                        tracing::warn!(error=%e, "jwt_source: bundle stream error, restarting in 1s");
-                                        if Self::backoff_with_cancel(Duration::from_secs(1), &cancellation_token).await {
-                                            tracing::debug!("jwt_source: bundle streaming cancelled");
-                                            return;
-                                        }
-                                        break;
-                                    }
-                                    None => {
-                                        tracing::debug!("jwt_source: bundle stream ended, restarting in 1s");
-                                        if Self::backoff_with_cancel(Duration::from_secs(1), &cancellation_token).await {
-                                            tracing::debug!("jwt_source: bundle streaming cancelled");
-                                            return;
-                                        }
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(error=%e, "jwt_source: failed to start bundle stream, retrying in 5s");
-                    tokio::select! {
-                        _ = tokio::time::sleep(Duration::from_secs(5)) => {}
-                        _ = cancellation_token.cancelled() => {
-                            tracing::debug!("jwt_source: bundle streaming cancelled");
-                            return;
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-impl Drop for JwtSource {
-    fn drop(&mut self) {
-        // Cancel the background task when JwtSource is dropped
-        self.cancellation_token.cancel();
-    }
-}
-
-// Helper: single fetch operation
-async fn fetch_once(
-    client: &mut WorkloadApiClient,
-    audiences: &[String],
-    target_spiffe_id: Option<&String>,
-) -> Result<JwtSvid, AuthError> {
-    let parsed_target = target_spiffe_id.map(|s| s.parse()).transpose()?;
-
-    let res = client
-        .fetch_jwt_svid(audiences, parsed_target.as_ref())
-        .await?;
-
-    Ok(res)
 }
 
 // Decode JWT expiry (seconds since epoch) without verifying signature and audience.
@@ -982,7 +716,7 @@ impl Verifier for SpireIdentityManager {
 
     fn try_verify(&self, token: impl Into<String>) -> Result<(), AuthError> {
         let bundles = self.get_jwt_bundles()?;
-        JwtSvid::parse_and_validate(&token.into(), &bundles, &self.jwt_audiences)?;
+        JwtSvid::parse_and_validate(&token.into(), &*bundles, &self.jwt_audiences)?;
         debug!("Successfully verified JWT token (sync)");
         Ok(())
     }
@@ -999,7 +733,7 @@ impl Verifier for SpireIdentityManager {
         Claims: DeserializeOwned + Send,
     {
         let bundles = self.get_jwt_bundles()?;
-        let jwt_svid = JwtSvid::parse_and_validate(&token.into(), &bundles, &self.jwt_audiences)?;
+        let jwt_svid = JwtSvid::parse_and_validate(&token.into(), &*bundles, &self.jwt_audiences)?;
 
         debug!(
             spiffe_id = %jwt_svid.spiffe_id(),
