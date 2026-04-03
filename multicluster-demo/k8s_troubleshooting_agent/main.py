@@ -1,6 +1,11 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
 import asyncio
 import logging
 import os
+
+logger = logging.getLogger(__name__)
 
 from dotenv import load_dotenv
 
@@ -24,7 +29,6 @@ from google.adk.auth.credential_service.in_memory_credential_service import (
 from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.runners import Runner
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
-from slima2a import setup_slim_client
 from slima2a.handler import SRPCHandler
 from slima2a.types.a2a_pb2_slimrpc import add_A2AServiceServicer_to_server
 
@@ -32,11 +36,23 @@ from k8s_troubleshooting_agent.agent import root_agent
 from k8s_troubleshooting_agent.mcp_client import K8sMCPClient
 from k8s_troubleshooting_agent.tools import set_mcp_client
 
+# SLIM connection
 SLIM_URL = os.getenv("SLIM_URL", "http://localhost:46357")
 SLIM_NAMESPACE = os.getenv("SLIM_NAMESPACE", "agntcy")
 SLIM_GROUP = os.getenv("SLIM_GROUP", "demo")
 SLIM_NAME = os.getenv("SLIM_NAME", "k8s_troubleshooting_agent")
-SLIM_SECRET = os.getenv("SLIM_SECRET", "secretsecretsecretsecretsecretsecret")
+
+# Shared-secret auth (used when SPIRE is not configured)
+SLIM_SECRET = os.getenv("SLIM_SECRET", "")
+
+# SPIRE auth (takes precedence over shared secret when SPIRE_SOCKET_PATH is set)
+SPIRE_SOCKET_PATH = os.getenv("SPIRE_SOCKET_PATH", "")
+SPIRE_TARGET_SPIFFE_ID = os.getenv("SPIRE_TARGET_SPIFFE_ID", "") or None
+SPIRE_JWT_AUDIENCE = [
+    a.strip()
+    for a in os.getenv("SPIRE_JWT_AUDIENCE", "").split(",")
+    if a.strip()
+]
 
 # MCP proxy configuration
 MCP_PROXY_NAMESPACE = os.getenv("MCP_PROXY_NAMESPACE", "org")
@@ -44,6 +60,50 @@ MCP_PROXY_GROUP = os.getenv("MCP_PROXY_GROUP", "mcp")
 MCP_PROXY_NAME = os.getenv("MCP_PROXY_NAME", "k8s-proxy")
 MCP_CLIENT_NAME = os.getenv("MCP_CLIENT_NAME", "k8s-mcp-client")
 
+async def create_slim_app() -> tuple[slim_bindings.App, slim_bindings.Name, int]:
+    """Initialise SLIM and create an App using SPIRE or shared-secret auth.
+
+    Auth resolution order:
+      1. SPIRE  — when SPIRE_SOCKET_PATH is set.
+      2. Shared secret — when SLIM_SECRET is set.
+    """
+    slim_bindings.uniffi_set_event_loop(asyncio.get_running_loop())  # type: ignore[arg-type]
+
+    tracing_config = slim_bindings.new_tracing_config()
+    runtime_config = slim_bindings.new_runtime_config()
+    service_config = slim_bindings.new_service_config()
+    tracing_config.log_level = "info"
+
+    slim_bindings.initialize_with_configs(
+        tracing_config=tracing_config,
+        runtime_config=runtime_config,
+        service_config=[service_config],
+    )
+
+    service = slim_bindings.get_global_service()
+    local_name = slim_bindings.Name(SLIM_NAMESPACE, SLIM_GROUP, SLIM_NAME)
+
+    client_config = slim_bindings.new_insecure_client_config(SLIM_URL)
+    conn_id = await service.connect_async(client_config)
+
+    if SPIRE_SOCKET_PATH:
+        logger.debug("Using SPIRE dynamic identity authentication.")
+        spire_config = slim_bindings.SpireConfig(
+            trust_domains=[],
+            socket_path=SPIRE_SOCKET_PATH,
+            target_spiffe_id=SPIRE_TARGET_SPIFFE_ID,
+            jwt_audiences=SPIRE_JWT_AUDIENCE,
+        )
+        provider_config = slim_bindings.IdentityProviderConfig.SPIRE(config=spire_config)
+        verifier_config = slim_bindings.IdentityVerifierConfig.SPIRE(config=spire_config)
+        local_app = service.create_app(local_name, provider_config, verifier_config)
+    else:
+        logger.info("Using shared-secret authentication")
+        local_app = service.create_app_with_secret(local_name, SLIM_SECRET)
+
+    await local_app.subscribe_async(local_name, conn_id)
+
+    return local_app, local_name, conn_id
 
 async def main() -> None:
     agent_card = AgentCard(
@@ -82,13 +142,7 @@ async def main() -> None:
 
     servicer = SRPCHandler(agent_card, request_handler)
 
-    service, local_app, local_name, conn_id = await setup_slim_client(
-        namespace=SLIM_NAMESPACE,
-        group=SLIM_GROUP,
-        name=SLIM_NAME,
-        slim_url=SLIM_URL,
-        secret=SLIM_SECRET,
-    )
+    local_app, local_name, conn_id = await create_slim_app()
 
     # Initialize MCP client after SLIM connection is established
     mcp_client = K8sMCPClient(
