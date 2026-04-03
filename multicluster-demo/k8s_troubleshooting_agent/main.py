@@ -58,7 +58,6 @@ SPIRE_JWT_AUDIENCE = [
 MCP_PROXY_NAMESPACE = os.getenv("MCP_PROXY_NAMESPACE", "org")
 MCP_PROXY_GROUP = os.getenv("MCP_PROXY_GROUP", "mcp")
 MCP_PROXY_NAME = os.getenv("MCP_PROXY_NAME", "k8s-proxy")
-MCP_CLIENT_NAME = os.getenv("MCP_CLIENT_NAME", "k8s-mcp-client")
 
 async def create_slim_app() -> tuple[slim_bindings.App, slim_bindings.Name, int]:
     """Initialise SLIM and create an App using SPIRE or shared-secret auth.
