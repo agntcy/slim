@@ -215,7 +215,6 @@ dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-tracing",
  "agntcy-slim-version",
- "bincode",
  "bit-vec",
  "criterion",
  "display-error-chain",
@@ -387,7 +386,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-version"
-version = "1.3.0-rc.2"
+version = "1.3.0"
 
 [[package]]
 name = "agntcy-slim-wasm"
