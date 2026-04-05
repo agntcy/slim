@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use parking_lot::Mutex;
 use thiserror::Error;
 
-use crate::runtime::channel::oneshot;
+use tokio::sync::oneshot;
 
 use slim_datapath::api::{ProtoMessage as Message, ProtoSubscriptionAck};
 use slim_datapath::messages::Name;
@@ -439,28 +439,12 @@ impl SubscriptionManager {
     pub async fn await_ack(
         ack_rx: oneshot::Receiver<Result<(), SubscriptionAckError>>,
     ) -> Result<(), SubscriptionAckError> {
-        use std::pin::Pin;
-        use std::task::{Context, Poll};
-
-        let timeout = crate::runtime::sleep(ACK_TIMEOUT);
-        let mut timeout = core::pin::pin!(timeout);
-        let mut ack_rx = core::pin::pin!(ack_rx);
-
-        std::future::poll_fn(|cx: &mut Context<'_>| {
-            // Check ack first
-            if let Poll::Ready(result) = Pin::new(&mut ack_rx).poll(cx) {
-                return Poll::Ready(match result {
-                    Ok(result) => result,
-                    Err(_) => Err(SubscriptionAckError::ChannelClosed),
-                });
-            }
-            // Check timeout
-            if let Poll::Ready(()) = timeout.as_mut().poll(cx) {
-                return Poll::Ready(Err(SubscriptionAckError::Timeout));
-            }
-            Poll::Pending
-        })
-        .await
+        match tokio::time::timeout(ACK_TIMEOUT, ack_rx).await {
+            Ok(Ok(Ok(()))) => Ok(()),
+            Ok(Ok(Err(e))) => Err(e),
+            Ok(Err(_)) => Err(SubscriptionAckError::ChannelClosed),
+            Err(_) => Err(SubscriptionAckError::Timeout),
+        }
     }
 
     /// Called by the App message loop to complete a waiting future for an ACK.

@@ -7,11 +7,13 @@
 use serde::Deserialize;
 use std::io::{self, Write};
 use thiserror::Error;
-use tracing::Level;
-use tracing_subscriber::{Layer, fmt, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{EnvFilter, Layer, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
+    #[error("error parsing filter directives")]
+    FilterParseError(#[from] tracing_subscriber::filter::ParseError),
+
     #[error("error setting up tracing subscriber")]
     TracingSetupError(#[from] tracing_subscriber::util::TryInitError),
 }
@@ -84,17 +86,6 @@ fn default_filter() -> Vec<String> {
     ]
 }
 
-fn resolve_level(level: &str) -> Level {
-    match level.to_lowercase().as_str() {
-        "trace" => Level::TRACE,
-        "debug" => Level::DEBUG,
-        "info" => Level::INFO,
-        "warn" => Level::WARN,
-        "error" => Level::ERROR,
-        _ => Level::INFO,
-    }
-}
-
 /// Guard type for compatibility with the native API.
 /// In WASM there is nothing to shut down.
 pub struct OtelGuard;
@@ -123,11 +114,20 @@ impl TracingConfiguration {
                 },
             ));
 
-        let level = resolve_level(&self.log_level);
-        let level_filter = tracing_subscriber::filter::LevelFilter::from_level(level);
+        let mut env_filter = EnvFilter::try_new(self.log_level.trim())?;
+        for f in &self.filters {
+            let directive_string = if f.contains('=') {
+                f.clone()
+            } else {
+                // Bare module names match native: treat as `module=<log_level>`.
+                format!("{f}={}", self.log_level)
+            };
+            let directive = directive_string.parse()?;
+            env_filter = env_filter.add_directive(directive);
+        }
 
         tracing_subscriber::registry()
-            .with(level_filter)
+            .with(env_filter)
             .with(fmt_layer)
             .try_init()?;
 
