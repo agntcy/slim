@@ -8,6 +8,7 @@ use mls_rs::{
     group::ReceivedMessage,
     identity::{SigningIdentity, basic::BasicCredential},
 };
+#[cfg(any(test, all(feature = "wasm", not(feature = "native"))))]
 use mls_rs::{CipherSuiteProvider, CryptoProvider};
 
 use crate::crypto::CryptoProviderImpl;
@@ -148,6 +149,7 @@ where
         Ok((private_key, signing_identity))
     }
 
+    #[cfg(any(test, all(feature = "wasm", not(feature = "native"))))]
     #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
     #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
     async fn generate_key_pair() -> Result<(SignatureSecretKey, SignaturePublicKey), MlsError> {
@@ -199,10 +201,8 @@ where
         #[cfg(all(feature = "wasm", not(feature = "native")))]
         let (private_key, signing_identity) = {
             let (priv_key, pub_key) = Self::generate_key_pair().await?;
-            self.identity_provider.set_signature_keys(
-                priv_key.as_bytes().to_vec(),
-                pub_key.as_bytes().to_vec(),
-            )?;
+            self.identity_provider
+                .set_signature_keys(priv_key.as_bytes().to_vec(), pub_key.as_bytes().to_vec())?;
             let token = self.identity_provider.get_token()?;
             let basic_cred = BasicCredential::new(token.as_bytes().to_vec());
             let si = SigningIdentity::new(basic_cred.into_credential(), pub_key.clone());
