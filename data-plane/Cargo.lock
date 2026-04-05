@@ -305,6 +305,8 @@ dependencies = [
  "agntcy-slim-version",
  "async-trait",
  "display-error-chain",
+ "futures",
+ "futures-timer",
  "getrandom 0.3.4",
  "maybe-async",
  "parking_lot",

@@ -33,6 +33,8 @@ agntcy-slim-mls = { workspace = true, default-features = false }
 agntcy-slim-version = { workspace = true }
 async-trait = { workspace = true }
 display-error-chain = { workspace = true }
+futures = { workspace = true }
+futures-timer = { workspace = true }
 getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
 maybe-async = "0.2.10"
 parking_lot = { workspace = true }

@@ -8,9 +8,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use futures::future::Either;
+use futures_timer::Delay;
 use parking_lot::Mutex;
 use thiserror::Error;
-
 use tokio::sync::oneshot;
 
 use slim_datapath::api::{ProtoMessage as Message, ProtoSubscriptionAck};
@@ -436,14 +437,21 @@ impl SubscriptionManager {
     }
 
     /// Await a previously registered ACK receiver, with a deadline of [`ACK_TIMEOUT`].
+    ///
+    /// Uses [`futures_timer::Delay`] rather than `tokio::time::timeout` so that
+    /// this function works correctly outside a Tokio runtime with the time driver
+    /// enabled (e.g. when called from UniFFI async bindings).
     pub async fn await_ack(
         ack_rx: oneshot::Receiver<Result<(), SubscriptionAckError>>,
     ) -> Result<(), SubscriptionAckError> {
-        match tokio::time::timeout(ACK_TIMEOUT, ack_rx).await {
-            Ok(Ok(Ok(()))) => Ok(()),
-            Ok(Ok(Err(e))) => Err(e),
-            Ok(Err(_)) => Err(SubscriptionAckError::ChannelClosed),
-            Err(_) => Err(SubscriptionAckError::Timeout),
+        futures::pin_mut!(ack_rx);
+        let delay = Delay::new(ACK_TIMEOUT);
+        futures::pin_mut!(delay);
+
+        match futures::future::select(ack_rx, delay).await {
+            Either::Left((Ok(result), _)) => result,
+            Either::Left((Err(_), _)) => Err(SubscriptionAckError::ChannelClosed),
+            Either::Right(_) => Err(SubscriptionAckError::Timeout),
         }
     }
 
