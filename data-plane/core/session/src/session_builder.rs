@@ -5,6 +5,7 @@ use std::marker::PhantomData;
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::messages::Name;
+use tokio::sync::mpsc::{self, Receiver, Sender};
 
 use crate::{
     Direction,
@@ -123,7 +124,7 @@ where
     identity_provider: Option<P>,
     identity_verifier: Option<V>,
     tx: Option<SessionTransmitter>,
-    tx_to_session_layer: Option<crate::runtime::channel::mpsc::Sender<Result<SessionMessage, SessionError>>>,
+    tx_to_session_layer: Option<Sender<Result<SessionMessage, SessionError>>>,
     graceful_shutdown_timeout: Option<std::time::Duration>,
     direction: Direction,
     subscription_manager: Option<M>,
@@ -195,7 +196,7 @@ where
 
     pub fn with_tx_to_session_layer(
         mut self,
-        tx_to_session_layer: crate::runtime::channel::mpsc::Sender<Result<SessionMessage, SessionError>>,
+        tx_to_session_layer: Sender<Result<SessionMessage, SessionError>>,
     ) -> Self {
         self.tx_to_session_layer = Some(tx_to_session_layer);
         self
@@ -363,8 +364,8 @@ where
     ) -> Result<
         (
             W,
-            crate::runtime::channel::mpsc::Sender<SessionMessage>,
-            crate::runtime::channel::mpsc::Receiver<SessionMessage>,
+            Sender<SessionMessage>,
+            Receiver<SessionMessage>,
             SessionSettings<P, V, M>,
         ),
         SessionError,
@@ -372,7 +373,7 @@ where
     where
         W: MessageHandler,
     {
-        let (tx_session, rx_session) = crate::runtime::channel::mpsc::channel(256);
+        let (tx_session, rx_session) = mpsc::channel(256);
 
         // Create the base Session layer
         let inner = crate::session::Session::new(
@@ -420,7 +421,7 @@ mod tests {
     };
     use slim_datapath::{api::ProtoSessionType, messages::Name};
     use std::collections::HashMap;
-    use crate::runtime::channel::mpsc;
+    use tokio::sync::mpsc;
 
     fn create_test_config(initiator: bool) -> SessionConfig {
         SessionConfig {

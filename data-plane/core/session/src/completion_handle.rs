@@ -7,7 +7,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use crate::runtime::channel::oneshot;
+use tokio::sync::oneshot;
 
 use crate::SessionError;
 
@@ -17,7 +17,7 @@ enum CompletionFuture {
     /// A oneshot receiver for completion acknowledgments
     OneshotReceiver(oneshot::Receiver<Result<(), SessionError>>),
     /// A join handle for task-based completions
-    JoinHandle(crate::runtime::JoinHandle<()>),
+    JoinHandle(tokio::task::JoinHandle<()>),
 }
 
 /// A handle to await the completion of an asynchronous operation.
@@ -39,7 +39,7 @@ enum CompletionFuture {
 ///
 /// Usage with join handle:
 /// ```ignore
-/// let handle = crate::runtime::spawn(async {
+/// let handle = tokio::spawn(async {
 ///     // Some async work
 ///     Ok(())
 /// });
@@ -66,7 +66,7 @@ impl CompletionHandle {
     ///
     /// This is used for operations that spawn a task and need to await
     /// its completion.
-    pub fn from_join_handle(handle: crate::runtime::JoinHandle<()>) -> Self {
+    pub fn from_join_handle(handle: tokio::task::JoinHandle<()>) -> Self {
         Self {
             inner: CompletionFuture::JoinHandle(handle),
         }
