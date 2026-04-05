@@ -20,8 +20,7 @@ pub const SESSION_RANGE: std::ops::Range<u32> = 0..(u32::MAX - 1000);
 pub const SESSION_UNSPECIFIED: u32 = u32::MAX;
 
 /// Channel used in the path service -> app
-pub(crate) type AppChannelSender =
-    mpsc::UnboundedSender<Result<Message, SessionError>>;
+pub(crate) type AppChannelSender = mpsc::UnboundedSender<Result<Message, SessionError>>;
 /// Channel used in the path app -> service
 pub type AppChannelReceiver = mpsc::UnboundedReceiver<Result<Message, SessionError>>;
 /// Channel used in the path service -> slim
@@ -113,7 +112,5 @@ pub enum SessionMessage {
     /// to notify that the session can be removed safely
     DeleteSession { session_id: u32 },
     /// Query the participants list from the handler
-    GetParticipantsList {
-        tx: oneshot::Sender<Vec<Name>>,
-    },
+    GetParticipantsList { tx: oneshot::Sender<Vec<Name>> },
 }

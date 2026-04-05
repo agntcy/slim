@@ -16,10 +16,10 @@ pub use tokio_util::sync::CancellationToken;
 
 #[cfg(all(feature = "wasm", not(feature = "native")))]
 mod cancellation {
+    use parking_lot::Mutex;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::task::Waker;
-    use parking_lot::Mutex;
 
     #[derive(Clone)]
     pub struct CancellationToken {

@@ -46,8 +46,10 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    pub(crate) fn new(mut mls: Mls<P, V>) -> Result<Self, SessionError> {
-        mls.initialize()?;
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub(crate) async fn new(mut mls: Mls<P, V>) -> Result<Self, SessionError> {
+        mls.initialize().await?;
 
         Ok(MlsState {
             mls,
@@ -66,7 +68,10 @@ where
 
     #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
     #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
-    pub(crate) async fn process_welcome_message(&mut self, msg: &Message) -> Result<(), SessionError> {
+    pub(crate) async fn process_welcome_message(
+        &mut self,
+        msg: &Message,
+    ) -> Result<(), SessionError> {
         if self.last_mls_msg_id != 0 {
             debug!("Welcome message already received, drop");
             // we already got a welcome message, ignore this one
@@ -138,7 +143,10 @@ where
 
     #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
     #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
-    async fn process_commit_message(&mut self, mls_payload: &MlsPayload) -> Result<(), SessionError> {
+    async fn process_commit_message(
+        &mut self,
+        mls_payload: &MlsPayload,
+    ) -> Result<(), SessionError> {
         trace!(id = %mls_payload.commit_id,  "processing stored commit",);
 
         // process the commit message
@@ -169,7 +177,9 @@ where
             return Ok(());
         }
 
-        self.mls.process_proposal(&payload.mls_proposal, false).await?;
+        self.mls
+            .process_proposal(&payload.mls_proposal, false)
+            .await?;
 
         Ok(())
     }
@@ -369,7 +379,9 @@ where
     #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
     #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
     pub(crate) async fn init_moderator(&mut self) -> Result<(), SessionError> {
+        tracing::info!("MLS moderator init: calling create_group");
         self.common.mls.create_group().await?;
+        tracing::info!("MLS moderator init: create_group succeeded");
         Ok(())
     }
 
@@ -393,7 +405,10 @@ where
 
     #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
     #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
-    pub(crate) async fn remove_participant(&mut self, msg: &Message) -> Result<CommitMsg, SessionError> {
+    pub(crate) async fn remove_participant(
+        &mut self,
+        msg: &Message,
+    ) -> Result<CommitMsg, SessionError> {
         debug!("Remove participant from the MLS group");
         let name = msg.get_dst();
         let id = match self.participants.get(&name) {
@@ -427,7 +442,9 @@ where
     #[allow(dead_code)]
     #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
     #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
-    pub(crate) async fn process_local_pending_proposal(&mut self) -> Result<CommitMsg, SessionError> {
+    pub(crate) async fn process_local_pending_proposal(
+        &mut self,
+    ) -> Result<CommitMsg, SessionError> {
         let commit = self.common.mls.process_local_pending_proposal().await?;
 
         Ok(commit)

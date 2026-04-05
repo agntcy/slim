@@ -58,8 +58,8 @@ mod wasm_impl {
     use std::collections::HashMap;
     use std::sync::Arc;
 
-    use futures::stream::StreamExt;
     use futures::sink::SinkExt;
+    use futures::stream::StreamExt;
     use prost::Message as ProstMessage;
     use wasm_bindgen::prelude::*;
 
@@ -70,11 +70,11 @@ mod wasm_impl {
     use slim_session::interceptor::{IdentityInterceptor, SessionInterceptorProvider};
     use slim_session::notification::Notification;
     use slim_session::runtime::CancellationToken;
-    use tokio_with_wasm::sync::mpsc;
     use slim_session::session_controller::SessionController;
     use slim_session::subscription_manager::{SubscriptionManager, SubscriptionOps};
     use slim_session::transmitter::AppTransmitter;
     use slim_session::{Direction, SessionConfig, SessionError, SessionLayer, SlimChannelSender};
+    use tokio_with_wasm::sync::mpsc;
 
     /// Wrapper for `js_sys::Function` that satisfies `Send + Sync` bounds.
     ///
@@ -98,15 +98,8 @@ mod wasm_impl {
         tx_slim: SlimChannelSender,
         sessions: Arc<parking_lot::Mutex<HashMap<u32, Arc<SessionController>>>>,
         #[allow(clippy::type_complexity)]
-        notification_rx: Arc<
-            parking_lot::Mutex<
-                Option<
-                    mpsc::Receiver<
-                        Result<Notification, SessionError>,
-                    >,
-                >,
-            >,
-        >,
+        notification_rx:
+            Arc<parking_lot::Mutex<Option<mpsc::Receiver<Result<Notification, SessionError>>>>>,
         subscription_manager: SubscriptionManager,
         on_message_cb: Arc<parking_lot::Mutex<Option<JsCallback>>>,
         cancel_token: CancellationToken,
@@ -138,7 +131,8 @@ mod wasm_impl {
             let app_id = {
                 use std::collections::hash_map::DefaultHasher;
                 use std::hash::{Hash, Hasher};
-                let token_id = auth.get_id()
+                let token_id = auth
+                    .get_id()
                     .map_err(|e| JsError::new(&format!("get_id error: {e}")))?;
                 let mut hasher = DefaultHasher::new();
                 token_id.hash(&mut hasher);
@@ -296,14 +290,8 @@ mod wasm_impl {
         /// Subscribe to receive messages for the given name (org/ns/name).
         /// Waits for the gateway to acknowledge the subscription.
         #[wasm_bindgen]
-        pub async fn subscribe(
-            &self,
-            org: &str,
-            ns: &str,
-            name: &str,
-        ) -> Result<(), JsError> {
-            let sub_name =
-                Name::from_strings([org, ns, name]).with_id(self.session_layer.app_id());
+        pub async fn subscribe(&self, org: &str, ns: &str, name: &str) -> Result<(), JsError> {
+            let sub_name = Name::from_strings([org, ns, name]).with_id(self.session_layer.app_id());
 
             let (subscription_id, ack_rx) = self
                 .subscription_manager
@@ -315,27 +303,18 @@ mod wasm_impl {
                 .await
                 .map_err(|e| JsError::new(&format!("subscription rejected: {e}")))?;
 
-            self.session_layer
-                .add_app_name(sub_name, subscription_id);
+            self.session_layer.add_app_name(sub_name, subscription_id);
             tracing::info!("subscribed to {org}/{ns}/{name}");
             Ok(())
         }
 
         /// Unsubscribe from a name.
         #[wasm_bindgen]
-        pub async fn unsubscribe(
-            &self,
-            org: &str,
-            ns: &str,
-            name: &str,
-        ) -> Result<(), JsError> {
+        pub async fn unsubscribe(&self, org: &str, ns: &str, name: &str) -> Result<(), JsError> {
             let unsub_name =
                 Name::from_strings([org, ns, name]).with_id(self.session_layer.app_id());
 
-            let subscription_id = self
-                .session_layer
-                .remove_app_name(&unsub_name)
-                .unwrap_or(0);
+            let subscription_id = self.session_layer.remove_app_name(&unsub_name).unwrap_or(0);
 
             let ack_rx = self
                 .subscription_manager
@@ -397,9 +376,7 @@ mod wasm_impl {
                 .session_arc()
                 .ok_or_else(|| JsError::new("session already dropped"))?;
 
-            self.sessions
-                .lock()
-                .insert(session_id, session_arc.clone());
+            self.sessions.lock().insert(session_id, session_arc.clone());
 
             // Spawn a receiver to forward session messages to the JS callback
             let on_msg = self.on_message_cb.clone();
@@ -443,10 +420,24 @@ mod wasm_impl {
                 tracing::info!(session_id = sid, "session receiver ended");
             });
 
-            // Wait for session establishment (discovery handshake)
-            init_ack
-                .await
-                .map_err(|e| JsError::new(&format!("session init error: {e}")))?;
+            // Wait for session establishment (discovery handshake) with timeout
+            tracing::info!(session_id, "waiting for session init_ack (30s timeout)");
+            let init_result: Result<Result<(), slim_session::SessionError>, _> = tokio_with_wasm::select! {
+                result = init_ack => Ok(result),
+                _ = tokio_with_wasm::time::sleep(std::time::Duration::from_secs(30)) => {
+                    Err("timeout")
+                }
+            };
+            match init_result {
+                Ok(inner) => {
+                    inner.map_err(|e| JsError::new(&format!("session init error: {e}")))?;
+                }
+                Err(_) => {
+                    return Err(JsError::new(&format!(
+                        "session {session_id} init timed out after 30s"
+                    )));
+                }
+            }
 
             tracing::info!("session {session_id} created");
             Ok(session_id)
@@ -549,12 +540,8 @@ mod wasm_impl {
                                     let src = format!("{}", sa.source());
                                     let dst = format!("{}", sa.dst());
                                     js_sys::Reflect::set(&obj, &"source".into(), &src.into()).ok();
-                                    js_sys::Reflect::set(
-                                        &obj,
-                                        &"destination".into(),
-                                        &dst.into(),
-                                    )
-                                    .ok();
+                                    js_sys::Reflect::set(&obj, &"destination".into(), &dst.into())
+                                        .ok();
                                     sessions.lock().insert(session_id, sa.clone());
                                 }
 
@@ -717,34 +704,34 @@ mod wasm_impl {
         // Spawn ALL messages into a separate task to avoid deadlocking the
         // read loop when session handling awaits subscription acks.
         let sl = session_layer.clone();
-        let (msg_type, session_id, identity_preview) =
-            if let Some(sh) = msg.try_get_session_header() {
-                let t: ProtoSessionMessageType =
-                    sh.session_message_type.try_into().unwrap_or_default();
-                let identity = msg
-                    .try_get_slim_header()
-                    .map(|h| {
-                        let id = h.get_identity();
-                        if id.is_empty() {
-                            "<empty>".to_string()
-                        } else if id.len() > 40 {
-                            format!("{}…(len={})", &id[..40], id.len())
-                        } else {
-                            id
-                        }
-                    })
-                    .unwrap_or_else(|| "<no-slim-header>".to_string());
-                (t.as_str_name().to_string(), sh.session_id, identity)
+        let (msg_type, session_id, identity_preview) = if let Some(sh) =
+            msg.try_get_session_header()
+        {
+            let t: ProtoSessionMessageType = sh.session_message_type.try_into().unwrap_or_default();
+            let identity = msg
+                .try_get_slim_header()
+                .map(|h| {
+                    let id = h.get_identity();
+                    if id.is_empty() {
+                        "<empty>".to_string()
+                    } else if id.len() > 40 {
+                        format!("{}…(len={})", &id[..40], id.len())
+                    } else {
+                        id
+                    }
+                })
+                .unwrap_or_else(|| "<no-slim-header>".to_string());
+            (t.as_str_name().to_string(), sh.session_id, identity)
+        } else {
+            let kind = if msg.is_publish() {
+                "Publish(no-session)"
+            } else if msg.is_link() {
+                "Link"
             } else {
-                let kind = if msg.is_publish() {
-                    "Publish(no-session)"
-                } else if msg.is_link() {
-                    "Link"
-                } else {
-                    "Unknown"
-                };
-                (kind.to_string(), 0u32, "<no-session-header>".to_string())
+                "Unknown"
             };
+            (kind.to_string(), 0u32, "<no-session-header>".to_string())
+        };
         wasm_bindgen_futures::spawn_local(async move {
             tracing::info!(
                 %msg_type,

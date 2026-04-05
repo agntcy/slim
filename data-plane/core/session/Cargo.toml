@@ -34,7 +34,6 @@ agntcy-slim-version = { workspace = true }
 async-trait = { workspace = true }
 display-error-chain = { workspace = true }
 getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
-web-time = "1"
 maybe-async = "0.2.10"
 parking_lot = { workspace = true }
 rand = { workspace = true }
@@ -42,9 +41,10 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
-tonic = { workspace = true, optional = true }
 tokio_with_wasm = { version = "0.9", features = ["rt", "sync", "time", "macros"], optional = true }
+tonic = { workspace = true, optional = true }
 tracing = { workspace = true }
+web-time = "1"
 
 [dev-dependencies]
 agntcy-slim-testing = { workspace = true }
