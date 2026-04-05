@@ -752,10 +752,10 @@ impl ClientConfig {
         #[cfg(any(feature = "native", feature = "wasm"))]
         {
             let endpoint = http::Uri::from_str(self.endpoint.as_str())?;
-            return match endpoint.scheme_str() {
+            match endpoint.scheme_str() {
                 Some("ws") | Some("wss") => Ok(()),
                 _ => Err(ConfigError::InvalidWebSocketEndpointScheme),
-            };
+            }
         }
 
         #[cfg(not(any(feature = "native", feature = "wasm")))]
