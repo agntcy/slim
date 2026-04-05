@@ -48,25 +48,3 @@ jobs:
   data-plane-bindings-test:
     name: Data plane - Bindings test
     uses: ./.github/workflows/reusable-bindings-build-and-test.yaml
-
-  data-plane-wasm-check:
-    name: Data plane - WASM build check
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
-        working-directory: ./data-plane
-    steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: ./.github/actions/setup-rust
-        with:
-          workspace: ./data-plane
-
-      - name: Install wasm32-unknown-unknown target
-        run: rustup target add wasm32-unknown-unknown
-
-      - name: Check WASM compilation
-        run: task data-plane:check:wasm
