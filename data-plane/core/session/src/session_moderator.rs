@@ -692,10 +692,17 @@ where
             .as_mut()
             .unwrap()
             .discovery_complete(msg.get_id())?;
-        info!(session_id = self.common.settings.id, "discovery phase complete");
+        info!(
+            session_id = self.common.settings.id,
+            "discovery phase complete",
+        );
 
         // join the channel if needed
-        info!(session_id = self.common.settings.id, mls = self.mls_state.is_some(), "calling join");
+        info!(
+            session_id = self.common.settings.id,
+            mls = self.mls_state.is_some(),
+            "calling join",
+        );
         self.join(msg.get_source(), msg.get_incoming_conn()).await?;
         info!(session_id = self.common.settings.id, "join completed");
 
