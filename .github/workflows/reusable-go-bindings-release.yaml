@@ -21,7 +21,7 @@ on:
         description: Go version to use
         required: false
         type: string
-        default: '1.25.5'
+        default: '1.25'
       go-bindings-working-directory:
         description: Working directory for Go bindings
         required: false
