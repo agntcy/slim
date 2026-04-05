@@ -658,7 +658,7 @@ mod tests {
     use slim_datapath::Status;
     use slim_datapath::api::{CommandPayload, ProtoSessionType};
     use slim_datapath::messages::Name;
-    use crate::runtime::channel::mpsc;
+    use tokio::sync::mpsc;
 
     // --- Test Helpers -----------------------------------------------------------------------
 

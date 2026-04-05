@@ -51,7 +51,6 @@ impl ClientConfig {
     }
 
     /// Converts the client configuration to a gRPC-only channel without retry logic.
-    #[cfg(test)]
     pub async fn to_grpc_channel_lazy(
         &self,
     ) -> Result<
@@ -70,8 +69,7 @@ impl ClientConfig {
         self.to_grpc_channel_lazy_internal().await
     }
 
-    /// Internal lazy gRPC channel builder for tests.
-    #[cfg(test)]
+    /// Internal lazy gRPC channel builder (no retry layer).
     pub(crate) async fn to_grpc_channel_lazy_internal(
         &self,
     ) -> Result<

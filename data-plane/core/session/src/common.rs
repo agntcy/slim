@@ -3,11 +3,12 @@
 
 use std::time::Duration;
 
-use crate::runtime;
 use slim_datapath::{
+    Status,
     api::{ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType},
     messages::{Name, utils::MessageError},
 };
+use tokio::sync::{mpsc, oneshot};
 
 // Local crate
 use crate::SessionError;
@@ -20,11 +21,11 @@ pub const SESSION_UNSPECIFIED: u32 = u32::MAX;
 
 /// Channel used in the path service -> app
 pub(crate) type AppChannelSender =
-    runtime::channel::mpsc::UnboundedSender<Result<Message, SessionError>>;
+    mpsc::UnboundedSender<Result<Message, SessionError>>;
 /// Channel used in the path app -> service
-pub type AppChannelReceiver = runtime::channel::mpsc::UnboundedReceiver<Result<Message, SessionError>>;
+pub type AppChannelReceiver = mpsc::UnboundedReceiver<Result<Message, SessionError>>;
 /// Channel used in the path service -> slim
-pub type SlimChannelSender = runtime::channel::mpsc::Sender<Result<Message, runtime::Status>>;
+pub type SlimChannelSender = mpsc::Sender<Result<Message, Status>>;
 
 /// The state of a session
 #[derive(Clone, PartialEq, Debug)]
@@ -83,7 +84,7 @@ pub enum SessionMessage {
         message: Message,
         direction: MessageDirection,
         /// Optional channel to signal when message processing is complete
-        ack_tx: Option<runtime::channel::oneshot::Sender<Result<(), SessionError>>>,
+        ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     },
     /// Error occurred during message processing
     MessageError { error: SessionError },
@@ -113,6 +114,6 @@ pub enum SessionMessage {
     DeleteSession { session_id: u32 },
     /// Query the participants list from the handler
     GetParticipantsList {
-        tx: runtime::channel::oneshot::Sender<Vec<Name>>,
+        tx: oneshot::Sender<Vec<Name>>,
     },
 }

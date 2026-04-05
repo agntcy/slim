@@ -3,6 +3,7 @@
 
 use slim_datapath::errors::{ErrorPayload, MessageContext};
 use slim_datapath::messages::Name;
+use slim_datapath::Status;
 // Third-party crates
 use thiserror::Error;
 
@@ -11,7 +12,6 @@ use slim_auth::errors::AuthError;
 use slim_datapath::api::{ProtoMessage, ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::messages::utils::MessageError;
 use slim_mls::errors::MlsError;
-use crate::runtime::Status;
 
 use crate::SessionMessage;
 use crate::subscription_manager::SubscriptionAckError;

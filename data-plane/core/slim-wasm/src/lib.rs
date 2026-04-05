@@ -70,6 +70,7 @@ mod wasm_impl {
     use slim_session::interceptor::{IdentityInterceptor, SessionInterceptorProvider};
     use slim_session::notification::Notification;
     use slim_session::runtime::CancellationToken;
+    use tokio_with_wasm::sync::mpsc;
     use slim_session::session_controller::SessionController;
     use slim_session::subscription_manager::{SubscriptionManager, SubscriptionOps};
     use slim_session::transmitter::AppTransmitter;
@@ -100,7 +101,7 @@ mod wasm_impl {
         notification_rx: Arc<
             parking_lot::Mutex<
                 Option<
-                    slim_session::runtime::channel::mpsc::Receiver<
+                    mpsc::Receiver<
                         Result<Notification, SessionError>,
                     >,
                 >,
@@ -152,9 +153,9 @@ mod wasm_impl {
 
             // Channels
             // tx_slim: SessionLayer + app methods → outbound to WebSocket
-            let (tx_slim, rx_slim) = slim_session::runtime::channel::mpsc::channel(64);
+            let (tx_slim, rx_slim) = mpsc::channel(64);
             // tx_app: SessionLayer → app notifications (new sessions)
-            let (tx_app, notification_rx) = slim_session::runtime::channel::mpsc::channel(64);
+            let (tx_app, notification_rx) = mpsc::channel(64);
 
             let cancel_token = CancellationToken::new();
 
@@ -206,8 +207,10 @@ mod wasm_impl {
                 let mut rx = rx_slim;
                 let mut sink = ws_sink;
                 loop {
-                    let msg =
-                        slim_session::runtime::select_recv_or_cancel(&mut rx, &cancel_write).await;
+                    let msg = tokio_with_wasm::select! {
+                        m = rx.recv() => m,
+                        _ = cancel_write.cancelled() => None,
+                    };
                     match msg {
                         None => break,
                         Some(Ok(proto_msg)) => {
@@ -480,8 +483,10 @@ mod wasm_impl {
 
             wasm_bindgen_futures::spawn_local(async move {
                 loop {
-                    let next =
-                        slim_session::runtime::select_recv_or_cancel(&mut rx, &cancel).await;
+                    let next = tokio_with_wasm::select! {
+                        m = rx.recv() => m,
+                        _ = cancel.cancelled() => None,
+                    };
                     match next {
                         None => break,
                         Some(Ok(notification)) => match notification {

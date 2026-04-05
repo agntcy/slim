@@ -22,7 +22,7 @@ SPDX-License-Identifier: Apache-2.0
 //! Design notes:
 //! * `id` is randomized per construction (`<base_id>_<random_suffix>`).
 //! * Replay cache stores only (nonce, timestamp) for memory efficiency.
-//! * HMAC via `aws-lc-rs` for constant-time primitives.
+//! * HMAC-SHA256: on native, `aws-lc-rs`; on wasm, the `hmac` + `sha2` crates.
 //! * `SharedSecret` is cheap to clone (Arc increment) and cloning preserves
 //!   replay cache state (when enabled).
 //!

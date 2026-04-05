@@ -1,6 +1,10 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+// On wasm, alias tokio_with_wasm as tokio so all code can use tokio:: paths uniformly.
+#[cfg(all(feature = "wasm", not(feature = "native")))]
+extern crate tokio_with_wasm as tokio;
+
 pub mod runtime;
 
 mod common;

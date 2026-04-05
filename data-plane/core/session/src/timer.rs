@@ -3,12 +3,12 @@
 
 // Standard library imports
 use std::sync::Arc;
+use std::time::Duration;
 
 // Third-party crates
-use std::time::Duration;
 use crate::runtime::CancellationToken;
-use crate::runtime::{SelectResult, select_timer_or_cancel};
 use async_trait::async_trait;
+use tokio::time;
 use tracing::trace;
 
 #[cfg_attr(feature = "native", async_trait)]
@@ -75,7 +75,7 @@ impl Timer {
         let max_duration = self.max_duration;
         let cancellation_token = self.cancellation_token.clone();
 
-        crate::runtime::spawn(async move {
+        tokio::spawn(async move {
             let mut retry = 0;
             let mut timeouts = 0;
             let mut last_duration = duration;
@@ -126,8 +126,11 @@ impl Timer {
                     }
                 };
 
-                match select_timer_or_cancel(timer_duration, &cancellation_token).await {
-                    SelectResult::TimerExpired => {
+                let timer = time::sleep(timer_duration);
+                tokio::pin!(timer);
+
+                tokio::select! {
+                    _ = &mut timer => {
                         timeouts += 1;
                         match max_retries {
                             Some(max) => {
@@ -141,11 +144,11 @@ impl Timer {
                             None => observer.on_timeout(timer_id, timeouts).await
                         }
                         retry += 1;
-                    },
-                    SelectResult::Cancelled => {
+                    }
+                    _ = cancellation_token.cancelled() => {
                         observer.on_stop(timer_id).await;
                         break;
-                    },
+                    }
                 }
             }
         });
@@ -186,7 +189,7 @@ mod tests {
     }
 
     #[cfg_attr(feature = "native", async_trait)]
-#[cfg_attr(feature = "wasm", async_trait(?Send))]
+    #[cfg_attr(feature = "wasm", async_trait(?Send))]
     impl TimerObserver for Observer {
         async fn on_timeout(&self, timer_id: u32, timeouts: u32) {
             debug!(
