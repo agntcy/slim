@@ -4,7 +4,7 @@
 pub use crate::client::*;
 
 use tonic::codegen::{Body, Bytes, StdError};
- 
+
 use super::errors::ConfigError;
 
 impl ClientConfig {

@@ -15,14 +15,8 @@ fn main() {
         .out_dir("src/api/gen")
         // Gate the tonic gRPC service modules behind the "native" feature so the
         // generated proto file compiles on wasm32 targets where tonic is unavailable.
-        .server_mod_attribute(
-            "dataplane.proto.v1",
-            "#[cfg(feature = \"native\")]",
-        )
-        .client_mod_attribute(
-            "dataplane.proto.v1",
-            "#[cfg(feature = \"native\")]",
-        )
+        .server_mod_attribute("dataplane.proto.v1", "#[cfg(feature = \"native\")]")
+        .client_mod_attribute("dataplane.proto.v1", "#[cfg(feature = \"native\")]")
         .compile_protos(&["proto/v1/data_plane.proto"], &["proto/v1"])
         .unwrap();
 }
