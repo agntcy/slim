@@ -21,6 +21,18 @@ tasks:
     cmds:
       - cargo run --bin slim -- --config ./config/base/server-config.yaml
 
+  run:slim:websocket:
+    desc: "Run SLIM gateway with WebSocket transport (ws://)"
+    dir: ".."
+    cmds:
+      - cargo run --bin slim -- --config ./config/websocket/server-config.yaml
+
+  run:slim:websocket:wss:
+    desc: "Run SLIM gateway with secure WebSocket transport (wss://)"
+    dir: ".."
+    cmds:
+      - cargo run --bin slim -- --config ./config/websocket/server-config-wss.yaml
+
   run:slim:unix:
     desc: "Run SLIM gateway with Unix domain socket gRPC"
     dir: ".."
@@ -33,11 +45,23 @@ tasks:
     cmds:
       - cargo run --bin sdk-mock -- --config ../../../config/base/client-config.yaml --local-name server --remote-name client
 
+  run:mock-app:server-websocket:
+    desc: "Run the mock app server over WebSocket transport (ws://)"
+    dir: src/sdk-mock
+    cmds:
+      - cargo run --bin sdk-mock -- --config ../../../config/websocket/client-config.yaml --local-name server --remote-name client
+
   run:mock-app:server-unix:
     desc: "Run the mock app server"
     dir: src/sdk-mock
     cmds:
       - cargo run --bin sdk-mock -- --config ../../../config/unix/client-config.yaml --local-name server --remote-name client
+
+  run:mock-app:server-websocket-wss:
+    desc: "Run the mock app server over secure WebSocket transport (wss://)"
+    dir: ".."
+    cmds:
+      - cargo run --manifest-path ./examples/Cargo.toml --bin sdk-mock -- --config ./config/websocket/client-config-wss.yaml --local-name server --remote-name client
 
   run:mock-app:server-mls:
     desc: "Run the mock app server"
@@ -51,11 +75,23 @@ tasks:
     cmds:
       - cargo run --bin sdk-mock -- --config ../../../config/base/client-config.yaml --local-name client --remote-name server --message "hey there!"
 
+  run:mock-app:client-websocket:
+    desc: "Run the mock app client over WebSocket transport (ws://)"
+    dir: src/sdk-mock
+    cmds:
+      - cargo run --bin sdk-mock -- --config ../../../config/websocket/client-config.yaml --local-name client --remote-name server --message "hey there!"
+
   run:mock-app:client-unix:
     desc: "Run the mock app client using Unix domain sockets"
     dir: src/sdk-mock
     cmds:
       - cargo run --bin sdk-mock -- --config ../../../config/unix/client-config.yaml --local-name client --remote-name server --message "hey there!"
+
+  run:mock-app:client-websocket-wss:
+    desc: "Run the mock app client over secure WebSocket transport (wss://)"
+    dir: ".."
+    cmds:
+      - cargo run --manifest-path ./examples/Cargo.toml --bin sdk-mock -- --config ./config/websocket/client-config-wss.yaml --local-name client --remote-name server --message "hey there!"
 
   run:mock-app:client-mls:
     desc: "Run the mock app client"
@@ -91,3 +127,32 @@ tasks:
     dir: "."
     cmds:
       - docker compose down
+
+  run:browser:serve:
+    desc: "Serve the browser demo on http://localhost:8080"
+    dir: ".."
+    cmds:
+      - echo "Serving browser demo at http://localhost:8080/examples/browser/"
+      - python3 -m http.server 8080
+
+  run:browser:
+    desc: "Run browser demo (builds WASM, starts gateway, opens browser)"
+    dir: ".."
+    cmds:
+      - echo "Building WASM package..."
+      - wasm-pack build core/slim-wasm --target web --out-dir ../../pkg
+      - echo ""
+      - echo "═══════════════════════════════════════════════════════"
+      - echo "  SLIM Browser Demo — Setup Instructions"
+      - echo "═══════════════════════════════════════════════════════"
+      - echo ""
+      - echo "1. Start the SLIM gateway (in a separate terminal):"
+      - echo "   cd data-plane && cargo run --bin slim -- --config ./config/websocket/server-config.yaml"
+      - echo ""
+      - echo "2. (Optional) Start a native peer to chat with (in another terminal):"
+      - echo "   cd data-plane/examples && task run:mock-app:server-websocket"
+      - echo ""
+      - echo "3. Open http://localhost:8080/examples/browser/ in your browser"
+      - echo ""
+      - echo "Starting HTTP server..."
+      - python3 -m http.server 8080

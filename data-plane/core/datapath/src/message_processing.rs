@@ -9,9 +9,12 @@ use display_error_chain::ErrorChainExt;
 use opentelemetry::propagation::{Extractor, Injector};
 use opentelemetry::trace::TraceContextExt;
 use parking_lot::RwLock;
+use slim_config::client::ClientConfig;
+use slim_config::client::TransportChannel;
 use slim_config::component::configuration::Configuration;
-use slim_config::grpc::client::ClientConfig;
-use slim_config::grpc::server::ServerConfig;
+use slim_config::server::ServerConfig;
+use slim_config::transport::TransportProtocol;
+use slim_config::websocket::server as websocket_server;
 use slim_tracing::utils::INSTANCE_ID;
 use tokio::sync::mpsc::{self, Sender};
 use tokio::task::JoinHandle;
@@ -43,6 +46,7 @@ use crate::messages::Name;
 use crate::messages::utils::SlimHeaderFlags;
 use crate::tables::connection_table::ConnectionTable;
 use crate::tables::subscription_table::SubscriptionTableImpl;
+use crate::websocket;
 
 // Implementation based on: https://docs.rs/opentelemetry-tonic/latest/src/opentelemetry_tonic/lib.rs.html#1-134
 struct MetadataExtractor<'a>(&'a std::collections::HashMap<String, String>);
@@ -182,6 +186,16 @@ impl MessageProcessor {
         config: &ServerConfig,
     ) -> Result<CancellationToken, DataPathError> {
         debug!(%config, "starting dataplane server");
+        match config.transport {
+            TransportProtocol::Grpc => self.run_grpc_server(config).await,
+            TransportProtocol::Websocket => self.run_websocket_server(config).await,
+        }
+    }
+
+    async fn run_grpc_server(
+        &self,
+        config: &ServerConfig,
+    ) -> Result<CancellationToken, DataPathError> {
         let watch = self.get_drain_watch()?;
         // Wrap self in an Arc since the server builder expects an Arc<MessageProcessor>
         let svc = Arc::new(self.clone());
@@ -190,6 +204,66 @@ impl MessageProcessor {
             .await?;
 
         Ok(res)
+    }
+
+    async fn run_websocket_server(
+        &self,
+        config: &ServerConfig,
+    ) -> Result<CancellationToken, DataPathError> {
+        let watch = self.get_drain_watch()?;
+        let processor = self.clone();
+
+        let on_accepted: websocket_server::OnAcceptedWebSocket = Arc::new(move |accepted| {
+            let processor = processor.clone();
+            Box::pin(async move {
+                let cancellation_token = CancellationToken::new();
+                let streams = websocket::spawn_transport_tasks(
+                    accepted.websocket,
+                    cancellation_token.clone(),
+                );
+
+                let connection =
+                    Connection::new(ConnectionType::Remote, Channel::Client(streams.outbound))
+                        .with_remote_addr(accepted.remote_addr)
+                        .with_local_addr(accepted.local_addr)
+                        .with_cancellation_token(Some(cancellation_token.clone()));
+
+                debug!(
+                    remote = ?connection.remote_addr(),
+                    local = ?connection.local_addr(),
+                    "new websocket connection received from remote",
+                );
+                info!(telemetry = true, counter.num_active_connections = 1);
+
+                let conn_index = match processor
+                    .forwarder()
+                    .on_connection_established(connection, None)
+                {
+                    Some(index) => index,
+                    None => {
+                        error!("failed to add websocket connection to table");
+                        cancellation_token.cancel();
+                        return;
+                    }
+                };
+
+                if let Err(err) = processor.process_stream(
+                    streams.inbound,
+                    conn_index,
+                    None,
+                    cancellation_token,
+                    false,
+                    false,
+                ) {
+                    error!(error = %err.chain(), "error starting websocket processing stream");
+                }
+            })
+        });
+
+        config
+            .run_websocket_server(watch, on_accepted)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn shutdown(&self) -> Result<(), DataPathError> {
@@ -244,6 +318,26 @@ impl MessageProcessor {
         existing_conn_index: Option<u64>,
     ) -> Result<(JoinHandle<()>, u64), DataPathError> {
         client_config.validate()?;
+
+        match client_config.transport {
+            TransportProtocol::Grpc => {
+                self.try_to_connect_grpc(client_config, local, remote, existing_conn_index)
+                    .await
+            }
+            TransportProtocol::Websocket => {
+                self.try_to_connect_websocket(client_config, local, remote, existing_conn_index)
+                    .await
+            }
+        }
+    }
+
+    async fn try_to_connect_grpc(
+        &self,
+        client_config: ClientConfig,
+        local: Option<SocketAddr>,
+        remote: Option<SocketAddr>,
+        existing_conn_index: Option<u64>,
+    ) -> Result<(JoinHandle<()>, u64), DataPathError> {
         let mut watch = std::pin::pin!(self.get_drain_watch()?.signaled());
 
         let channel = tokio::select! {
@@ -253,6 +347,11 @@ impl MessageProcessor {
             res = client_config.to_channel() => {
                 res?
             }
+        };
+
+        let channel = match channel {
+            TransportChannel::Grpc(channel) => channel,
+            TransportChannel::Websocket(_) => return Err(DataPathError::ConnectionError),
         };
 
         let mut client = DataPlaneServiceClient::new(channel);
@@ -315,6 +414,67 @@ impl MessageProcessor {
                 "failed to send link negotiation (remote may be an older SLIM instance)",
             );
         }
+
+        Ok((handle, conn_index))
+    }
+
+    async fn try_to_connect_websocket(
+        &self,
+        client_config: ClientConfig,
+        local: Option<SocketAddr>,
+        remote: Option<SocketAddr>,
+        existing_conn_index: Option<u64>,
+    ) -> Result<(JoinHandle<()>, u64), DataPathError> {
+        let mut watch = std::pin::pin!(self.get_drain_watch()?.signaled());
+
+        let channel = tokio::select! {
+            _ = &mut watch => {
+                return Err(DataPathError::ShuttingDownError);
+            }
+            res = client_config.to_channel() => {
+                res?
+            }
+        };
+
+        let connection = match channel {
+            TransportChannel::Websocket(channel) => *channel,
+            TransportChannel::Grpc(_) => return Err(DataPathError::ConnectionError),
+        };
+
+        let cancellation_token = CancellationToken::new();
+        let streams =
+            websocket::spawn_transport_tasks(connection.websocket, cancellation_token.clone());
+        let connection = Connection::new(ConnectionType::Remote, Channel::Client(streams.outbound))
+            .with_local_addr(local.or(connection.local_addr))
+            .with_remote_addr(remote.or(connection.remote_addr))
+            .with_config_data(Some(client_config.clone()))
+            .with_cancellation_token(Some(cancellation_token.clone()));
+
+        debug!(
+            remote = ?connection.remote_addr(),
+            local = ?connection.local_addr(),
+            "new websocket connection initiated locally",
+        );
+
+        let conn_index = self
+            .forwarder()
+            .on_connection_established(connection, existing_conn_index)
+            .ok_or(DataPathError::ConnectionTableAddError)?;
+
+        debug!(
+            %conn_index,
+            is_local = false,
+            "new websocket connection index",
+        );
+
+        let handle = self.process_stream(
+            streams.inbound,
+            conn_index,
+            Some(client_config),
+            cancellation_token,
+            false,
+            false,
+        )?;
 
         Ok((handle, conn_index))
     }

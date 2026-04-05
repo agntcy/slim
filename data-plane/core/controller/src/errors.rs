@@ -2,14 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use slim_auth::errors::AuthError;
+#[cfg(feature = "native")]
 use slim_config::grpc::errors::ConfigError;
 use slim_datapath::errors::DataPathError;
 use thiserror::Error;
+#[cfg(feature = "native")]
 use tonic::Status;
 
 #[derive(Error, Debug)]
 pub enum ControllerError {
     // Configuration / setup
+    #[cfg(feature = "native")]
     #[error("configuration error")]
     ConfigError(#[from] ConfigError),
 
@@ -20,6 +23,7 @@ pub enum ControllerError {
     AlreadyStopped,
     #[error("timeout waiting for shutdown to complete")]
     ShutdownTimeout,
+    #[cfg(feature = "native")]
     #[error("grpc error")]
     GrpcError(#[from] Status),
 
