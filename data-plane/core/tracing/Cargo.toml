@@ -48,7 +48,7 @@ tracing-opentelemetry = { workspace = true, optional = true }
 getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
 
 # Shared optional (used by both native and wasm)
-tracing-subscriber = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true, features = ["env-filter"] }
 
 # WASM browser console output
 web-sys = { version = "0.3", features = ["console"], optional = true }

@@ -18,8 +18,9 @@ use slim_datapath::{
         utils::{DELETE_GROUP, DISCONNECTION_DETECTED, LEAVING_SESSION, TRUE_VAL},
     },
 };
-use crate::runtime::channel::oneshot;
+use tokio::sync::oneshot;
 
+use display_error_chain::ErrorChainExt;
 use slim_mls::mls::Mls;
 use tracing::debug;
 
@@ -665,14 +666,13 @@ where
     }
 
     async fn on_discovery_reply(&mut self, msg: Message) -> Result<(), SessionError> {
-        tracing::info!(
+        debug!(
             source = %msg.get_source(),
             id = msg.get_id(),
-            "WASM DEBUG: on_discovery_reply entered",
+            "discovery reply",
         );
         // update sender status to stop timers
         self.common.sender.on_message(&msg).await?;
-        tracing::info!("WASM DEBUG: sender updated");
 
         // evolve the current task state
         // the discovery phase is completed
@@ -680,17 +680,14 @@ where
             .as_mut()
             .unwrap()
             .discovery_complete(msg.get_id())?;
-        tracing::info!("WASM DEBUG: discovery_complete done");
 
         // join the channel if needed
         self.join(msg.get_source(), msg.get_incoming_conn()).await?;
-        tracing::info!("WASM DEBUG: join done");
 
         // set a route to the remote participant
         self.common
             .add_route(msg.get_source(), msg.get_incoming_conn())
             .await?;
-        tracing::info!("WASM DEBUG: add_route done");
 
         // if this is a multicast session we need to add a route for the channel
         // on the connection from where we received the message. This has to be done
@@ -708,7 +705,6 @@ where
         // an endpoint replied to the discovery message
         // send a join message
         let msg_id = rand::random::<u32>();
-        tracing::info!(msg_id, "WASM DEBUG: about to build JoinRequest");
 
         let channel = if self.common.settings.config.session_type == ProtoSessionType::Multicast {
             Some(self.common.settings.destination.clone())
@@ -725,10 +721,10 @@ where
             )
             .as_content();
 
-        tracing::info!(
+        debug!(
             dst = %msg.get_slim_header().get_source(),
             id = msg_id,
-            "WASM DEBUG: sending JoinRequest now",
+            "send join request",
         );
         self.common
             .send_control_message(
@@ -741,7 +737,6 @@ where
             )
             .await?;
 
-        tracing::info!(msg_id, "WASM DEBUG: JoinRequest sent successfully");
         // evolve the current task state
         // start the join phase
         self.current_task.as_mut().unwrap().join_start(msg_id)
@@ -1338,7 +1333,7 @@ where
             .await;
 
         if let Err(e) = res {
-            tracing::error!(error = %e, "an error occurred while signaling session close");
+            tracing::error!(error = %e.chain(), "an error occurred while signaling session close");
         }
     }
 }
@@ -1352,7 +1347,7 @@ mod tests {
     use slim_datapath::Status;
     use slim_datapath::api::{CommandPayload, ProtoSessionType};
     use slim_datapath::messages::Name;
-    use crate::runtime::channel::mpsc;
+    use tokio::sync::mpsc;
 
     // --- Test Helpers -----------------------------------------------------------------------
 
