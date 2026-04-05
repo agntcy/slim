@@ -90,11 +90,18 @@ where
     async fn init(&mut self) -> Result<(), SessionError> {
         // Initialize MLS
         self.mls_state = if self.common.settings.config.mls_enabled {
-            let mls_state = MlsState::new(Mls::new(
+            let mls = Mls::new(
                 self.common.settings.identity_provider.clone(),
                 self.common.settings.identity_verifier.clone(),
-            ))
-            .expect("failed to create MLS state");
+            );
+
+            #[cfg(feature = "native")]
+            let mls_state = MlsState::new(mls).expect("failed to create MLS state");
+
+            #[cfg(all(feature = "wasm", not(feature = "native")))]
+            let mls_state = MlsState::new(mls)
+                .await
+                .expect("failed to create MLS state");
 
             Some(mls_state)
         } else {
@@ -446,8 +453,9 @@ where
             let ret =
                 mls_state.process_control_message(msg.clone(), &self.common.settings.source)?;
             #[cfg(mls_build_async)]
-            let ret =
-                mls_state.process_control_message(msg.clone(), &self.common.settings.source).await?;
+            let ret = mls_state
+                .process_control_message(msg.clone(), &self.common.settings.source)
+                .await?;
 
             if !ret {
                 debug!(

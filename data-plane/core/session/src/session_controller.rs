@@ -87,7 +87,7 @@ impl SessionController {
         let cancellation_token = CancellationToken::new();
 
         // setup tracing context
-        let span = tracing::debug_span!(
+        let span = tracing::info_span!(
             parent: None,
             "session_controller_processing_loop",
             session_id = id,

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Crypto provider selection based on compilation target and features.
-//! 
+//!
 //! - `native` feature (default): Uses AWS-LC crypto provider for native targets
 //! - `wasm` feature: Uses WebCrypto provider for browser/WASM targets
 

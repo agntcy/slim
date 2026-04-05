@@ -428,8 +428,7 @@ impl SharedSecret {
             return Err(AuthError::TokenMalformed);
         }
         let key = aws_hmac::Key::new(aws_hmac::HMAC_SHA256, self.inner.shared_secret.as_bytes());
-        aws_hmac::verify(&key, message.as_bytes(), &expected)
-            .map_err(|_e| AuthError::TokenInvalid)
+        aws_hmac::verify(&key, message.as_bytes(), &expected).map_err(|_e| AuthError::TokenInvalid)
     }
 
     #[cfg(all(feature = "wasm", not(feature = "native")))]
@@ -543,6 +542,15 @@ impl TokenProvider for SharedSecret {
 
     fn rotate_signature_keys(&mut self) -> Result<(), AuthError> {
         self.signature_keys = generate_mls_signature_keys()?;
+        Ok(())
+    }
+
+    fn set_signature_keys(
+        &mut self,
+        private_key: Vec<u8>,
+        public_key: Vec<u8>,
+    ) -> Result<(), AuthError> {
+        self.signature_keys = (private_key, public_key);
         Ok(())
     }
 }

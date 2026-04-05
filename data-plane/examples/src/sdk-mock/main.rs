@@ -176,7 +176,8 @@ async fn main() {
             initiator: true,
             metadata: HashMap::new(),
         };
-        let dest = remote_app_name.clone()
+        let dest = remote_app_name
+            .clone()
             .expect("--remote-name is required when sending a message");
 
         let session_ctx = app

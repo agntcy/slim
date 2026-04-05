@@ -22,7 +22,7 @@ use tokio::sync::oneshot;
 
 use display_error_chain::ErrorChainExt;
 use slim_mls::mls::Mls;
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::{
     common::{MessageDirection, SessionMessage},
@@ -111,11 +111,18 @@ where
     async fn init(&mut self) -> Result<(), SessionError> {
         // Initialize MLS
         self.mls_state = if self.common.settings.config.mls_enabled {
-            let mls_state = MlsState::new(Mls::new(
+            let mls = Mls::new(
                 self.common.settings.identity_provider.clone(),
                 self.common.settings.identity_verifier.clone(),
-            ))
-            .expect("failed to create MLS state");
+            );
+
+            #[cfg(feature = "native")]
+            let mls_state = MlsState::new(mls).expect("failed to create MLS state");
+
+            #[cfg(all(feature = "wasm", not(feature = "native")))]
+            let mls_state = MlsState::new(mls)
+                .await
+                .expect("failed to create MLS state");
 
             Some(MlsModeratorState::new(mls_state))
         } else {
@@ -157,7 +164,10 @@ where
                         #[cfg(not(mls_build_async))]
                         mls_state.common.process_message(&mut message, direction)?;
                         #[cfg(mls_build_async)]
-                        mls_state.common.process_message(&mut message, direction).await?;
+                        mls_state
+                            .common
+                            .process_message(&mut message, direction)
+                            .await?;
                     }
 
                     self.inner
@@ -666,13 +676,15 @@ where
     }
 
     async fn on_discovery_reply(&mut self, msg: Message) -> Result<(), SessionError> {
-        debug!(
+        info!(
             source = %msg.get_source(),
             id = msg.get_id(),
-            "discovery reply",
+            session_id = self.common.settings.id,
+            "discovery reply received",
         );
         // update sender status to stop timers
         self.common.sender.on_message(&msg).await?;
+        info!(session_id = self.common.settings.id, "sender timer stopped");
 
         // evolve the current task state
         // the discovery phase is completed
@@ -680,14 +692,19 @@ where
             .as_mut()
             .unwrap()
             .discovery_complete(msg.get_id())?;
+        info!(session_id = self.common.settings.id, "discovery phase complete");
 
         // join the channel if needed
+        info!(session_id = self.common.settings.id, mls = self.mls_state.is_some(), "calling join");
         self.join(msg.get_source(), msg.get_incoming_conn()).await?;
+        info!(session_id = self.common.settings.id, "join completed");
 
         // set a route to the remote participant
+        info!(session_id = self.common.settings.id, route_to = %msg.get_source(), "adding route");
         self.common
             .add_route(msg.get_source(), msg.get_incoming_conn())
             .await?;
+        info!(session_id = self.common.settings.id, "route added");
 
         // if this is a multicast session we need to add a route for the channel
         // on the connection from where we received the message. This has to be done
@@ -1276,6 +1293,7 @@ where
 
     async fn join(&mut self, remote: Name, conn: u64) -> Result<(), SessionError> {
         if self.subscribed {
+            info!("join: already subscribed, skipping");
             return Ok(());
         }
 
@@ -1285,19 +1303,24 @@ where
         // if this is a point to point connection set the remote name so that we
         // can add also the right id to the message destination name
         if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
+            info!(remote = %remote, "join: setting P2P destination");
             self.common.settings.destination = remote;
         } else {
             // if this is a multicast session we need to subscribe for the channel name
             let destination = self.common.settings.destination.clone();
+            info!(destination = %destination, "join: subscribing to multicast channel");
             self.common.add_subscription(destination, conn).await?;
+            info!("join: multicast subscription complete");
         }
 
         // create mls group if needed
         if let Some(mls) = self.mls_state.as_mut() {
+            info!("join: creating MLS group (init_moderator)");
             #[cfg(not(mls_build_async))]
             mls.init_moderator()?;
             #[cfg(mls_build_async)]
             mls.init_moderator().await?;
+            info!("join: MLS group created successfully");
         }
 
         // add ourself to the participants

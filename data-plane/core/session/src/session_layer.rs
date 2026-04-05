@@ -481,16 +481,21 @@ where
     /// corresponding session
     #[tracing::instrument(skip_all, fields(service_id = %self.service_id))]
     pub async fn handle_message_from_slim(&self, mut message: Message) -> Result<(), SessionError> {
-        tracing::trace!(
+        tracing::info!(
             msg_type = %message.get_session_message_type().as_str_name(),
             session_id = %message.get_id(),
-            "received message from SLIM",
+            "handle_message_from_slim: received",
         );
 
         // Pass message to interceptors in the transmitter
         self.transmitter
             .on_msg_from_slim_interceptors(&mut message)
             .await?;
+        tracing::info!(
+            msg_type = %message.get_session_message_type().as_str_name(),
+            session_id = %message.get_id(),
+            "handle_message_from_slim: interceptors passed",
+        );
 
         let (id, session_type, session_message_type) = {
             // get the session type and the session id from the message
@@ -518,6 +523,11 @@ where
         // check if we have a session for the given session ID
         let session_controller = self.pool.read().get(&id).cloned();
         if let Some(controller) = session_controller {
+            tracing::info!(
+                %id,
+                msg_type = %session_message_type.as_str_name(),
+                "handle_message_from_slim: forwarding to session controller",
+            );
             // pass the message to the session
             controller.on_message_from_slim(message).await?;
 
