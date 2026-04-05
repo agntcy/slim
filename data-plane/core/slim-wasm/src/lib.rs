@@ -329,7 +329,8 @@ mod wasm_impl {
             ns: &str,
             name: &str,
         ) -> Result<(), JsError> {
-            let unsub_name = Name::from_strings([org, ns, name]);
+            let unsub_name =
+                Name::from_strings([org, ns, name]).with_id(self.session_layer.app_id());
 
             let subscription_id = self
                 .session_layer
