@@ -73,15 +73,22 @@ impl Default for TracingConfiguration {
     }
 }
 
-fn default_log_level() -> String { "info".to_string() }
+fn default_log_level() -> String {
+    "info".to_string()
+}
 
 fn default_filter() -> Vec<String> {
     vec![
-        "slim_datapath".to_string(), "slim_service".to_string(),
-        "slim_controller".to_string(), "slim_auth".to_string(),
-        "slim_config".to_string(), "slim_mls".to_string(),
-        "slim_session".to_string(), "slim_signal".to_string(),
-        "slim_tracing".to_string(), "_slim_bindings".to_string(),
+        "slim_datapath".to_string(),
+        "slim_service".to_string(),
+        "slim_controller".to_string(),
+        "slim_auth".to_string(),
+        "slim_config".to_string(),
+        "slim_mls".to_string(),
+        "slim_session".to_string(),
+        "slim_signal".to_string(),
+        "slim_tracing".to_string(),
+        "_slim_bindings".to_string(),
         "slim".to_string(),
     ]
 }
@@ -96,11 +103,18 @@ impl TracingConfiguration {
     }
 
     pub fn with_filter(self, filter: Vec<String>) -> Self {
-        TracingConfiguration { filters: filter, ..self }
+        TracingConfiguration {
+            filters: filter,
+            ..self
+        }
     }
 
-    pub fn log_level(&self) -> &str { &self.log_level }
-    pub fn filter(&self) -> &Vec<String> { &self.filters }
+    pub fn log_level(&self) -> &str {
+        &self.log_level
+    }
+    pub fn filter(&self) -> &Vec<String> {
+        &self.filters
+    }
 
     pub fn setup_tracing_subscriber(&self) -> Result<OtelGuard, ConfigError> {
         let fmt_layer = fmt::layer()
@@ -110,7 +124,10 @@ impl TracingConfiguration {
             .with_line_number(true)
             .with_filter(tracing_subscriber::filter::filter_fn(
                 |metadata: &tracing::Metadata| {
-                    !metadata.fields().iter().any(|field| field.name() == "telemetry")
+                    !metadata
+                        .fields()
+                        .iter()
+                        .any(|field| field.name() == "telemetry")
                 },
             ));
 

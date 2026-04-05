@@ -8,10 +8,7 @@ pub mod identity;
 pub mod jwt;
 #[cfg(feature = "native")]
 pub mod oidc;
-#[cfg(all(
-    not(target_family = "windows"),
-    feature = "native"
-))]
+#[cfg(all(not(target_family = "windows"), feature = "native"))]
 pub mod spire;
 #[cfg(feature = "native")]
 pub mod static_jwt;

@@ -93,18 +93,48 @@ pub struct OpenTelemetryConfig {
 }
 
 impl OpenTelemetryConfig {
-    pub fn with_enabled(mut self, enabled: bool) -> Self { self.enabled = enabled; self }
-    pub fn with_grpc_config(mut self, grpc_config: ClientConfig) -> Self { self.grpc = grpc_config; self }
-    pub fn with_service_name(mut self, service_name: String) -> Self { self.service_name = service_name; self }
-    pub fn with_service_version(mut self, service_version: String) -> Self { self.service_version = service_version; self }
-    pub fn with_environment(mut self, environment: String) -> Self { self.environment = environment; self }
-    pub fn with_metrics_interval_secs(mut self, metrics_interval_secs: u64) -> Self { self.metrics_interval_secs = metrics_interval_secs; self }
-    pub fn enabled(&self) -> bool { self.enabled }
-    pub fn grpc_config(&self) -> &ClientConfig { &self.grpc }
-    pub fn service_name(&self) -> &str { &self.service_name }
-    pub fn service_version(&self) -> &str { &self.service_version }
-    pub fn environment(&self) -> &str { &self.environment }
-    pub fn metrics_interval_secs(&self) -> u64 { self.metrics_interval_secs }
+    pub fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+    pub fn with_grpc_config(mut self, grpc_config: ClientConfig) -> Self {
+        self.grpc = grpc_config;
+        self
+    }
+    pub fn with_service_name(mut self, service_name: String) -> Self {
+        self.service_name = service_name;
+        self
+    }
+    pub fn with_service_version(mut self, service_version: String) -> Self {
+        self.service_version = service_version;
+        self
+    }
+    pub fn with_environment(mut self, environment: String) -> Self {
+        self.environment = environment;
+        self
+    }
+    pub fn with_metrics_interval_secs(mut self, metrics_interval_secs: u64) -> Self {
+        self.metrics_interval_secs = metrics_interval_secs;
+        self
+    }
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+    pub fn grpc_config(&self) -> &ClientConfig {
+        &self.grpc
+    }
+    pub fn service_name(&self) -> &str {
+        &self.service_name
+    }
+    pub fn service_version(&self) -> &str {
+        &self.service_version
+    }
+    pub fn environment(&self) -> &str {
+        &self.environment
+    }
+    pub fn metrics_interval_secs(&self) -> u64 {
+        self.metrics_interval_secs
+    }
 }
 
 impl Default for OpenTelemetryConfig {
@@ -121,25 +151,46 @@ impl Default for OpenTelemetryConfig {
     }
 }
 
-fn default_log_level() -> String { "info".to_string() }
-fn default_display_thread_names() -> bool { true }
-fn default_display_thread_ids() -> bool { false }
+fn default_log_level() -> String {
+    "info".to_string()
+}
+fn default_display_thread_names() -> bool {
+    true
+}
+fn default_display_thread_ids() -> bool {
+    false
+}
 fn default_filter() -> Vec<String> {
     vec![
-        "slim_datapath".to_string(), "slim_service".to_string(),
-        "slim_controller".to_string(), "slim_auth".to_string(),
-        "slim_config".to_string(), "slim_mls".to_string(),
-        "slim_session".to_string(), "slim_signal".to_string(),
-        "slim_tracing".to_string(), "_slim_bindings".to_string(),
-        "slim_testing".to_string(), "slim".to_string(),
-        "slim_examples".to_string(), "sdk_mock".to_string(),
+        "slim_datapath".to_string(),
+        "slim_service".to_string(),
+        "slim_controller".to_string(),
+        "slim_auth".to_string(),
+        "slim_config".to_string(),
+        "slim_mls".to_string(),
+        "slim_session".to_string(),
+        "slim_signal".to_string(),
+        "slim_tracing".to_string(),
+        "_slim_bindings".to_string(),
+        "slim_testing".to_string(),
+        "slim".to_string(),
+        "slim_examples".to_string(),
+        "sdk_mock".to_string(),
         "client".to_string(),
     ]
 }
-fn default_service_name() -> String { "slim-data-plane".to_string() }
-fn default_service_version() -> String { "v0.1.0".to_string() }
-fn default_environment() -> String { "development".to_string() }
-fn default_metrics_interval() -> u64 { 30 }
+fn default_service_name() -> String {
+    "slim-data-plane".to_string()
+}
+fn default_service_version() -> String {
+    "v0.1.0".to_string()
+}
+fn default_environment() -> String {
+    "development".to_string()
+}
+fn default_metrics_interval() -> u64 {
+    30
+}
 
 fn resolve_level(level: &str) -> tracing::Level {
     match level.to_lowercase().as_str() {
@@ -178,15 +229,24 @@ impl TracingConfiguration {
     }
 
     pub fn with_display_thread_names(self, display_thread_names: bool) -> Self {
-        TracingConfiguration { display_thread_names, ..self }
+        TracingConfiguration {
+            display_thread_names,
+            ..self
+        }
     }
 
     pub fn with_display_thread_ids(self, display_thread_ids: bool) -> Self {
-        TracingConfiguration { display_thread_ids, ..self }
+        TracingConfiguration {
+            display_thread_ids,
+            ..self
+        }
     }
 
     pub fn with_filter(self, filter: Vec<String>) -> Self {
-        TracingConfiguration { filters: filter, ..self }
+        TracingConfiguration {
+            filters: filter,
+            ..self
+        }
     }
 
     pub fn with_opentelemetry_config(mut self, config: OpenTelemetryConfig) -> Self {
@@ -204,10 +264,18 @@ impl TracingConfiguration {
         self
     }
 
-    pub fn log_level(&self) -> &str { &self.log_level }
-    pub fn display_thread_names(&self) -> bool { self.display_thread_names }
-    pub fn display_thread_ids(&self) -> bool { self.display_thread_ids }
-    pub fn filter(&self) -> &Vec<String> { &self.filters }
+    pub fn log_level(&self) -> &str {
+        &self.log_level
+    }
+    pub fn display_thread_names(&self) -> bool {
+        self.display_thread_names
+    }
+    pub fn display_thread_ids(&self) -> bool {
+        self.display_thread_ids
+    }
+    pub fn filter(&self) -> &Vec<String> {
+        &self.filters
+    }
 
     pub fn setup_tracing_subscriber(&self) -> Result<OtelGuard, ConfigError> {
         let fmt_layer = fmt::layer()
@@ -216,29 +284,55 @@ impl TracingConfiguration {
             .with_line_number(true)
             .with_filter(tracing_subscriber::filter::filter_fn(
                 |metadata: &tracing::Metadata| {
-                    !metadata.fields().iter().any(|field| field.name() == "telemetry")
+                    !metadata
+                        .fields()
+                        .iter()
+                        .any(|field| field.name() == "telemetry")
                 },
             ));
 
         let level_filter = if let Ok(env_value) = std::env::var("RUST_LOG") {
             let needs_global_off = {
-                let tokens: Vec<&str> = env_value.split(',').map(|t| t.trim()).filter(|t| !t.is_empty()).collect();
-                !tokens.iter().any(|t| matches!(*t, "trace" | "debug" | "info" | "warn" | "error" | "off"))
+                let tokens: Vec<&str> = env_value
+                    .split(',')
+                    .map(|t| t.trim())
+                    .filter(|t| !t.is_empty())
+                    .collect();
+                !tokens
+                    .iter()
+                    .any(|t| matches!(*t, "trace" | "debug" | "info" | "warn" | "error" | "off"))
             };
-            let augmented = if needs_global_off { format!("{env_value},off") } else { env_value };
+            let augmented = if needs_global_off {
+                format!("{env_value},off")
+            } else {
+                env_value
+            };
             EnvFilter::new(augmented)
         } else {
             let is_default = self.filters == default_filter();
-            let builder = EnvFilter::builder().with_default_directive(resolve_level(self.log_level()).into());
+            let builder =
+                EnvFilter::builder().with_default_directive(resolve_level(self.log_level()).into());
             let filter_string = if is_default {
-                self.filters.iter().map(|m| {
-                    let module = m.split('=').next().unwrap_or(m);
-                    format!("{module}={}", self.log_level())
-                }).collect::<Vec<_>>().join(",")
+                self.filters
+                    .iter()
+                    .map(|m| {
+                        let module = m.split('=').next().unwrap_or(m);
+                        format!("{module}={}", self.log_level())
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",")
             } else {
-                self.filters.iter().map(|d| {
-                    if d.contains('=') { d.clone() } else { format!("{d}={}", self.log_level()) }
-                }).collect::<Vec<_>>().join(",")
+                self.filters
+                    .iter()
+                    .map(|d| {
+                        if d.contains('=') {
+                            d.clone()
+                        } else {
+                            format!("{d}={}", self.log_level())
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",")
             };
             builder.parse_lossy(filter_string)
         };
@@ -249,8 +343,12 @@ impl TracingConfiguration {
                 .with_attributes([
                     KeyValue::new(SERVICE_NAME, self.opentelemetry.service_name.clone()),
                     KeyValue::new(SERVICE_VERSION, self.opentelemetry.service_version.clone()),
-                    KeyValue::new(DEPLOYMENT_ENVIRONMENT_NAME, self.opentelemetry.environment.clone()),
-                ]).build();
+                    KeyValue::new(
+                        DEPLOYMENT_ENVIRONMENT_NAME,
+                        self.opentelemetry.environment.clone(),
+                    ),
+                ])
+                .build();
 
             let exporter = opentelemetry_otlp::SpanExporter::builder()
                 .with_tonic()
@@ -258,7 +356,9 @@ impl TracingConfiguration {
                 .build()?;
 
             let tracer_provider = SdkTracerProvider::builder()
-                .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(1.0))))
+                .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
+                    1.0,
+                ))))
                 .with_id_generator(RandomIdGenerator::default())
                 .with_resource(resource.clone())
                 .with_batch_exporter(exporter)
@@ -271,10 +371,13 @@ impl TracingConfiguration {
                 .build()?;
 
             let reader = PeriodicReader::builder(exporter)
-                .with_interval(std::time::Duration::from_secs(self.opentelemetry.metrics_interval_secs))
+                .with_interval(std::time::Duration::from_secs(
+                    self.opentelemetry.metrics_interval_secs,
+                ))
                 .build();
 
-            let stdout_reader = PeriodicReader::builder(opentelemetry_stdout::MetricExporter::default()).build();
+            let stdout_reader =
+                PeriodicReader::builder(opentelemetry_stdout::MetricExporter::default()).build();
 
             let meter_provider = MeterProviderBuilder::default()
                 .with_resource(resource.clone())
@@ -294,14 +397,20 @@ impl TracingConfiguration {
                 .with(OpenTelemetryLayer::new(tracer))
                 .try_init()?;
 
-            Ok(OtelGuard { tracer_provider: Some(tracer_provider), meter_provider: Some(meter_provider) })
+            Ok(OtelGuard {
+                tracer_provider: Some(tracer_provider),
+                meter_provider: Some(meter_provider),
+            })
         } else {
             tracing_subscriber::registry()
                 .with(level_filter)
                 .with(fmt_layer)
                 .try_init()?;
 
-            Ok(OtelGuard { tracer_provider: None, meter_provider: None })
+            Ok(OtelGuard {
+                tracer_provider: None,
+                meter_provider: None,
+            })
         }
     }
 }

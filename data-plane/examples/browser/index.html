@@ -125,6 +125,12 @@
         <option value="point-to-point">Point-to-Point</option>
         <option value="multicast">Multicast</option>
       </select>
+      <div style="margin-bottom: 0.75rem;">
+        <label style="display: inline; cursor: pointer;">
+          <input id="mlsEnabled" type="checkbox" style="width: auto; margin-right: 0.4rem;" />
+          Enable MLS (end-to-end encryption)
+        </label>
+      </div>
       <div class="btn-row">
         <button id="btnCreateSession" class="btn-primary">Create Session</button>
       </div>
@@ -317,9 +323,10 @@
       const ns = $("destNs").value.trim();
       const app = $("destApp").value.trim();
       const type = $("sessionType").value;
-      log(`Creating ${type} session to ${org}/${ns}/${app}...`);
+      const mls = $("mlsEnabled").checked;
+      log(`Creating ${type} session to ${org}/${ns}/${app}${mls ? " (MLS enabled)" : ""}...`);
       try {
-        const id = await client.createSession(org, ns, app, type);
+        const id = await client.createSession(org, ns, app, type, mls ? true : undefined);
         log(`Session created: ID=${id}`, "log-ok");
         $("pubSessionId").value = id;
         $("groupSessionId").value = id;

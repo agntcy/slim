@@ -33,39 +33,25 @@ native = [
     "native-spiffe",
 ]
 native-spiffe = ["dep:spiffe"]
-wasm = [
-    "dep:hmac",
-    "dep:js-sys",
-    "dep:parking_lot",
-    "dep:sha2",
-    "dep:getrandom",
-]
+wasm = ["dep:hmac", "dep:js-sys", "dep:parking_lot", "dep:sha2", "dep:getrandom"]
 
 [dependencies]
 # Always available (core types, traits, metadata)
 agntcy-slim-version = { workspace = true }
 async-trait = { workspace = true }
-base64 = { workspace = true }
-http = { workspace = true }
-prost-types = { workspace = true }
-rand = { workspace = true }
-schemars = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
-thiserror = { workspace = true }
-tracing = { workspace = true }
-
-# WASM support
-getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
-hmac = { version = "0.12", optional = true }
-js-sys = { version = "0.3", optional = true }
-sha2 = { version = "0.10", optional = true }
 
 # Native-only dependencies
 aws-lc-rs = { workspace = true, optional = true }
+base64 = { workspace = true }
 display-error-chain = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
+
+# WASM support
+getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
 headers = { workspace = true, optional = true }
+hmac = { version = "0.12", optional = true }
+http = { workspace = true }
+js-sys = { version = "0.3", optional = true }
 jsonwebtoken = { workspace = true, optional = true }
 mls-rs-core = { workspace = true, optional = true }
 mls-rs-crypto-awslc = { workspace = true, optional = true }
@@ -73,12 +59,20 @@ notify = { workspace = true, optional = true }
 oauth2 = { workspace = true, features = ["reqwest"], optional = true }
 parking_lot = { workspace = true, optional = true }
 pin-project = { workspace = true, optional = true }
+prost-types = { workspace = true }
+rand = { workspace = true }
 reqwest = { workspace = true, optional = true }
+schemars = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { version = "0.10", optional = true }
+thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"], optional = true }
 tokio-util = { workspace = true, optional = true }
 tower = { workspace = true, optional = true }
 tower-layer = { workspace = true, optional = true }
 tower-service = { workspace = true, optional = true }
+tracing = { workspace = true }
 url = { workspace = true, optional = true }
 wiremock = { workspace = true, optional = true }
 
