@@ -65,7 +65,7 @@ mod wasm_impl {
 
     use slim_auth::shared_secret::SharedSecret;
     use slim_auth::traits::TokenProvider;
-    use slim_datapath::api::{ProtoMessage, ProtoSessionType};
+    use slim_datapath::api::{ProtoMessage, ProtoSessionMessageType, ProtoSessionType};
     use slim_datapath::messages::Name;
     use slim_session::interceptor::{IdentityInterceptor, SessionInterceptorProvider};
     use slim_session::notification::Notification;
@@ -130,11 +130,21 @@ mod wasm_impl {
             ns: &str,
             app: &str,
         ) -> Result<SlimClient, JsError> {
-            let app_name = Name::from_strings([org, ns, app]).with_id(0);
-
             // Auth
             let auth = SharedSecret::new(app, shared_secret)
                 .map_err(|e| JsError::new(&format!("auth error: {e}")))?;
+
+            // Generate app ID from identity token ID (mirrors native App::new_with_direction)
+            let app_id = {
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::{Hash, Hasher};
+                let token_id = auth.get_id()
+                    .map_err(|e| JsError::new(&format!("get_id error: {e}")))?;
+                let mut hasher = DefaultHasher::new();
+                token_id.hash(&mut hasher);
+                hasher.finish()
+            };
+            let app_name = Name::from_strings([org, ns, app]).with_id(app_id);
             let auth_verifier = SharedSecret::new(app, shared_secret)
                 .map_err(|e| JsError::new(&format!("auth error: {e}")))?;
             let token = auth
@@ -393,16 +403,43 @@ mod wasm_impl {
             // Spawn a receiver to forward session messages to the JS callback
             let on_msg = self.on_message_cb.clone();
             let (_, mut rx) = session_ctx.into_parts();
+            let sid = session_id;
             wasm_bindgen_futures::spawn_local(async move {
+                tracing::info!(session_id = sid, "session receiver started");
                 while let Some(msg_result) = rx.recv().await {
-                    if let Ok(msg) = msg_result {
-                        let cb = on_msg.lock().clone();
-                        if let Some(callback) = cb {
-                            let obj = build_message_js_object(&msg);
-                            callback.0.call1(&JsValue::NULL, &obj).ok();
+                    match msg_result {
+                        Ok(msg) => {
+                            tracing::info!(
+                                session_id = sid,
+                                "session receiver got message, invoking JS callback",
+                            );
+                            let cb = on_msg.lock().clone();
+                            if let Some(callback) = cb {
+                                let obj = build_message_js_object(&msg);
+                                if let Err(e) = callback.0.call1(&JsValue::NULL, &obj) {
+                                    tracing::error!(
+                                        session_id = sid,
+                                        error = ?e,
+                                        "JS on_message callback threw",
+                                    );
+                                }
+                            } else {
+                                tracing::warn!(
+                                    session_id = sid,
+                                    "no on_message callback registered",
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                session_id = sid,
+                                error = ?e,
+                                "session receiver got error",
+                            );
                         }
                     }
                 }
+                tracing::info!(session_id = sid, "session receiver ended");
             });
 
             // Wait for session establishment (discovery handshake)
@@ -679,10 +716,59 @@ mod wasm_impl {
         // Spawn ALL messages into a separate task to avoid deadlocking the
         // read loop when session handling awaits subscription acks.
         let sl = session_layer.clone();
+        let (msg_type, session_id, identity_preview) =
+            if let Some(sh) = msg.try_get_session_header() {
+                let t: ProtoSessionMessageType =
+                    sh.session_message_type.try_into().unwrap_or_default();
+                let identity = msg
+                    .try_get_slim_header()
+                    .map(|h| {
+                        let id = h.get_identity();
+                        if id.is_empty() {
+                            "<empty>".to_string()
+                        } else if id.len() > 40 {
+                            format!("{}…(len={})", &id[..40], id.len())
+                        } else {
+                            id
+                        }
+                    })
+                    .unwrap_or_else(|| "<no-slim-header>".to_string());
+                (t.as_str_name().to_string(), sh.session_id, identity)
+            } else {
+                let kind = if msg.is_publish() {
+                    "Publish(no-session)"
+                } else if msg.is_link() {
+                    "Link"
+                } else {
+                    "Unknown"
+                };
+                (kind.to_string(), 0u32, "<no-session-header>".to_string())
+            };
         wasm_bindgen_futures::spawn_local(async move {
-            if let Err(e) = sl.handle_message_from_slim(msg).await {
-                if !matches!(e, SessionError::SubscriptionNotFound(_)) {
-                    tracing::warn!("handle message error: {e}");
+            tracing::info!(
+                %msg_type,
+                %session_id,
+                %identity_preview,
+                "routing message to session layer",
+            );
+            match sl.handle_message_from_slim(msg).await {
+                Ok(()) => {
+                    tracing::info!(
+                        %msg_type,
+                        %session_id,
+                        "message processed successfully",
+                    );
+                }
+                Err(e) => {
+                    if !matches!(e, SessionError::SubscriptionNotFound(_)) {
+                        tracing::warn!(
+                            %msg_type,
+                            %session_id,
+                            %identity_preview,
+                            error = ?e,
+                            "handle message error",
+                        );
+                    }
                 }
             }
         });

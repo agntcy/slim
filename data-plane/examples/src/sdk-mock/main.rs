@@ -227,8 +227,8 @@ async fn main() {
                         // Get session before spawning receiver
                         let session_arc = session.session_arc().unwrap();
 
-                        // Derive the peer name from the session (the source is the remote peer)
-                        let peer = session_arc.source().clone();
+                        // Derive the peer name from the session destination (the remote peer)
+                        let peer = session_arc.dst().clone();
                         info!(peer = %peer, "accepted incoming session");
 
                         // Use the extracted spawn_session_receiver function
