@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Standard library imports
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, pin::pin, time::Duration};
 
+use display_error_chain::ErrorChainExt;
 use parking_lot::Mutex;
-use crate::runtime::channel::oneshot;
 // Third-party crates
 use crate::runtime::CancellationToken;
+use tokio::sync::{mpsc, oneshot};
 use tracing::{Instrument, debug};
 
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -45,13 +46,13 @@ pub struct SessionController {
     pub(crate) config: SessionConfig,
 
     /// channel to send messages to the processing loop
-    tx_controller: crate::runtime::channel::mpsc::Sender<SessionMessage>,
+    tx_controller: mpsc::Sender<SessionMessage>,
 
     /// use in drop implementation to gracefully close the processing loop
     pub(crate) cancellation_token: CancellationToken,
 
     /// handle for the processing loop
-    handle: Mutex<Option<crate::runtime::JoinHandle<()>>>,
+    handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl SessionController {
@@ -72,8 +73,8 @@ impl SessionController {
         destination: Name,
         config: SessionConfig,
         settings: SessionSettings<P, V, M>,
-        tx: crate::runtime::channel::mpsc::Sender<SessionMessage>,
-        rx: crate::runtime::channel::mpsc::Receiver<SessionMessage>,
+        tx: mpsc::Sender<SessionMessage>,
+        rx: mpsc::Receiver<SessionMessage>,
         inner: I,
     ) -> Self
     where
@@ -96,7 +97,7 @@ impl SessionController {
             session_type = ?config.session_type
         );
 
-        let handle = crate::runtime::spawn(
+        let handle = tokio::spawn(
             Self::processing_loop(inner, rx, cancellation_token.clone(), settings).instrument(span),
         );
 
@@ -113,7 +114,7 @@ impl SessionController {
 
     /// Internal processing loop that handles messages with mutable access
     fn enter_draining_state<P, V, M>(
-        shutdown_deadline: &mut crate::runtime::Deadline,
+        shutdown_at: &mut Option<web_time::Instant>,
         settings: &SessionSettings<P, V, M>,
     ) where
         P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
@@ -123,12 +124,12 @@ impl SessionController {
         let shutdown_timeout = settings
             .graceful_shutdown_timeout
             .unwrap_or(Duration::from_secs(60));
-        shutdown_deadline.reset(shutdown_timeout);
+        *shutdown_at = Some(web_time::Instant::now() + shutdown_timeout);
     }
 
     async fn processing_loop<P, V, M>(
         mut inner: impl MessageHandler + 'static,
-        mut rx: crate::runtime::channel::mpsc::Receiver<SessionMessage>,
+        mut rx: mpsc::Receiver<SessionMessage>,
         cancellation_token: CancellationToken,
         settings: SessionSettings<P, V, M>,
     ) where
@@ -136,51 +137,65 @@ impl SessionController {
         V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
         M: crate::subscription_manager::SubscriptionOps,
     {
-        use crate::runtime::{Deadline, ProcessingSelect, select_processing};
-
-        // Start with an infinite timeout (will be updated on graceful shutdown)
-        let mut shutdown_deadline = Deadline::after(Duration::MAX);
+        // Set when draining starts; each loop iteration builds a fresh sleep to the deadline
+        // so this works on native tokio (`Sleep::reset`) and on wasm (`tokio_with_wasm` sleep).
+        let mut shutdown_at: Option<web_time::Instant> = None;
 
         // Init the inner components
         if let Err(e) = inner.init().await {
-            tracing::error!(error = %e, "error during initialization of session");
+            tracing::error!(error = %e.chain(), "error during initialization of session");
         }
 
+        // `cancelled()` stays permanently ready after the token is cancelled; without this flag,
+        // handlers that keep reporting `Active` (e.g. default `processing_state`) would re-enter
+        // the cancellation branch every loop iteration.
+        let mut controller_cancel_handled = false;
+
         loop {
-            let check_cancel = inner.processing_state() == ProcessingState::Active;
+            let shutdown_deadline_snapshot = shutdown_at;
+            let mut shutdown_deadline_fut = pin!(async move {
+                match shutdown_deadline_snapshot {
+                    Some(deadline) => {
+                        let now = web_time::Instant::now();
+                        if let Some(d) = deadline.checked_duration_since(now) {
+                            tokio::time::sleep(d).await;
+                        }
+                    }
+                    None => std::future::pending::<()>().await,
+                }
+            });
 
-            match select_processing(&mut rx, &cancellation_token, &mut shutdown_deadline, check_cancel).await {
-                ProcessingSelect::Cancelled => {
-                    // Update the timeout to the configured grace period
+            tokio::select! {
+                _ = cancellation_token.cancelled(), if inner.processing_state() == ProcessingState::Active && !controller_cancel_handled => {
+                    controller_cancel_handled = true;
+
                     let shutdown_timeout = settings.graceful_shutdown_timeout
-                        .unwrap_or(Duration::from_secs(60)); // Default 60 seconds if not configured
+                        .unwrap_or(Duration::from_secs(60));
 
-                    // Finish any ongoing processing before starting drain
                     debug!("consuming pending messages before entering draining state");
                     while let Ok(msg) = rx.try_recv() {
                         if let Err(e) = inner.on_message(msg).await {
-                            tracing::error!(error = %e, "error processing message during draining - close immediately.");
+                            tracing::error!(error = %e.chain(), "error processing message during draining - close immediately.");
                             break;
                         }
                     }
 
-                    // Send drain to message to the inner to notify the beginning of the drain
                     if let Err(e) = inner.on_message(SessionMessage::StartDrain {
                         grace_period: shutdown_timeout
                     }).await {
-                        tracing::error!(error = %e, "error during start drain");
+                        tracing::error!(error = %e.chain(), "error during start drain");
                         break;
                     }
 
-                    Self::enter_draining_state(&mut shutdown_deadline, &settings);
+                    Self::enter_draining_state(&mut shutdown_at, &settings);
 
                     debug!("cancellation requested, entering draining state");
                 }
-                ProcessingSelect::DeadlineExpired => {
+                _ = shutdown_deadline_fut.as_mut(), if shutdown_at.is_some() => {
                     debug!("graceful shutdown timeout reached, forcing exit");
                     break;
                 }
-                ProcessingSelect::Message(msg) => {
+                msg = rx.recv() => {
                     match msg {
                         Some(session_message) => {
                             // Handle GetParticipantsList query immediately without going through the handler
@@ -216,7 +231,7 @@ impl SessionController {
                                 // start (or reset) the graceful shutdown deadline just like on cancellation.
                                 if !draining && inner.processing_state() == ProcessingState::Draining {
                                     debug!("internal component requested draining, entering draining state");
-                                    Self::enter_draining_state(&mut shutdown_deadline, &settings);
+                                    Self::enter_draining_state(&mut shutdown_at, &settings);
                                 }
                             }
                         }
@@ -237,7 +252,7 @@ impl SessionController {
 
         // Perform final shutdown
         if let Err(e) = inner.on_shutdown().await {
-            tracing::error!(error = %e, "error during shutdown of session");
+            tracing::error!(error = %e.chain(), "error during shutdown of session");
         }
     }
 
@@ -331,7 +346,7 @@ impl SessionController {
             .map_err(|_e| SessionError::SessionControllerSendFailed)
     }
 
-    pub fn close(&self) -> Result<crate::runtime::JoinHandle<()>, SessionError> {
+    pub fn close(&self) -> Result<tokio::task::JoinHandle<()>, SessionError> {
         self.cancellation_token.cancel();
 
         self.handle
@@ -606,9 +621,7 @@ where
     }
 
     async fn await_subscription_ack(
-        rx: crate::runtime::channel::oneshot::Receiver<
-            Result<(), crate::subscription_manager::SubscriptionAckError>,
-        >,
+        rx: oneshot::Receiver<Result<(), crate::subscription_manager::SubscriptionAckError>>,
     ) -> Result<(), SessionError> {
         crate::subscription_manager::SubscriptionManager::await_ack(rx)
             .await
@@ -773,6 +786,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::sync::mpsc;
 
     // Test: internal draining transition triggered by a leave request.
     // This test sends a LeaveRequest into a multicast participant session and then
@@ -869,8 +883,8 @@ mod tests {
             self,
         ) -> (
             SessionController,
-            crate::runtime::channel::mpsc::Receiver<Result<Message, slim_datapath::Status>>,
-            crate::runtime::channel::mpsc::UnboundedReceiver<Result<Message, SessionError>>,
+            mpsc::Receiver<Result<Message, slim_datapath::Status>>,
+            mpsc::UnboundedReceiver<Result<Message, SessionError>>,
         ) {
             let config = SessionConfig {
                 session_type: self.session_type,
@@ -881,9 +895,9 @@ mod tests {
                 metadata: self.metadata,
             };
 
-            let (tx_slim, rx_slim) = crate::runtime::channel::mpsc::channel(10);
-            let (tx_app, rx_app) = crate::runtime::channel::mpsc::unbounded_channel();
-            let (tx_session_layer, _rx_session_layer) = crate::runtime::channel::mpsc::channel(10);
+            let (tx_slim, rx_slim) = mpsc::channel(10);
+            let (tx_app, rx_app) = mpsc::unbounded_channel();
+            let (tx_session_layer, _rx_session_layer) = mpsc::channel(10);
 
             let tx = SessionTransmitter::new(tx_slim, tx_app);
 
@@ -1263,10 +1277,9 @@ mod tests {
         let participant_name = Name::from_strings(["org", "ns", "participant"]);
         let participant_name_id = Name::from_strings(["org", "ns", "participant"]).with_id(1);
         // create a SessionModerator
-        let (tx_slim_moderator, mut rx_slim_moderator) = crate::runtime::channel::mpsc::channel(10);
-        let (tx_app_moderator, _rx_app_moderator) = crate::runtime::channel::mpsc::unbounded_channel();
-        let (tx_session_layer_moderator, _rx_session_layer_moderator) =
-            crate::runtime::channel::mpsc::channel(10);
+        let (tx_slim_moderator, mut rx_slim_moderator) = mpsc::channel(10);
+        let (tx_app_moderator, _rx_app_moderator) = mpsc::unbounded_channel();
+        let (tx_session_layer_moderator, _rx_session_layer_moderator) = mpsc::channel(10);
 
         let tx_moderator =
             SessionTransmitter::new(tx_slim_moderator.clone(), tx_app_moderator.clone());
@@ -1297,10 +1310,9 @@ mod tests {
             .unwrap();
 
         // create a SessionParticipant
-        let (tx_slim_participant, mut rx_slim_participant) = crate::runtime::channel::mpsc::channel(10);
-        let (tx_app_participant, mut rx_app_participant) = crate::runtime::channel::mpsc::unbounded_channel();
-        let (tx_session_layer_participant, _rx_session_layer_participant) =
-            crate::runtime::channel::mpsc::channel(10);
+        let (tx_slim_participant, mut rx_slim_participant) = mpsc::channel(10);
+        let (tx_app_participant, mut rx_app_participant) = mpsc::unbounded_channel();
+        let (tx_session_layer_participant, _rx_session_layer_participant) = mpsc::channel(10);
 
         let tx_participant =
             SessionTransmitter::new(tx_slim_participant.clone(), tx_app_participant.clone());
@@ -1714,7 +1726,6 @@ mod tests {
     #[tokio::test]
     async fn test_internal_draining_via_processing_state_switch() {
         use super::*;
-        use crate::runtime::channel::mpsc;
         use tracing::debug;
 
         // Custom handler that flips processing_state to Draining after first normal message
@@ -1803,7 +1814,7 @@ mod tests {
         let cancellation_token_clone = cancellation_token.clone();
 
         // Spawn processing loop without unnecessary cloning
-        let processing_handle = crate::runtime::spawn(async move {
+        let processing_handle = tokio::spawn(async move {
             SessionController::processing_loop(
                 handler,
                 rx_session,
@@ -1939,10 +1950,10 @@ mod tests {
     fn create_test_settings(
         graceful_shutdown_timeout: Option<Duration>,
     ) -> SessionSettings<SharedSecret, SharedSecret> {
-        let (tx_slim, _rx_slim) = crate::runtime::channel::mpsc::channel(10);
-        let (tx_app, _rx_app) = crate::runtime::channel::mpsc::unbounded_channel();
-        let (tx_session, _rx_session) = crate::runtime::channel::mpsc::channel(10);
-        let (tx_session_layer, _rx_session_layer) = crate::runtime::channel::mpsc::channel(10);
+        let (tx_slim, _rx_slim) = mpsc::channel(10);
+        let (tx_app, _rx_app) = mpsc::unbounded_channel();
+        let (tx_session, _rx_session) = mpsc::channel(10);
+        let (tx_session_layer, _rx_session_layer) = mpsc::channel(10);
 
         let subscription_manager =
             crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
@@ -2000,11 +2011,11 @@ mod tests {
     /// Helper to spawn a processing loop and return the task handle
     fn spawn_processing_loop(
         handler: DrainableHandler,
-        rx: crate::runtime::channel::mpsc::Receiver<SessionMessage>,
+        rx: mpsc::Receiver<SessionMessage>,
         cancellation_token: CancellationToken,
         settings: SessionSettings<SharedSecret, SharedSecret>,
-    ) -> crate::runtime::JoinHandle<()> {
-        crate::runtime::spawn(async move {
+    ) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
             SessionController::processing_loop(handler, rx, cancellation_token, settings).await;
         })
     }
@@ -2015,7 +2026,7 @@ mod tests {
         let messages_received = handler.messages_received.clone();
         let shutdown_called = handler.shutdown_called.clone();
 
-        let (tx, rx) = crate::runtime::channel::mpsc::channel(10);
+        let (tx, rx) = mpsc::channel(10);
         let cancellation_token = CancellationToken::new();
         let token_clone = cancellation_token.clone();
 
@@ -2066,7 +2077,7 @@ mod tests {
         let messages_received = handler.messages_received.clone();
         let shutdown_called = handler.shutdown_called.clone();
 
-        let (tx, rx) = crate::runtime::channel::mpsc::channel(10);
+        let (tx, rx) = mpsc::channel(10);
         let cancellation_token = CancellationToken::new();
         let token_clone = cancellation_token.clone();
 
@@ -2104,7 +2115,7 @@ mod tests {
         let messages_received = handler.messages_received.clone();
         let shutdown_called = handler.shutdown_called.clone();
 
-        let (tx, rx) = crate::runtime::channel::mpsc::channel(10);
+        let (tx, rx) = mpsc::channel(10);
         let cancellation_token = CancellationToken::new();
         let token_clone = cancellation_token.clone();
 
@@ -2149,7 +2160,7 @@ mod tests {
         // Test that the timeout fires when draining takes too long with needs_drain=true
         let handler = DrainableHandler::new().with_needs_drain(true);
 
-        let (tx, rx) = crate::runtime::channel::mpsc::channel(10);
+        let (tx, rx) = mpsc::channel(10);
         let cancellation_token = CancellationToken::new();
         let token_clone = cancellation_token.clone();
 
@@ -2166,7 +2177,7 @@ mod tests {
 
         // Keep sending messages to prevent channel from closing
         // This simulates a scenario where messages keep arriving during drain period
-        let send_task = crate::runtime::spawn(async move {
+        let send_task = tokio::spawn(async move {
             for i in 0..10 {
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 if tx
@@ -2207,7 +2218,7 @@ mod tests {
         let messages_received = handler.messages_received.clone();
         let shutdown_called = handler.shutdown_called.clone();
 
-        let (tx, rx) = crate::runtime::channel::mpsc::channel(10);
+        let (tx, rx) = mpsc::channel(10);
         let cancellation_token = CancellationToken::new();
         let token_clone = cancellation_token.clone();
 
@@ -2238,7 +2249,7 @@ mod tests {
         let handler = DrainableHandler::new();
         let messages_received = handler.messages_received.clone();
 
-        let (tx, rx) = crate::runtime::channel::mpsc::channel(10);
+        let (tx, rx) = mpsc::channel(10);
         let cancellation_token = CancellationToken::new();
         let token_clone = cancellation_token.clone();
 

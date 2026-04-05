@@ -22,6 +22,7 @@ agntcy-slim-tracing = { workspace = true, default-features = false, features = [
 
 futures = { workspace = true }
 js-sys = "0.3"
+tokio_with_wasm = { version = "0.9", features = ["rt", "sync", "time", "macros"] }
 parking_lot = { workspace = true }
 prost = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

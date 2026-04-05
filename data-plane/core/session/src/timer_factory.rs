@@ -4,7 +4,7 @@
 use std::{sync::Arc, time::Duration};
 
 use slim_datapath::{api::ProtoSessionMessageType, messages::Name};
-use crate::runtime::channel::mpsc::Sender;
+use tokio::sync::mpsc::Sender;
 use async_trait::async_trait;
 use tracing::debug;
 
@@ -173,7 +173,7 @@ impl TimerFactory {
 mod tests {
     use super::*;
     use std::time::Duration;
-    use crate::runtime::channel::mpsc;
+    use tokio::sync::mpsc;
     use tokio::time::timeout;
 
     // Helper function to create test names

@@ -14,9 +14,6 @@ native = [
     "agntcy-slim-auth/native",
     "agntcy-slim-datapath/native",
     "agntcy-slim-mls/native",
-    "dep:display-error-chain",
-    "dep:futures",
-    "dep:futures-timer",
     "dep:tokio",
     "dep:tokio-util",
     "dep:tonic",
@@ -26,10 +23,7 @@ wasm = [
     "agntcy-slim-datapath/wasm",
     "agntcy-slim-mls/wasm",
     "dep:getrandom",
-    "dep:futures-channel",
-    "dep:futures-core",
-    "dep:gloo-timers",
-    "dep:wasm-bindgen-futures",
+    "dep:tokio_with_wasm",
 ]
 
 [dependencies]
@@ -38,13 +32,9 @@ agntcy-slim-datapath = { workspace = true, default-features = false }
 agntcy-slim-mls = { workspace = true, default-features = false }
 agntcy-slim-version = { workspace = true }
 async-trait = { workspace = true }
-display-error-chain = { workspace = true, optional = true }
-futures = { workspace = true, optional = true }
-futures-channel = { version = "0.3", optional = true }
-futures-core = { version = "0.3", optional = true }
-futures-timer = { workspace = true, optional = true }
+display-error-chain = { workspace = true }
 getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
-gloo-timers = { version = "0.3", features = ["futures"], optional = true }
+web-time = "1"
 maybe-async = "0.2.10"
 parking_lot = { workspace = true }
 rand = { workspace = true }
@@ -53,8 +43,8 @@ thiserror = { workspace = true }
 tokio = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
 tonic = { workspace = true, optional = true }
+tokio_with_wasm = { version = "0.9", features = ["rt", "sync", "time", "macros"], optional = true }
 tracing = { workspace = true }
-wasm-bindgen-futures = { version = "0.4", optional = true }
 
 [dev-dependencies]
 agntcy-slim-testing = { workspace = true }

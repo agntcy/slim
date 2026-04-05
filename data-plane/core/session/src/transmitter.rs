@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 // Third-party crates
 use parking_lot::RwLock;
-use crate::runtime::channel::mpsc::Sender;
+use tokio::sync::mpsc::Sender;
 
 use slim_datapath::Status;
 use slim_datapath::api::ProtoMessage as Message;
@@ -173,7 +173,7 @@ mod tests {
     use slim_datapath::Status;
     use slim_datapath::api::ProtoMessage as Message;
     use slim_datapath::messages::encoder::Name;
-    use crate::runtime::channel::mpsc;
+    use tokio::sync::mpsc;
 
     #[derive(Clone, Default)]
     struct RecordingInterceptor {
@@ -182,7 +182,7 @@ mod tests {
     }
 
     #[cfg_attr(feature = "native", async_trait)]
-#[cfg_attr(feature = "wasm", async_trait(?Send))]
+    #[cfg_attr(feature = "wasm", async_trait(?Send))]
     impl SessionInterceptor for RecordingInterceptor {
         async fn on_msg_from_app(&self, msg: &mut Message) -> Result<(), SessionError> {
             *self.app_calls.write() += 1;
