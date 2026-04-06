@@ -5,6 +5,9 @@ license = { workspace = true }
 version = "0.1.11"
 description = "SLIM session internal implementation."
 
+[package.metadata.cargo-machete]
+ignored = ["getrandom"]
+
 [lib]
 name = "slim_session"
 
@@ -49,9 +52,6 @@ web-time = "1"
 [dev-dependencies]
 agntcy-slim-testing = { workspace = true }
 tracing-test = { workspace = true }
-
-[package.metadata.cargo-machete]
-ignored = ["getrandom"]
 
 [lints.rust.unexpected_cfgs]
 level = "warn"
