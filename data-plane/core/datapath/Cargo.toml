@@ -72,6 +72,9 @@ criterion = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-test = { workspace = true, features = ["no-env-filter"] }
 
+[package.metadata.cargo-machete]
+ignored = ["getrandom"]
+
 [[bench]]
 name = "pool_benchmark"
 harness = false
