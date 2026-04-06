@@ -38,7 +38,7 @@ DEBIAN_FRONTEND=noninteractive \
 
 curl -L -o /tmp/llvm.sh https://apt.llvm.org/llvm.sh
 chmod +x /tmp/llvm.sh
-/tmp/llvm.sh 19
+/tmp/llvm.sh 20
 
 curl -1sLf 'https://dl.cloudsmith.io/public/task/task/setup.deb.sh' | bash
 apt-get install -y task
