@@ -84,14 +84,14 @@ jobs:
         run: |
           curl -L https://apt.llvm.org/llvm.sh -o /tmp/llvm.sh
           chmod +x /tmp/llvm.sh
-          sudo /tmp/llvm.sh 19
+          sudo /tmp/llvm.sh 20
 
       - name: Strip shared libraries
         run: |
-          echo "✂️  Stripping shared libraries using llvm-strip-19..."
+          echo "✂️  Stripping shared libraries using llvm-strip-20..."
           find ./generated/native -type f \( -name "*.so" -o -name "*.dylib" -o -name "*.dll" \) 2>/dev/null | while read -r lib; do
             echo "  Stripping: $lib"
-            llvm-strip-19 "$lib"
+            llvm-strip-20 "$lib"
           done
 
       - name: Upload generated Java code and native libraries
