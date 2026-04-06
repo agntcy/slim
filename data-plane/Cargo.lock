@@ -251,7 +251,6 @@ dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
  "agntcy-slim-version",
- "async-trait",
  "base64 0.22.1",
  "getrandom 0.3.4",
  "hex",
@@ -263,7 +262,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.17",
- "tokio",
  "tracing",
 ]
 
@@ -314,7 +312,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tokio_with_wasm",
- "tonic",
  "tracing",
  "tracing-test",
  "web-time",
@@ -400,8 +397,6 @@ dependencies = [
  "js-sys",
  "parking_lot",
  "prost",
- "serde",
- "serde_json",
  "tokio_with_wasm",
  "tracing",
  "url",
