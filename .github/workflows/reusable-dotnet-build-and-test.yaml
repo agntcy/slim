@@ -96,10 +96,10 @@ jobs:
 
       - name: Strip shared libraries
         run: |
-          echo "✂️  Stripping shared libraries using llvm-strip-19..."
+          echo "✂️  Stripping shared libraries using llvm-strip-20..."
           find ./runtimes -type f \( -name "*.so" -o -name "*.dylib" -o -name "*.dll" \) | while read -r lib; do
             echo "  Stripping: $lib"
-            llvm-strip-19 "$lib"
+            llvm-strip-20 "$lib"
           done
 
       - name: Build, test and pack
