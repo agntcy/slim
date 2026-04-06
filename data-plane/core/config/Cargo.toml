@@ -5,6 +5,9 @@ edition = { workspace = true }
 license = { workspace = true }
 description = "Configuration utilities"
 
+[package.metadata.cargo-machete]
+ignored = ["getrandom"]
+
 [lib]
 name = "slim_config"
 
@@ -101,9 +104,6 @@ uuid = { workspace = true, features = ["v4"] }
 [build-dependencies]
 protoc-bin-vendored = { workspace = true }
 tonic-prost-build = { workspace = true }
-
-[package.metadata.cargo-machete]
-ignored = ["getrandom"]
 
 [dev-dependencies]
 agntcy-slim-testing = { workspace = true }
