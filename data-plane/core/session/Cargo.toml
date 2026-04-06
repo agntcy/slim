@@ -16,7 +16,6 @@ native = [
     "agntcy-slim-mls/native",
     "dep:tokio",
     "dep:tokio-util",
-    "dep:tonic",
 ]
 wasm = [
     "agntcy-slim-auth/wasm",
@@ -44,13 +43,15 @@ thiserror = { workspace = true }
 tokio = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
 tokio_with_wasm = { version = "0.9", features = ["rt", "sync", "time", "macros"], optional = true }
-tonic = { workspace = true, optional = true }
 tracing = { workspace = true }
 web-time = "1"
 
 [dev-dependencies]
 agntcy-slim-testing = { workspace = true }
 tracing-test = { workspace = true }
+
+[package.metadata.cargo-machete]
+ignored = ["getrandom"]
 
 [lints.rust.unexpected_cfgs]
 level = "warn"
