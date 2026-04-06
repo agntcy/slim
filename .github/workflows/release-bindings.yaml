@@ -61,7 +61,7 @@ jobs:
         run: |
           curl -L https://apt.llvm.org/llvm.sh -o /tmp/llvm.sh
           chmod +x /tmp/llvm.sh
-          sudo /tmp/llvm.sh 19
+          sudo /tmp/llvm.sh 20
 
       - name: Prepare release artifacts
         run: |
@@ -69,7 +69,7 @@ jobs:
 
           # Strip symbols from dynamic/shared libraries to reduce size
           echo "Stripping dynamic libraries..."
-          find ./artifacts -type f \( -name "*.so" -o -name "*.dylib" -o -name "*.dll" -o -name "*.lib" \) -exec llvm-strip-19 --strip-unneeded {} \;
+          find ./artifacts -type f \( -name "*.so" -o -name "*.dylib" -o -name "*.dll" -o -name "*.lib" \) -exec llvm-strip-20 --strip-unneeded {} \;
           echo "Stripped .so, .dylib, .dll, .lib files"
 
           # The download-artifact action already organizes files by artifact name

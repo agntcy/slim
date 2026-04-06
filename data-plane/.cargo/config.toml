@@ -17,10 +17,10 @@ rustflags = ["--cfg", "mls_build_async"]
 # are mixed with Zig's headers (common with Windows cross-compilation).
 CFLAGS_x86_64_pc_windows_gnu = "-Wno-macro-redefined"
 
-CC_x86_64_unknown_linux_gnu = "clang-19"
-AR_x86_64_unknown_linux_gnu = "llvm-ar-19"
-STRIP_x86_64_unknown_linux_gnu = "llvm-strip-19"
+CC_x86_64_unknown_linux_gnu = "clang-20"
+AR_x86_64_unknown_linux_gnu = "llvm-ar-20"
+STRIP_x86_64_unknown_linux_gnu = "llvm-strip-20"
 
-CC_aarch64_unknown_linux_gnu = "clang-19"
-AR_aarch64_unknown_linux_gnu = "llvm-ar-19"
-STRIP_aarch64_unknown_linux_gnu = "llvm-strip-19"
+CC_aarch64_unknown_linux_gnu = "clang-20"
+AR_aarch64_unknown_linux_gnu = "llvm-ar-20"
+STRIP_aarch64_unknown_linux_gnu = "llvm-strip-20"
