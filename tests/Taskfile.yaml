@@ -47,6 +47,14 @@ tasks:
         git worktree add "$WORKTREE" {{.LEGACY_BRANCH}}
 
         # Build slim, sdk-mock, and the test apps
+        # Override CC/AR/STRIP so the legacy branch's config.toml (which may
+        # reference an older clang version) doesn't cause build failures.
+        CC_x86_64_unknown_linux_gnu=clang-20 \
+        AR_x86_64_unknown_linux_gnu=llvm-ar-20 \
+        STRIP_x86_64_unknown_linux_gnu=llvm-strip-20 \
+        CC_aarch64_unknown_linux_gnu=clang-20 \
+        AR_aarch64_unknown_linux_gnu=llvm-ar-20 \
+        STRIP_aarch64_unknown_linux_gnu=llvm-strip-20 \
         cargo build --manifest-path "$WORKTREE/data-plane/Cargo.toml" \
           --config "$WORKTREE/data-plane/.cargo/config.toml" \
           --bins \
