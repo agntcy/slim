@@ -3,11 +3,6 @@ import os
 from google.adk.agents import Agent
 from google.adk.models.lite_llm import LiteLlm
 
-from k8s_troubleshooting_agent.tools import (
-    call_mcp_tool,
-    list_available_mcp_tools,
-)
-
 MODEL = os.getenv("MODEL", "gemini/gemini-2.0-flash")
 
 root_agent = Agent(
@@ -19,16 +14,12 @@ root_agent = Agent(
         "Help the user diagnose and resolve issues in their Kubernetes clusters. "
         "\n\n"
         "When troubleshooting:\n"
-        "1. First, use list_available_mcp_tools to discover what tools are available\n"
-        "2. Use call_mcp_tool to query the cluster\n"
-        "3. Ask clarifying questions about symptoms if needed\n"
-        "4. Analyze the data returned from the cluster\n"
-        "5. Suggest actionable fixes based on what you observe\n"
+        "1. Query the cluster using the available MCP tools\n"
+        "2. Ask clarifying questions about symptoms if needed\n"
+        "3. Analyze the data returned from the cluster\n"
+        "4. Suggest actionable fixes based on what you observe\n"
         "\n"
         "Always check the actual cluster state before making recommendations."
     ),
-    tools=[
-        list_available_mcp_tools,
-        call_mcp_tool,
-    ],
+    tools=[],  # Tools will be set after MCP client initialization
 )
