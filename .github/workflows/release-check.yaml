@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - main
+      - multicluster-demo
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
