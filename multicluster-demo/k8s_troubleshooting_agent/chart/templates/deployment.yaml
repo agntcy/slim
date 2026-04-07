@@ -1,0 +1,106 @@
+{{/*
+Copyright AGNTCY Contributors (https://github.com/agntcy)
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "k8s-troubleshooting-agent.fullname" . }}
+  labels:
+    {{- include "k8s-troubleshooting-agent.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "k8s-troubleshooting-agent.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "k8s-troubleshooting-agent.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "k8s-troubleshooting-agent.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: MODEL
+              value: {{ .Values.model | quote }}
+            - name: SLIM_URL
+              value: {{ .Values.slim.url | quote }}
+            - name: SLIM_NAMESPACE
+              value: {{ .Values.slim.namespace | quote }}
+            - name: SLIM_GROUP
+              value: {{ .Values.slim.group | quote }}
+            - name: SLIM_NAME
+              value: {{ .Values.slim.name | quote }}
+{{- if .Values.spire.enabled }}
+            - name: SPIRE_SOCKET_PATH
+              value: {{ .Values.spire.socketPath | quote }}
+            {{- if .Values.spire.targetSpiffeId }}
+            - name: SPIRE_TARGET_SPIFFE_ID
+              value: {{ .Values.spire.targetSpiffeId | quote }}
+            {{- end }}
+            {{- if .Values.spire.jwtAudience }}
+            - name: SPIRE_JWT_AUDIENCE
+              value: {{ .Values.spire.jwtAudience | quote }}
+            {{- end }}
+{{- else }}
+            - name: SLIM_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "k8s-troubleshooting-agent.slimSecretName" . }}
+                  key: {{ include "k8s-troubleshooting-agent.slimSecretKey" . }}
+{{- end }}
+            - name: K8S_MCP_SERVER_NAMESPACE
+              value: {{ .Values.k8s_mcp_server.namespace | quote }}
+            - name: K8S_MCP_SERVER_GROUP
+              value: {{ .Values.k8s_mcp_server.group | quote }}
+            - name: K8S_MCP_SERVER_NAME
+              value: {{ .Values.k8s_mcp_server.name | quote }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+{{- if .Values.spire.enabled }}
+          volumeMounts:
+            - name: spire-agent-socket
+              mountPath: /tmp/spire-agent/public/
+              readOnly: true
+{{- end }}
+{{- if .Values.spire.enabled }}
+      volumes:
+        - name: spire-agent-socket
+          hostPath:
+            path: /run/spire/agent-sockets
+            type: Directory
+{{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

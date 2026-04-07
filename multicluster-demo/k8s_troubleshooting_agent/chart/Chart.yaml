@@ -1,0 +1,9 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+---
+apiVersion: v2
+name: k8s-troubleshooting-agent
+description: Helm chart for the Kubernetes Troubleshooting Agent (A2A over SLIM RPC)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
