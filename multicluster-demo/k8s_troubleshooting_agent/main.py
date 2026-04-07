@@ -11,6 +11,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
 import slim_bindings
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
@@ -27,6 +33,8 @@ from slima2a.handler import SRPCHandler
 from slima2a.types.a2a_pb2_slimrpc import add_A2AServiceServicer_to_server
 
 from k8s_troubleshooting_agent.agent import root_agent
+from k8s_troubleshooting_agent.mcp_client import K8sMCPClient
+from k8s_troubleshooting_agent.tools import SLIMMcpToolSet
 
 # SLIM connection
 SLIM_URL = os.getenv("SLIM_URL", "http://localhost:46357")
@@ -46,6 +54,10 @@ SPIRE_JWT_AUDIENCE = [
     if a.strip()
 ]
 
+# MCP proxy configuration
+MCP_PROXY_NAMESPACE = os.getenv("MCP_PROXY_NAMESPACE", "org")
+MCP_PROXY_GROUP = os.getenv("MCP_PROXY_GROUP", "mcp")
+MCP_PROXY_NAME = os.getenv("MCP_PROXY_NAME", "k8s-proxy")
 
 async def create_slim_app() -> tuple[slim_bindings.App, slim_bindings.Name, int]:
     """Initialise SLIM and create an App using SPIRE or shared-secret auth.
@@ -85,13 +97,12 @@ async def create_slim_app() -> tuple[slim_bindings.App, slim_bindings.Name, int]
         verifier_config = slim_bindings.IdentityVerifierConfig.SPIRE(config=spire_config)
         local_app = service.create_app(local_name, provider_config, verifier_config)
     else:
-        logger.debug("Using shared-secret authentication.")
+        logger.info("Using shared-secret authentication")
         local_app = service.create_app_with_secret(local_name, SLIM_SECRET)
 
     await local_app.subscribe_async(local_name, conn_id)
 
     return local_app, local_name, conn_id
-
 
 async def main() -> None:
     agent_card = AgentCard(
@@ -131,6 +142,21 @@ async def main() -> None:
     servicer = SRPCHandler(agent_card, request_handler)
 
     local_app, local_name, conn_id = await create_slim_app()
+
+    # Initialize MCP client after SLIM connection is established
+    mcp_client = K8sMCPClient(
+        local_app=local_app,
+        proxy_name=f"{MCP_PROXY_NAMESPACE}/{MCP_PROXY_GROUP}/{MCP_PROXY_NAME}",
+        connection_id=conn_id,
+    )
+    await mcp_client.set_proxy_route()
+    
+    # Create the MCP toolset
+    mcp_toolset = SLIMMcpToolSet(mcp_client=mcp_client)
+    
+    # Set the toolset on the agent
+    # The toolset will automatically handle tool loading on first use
+    root_agent.tools = [mcp_toolset]
 
     server = slim_bindings.Server.new_with_connection(local_app, local_name, conn_id)
     add_A2AServiceServicer_to_server(servicer, server)
