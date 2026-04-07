@@ -19,16 +19,12 @@ root_agent = Agent(
         "Help the user diagnose and resolve issues in their Kubernetes clusters. "
         "\n\n"
         "When troubleshooting:\n"
-        "1. First, use list_available_mcp_tools to discover what tools are available\n"
-        "2. Use call_mcp_tool to query the cluster\n"
-        "3. Ask clarifying questions about symptoms if needed\n"
-        "4. Analyze the data returned from the cluster\n"
-        "5. Suggest actionable fixes based on what you observe\n"
+        "1. Query the cluster using the available MCP tools\n"
+        "2. Ask clarifying questions about symptoms if needed\n"
+        "3. Analyze the data returned from the cluster\n"
+        "4. Suggest actionable fixes based on what you observe\n"
         "\n"
         "Always check the actual cluster state before making recommendations."
     ),
-    tools=[
-        list_available_mcp_tools,
-        call_mcp_tool,
-    ],
+    tools=[],  # Tools will be set after MCP client initialization
 )

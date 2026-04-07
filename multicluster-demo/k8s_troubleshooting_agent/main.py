@@ -34,7 +34,7 @@ from slima2a.types.a2a_pb2_slimrpc import add_A2AServiceServicer_to_server
 
 from k8s_troubleshooting_agent.agent import root_agent
 from k8s_troubleshooting_agent.mcp_client import K8sMCPClient
-from k8s_troubleshooting_agent.tools import set_mcp_client
+from k8s_troubleshooting_agent.tools import SLIMMcpToolSet
 
 # SLIM connection
 SLIM_URL = os.getenv("SLIM_URL", "http://localhost:46357")
@@ -150,7 +150,13 @@ async def main() -> None:
         connection_id=conn_id,
     )
     await mcp_client.set_proxy_route()
-    set_mcp_client(mcp_client)
+    
+    # Create the MCP toolset
+    mcp_toolset = SLIMMcpToolSet(mcp_client=mcp_client)
+    
+    # Set the toolset on the agent
+    # The toolset will automatically handle tool loading on first use
+    root_agent.tools = [mcp_toolset]
 
     server = slim_bindings.Server.new_with_connection(local_app, local_name, conn_id)
     add_A2AServiceServicer_to_server(servicer, server)
