@@ -68,12 +68,12 @@ spec:
                   name: {{ include "k8s-troubleshooting-agent.slimSecretName" . }}
                   key: {{ include "k8s-troubleshooting-agent.slimSecretKey" . }}
 {{- end }}
-            - name: MCP_PROXY_NAMESPACE
-              value: {{ .Values.mcp.proxy.namespace | quote }}
-            - name: MCP_PROXY_GROUP
-              value: {{ .Values.mcp.proxy.group | quote }}
-            - name: MCP_PROXY_NAME
-              value: {{ .Values.mcp.proxy.name | quote }}
+            - name: K8S_MCP_SERVER_NAMESPACE
+              value: {{ .Values.k8s_mcp_server.namespace | quote }}
+            - name: K8S_MCP_SERVER_GROUP
+              value: {{ .Values.k8s_mcp_server.group | quote }}
+            - name: K8S_MCP_SERVER_NAME
+              value: {{ .Values.k8s_mcp_server.name | quote }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

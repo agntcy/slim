@@ -54,10 +54,10 @@ SPIRE_JWT_AUDIENCE = [
     if a.strip()
 ]
 
-# MCP proxy configuration
-MCP_PROXY_NAMESPACE = os.getenv("MCP_PROXY_NAMESPACE", "org")
-MCP_PROXY_GROUP = os.getenv("MCP_PROXY_GROUP", "mcp")
-MCP_PROXY_NAME = os.getenv("MCP_PROXY_NAME", "k8s-proxy")
+# K8s MCP server configuration
+K8S_MCP_SERVER_NAMESPACE = os.getenv("K8S_MCP_SERVER_NAMESPACE", "agntcy")
+K8S_MCP_SERVER_GROUP = os.getenv("K8S_MCP_SERVER_GROUP", "demo")
+K8S_MCP_SERVER_NAME = os.getenv("K8S_MCP_SERVER_NAME", "mcp_server")
 
 async def create_slim_app() -> tuple[slim_bindings.App, slim_bindings.Name, int]:
     """Initialise SLIM and create an App using SPIRE or shared-secret auth.
@@ -146,7 +146,7 @@ async def main() -> None:
     # Initialize MCP client after SLIM connection is established
     mcp_client = K8sMCPClient(
         local_app=local_app,
-        proxy_name=f"{MCP_PROXY_NAMESPACE}/{MCP_PROXY_GROUP}/{MCP_PROXY_NAME}",
+        proxy_name=f"{K8S_MCP_SERVER_NAMESPACE}/{K8S_MCP_SERVER_GROUP}/{K8S_MCP_SERVER_NAME}",
         connection_id=conn_id,
     )
     await mcp_client.set_proxy_route()

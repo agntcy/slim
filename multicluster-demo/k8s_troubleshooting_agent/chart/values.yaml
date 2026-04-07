@@ -42,13 +42,12 @@ spire:
   # Optional comma-separated JWT audience(s) to request from SPIRE.
   jwtAudience: ""
 
-# MCP (Model Context Protocol) proxy configuration.
-# The agent connects to this MCP proxy via SLIM to query the Kubernetes cluster.
-mcp:
-  proxy:
-    namespace: "org"
-    group: "mcp"
-    name: "k8s-proxy"
+# K8s MCP Server configuration.
+# The agent connects to this MCP server via SLIM to query the Kubernetes cluster.
+k8s_mcp_server:
+  namespace: "agntcy"
+  group: "demo"
+  name: "mcp_server"
 
 # Additional environment variables injected into the agent container.
 # Use this to supply LLM API keys (e.g. GEMINI_API_KEY) and any other

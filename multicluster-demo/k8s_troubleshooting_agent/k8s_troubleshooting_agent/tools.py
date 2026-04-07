@@ -1,4 +1,3 @@
-
 import logging
 from typing import Any, Optional
 
@@ -154,3 +153,4 @@ class SLIMMcpToolSet(BaseToolset):
         # The K8sMCPClient is managed by the main application lifecycle
         # so we don't close it here
         pass
+

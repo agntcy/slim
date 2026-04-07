@@ -3,11 +3,6 @@ import os
 from google.adk.agents import Agent
 from google.adk.models.lite_llm import LiteLlm
 
-from k8s_troubleshooting_agent.tools import (
-    call_mcp_tool,
-    list_available_mcp_tools,
-)
-
 MODEL = os.getenv("MODEL", "gemini/gemini-2.0-flash")
 
 root_agent = Agent(
