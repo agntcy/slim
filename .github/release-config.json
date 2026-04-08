@@ -7,22 +7,6 @@
   "signoff": "Agntcy Build Bot <build@agntcy.io>",
   "bump-minor-pre-major": true,
   "packages": {
-    "charts/slim": {
-      "package-name": "helm-slim",
-      "release-type": "helm"
-    },
-    "charts/slim-control-plane": {
-      "package-name": "helm-slim-control-plane",
-      "release-type": "helm"
-    },
-    "control-plane/control-plane": {
-      "package-name": "control-plane",
-      "release-type": "go"
-    },
-    "data-plane/testing": {
-      "package-name": "slim-testutils",
-      "release-type": "simple"
-    },
     "multicluster-demo/k8s_troubleshooting_agent": {
       "package-name": "k8s-troubleshooting-agent",
       "release-type": "simple"
