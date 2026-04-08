@@ -1,0 +1,93 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+name: ci-multicluster-demo-k8s-agent-helm
+
+on:
+  push:
+    tags:
+      - 'helm-k8s-troubleshooting-agent-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  prepare-build:
+    name: Prepare Build
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Resolve version from tag
+        id: resolve
+        run: |
+          # Tag format: helm-k8s-troubleshooting-agent-v{version}
+          VERSION="${GITHUB_REF_NAME#helm-k8s-troubleshooting-agent-v}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "Helm chart version: ${VERSION}"
+
+  release-helm:
+    name: Release Helm Chart
+    runs-on: ubuntu-latest
+    needs: [prepare-build]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Helm
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+        with:
+          version: 3.12.1
+
+      - name: Helm lint
+        shell: bash
+        working-directory: ./multicluster-demo/k8s_troubleshooting_agent/chart
+        run: |
+          helm lint . --with-subcharts
+
+      - name: Helm package
+        id: package
+        shell: bash
+        working-directory: ./multicluster-demo/k8s_troubleshooting_agent/chart
+        env:
+          CHART_VERSION: ${{ needs.prepare-build.outputs.version }}
+        run: |
+          helm package . --dependency-update --version "${CHART_VERSION}"
+          PACKAGE_NAME="k8s-troubleshooting-agent-${CHART_VERSION}.tgz"
+          echo "package=${PACKAGE_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Helm push to GHCR OCI registry
+        shell: bash
+        working-directory: ./multicluster-demo/k8s_troubleshooting_agent/chart
+        env:
+          HELM_PACKAGE: ${{ steps.package.outputs.package }}
+        run: |
+          echo "🚧 Pushing ${HELM_PACKAGE} to GHCR OCI registry"
+          helm push "${HELM_PACKAGE}" "oci://ghcr.io/agntcy/slim/multicluster-demo/helm"
