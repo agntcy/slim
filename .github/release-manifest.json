@@ -4,5 +4,6 @@
   "control-plane/control-plane": "1.0.0",
   "charts/slim-control-plane": "1.0.0",
   "multicluster-demo/k8s_troubleshooting_agent": "0.1.2",
-  "multicluster-demo/k8s_troubleshooting_agent/chart": "0.1.0"
+  "multicluster-demo/k8s_troubleshooting_agent/chart": "0.1.2"
 }
+
