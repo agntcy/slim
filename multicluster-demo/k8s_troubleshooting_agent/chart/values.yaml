@@ -4,7 +4,7 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/agntcy/k8s-troubleshooting-agent
+  repository: ghcr.io/agntcy/slim/multicluster-demo/k8s-troubleshooting-agent
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   tag: ""
