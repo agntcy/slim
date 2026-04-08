@@ -35,8 +35,8 @@ jobs:
       - name: Resolve version from tag
         id: resolve
         run: |
-          # Tag format: k8s-agent-v{version}
-          VERSION="${GITHUB_REF_NAME#k8s-agent-v}"
+          # Tag format: k8s-troubleshooting-agent-v{version}
+          VERSION="${GITHUB_REF_NAME#k8s-troubleshooting-agent-v}"
           echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
           echo "Docker image version: ${VERSION}"
 
@@ -80,8 +80,8 @@ jobs:
           file: ./multicluster-demo/k8s_troubleshooting_agent/Dockerfile
           push: true
           tags: |
-            ghcr.io/agntcy/slim/multicluster-demo/k8s-agent:${{ needs.prepare-build.outputs.version }}
-            ghcr.io/agntcy/slim/multicluster-demo/k8s-agent:latest
+            ghcr.io/agntcy/slim/multicluster-demo/k8s-troubleshooting-agent:${{ needs.prepare-build.outputs.version }}
+            ghcr.io/agntcy/slim/multicluster-demo/k8s-troubleshooting-agent:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
