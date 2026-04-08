@@ -7,7 +7,7 @@ name: ci-multicluster-demo-k8s-agent-image
 on:
   push:
     tags:
-      - 'k8s-agent-v*'
+      - 'k8s-troubleshooting-agent-v*'
   workflow_dispatch:
 
 permissions:

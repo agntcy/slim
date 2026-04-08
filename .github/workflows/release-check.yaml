@@ -27,3 +27,4 @@ jobs:
           token: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
           config-file: .github/release-config.json
           manifest-file: .github/release-manifest.json
+          target-branch: ${{ github.ref_name }}

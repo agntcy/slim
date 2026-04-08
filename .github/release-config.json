@@ -24,7 +24,7 @@
       "release-type": "simple"
     },
     "multicluster-demo/k8s_troubleshooting_agent": {
-      "package-name": "k8s-agent",
+      "package-name": "k8s-troubleshooting-agent",
       "release-type": "simple"
     },
     "multicluster-demo/k8s_troubleshooting_agent/chart": {
