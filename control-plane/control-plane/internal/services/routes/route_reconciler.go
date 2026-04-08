@@ -129,19 +129,22 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 
 	zlog.Info().Msgf("Sending routes to registered node %s", nodeID)
 
-	apiConnections := make(map[string]*controllerapi.Connection, 0)
 	var apiSubscriptions []*controllerapi.Subscription
 	var apiSubscriptionsToDelete []*controllerapi.Subscription
 
 	routes := s.dbService.GetRoutesForNodeID(nodeID)
 	for _, route := range routes {
+		linkID := route.LinkID
+		direction := controllerapi.ConnectionDirection(route.Direction)
 		// create connection and subscription for each route
 		apiSubscription := &controllerapi.Subscription{
-			ConnectionId: route.DestEndpoint, // Use endpoint as connection ID
+			ConnectionId: linkID,
 			Component_0:  route.Component0,
 			Component_1:  route.Component1,
 			Component_2:  route.Component2,
 			Id:           route.ComponentID,
+			LinkId:       &linkID,
+			Direction:    &direction,
 		}
 		if route.DestNodeID != "" {
 			apiSubscription.NodeId = &route.DestNodeID
@@ -151,22 +154,43 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 			apiSubscriptionsToDelete = append(apiSubscriptionsToDelete, apiSubscription)
 			continue
 		}
-		apiConnections[route.DestEndpoint] = &controllerapi.Connection{
-			ConnectionId: route.DestEndpoint,
-			ConfigData:   route.ConnConfigData,
+		if route.Status == db.RouteStatusStale {
+			zlog.Debug().Str("route", route.String()).Msg("Skipping stale route until refreshed")
+			continue
+		}
+		link, lerr := s.dbService.GetLink(route.LinkID, route.SourceNodeID, route.DestNodeID)
+		if lerr != nil || link == nil {
+			zlog.Warn().
+				Str("route", route.String()).
+				Msgf("Skipping route due to missing link: %v", lerr)
+			continue
+		}
+		if link.Status == db.LinkStatusFailed {
+			errMsg := link.StatusMsg
+			if errMsg == "" {
+				errMsg = "link configuration failed"
+			}
+			if err := s.dbService.MarkRouteAsFailed(route.ID, errMsg); err != nil {
+				return fmt.Errorf("failed to mark route %s as failed due to link status: %w", route.String(), err)
+			}
+			continue
+		}
+		if link.Status != db.LinkStatusApplied {
+			zlog.Debug().Str("link_id", linkID).Msg("Skipping route until link is applied")
+			continue
 		}
 		apiSubscriptions = append(apiSubscriptions, apiSubscription)
 	}
 
-	// convert map to slice
-	apiConnectionsSlice := make([]*controllerapi.Connection, 0, len(apiConnections))
-	for _, conn := range apiConnections {
-		apiConnectionsSlice = append(apiConnectionsSlice, conn)
+	// Create configuration command with all stored connections and subscriptions
+	if len(apiSubscriptions) == 0 && len(apiSubscriptionsToDelete) == 0 {
+		zlog.Debug().Msg("No subscription updates to send for node")
+		return nil
 	}
 
 	// Create configuration command with all stored connections and subscriptions
 	configCommand := &controllerapi.ConfigurationCommand{
-		ConnectionsToCreate:   apiConnectionsSlice,
+		ConnectionsToCreate:   []*controllerapi.Connection{},
 		SubscriptionsToSet:    apiSubscriptions,
 		SubscriptionsToDelete: apiSubscriptionsToDelete,
 	}
@@ -181,7 +205,7 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 	}
 
 	zlog.Info().
-		Int("connections_count", len(apiConnections)).
+		Int("connections_count", 0).
 		Int("subscriptions_count", len(apiSubscriptions)).
 		Int("subscriptions_to_delete_count", len(apiSubscriptionsToDelete)).
 		Str("message_id", messageID).
@@ -205,14 +229,6 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 
 	// Handle ConfigCommandAck response
 	if ack := response.GetConfigCommandAck(); ack != nil {
-		// Create a map of connection errors for quick lookup
-		connectionErrors := make(map[string]string)
-		for _, connAck := range ack.GetConnectionsStatus() {
-			if !connAck.Success {
-				connectionErrors[connAck.ConnectionId] = connAck.ErrorMsg
-			}
-		}
-
 		for _, subAck := range ack.GetSubscriptionsStatus() {
 			// find corresponding route in the database
 			destNodeID := ""
@@ -221,7 +237,7 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 			}
 			route, rerr := s.dbService.GetRouteForSrcAndDestinationAndName(nodeID, subAck.Subscription.Component_0,
 				subAck.Subscription.Component_1, subAck.Subscription.Component_2, subAck.Subscription.Id,
-				destNodeID, subAck.Subscription.ConnectionId)
+				destNodeID, subAck.Subscription.GetLinkId(), int32(subAck.Subscription.GetDirection()))
 			if rerr != nil {
 				zlog.Warn().
 					Str("subscription", subAck.Subscription.String()).
@@ -259,11 +275,6 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 			} else {
 				// Failure case: mark route as failed with error message
 				failedMsg := subAck.ErrorMsg
-
-				// Check if there's a connection error with the same connectionID
-				if connErr, exists := connectionErrors[subAck.Subscription.ConnectionId]; exists {
-					failedMsg = connErr
-				}
 
 				if err := s.dbService.MarkRouteAsFailed(route.ID, failedMsg); err != nil {
 					zlog.Error().

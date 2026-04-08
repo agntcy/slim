@@ -164,6 +164,20 @@ func testRouteOperations(t *testing.T, da DataAccess) {
 	err = da.MarkRouteAsFailed(0, "some error")
 	assert.Error(t, err, "MarkRouteAsFailed should return error for non-existent route")
 
+	// Test MarkRouteAsStale
+	staleMsg := "link pending replacement"
+	err = da.MarkRouteAsStale(routeID2.ID, staleMsg)
+	assert.NoError(t, err, "MarkRouteAsStale should not return error")
+
+	staleRoute := da.GetRouteByID(routeID2.ID)
+	require.NotNil(t, staleRoute)
+	assert.Equal(t, RouteStatusStale, staleRoute.Status, "Route status should be Stale")
+	assert.Equal(t, staleMsg, staleRoute.StatusMsg, "Status message should be set")
+
+	// Test MarkRouteAsStale with non-existent ID
+	err = da.MarkRouteAsStale(0, "stale")
+	assert.Error(t, err, "MarkRouteAsStale should return error for non-existent route")
+
 	// Test MarkRouteAsDeleted
 	err = da.MarkRouteAsDeleted(routeID1.ID)
 	assert.NoError(t, err, "MarkRouteAsDeleted should not return error")
@@ -207,27 +221,28 @@ func testRouteOperations(t *testing.T, da DataAccess) {
 	require.NotNil(t, retrievedNilRoute)
 	assert.Nil(t, retrievedNilRoute.ComponentID, "ComponentID should remain nil")
 
-	// Test route with DestEndpoint instead of DestNodeID
-	routeWithEndpoint := Route{
-		SourceNodeID:   "node6",
-		DestEndpoint:   "external.service.com:8080",
-		ConnConfigData: `{"endpoint": "external.service.com:8080", "tls": true}`,
-		Component0:     "org",
-		Component1:     "external",
-		Component2:     "api",
-		ComponentID:    wrapperspb.UInt64(789),
-		Status:         RouteStatusFailed,
-		LastUpdated:    time.Now(),
+	// Test route with LinkID
+	routeWithLink := Route{
+		SourceNodeID: "node6",
+		DestNodeID:   "node7",
+		LinkID:       "link-789",
+		Direction:    1,
+		Component0:   "org",
+		Component1:   "external",
+		Component2:   "api",
+		ComponentID:  wrapperspb.UInt64(789),
+		Status:       RouteStatusFailed,
+		LastUpdated:  time.Now(),
 	}
 
-	routeID4, err := da.AddRoute(routeWithEndpoint)
-	require.NoError(t, err, "AddRoute should handle DestEndpoint")
-	require.NotEmpty(t, routeID4, "AddRoute should handle DestEndpoint")
+	routeID4, err := da.AddRoute(routeWithLink)
+	require.NoError(t, err, "AddRoute should handle LinkID")
+	require.NotEmpty(t, routeID4, "AddRoute should handle LinkID")
 
-	retrievedEndpointRoute := da.GetRouteByID(routeID4.ID)
-	require.NotNil(t, retrievedEndpointRoute)
-	assert.Equal(t, "external.service.com:8080", retrievedEndpointRoute.DestEndpoint)
-	assert.Empty(t, retrievedEndpointRoute.DestNodeID, "DestNodeID should be empty when DestEndpoint is used")
+	retrievedLinkRoute := da.GetRouteByID(routeID4.ID)
+	require.NotNil(t, retrievedLinkRoute)
+	assert.Equal(t, "link-789", retrievedLinkRoute.LinkID)
+	assert.Equal(t, int32(1), retrievedLinkRoute.Direction)
 }
 
 // TestDataAccess_NodeOperations tests all node-related operations

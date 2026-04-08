@@ -695,24 +695,39 @@ fn remove_participant_message(
 }
 
 impl ControllerService {
-    fn resolve_subscription_connection(&self, subscription: &v1::Subscription) -> Option<u64> {
+    fn resolve_connection_by_link_id(&self, link_id: &str) -> Result<Option<u64>, String> {
+        let mut resolved: Option<u64> = None;
+        let mut duplicates = 0usize;
+        self.inner.message_processor.connection_table().for_each(|id, conn| {
+            if conn.link_id().as_deref() == Some(link_id) {
+                duplicates += 1;
+                if resolved.is_none() {
+                    resolved = Some(id as u64);
+                }
+            }
+        });
+        if duplicates > 1 {
+            return Err(format!(
+                "multiple active connections matched link_id {}",
+                link_id
+            ));
+        }
+        Ok(resolved)
+    }
+
+    fn resolve_subscription_connection(
+        &self,
+        subscription: &v1::Subscription,
+    ) -> Result<Option<u64>, String> {
         if let Some(link_id) = &subscription.link_id {
-            let mut resolved = None;
-            self.inner
-                .message_processor
-                .connection_table()
-                .for_each(|id, conn| {
-                    if resolved.is_none() && conn.link_id().as_deref() == Some(link_id.as_str()) {
-                        resolved = Some(id as u64);
-                    }
-                });
-            resolved
+            self.resolve_connection_by_link_id(link_id)
         } else {
-            self.inner
+            Ok(self
+                .inner
                 .connections
                 .read()
                 .get(&subscription.connection_id)
-                .cloned()
+                .cloned())
         }
     }
 
@@ -754,11 +769,69 @@ impl ControllerService {
                                     connection_success = false;
                                     connection_error_msg = format!("Failed to parse config: {}", e);
                                 }
-                                Ok(client_config) => {
+                                Ok(mut client_config) => {
                                     let client_endpoint = &client_config.endpoint;
+                                    let mut requested_link_id = if !conn.connection_id.is_empty()
+                                        && conn.connection_id != "n/a"
+                                    {
+                                        conn.connection_id.clone()
+                                    } else {
+                                        client_config.link_id.clone()
+                                    };
+                                    if requested_link_id.is_empty() {
+                                        requested_link_id = String::new();
+                                    }
+                                    if client_config.link_id.is_empty() {
+                                        client_config.link_id = requested_link_id.clone();
+                                    }
 
-                                    // connect to an endpoint if it's not already connected
-                                    if !self.inner.connections.read().contains_key(client_endpoint)
+                                    // Reuse an existing link connection first when a link_id is provided.
+                                    if !requested_link_id.is_empty() {
+                                        let link_id = requested_link_id;
+                                        match self.resolve_connection_by_link_id(&link_id) {
+                                            Err(err) => {
+                                                connection_success = false;
+                                                connection_error_msg = err;
+                                            }
+                                            Ok(Some(conn_id)) => {
+                                                self.inner
+                                                    .connections
+                                                    .write()
+                                                    .insert(client_endpoint.clone(), conn_id);
+                                                info!(
+                                                    endpoint = %client_endpoint,
+                                                    link_id = %link_id,
+                                                    conn_id,
+                                                    "Connection already exists for link_id"
+                                                );
+                                            }
+                                            Ok(None) => {
+                                                match self
+                                                    .inner
+                                                    .message_processor
+                                                    .connect(client_config.clone(), None, None)
+                                                    .await
+                                                {
+                                                    Err(e) => {
+                                                        connection_success = false;
+                                                        connection_error_msg =
+                                                            format!("Connection failed: {}", e);
+                                                    }
+                                                    Ok(conn_id) => {
+                                                        self.inner
+                                                            .connections
+                                                            .write()
+                                                            .insert(client_endpoint.clone(), conn_id.1);
+                                                        info!(
+                                                            endpoint = %client_endpoint,
+                                                            link_id = %link_id,
+                                                            "Successfully created connection",
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else if !self.inner.connections.read().contains_key(client_endpoint)
                                     {
                                         match self
                                             .inner
@@ -809,7 +882,7 @@ impl ControllerService {
 
                             let conn = self.resolve_subscription_connection(subscription);
 
-                            if let Some(conn) = conn {
+                            if let Ok(Some(conn)) = conn {
                                 let source = Name::from_strings([
                                     subscription.component_0.as_str(),
                                     subscription.component_1.as_str(),
@@ -848,11 +921,19 @@ impl ControllerService {
                                 }
                             } else {
                                 subscription_success = false;
-                                subscription_error_msg = if let Some(link_id) = &subscription.link_id
-                                {
-                                    format!("Connection with link_id {} not found", link_id)
-                                } else {
-                                    format!("Connection {} not found", subscription.connection_id)
+                                subscription_error_msg = match conn {
+                                    Ok(None) => {
+                                        if let Some(link_id) = &subscription.link_id {
+                                            format!("Connection with link_id {} not found", link_id)
+                                        } else {
+                                            format!(
+                                                "Connection {} not found",
+                                                subscription.connection_id
+                                            )
+                                        }
+                                    }
+                                    Err(err) => err,
+                                    _ => "unknown connection lookup error".to_string(),
                                 };
                             }
 
@@ -871,7 +952,7 @@ impl ControllerService {
 
                             let conn = self.resolve_subscription_connection(subscription);
 
-                            if let Some(conn) = conn {
+                            if let Ok(Some(conn)) = conn {
                                 let source = Name::from_strings([
                                     subscription.component_0.as_str(),
                                     subscription.component_1.as_str(),
@@ -924,11 +1005,19 @@ impl ControllerService {
                                 }
                             } else {
                                 subscription_success = false;
-                                subscription_error_msg = if let Some(link_id) = &subscription.link_id
-                                {
-                                    format!("Connection with link_id {} not found", link_id)
-                                } else {
-                                    format!("Connection {} not found", subscription.connection_id)
+                                subscription_error_msg = match conn {
+                                    Ok(None) => {
+                                        if let Some(link_id) = &subscription.link_id {
+                                            format!("Connection with link_id {} not found", link_id)
+                                        } else {
+                                            format!(
+                                                "Connection {} not found",
+                                                subscription.connection_id
+                                            )
+                                        }
+                                    }
+                                    Err(err) => err,
+                                    _ => "unknown connection lookup error".to_string(),
                                 };
                             }
 

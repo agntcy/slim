@@ -13,6 +13,14 @@ type DataAccess interface {
 	DeleteNode(id string) error
 
 	AddRoute(route Route) (Route, error)
+	AddLink(link Link) (Link, error)
+	UpdateLink(link Link) error
+	DeleteLink(link Link) error
+	GetLink(linkID string, sourceNodeID string, destNodeID string) (*Link, error)
+	GetLinkForSourceAndDestination(sourceNodeID string, destNodeID string) (*Link, error)
+	GetLinkForSourceAndEndpoint(sourceNodeID string, destEndpoint string) (*Link, error)
+	GetLinksForNode(nodeID string) []Link
+	GetRoutesByLinkID(linkID string) []Route
 	GetRoutesForNodeID(nodeID string) []Route
 	GetRoutesForDestinationNodeID(nodeID string) []Route
 	GetRoutesForDestinationNodeIDAndName(nodeID string, Component0 string, Component1 string,
@@ -22,7 +30,7 @@ type DataAccess interface {
 	FilterRoutesBySourceAndDestination(sourceNodeID string, destNodeID string) []Route
 
 	GetRouteForSrcAndDestinationAndName(srcNodeID string, Component0 string, Component1 string,
-		Component2 string, ComponentID *wrapperspb.UInt64Value, destNodeID string, destEndpoint string) (Route, error)
+		Component2 string, ComponentID *wrapperspb.UInt64Value, destNodeID string, linkID string, direction int32) (Route, error)
 
 	// GetDestinationNodeIDForName queries for routes with srcNodeID = ALL and component names,
 	// orders routes by last updated time (first being the latest) and returns dest nodeID of first route.
@@ -34,6 +42,7 @@ type DataAccess interface {
 	MarkRouteAsDeleted(routeID uint64) error
 	MarkRouteAsApplied(routeID uint64) error
 	MarkRouteAsFailed(routeID uint64, msg string) error
+	MarkRouteAsStale(routeID uint64, msg string) error
 
 	SaveChannel(channelID string, moderators []string) error
 	DeleteChannel(channelID string) error
