@@ -226,7 +226,6 @@ func testRouteOperations(t *testing.T, da DataAccess) {
 		SourceNodeID: "node6",
 		DestNodeID:   "node7",
 		LinkID:       "link-789",
-		Direction:    1,
 		Component0:   "org",
 		Component1:   "external",
 		Component2:   "api",
@@ -242,7 +241,6 @@ func testRouteOperations(t *testing.T, da DataAccess) {
 	retrievedLinkRoute := da.GetRouteByID(routeID4.ID)
 	require.NotNil(t, retrievedLinkRoute)
 	assert.Equal(t, "link-789", retrievedLinkRoute.LinkID)
-	assert.Equal(t, int32(1), retrievedLinkRoute.Direction)
 }
 
 // TestDataAccess_NodeOperations tests all node-related operations

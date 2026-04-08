@@ -135,7 +135,6 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 	routes := s.dbService.GetRoutesForNodeID(nodeID)
 	for _, route := range routes {
 		linkID := route.LinkID
-		direction := controllerapi.ConnectionDirection(route.Direction)
 		// create connection and subscription for each route
 		apiSubscription := &controllerapi.Subscription{
 			ConnectionId: linkID,
@@ -144,7 +143,6 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 			Component_2:  route.Component2,
 			Id:           route.ComponentID,
 			LinkId:       &linkID,
-			Direction:    &direction,
 		}
 		if route.DestNodeID != "" {
 			apiSubscription.NodeId = &route.DestNodeID
@@ -237,7 +235,7 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 			}
 			route, rerr := s.dbService.GetRouteForSrcAndDestinationAndName(nodeID, subAck.Subscription.Component_0,
 				subAck.Subscription.Component_1, subAck.Subscription.Component_2, subAck.Subscription.Id,
-				destNodeID, subAck.Subscription.GetLinkId(), int32(subAck.Subscription.GetDirection()))
+				destNodeID, subAck.Subscription.GetLinkId())
 			if rerr != nil {
 				zlog.Warn().
 					Str("subscription", subAck.Subscription.String()).

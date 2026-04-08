@@ -30,7 +30,7 @@ type DataAccess interface {
 	FilterRoutesBySourceAndDestination(sourceNodeID string, destNodeID string) []Route
 
 	GetRouteForSrcAndDestinationAndName(srcNodeID string, Component0 string, Component1 string,
-		Component2 string, ComponentID *wrapperspb.UInt64Value, destNodeID string, linkID string, direction int32) (Route, error)
+		Component2 string, ComponentID *wrapperspb.UInt64Value, destNodeID string, linkID string) (Route, error)
 
 	// GetDestinationNodeIDForName queries for routes with srcNodeID = ALL and component names,
 	// orders routes by last updated time (first being the latest) and returns dest nodeID of first route.
