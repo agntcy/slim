@@ -435,7 +435,7 @@ func (d *dbService) GetRoutesForDestinationNodeIDAndName(nodeID string, componen
 }
 
 func (d *dbService) GetRouteForSrcAndDestinationAndName(srcNodeID string, component0 string, component1 string,
-	component2 string, componentID *wrapperspb.UInt64Value, destNodeID string, linkID string, direction int32) (Route, error) {
+	component2 string, componentID *wrapperspb.UInt64Value, destNodeID string, linkID string) (Route, error) {
 
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -443,7 +443,6 @@ func (d *dbService) GetRouteForSrcAndDestinationAndName(srcNodeID string, compon
 		if route.SourceNodeID == srcNodeID &&
 			(destNodeID == "" || route.DestNodeID == destNodeID) &&
 			(linkID == "" || route.LinkID == linkID) &&
-			(direction == 0 || route.Direction == direction) &&
 			route.Component0 == component0 &&
 			route.Component1 == component1 &&
 			route.Component2 == component2 {

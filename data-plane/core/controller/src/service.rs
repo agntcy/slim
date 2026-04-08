@@ -731,20 +731,6 @@ impl ControllerService {
         }
     }
 
-    fn resolve_subscription_direction(subscription: &v1::Subscription) -> ConnectionDirection {
-        subscription
-            .direction
-            .and_then(|value| ConnectionDirection::try_from(value).ok())
-            .unwrap_or(ConnectionDirection::Outgoing)
-    }
-
-    fn subscription_flags(subscription: &v1::Subscription, conn: u64) -> SlimHeaderFlags {
-        match Self::resolve_subscription_direction(subscription) {
-            ConnectionDirection::Outgoing => SlimHeaderFlags::default().with_recv_from(conn),
-            ConnectionDirection::Incoming => SlimHeaderFlags::default().with_forward_to(conn),
-        }
-    }
-
     /// Handle new control messages.
     async fn handle_new_control_message(
         &self,
@@ -769,21 +755,13 @@ impl ControllerService {
                                     connection_success = false;
                                     connection_error_msg = format!("Failed to parse config: {}", e);
                                 }
-                                Ok(mut client_config) => {
+                                Ok(client_config) => {
                                     let client_endpoint = &client_config.endpoint;
-                                    let mut requested_link_id = if !conn.connection_id.is_empty()
-                                        && conn.connection_id != "n/a"
-                                    {
-                                        conn.connection_id.clone()
+                                    let requested_link_id = if client_config.link_id.is_empty() {
+                                        String::new()
                                     } else {
                                         client_config.link_id.clone()
                                     };
-                                    if requested_link_id.is_empty() {
-                                        requested_link_id = String::new();
-                                    }
-                                    if client_config.link_id.is_empty() {
-                                        client_config.link_id = requested_link_id.clone();
-                                    }
 
                                     // Reuse an existing link connection first when a link_id is provided.
                                     if !requested_link_id.is_empty() {
@@ -900,7 +878,7 @@ impl ControllerService {
                                     .source(source.clone())
                                     .destination(name.clone())
                                     .identity(&identity_token)
-                                    .flags(Self::subscription_flags(subscription, conn))
+                                    .flags(SlimHeaderFlags::default().with_recv_from(conn))
                                     .build_subscribe()
                                     .unwrap();
 
@@ -970,7 +948,7 @@ impl ControllerService {
                                     .source(source.clone())
                                     .destination(name.clone())
                                     .identity(&identity_token)
-                                    .flags(Self::subscription_flags(subscription, conn))
+                                    .flags(SlimHeaderFlags::default().with_recv_from(conn))
                                     .build_unsubscribe()
                                     .unwrap();
 

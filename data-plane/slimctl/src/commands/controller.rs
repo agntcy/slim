@@ -307,9 +307,8 @@ async fn route_list(node_id: &str, opts: &ResolvedOpts) -> Result<()> {
             .iter()
             .map(|c| {
                 format!(
-                    "local:{}:{:?}:{:?}:{}",
+                    "local:{}:{:?}:{}",
                     c.id,
-                    c.direction(),
                     c.link_id,
                     c.config_data
                 )
@@ -320,9 +319,8 @@ async fn route_list(node_id: &str, opts: &ResolvedOpts) -> Result<()> {
             .iter()
             .map(|c| {
                 format!(
-                    "remote:{:?}:{:?}:{:?}:{}:{}",
+                    "remote:{:?}:{:?}:{}:{}",
                     c.connection_type,
-                    c.direction(),
                     c.link_id,
                     c.config_data,
                     c.id

@@ -37,7 +37,6 @@ type RouteModel struct {
 	SourceNodeID string
 	DestNodeID   string
 	LinkID       string
-	Direction    int32
 	Component0   string
 	Component1   string
 	Component2   string
@@ -344,7 +343,7 @@ func (s *SQLiteDBService) GetRoutesForDestinationNodeIDAndName(nodeID string, co
 }
 
 func (s *SQLiteDBService) GetRouteForSrcAndDestinationAndName(srcNodeID string, component0 string, component1 string,
-	component2 string, componentID *wrapperspb.UInt64Value, destNodeID string, linkID string, direction int32) (Route, error) {
+	component2 string, componentID *wrapperspb.UInt64Value, destNodeID string, linkID string) (Route, error) {
 
 	query := s.db.Where("source_node_id = ? AND component0 = ? AND component1 = ? AND component2 = ?",
 		srcNodeID, component0, component1, component2)
@@ -354,9 +353,6 @@ func (s *SQLiteDBService) GetRouteForSrcAndDestinationAndName(srcNodeID string, 
 	}
 	if linkID != "" {
 		query = query.Where("link_id = ?", linkID)
-	}
-	if direction != 0 {
-		query = query.Where("direction = ?", direction)
 	}
 
 	if componentID == nil {
@@ -604,7 +600,6 @@ func (s *SQLiteDBService) routeToRouteModel(route Route) RouteModel {
 		SourceNodeID: route.SourceNodeID,
 		DestNodeID:   route.DestNodeID,
 		LinkID:       route.LinkID,
-		Direction:    route.Direction,
 		Component0:   route.Component0,
 		Component1:   route.Component1,
 		Component2:   route.Component2,
@@ -629,7 +624,6 @@ func (s *SQLiteDBService) routeModelToRoute(routeModel RouteModel) Route {
 		SourceNodeID: routeModel.SourceNodeID,
 		DestNodeID:   routeModel.DestNodeID,
 		LinkID:       routeModel.LinkID,
-		Direction:    routeModel.Direction,
 		Component0:   routeModel.Component0,
 		Component1:   routeModel.Component1,
 		Component2:   routeModel.Component2,

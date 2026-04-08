@@ -39,7 +39,6 @@ type Route struct {
 	SourceNodeID string
 	DestNodeID   string
 	LinkID       string
-	Direction    int32
 	Component0   string
 	Component1   string
 	Component2   string
@@ -72,7 +71,7 @@ func NewRouteService(dbService db.DataAccess, cmdHandler nodecontrol.NodeCommand
 }
 
 func (s *RouteService) Start(ctx context.Context) error {
-	reconciler := NewRouteReconciler("reconciler",
+	reconciler := NewRouteReconciler("route-reconciler",
 		s.reconcilerConfig, s.queue, s.dbService, s.cmdHandler)
 	linkReconciler := NewLinkReconciler("link-reconciler",
 		s.reconcilerConfig, s.linkQueue, s.queue, s.dbService, s.cmdHandler)
@@ -154,12 +153,11 @@ func (s *RouteService) AddRoute(ctx context.Context, route Route) (string, error
 
 func (s *RouteService) addSingleRoute(ctx context.Context, dbRoute db.Route) (string, error) {
 	if dbRoute.SourceNodeID != AllNodesID {
-		linkID, direction, err := s.findMatchingLinkForRoute(dbRoute)
+		linkID, err := s.findMatchingLinkForRoute(dbRoute)
 		if err != nil {
 			return "", fmt.Errorf("failed to find matching link for route: %w", err)
 		}
 		dbRoute.LinkID = linkID
-		dbRoute.Direction = direction
 	}
 
 	route, err := s.dbService.AddRoute(dbRoute)
@@ -173,22 +171,22 @@ func (s *RouteService) addSingleRoute(ctx context.Context, dbRoute db.Route) (st
 	return route.String(), nil
 }
 
-func (s *RouteService) findMatchingLinkForRoute(dbRoute db.Route) (string, int32, error) {
+func (s *RouteService) findMatchingLinkForRoute(dbRoute db.Route) (string, error) {
 	link, err := s.dbService.GetLinkForSourceAndDestination(dbRoute.SourceNodeID, dbRoute.DestNodeID)
 	if err != nil {
-		return "", 0, err
+		return "", err
 	}
 	if link != nil && !link.Deleted {
-		return link.LinkID, int32(controllerapi.ConnectionDirection_CONNECTION_DIRECTION_OUTGOING), nil
+		return link.LinkID, nil
 	}
 	reverseLink, err := s.dbService.GetLinkForSourceAndDestination(dbRoute.DestNodeID, dbRoute.SourceNodeID)
 	if err != nil {
-		return "", 0, err
+		return "", err
 	}
 	if reverseLink != nil && !reverseLink.Deleted {
-		return reverseLink.LinkID, int32(controllerapi.ConnectionDirection_CONNECTION_DIRECTION_INCOMING), nil
+		return reverseLink.LinkID, nil
 	}
-	return "", 0, fmt.Errorf("no matching link found for source=%s destination=%s",
+	return "", fmt.Errorf("no matching link found for source=%s destination=%s",
 		dbRoute.SourceNodeID, dbRoute.DestNodeID)
 }
 
@@ -204,7 +202,7 @@ func (s *RouteService) DeleteRoute(ctx context.Context, route Route) error {
 	// delete routes for all existing nodes if the route is for all nodes
 	if route.SourceNodeID == AllNodesID {
 		dbRoute, err := s.dbService.GetRouteForSrcAndDestinationAndName(route.SourceNodeID, route.Component0,
-			route.Component1, route.Component2, route.ComponentID, route.DestNodeID, route.LinkID, route.Direction)
+			route.Component1, route.Component2, route.ComponentID, route.DestNodeID, route.LinkID)
 		if err != nil {
 			return fmt.Errorf("failed to fetch route for delete (%w)", err)
 		}
@@ -230,16 +228,15 @@ func (s *RouteService) DeleteRoute(ctx context.Context, route Route) error {
 			SourceNodeID: route.SourceNodeID,
 			DestNodeID:   route.DestNodeID,
 		}
-		linkID, direction, err := s.findMatchingLinkForRoute(matchRoute)
+		linkID, err := s.findMatchingLinkForRoute(matchRoute)
 		if err != nil {
 			return fmt.Errorf("failed to find matching link for route delete: %w", err)
 		}
 		route.LinkID = linkID
-		route.Direction = direction
 	}
 
 	dbRoute, err := s.dbService.GetRouteForSrcAndDestinationAndName(route.SourceNodeID, route.Component0,
-		route.Component1, route.Component2, route.ComponentID, route.DestNodeID, route.LinkID, route.Direction)
+		route.Component1, route.Component2, route.ComponentID, route.DestNodeID, route.LinkID)
 	if err != nil {
 		return fmt.Errorf("failed to fetch route for delete (%w)", err)
 	}
@@ -301,6 +298,12 @@ func (s *RouteService) markLinksForDelete(ctx context.Context, nodeID string) []
 			zlog.Error().Err(err).Msgf("failed to mark link %s deleted", link.LinkID)
 			continue
 		}
+		zlog.Info().
+			Str("link_id", link.LinkID).
+			Str("source_node_id", link.SourceNodeID).
+			Str("dest_node_id", link.DestNodeID).
+			Str("reason", link.StatusMsg).
+			Msg("Link marked for delete")
 		affected[link.SourceNodeID] = struct{}{}
 		for _, r := range s.dbService.GetRoutesByLinkID(link.LinkID) {
 			if err := s.dbService.MarkRouteAsStale(r.ID, "dependent link marked deleted"); err != nil {
@@ -377,6 +380,11 @@ func (s *RouteService) ensureLinksForNode(ctx context.Context, nodeID string) []
 
 func (s *RouteService) ensureSingleLink(ctx context.Context, sourceNodeID string, destNodeID string) (string, bool) {
 	if existing, err := s.dbService.GetLinkForSourceAndDestination(sourceNodeID, destNodeID); err == nil && existing != nil && !existing.Deleted {
+		zerolog.Ctx(ctx).Info().
+			Str("link_id", existing.LinkID).
+			Str("source_node_id", sourceNodeID).
+			Str("dest_node_id", destNodeID).
+			Msg("Link already exists, skipping creation")
 		return sourceNodeID, false
 	}
 
@@ -408,6 +416,12 @@ func (s *RouteService) ensureSingleLink(ctx context.Context, sourceNodeID string
 		zerolog.Ctx(ctx).Error().Err(err).Msgf("failed to add link %s -> %s", sourceNodeID, destNodeID)
 		return sourceNodeID, false
 	}
+	zerolog.Ctx(ctx).Info().
+		Str("link_id", linkID).
+		Str("source_node_id", sourceNodeID).
+		Str("dest_node_id", destNodeID).
+		Str("dest_endpoint", endpoint).
+		Msg("Link created")
 	return sourceNodeID, true
 }
 
@@ -427,13 +441,12 @@ func (s *RouteService) ensureRoutesForNode(ctx context.Context, nodeID string) {
 			ComponentID:  r.ComponentID,
 			Deleted:      false,
 		}
-		linkID, direction, err := s.findMatchingLinkForRoute(newRoute)
+		linkID, err := s.findMatchingLinkForRoute(newRoute)
 		if err != nil {
 			zlog.Error().Err(err).Msgf("failed to find matching link for generic route %s", newRoute)
 			continue
 		}
 		newRoute.LinkID = linkID
-		newRoute.Direction = direction
 		if _, err := s.dbService.AddRoute(newRoute); err != nil {
 			zlog.Debug().Err(err).Msgf("generic route already exists or cannot be added: %s", newRoute)
 		}
