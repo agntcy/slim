@@ -315,7 +315,8 @@ func TestAddRoute_Success_WithDestNode(t *testing.T) {
 func TestAddRoute_Success_WithConnection(t *testing.T) {
 	// Arrange
 	request := &controlplaneApi.AddRouteRequest{
-		NodeId: "source-node",
+		NodeId:     "source-node",
+		DestNodeId: "dest-node",
 		Subscription: &controllerapi.Subscription{
 			Component_0:  "org",
 			Component_1:  "namespace",
@@ -330,12 +331,14 @@ func TestAddRoute_Success_WithConnection(t *testing.T) {
 	}
 
 	sourceNode := &controlplaneApi.NodeEntry{Id: "source-node"}
+	destNode := &controlplaneApi.NodeEntry{Id: "dest-node"}
 	routeID := "route-123"
 
 	mockNodeService := new(mockNodeService)
 	mockRouteService := new(mockRouteService)
 
 	mockNodeService.On("GetNodeByID", "source-node").Return(sourceNode, nil)
+	mockNodeService.On("GetNodeByID", "dest-node").Return(destNode, nil)
 	mockRouteService.On("AddRoute", mock.Anything, mock.AnythingOfType("routes.Route")).Return(routeID, nil)
 
 	s := &nbAPIService{
@@ -418,7 +421,7 @@ func TestAddRoute_MissingDestination(t *testing.T) {
 	// Assert
 	assert.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "either destNodeId or connectionId must be provided")
+	assert.Contains(t, err.Error(), "destNodeId must be provided")
 	mockNodeService.AssertExpectations(t)
 }
 
@@ -466,7 +469,8 @@ func TestDeleteRoute_Success_WithDestNode(t *testing.T) {
 func TestDeleteRoute_Success_WithConnection(t *testing.T) {
 	// Arrange
 	request := &controlplaneApi.DeleteRouteRequest{
-		NodeId: "source-node",
+		NodeId:     "source-node",
+		DestNodeId: "dest-node",
 		Subscription: &controllerapi.Subscription{
 			Component_0:  "org",
 			Component_1:  "namespace",
@@ -477,11 +481,13 @@ func TestDeleteRoute_Success_WithConnection(t *testing.T) {
 	}
 
 	sourceNode := &controlplaneApi.NodeEntry{Id: "source-node"}
+	destNode := &controlplaneApi.NodeEntry{Id: "dest-node"}
 
 	mockNodeService := new(mockNodeService)
 	mockRouteService := new(mockRouteService)
 
 	mockNodeService.On("GetNodeByID", "source-node").Return(sourceNode, nil)
+	mockNodeService.On("GetNodeByID", "dest-node").Return(destNode, nil)
 	mockRouteService.On("DeleteRoute", mock.Anything, mock.AnythingOfType("routes.Route")).Return(nil)
 
 	s := &nbAPIService{

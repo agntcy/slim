@@ -472,18 +472,17 @@ async fn route_outline(
     Ok(())
 }
 
-const ROUTE_HEADERS: [&str; 8] = [
+const ROUTE_HEADERS: [&str; 7] = [
     "ID",
     "SOURCE",
     "DEST_NODE",
-    "DEST_ENDPOINT",
     "SUBSCRIPTION",
     "STATUS",
     "DELETED",
     "LAST_UPDATED",
 ];
 
-fn route_cells(r: &RouteEntry) -> [String; 8] {
+fn route_cells(r: &RouteEntry) -> [String; 7] {
     [
         r.id.to_string(),
         r.source_node_id.clone(),
@@ -493,12 +492,6 @@ fn route_cells(r: &RouteEntry) -> [String; 8] {
             &r.dest_node_id
         }
         .to_string(),
-        if r.dest_endpoint.is_empty() {
-            "-"
-        } else {
-            &r.dest_endpoint
-        }
-        .to_string(),
         build_subscription_str(r),
         route_status_str(r.status),
         if r.deleted { "Yes" } else { "No" }.to_string(),
@@ -506,7 +499,7 @@ fn route_cells(r: &RouteEntry) -> [String; 8] {
     ]
 }
 
-fn print_row<T: AsRef<str>>(cells: &[T], widths: &[usize; 8]) {
+fn print_row<T: AsRef<str>>(cells: &[T], widths: &[usize; 7]) {
     let line: Vec<String> = cells
         .iter()
         .zip(widths.iter())
@@ -515,7 +508,7 @@ fn print_row<T: AsRef<str>>(cells: &[T], widths: &[usize; 8]) {
     println!("  {}", line.join("  "));
 }
 
-fn compute_route_col_widths(routes: &[RouteEntry]) -> [usize; 8] {
+fn compute_route_col_widths(routes: &[RouteEntry]) -> [usize; 7] {
     let mut widths = ROUTE_HEADERS.map(|h| h.len());
     for r in routes {
         for (w, cell) in widths.iter_mut().zip(route_cells(r).iter()) {
@@ -525,13 +518,13 @@ fn compute_route_col_widths(routes: &[RouteEntry]) -> [usize; 8] {
     widths
 }
 
-fn print_route_header(widths: &[usize; 8]) {
+fn print_route_header(widths: &[usize; 7]) {
     print_row(&ROUTE_HEADERS, widths);
     let total: usize = widths.iter().sum::<usize>() + widths.len() * 2;
     println!("  {}", "-".repeat(total));
 }
 
-fn print_route_row(route: &RouteEntry, widths: &[usize; 8]) {
+fn print_route_row(route: &RouteEntry, widths: &[usize; 7]) {
     print_row(&route_cells(route), widths);
 }
 
@@ -550,6 +543,7 @@ fn route_status_str(status: i32) -> String {
     match RouteStatus::try_from(status) {
         Ok(RouteStatus::Applied) => "APPLIED".to_string(),
         Ok(RouteStatus::Failed) => "FAILED".to_string(),
+        Ok(RouteStatus::Stale) => "STALE".to_string(),
         _ => "UNKNOWN".to_string(),
     }
 }
@@ -744,7 +738,6 @@ mod tests {
     fn make_route(
         source: &str,
         dest_node: &str,
-        dest_endpoint: &str,
         c0: &str,
         c1: &str,
         c2: &str,
@@ -757,7 +750,6 @@ mod tests {
             id: 1,
             source_node_id: source.to_string(),
             dest_node_id: dest_node.to_string(),
-            dest_endpoint: dest_endpoint.to_string(),
             component_0: c0.to_string(),
             component_1: c1.to_string(),
             component_2: c2.to_string(),
@@ -818,19 +810,19 @@ mod tests {
 
     #[test]
     fn build_subscription_str_with_component_id() {
-        let r = make_route("", "", "", "org", "ns", "agent", Some(42), 0, false, 0);
+        let r = make_route("", "", "org", "ns", "agent", Some(42), 0, false, 0);
         assert_eq!(build_subscription_str(&r), "org/ns/agent/42");
     }
 
     #[test]
     fn build_subscription_str_without_component_id() {
-        let r = make_route("", "", "", "org", "ns", "agent", None, 0, false, 0);
+        let r = make_route("", "", "org", "ns", "agent", None, 0, false, 0);
         assert_eq!(build_subscription_str(&r), "org/ns/agent");
     }
 
     #[test]
     fn build_subscription_str_zero_component_id() {
-        let r = make_route("", "", "", "a", "b", "c", Some(0), 0, false, 0);
+        let r = make_route("", "", "a", "b", "c", Some(0), 0, false, 0);
         assert_eq!(build_subscription_str(&r), "a/b/c/0");
     }
 
@@ -884,7 +876,6 @@ mod tests {
         let r = make_route(
             "src-node",
             "dst-node",
-            "",
             "org",
             "ns",
             "agent",
@@ -897,24 +888,22 @@ mod tests {
         assert_eq!(cells[0], "1"); // id
         assert_eq!(cells[1], "src-node"); // source
         assert_eq!(cells[2], "dst-node"); // dest node
-        assert_eq!(cells[3], "-"); // dest endpoint (empty → "-")
-        assert_eq!(cells[4], "org/ns/agent/7"); // subscription
-        assert_eq!(cells[5], "APPLIED"); // status
-        assert_eq!(cells[6], "No"); // deleted
+        assert_eq!(cells[3], "org/ns/agent/7"); // subscription
+        assert_eq!(cells[4], "APPLIED"); // status
+        assert_eq!(cells[5], "No"); // deleted
     }
 
     #[test]
     fn route_cells_empty_dest_node_becomes_dash() {
-        let r = make_route("src", "", "", "o", "n", "a", None, 0, false, 0);
+        let r = make_route("src", "", "o", "n", "a", None, 0, false, 0);
         assert_eq!(route_cells(&r)[2], "-");
     }
 
     #[test]
-    fn route_cells_nonempty_dest_endpoint() {
+    fn route_cells_subscription_column() {
         let r = make_route(
             "src",
             "",
-            "http://host:8080",
             "o",
             "n",
             "a",
@@ -923,13 +912,13 @@ mod tests {
             false,
             0,
         );
-        assert_eq!(route_cells(&r)[3], "http://host:8080");
+        assert_eq!(route_cells(&r)[3], "o/n/a");
     }
 
     #[test]
     fn route_cells_deleted_shows_yes() {
-        let r = make_route("src", "", "", "o", "n", "a", None, 0, true, 0);
-        assert_eq!(route_cells(&r)[6], "Yes");
+        let r = make_route("src", "", "o", "n", "a", None, 0, true, 0);
+        assert_eq!(route_cells(&r)[5], "Yes");
     }
 
     // ── compute_route_col_widths ─────────────────────────────────────────────
@@ -971,8 +960,8 @@ mod tests {
 
     #[test]
     fn print_row_no_panic() {
-        let cells = ["a", "b", "c", "d", "e", "f", "g", "h"];
-        let widths = [5usize; 8];
+        let cells = ["a", "b", "c", "d", "e", "f", "g"];
+        let widths = [5usize; 7];
         print_row(&cells, &widths);
     }
 
@@ -987,7 +976,6 @@ mod tests {
         let r = make_route(
             "src",
             "dst",
-            "http://host:80",
             "org",
             "ns",
             "agent",

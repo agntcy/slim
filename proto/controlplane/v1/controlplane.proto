@@ -101,6 +101,7 @@ enum RouteStatus {
   ROUTE_STATUS_UNSPECIFIED = 0;
   ROUTE_STATUS_APPLIED = 1;
   ROUTE_STATUS_FAILED = 2;
+  ROUTE_STATUS_STALE = 3;
 }
 
 // Route message representing a single route
@@ -108,8 +109,6 @@ message RouteEntry {
   uint64 id = 1;
   string source_node_id = 2;
   string dest_node_id = 3;
-  string dest_endpoint = 4;
-  string conn_config_data = 5;
   string component_0 = 6;
   string component_1 = 7;
   string component_2 = 8;
