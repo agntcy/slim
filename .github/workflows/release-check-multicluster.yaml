@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-name: ci-release-please-check
+name: ci-release-please-check-multicluster
 
 on:
   push:
     branches:
-      - main
+      - multicluster-demo
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -24,5 +24,6 @@ jobs:
         id: release-please
         with:
           token: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
-          config-file: .github/release-config.json
-          manifest-file: .github/release-manifest.json
+          config-file: .github/release-config-multicluster.json
+          manifest-file: .github/release-manifest-multicluster.json
+          target-branch: multicluster-demo

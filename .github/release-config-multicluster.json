@@ -1,0 +1,19 @@
+{
+  "bump-patch-for-minor-pre-major": true,
+  "separate-pull-requests": true,
+  "sequential-calls": true,
+  "include-component-in-tag": true,
+  "skip-github-release": false,
+  "signoff": "Agntcy Build Bot <build@agntcy.io>",
+  "bump-minor-pre-major": true,
+  "packages": {
+    "multicluster-demo/k8s_troubleshooting_agent": {
+      "package-name": "k8s-troubleshooting-agent",
+      "release-type": "simple"
+    },
+    "multicluster-demo/k8s_troubleshooting_agent/chart": {
+      "package-name": "helm-k8s-troubleshooting-agent",
+      "release-type": "helm"
+    }
+  }
+}
