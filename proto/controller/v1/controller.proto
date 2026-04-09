@@ -73,6 +73,7 @@ message ConfigurationCommand {
   repeated Connection connections_to_create = 1;
   repeated Subscription subscriptions_to_set = 2;
   repeated Subscription subscriptions_to_delete = 3;
+  repeated string connections_to_delete = 4;
 }
 
 message ConfigurationCommandAck {

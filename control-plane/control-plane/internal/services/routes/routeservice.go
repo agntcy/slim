@@ -172,19 +172,12 @@ func (s *RouteService) addSingleRoute(ctx context.Context, dbRoute db.Route) (st
 }
 
 func (s *RouteService) findMatchingLinkForRoute(dbRoute db.Route) (string, error) {
-	link, err := s.dbService.GetLinkForSourceAndDestination(dbRoute.SourceNodeID, dbRoute.DestNodeID)
+	link, err := s.dbService.FindLinkBetweenNodes(dbRoute.SourceNodeID, dbRoute.DestNodeID)
 	if err != nil {
 		return "", err
 	}
 	if link != nil && !link.Deleted {
 		return link.LinkID, nil
-	}
-	reverseLink, err := s.dbService.GetLinkForSourceAndDestination(dbRoute.DestNodeID, dbRoute.SourceNodeID)
-	if err != nil {
-		return "", err
-	}
-	if reverseLink != nil && !reverseLink.Deleted {
-		return reverseLink.LinkID, nil
 	}
 	return "", fmt.Errorf("no matching link found for source=%s destination=%s",
 		dbRoute.SourceNodeID, dbRoute.DestNodeID)
@@ -265,9 +258,6 @@ func (s *RouteService) NodeRegistered(ctx context.Context, nodeID string, connDe
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	zlog := zerolog.Ctx(ctx).With().Str("service", "RouteService").Str("node_id", nodeID).Logger()
-	zlog.Info().Msg("Handling node registration flow")
-
 	affectedNodes := map[string]struct{}{}
 	if connDetailsUpdated {
 		for _, nid := range s.markLinksForDelete(ctx, nodeID) {
@@ -331,16 +321,25 @@ func (s *RouteService) ensureLinksForNode(ctx context.Context, nodeID string) []
 		if other.ID == nodeID {
 			continue
 		}
+
+		if existing, err := s.dbService.FindLinkBetweenNodes(nodeID, other.ID); err == nil &&
+			existing != nil && !existing.Deleted {
+			zerolog.Ctx(ctx).Info().
+				Str("link", existing.String()).
+				Msg("Link already exists, skipping creation")
+			continue
+		}
+
 		sameGroup := (srcNode.GroupName == nil && other.GroupName == nil) ||
 			(srcNode.GroupName != nil && other.GroupName != nil && *srcNode.GroupName == *other.GroupName)
-
+		// make direct link in case of same group, which means direct connectivity between nodes
 		if sameGroup {
-			if createdSource, ok := s.ensureSingleLink(ctx, nodeID, other.ID); ok {
+			if createdSource, ok := s.ensureDirectLink(ctx, nodeID, other.ID); ok {
 				affected[createdSource] = struct{}{}
 			}
 			continue
 		}
-
+		// make link to external endpoint if destination node has external endpoint
 		hasDstExternal := false
 		for _, d := range other.ConnDetails {
 			if d.ExternalEndpoint != nil && *d.ExternalEndpoint != "" {
@@ -349,12 +348,13 @@ func (s *RouteService) ensureLinksForNode(ctx context.Context, nodeID string) []
 			}
 		}
 		if hasDstExternal {
-			if createdSource, ok := s.ensureSingleLink(ctx, nodeID, other.ID); ok {
+			if createdSource, ok := s.ensureGroupLink(ctx, nodeID, other.ID); ok {
 				affected[createdSource] = struct{}{}
 			}
 			continue
 		}
 
+		// make reverse link to src node external endpoint if source node has external endpoint
 		hasSrcExternal := false
 		for _, d := range srcNode.ConnDetails {
 			if d.ExternalEndpoint != nil && *d.ExternalEndpoint != "" {
@@ -363,7 +363,7 @@ func (s *RouteService) ensureLinksForNode(ctx context.Context, nodeID string) []
 			}
 		}
 		if hasSrcExternal {
-			if createdSource, ok := s.ensureSingleLink(ctx, other.ID, nodeID); ok {
+			if createdSource, ok := s.ensureGroupLink(ctx, other.ID, nodeID); ok {
 				affected[createdSource] = struct{}{}
 			}
 			continue
@@ -378,22 +378,47 @@ func (s *RouteService) ensureLinksForNode(ctx context.Context, nodeID string) []
 	return out
 }
 
-func (s *RouteService) ensureSingleLink(ctx context.Context, sourceNodeID string, destNodeID string) (string, bool) {
-	if existing, err := s.dbService.GetLinkForSourceAndDestination(sourceNodeID, destNodeID); err == nil && existing != nil && !existing.Deleted {
-		zerolog.Ctx(ctx).Info().
-			Str("link_id", existing.LinkID).
-			Str("source_node_id", sourceNodeID).
-			Str("dest_node_id", destNodeID).
-			Msg("Link already exists, skipping creation")
-		return sourceNodeID, false
-	}
-
+func (s *RouteService) ensureDirectLink(ctx context.Context, sourceNodeID string, destNodeID string) (string, bool) {
 	tmpRoute := db.Route{SourceNodeID: sourceNodeID, DestNodeID: destNodeID}
 	endpoint, configData, err := s.getConnectionDetails(ctx, tmpRoute)
 	if err != nil {
-		zerolog.Ctx(ctx).Error().Err(err).Msgf("failed to compute link connection details for %s -> %s", sourceNodeID, destNodeID)
+		zerolog.Ctx(ctx).Error().Err(err).Msgf("failed to compute link connection details for %s -> %s",
+			sourceNodeID, destNodeID)
 		return sourceNodeID, false
 	}
+	linkID := uuid.NewString()
+	_, err = s.dbService.AddLink(db.Link{
+		LinkID:         linkID,
+		SourceNodeID:   sourceNodeID,
+		DestNodeID:     destNodeID,
+		DestEndpoint:   endpoint,
+		ConnConfigData: configData,
+		Status:         db.LinkStatusPending,
+		Deleted:        false,
+	})
+	if err != nil {
+		zerolog.Ctx(ctx).Error().Err(err).Msgf("failed to add link %s -> %s", sourceNodeID, destNodeID)
+		return sourceNodeID, false
+	}
+	zerolog.Ctx(ctx).Info().
+		Str("link_id", linkID).
+		Str("source_node_id", sourceNodeID).
+		Str("dest_node_id", destNodeID).
+		Str("dest_endpoint", endpoint).
+		Msg("Link created")
+	return sourceNodeID, true
+}
+
+func (s *RouteService) ensureGroupLink(ctx context.Context, sourceNodeID string, destNodeID string) (string, bool) {
+	tmpRoute := db.Route{SourceNodeID: sourceNodeID, DestNodeID: destNodeID}
+	endpoint, configData, err := s.getConnectionDetails(ctx, tmpRoute)
+	if err != nil {
+		zerolog.Ctx(ctx).Error().Err(err).Msgf("failed to compute link connection details for %s -> %s",
+			sourceNodeID, destNodeID)
+		return sourceNodeID, false
+	}
+	// Avoid duplicate links to the same destination group and endpoint
+	// by reusing an existing link when available.
 	reused, err := s.dbService.GetLinkForSourceAndEndpoint(sourceNodeID, endpoint)
 	if err != nil {
 		zerolog.Ctx(ctx).Error().Err(err).Msgf("failed to find reusable link for %s endpoint=%s", sourceNodeID, endpoint)
@@ -449,6 +474,8 @@ func (s *RouteService) ensureRoutesForNode(ctx context.Context, nodeID string) {
 		newRoute.LinkID = linkID
 		if _, err := s.dbService.AddRoute(newRoute); err != nil {
 			zlog.Debug().Err(err).Msgf("generic route already exists or cannot be added: %s", newRoute)
+		} else {
+			zlog.Info().Msgf("generic route created: %s", newRoute)
 		}
 	}
 }

@@ -246,12 +246,12 @@ func (s *SQLiteDBService) GetLink(linkID string, sourceNodeID string, destNodeID
 	return &link, nil
 }
 
-func (s *SQLiteDBService) GetLinkForSourceAndDestination(sourceNodeID string, destNodeID string) (*Link, error) {
+func (s *SQLiteDBService) FindLinkBetweenNodes(sourceNodeID string, destNodeID string) (*Link, error) {
 	var model LinkModel
-	query := s.db.Where("source_node_id = ? AND deleted = ?", sourceNodeID, false)
-	if destNodeID != "" {
-		query = query.Where("dest_node_id = ?", destNodeID)
-	}
+	query := s.db.Where(
+		"((source_node_id = ? AND dest_node_id = ?) OR (source_node_id = ? AND dest_node_id = ?)) AND deleted = ?",
+		sourceNodeID, destNodeID, destNodeID, sourceNodeID, false,
+	)
 	if err := query.Order("last_updated desc").First(&model).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil

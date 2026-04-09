@@ -195,6 +195,7 @@ async fn route_add(route: &str, via: &str, config_file: &str, opts: &ResolvedOpt
         message_id: uuid::Uuid::new_v4().to_string(),
         payload: Some(Payload::ConfigCommand(ConfigurationCommand {
             connections_to_create: vec![conn],
+            connections_to_delete: vec![],
             subscriptions_to_set: vec![subscription],
             subscriptions_to_delete: vec![],
         })),
@@ -256,6 +257,7 @@ async fn route_del(route: &str, via: &str, endpoint: &str, opts: &ResolvedOpts) 
         message_id: uuid::Uuid::new_v4().to_string(),
         payload: Some(Payload::ConfigCommand(ConfigurationCommand {
             connections_to_create: vec![],
+            connections_to_delete: vec![],
             subscriptions_to_set: vec![],
             subscriptions_to_delete: vec![subscription],
         })),

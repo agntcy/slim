@@ -244,15 +244,17 @@ func (d *dbService) GetLink(linkID string, sourceNodeID string, destNodeID strin
 	return latest, nil
 }
 
-func (d *dbService) GetLinkForSourceAndDestination(sourceNodeID string, destNodeID string) (*Link, error) {
+func (d *dbService) FindLinkBetweenNodes(sourceNodeID string, destNodeID string) (*Link, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	var latest *Link
 	for _, link := range d.links {
-		if link.SourceNodeID != sourceNodeID || link.Deleted {
+		if link.Deleted {
 			continue
 		}
-		if destNodeID != "" && link.DestNodeID != destNodeID {
+		direct := link.SourceNodeID == sourceNodeID && link.DestNodeID == destNodeID
+		reverse := link.SourceNodeID == destNodeID && link.DestNodeID == sourceNodeID
+		if !direct && !reverse {
 			continue
 		}
 		l := link

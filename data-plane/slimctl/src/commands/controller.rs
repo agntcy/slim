@@ -305,14 +305,7 @@ async fn route_list(node_id: &str, opts: &ResolvedOpts) -> Result<()> {
         let local_names: Vec<String> = e
             .local_connections
             .iter()
-            .map(|c| {
-                format!(
-                    "local:{}:{:?}:{}",
-                    c.id,
-                    c.link_id,
-                    c.config_data
-                )
-            })
+            .map(|c| format!("local:{}:{:?}:{}", c.id, c.link_id, c.config_data))
             .collect();
         let remote_names: Vec<String> = e
             .remote_connections
@@ -320,10 +313,7 @@ async fn route_list(node_id: &str, opts: &ResolvedOpts) -> Result<()> {
             .map(|c| {
                 format!(
                     "remote:{:?}:{:?}:{}:{}",
-                    c.connection_type,
-                    c.link_id,
-                    c.config_data,
-                    c.id
+                    c.connection_type, c.link_id, c.config_data, c.id
                 )
             })
             .collect();
@@ -899,17 +889,7 @@ mod tests {
 
     #[test]
     fn route_cells_subscription_column() {
-        let r = make_route(
-            "src",
-            "",
-            "o",
-            "n",
-            "a",
-            None,
-            0,
-            false,
-            0,
-        );
+        let r = make_route("src", "", "o", "n", "a", None, 0, false, 0);
         assert_eq!(route_cells(&r)[3], "o/n/a");
     }
 
