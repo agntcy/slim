@@ -22,6 +22,7 @@ var getTaskCmd = &cobra.Command{
 Prints the task's status, artifacts, and history as JSON.`,
 	Example: `  a2acli get-task --agent sha256:3f7a2c1b "01938f4a-1234-7abc-def0-123456789abc"`,
 	Args:    cobra.ExactArgs(1),
+	PreRunE: func(cmd *cobra.Command, args []string) error { return initSLIM() },
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if getTaskAgentDigest == "" {
 			return fmt.Errorf("--agent flag is required")

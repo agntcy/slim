@@ -78,58 +78,64 @@ Each agent is identified by the SHA256 digest of its AgentCard file.`,
 		}
 		agentStore = s
 
-		if slimEndpoint != "" {
-			slim_bindings.InitializeWithDefaults()
-			svc := slim_bindings.GetGlobalService()
-
-			localName, err := slim_bindings.NameFromString(slimLocalName)
-			if err != nil {
-				return fmt.Errorf("invalid --slim-local-name %q: %w", slimLocalName, err)
-			}
-
-			connID, err := svc.Connect(slim_bindings.NewInsecureClientConfig(slimEndpoint))
-			if err != nil {
-				return fmt.Errorf("SLIM Connect failed: %w", err)
-			}
-			slimConnID = connID
-
-			var app *slim_bindings.App
-			if spireSocketPath != "" {
-				var socketPath *string
-				if spireSocketPath != "" {
-					socketPath = &spireSocketPath
-				}
-				var targetSpiffeID *string
-				if spireTargetSpiffeID != "" {
-					targetSpiffeID = &spireTargetSpiffeID
-				}
-				spireConfig := slim_bindings.SpireConfig{
-					SocketPath:     socketPath,
-					TargetSpiffeId: targetSpiffeID,
-					JwtAudiences:   spireJwtAudiences,
-					TrustDomains:   []string{},
-				}
-				providerConfig := slim_bindings.IdentityProviderConfigSpire{Config: spireConfig}
-				verifierConfig := slim_bindings.IdentityVerifierConfigSpire{Config: spireConfig}
-				app, err = svc.CreateApp(localName, providerConfig, verifierConfig)
-				if err != nil {
-					return fmt.Errorf("SLIM CreateApp (SPIRE) failed: %w", err)
-				}
-			} else {
-				app, err = svc.CreateAppWithSecret(localName, slimSecret)
-				if err != nil {
-					return fmt.Errorf("SLIM CreateApp (shared secret) failed: %w", err)
-				}
-			}
-			slimApp = app
-
-			if err := app.Subscribe(localName, &slimConnID); err != nil {
-				return fmt.Errorf("SLIM Subscribe failed: %w", err)
-			}
-		}
-
 		return nil
 	},
+}
+
+// initSLIM connects to the SLIM node and creates an App. It is called from the
+// PreRunE of commands that actually communicate with agents (send-message,
+// get-task). Local-only commands (list, get-card) do not call this.
+func initSLIM() error {
+	if slimEndpoint == "" {
+		return nil
+	}
+
+	slim_bindings.InitializeWithDefaults()
+	svc := slim_bindings.GetGlobalService()
+
+	localName, err := slim_bindings.NameFromString(slimLocalName)
+	if err != nil {
+		return fmt.Errorf("invalid --slim-local-name %q: %w", slimLocalName, err)
+	}
+
+	connID, err := svc.Connect(slim_bindings.NewInsecureClientConfig(slimEndpoint))
+	if err != nil {
+		return fmt.Errorf("SLIM Connect failed: %w", err)
+	}
+	slimConnID = connID
+
+	var app *slim_bindings.App
+	if spireSocketPath != "" {
+		socketPath := spireSocketPath
+		var targetSpiffeID *string
+		if spireTargetSpiffeID != "" {
+			targetSpiffeID = &spireTargetSpiffeID
+		}
+		spireConfig := slim_bindings.SpireConfig{
+			SocketPath:     &socketPath,
+			TargetSpiffeId: targetSpiffeID,
+			JwtAudiences:   spireJwtAudiences,
+			TrustDomains:   []string{},
+		}
+		providerConfig := slim_bindings.IdentityProviderConfigSpire{Config: spireConfig}
+		verifierConfig := slim_bindings.IdentityVerifierConfigSpire{Config: spireConfig}
+		app, err = svc.CreateApp(localName, providerConfig, verifierConfig)
+		if err != nil {
+			return fmt.Errorf("SLIM CreateApp (SPIRE) failed: %w", err)
+		}
+	} else {
+		app, err = svc.CreateAppWithSecret(localName, slimSecret)
+		if err != nil {
+			return fmt.Errorf("SLIM CreateApp (shared secret) failed: %w", err)
+		}
+	}
+	slimApp = app
+
+	if err := app.Subscribe(localName, &slimConnID); err != nil {
+		return fmt.Errorf("SLIM Subscribe failed: %w", err)
+	}
+
+	return nil
 }
 
 // newA2AClient creates an A2A client from an AgentCard, registering the SLIM

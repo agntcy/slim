@@ -33,7 +33,8 @@ without waiting for completion. The Task ID and initial status are printed and
 no polling is performed.`,
 	Example: `  a2acli send-message --agent sha256:3f7a2c1b "What can you do?"
   a2acli send-message --agent sha256:3f7a2c1b --return-immediately "Run a long analysis"`,
-	Args: cobra.ExactArgs(1),
+	Args:    cobra.ExactArgs(1),
+	PreRunE: func(cmd *cobra.Command, args []string) error { return initSLIM() },
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if sendMessageAgentDigest == "" {
 			return fmt.Errorf("--agent flag is required")
