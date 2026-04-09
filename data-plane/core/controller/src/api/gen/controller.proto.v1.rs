@@ -105,6 +105,8 @@ pub struct ConfigurationCommand {
     pub subscriptions_to_set: ::prost::alloc::vec::Vec<Subscription>,
     #[prost(message, repeated, tag = "3")]
     pub subscriptions_to_delete: ::prost::alloc::vec::Vec<Subscription>,
+    #[prost(string, repeated, tag = "4")]
+    pub connections_to_delete: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ConfigurationCommandAck {

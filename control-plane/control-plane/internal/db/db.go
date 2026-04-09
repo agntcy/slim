@@ -17,7 +17,7 @@ type DataAccess interface {
 	UpdateLink(link Link) error
 	DeleteLink(link Link) error
 	GetLink(linkID string, sourceNodeID string, destNodeID string) (*Link, error)
-	GetLinkForSourceAndDestination(sourceNodeID string, destNodeID string) (*Link, error)
+	FindLinkBetweenNodes(sourceNodeID string, destNodeID string) (*Link, error)
 	GetLinkForSourceAndEndpoint(sourceNodeID string, destEndpoint string) (*Link, error)
 	GetLinksForNode(nodeID string) []Link
 	GetRoutesByLinkID(linkID string) []Route

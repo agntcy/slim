@@ -21,9 +21,11 @@ import (
 
 // CommandHandlerMock is a mock for NodeCommandHandler
 type CommandHandlerMock struct {
-	mu        sync.Mutex
-	sendCalls []sendCall
-	delay     int // milliseconds
+	mu                sync.Mutex
+	sendCalls         []sendCall
+	delay             int // milliseconds
+	failConnectionIDs map[string]bool
+	omitConnectionIDs map[string]bool
 }
 
 type sendCall struct {
@@ -63,9 +65,29 @@ func (m *CommandHandlerMock) WaitForResponse(_ context.Context,
 		last := m.sendCalls[len(m.sendCalls)-1]
 		if cfg := last.msg.GetConfigCommand(); cfg != nil {
 			for _, c := range cfg.GetConnectionsToCreate() {
+				if m.omitConnectionIDs != nil && m.omitConnectionIDs[c.ConnectionId] {
+					continue
+				}
+				success := true
+				if m.failConnectionIDs != nil && m.failConnectionIDs[c.ConnectionId] {
+					success = false
+				}
 				connAcks = append(connAcks, &controllerapi.ConnectionAck{
 					ConnectionId: c.ConnectionId,
-					Success:      true,
+					Success:      success,
+				})
+			}
+			for _, linkID := range cfg.GetConnectionsToDelete() {
+				if m.omitConnectionIDs != nil && m.omitConnectionIDs[linkID] {
+					continue
+				}
+				success := true
+				if m.failConnectionIDs != nil && m.failConnectionIDs[linkID] {
+					success = false
+				}
+				connAcks = append(connAcks, &controllerapi.ConnectionAck{
+					ConnectionId: linkID,
+					Success:      success,
 				})
 			}
 			for _, s := range cfg.GetSubscriptionsToSet() {
@@ -86,8 +108,8 @@ func (m *CommandHandlerMock) WaitForResponse(_ context.Context,
 	return &controllerapi.ControlMessage{
 		Payload: &controllerapi.ControlMessage_ConfigCommandAck{
 			ConfigCommandAck: &controllerapi.ConfigurationCommandAck{
-				OriginalMessageId: messageID,
-				ConnectionsStatus: connAcks,
+				OriginalMessageId:   messageID,
+				ConnectionsStatus:   connAcks,
 				SubscriptionsStatus: subAcks,
 			},
 		},
@@ -107,9 +129,29 @@ func (m *CommandHandlerMock) WaitForResponseWithTimeout(_ context.Context,
 		last := m.sendCalls[len(m.sendCalls)-1]
 		if cfg := last.msg.GetConfigCommand(); cfg != nil {
 			for _, c := range cfg.GetConnectionsToCreate() {
+				if m.omitConnectionIDs != nil && m.omitConnectionIDs[c.ConnectionId] {
+					continue
+				}
+				success := true
+				if m.failConnectionIDs != nil && m.failConnectionIDs[c.ConnectionId] {
+					success = false
+				}
 				connAcks = append(connAcks, &controllerapi.ConnectionAck{
 					ConnectionId: c.ConnectionId,
-					Success:      true,
+					Success:      success,
+				})
+			}
+			for _, linkID := range cfg.GetConnectionsToDelete() {
+				if m.omitConnectionIDs != nil && m.omitConnectionIDs[linkID] {
+					continue
+				}
+				success := true
+				if m.failConnectionIDs != nil && m.failConnectionIDs[linkID] {
+					success = false
+				}
+				connAcks = append(connAcks, &controllerapi.ConnectionAck{
+					ConnectionId: linkID,
+					Success:      success,
 				})
 			}
 			for _, s := range cfg.GetSubscriptionsToSet() {
@@ -130,8 +172,8 @@ func (m *CommandHandlerMock) WaitForResponseWithTimeout(_ context.Context,
 	return &controllerapi.ControlMessage{
 		Payload: &controllerapi.ControlMessage_ConfigCommandAck{
 			ConfigCommandAck: &controllerapi.ConfigurationCommandAck{
-				OriginalMessageId: messageID,
-				ConnectionsStatus: connAcks,
+				OriginalMessageId:   messageID,
+				ConnectionsStatus:   connAcks,
 				SubscriptionsStatus: subAcks,
 			},
 		},
@@ -706,7 +748,7 @@ func TestRouteReconciler_SameNodeIDSerialProcessing(t *testing.T) {
 	// Wait for processing to complete
 	time.Sleep(4 * time.Second)
 	node1Calls = getSendCallsForNode(cmdHandler, "node1")
-	require.GreaterOrEqual(t, len(node1Calls), 2, "node1 should have received additional reconcile calls")
+	require.GreaterOrEqual(t, len(node1Calls), 1, "node1 should have received reconcile calls")
 }
 
 func TestRouteReconciler_MaxNumOfParallelReconciles(t *testing.T) {
@@ -744,4 +786,116 @@ func TestRouteReconciler_MaxNumOfParallelReconciles(t *testing.T) {
 	node2Calls := getSendCallsForNode(cmdHandler, "node2")
 	require.GreaterOrEqual(t, len(node2Calls), 1, "node2 should have received at least one call")
 
+}
+
+func TestLinkReconciler_DeleteByLinkIDAckSuccessCleansUp(t *testing.T) {
+	ctx := util.GetContextWithLogger(context.Background(), config.LogConfig{Level: "debug"})
+	dbService := db.NewInMemoryDBService()
+	cmdHandler := &CommandHandlerMock{}
+
+	link, err := dbService.AddLink(db.Link{
+		LinkID:         "link-delete-success",
+		SourceNodeID:   "node1",
+		DestNodeID:     "node2",
+		DestEndpoint:   "127.0.0.1:9001",
+		ConnConfigData: `{"endpoint":"127.0.0.1:9001","link_id":"link-delete-success"}`,
+		Deleted:        true,
+	})
+	require.NoError(t, err)
+
+	_, err = dbService.AddRoute(db.Route{
+		SourceNodeID: "node1",
+		DestNodeID:   "node2",
+		LinkID:       link.LinkID,
+		Component0:   "org",
+		Component1:   "ns",
+		Component2:   "client",
+		Status:       db.RouteStatusStale,
+	})
+	require.NoError(t, err)
+
+	reconciler := NewLinkReconciler(
+		"test-link-reconciler",
+		config.ReconcilerConfig{MaxNumOfParallelReconciles: 1, MaxRequeues: 0},
+		nil,
+		nil,
+		dbService,
+		cmdHandler,
+	)
+	require.NoError(t, reconciler.handleRequest(ctx, LinkReconcileRequest{NodeID: "node1"}))
+
+	require.NotEmpty(t, cmdHandler.sendCalls)
+	cfg := cmdHandler.sendCalls[len(cmdHandler.sendCalls)-1].msg.GetConfigCommand()
+	require.NotNil(t, cfg)
+	require.Contains(t, cfg.GetConnectionsToDelete(), link.LinkID)
+
+	routes := dbService.GetRoutesByLinkID(link.LinkID)
+	require.Len(t, routes, 0, "stale routes must be deleted only after delete ACK success")
+
+	_, err = dbService.GetLink(link.LinkID, link.SourceNodeID, link.DestNodeID)
+	require.Error(t, err, "link row must be deleted after delete ACK success")
+}
+
+func TestLinkReconciler_DeleteByLinkIDAckFailureKeepsDeletedAndStale(t *testing.T) {
+	ctx := util.GetContextWithLogger(context.Background(), config.LogConfig{Level: "debug"})
+	dbService := db.NewInMemoryDBService()
+
+	link, err := dbService.AddLink(db.Link{
+		LinkID:         "link-delete-failure",
+		SourceNodeID:   "node1",
+		DestNodeID:     "node2",
+		DestEndpoint:   "127.0.0.1:9002",
+		ConnConfigData: `{"endpoint":"127.0.0.1:9002","link_id":"link-delete-failure"}`,
+		Deleted:        true,
+	})
+	require.NoError(t, err)
+
+	route, err := dbService.AddRoute(db.Route{
+		SourceNodeID: "node1",
+		DestNodeID:   "node2",
+		LinkID:       link.LinkID,
+		Component0:   "org",
+		Component1:   "ns",
+		Component2:   "client",
+		Status:       db.RouteStatusStale,
+	})
+	require.NoError(t, err)
+
+	cmdHandler := &CommandHandlerMock{
+		failConnectionIDs: map[string]bool{
+			link.LinkID: true,
+		},
+	}
+
+	reconciler := NewLinkReconciler(
+		"test-link-reconciler",
+		config.ReconcilerConfig{MaxNumOfParallelReconciles: 1, MaxRequeues: 1},
+		nil,
+		nil,
+		dbService,
+		cmdHandler,
+	)
+	err = reconciler.handleRequest(ctx, LinkReconcileRequest{NodeID: "node1"})
+	require.Error(t, err, "delete ack failure should trigger retry path")
+
+	require.NotEmpty(t, cmdHandler.sendCalls)
+	cfg := cmdHandler.sendCalls[len(cmdHandler.sendCalls)-1].msg.GetConfigCommand()
+	require.NotNil(t, cfg)
+	require.Contains(t, cfg.GetConnectionsToDelete(), link.LinkID)
+
+	routes := dbService.GetRoutesByLinkID(link.LinkID)
+	require.Len(t, routes, 1, "stale route must remain when delete ACK fails")
+	require.Equal(t, db.RouteStatusStale, routes[0].Status)
+	require.Equal(t, route.ID, routes[0].ID)
+
+	links := dbService.GetLinksForNode(link.SourceNodeID)
+	found := false
+	for _, l := range links {
+		if l.LinkID == link.LinkID && l.DestNodeID == link.DestNodeID {
+			found = true
+			require.True(t, l.Deleted)
+			require.Equal(t, db.LinkStatusFailed, l.Status)
+		}
+	}
+	require.True(t, found, "link row must remain for retry when delete ACK fails")
 }

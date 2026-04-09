@@ -103,12 +103,36 @@ func TestSouthbound_RegistrationAndRouteHandling(t *testing.T) {
 		return false
 	}, "wait for route for slim-0 to be created")
 
+	var slim1ToSlim0LinkID string
 	// other instances should receive connections+subscriptions for slim-0
 	waitCond(t, 3*time.Second, func() bool {
-		_, subs1 := slim1.GetReceived()
-		_, subs2 := slim2.GetReceived()
-		return len(subs1) > 0 && len(subs2) > 0
-	}, "wait for subs to be received by slim-1 and slim-2")
+		conns1, subs1 := slim1.GetReceived()
+		conns2, subs2 := slim2.GetReceived()
+
+		foundSlim1ToSlim0 := false
+		for _, c := range conns1 {
+			var cfg map[string]any
+			if json.Unmarshal([]byte(c.ConfigData), &cfg) == nil && cfg["endpoint"] == "http://127.0.0.1:4500" {
+				foundSlim1ToSlim0 = true
+				slim1ToSlim0LinkID = c.ConnectionId
+				break
+			}
+		}
+
+		foundSlim2ToSlim1 := false
+		foundSlim2ToSlim0 := false
+		for _, c := range conns2 {
+			var cfg map[string]any
+			if json.Unmarshal([]byte(c.ConfigData), &cfg) == nil && cfg["endpoint"] == "http://127.0.0.1:4501" {
+				foundSlim2ToSlim1 = true
+			}
+			if json.Unmarshal([]byte(c.ConfigData), &cfg) == nil && cfg["endpoint"] == "http://127.0.0.1:4500" {
+				foundSlim2ToSlim0 = true
+			}
+		}
+
+		return foundSlim1ToSlim0 && foundSlim2ToSlim1 && foundSlim2ToSlim0 && len(subs1) > 0 && len(subs2) > 0
+	}, "wait for conns & subs to be received by slim-1 and slim-2")
 
 	// restart slim-1 and expect it to receive the same config
 	_ = slim1.Close()
@@ -117,8 +141,18 @@ func TestSouthbound_RegistrationAndRouteHandling(t *testing.T) {
 		t.Fatalf("slim-1 connect: %v", err)
 	}
 	waitCond(t, 3*time.Second, func() bool {
-		_, subs := slim1.GetReceived()
-		return len(subs) > 0
+		conns, subs := slim1.GetReceived()
+		foundSameSlim1ToSlim0Conn := false
+		for _, c := range conns {
+			var cfg map[string]any
+			if json.Unmarshal([]byte(c.ConfigData), &cfg) == nil &&
+				cfg["endpoint"] == "http://127.0.0.1:4500" &&
+				c.ConnectionId == slim1ToSlim0LinkID {
+				foundSameSlim1ToSlim0Conn = true
+				break
+			}
+		}
+		return foundSameSlim1ToSlim0Conn && len(subs) > 0
 	}, "wait for subscriptions to be received by slim-1")
 
 	// restart slim-0 with different port; expect reconcilers update other nodes
@@ -128,27 +162,50 @@ func TestSouthbound_RegistrationAndRouteHandling(t *testing.T) {
 		t.Fatalf("slim-0 connect: %v", err)
 	}
 
-	// other instances should receive conns+subs for slim-0
+	// slim-0 should have links to slim-1/slim-2, and slim-1/slim-2 should receive
+	// org/test/client subscription with matching link IDs.
 	waitCond(t, 8*time.Second, func() bool {
-		foundOnSlim0, foundOnSlim1 := false, false
-		conns1, _ := slim1.GetReceived()
-		for _, c := range conns1 {
+		var linkIDToSlim1, linkIDToSlim2 string
+		conns0, _ := slim0.GetReceived()
+		for _, c := range conns0 {
 			var cfg map[string]any
-			if json.Unmarshal([]byte(c.ConfigData), &cfg) == nil && cfg["endpoint"] == "http://127.0.0.1:4800" {
-				foundOnSlim0 = true
+			if json.Unmarshal([]byte(c.ConfigData), &cfg) != nil {
+				continue
+			}
+			switch cfg["endpoint"] {
+			case "http://127.0.0.1:4501":
+				linkIDToSlim1 = c.ConnectionId
+			case "http://127.0.0.1:4502":
+				linkIDToSlim2 = c.ConnectionId
+			}
+		}
+
+		if linkIDToSlim1 == "" || linkIDToSlim2 == "" {
+			return false
+		}
+
+		_, subs1 := slim1.GetReceived()
+		foundSubSlim1 := false
+		for _, s := range subs1 {
+			if s.Component_0 == "org" && s.Component_1 == "test" && s.Component_2 == "client" &&
+				s.GetLinkId() == linkIDToSlim1 {
+				foundSubSlim1 = true
 				break
 			}
 		}
-		conns2, _ := slim2.GetReceived()
-		for _, c := range conns2 {
-			var cfg map[string]any
-			if json.Unmarshal([]byte(c.ConfigData), &cfg) == nil && cfg["endpoint"] == "http://127.0.0.1:4800" {
-				foundOnSlim1 = true
+
+		_, subs2 := slim2.GetReceived()
+		foundSubSlim2 := false
+		for _, s := range subs2 {
+			if s.Component_0 == "org" && s.Component_1 == "test" && s.Component_2 == "client" &&
+				s.GetLinkId() == linkIDToSlim2 {
+				foundSubSlim2 = true
 				break
 			}
 		}
-		return foundOnSlim0 && foundOnSlim1
-	}, "wait for changed subs to be received by slim-1 and slim-2")
+
+		return foundSubSlim1 && foundSubSlim2
+	}, "wait for changed conns & subs to be received by slim-1 and slim-2")
 
 	// send delete for subscription
 	if err := slim0.updateSubscription(ctx, "org", "test", "client",

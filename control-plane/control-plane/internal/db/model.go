@@ -206,6 +206,17 @@ type Link struct {
 	LastUpdated    time.Time
 }
 
+func (l Link) String() string {
+	return fmt.Sprintf(
+		"%s->%s (%s) link=%s [%v]",
+		l.SourceNodeID,
+		l.DestNodeID,
+		l.DestEndpoint,
+		l.LinkID,
+		l.Status,
+	)
+}
+
 type Channel struct {
 	ID           string
 	Moderators   []string
