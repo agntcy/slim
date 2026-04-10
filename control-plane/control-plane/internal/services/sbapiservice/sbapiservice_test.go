@@ -103,7 +103,7 @@ func TestSouthbound_RegistrationAndRouteHandling(t *testing.T) {
 		return false
 	}, "wait for route for slim-0 to be created")
 
-	var slim1ToSlim0LinkID string
+	var slim1ToSlim0LinkID, slim2ToSlim0LinkID string
 	// other instances should receive connections+subscriptions for slim-0
 	waitCond(t, 3*time.Second, func() bool {
 		conns1, subs1 := slim1.GetReceived()
@@ -128,6 +128,7 @@ func TestSouthbound_RegistrationAndRouteHandling(t *testing.T) {
 			}
 			if json.Unmarshal([]byte(c.ConfigData), &cfg) == nil && cfg["endpoint"] == "http://127.0.0.1:4500" {
 				foundSlim2ToSlim0 = true
+				slim2ToSlim0LinkID = c.ConnectionId
 			}
 		}
 
@@ -162,43 +163,58 @@ func TestSouthbound_RegistrationAndRouteHandling(t *testing.T) {
 		t.Fatalf("slim-0 connect: %v", err)
 	}
 
-	// slim-0 should have links to slim-1/slim-2, and slim-1/slim-2 should receive
-	// org/test/client subscription with matching link IDs.
+	// we should have the same links and subscriptions as before but with different link IDs
+	// slim-2 should have a new link to slim-0, slim-1 should have a new link to slim-0
+	// and subscriptions should be the same on slim-1 and slim-2 but with updated link IDs
 	waitCond(t, 8*time.Second, func() bool {
-		var linkIDToSlim1, linkIDToSlim2 string
-		conns0, _ := slim0.GetReceived()
-		for _, c := range conns0 {
+		var newSlim1ToSlim0LinkID, newSlim2ToSlim0LinkID string
+
+		conns1, subs1 := slim1.GetReceived()
+		for _, c := range conns1 {
 			var cfg map[string]any
 			if json.Unmarshal([]byte(c.ConfigData), &cfg) != nil {
 				continue
 			}
-			switch cfg["endpoint"] {
-			case "http://127.0.0.1:4501":
-				linkIDToSlim1 = c.ConnectionId
-			case "http://127.0.0.1:4502":
-				linkIDToSlim2 = c.ConnectionId
+			if cfg["endpoint"] == "http://127.0.0.1:4800" {
+				newSlim1ToSlim0LinkID = c.ConnectionId
+				break
 			}
 		}
 
-		if linkIDToSlim1 == "" || linkIDToSlim2 == "" {
+		conns2, subs2 := slim2.GetReceived()
+		for _, c := range conns2 {
+			var cfg map[string]any
+			if json.Unmarshal([]byte(c.ConfigData), &cfg) != nil {
+				continue
+			}
+			if cfg["endpoint"] == "http://127.0.0.1:4800" {
+				newSlim2ToSlim0LinkID = c.ConnectionId
+				break
+			}
+		}
+
+		// Both nodes should receive replacement links to slim-0 on its new endpoint.
+		if newSlim1ToSlim0LinkID == "" || newSlim2ToSlim0LinkID == "" {
+			return false
+		}
+		// Link IDs should be refreshed after reconnect.
+		if newSlim1ToSlim0LinkID == slim1ToSlim0LinkID || newSlim2ToSlim0LinkID == slim2ToSlim0LinkID {
 			return false
 		}
 
-		_, subs1 := slim1.GetReceived()
 		foundSubSlim1 := false
 		for _, s := range subs1 {
 			if s.Component_0 == "org" && s.Component_1 == "test" && s.Component_2 == "client" &&
-				s.GetLinkId() == linkIDToSlim1 {
+				s.GetLinkId() == newSlim1ToSlim0LinkID {
 				foundSubSlim1 = true
 				break
 			}
 		}
 
-		_, subs2 := slim2.GetReceived()
 		foundSubSlim2 := false
 		for _, s := range subs2 {
 			if s.Component_0 == "org" && s.Component_1 == "test" && s.Component_2 == "client" &&
-				s.GetLinkId() == linkIDToSlim2 {
+				s.GetLinkId() == newSlim2ToSlim0LinkID {
 				foundSubSlim2 = true
 				break
 			}
@@ -450,23 +466,6 @@ func TestSouthbound_ChannelOperations(t *testing.T) {
 	_, err = stream.Recv()
 	require.NoError(t, err)
 
-	// Wait for and acknowledge the initial ConfigCommand from the reconciler
-	configMsg, err := stream.Recv()
-	require.NoError(t, err)
-	if _, ok := configMsg.Payload.(*controllerapi.ControlMessage_ConfigCommand); ok {
-		// Acknowledge the config command
-		ackMsg := &controllerapi.ControlMessage{
-			MessageId: "ack-config",
-			Payload: &controllerapi.ControlMessage_ConfigCommandAck{
-				ConfigCommandAck: &controllerapi.ConfigurationCommandAck{
-					OriginalMessageId: configMsg.MessageId,
-				},
-			},
-		}
-		err = stream.Send(ackMsg)
-		require.NoError(t, err)
-	}
-
 	// Test CreateChannel
 	err = stream.Send(&controllerapi.ControlMessage{
 		MessageId: "create-channel",
@@ -577,23 +576,6 @@ func TestSouthbound_ParticipantOperations(t *testing.T) {
 	_, err = stream.Recv()
 	require.NoError(t, err)
 
-	// Wait for and acknowledge the initial ConfigCommand from the reconciler
-	configMsg, err := stream.Recv()
-	require.NoError(t, err)
-	if _, ok := configMsg.Payload.(*controllerapi.ControlMessage_ConfigCommand); ok {
-		// Acknowledge the config command
-		ackMsg := &controllerapi.ControlMessage{
-			MessageId: "ack-config",
-			Payload: &controllerapi.ControlMessage_ConfigCommandAck{
-				ConfigCommandAck: &controllerapi.ConfigurationCommandAck{
-					OriginalMessageId: configMsg.MessageId,
-				},
-			},
-		}
-		err = stream.Send(ackMsg)
-		require.NoError(t, err)
-	}
-
 	// Test AddParticipant
 	err = stream.Send(&controllerapi.ControlMessage{
 		MessageId: "add-participant",
@@ -701,22 +683,6 @@ func TestSouthbound_ChannelOperationsWithErrors(t *testing.T) {
 	_, err = stream.Recv()
 	require.NoError(t, err)
 
-	// Acknowledge ConfigCommand
-	configMsg, err := stream.Recv()
-	require.NoError(t, err)
-	if _, ok := configMsg.Payload.(*controllerapi.ControlMessage_ConfigCommand); ok {
-		ackMsg := &controllerapi.ControlMessage{
-			MessageId: "ack-config",
-			Payload: &controllerapi.ControlMessage_ConfigCommandAck{
-				ConfigCommandAck: &controllerapi.ConfigurationCommandAck{
-					OriginalMessageId: configMsg.MessageId,
-				},
-			},
-		}
-		err = stream.Send(ackMsg)
-		require.NoError(t, err)
-	}
-
 	// Test CreateChannel with error - should close stream
 	err = stream.Send(&controllerapi.ControlMessage{
 		MessageId: "create-channel-fail",
@@ -771,23 +737,6 @@ func TestSouthbound_InvalidPayload(t *testing.T) {
 	// Receive registration ACK
 	_, err = stream.Recv()
 	require.NoError(t, err)
-
-	// Wait for and acknowledge the initial ConfigCommand from the reconciler
-	configMsg, err := stream.Recv()
-	require.NoError(t, err)
-	if _, ok := configMsg.Payload.(*controllerapi.ControlMessage_ConfigCommand); ok {
-		// Acknowledge the config command
-		ackMsg := &controllerapi.ControlMessage{
-			MessageId: "ack-config",
-			Payload: &controllerapi.ControlMessage_ConfigCommandAck{
-				ConfigCommandAck: &controllerapi.ConfigurationCommandAck{
-					OriginalMessageId: configMsg.MessageId,
-				},
-			},
-		}
-		err = stream.Send(ackMsg)
-		require.NoError(t, err)
-	}
 
 	// Send a message with generic Ack payload to test that branch
 	err = stream.Send(&controllerapi.ControlMessage{

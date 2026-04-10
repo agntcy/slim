@@ -131,6 +131,7 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 
 	var apiSubscriptions []*controllerapi.Subscription
 	var apiSubscriptionsToDelete []*controllerapi.Subscription
+	needsRequeue := false
 
 	routes := s.dbService.GetRoutesForNodeID(nodeID)
 	for _, route := range routes {
@@ -152,10 +153,6 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 			apiSubscriptionsToDelete = append(apiSubscriptionsToDelete, apiSubscription)
 			continue
 		}
-		if route.Status == db.RouteStatusStale {
-			zlog.Debug().Str("route", route.String()).Msg("Skipping stale route until refreshed")
-			continue
-		}
 		link, lerr := s.dbService.GetLink(route.LinkID, route.SourceNodeID, route.DestNodeID)
 		if lerr != nil || link == nil {
 			zlog.Warn().
@@ -175,6 +172,7 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 		}
 		if link.Status != db.LinkStatusApplied {
 			zlog.Debug().Str("link_id", linkID).Msg("Skipping route until link is applied")
+			needsRequeue = true
 			continue
 		}
 		apiSubscriptions = append(apiSubscriptions, apiSubscription)
@@ -183,6 +181,10 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 	// Create configuration command with all stored connections and subscriptions
 	if len(apiSubscriptions) == 0 && len(apiSubscriptionsToDelete) == 0 {
 		zlog.Debug().Msg("No subscription updates to send for node")
+		if needsRequeue {
+			zlog.Debug().Msg("Re-queueing route reconciliation while waiting for link(s) to apply")
+			s.queue.AddAfter(req, 1*time.Second)
+		}
 		return nil
 	}
 
@@ -296,6 +298,11 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 
 	} else {
 		return fmt.Errorf("received invalid ConfigCommandAck response from node %s", nodeID)
+	}
+
+	if needsRequeue {
+		zlog.Debug().Msg("Re-queueing route reconciliation while waiting for link(s) to apply")
+		s.queue.AddAfter(req, 1*time.Second)
 	}
 
 	return nil

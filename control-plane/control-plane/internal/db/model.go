@@ -119,7 +119,7 @@ type RouteStatus int
 const (
 	RouteStatusApplied RouteStatus = iota
 	RouteStatusFailed
-	RouteStatusStale
+	RouteStatusPending
 )
 
 type Route struct {

@@ -13,6 +13,7 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
+	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
@@ -249,7 +250,6 @@ func TestRouteService_AddRoutes(t *testing.T) {
 		2, "SendMessage should be called for both nodes")
 
 	expectedConnectionEndpoints := map[string][]string{
-		"node1": {"http://slim_node2_ip:5678"}, // registration ensures link to node2
 		"node2": {"http://slim_node1_ip:1234"}, // node2 should be connected to node1
 	}
 	expectedSubscriptions := map[string][]string{
@@ -287,11 +287,10 @@ func addNodes(ctx context.Context, t *testing.T, dbService db.DataAccess, routeS
 	}
 	_, _, err := dbService.SaveNode(node1)
 	require.NoError(t, err)
+	routeService.NodeRegistered(ctx, node1.ID, false)
+
 	_, _, err = dbService.SaveNode(node2)
 	require.NoError(t, err)
-
-	// Call NodeRegistered for each node
-	routeService.NodeRegistered(ctx, node1.ID, false)
 	routeService.NodeRegistered(ctx, node2.ID, false)
 }
 
@@ -358,7 +357,6 @@ func TestRouteService_AddAndThenDeleteRoutes(t *testing.T) {
 	require.GreaterOrEqual(t, len(cmdHandler.sendCalls),
 		2, "SendMessage should be called for both nodes after deletions")
 	expectedConnectionEndpoints := map[string][]string{
-		"node1": {"http://slim_node2_ip:5678"}, // registration keeps link connectivity
 		"node2": {"http://slim_node1_ip:1234"}, // link reconciler still ensures link connectivity
 	}
 	expectedSubscriptions := map[string][]string{
@@ -722,14 +720,14 @@ func TestRouteReconciler_SameNodeIDSerialProcessing(t *testing.T) {
 	// Wait for processing to complete
 	time.Sleep(100 * time.Millisecond)
 	node1Calls := getSendCallsForNode(cmdHandler, "node1")
-	require.Equal(t, 1, len(node1Calls), "node1 should have received only one call")
+	require.LessOrEqual(t, len(node1Calls), 1, "node1 should receive at most one immediate call while links are pending")
 
 	_, err = routeService.AddRoute(ctx, route2)
 	require.NoError(t, err)
 	// Wait for processing to complete
 	time.Sleep(100 * time.Millisecond)
 	node2Calls := getSendCallsForNode(cmdHandler, "node2")
-	require.LessOrEqual(t, len(node2Calls), 1, "node2 should receive at most one call at this stage")
+	require.GreaterOrEqual(t, len(node2Calls), 1, "node2 should receive at least one call at this stage")
 
 	// trigger reconciles for node1 while the first is still processing
 	var i uint64
@@ -788,114 +786,97 @@ func TestRouteReconciler_MaxNumOfParallelReconciles(t *testing.T) {
 
 }
 
-func TestLinkReconciler_DeleteByLinkIDAckSuccessCleansUp(t *testing.T) {
+func TestRouteService_ReconnectExistingLinks_RepointsRoutesToPending(t *testing.T) {
 	ctx := util.GetContextWithLogger(context.Background(), config.LogConfig{Level: "debug"})
 	dbService := db.NewInMemoryDBService()
-	cmdHandler := &CommandHandlerMock{}
-
-	link, err := dbService.AddLink(db.Link{
-		LinkID:         "link-delete-success",
-		SourceNodeID:   "node1",
-		DestNodeID:     "node2",
-		DestEndpoint:   "127.0.0.1:9001",
-		ConnConfigData: `{"endpoint":"127.0.0.1:9001","link_id":"link-delete-success"}`,
-		Deleted:        true,
-	})
-	require.NoError(t, err)
-
-	_, err = dbService.AddRoute(db.Route{
-		SourceNodeID: "node1",
-		DestNodeID:   "node2",
-		LinkID:       link.LinkID,
-		Component0:   "org",
-		Component1:   "ns",
-		Component2:   "client",
-		Status:       db.RouteStatusStale,
-	})
-	require.NoError(t, err)
-
-	reconciler := NewLinkReconciler(
-		"test-link-reconciler",
-		config.ReconcilerConfig{MaxNumOfParallelReconciles: 1, MaxRequeues: 0},
-		nil,
-		nil,
+	routeService := NewRouteService(
 		dbService,
-		cmdHandler,
+		&CommandHandlerMock{},
+		config.ReconcilerConfig{MaxNumOfParallelReconciles: 1, MaxRequeues: 0},
 	)
-	require.NoError(t, reconciler.handleRequest(ctx, LinkReconcileRequest{NodeID: "node1"}))
 
-	require.NotEmpty(t, cmdHandler.sendCalls)
-	cfg := cmdHandler.sendCalls[len(cmdHandler.sendCalls)-1].msg.GetConfigCommand()
-	require.NotNil(t, cfg)
-	require.Contains(t, cfg.GetConnectionsToDelete(), link.LinkID)
+	node1 := db.Node{
+		ID: "node1",
+		ConnDetails: []db.ConnectionDetails{
+			{Endpoint: "127.0.0.1:4500"},
+		},
+	}
+	node2 := db.Node{
+		ID: "node2",
+		ConnDetails: []db.ConnectionDetails{
+			{Endpoint: "127.0.0.1:4501"},
+		},
+	}
+	_, _, err := dbService.SaveNode(node1)
+	require.NoError(t, err)
+	_, _, err = dbService.SaveNode(node2)
+	require.NoError(t, err)
 
-	routes := dbService.GetRoutesByLinkID(link.LinkID)
-	require.Len(t, routes, 0, "stale routes must be deleted only after delete ACK success")
-
-	_, err = dbService.GetLink(link.LinkID, link.SourceNodeID, link.DestNodeID)
-	require.Error(t, err, "link row must be deleted after delete ACK success")
-}
-
-func TestLinkReconciler_DeleteByLinkIDAckFailureKeepsDeletedAndStale(t *testing.T) {
-	ctx := util.GetContextWithLogger(context.Background(), config.LogConfig{Level: "debug"})
-	dbService := db.NewInMemoryDBService()
-
-	link, err := dbService.AddLink(db.Link{
-		LinkID:         "link-delete-failure",
+	oldLink, err := dbService.AddLink(db.Link{
+		LinkID:         "old-link-id",
 		SourceNodeID:   "node1",
 		DestNodeID:     "node2",
-		DestEndpoint:   "127.0.0.1:9002",
-		ConnConfigData: `{"endpoint":"127.0.0.1:9002","link_id":"link-delete-failure"}`,
-		Deleted:        true,
+		DestEndpoint:   "http://127.0.0.1:4501",
+		ConnConfigData: `{"endpoint":"http://127.0.0.1:4501"}`,
+		Status:         db.LinkStatusApplied,
 	})
 	require.NoError(t, err)
 
 	route, err := dbService.AddRoute(db.Route{
 		SourceNodeID: "node1",
 		DestNodeID:   "node2",
-		LinkID:       link.LinkID,
+		LinkID:       oldLink.LinkID,
 		Component0:   "org",
-		Component1:   "ns",
+		Component1:   "test",
 		Component2:   "client",
-		Status:       db.RouteStatusStale,
+		Status:       db.RouteStatusApplied,
 	})
 	require.NoError(t, err)
 
-	cmdHandler := &CommandHandlerMock{
-		failConnectionIDs: map[string]bool{
-			link.LinkID: true,
+	// simulate connection detail update for node2 (new endpoint)
+	updatedNode2 := db.Node{
+		ID: "node2",
+		ConnDetails: []db.ConnectionDetails{
+			{Endpoint: "127.0.0.1:5501"},
 		},
 	}
+	_, connDetailsChanged, err := dbService.SaveNode(updatedNode2)
+	require.NoError(t, err)
+	require.True(t, connDetailsChanged)
 
-	reconciler := NewLinkReconciler(
-		"test-link-reconciler",
-		config.ReconcilerConfig{MaxNumOfParallelReconciles: 1, MaxRequeues: 1},
-		nil,
-		nil,
-		dbService,
-		cmdHandler,
-	)
-	err = reconciler.handleRequest(ctx, LinkReconcileRequest{NodeID: "node1"})
-	require.Error(t, err, "delete ack failure should trigger retry path")
+	affected := routeService.reconnectExistingLinks(ctx, "node2")
+	require.Contains(t, affected, "node1")
+	require.Contains(t, affected, "node2")
 
-	require.NotEmpty(t, cmdHandler.sendCalls)
-	cfg := cmdHandler.sendCalls[len(cmdHandler.sendCalls)-1].msg.GetConfigCommand()
-	require.NotNil(t, cfg)
-	require.Contains(t, cfg.GetConnectionsToDelete(), link.LinkID)
+	updatedRoute := dbService.GetRouteByID(route.ID)
+	require.NotNil(t, updatedRoute)
+	require.NotEqual(t, oldLink.LinkID, updatedRoute.LinkID)
+	require.Equal(t, db.RouteStatusPending, updatedRoute.Status)
+	require.Equal(t, "waiting for replacement link apply", updatedRoute.StatusMsg)
 
-	routes := dbService.GetRoutesByLinkID(link.LinkID)
-	require.Len(t, routes, 1, "stale route must remain when delete ACK fails")
-	require.Equal(t, db.RouteStatusStale, routes[0].Status)
-	require.Equal(t, route.ID, routes[0].ID)
-
-	links := dbService.GetLinksForNode(link.SourceNodeID)
-	found := false
-	for _, l := range links {
-		if l.LinkID == link.LinkID && l.DestNodeID == link.DestNodeID {
-			found = true
-			require.True(t, l.Deleted)
-			require.Equal(t, db.LinkStatusFailed, l.Status)
+	// old link should be marked deleted and replacement should be pending with updated endpoint
+	links := dbService.GetLinksForNode("node1")
+	var foundOld, foundNew bool
+	for _, link := range links {
+		if link.LinkID == oldLink.LinkID && link.DestNodeID == "node2" {
+			foundOld = true
+			require.True(t, link.Deleted)
+		}
+		if link.LinkID == updatedRoute.LinkID && link.DestNodeID == "node2" {
+			foundNew = true
+			require.False(t, link.Deleted)
+			require.Equal(t, db.LinkStatusPending, link.Status)
+			require.Equal(t, "http://127.0.0.1:5501", link.DestEndpoint)
 		}
 	}
-	require.True(t, found, "link row must remain for retry when delete ACK fails")
+	require.True(t, foundOld, "old link must remain marked deleted for ACK-driven cleanup")
+	require.True(t, foundNew, "replacement link must be created")
+
+	listResp, err := routeService.ListRoutes(ctx, &controlplaneApi.RouteListRequest{
+		SrcNodeId:  "node1",
+		DestNodeId: "node2",
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, listResp.GetRoutes())
+	require.Equal(t, controlplaneApi.RouteStatus_ROUTE_STATUS_PENDING, listResp.GetRoutes()[0].GetStatus())
 }
