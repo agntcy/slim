@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/agntcy/slim/compare/k8s-troubleshooting-agent-v0.1.2...k8s-troubleshooting-agent-v0.1.3) (2026-04-10)
+
+
+### Features
+
+* **multicluster-demo:** add SPIRE and shared-secret auth to k8s agent client ([#1489](https://github.com/agntcy/slim/issues/1489)) ([0f5e7af](https://github.com/agntcy/slim/commit/0f5e7afd32366aa9c5f17eb22af65aeffd64f420))
+
 ## [0.1.2](https://github.com/agntcy/slim/compare/k8s-troubleshooting-agent-v0.1.1...k8s-troubleshooting-agent-v0.1.2) (2026-04-08)
 
 
