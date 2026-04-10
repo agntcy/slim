@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
@@ -24,11 +25,12 @@ var (
 	agentsDir  string
 	agentStore *store.Store
 
-	slimEndpoint  string
-	slimLocalName string
-	slimSecret    string
-	slimApp       *slim_bindings.App
-	slimConnID    uint64
+	slimEndpoint      string
+	slimLocalName     string
+	slimSecret        string
+	slimTLSSkipVerify bool
+	slimApp           *slim_bindings.App
+	slimConnID        uint64
 
 	spireSocketPath     string
 	spireTargetSpiffeID string
@@ -62,6 +64,9 @@ Each agent is identified by the SHA256 digest of its AgentCard file.`,
 		if !flags.Changed("slim-secret") && cfg.Slim.Secret != "" {
 			slimSecret = cfg.Slim.Secret
 		}
+		if !flags.Changed("slim-tls-skip-verify") && cfg.Slim.TLSSkipVerify {
+			slimTLSSkipVerify = cfg.Slim.TLSSkipVerify
+		}
 		if !flags.Changed("spire-socket-path") && cfg.Slim.Spire.SocketPath != "" {
 			spireSocketPath = cfg.Slim.Spire.SocketPath
 		}
@@ -78,58 +83,73 @@ Each agent is identified by the SHA256 digest of its AgentCard file.`,
 		}
 		agentStore = s
 
-		if slimEndpoint != "" {
-			slim_bindings.InitializeWithDefaults()
-			svc := slim_bindings.GetGlobalService()
-
-			localName, err := slim_bindings.NameFromString(slimLocalName)
-			if err != nil {
-				return fmt.Errorf("invalid --slim-local-name %q: %w", slimLocalName, err)
-			}
-
-			connID, err := svc.Connect(slim_bindings.NewInsecureClientConfig(slimEndpoint))
-			if err != nil {
-				return fmt.Errorf("SLIM Connect failed: %w", err)
-			}
-			slimConnID = connID
-
-			var app *slim_bindings.App
-			if spireSocketPath != "" {
-				var socketPath *string
-				if spireSocketPath != "" {
-					socketPath = &spireSocketPath
-				}
-				var targetSpiffeID *string
-				if spireTargetSpiffeID != "" {
-					targetSpiffeID = &spireTargetSpiffeID
-				}
-				spireConfig := slim_bindings.SpireConfig{
-					SocketPath:     socketPath,
-					TargetSpiffeId: targetSpiffeID,
-					JwtAudiences:   spireJwtAudiences,
-					TrustDomains:   []string{},
-				}
-				providerConfig := slim_bindings.IdentityProviderConfigSpire{Config: spireConfig}
-				verifierConfig := slim_bindings.IdentityVerifierConfigSpire{Config: spireConfig}
-				app, err = svc.CreateApp(localName, providerConfig, verifierConfig)
-				if err != nil {
-					return fmt.Errorf("SLIM CreateApp (SPIRE) failed: %w", err)
-				}
-			} else {
-				app, err = svc.CreateAppWithSecret(localName, slimSecret)
-				if err != nil {
-					return fmt.Errorf("SLIM CreateApp (shared secret) failed: %w", err)
-				}
-			}
-			slimApp = app
-
-			if err := app.Subscribe(localName, &slimConnID); err != nil {
-				return fmt.Errorf("SLIM Subscribe failed: %w", err)
-			}
-		}
-
 		return nil
 	},
+}
+
+// initSLIM connects to the SLIM node and creates an App. It is called from the
+// PreRunE of commands that actually communicate with agents (send-message,
+// get-task). Local-only commands (list, get-card) do not call this.
+func initSLIM() error {
+	if slimEndpoint == "" {
+		return nil
+	}
+
+	slim_bindings.InitializeWithDefaults()
+	svc := slim_bindings.GetGlobalService()
+
+	localName, err := slim_bindings.NameFromString(slimLocalName)
+	if err != nil {
+		return fmt.Errorf("invalid --slim-local-name %q: %w", slimLocalName, err)
+	}
+
+	var clientCfg slim_bindings.ClientConfig
+	if strings.HasPrefix(slimEndpoint, "https://") {
+		clientCfg = slim_bindings.NewSecureClientConfig(slimEndpoint)
+		clientCfg.Tls.InsecureSkipVerify = slimTLSSkipVerify
+		clientCfg.Tls.IncludeSystemCaCertsPool = true
+	} else {
+		clientCfg = slim_bindings.NewInsecureClientConfig(slimEndpoint)
+	}
+
+	connID, err := svc.Connect(clientCfg)
+	if err != nil {
+		return fmt.Errorf("SLIM Connect failed: %w", err)
+	}
+	slimConnID = connID
+
+	var app *slim_bindings.App
+	if spireSocketPath != "" {
+		socketPath := spireSocketPath
+		var targetSpiffeID *string
+		if spireTargetSpiffeID != "" {
+			targetSpiffeID = &spireTargetSpiffeID
+		}
+		spireConfig := slim_bindings.SpireConfig{
+			SocketPath:     &socketPath,
+			TargetSpiffeId: targetSpiffeID,
+			JwtAudiences:   spireJwtAudiences,
+			TrustDomains:   []string{},
+		}
+		providerConfig := slim_bindings.IdentityProviderConfigSpire{Config: spireConfig}
+		verifierConfig := slim_bindings.IdentityVerifierConfigSpire{Config: spireConfig}
+		app, err = svc.CreateApp(localName, providerConfig, verifierConfig)
+		if err != nil {
+			return fmt.Errorf("SLIM CreateApp (SPIRE) failed: %w", err)
+		}
+	} else {
+		app, err = svc.CreateAppWithSecret(localName, slimSecret)
+		if err != nil {
+			return fmt.Errorf("SLIM CreateApp (shared secret) failed: %w", err)
+		}
+	}
+	slimApp = app
+
+	if err := app.Subscribe(localName, &slimConnID); err != nil {
+		return fmt.Errorf("SLIM Subscribe failed: %w", err)
+	}
+
+	return nil
 }
 
 // newA2AClient creates an A2A client from an AgentCard, registering the SLIM
@@ -156,6 +176,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&slimEndpoint, "slim-endpoint", "", "SLIM node URL (e.g. http://localhost:46357)")
 	rootCmd.PersistentFlags().StringVar(&slimLocalName, "slim-local-name", "agntcy/cli/a2acli", "local SLIM name (namespace/group/name)")
 	rootCmd.PersistentFlags().StringVar(&slimSecret, "slim-secret", "", "shared secret for SLIM authentication")
+	rootCmd.PersistentFlags().BoolVar(&slimTLSSkipVerify, "slim-tls-skip-verify", false, "skip TLS certificate verification for the SLIM endpoint (https:// only)")
 	rootCmd.PersistentFlags().StringVar(&spireSocketPath, "spire-socket-path", "", "SPIRE Workload API socket path; when set, SPIRE identity auth is used instead of shared secret")
 	rootCmd.PersistentFlags().StringVar(&spireTargetSpiffeID, "spire-target-spiffe-id", "", "target SPIFFE ID to request from SPIRE (optional)")
 	rootCmd.PersistentFlags().StringArrayVar(&spireJwtAudiences, "spire-jwt-audience", nil, "JWT audience(s) to request from SPIRE (may be repeated)")

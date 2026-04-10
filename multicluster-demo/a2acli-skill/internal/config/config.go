@@ -23,10 +23,11 @@ type SpireConfig struct {
 
 // SlimConfig holds connection settings for the SLIM messaging node.
 type SlimConfig struct {
-	Endpoint  string      `yaml:"endpoint"`
-	LocalName string      `yaml:"local-name"`
-	Secret    string      `yaml:"secret"`
-	Spire     SpireConfig `yaml:"spire"`
+	Endpoint       string      `yaml:"endpoint"`
+	LocalName      string      `yaml:"local-name"`
+	Secret         string      `yaml:"secret"`
+	TLSSkipVerify  bool        `yaml:"tls-skip-verify"`
+	Spire          SpireConfig `yaml:"spire"`
 }
 
 // Config is the top-level configuration for a2acli.

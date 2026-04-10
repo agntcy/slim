@@ -15,6 +15,9 @@ slim:
   # Shared-secret auth (used when spire.socket-path is not set)
   secret: "my_shared_secret"
 
+  # Skip TLS certificate verification (https:// endpoints only). Default: false.
+  # tls-skip-verify: false
+
   # SPIRE dynamic identity auth (takes precedence over secret when socket-path is set)
   # spire:
   #   socket-path: "/tmp/spire-agent/public/api.sock"
