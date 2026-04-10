@@ -23,6 +23,7 @@ SLIM_NAMESPACE = os.getenv("SLIM_NAMESPACE", "agntcy")
 SLIM_GROUP = os.getenv("SLIM_GROUP", "demo")
 SLIM_NAME = os.getenv("SLIM_NAME", "k8s_troubleshooting_agent")
 SLIM_CLIENT_NAME = os.getenv("SLIM_CLIENT_NAME", "k8s_troubleshooting_client")
+SLIM_TLS_SKIP_VERIFY = os.getenv("SLIM_TLS_SKIP_VERIFY", "false").lower() == "true"
 
 # Shared-secret auth (used when SPIRE is not configured)
 SLIM_SECRET = os.getenv("SLIM_SECRET", "")
@@ -63,6 +64,10 @@ async def create_slim_app() -> tuple[slim_bindings.App, slim_bindings.Name, int]
     local_name = slim_bindings.Name(SLIM_NAMESPACE, SLIM_GROUP, SLIM_CLIENT_NAME)
 
     client_config = slim_bindings.new_insecure_client_config(SLIM_URL)
+    client_config.tls.insecure = False if SLIM_URL.startswith("https://") else True
+    client_config.tls.insecure_skip_verify = SLIM_TLS_SKIP_VERIFY
+    client_config.tls.include_system_ca_certs_pool = True
+
     conn_id = await service.connect_async(client_config)
 
     if SPIRE_SOCKET_PATH:
