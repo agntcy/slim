@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/agntcy/slim/compare/helm-slim-v1.3.0...helm-slim-v1.4.0) (2026-04-10)
+
+
+### Features
+
+* **slim-chart:** add extraEnv param ([#1491](https://github.com/agntcy/slim/issues/1491)) ([9fe7da3](https://github.com/agntcy/slim/commit/9fe7da38001c636f115de3eb5584d1e07bae9750))
+
 ## [1.3.0](https://github.com/agntcy/slim/compare/helm-slim-v1.0.0...helm-slim-v1.3.0) (2026-04-01)
 
 
