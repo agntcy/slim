@@ -532,6 +532,7 @@ fn route_status_str(status: i32) -> String {
         Ok(RouteStatus::Applied) => "APPLIED".to_string(),
         Ok(RouteStatus::Failed) => "FAILED".to_string(),
         Ok(RouteStatus::Stale) => "STALE".to_string(),
+        Ok(RouteStatus::Pending) => "PENDING".to_string(),
         _ => "UNKNOWN".to_string(),
     }
 }
@@ -764,6 +765,11 @@ mod tests {
     #[test]
     fn route_status_unspecified_is_unknown() {
         assert_eq!(route_status_str(0), "UNKNOWN");
+    }
+
+    #[test]
+    fn route_status_pending() {
+        assert_eq!(route_status_str(RouteStatus::Pending as i32), "PENDING");
     }
 
     #[test]

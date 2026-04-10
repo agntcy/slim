@@ -481,9 +481,10 @@ func (s *SQLiteDBService) MarkRouteAsFailed(routeID uint64, msg string) error {
 	return nil
 }
 
-func (s *SQLiteDBService) MarkRouteAsStale(routeID uint64, msg string) error {
+func (s *SQLiteDBService) RepointRoute(routeID uint64, linkID string, status RouteStatus, msg string) error {
 	result := s.db.Model(&RouteModel{}).Where("id = ?", routeID).Updates(map[string]interface{}{
-		"status":       int(RouteStatusStale),
+		"link_id":      linkID,
+		"status":       int(status),
 		"status_msg":   msg,
 		"last_updated": time.Now(),
 	})

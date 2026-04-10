@@ -361,7 +361,7 @@ func (d *dbService) MarkRouteAsFailed(routeID uint64, msg string) error {
 	return nil
 }
 
-func (d *dbService) MarkRouteAsStale(routeID uint64, msg string) error {
+func (d *dbService) RepointRoute(routeID uint64, linkID string, status RouteStatus, msg string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	route, exists := d.routes[routeID]
@@ -369,7 +369,8 @@ func (d *dbService) MarkRouteAsStale(routeID uint64, msg string) error {
 		return fmt.Errorf("route %v not found", routeID)
 	}
 	route.LastUpdated = time.Now()
-	route.Status = RouteStatusStale
+	route.LinkID = linkID
+	route.Status = status
 	route.StatusMsg = msg
 	d.routes[routeID] = route
 	return nil

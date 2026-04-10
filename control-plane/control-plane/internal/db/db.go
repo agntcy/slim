@@ -42,7 +42,7 @@ type DataAccess interface {
 	MarkRouteAsDeleted(routeID uint64) error
 	MarkRouteAsApplied(routeID uint64) error
 	MarkRouteAsFailed(routeID uint64, msg string) error
-	MarkRouteAsStale(routeID uint64, msg string) error
+	RepointRoute(routeID uint64, linkID string, status RouteStatus, msg string) error
 
 	SaveChannel(channelID string, moderators []string) error
 	DeleteChannel(channelID string) error

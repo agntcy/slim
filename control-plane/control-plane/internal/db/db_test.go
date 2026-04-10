@@ -164,19 +164,19 @@ func testRouteOperations(t *testing.T, da DataAccess) {
 	err = da.MarkRouteAsFailed(0, "some error")
 	assert.Error(t, err, "MarkRouteAsFailed should return error for non-existent route")
 
-	// Test MarkRouteAsStale
-	staleMsg := "link pending replacement"
-	err = da.MarkRouteAsStale(routeID2.ID, staleMsg)
-	assert.NoError(t, err, "MarkRouteAsStale should not return error")
+	// Test RepointRoute
+	repointMsg := "waiting for replacement link apply"
+	err = da.RepointRoute(routeID2.ID, "replacement-link-id", RouteStatusPending, repointMsg)
+	assert.NoError(t, err, "RepointRoute should not return error")
 
-	staleRoute := da.GetRouteByID(routeID2.ID)
-	require.NotNil(t, staleRoute)
-	assert.Equal(t, RouteStatusStale, staleRoute.Status, "Route status should be Stale")
-	assert.Equal(t, staleMsg, staleRoute.StatusMsg, "Status message should be set")
+	repointedRoute := da.GetRouteByID(routeID2.ID)
+	require.NotNil(t, repointedRoute)
+	assert.Equal(t, "replacement-link-id", repointedRoute.LinkID)
+	assert.Equal(t, RouteStatusPending, repointedRoute.Status)
+	assert.Equal(t, repointMsg, repointedRoute.StatusMsg)
 
-	// Test MarkRouteAsStale with non-existent ID
-	err = da.MarkRouteAsStale(0, "stale")
-	assert.Error(t, err, "MarkRouteAsStale should return error for non-existent route")
+	err = da.RepointRoute(0, "replacement-link-id", RouteStatusPending, repointMsg)
+	assert.Error(t, err, "RepointRoute should return error for non-existent route")
 
 	// Test MarkRouteAsDeleted
 	err = da.MarkRouteAsDeleted(routeID1.ID)

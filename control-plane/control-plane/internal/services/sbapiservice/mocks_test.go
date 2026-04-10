@@ -164,6 +164,13 @@ func (m *MockSlimServer) handleConfigCommand(origMsgID string, cfg *controllerap
 		if m.recvConnections != nil {
 			delete(m.recvConnections, id)
 		}
+		if m.recvSubscriptions != nil {
+			for key, sub := range m.recvSubscriptions {
+				if sub.GetLinkId() == id || sub.ConnectionId == id {
+					delete(m.recvSubscriptions, key)
+				}
+			}
+		}
 	}
 	for _, c := range cfg.SubscriptionsToSet {
 		if m.recvSubscriptions == nil {

@@ -98,7 +98,11 @@ func (s *LinkReconciler) handleRequest(ctx context.Context, req LinkReconcileReq
 	links := s.dbService.GetLinksForNode(nodeID)
 	createConnMap := make(map[string]*controllerapi.Connection)
 	deletedLinksByID := make(map[string][]db.Link)
-	impactedNodes := map[string]struct{}{}
+
+	reconcileRoutesForNodes := map[string]struct{}{}
+	// we need to send routes for current node after registration
+	reconcileRoutesForNodes[nodeID] = struct{}{}
+
 	for _, link := range links {
 		if link.SourceNodeID != nodeID {
 			continue
@@ -135,9 +139,9 @@ func (s *LinkReconciler) handleRequest(ctx context.Context, req LinkReconcileReq
 	for linkID := range deletedLinksByID {
 		connectionsToDelete = append(connectionsToDelete, linkID)
 	}
-	if len(connectionsToCreate) == 0 && len(connectionsToDelete) == 0 {
-		return nil
-	}
+	//if len(connectionsToCreate) == 0 && len(connectionsToDelete) == 0 {
+	//	return nil
+	//}
 
 	messageID := uuid.NewString()
 	msg := &controllerapi.ControlMessage{
@@ -259,7 +263,7 @@ func (s *LinkReconciler) handleRequest(ctx context.Context, req LinkReconcileReq
 			if status.success {
 				routes := s.dbService.GetRoutesByLinkID(link.LinkID)
 				for _, route := range routes {
-					impactedNodes[route.SourceNodeID] = struct{}{}
+					reconcileRoutesForNodes[route.SourceNodeID] = struct{}{}
 				}
 			}
 		}
@@ -292,22 +296,6 @@ func (s *LinkReconciler) handleRequest(ctx context.Context, req LinkReconcileReq
 			continue
 		}
 
-		routes := s.dbService.GetRoutesByLinkID(linkID)
-		staleRoutes := make([]db.Route, 0, len(routes))
-		for _, route := range routes {
-			if route.Status == db.RouteStatusStale {
-				staleRoutes = append(staleRoutes, route)
-			}
-		}
-		zlog.Info().
-			Str("link_id", linkID).
-			Int("stale_routes_count", len(staleRoutes)).
-			Msg("Deleting stale routes for delete-acked link")
-		for _, route := range staleRoutes {
-			if err := s.dbService.DeleteRoute(route.ID); err != nil {
-				return fmt.Errorf("failed to delete stale route %s for delete-acked link %s: %w", route.String(), linkID, err)
-			}
-		}
 		for _, link := range deletedLinks {
 			if err := s.dbService.DeleteLink(link); err != nil {
 				return fmt.Errorf("failed to delete link %s after successful delete ack: %w", linkID, err)
@@ -318,7 +306,7 @@ func (s *LinkReconciler) handleRequest(ctx context.Context, req LinkReconcileReq
 			Msg("Deleted link records after successful delete ack")
 	}
 
-	for srcNodeID := range impactedNodes {
+	for srcNodeID := range reconcileRoutesForNodes {
 		zlog.Debug().Str("source_node_id", srcNodeID).Msg("enqueueing route reconcile after link reconcile")
 		s.routeQueue.Add(RouteReconcileRequest{NodeID: srcNodeID})
 	}

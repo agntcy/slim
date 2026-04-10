@@ -117,6 +117,7 @@ func (s *RouteService) AddRoute(ctx context.Context, route Route) (string, error
 		Component1:   route.Component1,
 		Component2:   route.Component2,
 		ComponentID:  route.ComponentID,
+		Status:       db.RouteStatusPending,
 		Deleted:      false,
 	}
 	routeID, err := s.addSingleRoute(ctx, dbRoute)
@@ -139,6 +140,7 @@ func (s *RouteService) AddRoute(ctx context.Context, route Route) (string, error
 				Component1:   route.Component1,
 				Component2:   route.Component2,
 				ComponentID:  route.ComponentID,
+				Status:       db.RouteStatusPending,
 				Deleted:      false,
 			}
 			_, err2 := s.addSingleRoute(ctx, newRoute)
@@ -258,49 +260,111 @@ func (s *RouteService) NodeRegistered(ctx context.Context, nodeID string, connDe
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	affectedNodes := map[string]struct{}{}
+	reconcileLinkForNodes := map[string]struct{}{}
 	if connDetailsUpdated {
-		for _, nid := range s.markLinksForDelete(ctx, nodeID) {
-			affectedNodes[nid] = struct{}{}
+		for _, nid := range s.reconnectExistingLinks(ctx, nodeID) {
+			reconcileLinkForNodes[nid] = struct{}{}
 		}
 	}
 	for _, nid := range s.ensureLinksForNode(ctx, nodeID) {
-		affectedNodes[nid] = struct{}{}
+		reconcileLinkForNodes[nid] = struct{}{}
 	}
 	s.ensureRoutesForNode(ctx, nodeID)
-	affectedNodes[nodeID] = struct{}{}
-	for nid := range affectedNodes {
+	// we need to send links for current node after registration
+	reconcileLinkForNodes[nodeID] = struct{}{}
+	for nid := range reconcileLinkForNodes {
 		s.linkQueue.Add(LinkReconcileRequest{NodeID: nid})
 	}
 
 }
 
-func (s *RouteService) markLinksForDelete(ctx context.Context, nodeID string) []string {
+func (s *RouteService) reconnectExistingLinks(ctx context.Context, nodeID string) []string {
 	zlog := zerolog.Ctx(ctx).With().Str("service", "RouteService").Str("node_id", nodeID).Logger()
 	affected := map[string]struct{}{nodeID: {}}
 	for _, link := range s.dbService.GetLinksForNode(nodeID) {
 		if link.Deleted {
 			continue
 		}
+
+		endpoint, configData, err := s.getConnectionDetails(ctx, db.Route{
+			SourceNodeID: link.SourceNodeID,
+			DestNodeID:   link.DestNodeID,
+		})
+		if err != nil {
+			zlog.Error().
+				Err(err).
+				Str("old_link_id", link.LinkID).
+				Str("source_node_id", link.SourceNodeID).
+				Str("dest_node_id", link.DestNodeID).
+				Msg("failed to compute replacement connection details")
+			continue
+		}
+
+		replacement, err := s.dbService.AddLink(db.Link{
+			LinkID:         uuid.NewString(),
+			SourceNodeID:   link.SourceNodeID,
+			DestNodeID:     link.DestNodeID,
+			DestEndpoint:   endpoint,
+			ConnConfigData: configData,
+			Status:         db.LinkStatusPending,
+			Deleted:        false,
+		})
+		if err != nil {
+			zlog.Error().
+				Err(err).
+				Str("old_link_id", link.LinkID).
+				Str("source_node_id", link.SourceNodeID).
+				Str("dest_node_id", link.DestNodeID).
+				Msg("failed to create replacement link")
+			continue
+		}
+
+		zlog.Info().
+			Str("old_link_id", link.LinkID).
+			Str("new_link_id", replacement.LinkID).
+			Str("source_node_id", link.SourceNodeID).
+			Str("dest_node_id", link.DestNodeID).
+			Str("dest_endpoint", endpoint).
+			Msg("Replacement link created")
+		affected[replacement.SourceNodeID] = struct{}{}
+
+		for _, r := range s.dbService.GetRoutesByLinkID(link.LinkID) {
+			if err := s.dbService.RepointRoute(
+				r.ID,
+				replacement.LinkID,
+				db.RouteStatusPending,
+				"waiting for replacement link apply",
+			); err != nil {
+				zlog.Error().
+					Err(err).
+					Str("route", r.String()).
+					Str("old_link_id", link.LinkID).
+					Str("new_link_id", replacement.LinkID).
+					Msg("failed to repoint dependent route to replacement link")
+				continue
+			}
+			zlog.Info().
+				Uint64("route_id", r.ID).
+				Str("source_node_id", r.SourceNodeID).
+				Str("old_link_id", link.LinkID).
+				Str("new_link_id", replacement.LinkID).
+				Msg("Dependent route moved to replacement link and marked pending")
+			affected[r.SourceNodeID] = struct{}{}
+		}
+
 		link.Deleted = true
-		link.StatusMsg = "marked deleted due to connection detail changes"
+		link.StatusMsg = "marked deleted after replacement link creation"
 		if err := s.dbService.UpdateLink(link); err != nil {
-			zlog.Error().Err(err).Msgf("failed to mark link %s deleted", link.LinkID)
+			zlog.Error().Err(err).Msgf("failed to mark old link %s deleted", link.LinkID)
 			continue
 		}
 		zlog.Info().
 			Str("link_id", link.LinkID).
+			Str("replacement_link_id", replacement.LinkID).
 			Str("source_node_id", link.SourceNodeID).
 			Str("dest_node_id", link.DestNodeID).
 			Str("reason", link.StatusMsg).
-			Msg("Link marked for delete")
-		affected[link.SourceNodeID] = struct{}{}
-		for _, r := range s.dbService.GetRoutesByLinkID(link.LinkID) {
-			if err := s.dbService.MarkRouteAsStale(r.ID, "dependent link marked deleted"); err != nil {
-				zlog.Error().Err(err).Msgf("failed to mark route %s stale", r.String())
-			}
-			affected[r.SourceNodeID] = struct{}{}
-		}
+			Msg("Old link marked for delete")
 	}
 	out := make([]string, 0, len(affected))
 	for nid := range affected {
@@ -464,6 +528,7 @@ func (s *RouteService) ensureRoutesForNode(ctx context.Context, nodeID string) {
 			Component1:   r.Component1,
 			Component2:   r.Component2,
 			ComponentID:  r.ComponentID,
+			Status:       db.RouteStatusPending,
 			Deleted:      false,
 		}
 		linkID, err := s.findMatchingLinkForRoute(newRoute)
@@ -738,8 +803,8 @@ func (s *RouteService) ListRoutes(_ context.Context,
 			entry.Status = controlplaneApi.RouteStatus_ROUTE_STATUS_APPLIED
 		case db.RouteStatusFailed:
 			entry.Status = controlplaneApi.RouteStatus_ROUTE_STATUS_FAILED
-		case db.RouteStatusStale:
-			entry.Status = controlplaneApi.RouteStatus_ROUTE_STATUS_STALE
+		case db.RouteStatusPending:
+			entry.Status = controlplaneApi.RouteStatus_ROUTE_STATUS_PENDING
 		default:
 			entry.Status = controlplaneApi.RouteStatus_ROUTE_STATUS_UNSPECIFIED
 		}

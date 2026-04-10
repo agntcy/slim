@@ -102,6 +102,7 @@ enum RouteStatus {
   ROUTE_STATUS_APPLIED = 1;
   ROUTE_STATUS_FAILED = 2;
   ROUTE_STATUS_STALE = 3;
+  ROUTE_STATUS_PENDING = 4;
 }
 
 // Route message representing a single route
