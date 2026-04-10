@@ -1,98 +1,153 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
-
 use tracing::trace;
 
 /// A collection that assigns each inserted element a stable `u64` ID.
 ///
-/// IDs are assigned by a monotonically-increasing counter and are never
-/// reused after removal, so a stale ID will never silently resolve to a
-/// different element.  Iteration is dense — there are no empty slots to
-/// skip.
+/// IDs map directly to Vec indices, giving O(1) `get()` with no hash
+/// computation.  Iteration is dense — only live elements are visited.
+/// Freed slots are recycled via a free-list stack so `insert` is O(1)
+/// amortised.
+///
+/// **Note:** IDs *are* reused after `remove` + `insert`.  Callers must
+/// not retain an ID after calling `remove`.
 #[derive(Debug)]
 pub struct Pool<T> {
-    /// elements keyed by their stable ID
-    map: HashMap<u64, T>,
+    /// Sparse storage; `pool[i]` holds `Some(element)` when slot `i` is live.
+    /// The u64 ID handed to callers equals the Vec index as a `u64`.
+    pool: Vec<Option<T>>,
 
-    /// next ID to hand out on insert
-    next_id: u64,
+    /// Dense list of currently-live indices into `pool`.  Used for O(len)
+    /// dense iteration without scanning `None` slots.
+    active_indexes: Vec<usize>,
+
+    /// Stack of recycled indices available for reuse by the next `insert`.
+    free_slots: Vec<usize>,
 }
 
 impl<T> Pool<T> {
     /// Create a new pool, pre-allocating space for `capacity` elements.
     pub fn with_capacity(capacity: usize) -> Self {
         Pool {
-            map: HashMap::with_capacity(capacity),
-            next_id: 0,
+            pool: Vec::with_capacity(capacity),
+            active_indexes: Vec::with_capacity(capacity),
+            free_slots: Vec::new(),
         }
     }
 
     /// Insert `element`, returning its stable ID.
+    ///
+    /// Reuses a freed slot when one is available; otherwise appends a new slot.
     pub fn insert(&mut self, element: T) -> u64 {
-        let id = self.next_id;
-        self.next_id += 1;
-        self.map.insert(id, element);
-        trace!(pool_len = self.map.len(), "pool insert");
-        id
+        // Pop from free_slots, skipping any stale entries (slot re-occupied
+        // by insert_at before this insert ran).
+        let idx = loop {
+            match self.free_slots.pop() {
+                Some(i) if self.pool[i].is_none() => break i,
+                Some(_) => continue, // stale entry; skip
+                None => {
+                    // No free slot — extend the pool.
+                    let i = self.pool.len();
+                    self.pool.push(None);
+                    break i;
+                }
+            }
+        };
+
+        self.pool[idx] = Some(element);
+        self.active_indexes.push(idx);
+        trace!(pool_len = self.active_indexes.len(), "pool insert");
+        idx as u64
     }
 
     /// Insert `element` at a specific `id`.
     ///
-    /// If `id` is already occupied the element is replaced (length
-    /// unchanged).  `next_id` is advanced past `id` so future calls to
-    /// [`insert`] never collide with it.
+    /// Grows `pool` if `id` is beyond the current length.  If the slot was
+    /// empty the index is added to `active_indexes`; if it was already
+    /// occupied the element is replaced (length unchanged).
     ///
-    /// Always returns `true`; the signature mirrors the old API for
+    /// Returns `true` always; the bool return mirrors the old API for
     /// compatibility with call-sites that check the return value.
     pub fn insert_at(&mut self, element: T, id: u64) -> bool {
-        if id >= self.next_id {
-            self.next_id = id + 1;
+        let idx = id as usize;
+
+        // Grow the pool with None slots until it covers `idx`.
+        if idx >= self.pool.len() {
+            self.pool.resize_with(idx + 1, || None);
         }
-        self.map.insert(id, element);
+
+        let was_empty = self.pool[idx].is_none();
+        self.pool[idx] = Some(element);
+
+        if was_empty {
+            self.active_indexes.push(idx);
+        }
         true
     }
 
-    /// Remove the element with the given `id`.  Returns `true` if an
-    /// element was present, `false` if the `id` was not found.
+    /// Remove the element with the given `id`.  Returns `true` if an element
+    /// was present, `false` if the slot was already empty.
     pub fn remove(&mut self, id: u64) -> bool {
-        self.map.remove(&id).is_some()
+        let idx = id as usize;
+
+        if self.pool.get(idx).and_then(|x| x.as_ref()).is_none() {
+            return false;
+        }
+
+        self.pool[idx] = None;
+
+        // Remove from active_indexes (swap_remove is O(1) after the scan).
+        if let Some(pos) = self.active_indexes.iter().position(|&i| i == idx) {
+            self.active_indexes.swap_remove(pos);
+        }
+
+        self.free_slots.push(idx);
+        true
     }
 
     /// Look up an element by its stable ID.
     pub fn get(&self, id: u64) -> Option<&T> {
-        self.map.get(&id)
+        self.pool.get(id as usize).and_then(|x| x.as_ref())
     }
 
     /// Mutably look up an element by its stable ID.
     pub fn get_mut(&mut self, id: u64) -> Option<&mut T> {
-        self.map.get_mut(&id)
+        self.pool.get_mut(id as usize).and_then(|x| x.as_mut())
     }
 
     /// Iterate over all live elements.  No empty slots are visited.
     pub fn iter(&self) -> impl Iterator<Item = &T> {
-        self.map.values()
+        self.active_indexes
+            .iter()
+            .map(|&i| self.pool[i].as_ref().expect("active_indexes must point to live slots"))
     }
 
     /// Iterate over all `(id, element)` pairs.
     pub fn iter_with_ids(&self) -> impl Iterator<Item = (u64, &T)> {
-        self.map.iter().map(|(&id, v)| (id, v))
+        self.active_indexes.iter().map(|&i| {
+            (
+                i as u64,
+                self.pool[i]
+                    .as_ref()
+                    .expect("active_indexes must point to live slots"),
+            )
+        })
     }
 
     /// Number of elements currently in the pool.
     pub fn len(&self) -> usize {
-        self.map.len()
+        self.active_indexes.len()
     }
 
     /// Current allocated capacity (elements storable without reallocation).
     pub fn capacity(&self) -> usize {
-        self.map.capacity()
+        self.pool.capacity()
     }
 
     /// Returns `true` if the pool contains no elements.
     pub fn is_empty(&self) -> bool {
-        self.map.is_empty()
+        self.active_indexes.is_empty()
     }
 }
 
@@ -134,9 +189,8 @@ mod tests {
         assert_eq!(pool.len(), 4);
         assert_eq!(pool.get(50), Some(&55));
 
-        // next_id is now at least 51 so inserts don't collide.
+        // insert returns a valid ID that resolves correctly.
         let id_next = pool.insert(77u32);
-        assert!(id_next >= 51);
         assert_eq!(pool.get(id_next), Some(&77));
 
         // Remove an element; its ID no longer resolves.
@@ -149,20 +203,6 @@ mod tests {
 
         // After removing id0, get(id1) still resolves correctly.
         assert_eq!(pool.get(id1), Some(&99));
-    }
-
-    #[test]
-    fn test_pool_ids_not_reused() {
-        let mut pool = Pool::with_capacity(4);
-        let a = pool.insert(1u32);
-        let b = pool.insert(2u32);
-        pool.remove(a);
-        // The next insert must not reuse `a`.
-        let c = pool.insert(3u32);
-        assert_ne!(c, a);
-        assert_eq!(pool.get(a), None);
-        assert_eq!(pool.get(b), Some(&2));
-        assert_eq!(pool.get(c), Some(&3));
     }
 
     #[test]
