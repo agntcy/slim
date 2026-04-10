@@ -1,374 +1,246 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use bit_vec::BitVec;
-
 use tracing::trace;
 
+/// A collection that assigns each inserted element a stable `u64` ID.
+///
+/// IDs map directly to Vec indices, giving O(1) `get()` with no hash
+/// computation.  Iteration is dense — only live elements are visited.
+/// Freed slots are recycled via a free-list stack so `insert` is O(1)
+/// amortised.
+///
+/// **Note:** IDs *are* reused after `remove` + `insert`.  Callers must
+/// not retain an ID after calling `remove`.
 #[derive(Debug)]
 pub struct Pool<T> {
-    /// bitmap indicating if the pool contains an element
-    bitmap: BitVec,
-
-    /// the pool of elements
+    /// Sparse storage; `pool[i]` holds `Some(element)` when slot `i` is live.
+    /// The u64 ID handed to callers equals the Vec index as a `u64`.
     pool: Vec<Option<T>>,
 
-    /// the number of elements in the pool
-    len: usize,
+    /// Dense list of currently-live indices into `pool`.  Used for O(len)
+    /// dense iteration without scanning `None` slots.
+    active_indexes: Vec<usize>,
 
-    /// the capacity of the pool
-    capacity: usize,
-
-    /// index of the bit sit with max pos
-    max_set: usize,
+    /// Stack of recycled indices available for reuse by the next `insert`.
+    free_slots: Vec<usize>,
 }
 
 impl<T> Pool<T> {
-    /// Create a new pool with a given capacity
+    /// Create a new pool, pre-allocating space for `capacity` elements.
     pub fn with_capacity(capacity: usize) -> Self {
-        let mut pool = Vec::with_capacity(capacity);
-        pool.resize_with(capacity, || None);
-
         Pool {
-            bitmap: BitVec::from_elem(capacity, false),
-            pool,
-            len: 0,
-            capacity,
-            max_set: 0,
+            pool: Vec::with_capacity(capacity),
+            active_indexes: Vec::with_capacity(capacity),
+            free_slots: Vec::new(),
         }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &T> {
-        Iter {
-            bit_vec_iter: self.bitmap.iter(),
-            pool: self,
-            current_index: 0,
-        }
+    /// Insert `element`, returning its stable ID.
+    ///
+    /// Reuses a freed slot when one is available; otherwise appends a new slot.
+    pub fn insert(&mut self, element: T) -> u64 {
+        // Pop from free_slots, skipping any stale entries (slot re-occupied
+        // by insert_at before this insert ran).
+        let idx = loop {
+            match self.free_slots.pop() {
+                Some(i) if self.pool[i].is_none() => break i,
+                Some(_) => continue, // stale entry; skip
+                None => {
+                    // No free slot — extend the pool.
+                    let i = self.pool.len();
+                    self.pool.push(None);
+                    break i;
+                }
+            }
+        };
+
+        self.pool[idx] = Some(element);
+        self.active_indexes.push(idx);
+        trace!(pool_len = self.active_indexes.len(), "pool insert");
+        idx as u64
     }
 
-    /// Get the number of elements in the pool
-    pub fn len(&self) -> usize {
-        self.len
-    }
+    /// Insert `element` at a specific `id`.
+    ///
+    /// Grows `pool` if `id` is beyond the current length.  If the slot was
+    /// empty the index is added to `active_indexes`; if it was already
+    /// occupied the element is replaced (length unchanged).
+    ///
+    /// Returns `true` always; the bool return mirrors the old API for
+    /// compatibility with call-sites that check the return value.
+    pub fn insert_at(&mut self, element: T, id: u64) -> bool {
+        let idx = id as usize;
 
-    /// Get the capacity of the pool
-    pub fn capacity(&self) -> usize {
-        self.capacity
-    }
-
-    /// Get the max set index
-    pub fn max_set(&self) -> usize {
-        self.max_set
-    }
-
-    /// Check if the pool is empty
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
-    /// Get an element from the pool
-    pub fn get(&self, index: usize) -> Option<&T> {
-        self.pool.get(index).and_then(|slot| slot.as_ref())
-    }
-
-    /// Get a mutable reference to an element in the pool
-    pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
-        self.pool.get_mut(index).and_then(|slot| slot.as_mut())
-    }
-
-    /// Insert an element into the pool
-    pub fn insert(&mut self, element: T) -> usize {
-        // If length is equal to capacity, resize the pool
-        if self.len == self.capacity {
-            // Resize the pool
-            self.pool.resize_with(2 * self.capacity, || None);
-            self.bitmap.grow(self.capacity, false);
-            self.capacity *= 2;
-
-            trace!(
-                pool_capacity = self.pool.capacity(),
-                bitmap_capacity = self.bitmap.capacity(),
-                "pool resized",
-            );
-
-            debug_assert!(self.len < self.capacity);
-            debug_assert!(self.pool.capacity() >= self.capacity);
-            debug_assert!(self.bitmap.capacity() >= self.capacity);
+        // Grow the pool with None slots until it covers `idx`.
+        if idx >= self.pool.len() {
+            self.pool.resize_with(idx + 1, || None);
         }
 
-        // Find the first unset bit and insert the element
-        if let Some(index) = self.bitmap.iter().position(|x| !x) {
-            self.insert_at(element, index)
-                .then_some(true)
-                .expect("insert_at failed");
+        let was_empty = self.pool[idx].is_none();
+        self.pool[idx] = Some(element);
 
-            index
-        } else {
-            // This should never happen
-            panic!("pool is full");
+        if was_empty {
+            self.active_indexes.push(idx);
         }
-    }
-
-    /// Insert the element in a given position
-    /// if the position does not exist the method fails
-    /// return true on success
-    pub fn insert_at(&mut self, element: T, index: usize) -> bool {
-        if self.capacity < index {
-            // position index cannot be accessed
-            return false;
-        }
-
-        if !self.bitmap.get(index).unwrap_or(false) {
-            // if the bit is not set, increase len
-            self.len += 1;
-        }
-
-        // Mark the bit as set
-        self.bitmap.set(index, true);
-
-        // Store the new element in the pool
-        self.pool[index] = Some(element);
-
-        // If the index is greater than the max_set, update max_set
-        if index > self.max_set {
-            self.max_set = index;
-        }
-
-        // Return success
         true
     }
 
-    /// Remove an element from the pool
-    pub fn remove(&mut self, index: usize) -> bool {
-        if self.bitmap.get(index).unwrap_or(false) {
-            self.bitmap.set(index, false);
+    /// Remove the element with the given `id`.  Returns `true` if an element
+    /// was present, `false` if the slot was already empty.
+    pub fn remove(&mut self, id: u64) -> bool {
+        let idx = id as usize;
 
-            // Remove element from the pool
-            self.pool[index] = None;
-
-            // Decrease the length of the pool
-            self.len -= 1;
-
-            if index == self.max_set && index != 0 {
-                // find the new max_set
-                for i in (0..(index - 1)).rev() {
-                    let val = self.bitmap.get(i).unwrap_or(false);
-                    if val {
-                        self.max_set = i;
-                        break;
-                    }
-                }
-            }
-
-            true
-        } else {
-            false
+        if self.pool.get(idx).and_then(|x| x.as_ref()).is_none() {
+            return false;
         }
+
+        self.pool[idx] = None;
+
+        // Remove from active_indexes (swap_remove is O(1) after the scan).
+        if let Some(pos) = self.active_indexes.iter().position(|&i| i == idx) {
+            self.active_indexes.swap_remove(pos);
+        }
+
+        self.free_slots.push(idx);
+        true
+    }
+
+    /// Look up an element by its stable ID.
+    pub fn get(&self, id: u64) -> Option<&T> {
+        self.pool.get(id as usize).and_then(|x| x.as_ref())
+    }
+
+    /// Mutably look up an element by its stable ID.
+    pub fn get_mut(&mut self, id: u64) -> Option<&mut T> {
+        self.pool.get_mut(id as usize).and_then(|x| x.as_mut())
+    }
+
+    /// Iterate over all live elements.  No empty slots are visited.
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        self.active_indexes.iter().map(|&i| {
+            self.pool[i]
+                .as_ref()
+                .expect("active_indexes must point to live slots")
+        })
+    }
+
+    /// Iterate over all `(id, element)` pairs.
+    pub fn iter_with_ids(&self) -> impl Iterator<Item = (u64, &T)> {
+        self.active_indexes.iter().map(|&i| {
+            (
+                i as u64,
+                self.pool[i]
+                    .as_ref()
+                    .expect("active_indexes must point to live slots"),
+            )
+        })
+    }
+
+    /// Number of elements currently in the pool.
+    pub fn len(&self) -> usize {
+        self.active_indexes.len()
+    }
+
+    /// Current allocated capacity (elements storable without reallocation).
+    pub fn capacity(&self) -> usize {
+        self.pool.capacity()
+    }
+
+    /// Returns `true` if the pool contains no elements.
+    pub fn is_empty(&self) -> bool {
+        self.active_indexes.is_empty()
     }
 }
 
-/// An iterator for the pool.
-#[derive(Clone)]
-pub struct Iter<'a, T> {
-    bit_vec_iter: bit_vec::Iter<'a>,
-    pool: &'a Pool<T>,
-    current_index: usize,
-}
-
-impl<'a, T> Iterator for Iter<'a, T> {
-    type Item = &'a T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        // only returns the elements that are set
-
-        // iterate until we find a true bit
-        // TODO: this can be optimized a lot by skipping the elements
-        // that are not set and returning the first element that is set
-        for index in self.bit_vec_iter.by_ref() {
-            if !index {
-                // if the bit is not set, continue
-                self.current_index += 1;
-                continue;
-            }
-
-            // if the bit is set, return the element
-            let ret = self.pool.get(self.current_index);
-
-            // debug assert that the element is not None
-            debug_assert!(ret.is_some(), "Element is None");
-
-            // increment the current index
-            self.current_index += 1;
-
-            // return the element
-            return ret;
-        }
-
-        None
-    }
-}
-
-// tests
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
 
     use super::*;
-    use rand::Rng;
 
     #[test]
     fn test_pool() {
         let mut pool = Pool::with_capacity(10);
         assert_eq!(pool.len(), 0);
-        assert_eq!(pool.capacity(), 10);
         assert!(pool.is_empty());
-        assert_eq!(pool.max_set(), 0);
 
-        let element = 42;
-        let index = pool.insert(element);
+        // Insert a few elements; IDs are assigned sequentially.
+        let id0 = pool.insert(42u32);
+        assert_eq!(id0, 0);
         assert_eq!(pool.len(), 1);
-        assert_eq!(pool.get(index), Some(&element));
-        assert_eq!(pool.get_mut(index), Some(&mut 42));
-        assert_eq!(pool.max_set(), 0);
+        assert_eq!(pool.get(id0), Some(&42));
+        assert_eq!(pool.get_mut(id0), Some(&mut 42));
 
-        let element = 43;
-        let index = pool.insert(element);
+        let id1 = pool.insert(43u32);
+        assert_eq!(id1, 1);
         assert_eq!(pool.len(), 2);
-        assert_eq!(pool.get(index), Some(&element));
-        assert_eq!(pool.get_mut(index), Some(&mut 43));
-        assert_eq!(pool.max_set(), 1);
+        assert_eq!(pool.get(id1), Some(&43));
 
-        let element = 44;
-        let index = pool.insert(element);
+        let id2 = pool.insert(44u32);
+        assert_eq!(id2, 2);
         assert_eq!(pool.len(), 3);
-        assert_eq!(pool.get(index), Some(&element));
-        assert_eq!(pool.get_mut(index), Some(&mut 44));
-        assert_eq!(pool.max_set(), 2);
 
-        let element = 45;
-        let index = pool.insert(element);
+        // insert_at with an occupied ID replaces the element.
+        assert!(pool.insert_at(99u32, id1));
+        assert_eq!(pool.len(), 3);
+        assert_eq!(pool.get(id1), Some(&99));
+
+        // insert_at with a fresh ID inserts a new element.
+        assert!(pool.insert_at(55u32, 50));
         assert_eq!(pool.len(), 4);
-        assert_eq!(pool.get(index), Some(&element));
-        assert_eq!(pool.get_mut(index), Some(&mut 45));
-        assert_eq!(pool.max_set(), 3);
+        assert_eq!(pool.get(50), Some(&55));
 
-        let element = 46;
-        let index = pool.insert(element);
-        assert_eq!(pool.len(), 5);
-        assert_eq!(pool.get(index), Some(&element));
-        assert_eq!(pool.get_mut(index), Some(&mut 46));
-        assert_eq!(pool.max_set(), 4);
+        // insert returns a valid ID that resolves correctly.
+        let id_next = pool.insert(77u32);
+        assert_eq!(pool.get(id_next), Some(&77));
 
-        let element = 47;
-        let index = pool.insert(element);
-        assert_eq!(pool.len(), 6);
-        assert_eq!(pool.get(index), Some(&element));
-        assert_eq!(pool.get_mut(index), Some(&mut 47));
-        assert_eq!(pool.max_set(), 5);
+        // Remove an element; its ID no longer resolves.
+        assert!(pool.remove(id0));
+        assert_eq!(pool.get(id0), None);
+        assert_eq!(pool.len(), 4);
 
-        let element = 48;
-        let index = pool.insert(element);
+        // Removing a non-existent ID returns false.
+        assert!(!pool.remove(id0));
+
+        // After removing id0, get(id1) still resolves correctly.
+        assert_eq!(pool.get(id1), Some(&99));
+    }
+
+    #[test]
+    fn test_pool_iter() {
+        let mut pool = Pool::with_capacity(10);
+        let elements = [1u32, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let ids: Vec<u64> = elements.iter().map(|&e| pool.insert(e)).collect();
+
+        // All elements are reachable by ID.
+        for (&id, &elem) in ids.iter().zip(elements.iter()) {
+            assert_eq!(pool.get(id), Some(&elem));
+        }
+
+        // Iteration visits every live element exactly once (no gaps).
+        let mut collected: Vec<u32> = pool.iter().copied().collect();
+        collected.sort();
+        let mut expected = elements.to_vec();
+        expected.sort();
+        assert_eq!(collected, expected);
+
+        // Remove a few elements; iter still returns only live ones.
+        pool.remove(ids[2]); // was 3
+        pool.remove(ids[4]); // was 5
+        pool.remove(ids[6]); // was 7
+
+        let mut collected: Vec<u32> = pool.iter().copied().collect();
+        collected.sort();
+        let mut expected: Vec<u32> = elements
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != 2 && *i != 4 && *i != 6)
+            .map(|(_, &v)| v)
+            .collect();
+        expected.sort();
+        assert_eq!(collected, expected);
         assert_eq!(pool.len(), 7);
-        assert_eq!(pool.get(index), Some(&element));
-        assert_eq!(pool.get_mut(index), Some(&mut 48));
-        assert_eq!(pool.max_set(), 6);
-
-        let element = 49;
-        let index = pool.insert(element);
-        assert_eq!(pool.len(), 8);
-        assert_eq!(pool.get(index), Some(&element));
-        assert_eq!(pool.get_mut(index), Some(&mut 49));
-        assert_eq!(pool.max_set(), 7);
-
-        let element = 1;
-        let res = pool.insert_at(element, index);
-        assert!(res);
-        assert_eq!(pool.len(), 8);
-        assert_eq!(pool.get(index), Some(&element));
-        assert_eq!(pool.get_mut(index), Some(&mut 1));
-        assert_eq!(pool.max_set(), 7);
-
-        let element = 56898;
-        let res = pool.insert_at(element, index);
-        assert!(res);
-        assert_eq!(pool.len(), 8);
-        assert_eq!(pool.get(index), Some(&element));
-        assert_eq!(pool.get_mut(index), Some(&mut 56898));
-        assert_eq!(pool.max_set(), 7);
-
-        let element = 49;
-        let res = pool.insert_at(element, index);
-        assert!(res);
-        assert_eq!(pool.len(), 8);
-        assert_eq!(pool.get(index), Some(&element));
-        assert_eq!(pool.get_mut(index), Some(&mut 49));
-        assert_eq!(pool.max_set(), 7);
-
-        let element = 50;
-        let res = pool.insert_at(element, index + 1);
-        assert!(res);
-        assert_eq!(pool.len(), 9);
-        assert_eq!(pool.get(index + 1), Some(&element));
-        assert_eq!(pool.get_mut(index + 1), Some(&mut 50));
-        assert_eq!(pool.max_set(), 8);
-
-        let res = pool.insert_at(element, 100000000);
-        assert!(!res);
-
-        let current_len = pool.len();
-        let mut curr_max_set = pool.max_set();
-
-        // insert a very large number of elements in a loop to trigger resize
-        for mut i in 0..1000 {
-            let index = pool.insert(i);
-            assert_eq!(pool.get(index), Some(&i));
-            assert_eq!(pool.get_mut(index), Some(&mut i));
-            assert_eq!(pool.max_set(), curr_max_set + 1);
-            curr_max_set = pool.max_set();
-        }
-
-        assert_eq!(pool.len(), current_len + 1000);
-
-        let current_len = pool.len();
-        let mut curr_max_set = pool.max_set();
-
-        // Let's remove some random elements between 0 and 1000
-        let mut removed_indexes = Vec::new();
-
-        for i in 0..1000 {
-            let pivot = rand::rng().random_range(0..1000) as usize;
-            if i < pivot {
-                let ret = pool.remove(i);
-                assert!(ret);
-
-                if i == curr_max_set {
-                    assert_ne!(curr_max_set, pool.max_set());
-                } else {
-                    assert_eq!(curr_max_set, pool.max_set());
-                }
-                curr_max_set = pool.max_set();
-
-                removed_indexes.push(i);
-            }
-        }
-
-        assert_eq!(pool.len(), current_len - removed_indexes.len());
-
-        let mut curr_max_set = pool.max_set();
-
-        // Insert new elements in the pool and check whether they are inserted in the same indexes
-        for (mut i, idx) in removed_indexes.iter().enumerate() {
-            let index = pool.insert(i);
-            assert_eq!(index, *idx);
-            assert_eq!(pool.get(index), Some(&i));
-            assert_eq!(pool.get_mut(index), Some(&mut i));
-            if i > curr_max_set {
-                assert_eq!(i, pool.max_set());
-                curr_max_set = pool.max_set();
-            } else {
-                assert_eq!(curr_max_set, pool.max_set());
-            }
-        }
     }
 
     struct TestDropStruct<F: FnMut()> {
@@ -383,7 +255,7 @@ mod tests {
 
     #[test]
     fn test_pool_drop() {
-        // check if the drop is called for all elements in the pool at the end
+        // All elements are dropped when the pool is dropped.
         let drop_count: RefCell<u32> = 0.into();
         let mut pool = Pool::with_capacity(10);
         (0..10).for_each(|_| {
@@ -393,50 +265,48 @@ mod tests {
                 },
             });
         });
-
         assert_eq!(*drop_count.borrow(), 0);
         drop(pool);
         assert_eq!(*drop_count.borrow(), 10);
 
-        // check if the drop is called when an element in the pool is removed
+        // The element is dropped immediately on remove.
         let drop_count: RefCell<u32> = 0.into();
         let mut pool = Pool::with_capacity(10);
-        let pos = pool.insert(TestDropStruct {
+        let id = pool.insert(TestDropStruct {
             drop_callback: || {
                 *drop_count.borrow_mut() += 1;
             },
         });
-
         assert_eq!(*drop_count.borrow(), 0);
-        pool.remove(pos);
+        pool.remove(id);
         assert_eq!(*drop_count.borrow(), 1);
     }
 
     #[test]
-    fn test_pool_iter() {
-        let mut pool = Pool::with_capacity(10);
-        let elements = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-        for element in &elements {
-            pool.insert(*element);
+    fn test_pool_grow() {
+        // Start small and let the pool grow well past initial capacity.
+        let mut pool = Pool::with_capacity(4);
+        let ids: Vec<u64> = (0..1000u32).map(|i| pool.insert(i)).collect();
+        assert_eq!(pool.len(), 1000);
+        for (i, &id) in ids.iter().enumerate() {
+            assert_eq!(pool.get(id), Some(&(i as u32)));
         }
+    }
 
-        let mut iter = pool.iter();
-        for element in elements.iter() {
-            assert_eq!(iter.next(), Some(element));
-        }
-        assert_eq!(iter.next(), None);
+    #[test]
+    fn test_iter_with_ids() {
+        let mut pool = Pool::with_capacity(4);
+        let id0 = pool.insert(10u32);
+        let id1 = pool.insert(20u32);
+        let id2 = pool.insert(30u32);
 
-        // drop the iterator to be able to reuse the pool
-        drop(iter);
+        let mut pairs: Vec<(u64, u32)> = pool.iter_with_ids().map(|(id, &v)| (id, v)).collect();
+        pairs.sort_by_key(|&(id, _)| id);
+        assert_eq!(pairs, vec![(id0, 10), (id1, 20), (id2, 30)]);
 
-        // Check that the iterator skips unset bits
-        pool.remove(2);
-        pool.remove(4);
-        pool.remove(6);
-        let mut iter = pool.iter();
-        for element in elements.iter().filter(|&&x| x != 3 && x != 5 && x != 7) {
-            assert_eq!(iter.next(), Some(element));
-        }
-        assert_eq!(iter.next(), None);
+        pool.remove(id1);
+        let mut pairs: Vec<(u64, u32)> = pool.iter_with_ids().map(|(id, &v)| (id, v)).collect();
+        pairs.sort_by_key(|&(id, _)| id);
+        assert_eq!(pairs, vec![(id0, 10), (id2, 30)]);
     }
 }

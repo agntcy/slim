@@ -189,12 +189,7 @@ mod tests {
             .expect("error creating channel");
 
         // ensure connection exists before disconnect
-        assert!(
-            msg_processor
-                .connection_table()
-                .get(conn_index as usize)
-                .is_some()
-        );
+        assert!(msg_processor.connection_table().get(conn_index).is_some());
 
         // disconnect (should cancel stream and eventually remove connection)
         let _returned_cfg = msg_processor
@@ -206,10 +201,7 @@ mod tests {
 
         // after disconnect the connection should be removed
         assert!(
-            msg_processor
-                .connection_table()
-                .get(conn_index as usize)
-                .is_none(),
+            msg_processor.connection_table().get(conn_index).is_none(),
             "connection should be removed after disconnect"
         );
     }
