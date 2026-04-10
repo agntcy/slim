@@ -192,7 +192,7 @@ mod tests {
         assert!(
             msg_processor
                 .connection_table()
-                .get(conn_index as usize)
+                .get(conn_index)
                 .is_some()
         );
 
@@ -208,7 +208,7 @@ mod tests {
         assert!(
             msg_processor
                 .connection_table()
-                .get(conn_index as usize)
+                .get(conn_index)
                 .is_none(),
             "connection should be removed after disconnect"
         );
