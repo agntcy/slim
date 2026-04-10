@@ -1,31 +1,15 @@
-use bit_vec::BitVec;
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use slim_datapath::tables::pool::Pool;
 use std::mem::MaybeUninit;
 
 fn bench_lookup(c: &mut Criterion) {
     let mut pool = Pool::with_capacity(1024);
-    for i in 0..1024 {
-        pool.insert(i);
-    }
+    let ids: Vec<u64> = (0..1024i32).map(|i| pool.insert(i)).collect();
 
     c.bench_function("pool lookup", |b| {
         b.iter(|| {
-            for i in 0..1024 {
-                black_box(pool.get(i));
-            }
-        })
-    });
-}
-
-fn bench_bitvec_lookup(c: &mut Criterion) {
-    let size = 1024;
-    let bitvec = BitVec::from_elem(size, true);
-
-    c.bench_function("bitvec lookup", |b| {
-        b.iter(|| {
-            for i in 0..size {
-                black_box(bitvec.get(i));
+            for &id in &ids {
+                black_box(pool.get(id));
             }
         })
     });
@@ -108,7 +92,6 @@ fn bench_remove_insert_cycle(c: &mut Criterion) {
 criterion_group!(
     benches,
     bench_lookup,
-    bench_bitvec_lookup,
     bench_assume_init_ref,
     bench_insert,
     bench_grow,

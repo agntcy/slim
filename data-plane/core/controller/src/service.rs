@@ -1093,7 +1093,7 @@ impl ControllerService {
                                 }
 
                                 for &cid in remote {
-                                    if let Some(conn) = conn_table.get(cid as usize) {
+                                    if let Some(conn) = conn_table.get(cid) {
                                         entry.remote_connections.push(ConnectionEntry {
                                             id: cid,
                                             connection_type: ConnectionType::Remote as i32,
@@ -1148,7 +1148,7 @@ impl ControllerService {
                                     "connection entry",
                                 );
                                 all_entries.push(ConnectionEntry {
-                                    id: id as u64,
+                                    id,
                                     connection_type: ConnectionType::Remote as i32,
                                     config_data: match conn.config_data() {
                                         Some(data) => serde_json::to_string(data)
