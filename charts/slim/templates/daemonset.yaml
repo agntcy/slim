@@ -58,7 +58,10 @@ spec:
             - name: MY_POD_IP
               valueFrom:
                 fieldRef:
-                  fieldPath: status.podIP                  
+                  fieldPath: status.podIP
+            {{- with .Values.slim.extraEnv }}
+            {{ toYaml . | nindent 12 }}
+            {{- end }}
           ports:
             - name: data-plane
               containerPort: {{ .Values.slim.service.data.port }}

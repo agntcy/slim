@@ -135,6 +135,21 @@ slim:
     # - name: datastore
     #   mountPath: /etc/datastore
 
+  extraEnv: []
+    # Example:
+    # - name: MY_CUSTOM_VAR
+    #   value: "my-value"
+    # - name: SECRET_VAR
+    #   valueFrom:
+    #     secretKeyRef:
+    #       name: my-secret
+    #       key: secret-key
+    # - name: CONFIGMAP_VAR
+    #   valueFrom:
+    #     configMapKeyRef:
+    #       name: my-configmap
+    #       key: config-key
+
 spire:
   enabled: false
   helperImage:
