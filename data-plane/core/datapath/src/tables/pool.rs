@@ -118,9 +118,11 @@ impl<T> Pool<T> {
 
     /// Iterate over all live elements.  No empty slots are visited.
     pub fn iter(&self) -> impl Iterator<Item = &T> {
-        self.active_indexes
-            .iter()
-            .map(|&i| self.pool[i].as_ref().expect("active_indexes must point to live slots"))
+        self.active_indexes.iter().map(|&i| {
+            self.pool[i]
+                .as_ref()
+                .expect("active_indexes must point to live slots")
+        })
     }
 
     /// Iterate over all `(id, element)` pairs.
