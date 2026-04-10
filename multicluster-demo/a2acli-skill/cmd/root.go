@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
@@ -24,11 +25,12 @@ var (
 	agentsDir  string
 	agentStore *store.Store
 
-	slimEndpoint  string
-	slimLocalName string
-	slimSecret    string
-	slimApp       *slim_bindings.App
-	slimConnID    uint64
+	slimEndpoint      string
+	slimLocalName     string
+	slimSecret        string
+	slimTLSSkipVerify bool
+	slimApp           *slim_bindings.App
+	slimConnID        uint64
 
 	spireSocketPath     string
 	spireTargetSpiffeID string
@@ -61,6 +63,9 @@ Each agent is identified by the SHA256 digest of its AgentCard file.`,
 		}
 		if !flags.Changed("slim-secret") && cfg.Slim.Secret != "" {
 			slimSecret = cfg.Slim.Secret
+		}
+		if !flags.Changed("slim-tls-skip-verify") && cfg.Slim.TLSSkipVerify {
+			slimTLSSkipVerify = cfg.Slim.TLSSkipVerify
 		}
 		if !flags.Changed("spire-socket-path") && cfg.Slim.Spire.SocketPath != "" {
 			spireSocketPath = cfg.Slim.Spire.SocketPath
@@ -98,7 +103,16 @@ func initSLIM() error {
 		return fmt.Errorf("invalid --slim-local-name %q: %w", slimLocalName, err)
 	}
 
-	connID, err := svc.Connect(slim_bindings.NewInsecureClientConfig(slimEndpoint))
+	var clientCfg slim_bindings.ClientConfig
+	if strings.HasPrefix(slimEndpoint, "https://") {
+		clientCfg = slim_bindings.NewSecureClientConfig(slimEndpoint)
+		clientCfg.Tls.InsecureSkipVerify = slimTLSSkipVerify
+		clientCfg.Tls.IncludeSystemCaCertsPool = true
+	} else {
+		clientCfg = slim_bindings.NewInsecureClientConfig(slimEndpoint)
+	}
+
+	connID, err := svc.Connect(clientCfg)
 	if err != nil {
 		return fmt.Errorf("SLIM Connect failed: %w", err)
 	}
@@ -162,6 +176,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&slimEndpoint, "slim-endpoint", "", "SLIM node URL (e.g. http://localhost:46357)")
 	rootCmd.PersistentFlags().StringVar(&slimLocalName, "slim-local-name", "agntcy/cli/a2acli", "local SLIM name (namespace/group/name)")
 	rootCmd.PersistentFlags().StringVar(&slimSecret, "slim-secret", "", "shared secret for SLIM authentication")
+	rootCmd.PersistentFlags().BoolVar(&slimTLSSkipVerify, "slim-tls-skip-verify", false, "skip TLS certificate verification for the SLIM endpoint (https:// only)")
 	rootCmd.PersistentFlags().StringVar(&spireSocketPath, "spire-socket-path", "", "SPIRE Workload API socket path; when set, SPIRE identity auth is used instead of shared secret")
 	rootCmd.PersistentFlags().StringVar(&spireTargetSpiffeID, "spire-target-spiffe-id", "", "target SPIFFE ID to request from SPIRE (optional)")
 	rootCmd.PersistentFlags().StringArrayVar(&spireJwtAudiences, "spire-jwt-audience", nil, "JWT audience(s) to request from SPIRE (may be repeated)")
