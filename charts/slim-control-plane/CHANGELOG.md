@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/agntcy/slim/compare/helm-slim-control-plane-v1.0.0...helm-slim-control-plane-v1.0.1) (2026-04-10)
+
+
+### Bug Fixes
+
+* **helm-charts:** add configmap checksum annotation for auto reload ([#1493](https://github.com/agntcy/slim/issues/1493)) ([691e86a](https://github.com/agntcy/slim/commit/691e86afec21457db64ee039092d4d88fffdc54f))
+
 ## [1.0.0](https://github.com/agntcy/slim/compare/helm-slim-control-plane-v0.7.0...helm-slim-control-plane-v1.0.0) (2026-02-02)
 
 
