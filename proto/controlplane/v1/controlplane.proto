@@ -110,6 +110,10 @@ message RouteEntry {
   uint64 id = 1;
   string source_node_id = 2;
   string dest_node_id = 3;
+  // deprecated
+  string dest_endpoint = 4;
+  // deprecated
+  string conn_config_data = 5;
   string component_0 = 6;
   string component_1 = 7;
   string component_2 = 8;

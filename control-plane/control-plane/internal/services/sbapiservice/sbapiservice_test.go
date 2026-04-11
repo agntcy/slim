@@ -466,6 +466,23 @@ func TestSouthbound_ChannelOperations(t *testing.T) {
 	_, err = stream.Recv()
 	require.NoError(t, err)
 
+	// Wait for and acknowledge the initial ConfigCommand from the reconciler
+	configMsg, err := stream.Recv()
+	require.NoError(t, err)
+	if _, ok := configMsg.Payload.(*controllerapi.ControlMessage_ConfigCommand); ok {
+		// Acknowledge the config command
+		ackMsg := &controllerapi.ControlMessage{
+			MessageId: "ack-config",
+			Payload: &controllerapi.ControlMessage_ConfigCommandAck{
+				ConfigCommandAck: &controllerapi.ConfigurationCommandAck{
+					OriginalMessageId: configMsg.MessageId,
+				},
+			},
+		}
+		err = stream.Send(ackMsg)
+		require.NoError(t, err)
+	}
+
 	// Test CreateChannel
 	err = stream.Send(&controllerapi.ControlMessage{
 		MessageId: "create-channel",
@@ -576,6 +593,23 @@ func TestSouthbound_ParticipantOperations(t *testing.T) {
 	_, err = stream.Recv()
 	require.NoError(t, err)
 
+	// Wait for and acknowledge the initial ConfigCommand from the reconciler
+	configMsg, err := stream.Recv()
+	require.NoError(t, err)
+	if _, ok := configMsg.Payload.(*controllerapi.ControlMessage_ConfigCommand); ok {
+		// Acknowledge the config command
+		ackMsg := &controllerapi.ControlMessage{
+			MessageId: "ack-config",
+			Payload: &controllerapi.ControlMessage_ConfigCommandAck{
+				ConfigCommandAck: &controllerapi.ConfigurationCommandAck{
+					OriginalMessageId: configMsg.MessageId,
+				},
+			},
+		}
+		err = stream.Send(ackMsg)
+		require.NoError(t, err)
+	}
+
 	// Test AddParticipant
 	err = stream.Send(&controllerapi.ControlMessage{
 		MessageId: "add-participant",
@@ -683,6 +717,22 @@ func TestSouthbound_ChannelOperationsWithErrors(t *testing.T) {
 	_, err = stream.Recv()
 	require.NoError(t, err)
 
+	// Acknowledge ConfigCommand
+	configMsg, err := stream.Recv()
+	require.NoError(t, err)
+	if _, ok := configMsg.Payload.(*controllerapi.ControlMessage_ConfigCommand); ok {
+		ackMsg := &controllerapi.ControlMessage{
+			MessageId: "ack-config",
+			Payload: &controllerapi.ControlMessage_ConfigCommandAck{
+				ConfigCommandAck: &controllerapi.ConfigurationCommandAck{
+					OriginalMessageId: configMsg.MessageId,
+				},
+			},
+		}
+		err = stream.Send(ackMsg)
+		require.NoError(t, err)
+	}
+
 	// Test CreateChannel with error - should close stream
 	err = stream.Send(&controllerapi.ControlMessage{
 		MessageId: "create-channel-fail",
@@ -737,6 +787,23 @@ func TestSouthbound_InvalidPayload(t *testing.T) {
 	// Receive registration ACK
 	_, err = stream.Recv()
 	require.NoError(t, err)
+
+	// Wait for and acknowledge the initial ConfigCommand from the reconciler
+	configMsg, err := stream.Recv()
+	require.NoError(t, err)
+	if _, ok := configMsg.Payload.(*controllerapi.ControlMessage_ConfigCommand); ok {
+		// Acknowledge the config command
+		ackMsg := &controllerapi.ControlMessage{
+			MessageId: "ack-config",
+			Payload: &controllerapi.ControlMessage_ConfigCommandAck{
+				ConfigCommandAck: &controllerapi.ConfigurationCommandAck{
+					OriginalMessageId: configMsg.MessageId,
+				},
+			},
+		}
+		err = stream.Send(ackMsg)
+		require.NoError(t, err)
+	}
 
 	// Send a message with generic Ack payload to test that branch
 	err = stream.Send(&controllerapi.ControlMessage{

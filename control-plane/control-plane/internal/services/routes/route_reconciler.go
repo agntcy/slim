@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -288,6 +289,13 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 					Str("route_key", route.String()).
 					Str("error_msg", failedMsg).
 					Msg("Marked route as failed")
+				if shouldRetryMissingLinkConnection(failedMsg) {
+					needsRequeue = true
+					zlog.Warn().
+						Str("route_key", route.String()).
+						Str("error_msg", failedMsg).
+						Msg("Re-queueing route reconciliation due to missing connection/link_id error")
+				}
 			}
 		}
 
@@ -306,4 +314,9 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 	}
 
 	return nil
+}
+
+func shouldRetryMissingLinkConnection(errMsg string) bool {
+	lower := strings.ToLower(errMsg)
+	return strings.Contains(lower, "connection with link_id") && strings.Contains(lower, "not found")
 }

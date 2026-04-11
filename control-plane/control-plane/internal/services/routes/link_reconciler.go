@@ -139,9 +139,6 @@ func (s *LinkReconciler) handleRequest(ctx context.Context, req LinkReconcileReq
 	for linkID := range deletedLinksByID {
 		connectionsToDelete = append(connectionsToDelete, linkID)
 	}
-	//if len(connectionsToCreate) == 0 && len(connectionsToDelete) == 0 {
-	//	return nil
-	//}
 
 	messageID := uuid.NewString()
 	msg := &controllerapi.ControlMessage{
