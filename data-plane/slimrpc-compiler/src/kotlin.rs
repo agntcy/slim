@@ -75,20 +75,16 @@ const SERVICE_TEMPLATE: &str = r#"object {{SERVICE_NAME}}Slimrpc {
 }
 "#;
 
-const CLIENT_UNARY_UNARY_METHOD: &str =
-    r#"        suspend fun {{METHOD_NAME}}(request: {{INPUT_TYPE}}, timeout: Duration, metadata: Map<String, String>?): {{OUTPUT_TYPE}}
+const CLIENT_UNARY_UNARY_METHOD: &str = r#"        suspend fun {{METHOD_NAME}}(request: {{INPUT_TYPE}}, timeout: Duration, metadata: Map<String, String>?): {{OUTPUT_TYPE}}
 "#;
 
-const CLIENT_UNARY_STREAM_METHOD: &str =
-    r#"        suspend fun {{METHOD_NAME}}(request: {{INPUT_TYPE}}, timeout: Duration, metadata: Map<String, String>?): ResponseStreamReader
+const CLIENT_UNARY_STREAM_METHOD: &str = r#"        suspend fun {{METHOD_NAME}}(request: {{INPUT_TYPE}}, timeout: Duration, metadata: Map<String, String>?): ResponseStreamReader
 "#;
 
-const CLIENT_STREAM_UNARY_METHOD: &str =
-    r#"        fun {{METHOD_NAME}}(timeout: Duration, metadata: Map<String, String>?): ClientRequestStream<{{INPUT_TYPE}}, {{OUTPUT_TYPE}}>
+const CLIENT_STREAM_UNARY_METHOD: &str = r#"        fun {{METHOD_NAME}}(timeout: Duration, metadata: Map<String, String>?): ClientRequestStream<{{INPUT_TYPE}}, {{OUTPUT_TYPE}}>
 "#;
 
-const CLIENT_STREAM_STREAM_METHOD: &str =
-    r#"        fun {{METHOD_NAME}}(timeout: Duration, metadata: Map<String, String>?): ClientBidiStream<{{INPUT_TYPE}}>
+const CLIENT_STREAM_STREAM_METHOD: &str = r#"        fun {{METHOD_NAME}}(timeout: Duration, metadata: Map<String, String>?): ClientBidiStream<{{INPUT_TYPE}}>
 "#;
 
 const CLIENT_UNARY_UNARY_IMPL: &str = r#"        override suspend fun {{METHOD_NAME}}(request: {{INPUT_TYPE}}, timeout: Duration, metadata: Map<String, String>?): {{OUTPUT_TYPE}} {
@@ -140,20 +136,16 @@ const CLIENT_STREAM_STREAM_IMPL: &str = r#"        override fun {{METHOD_NAME}}(
 
 "#;
 
-const SERVER_UNARY_UNARY_METHOD: &str =
-    r#"        suspend fun {{METHOD_NAME}}(request: {{INPUT_TYPE}}, context: Context): {{OUTPUT_TYPE}}
+const SERVER_UNARY_UNARY_METHOD: &str = r#"        suspend fun {{METHOD_NAME}}(request: {{INPUT_TYPE}}, context: Context): {{OUTPUT_TYPE}}
 "#;
 
-const SERVER_UNARY_STREAM_METHOD: &str =
-    r#"        suspend fun {{METHOD_NAME}}(request: {{INPUT_TYPE}}, context: Context, sink: ResponseSink)
+const SERVER_UNARY_STREAM_METHOD: &str = r#"        suspend fun {{METHOD_NAME}}(request: {{INPUT_TYPE}}, context: Context, sink: ResponseSink)
 "#;
 
-const SERVER_STREAM_UNARY_METHOD: &str =
-    r#"        suspend fun {{METHOD_NAME}}(stream: RequestStream, context: Context): {{OUTPUT_TYPE}}
+const SERVER_STREAM_UNARY_METHOD: &str = r#"        suspend fun {{METHOD_NAME}}(stream: RequestStream, context: Context): {{OUTPUT_TYPE}}
 "#;
 
-const SERVER_STREAM_STREAM_METHOD: &str =
-    r#"        suspend fun {{METHOD_NAME}}(stream: RequestStream, context: Context, sink: ResponseSink)
+const SERVER_STREAM_STREAM_METHOD: &str = r#"        suspend fun {{METHOD_NAME}}(stream: RequestStream, context: Context, sink: ResponseSink)
 "#;
 
 const UNIMPLEMENTED_UNARY_UNARY: &str = r#"        override suspend fun {{METHOD_NAME}}(request: {{INPUT_TYPE}}, context: Context): {{OUTPUT_TYPE}} {
@@ -250,8 +242,7 @@ const HANDLER_STREAM_STREAM: &str = r#"    private class {{SERVICE_NAME}}_{{METH
 
 "#;
 
-const GROUP_CLIENT_UNARY_UNARY_METHOD: &str =
-    r#"        suspend fun {{METHOD_NAME}}(request: {{INPUT_TYPE}}, timeout: Duration, metadata: Map<String, String>?): MulticastResponseStream<{{OUTPUT_TYPE}}>
+const GROUP_CLIENT_UNARY_UNARY_METHOD: &str = r#"        suspend fun {{METHOD_NAME}}(request: {{INPUT_TYPE}}, timeout: Duration, metadata: Map<String, String>?): MulticastResponseStream<{{OUTPUT_TYPE}}>
 "#;
 
 const GROUP_CLIENT_UNARY_UNARY_IMPL: &str = r#"        override suspend fun {{METHOD_NAME}}(request: {{INPUT_TYPE}}, timeout: Duration, metadata: Map<String, String>?): MulticastResponseStream<{{OUTPUT_TYPE}}> {
@@ -267,8 +258,7 @@ const GROUP_CLIENT_UNARY_UNARY_IMPL: &str = r#"        override suspend fun {{ME
 
 "#;
 
-const GROUP_CLIENT_UNARY_STREAM_METHOD: &str =
-    r#"        suspend fun {{METHOD_NAME}}(request: {{INPUT_TYPE}}, timeout: Duration, metadata: Map<String, String>?): MulticastResponseStream<{{OUTPUT_TYPE}}>
+const GROUP_CLIENT_UNARY_STREAM_METHOD: &str = r#"        suspend fun {{METHOD_NAME}}(request: {{INPUT_TYPE}}, timeout: Duration, metadata: Map<String, String>?): MulticastResponseStream<{{OUTPUT_TYPE}}>
 "#;
 
 const GROUP_CLIENT_UNARY_STREAM_IMPL: &str = r#"        override suspend fun {{METHOD_NAME}}(request: {{INPUT_TYPE}}, timeout: Duration, metadata: Map<String, String>?): MulticastResponseStream<{{OUTPUT_TYPE}}> {
@@ -284,8 +274,7 @@ const GROUP_CLIENT_UNARY_STREAM_IMPL: &str = r#"        override suspend fun {{M
 
 "#;
 
-const GROUP_CLIENT_STREAM_UNARY_METHOD: &str =
-    r#"        fun {{METHOD_NAME}}(timeout: Duration, metadata: Map<String, String>?): MulticastClientBidiStream<{{INPUT_TYPE}}, {{OUTPUT_TYPE}}>
+const GROUP_CLIENT_STREAM_UNARY_METHOD: &str = r#"        fun {{METHOD_NAME}}(timeout: Duration, metadata: Map<String, String>?): MulticastClientBidiStream<{{INPUT_TYPE}}, {{OUTPUT_TYPE}}>
 "#;
 
 const GROUP_CLIENT_STREAM_UNARY_IMPL: &str = r#"        override fun {{METHOD_NAME}}(timeout: Duration, metadata: Map<String, String>?): MulticastClientBidiStream<{{INPUT_TYPE}}, {{OUTPUT_TYPE}}> {
@@ -300,8 +289,7 @@ const GROUP_CLIENT_STREAM_UNARY_IMPL: &str = r#"        override fun {{METHOD_NA
 
 "#;
 
-const GROUP_CLIENT_STREAM_STREAM_METHOD: &str =
-    r#"        fun {{METHOD_NAME}}(timeout: Duration, metadata: Map<String, String>?): MulticastClientBidiStream<{{INPUT_TYPE}}, {{OUTPUT_TYPE}}>
+const GROUP_CLIENT_STREAM_STREAM_METHOD: &str = r#"        fun {{METHOD_NAME}}(timeout: Duration, metadata: Map<String, String>?): MulticastClientBidiStream<{{INPUT_TYPE}}, {{OUTPUT_TYPE}}>
 "#;
 
 const GROUP_CLIENT_STREAM_STREAM_IMPL: &str = r#"        override fun {{METHOD_NAME}}(timeout: Duration, metadata: Map<String, String>?): MulticastClientBidiStream<{{INPUT_TYPE}}, {{OUTPUT_TYPE}}> {
@@ -535,7 +523,12 @@ pub fn generate(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> 
         };
 
         let proto_prefix = file.package.clone().unwrap_or_default();
-        collect_message_types(proto_prefix, kotlin_prefix, &file.message_type, &mut type_map);
+        collect_message_types(
+            proto_prefix,
+            kotlin_prefix,
+            &file.message_type,
+            &mut type_map,
+        );
     }
 
     for file_name in &request.file_to_generate {
@@ -772,13 +765,12 @@ mod tests {
         assert!(content.contains(": UnaryUnaryHandler"));
         assert!(content.contains("registerUnaryStream"));
         assert!(content.contains(": UnaryStreamHandler"));
-        assert!(content.contains(
-            "suspend fun ServerStream(request: TestProto.Req, timeout: Duration,"
-        ));
+        assert!(
+            content.contains("suspend fun ServerStream(request: TestProto.Req, timeout: Duration,")
+        );
         assert!(content.contains("registerStreamUnary"));
         assert!(content.contains(": StreamUnaryHandler"));
-        assert!(content
-            .contains("ClientRequestStream<TestProto.Req, TestProto.Res>"));
+        assert!(content.contains("ClientRequestStream<TestProto.Req, TestProto.Res>"));
         assert!(content.contains("registerStreamStream"));
         assert!(content.contains(": StreamStreamHandler"));
         assert!(content.contains("ClientBidiStream<TestProto.Req>"));
@@ -985,7 +977,11 @@ mod tests {
         let content = response.file[0].content.as_ref().unwrap();
 
         assert!(content.contains("interface TestGroupClient"));
-        assert!(content.contains("class TestGroupClientImpl(private val channel: Channel) : TestGroupClient"));
+        assert!(
+            content.contains(
+                "class TestGroupClientImpl(private val channel: Channel) : TestGroupClient"
+            )
+        );
         assert!(content.contains("callMulticastUnaryAsync"));
         assert!(content.contains("callMulticastUnaryStreamAsync"));
         assert!(content.contains("callMulticastStreamUnary"));
