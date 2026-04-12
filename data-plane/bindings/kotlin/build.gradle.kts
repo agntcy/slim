@@ -7,8 +7,8 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
-    kotlin("jvm") version "2.1.0"
-    kotlin("plugin.serialization") version "2.1.0"
+    kotlin("jvm") version "2.2.0"
+    kotlin("plugin.serialization") version "2.2.0"
     application
     `maven-publish`
     signing
@@ -151,6 +151,9 @@ tasks.register<Test>("testPattern") {
         showStandardStreams = true
     }
 }
+
+tasks.named("distTar") { enabled = false }
+tasks.named("distZip") { enabled = false }
 
 // Task to run the Server example
 tasks.register<JavaExec>("runServer") {
