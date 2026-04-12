@@ -53,7 +53,7 @@ func NewRouteService(dbService db.DataAccess, cmdHandler nodecontrol.NodeCommand
 		Name:          "RouteReconcileQueue",
 		DelayingQueue: workqueue.NewTypedDelayingQueue[RouteReconcileRequest](),
 	}
-	queue := workqueue.NewTypedRateLimitingQueueWithConfig[RouteReconcileRequest](rateLimiter, queueConfig)
+	routeQueue := workqueue.NewTypedRateLimitingQueueWithConfig[RouteReconcileRequest](rateLimiter, queueConfig)
 	linkQueue := workqueue.NewTypedRateLimitingQueueWithConfig[LinkReconcileRequest](
 		workqueue.NewTypedItemExponentialFailureRateLimiter[LinkReconcileRequest](5*time.Millisecond, 1000*time.Second),
 		workqueue.TypedRateLimitingQueueConfig[LinkReconcileRequest]{
@@ -62,7 +62,7 @@ func NewRouteService(dbService db.DataAccess, cmdHandler nodecontrol.NodeCommand
 		},
 	)
 	return &RouteService{
-		queue:            queue,
+		queue:            routeQueue,
 		linkQueue:        linkQueue,
 		dbService:        dbService,
 		cmdHandler:       cmdHandler,
@@ -680,6 +680,12 @@ func generateConfigData(ctx context.Context, detail db.ConnectionDetails, localC
 	skipVerify := false
 	config := db.ClientConnectionConfig{
 		Endpoint: detail.Endpoint,
+	}
+	config.Backoff = &db.BackoffConfig{
+		Type: "fixed_interval",
+		FixedIntervalBackoffConfig: &db.FixedIntervalBackoffConfig{
+			Interval: "2000ms",
+		},
 	}
 	if !localConnection {
 		if detail.ExternalEndpoint == nil || *detail.ExternalEndpoint == "" {

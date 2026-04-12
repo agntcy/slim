@@ -309,8 +309,8 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 	}
 
 	if needsRequeue {
-		zlog.Debug().Msg("Re-queueing route reconciliation while waiting for link(s) to apply")
-		s.queue.AddAfter(req, 1*time.Second)
+		zlog.Debug().Msg("Deferring route reconciliation to rate-limited retry")
+		return fmt.Errorf("route reconciliation deferred: waiting for link(s) to apply")
 	}
 
 	return nil

@@ -191,6 +191,29 @@ func (m *CommandHandlerMock) Reset() {
 	m.sendCalls = make([]sendCall, 0)
 }
 
+func TestGenerateConfigData_SetsFixedIntervalBackoff(t *testing.T) {
+	ctx := util.GetContextWithLogger(context.Background(), config.LogConfig{Level: "debug"})
+
+	detail := db.ConnectionDetails{
+		Endpoint:     "127.0.0.1:50052",
+		MTLSRequired: false,
+	}
+	destNode := &db.Node{ID: "node-dst"}
+	srcNode := &db.Node{ID: "node-src"}
+
+	endpoint, configData, err := generateConfigData(ctx, detail, true, destNode, srcNode)
+	require.NoError(t, err)
+	require.Equal(t, "http://127.0.0.1:50052", endpoint)
+
+	var parsed db.ClientConnectionConfig
+	err = json.Unmarshal([]byte(configData), &parsed)
+	require.NoError(t, err)
+	require.NotNil(t, parsed.Backoff, "backoff config must be set")
+	require.Equal(t, "fixed_interval", parsed.Backoff.Type)
+	require.NotNil(t, parsed.Backoff.FixedIntervalBackoffConfig)
+	require.Equal(t, "2000ms", parsed.Backoff.FixedIntervalBackoffConfig.Interval)
+}
+
 func TestRouteService_AddRoutes(t *testing.T) {
 	rConfig := config.ReconcilerConfig{
 		MaxNumOfParallelReconciles: 10,
