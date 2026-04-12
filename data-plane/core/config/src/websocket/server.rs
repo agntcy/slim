@@ -376,6 +376,7 @@ mod tests {
 
     #[tokio::test]
     async fn serve_connection_returns_unauthorized_for_invalid_basic_credentials() {
+        // codeql[rust/hard-coded-cryptographic-value]
         let response = run_serve_connection_case(
             AuthenticationConfig::Basic(BasicAuthConfig::new("alice", "secret")),
             "/ws",

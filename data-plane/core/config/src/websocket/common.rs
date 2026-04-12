@@ -341,6 +341,7 @@ mod tests {
 
     #[tokio::test]
     async fn build_client_handshake_auth_basic() {
+        // codeql[rust/hard-coded-cryptographic-value]
         let cfg = ClientConfig::with_endpoint("ws://localhost:46357").with_auth(
             ClientAuthenticationConfig::Basic(BasicConfig::new("alice", "secret")),
         );
@@ -414,6 +415,7 @@ mod tests {
             .header(AUTHORIZATION, "Basic YWxpY2U6c2VjcmV0")
             .body(())
             .expect("request");
+        // codeql[rust/hard-coded-cryptographic-value]
         let auth = ServerAuthenticationConfig::Basic(BasicConfig::new("alice", "secret"));
         let allowed = authorize_server_handshake(&auth, &req).await;
         assert!(allowed);
@@ -426,6 +428,7 @@ mod tests {
             .header(AUTHORIZATION, "Bearer token")
             .body(())
             .expect("request");
+        // codeql[rust/hard-coded-cryptographic-value]
         let auth = ServerAuthenticationConfig::Basic(BasicConfig::new("alice", "secret"));
         let allowed = authorize_server_handshake(&auth, &req).await;
         assert!(!allowed);
@@ -438,6 +441,7 @@ mod tests {
             .header(AUTHORIZATION, "Basic !!!not-base64!!!")
             .body(())
             .expect("request");
+        // codeql[rust/hard-coded-cryptographic-value]
         let auth = ServerAuthenticationConfig::Basic(BasicConfig::new("alice", "secret"));
         let allowed = authorize_server_handshake(&auth, &req).await;
         assert!(!allowed);
