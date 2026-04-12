@@ -403,6 +403,14 @@ tasks:
       - echo "Starting SlimRPC client..."
       - cd examples/slimrpc/simple && ./gradlew client
 
+  examples:rpc:group-client:
+    desc: Run the SlimRPC group (multicast) client example
+    deps:
+      - build
+    cmds:
+      - echo "Starting SlimRPC group client..."
+      - cd examples/slimrpc/simple && ./gradlew groupClient
+
   examples:rpc:clean:
     desc: Clean example build artifacts and generated code
     cmds:
