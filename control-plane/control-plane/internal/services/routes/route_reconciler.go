@@ -184,7 +184,7 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 		zlog.Debug().Msg("No subscription updates to send for node")
 		if needsRequeue {
 			zlog.Debug().Msg("Re-queueing route reconciliation while waiting for link(s) to apply")
-			s.queue.AddAfter(req, 1*time.Second)
+			return fmt.Errorf("route reconciliation deferred: waiting for link(s) to apply")
 		}
 		return nil
 	}

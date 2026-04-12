@@ -455,6 +455,7 @@ func (s *SQLiteDBService) MarkRouteAsDeleted(routeID uint64) error {
 func (s *SQLiteDBService) MarkRouteAsApplied(routeID uint64) error {
 	result := s.db.Model(&RouteModel{}).Where("id = ?", routeID).Updates(map[string]interface{}{
 		"status":       int(RouteStatusApplied),
+		"status_msg":   "",
 		"last_updated": time.Now(),
 	})
 	if result.Error != nil {

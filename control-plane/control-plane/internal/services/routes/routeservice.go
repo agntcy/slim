@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -117,8 +118,10 @@ func (s *RouteService) AddRoute(ctx context.Context, route Route) (string, error
 		Component1:   route.Component1,
 		Component2:   route.Component2,
 		ComponentID:  route.ComponentID,
-		Status:       db.RouteStatusPending,
 		Deleted:      false,
+	}
+	if route.SourceNodeID != AllNodesID {
+		dbRoute.Status = db.RouteStatusPending
 	}
 	routeID, err := s.addSingleRoute(ctx, dbRoute)
 	if err != nil {
@@ -282,7 +285,8 @@ func (s *RouteService) reconnectExistingLinks(ctx context.Context, nodeID string
 	zlog := zerolog.Ctx(ctx).With().Str("service", "RouteService").Str("node_id", nodeID).Logger()
 	affected := map[string]struct{}{nodeID: {}}
 	for _, link := range s.dbService.GetLinksForNode(nodeID) {
-		if link.Deleted {
+		// we only need to recreate links that are connecting to nodeID
+		if link.Deleted || link.DestNodeID != nodeID {
 			continue
 		}
 
@@ -521,6 +525,26 @@ func (s *RouteService) ensureRoutesForNode(ctx context.Context, nodeID string) {
 		if r.DestNodeID == nodeID {
 			continue
 		}
+		_, err := s.dbService.GetRouteForSrcAndDestinationAndName(
+			nodeID,
+			r.Component0,
+			r.Component1,
+			r.Component2,
+			r.ComponentID,
+			r.DestNodeID,
+			"",
+		)
+		if err == nil {
+			zlog.Debug().Msgf("generic route already expanded for node %s/%s/%s/%s",
+				nodeID, r.Component0, r.Component1, r.Component2)
+			continue
+		}
+		if !isRouteNotFoundErr(err) {
+			zlog.Error().Err(err).Msgf("failed to check if generic route exists for node %s/%s/%s/%s",
+				nodeID, r.Component0, r.Component1, r.Component2)
+			continue
+		}
+
 		newRoute := db.Route{
 			SourceNodeID: nodeID,
 			DestNodeID:   r.DestNodeID,
@@ -543,6 +567,10 @@ func (s *RouteService) ensureRoutesForNode(ctx context.Context, nodeID string) {
 			zlog.Info().Msgf("generic route created: %s", newRoute)
 		}
 	}
+}
+
+func isRouteNotFoundErr(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "route not found")
 }
 
 func (s *RouteService) ListSubscriptions(
@@ -591,7 +619,6 @@ func (s *RouteService) ListConnections(
 	ctx context.Context,
 	nodeEntry *controlplaneApi.NodeEntry,
 ) (*controllerapi.ConnectionListResponse, error) {
-	zlog := zerolog.Ctx(ctx)
 	messageID := uuid.NewString()
 	msg := &controllerapi.ControlMessage{
 		MessageId: messageID,
@@ -607,9 +634,6 @@ func (s *RouteService) ListConnections(
 		return nil, fmt.Errorf("failed to receive ConnectionListResponse: %w", err)
 	}
 	if listResp := response.GetConnectionListResponse(); listResp != nil {
-		for _, e := range listResp.Entries {
-			zlog.Debug().Msgf("id=%d %s\n", e.GetId(), e.GetConfigData())
-		}
 		return listResp, nil
 	}
 	// If we reach here, it means we didn't find a ConnectionListResponse
@@ -790,6 +814,7 @@ func (s *RouteService) ListRoutes(_ context.Context,
 			Id:           r.ID,
 			SourceNodeId: r.SourceNodeID,
 			DestNodeId:   r.DestNodeID,
+			LinkId:       r.LinkID,
 			Component_0:  r.Component0,
 			Component_1:  r.Component1,
 			Component_2:  r.Component2,
@@ -822,4 +847,71 @@ func (s *RouteService) ListRoutes(_ context.Context,
 		Routes: routeEntries,
 	}, nil
 
+}
+
+func (s *RouteService) ListLinks(_ context.Context,
+	request *controlplaneApi.LinkListRequest) (*controlplaneApi.LinkListResponse, error) {
+	allNodes := s.dbService.ListNodes()
+	srcFilter := request.GetSrcNodeId()
+	destFilter := request.GetDestNodeId()
+
+	linkEntries := make([]*controlplaneApi.LinkEntry, 0)
+	seen := make(map[string]struct{})
+
+	for _, node := range allNodes {
+		links := s.dbService.GetLinksForNode(node.ID)
+		for _, l := range links {
+			if srcFilter != "" && l.SourceNodeID != srcFilter {
+				continue
+			}
+			if destFilter != "" && l.DestNodeID != destFilter {
+				continue
+			}
+
+			// A link can be returned while iterating both source and destination nodes.
+			// De-duplicate by the same key shape used by in-memory storage.
+			id := fmt.Sprintf("%s|%s|%s|%s", l.SourceNodeID, l.DestNodeID, l.DestEndpoint, l.LinkID)
+			if _, exists := seen[id]; exists {
+				continue
+			}
+			seen[id] = struct{}{}
+
+			entry := &controlplaneApi.LinkEntry{
+				Id:             id,
+				LinkId:         l.LinkID,
+				SourceNodeId:   l.SourceNodeID,
+				DestNodeId:     l.DestNodeID,
+				DestEndpoint:   l.DestEndpoint,
+				ConnConfigData: l.ConnConfigData,
+				StatusMsg:      l.StatusMsg,
+				Deleted:        l.Deleted,
+				LastUpdated:    l.LastUpdated.Unix(),
+			}
+
+			switch l.Status {
+			case db.LinkStatusApplied:
+				entry.Status = controlplaneApi.LinkStatus_LINK_STATUS_APPLIED
+			case db.LinkStatusFailed:
+				entry.Status = controlplaneApi.LinkStatus_LINK_STATUS_FAILED
+			case db.LinkStatusPending:
+				entry.Status = controlplaneApi.LinkStatus_LINK_STATUS_PENDING
+			default:
+				entry.Status = controlplaneApi.LinkStatus_LINK_STATUS_UNSPECIFIED
+			}
+
+			linkEntries = append(linkEntries, entry)
+		}
+	}
+
+	sort.Slice(linkEntries, func(i, j int) bool {
+		if linkEntries[i].SourceNodeId != linkEntries[j].SourceNodeId {
+			return linkEntries[i].SourceNodeId < linkEntries[j].SourceNodeId
+		}
+		if linkEntries[i].DestNodeId != linkEntries[j].DestNodeId {
+			return linkEntries[i].DestNodeId < linkEntries[j].DestNodeId
+		}
+		return linkEntries[i].LinkId < linkEntries[j].LinkId
+	})
+
+	return &controlplaneApi.LinkListResponse{Links: linkEntries}, nil
 }

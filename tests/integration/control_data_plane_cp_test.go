@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -229,7 +231,7 @@ var _ = Describe("Routing", func() {
 			Expect(routeListOutputB).To(ContainSubstring("org/default/a"))
 
 			// test listing connections for node b
-			runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
+			connectionListOutB := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
 				return exec.Command(
 					slimctlPath,
 					"controller", "connection", "list",
@@ -237,9 +239,30 @@ var _ = Describe("Routing", func() {
 					"-n", "slim/b",
 				)
 			})
-			//TOD check that node B has the same connection as node A
-			//connectionOutputB := string(connectionListOutB)
-			//Expect(connectionOutputB).To(ContainSubstring(fmt.Sprintf(":%d", dataPlaneAPort)))
+			connectionOutputB := string(connectionListOutB)
+			Expect(connectionOutputB).To(ContainSubstring(fmt.Sprintf(":%d", dataPlaneAPort)))
+
+			// The cross-node connections should reference the same controller link_id.
+			linkIDRegex := regexp.MustCompile(`LinkID:\s*Some\("([^"]+)"\)`)
+			extractLinkIDForPort := func(output string, port int) string {
+				target := fmt.Sprintf(":%d", port)
+				for _, line := range strings.Split(output, "\n") {
+					if !strings.Contains(line, target) {
+						continue
+					}
+					matches := linkIDRegex.FindStringSubmatch(line)
+					if len(matches) >= 2 {
+						return matches[1]
+					}
+				}
+				return ""
+			}
+
+			linkIDA := extractLinkIDForPort(connectionOutputA, dataPlaneBPort)
+			linkIDB := extractLinkIDForPort(connectionOutputB, dataPlaneAPort)
+			Expect(linkIDA).ToNot(BeEmpty(), "expected node A connection line to include link_id")
+			Expect(linkIDB).ToNot(BeEmpty(), "expected node B connection line to include link_id")
+			Expect(linkIDB).To(Equal(linkIDA), "node A and node B should reference the same link_id")
 
 			terminateSession(clientBSession, 2*time.Second)
 			terminateSession(clientCSession, 2*time.Second)

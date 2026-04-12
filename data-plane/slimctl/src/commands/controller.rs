@@ -11,8 +11,8 @@ use crate::proto::controller::proto::v1::{
     ListChannelsRequest, ListParticipantsRequest, Subscription,
 };
 use crate::proto::controlplane::proto::v1::{
-    AddRouteRequest, CreateChannelRequest, DeleteRouteRequest, Node, NodeListRequest, RouteEntry,
-    RouteListRequest, RouteStatus,
+    AddRouteRequest, CreateChannelRequest, DeleteRouteRequest, LinkEntry, LinkListRequest,
+    LinkStatus, Node, NodeListRequest, RouteEntry, RouteListRequest, RouteStatus,
 };
 use crate::rpc;
 use crate::utils::{VIA_KEYWORD, is_endpoint, parse_config_file, parse_endpoint, parse_route};
@@ -33,6 +33,8 @@ pub enum ControllerCommand {
     Connection(ControllerConnectionArgs),
     /// Manage SLIM routes via the control plane
     Route(ControllerRouteArgs),
+    /// List links from the controller DB
+    Link(ControllerLinkArgs),
     /// Manage SLIM channels (MLS groups)
     Channel(ControllerChannelArgs),
     /// Manage channel participants
@@ -125,6 +127,27 @@ pub enum ControllerRouteCommand {
     },
 }
 
+// ── Link ──────────────────────────────────────────────────────────────────────
+
+#[derive(Args)]
+pub struct ControllerLinkArgs {
+    #[command(subcommand)]
+    pub command: ControllerLinkCommand,
+}
+
+#[derive(Subcommand)]
+pub enum ControllerLinkCommand {
+    /// List all links registered at the controller
+    Outline {
+        /// Filter by source (origin) node ID
+        #[arg(short = 'o', long, default_value = "")]
+        origin_node_id: String,
+        /// Filter by destination (target) node ID
+        #[arg(short = 't', long, default_value = "")]
+        target_node_id: String,
+    },
+}
+
 // ── Channel ───────────────────────────────────────────────────────────────────
 
 #[derive(Args)]
@@ -190,6 +213,7 @@ pub async fn run(args: &ControllerArgs, opts: &ResolvedOpts) -> Result<()> {
         ControllerCommand::Node(a) => run_node(a, opts).await,
         ControllerCommand::Connection(a) => run_connection(a, opts).await,
         ControllerCommand::Route(a) => run_route(a, opts).await,
+        ControllerCommand::Link(a) => run_link(a, opts).await,
         ControllerCommand::Channel(a) => run_channel(a, opts).await,
         ControllerCommand::Participant(a) => run_participant(a, opts).await,
     }
@@ -226,6 +250,15 @@ async fn run_route(args: &ControllerRouteArgs, opts: &ResolvedOpts) -> Result<()
             origin_node_id,
             target_node_id,
         } => route_outline(origin_node_id, target_node_id, opts).await,
+    }
+}
+
+async fn run_link(args: &ControllerLinkArgs, opts: &ResolvedOpts) -> Result<()> {
+    match &args.command {
+        ControllerLinkCommand::Outline {
+            origin_node_id,
+            target_node_id,
+        } => link_outline(origin_node_id, target_node_id, opts).await,
     }
 }
 
@@ -460,19 +493,50 @@ async fn route_outline(
     Ok(())
 }
 
-const ROUTE_HEADERS: [&str; 7] = [
-    "ID",
+async fn link_outline(
+    origin_node_id: &str,
+    target_node_id: &str,
+    opts: &ResolvedOpts,
+) -> Result<()> {
+    println!(
+        "Outline links (origin:[{}] target:[{}])",
+        origin_node_id, target_node_id
+    );
+    let mut client = get_control_plane_client(opts).await?;
+    let resp = rpc!(
+        client,
+        list_links,
+        LinkListRequest {
+            src_node_id: origin_node_id.to_string(),
+            dest_node_id: target_node_id.to_string(),
+        },
+        opts
+    );
+    let links = &resp.links;
+    println!("Number of links: {}\n", links.len());
+    if !links.is_empty() {
+        let col_widths = compute_link_col_widths(links);
+        print_link_header(&col_widths);
+        for link in links {
+            print_link_row(link, &col_widths);
+        }
+    }
+    Ok(())
+}
+
+const ROUTE_HEADERS: [&str; 8] = [
     "SOURCE",
     "DEST_NODE",
     "SUBSCRIPTION",
     "STATUS",
+    "STATUS_MSG",
     "DELETED",
     "LAST_UPDATED",
+    "LINK_ID",
 ];
 
-fn route_cells(r: &RouteEntry) -> [String; 7] {
+fn route_cells(r: &RouteEntry) -> [String; 8] {
     [
-        r.id.to_string(),
         r.source_node_id.clone(),
         if r.dest_node_id.is_empty() {
             "-"
@@ -482,12 +546,22 @@ fn route_cells(r: &RouteEntry) -> [String; 7] {
         .to_string(),
         build_subscription_str(r),
         route_status_str(r.status),
+        if r.status_msg.is_empty() {
+            "-".to_string()
+        } else {
+            r.status_msg.clone()
+        },
         if r.deleted { "Yes" } else { "No" }.to_string(),
         format_unix_timestamp(r.last_updated),
+        if r.link_id.is_empty() {
+            "-".to_string()
+        } else {
+            r.link_id.clone()
+        },
     ]
 }
 
-fn print_row<T: AsRef<str>>(cells: &[T], widths: &[usize; 7]) {
+fn print_row<T: AsRef<str>>(cells: &[T], widths: &[usize]) {
     let line: Vec<String> = cells
         .iter()
         .zip(widths.iter())
@@ -496,7 +570,7 @@ fn print_row<T: AsRef<str>>(cells: &[T], widths: &[usize; 7]) {
     println!("  {}", line.join("  "));
 }
 
-fn compute_route_col_widths(routes: &[RouteEntry]) -> [usize; 7] {
+fn compute_route_col_widths(routes: &[RouteEntry]) -> [usize; 8] {
     let mut widths = ROUTE_HEADERS.map(|h| h.len());
     for r in routes {
         for (w, cell) in widths.iter_mut().zip(route_cells(r).iter()) {
@@ -506,14 +580,62 @@ fn compute_route_col_widths(routes: &[RouteEntry]) -> [usize; 7] {
     widths
 }
 
-fn print_route_header(widths: &[usize; 7]) {
+fn print_route_header(widths: &[usize; 8]) {
     print_row(&ROUTE_HEADERS, widths);
     let total: usize = widths.iter().sum::<usize>() + widths.len() * 2;
     println!("  {}", "-".repeat(total));
 }
 
-fn print_route_row(route: &RouteEntry, widths: &[usize; 7]) {
+fn print_route_row(route: &RouteEntry, widths: &[usize; 8]) {
     print_row(&route_cells(route), widths);
+}
+
+const LINK_HEADERS: [&str; 8] = [
+    "LINK_ID",
+    "SOURCE",
+    "DEST_NODE",
+    "DEST_ENDPOINT",
+    "STATUS",
+    "STATUS_MSG",
+    "DELETED",
+    "LAST_UPDATED",
+];
+
+fn link_cells(l: &LinkEntry) -> [String; 8] {
+    [
+        l.link_id.clone(),
+        l.source_node_id.clone(),
+        l.dest_node_id.clone(),
+        l.dest_endpoint.clone(),
+        link_status_str(l.status),
+        if l.status_msg.is_empty() {
+            "-".to_string()
+        } else {
+            l.status_msg.clone()
+        },
+        if l.deleted { "Yes" } else { "No" }.to_string(),
+        format_unix_timestamp(l.last_updated),
+    ]
+}
+
+fn compute_link_col_widths(links: &[LinkEntry]) -> [usize; 8] {
+    let mut widths = LINK_HEADERS.map(|h| h.len());
+    for l in links {
+        for (w, cell) in widths.iter_mut().zip(link_cells(l).iter()) {
+            *w = (*w).max(cell.len());
+        }
+    }
+    widths
+}
+
+fn print_link_header(widths: &[usize; 8]) {
+    print_row(&LINK_HEADERS, widths);
+    let total: usize = widths.iter().sum::<usize>() + widths.len() * 2;
+    println!("  {}", "-".repeat(total));
+}
+
+fn print_link_row(link: &LinkEntry, widths: &[usize; 8]) {
+    print_row(&link_cells(link), widths);
 }
 
 fn build_subscription_str(route: &RouteEntry) -> String {
@@ -533,6 +655,15 @@ fn route_status_str(status: i32) -> String {
         Ok(RouteStatus::Failed) => "FAILED".to_string(),
         Ok(RouteStatus::Stale) => "STALE".to_string(),
         Ok(RouteStatus::Pending) => "PENDING".to_string(),
+        _ => "UNKNOWN".to_string(),
+    }
+}
+
+fn link_status_str(status: i32) -> String {
+    match LinkStatus::try_from(status) {
+        Ok(LinkStatus::Pending) => "PENDING".to_string(),
+        Ok(LinkStatus::Applied) => "APPLIED".to_string(),
+        Ok(LinkStatus::Failed) => "FAILED".to_string(),
         _ => "UNKNOWN".to_string(),
     }
 }
@@ -867,7 +998,7 @@ mod tests {
 
     #[test]
     fn route_cells_populates_all_columns() {
-        let r = make_route(
+        let mut r = make_route(
             "src-node",
             "dst-node",
             "org",
@@ -878,25 +1009,26 @@ mod tests {
             false,
             0,
         );
+        r.status_msg = "apply succeeded".to_string();
         let cells = route_cells(&r);
-        assert_eq!(cells[0], "1"); // id
-        assert_eq!(cells[1], "src-node"); // source
-        assert_eq!(cells[2], "dst-node"); // dest node
-        assert_eq!(cells[3], "org/ns/agent/7"); // subscription
-        assert_eq!(cells[4], "APPLIED"); // status
+        assert_eq!(cells[0], "src-node"); // source
+        assert_eq!(cells[1], "dst-node"); // dest node
+        assert_eq!(cells[2], "org/ns/agent/7"); // subscription
+        assert_eq!(cells[3], "APPLIED"); // status
+        assert_eq!(cells[4], "apply succeeded"); // status msg
         assert_eq!(cells[5], "No"); // deleted
     }
 
     #[test]
     fn route_cells_empty_dest_node_becomes_dash() {
         let r = make_route("src", "", "o", "n", "a", None, 0, false, 0);
-        assert_eq!(route_cells(&r)[2], "-");
+        assert_eq!(route_cells(&r)[1], "-");
     }
 
     #[test]
     fn route_cells_subscription_column() {
         let r = make_route("src", "", "o", "n", "a", None, 0, false, 0);
-        assert_eq!(route_cells(&r)[3], "o/n/a");
+        assert_eq!(route_cells(&r)[2], "o/n/a");
     }
 
     #[test]
@@ -923,7 +1055,7 @@ mod tests {
             ..Default::default()
         };
         let widths = compute_route_col_widths(&[r]);
-        assert!(widths[1] >= long_source.len());
+        assert!(widths[0] >= long_source.len());
     }
 
     #[test]
@@ -937,7 +1069,7 @@ mod tests {
             ..Default::default()
         };
         let widths = compute_route_col_widths(&[r1, r2]);
-        assert!(widths[1] >= "this-is-a-much-longer-source-node-id".len());
+        assert!(widths[0] >= "this-is-a-much-longer-source-node-id".len());
     }
 
     // ── print helpers ────────────────────────────────────────────────────────
@@ -1025,8 +1157,8 @@ mod tests {
         };
         use crate::proto::controlplane::proto::v1::{
             AddRouteRequest, AddRouteResponse, CreateChannelRequest, CreateChannelResponse,
-            DeleteRouteRequest, DeleteRouteResponse, Node as CpNode, NodeListRequest,
-            NodeListResponse, RouteListRequest, RouteListResponse,
+            DeleteRouteRequest, DeleteRouteResponse, LinkListRequest, LinkListResponse,
+            Node as CpNode, NodeListRequest, NodeListResponse, RouteListRequest, RouteListResponse,
             control_plane_service_server::{ControlPlaneService, ControlPlaneServiceServer},
         };
 
@@ -1148,6 +1280,13 @@ mod tests {
             ) -> Result<tonic::Response<RouteListResponse>, tonic::Status> {
                 Ok(tonic::Response::new(RouteListResponse { routes: vec![] }))
             }
+
+            async fn list_links(
+                &self,
+                _req: tonic::Request<LinkListRequest>,
+            ) -> Result<tonic::Response<LinkListResponse>, tonic::Status> {
+                Ok(tonic::Response::new(LinkListResponse { links: vec![] }))
+            }
         }
 
         async fn spawn_mock_cp_server() -> String {
@@ -1230,6 +1369,12 @@ mod tests {
         async fn route_outline_succeeds() {
             let addr = spawn_mock_cp_server().await;
             route_outline("", "", &make_opts(&addr)).await.unwrap();
+        }
+
+        #[tokio::test]
+        async fn link_outline_succeeds() {
+            let addr = spawn_mock_cp_server().await;
+            link_outline("", "", &make_opts(&addr)).await.unwrap();
         }
 
         #[tokio::test]
@@ -1355,6 +1500,13 @@ mod tests {
             ) -> Result<tonic::Response<RouteListResponse>, tonic::Status> {
                 Err(tonic::Status::internal("error"))
             }
+
+            async fn list_links(
+                &self,
+                _: tonic::Request<LinkListRequest>,
+            ) -> Result<tonic::Response<LinkListResponse>, tonic::Status> {
+                Err(tonic::Status::internal("error"))
+            }
         }
 
         // ── negative-ACK (success = false) server ────────────────────────────
@@ -1467,6 +1619,13 @@ mod tests {
             ) -> Result<tonic::Response<RouteListResponse>, tonic::Status> {
                 Ok(tonic::Response::new(RouteListResponse { routes: vec![] }))
             }
+
+            async fn list_links(
+                &self,
+                _: tonic::Request<LinkListRequest>,
+            ) -> Result<tonic::Response<LinkListResponse>, tonic::Status> {
+                Ok(tonic::Response::new(LinkListResponse { links: vec![] }))
+            }
         }
 
         async fn spawn_cp_svc<S>(svc: S) -> String
@@ -1531,6 +1690,12 @@ mod tests {
         async fn route_outline_grpc_error_propagates() {
             let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
             assert!(route_outline("", "", &make_opts(&addr)).await.is_err());
+        }
+
+        #[tokio::test]
+        async fn link_outline_grpc_error_propagates() {
+            let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
+            assert!(link_outline("", "", &make_opts(&addr)).await.is_err());
         }
 
         #[tokio::test]

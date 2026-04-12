@@ -27,6 +27,8 @@ service ControlPlaneService {
 
   // List routes registered at the controller with optional filtering by source and destination node IDs
   rpc ListRoutes(RouteListRequest) returns (RouteListResponse) {}
+  // List links stored in the controller DB with optional filtering by source and destination node IDs
+  rpc ListLinks(LinkListRequest) returns (LinkListResponse) {}
 }
 
 message ConfigurationCommand {
@@ -122,10 +124,47 @@ message RouteEntry {
   string status_msg = 11;
   bool deleted = 12;
   int64 last_updated = 13; // Unix timestamp
+  string link_id = 14;
 }
 
 // Response containing a list of route representations
 message RouteListResponse {
   // list of routes
   repeated RouteEntry routes = 1;
+}
+
+// Request to list links, filtered by optional source and destination node IDs
+message LinkListRequest {
+  // the identifier of the source node to filter links
+  string srcNodeId = 1; // optional
+
+  // the identifier of the destination node to filter links
+  string destNodeId = 2; // optional
+}
+
+// Link status enum
+enum LinkStatus {
+  LINK_STATUS_UNSPECIFIED = 0;
+  LINK_STATUS_PENDING = 1;
+  LINK_STATUS_APPLIED = 2;
+  LINK_STATUS_FAILED = 3;
+}
+
+// Link message representing a single controller DB link
+message LinkEntry {
+  string id = 1;
+  string link_id = 2;
+  string source_node_id = 3;
+  string dest_node_id = 4;
+  string dest_endpoint = 5;
+  string conn_config_data = 6;
+  LinkStatus status = 7;
+  string status_msg = 8;
+  bool deleted = 9;
+  int64 last_updated = 10; // Unix timestamp
+}
+
+// Response containing a list of links
+message LinkListResponse {
+  repeated LinkEntry links = 1;
 }

@@ -289,7 +289,7 @@ func (s *LinkReconciler) handleRequest(ctx context.Context, req LinkReconcileReq
 			zlog.Info().
 				Str("link_id", linkID).
 				Str("status_msg", reason).
-				Msg("Delete ack failed or missing; keeping link deleted and stale routes for retry")
+				Msg("Delete ack failed or missing; keeping link deleted for retry")
 			continue
 		}
 

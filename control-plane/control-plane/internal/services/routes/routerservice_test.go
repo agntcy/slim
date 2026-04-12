@@ -287,6 +287,56 @@ func TestRouteService_AddRoutes(t *testing.T) {
 		expectedConnectionEndpoints, expectedSubscriptions, expectedSubscriptionsToDelete)
 }
 
+func TestRouteService_EnsureRoutesForNode_SkipsExistingExpandedRoute(t *testing.T) {
+	ctx := util.GetContextWithLogger(context.Background(), config.LogConfig{Level: "debug"})
+	dbService := db.NewInMemoryDBService()
+	cmdHandler := &CommandHandlerMock{}
+	routeService := NewRouteService(
+		dbService,
+		cmdHandler,
+		config.ReconcilerConfig{MaxNumOfParallelReconciles: 1, MaxRequeues: 0},
+	)
+	addNodes(ctx, t, dbService, routeService)
+
+	// Existing concrete route for node2.
+	_, err := routeService.AddRoute(ctx, Route{
+		SourceNodeID: "node2",
+		DestNodeID:   "node1",
+		Component0:   "org",
+		Component1:   "ns",
+		Component2:   "client_existing",
+		ComponentID:  &wrapperspb.UInt64Value{Value: 42},
+	})
+	require.NoError(t, err)
+
+	// Matching generic route that would normally expand to node2->node1.
+	// Insert directly in DB to avoid immediate expansion in AddRoute().
+	_, err = dbService.AddRoute(db.Route{
+		SourceNodeID: AllNodesID,
+		DestNodeID:   "node1",
+		Component0:   "org",
+		Component1:   "ns",
+		Component2:   "client_existing",
+		ComponentID:  &wrapperspb.UInt64Value{Value: 42},
+		Status:       db.RouteStatusPending,
+		Deleted:      false,
+	})
+	require.NoError(t, err)
+
+	routeService.ensureRoutesForNode(ctx, "node2")
+
+	routes := dbService.GetRoutesForDestinationNodeIDAndName(
+		"node1", "org", "ns", "client_existing", &wrapperspb.UInt64Value{Value: 42},
+	)
+	concreteCount := 0
+	for _, r := range routes {
+		if r.SourceNodeID == "node2" {
+			concreteCount++
+		}
+	}
+	require.Equal(t, 1, concreteCount, "generic expansion must not create duplicate concrete route")
+}
+
 func addNodes(ctx context.Context, t *testing.T, dbService db.DataAccess, routeService *RouteService) {
 
 	// Add two nodes with connection details
@@ -902,4 +952,64 @@ func TestRouteService_ReconnectExistingLinks_RepointsRoutesToPending(t *testing.
 	require.NoError(t, err)
 	require.NotEmpty(t, listResp.GetRoutes())
 	require.Equal(t, controlplaneApi.RouteStatus_ROUTE_STATUS_PENDING, listResp.GetRoutes()[0].GetStatus())
+	require.Equal(t, updatedRoute.LinkID, listResp.GetRoutes()[0].GetLinkId())
+}
+
+func TestRouteService_ListLinks_FilterAndMapping(t *testing.T) {
+	ctx := util.GetContextWithLogger(context.Background(), config.LogConfig{Level: "debug"})
+	dbService := db.NewInMemoryDBService()
+	routeService := NewRouteService(
+		dbService,
+		&CommandHandlerMock{},
+		config.ReconcilerConfig{MaxNumOfParallelReconciles: 1, MaxRequeues: 0},
+	)
+
+	node1 := db.Node{ID: "node1", ConnDetails: []db.ConnectionDetails{{Endpoint: "127.0.0.1:4500"}}}
+	node2 := db.Node{ID: "node2", ConnDetails: []db.ConnectionDetails{{Endpoint: "127.0.0.1:4501"}}}
+	node3 := db.Node{ID: "node3", ConnDetails: []db.ConnectionDetails{{Endpoint: "127.0.0.1:4502"}}}
+	_, _, err := dbService.SaveNode(node1)
+	require.NoError(t, err)
+	_, _, err = dbService.SaveNode(node2)
+	require.NoError(t, err)
+	_, _, err = dbService.SaveNode(node3)
+	require.NoError(t, err)
+
+	link1, err := dbService.AddLink(db.Link{
+		LinkID:         "l-1",
+		SourceNodeID:   "node1",
+		DestNodeID:     "node2",
+		DestEndpoint:   "http://127.0.0.1:4501",
+		ConnConfigData: `{"endpoint":"http://127.0.0.1:4501"}`,
+		Status:         db.LinkStatusApplied,
+	})
+	require.NoError(t, err)
+
+	_, err = dbService.AddLink(db.Link{
+		LinkID:         "l-2",
+		SourceNodeID:   "node1",
+		DestNodeID:     "node3",
+		DestEndpoint:   "http://127.0.0.1:4502",
+		ConnConfigData: `{"endpoint":"http://127.0.0.1:4502"}`,
+		Status:         db.LinkStatusPending,
+	})
+	require.NoError(t, err)
+
+	// No filters -> both links
+	resp, err := routeService.ListLinks(ctx, &controlplaneApi.LinkListRequest{})
+	require.NoError(t, err)
+	require.Len(t, resp.GetLinks(), 2)
+
+	// Filter by src/dest -> only l-1
+	filtered, err := routeService.ListLinks(ctx, &controlplaneApi.LinkListRequest{
+		SrcNodeId:  "node1",
+		DestNodeId: "node2",
+	})
+	require.NoError(t, err)
+	require.Len(t, filtered.GetLinks(), 1)
+	got := filtered.GetLinks()[0]
+	require.Equal(t, link1.LinkID, got.GetLinkId())
+	require.Equal(t, "node1", got.GetSourceNodeId())
+	require.Equal(t, "node2", got.GetDestNodeId())
+	require.Equal(t, controlplaneApi.LinkStatus_LINK_STATUS_APPLIED, got.GetStatus())
+	require.NotEmpty(t, got.GetId())
 }

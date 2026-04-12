@@ -160,6 +160,14 @@ func testRouteOperations(t *testing.T, da DataAccess) {
 	assert.Equal(t, RouteStatusFailed, failedRoute.Status, "Route status should be Failed")
 	assert.Equal(t, failureMsg, failedRoute.StatusMsg, "Status message should be set")
 
+	// Marking a failed route as applied should clear stale status message.
+	err = da.MarkRouteAsApplied(routeID2.ID)
+	assert.NoError(t, err, "MarkRouteAsApplied should not return error after failed state")
+	recoveredRoute := da.GetRouteByID(routeID2.ID)
+	require.NotNil(t, recoveredRoute)
+	assert.Equal(t, RouteStatusApplied, recoveredRoute.Status, "Route status should be Applied")
+	assert.Equal(t, "", recoveredRoute.StatusMsg, "Status message should be cleared")
+
 	// Test MarkRouteAsFailed with non-existent ID
 	err = da.MarkRouteAsFailed(0, "some error")
 	assert.Error(t, err, "MarkRouteAsFailed should return error for non-existent route")

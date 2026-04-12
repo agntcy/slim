@@ -38,6 +38,7 @@ type RouteManager interface {
 	DeleteRoute(ctx context.Context, route routes.Route) error
 
 	ListRoutes(ctx context.Context, request *controlplaneApi.RouteListRequest) (*controlplaneApi.RouteListResponse, error)
+	ListLinks(ctx context.Context, request *controlplaneApi.LinkListRequest) (*controlplaneApi.LinkListResponse, error)
 }
 
 type nbAPIService struct {
@@ -241,4 +242,9 @@ func (s *nbAPIService) ListRoutes(ctx context.Context,
 	request *controlplaneApi.RouteListRequest) (*controlplaneApi.RouteListResponse, error) {
 
 	return s.routeService.ListRoutes(ctx, request)
+}
+
+func (s *nbAPIService) ListLinks(ctx context.Context,
+	request *controlplaneApi.LinkListRequest) (*controlplaneApi.LinkListResponse, error) {
+	return s.routeService.ListLinks(ctx, request)
 }

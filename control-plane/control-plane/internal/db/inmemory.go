@@ -342,6 +342,7 @@ func (d *dbService) MarkRouteAsApplied(routeID uint64) error {
 	}
 	route.LastUpdated = time.Now()
 	route.Status = RouteStatusApplied
+	route.StatusMsg = ""
 	d.routes[routeID] = route
 	return nil
 }
