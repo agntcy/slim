@@ -7,8 +7,8 @@ import org.gradle.api.attributes.Usage
 import org.gradle.api.attributes.java.TargetJvmEnvironment
 
 plugins {
-    kotlin("jvm") version "2.1.0"
-    kotlin("plugin.serialization") version "2.1.0"
+    kotlin("jvm") version "2.2.0"
+    kotlin("plugin.serialization") version "2.2.0"
     application
     `maven-publish`
     signing
@@ -33,6 +33,9 @@ dependencies {
     
     // JSON parsing for config files
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+
+    // Protobuf - required by slimrpc stream utilities
+    compileOnly("com.google.protobuf:protobuf-java:4.29.3")
     
     // Testing
     testImplementation(kotlin("test"))
@@ -44,7 +47,7 @@ dependencies {
 sourceSets {
     main {
         kotlin {
-            srcDirs("src/main/kotlin", "generated", "examples", "examples/common")
+            srcDirs("src/main/kotlin", "generated", "examples/kotlin", "examples/common")
         }
         resources {
             srcDirs("generated/jniLibs")
@@ -148,6 +151,9 @@ tasks.register<Test>("testPattern") {
         showStandardStreams = true
     }
 }
+
+tasks.named("distTar") { enabled = false }
+tasks.named("distZip") { enabled = false }
 
 // Task to run the Server example
 tasks.register<JavaExec>("runServer") {
