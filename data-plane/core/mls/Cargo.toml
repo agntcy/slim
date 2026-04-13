@@ -5,21 +5,45 @@ license = { workspace = true }
 version = "0.1.14"
 description = "Messaging Layer Security for SLIM data plane."
 
+[package.metadata.cargo-machete]
+ignored = ["getrandom"]
+
 [lib]
 name = "slim_mls"
 
+[features]
+default = ["native"]
+native = [
+    "agntcy-slim-auth/native",
+    "agntcy-slim-datapath/native",
+    "dep:mls-rs-crypto-awslc",
+]
+wasm = [
+    "agntcy-slim-auth/wasm",
+    "agntcy-slim-datapath/wasm",
+    "dep:mls-rs-crypto-webcrypto",
+    "dep:getrandom",
+]
+
 [dependencies]
-agntcy-slim-auth = { workspace = true }
-agntcy-slim-datapath = { workspace = true }
+agntcy-slim-auth = { workspace = true, default-features = false }
+agntcy-slim-datapath = { workspace = true, default-features = false }
 agntcy-slim-version = { workspace = true }
 base64 = { workspace = true }
+getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
 hex = "0.4"
+maybe-async = "0.2.10"
 mls-rs = { workspace = true }
 mls-rs-core = { workspace = true }
-mls-rs-crypto-awslc = { workspace = true }
+mls-rs-crypto-awslc = { workspace = true, optional = true }
+mls-rs-crypto-webcrypto = { version = "0.14", optional = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.3"
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = ["cfg(mls_build_async)"]

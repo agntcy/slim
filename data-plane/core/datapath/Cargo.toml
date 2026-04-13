@@ -5,32 +5,60 @@ edition = { workspace = true }
 license = { workspace = true }
 description = "Core data plane functionality for SLIM"
 
+[package.metadata.cargo-machete]
+ignored = ["getrandom"]
+
 [lib]
 name = "slim_datapath"
 
+[features]
+default = ["native"]
+native = [
+    "dep:agntcy-slim-config",
+    "dep:agntcy-slim-tracing",
+    "dep:display-error-chain",
+    "dep:drain",
+    "dep:fastwebsockets",
+    "dep:h2",
+    "dep:opentelemetry",
+    "dep:tokio",
+    "dep:tokio-stream",
+    "dep:tokio-util",
+    "dep:tonic",
+    "dep:tonic-prost",
+    "dep:tracing-opentelemetry",
+]
+wasm = ["dep:getrandom", "uuid/js"]
+
 [dependencies]
-agntcy-slim-config = { workspace = true }
-agntcy-slim-tracing = { workspace = true }
+
+# Native-only dependencies
+agntcy-slim-config = { workspace = true, optional = true, features = ["native"] }
+agntcy-slim-tracing = { workspace = true, optional = true, features = ["native"] }
+# Always available (core types, messages, tables)
 agntcy-slim-version = { workspace = true }
 bit-vec = { workspace = true }
-display-error-chain = { workspace = true }
-drain = { workspace = true }
-h2 = { workspace = true }
-opentelemetry = { workspace = true }
+display-error-chain = { workspace = true, optional = true }
+drain = { workspace = true, optional = true }
+fastwebsockets = { workspace = true, optional = true }
+getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
+h2 = { workspace = true, optional = true }
+http = { workspace = true }
+opentelemetry = { workspace = true, optional = true }
 parking_lot = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
 semver = { workspace = true }
-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
-tokio-stream = { workspace = true }
-tokio-util = { workspace = true }
-tonic = { workspace = true }
-tonic-prost = { workspace = true }
+tokio = { workspace = true, optional = true }
+tokio-stream = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true }
+tonic = { workspace = true, optional = true }
+tonic-prost = { workspace = true, optional = true }
 tracing = { workspace = true }
-tracing-opentelemetry = { workspace = true }
+tracing-opentelemetry = { workspace = true, optional = true }
 twox-hash = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 

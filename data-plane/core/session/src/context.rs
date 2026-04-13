@@ -96,7 +96,8 @@ mod tests {
     #[derive(Clone, Default)]
     struct DummyProvider;
 
-    #[async_trait]
+    #[cfg_attr(feature = "native", async_trait)]
+    #[cfg_attr(feature = "wasm", async_trait(?Send))]
     impl TokenProvider for DummyProvider {
         async fn initialize(&mut self) -> Result<(), AuthError> {
             Ok(())
@@ -111,7 +112,8 @@ mod tests {
     }
     #[derive(Clone, Default)]
     struct DummyVerifier;
-    #[async_trait]
+    #[cfg_attr(feature = "native", async_trait)]
+    #[cfg_attr(feature = "wasm", async_trait(?Send))]
     impl Verifier for DummyVerifier {
         async fn initialize(&mut self) -> Result<(), AuthError> {
             Ok(())

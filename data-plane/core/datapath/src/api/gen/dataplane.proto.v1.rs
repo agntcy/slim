@@ -466,6 +466,7 @@ impl SessionMessageType {
     }
 }
 /// Generated client implementations.
+#[cfg(feature = "native")]
 pub mod data_plane_service_client {
     #![allow(
         unused_variables,
@@ -585,6 +586,7 @@ pub mod data_plane_service_client {
     }
 }
 /// Generated server implementations.
+#[cfg(feature = "native")]
 pub mod data_plane_service_server {
     #![allow(
         unused_variables,

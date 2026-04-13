@@ -3,13 +3,12 @@
 
 use std::time::Duration;
 
-// Third-party crates
-use tonic::Status;
-
 use slim_datapath::{
+    Status,
     api::{ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType},
     messages::{Name, utils::MessageError},
 };
+use tokio::sync::{mpsc, oneshot};
 
 // Local crate
 use crate::SessionError;
@@ -21,12 +20,11 @@ pub const SESSION_RANGE: std::ops::Range<u32> = 0..(u32::MAX - 1000);
 pub const SESSION_UNSPECIFIED: u32 = u32::MAX;
 
 /// Channel used in the path service -> app
-pub(crate) type AppChannelSender =
-    tokio::sync::mpsc::UnboundedSender<Result<Message, SessionError>>;
+pub(crate) type AppChannelSender = mpsc::UnboundedSender<Result<Message, SessionError>>;
 /// Channel used in the path app -> service
-pub type AppChannelReceiver = tokio::sync::mpsc::UnboundedReceiver<Result<Message, SessionError>>;
+pub type AppChannelReceiver = mpsc::UnboundedReceiver<Result<Message, SessionError>>;
 /// Channel used in the path service -> slim
-pub type SlimChannelSender = tokio::sync::mpsc::Sender<Result<Message, Status>>;
+pub type SlimChannelSender = mpsc::Sender<Result<Message, Status>>;
 
 /// The state of a session
 #[derive(Clone, PartialEq, Debug)]
@@ -85,7 +83,7 @@ pub enum SessionMessage {
         message: Message,
         direction: MessageDirection,
         /// Optional channel to signal when message processing is complete
-        ack_tx: Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
+        ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     },
     /// Error occurred during message processing
     MessageError { error: SessionError },
@@ -114,7 +112,5 @@ pub enum SessionMessage {
     /// to notify that the session can be removed safely
     DeleteSession { session_id: u32 },
     /// Query the participants list from the handler
-    GetParticipantsList {
-        tx: tokio::sync::oneshot::Sender<Vec<Name>>,
-    },
+    GetParticipantsList { tx: oneshot::Sender<Vec<Name>> },
 }
