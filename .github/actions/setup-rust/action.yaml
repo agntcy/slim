@@ -51,7 +51,7 @@ runs:
         sudo apt-get update
         curl -L https://apt.llvm.org/llvm.sh -o /tmp/llvm.sh
         chmod +x /tmp/llvm.sh
-        sudo /tmp/llvm.sh 20
+        sudo /tmp/llvm.sh 19
         sudo apt-get install -y \
           pkg-config \
           make \
