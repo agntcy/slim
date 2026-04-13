@@ -21,7 +21,7 @@ type ConnectionDetails struct {
 	ExternalEndpoint *string
 	TrustDomain      *string
 	MTLSRequired     bool
-	TLSConfig        *SeverTLSConfig
+	TLSConfig        *TLS
 	AuthConfig       *Auth
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
@@ -894,6 +895,54 @@ func strPtr(s string) *string {
 	return &s
 }
 
+func TestGetConnDetails_ParsesTLSFromMetadata(t *testing.T) {
+	detail := &controllerapi.ConnectionDetails{
+		Endpoint: "127.0.0.1:4500",
+		Metadata: &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"tls": structpb.NewStructValue(&structpb.Struct{
+					Fields: map[string]*structpb.Value{
+						"insecure":                     structpb.NewBoolValue(false),
+						"include_system_ca_certs_pool": structpb.NewBoolValue(true),
+					},
+				}),
+			},
+		},
+	}
+
+	conn := getConnDetails("10.0.0.1", detail)
+	require.NotNil(t, conn.TLSConfig)
+	require.NotNil(t, conn.TLSConfig.Insecure)
+	require.False(t, *conn.TLSConfig.Insecure)
+	require.NotNil(t, conn.TLSConfig.IncludeSystemCACertsPool)
+	require.True(t, *conn.TLSConfig.IncludeSystemCACertsPool)
+}
+
+func TestGetConnDetails_MetadataTLSTakesPrecedenceOverLegacyField(t *testing.T) {
+	legacyTLS := `{"insecure":true,"include_system_ca_certs_pool":false}`
+	detail := &controllerapi.ConnectionDetails{
+		Endpoint: "127.0.0.1:4500",
+		Tls:      &legacyTLS,
+		Metadata: &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"tls": structpb.NewStructValue(&structpb.Struct{
+					Fields: map[string]*structpb.Value{
+						"insecure":                     structpb.NewBoolValue(false),
+						"include_system_ca_certs_pool": structpb.NewBoolValue(true),
+					},
+				}),
+			},
+		},
+	}
+
+	conn := getConnDetails("10.0.0.1", detail)
+	require.NotNil(t, conn.TLSConfig)
+	require.NotNil(t, conn.TLSConfig.Insecure)
+	require.False(t, *conn.TLSConfig.Insecure)
+	require.NotNil(t, conn.TLSConfig.IncludeSystemCACertsPool)
+	require.True(t, *conn.TLSConfig.IncludeSystemCACertsPool)
+}
+
 func TestSouthbound_DifferentGroupsWithMTLS(t *testing.T) {
 	tests := []struct {
 		name                   string
@@ -912,10 +961,10 @@ func TestSouthbound_DifferentGroupsWithMTLS(t *testing.T) {
 			slim1TrustDomain:       strPtr("group-beta"),
 			slim0SocketPath:        "unix:/tmp1/spire-agent/public/api.sock",
 			slim1SocketPath:        "unix:/tmp2/spire-agent/public/api.sock",
-			expectedTrustDomain:    "group-alpha",
-			expectedSourceSocket:   "unix:/tmp2/spire-agent/public/api.sock",
-			expectedCaSourceSocket: "unix:/tmp2/spire-agent/public/api.sock",
-			description:            "Trust domain explicitly set, should use TrustDomain field",
+			expectedTrustDomain:    "",
+			expectedSourceSocket:   "unix:/tmp1/spire-agent/public/api.sock",
+			expectedCaSourceSocket: "unix:/tmp1/spire-agent/public/api.sock",
+			description:            "TLS comes from destination metadata.tls",
 		},
 		{
 			name:                   "fallback_to_group_name",
@@ -923,10 +972,10 @@ func TestSouthbound_DifferentGroupsWithMTLS(t *testing.T) {
 			slim1TrustDomain:       nil,
 			slim0SocketPath:        "unix:/tmp/spire-agent/public/api.sock",
 			slim1SocketPath:        "unix:/tmp/spire-agent/public/api.sock",
-			expectedTrustDomain:    "group-alpha",
+			expectedTrustDomain:    "",
 			expectedSourceSocket:   "unix:/tmp/spire-agent/public/api.sock",
 			expectedCaSourceSocket: "unix:/tmp/spire-agent/public/api.sock",
-			description:            "Trust domain not set, should fallback to GroupName",
+			description:            "TLS comes from destination metadata.tls",
 		},
 	}
 
@@ -945,7 +994,7 @@ func TestSouthbound_DifferentGroupsWithMTLS(t *testing.T) {
 			slim0.MTLSRequired = true
 			slim0.ExternalEndpoint = strPtr("external-slim-0:4500")
 			slim0.TrustDomain = tt.slim0TrustDomain
-			slim0.TLSConfig = &db.SeverTLSConfig{
+			slim0.TLSConfig = &db.TLS{
 				Source: &db.TLSSource{
 					Type:           "spire",
 					SocketPath:     strPtr(tt.slim0SocketPath),
@@ -962,7 +1011,7 @@ func TestSouthbound_DifferentGroupsWithMTLS(t *testing.T) {
 			slim1.MTLSRequired = true
 			slim1.ExternalEndpoint = strPtr("external-slim-1:4501")
 			slim1.TrustDomain = tt.slim1TrustDomain
-			slim1.TLSConfig = &db.SeverTLSConfig{
+			slim1.TLSConfig = &db.TLS{
 				Source: &db.TLSSource{
 					Type:           "spire",
 					SocketPath:     strPtr(tt.slim1SocketPath),
@@ -1030,9 +1079,13 @@ func TestSouthbound_DifferentGroupsWithMTLS(t *testing.T) {
 					require.Equal(t, tt.expectedCaSourceSocket, *config.TLS.CaSource.SocketPath)
 
 					// Check trust_domains
-					require.NotNil(t, config.TLS.CaSource.TrustDomains, "trust_domains should exist")
-					require.Len(t, *config.TLS.CaSource.TrustDomains, 1, "trust_domains should have exactly one entry")
-					require.Equal(t, tt.expectedTrustDomain, (*config.TLS.CaSource.TrustDomains)[0], tt.description)
+					if tt.expectedTrustDomain != "" {
+						require.NotNil(t, config.TLS.CaSource.TrustDomains, "trust_domains should exist")
+						require.Len(t, *config.TLS.CaSource.TrustDomains, 1, "trust_domains should have exactly one entry")
+						require.Equal(t, tt.expectedTrustDomain, (*config.TLS.CaSource.TrustDomains)[0], tt.description)
+					} else {
+						require.Nil(t, config.TLS.CaSource.TrustDomains, "trust_domains should be unset")
+					}
 
 					foundConnection = true
 					break

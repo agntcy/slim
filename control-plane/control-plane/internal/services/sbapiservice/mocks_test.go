@@ -35,7 +35,7 @@ type MockSlimServer struct {
 	ExternalEndpoint *string
 	MTLSRequired     bool
 	Auth             *db.Auth
-	TLSConfig        *db.SeverTLSConfig
+	TLSConfig        *db.TLS
 	TrustDomain      *string
 
 	// behavior flags (for tests)
@@ -112,7 +112,12 @@ func (m *MockSlimServer) connect(ctx context.Context) error {
 	}
 	if m.TLSConfig != nil {
 		tlsJSON, _ := json.Marshal(m.TLSConfig)
-		connDetails.Tls = stringPtr(string(tlsJSON))
+		var tlsMap map[string]any
+		if err := json.Unmarshal(tlsJSON, &tlsMap); err == nil {
+			if tlsStruct, err := structpb.NewStruct(tlsMap); err == nil {
+				connDetails.Metadata.Fields["tls"] = structpb.NewStructValue(tlsStruct)
+			}
+		}
 	}
 
 	reg := &controllerapi.ControlMessage{

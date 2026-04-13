@@ -214,6 +214,37 @@ func TestGenerateConfigData_SetsFixedIntervalBackoff(t *testing.T) {
 	require.Equal(t, "2000ms", parsed.Backoff.FixedIntervalBackoffConfig.Interval)
 }
 
+func TestGenerateConfigData_UsesExplicitTLSConfigOverMTLSFlag(t *testing.T) {
+	ctx := util.GetContextWithLogger(context.Background(), config.LogConfig{Level: "debug"})
+	falsev := false
+	truev := true
+
+	detail := db.ConnectionDetails{
+		Endpoint:     "127.0.0.1:50052",
+		MTLSRequired: false,
+		TLSConfig: &db.TLS{
+			Insecure:                 &falsev,
+			IncludeSystemCACertsPool: &truev,
+			InsecureSkipVerify:       &falsev,
+		},
+	}
+	destNode := &db.Node{ID: "node-dst"}
+	srcNode := &db.Node{ID: "node-src"}
+
+	endpoint, configData, err := generateConfigData(ctx, detail, true, destNode, srcNode)
+	require.NoError(t, err)
+	require.Equal(t, "https://127.0.0.1:50052", endpoint)
+
+	var parsed db.ClientConnectionConfig
+	err = json.Unmarshal([]byte(configData), &parsed)
+	require.NoError(t, err)
+	require.NotNil(t, parsed.TLS, "tls config must be set")
+	require.NotNil(t, parsed.TLS.Insecure)
+	require.False(t, *parsed.TLS.Insecure)
+	require.NotNil(t, parsed.TLS.IncludeSystemCACertsPool)
+	require.True(t, *parsed.TLS.IncludeSystemCACertsPool)
+}
+
 func TestRouteService_AddRoutes(t *testing.T) {
 	rConfig := config.ReconcilerConfig{
 		MaxNumOfParallelReconciles: 10,

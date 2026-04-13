@@ -197,13 +197,7 @@ func getConnDetails(host string, detail *controllerapi.ConnectionDetails) db.Con
 		TrustDomain:      trustDomain,
 	}
 
-	// Parse TLS config from JSON string if provided
-	if detail.Tls != nil && *detail.Tls != "" {
-		var tlsConfig db.SeverTLSConfig
-		if err := json.Unmarshal([]byte(*detail.Tls), &tlsConfig); err == nil {
-			connDetails.TLSConfig = &tlsConfig
-		}
-	}
+	connDetails.TLSConfig = parseTLSConfig(detail)
 
 	// Parse Auth config from JSON string if provided
 	if detail.Auth != nil && *detail.Auth != "" {
@@ -214,6 +208,31 @@ func getConnDetails(host string, detail *controllerapi.ConnectionDetails) db.Con
 	}
 
 	return connDetails
+}
+
+func parseTLSConfig(detail *controllerapi.ConnectionDetails) *db.TLS {
+	// Preferred source: metadata.tls (object or JSON string)
+	if detail.Metadata != nil && detail.Metadata.Fields != nil {
+		if tlsField, ok := detail.Metadata.Fields["tls"]; ok && tlsField != nil {
+			if tlsStruct := tlsField.GetStructValue(); tlsStruct != nil {
+				tlsConfig := &db.TLS{}
+				if payload, err := json.Marshal(tlsStruct.AsMap()); err == nil {
+					if err := json.Unmarshal(payload, tlsConfig); err == nil {
+						return tlsConfig
+					}
+				}
+			}
+
+			if tlsJSON := tlsField.GetStringValue(); tlsJSON != "" {
+				tlsConfig := &db.TLS{}
+				if err := json.Unmarshal([]byte(tlsJSON), tlsConfig); err == nil {
+					return tlsConfig
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 func getPeerHost(stream controllerapi.ControllerService_OpenControlChannelServer) string {

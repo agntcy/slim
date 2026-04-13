@@ -719,10 +719,14 @@ func generateConfigData(ctx context.Context, detail db.ConnectionDetails, localC
 	} else {
 		skipVerify = true // skip verification for local connections
 	}
-	if !detail.MTLSRequired {
+	switch {
+	case detail.TLSConfig != nil:
+		config.Endpoint = "https://" + config.Endpoint
+		config.TLS = detail.TLSConfig
+	case !detail.MTLSRequired:
 		config.Endpoint = "http://" + config.Endpoint
 		config.TLS = &db.TLS{Insecure: &truev}
-	} else {
+	default:
 		// Socket path for SPIRE should be set in the source node's connection details
 		srcNodeSpireSocketPath := getSrcNodeSpireSocketPath(srcNode)
 		if srcNodeSpireSocketPath == nil {
