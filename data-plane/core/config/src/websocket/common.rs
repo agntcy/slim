@@ -139,6 +139,16 @@ pub async fn build_client_handshake_auth(
                 bearer_token: Some(token),
             })
         }
+        #[cfg(all(feature = "native", not(target_family = "windows")))]
+        ClientAuthConfig::Spire(spire) => {
+            let mut provider = spire.create_provider()?;
+            provider.initialize().await?;
+            let token = provider.get_token()?;
+            Ok(ClientHandshakeAuth {
+                authorization_header: Some(format!("Bearer {}", token)),
+                bearer_token: Some(token),
+            })
+        }
     }
 }
 
@@ -193,6 +203,34 @@ pub async fn authorize_server_handshake(
                 Ok(verifier) => verifier,
                 Err(err) => {
                     warn!(error = %err, "failed to create websocket JWT verifier");
+                    return false;
+                }
+            };
+
+            if verifier.initialize().await.is_err() {
+                return false;
+            }
+
+            verifier.verify(token).await.is_ok()
+        }
+        #[cfg(all(feature = "native", not(target_family = "windows")))]
+        ServerAuthConfig::Spire(spire) => {
+            let token = request
+                .headers()
+                .get(http::header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|header| header.strip_prefix("Bearer "))
+                .map(str::to_string)
+                .or_else(|| extract_query_param(request.uri().query(), "token"));
+
+            let Some(token) = token else {
+                return false;
+            };
+
+            let mut verifier = match spire.create_provider() {
+                Ok(verifier) => verifier,
+                Err(err) => {
+                    warn!(error = %err, "failed to create websocket SPIRE verifier");
                     return false;
                 }
             };
