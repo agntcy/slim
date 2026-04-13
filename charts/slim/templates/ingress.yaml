@@ -42,7 +42,7 @@ spec:
               service:
                 name: {{ include "slim.fullname" $ }}
                 port:
-                  number: {{ $.Values.slim.service.data.port }}
+                  number: {{ (index $.Values.slim.service.data 0).port }}
           {{- end }}
     {{- end }}
 {{ end }}

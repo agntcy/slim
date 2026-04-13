@@ -64,14 +64,18 @@ spec:
             {{ toYaml . | nindent 12 }}
             {{- end }}
           ports:
-            - name: data-plane
-              containerPort: {{ .Values.slim.service.data.port }}
+            {{- range $i, $data := .Values.slim.service.data }}
+            - name: data-plane-{{ $i }}
+              containerPort: {{ $data.port }}
               protocol: TCP
-              hostPort: {{ .Values.slim.service.data.port }}
-            - name: controller
-              containerPort: {{ .Values.slim.service.control.port }}
+              hostPort: {{ $data.port }}
+            {{- end }}
+            {{- range $i, $ctrl := .Values.slim.service.control }}
+            - name: controller-{{ $i }}
+              containerPort: {{ $ctrl.port }}
               protocol: TCP
-              hostPort: {{ .Values.slim.service.control.port }}
+              hostPort: {{ $ctrl.port }}
+            {{- end }}
           resources:
             {{- toYaml .Values.slim.resources | nindent 12 }}
           volumeMounts:
