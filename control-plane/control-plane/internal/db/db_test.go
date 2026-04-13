@@ -251,6 +251,97 @@ func testRouteOperations(t *testing.T, da DataAccess) {
 	assert.Equal(t, "link-789", retrievedLinkRoute.LinkID)
 }
 
+// TestDataAccess_LinkOperations tests all link-related operations
+func TestDataAccess_LinkOperations(t *testing.T) {
+	implementations := getDataAccessImplementations()
+
+	for _, impl := range implementations {
+		t.Run(impl.Name, func(t *testing.T) {
+			da := impl.Factory()
+			defer impl.Cleanup(da)
+
+			testLinkOperations(t, da)
+		})
+	}
+}
+
+func testLinkOperations(t *testing.T, da DataAccess) {
+	_, err := da.AddLink(Link{
+		SourceNodeID: "node-1",
+		DestNodeID:   "node-2",
+		// missing endpoint
+	})
+	require.Error(t, err, "AddLink should validate required fields")
+
+	link1, err := da.AddLink(Link{
+		SourceNodeID:   "node-1",
+		DestNodeID:     "node-2",
+		DestEndpoint:   "http://node-2:5000",
+		ConnConfigData: `{"endpoint":"http://node-2:5000"}`,
+		Status:         LinkStatusPending,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, link1.LinkID)
+
+	// Adding the same source+endpoint should reuse the existing link ID.
+	link2, err := da.AddLink(Link{
+		SourceNodeID:   "node-1",
+		DestNodeID:     "node-2",
+		DestEndpoint:   "http://node-2:5000",
+		ConnConfigData: `{"endpoint":"http://node-2:5000"}`,
+		Status:         LinkStatusPending,
+	})
+	require.NoError(t, err)
+	require.Equal(t, link1.LinkID, link2.LinkID)
+
+	fetched, err := da.GetLink(link1.LinkID, "node-1", "node-2")
+	require.NoError(t, err)
+	require.Equal(t, LinkStatusPending, fetched.Status)
+
+	fetched.Status = LinkStatusApplied
+	fetched.StatusMsg = ""
+	err = da.UpdateLink(*fetched)
+	require.NoError(t, err)
+
+	applied, err := da.GetLink(link1.LinkID, "node-1", "node-2")
+	require.NoError(t, err)
+	require.Equal(t, LinkStatusApplied, applied.Status)
+
+	linksForNode1 := da.GetLinksForNode("node-1")
+	require.NotEmpty(t, linksForNode1)
+
+	// Mark link deleted and verify read behavior:
+	// GetLink should not return deleted links, but list should include them.
+	applied.Deleted = true
+	applied.Status = LinkStatusFailed
+	applied.StatusMsg = "missing delete ack"
+	err = da.UpdateLink(*applied)
+	require.NoError(t, err)
+
+	_, err = da.GetLink(link1.LinkID, "node-1", "node-2")
+	require.Error(t, err, "GetLink should hide deleted links")
+
+	linksForNode1 = da.GetLinksForNode("node-1")
+	var deletedLink *Link
+	for _, l := range linksForNode1 {
+		if l.LinkID == link1.LinkID && l.DestEndpoint == "http://node-2:5000" {
+			copy := l
+			deletedLink = &copy
+			break
+		}
+	}
+	require.NotNil(t, deletedLink)
+	require.True(t, deletedLink.Deleted)
+	require.Equal(t, LinkStatusFailed, deletedLink.Status)
+	require.Equal(t, "missing delete ack", deletedLink.StatusMsg)
+
+	// delete should remove the stored record and fail when called again
+	err = da.DeleteLink(*deletedLink)
+	require.NoError(t, err)
+	err = da.DeleteLink(*deletedLink)
+	require.Error(t, err)
+}
+
 // TestDataAccess_NodeOperations tests all node-related operations
 func TestDataAccess_NodeOperations(t *testing.T) {
 	implementations := getDataAccessImplementations()

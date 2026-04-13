@@ -87,6 +87,9 @@ func (m *mockRouteService) ListRoutes(ctx context.Context,
 func (m *mockRouteService) ListLinks(ctx context.Context,
 	request *controlplaneApi.LinkListRequest) (*controlplaneApi.LinkListResponse, error) {
 	args := m.Called(ctx, request)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
 	return args.Get(0).(*controlplaneApi.LinkListResponse), args.Error(1)
 }
 

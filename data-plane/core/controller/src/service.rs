@@ -2264,6 +2264,150 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
+    async fn test_create_connection_with_existing_link_id_reuses_connection_ack() {
+        let (mut control_plane_server, mut control_plane_client, _client_cfg) =
+            setup_control_planes(
+                "127.0.0.1:50083",
+                "create-linkid-server",
+                "create-linkid-client",
+            )
+            .await;
+
+        control_plane_server.run().await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        control_plane_client.run().await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let controller = control_plane_client.controller.clone();
+        let link_id = "test-create-link-id".to_string();
+        let mut assigned = false;
+        for _ in 0..50 {
+            controller
+                .inner
+                .message_processor
+                .connection_table()
+                .for_each(|_, conn| {
+                    if !assigned {
+                        conn.set_link_id(link_id.clone());
+                        assigned = true;
+                    }
+                });
+            if assigned {
+                break;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+        }
+        assert!(
+            assigned,
+            "expected at least one connection to assign link_id"
+        );
+
+        let endpoint = "http://127.0.0.1:59999";
+        let connection_config = serde_json::json!({
+            "endpoint": endpoint,
+            "link_id": link_id
+        })
+        .to_string();
+
+        let ctrl_msg = ControlMessage {
+            message_id: uuid::Uuid::new_v4().to_string(),
+            payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
+                connections_to_create: vec![v1::Connection {
+                    connection_id: "reuse-existing-link".to_string(),
+                    config_data: connection_config,
+                }],
+                connections_to_delete: vec![],
+                subscriptions_to_set: vec![],
+                subscriptions_to_delete: vec![],
+            })),
+        };
+
+        let (tx, mut rx) = mpsc::channel(1);
+        controller
+            .handle_new_control_message(ctrl_msg, &tx)
+            .await
+            .expect("config command must be handled");
+
+        let ack_msg = rx
+            .recv()
+            .await
+            .expect("expected ack message")
+            .expect("ack should be ok");
+        let ack = match ack_msg.payload {
+            Some(Payload::ConfigCommandAck(ack)) => ack,
+            _ => panic!("expected ConfigCommandAck payload"),
+        };
+        assert_eq!(ack.connections_status.len(), 1);
+        assert_eq!(
+            ack.connections_status[0].connection_id,
+            "reuse-existing-link"
+        );
+        assert!(ack.connections_status[0].success);
+
+        assert!(
+            controller.inner.connections.read().contains_key(endpoint),
+            "expected endpoint to be mapped to reused connection id"
+        );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_subscription_set_unknown_link_id_fails_ack() {
+        let (control_plane_server, control_plane_client, _client_cfg) = setup_control_planes(
+            "127.0.0.1:50084",
+            "sub-linkid-server-unknown",
+            "sub-linkid-client-unknown",
+        )
+        .await;
+
+        let controller = control_plane_client.controller.clone();
+        let ctrl_msg = ControlMessage {
+            message_id: uuid::Uuid::new_v4().to_string(),
+            payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
+                connections_to_create: vec![],
+                connections_to_delete: vec![],
+                subscriptions_to_set: vec![v1::Subscription {
+                    component_0: "org".to_string(),
+                    component_1: "ns".to_string(),
+                    component_2: "agent".to_string(),
+                    id: Some(1),
+                    connection_id: String::new(),
+                    node_id: None,
+                    link_id: Some("missing-link-id".to_string()),
+                    direction: None,
+                }],
+                subscriptions_to_delete: vec![],
+            })),
+        };
+        let (tx, mut rx) = mpsc::channel(1);
+        controller
+            .handle_new_control_message(ctrl_msg, &tx)
+            .await
+            .expect("config command must be handled");
+
+        let ack_msg = rx
+            .recv()
+            .await
+            .expect("expected ack message")
+            .expect("ack should be ok");
+        let ack = match ack_msg.payload {
+            Some(Payload::ConfigCommandAck(ack)) => ack,
+            _ => panic!("expected ConfigCommandAck payload"),
+        };
+
+        assert_eq!(ack.subscriptions_status.len(), 1);
+        assert!(!ack.subscriptions_status[0].success);
+        assert!(
+            ack.subscriptions_status[0]
+                .error_msg
+                .contains("Connection with link_id missing-link-id not found")
+        );
+
+        drop(control_plane_server);
+    }
+
+    #[tokio::test]
+    #[traced_test]
     async fn test_shutdown_drains_resources() {
         // Use a unique port to avoid conflicts with other tests.
         let (mut control_plane_server, mut control_plane_client, _client_cfg) =
