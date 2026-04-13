@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"regexp"
-	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -204,19 +202,6 @@ var _ = Describe("Routing", func() {
 			Expect(routeListOutputA).To(ContainSubstring("org/default/b1"))
 			Expect(routeListOutputA).To(ContainSubstring("org/default/b2"))
 
-			// test listing connections for node a
-			connectionListOutA := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
-				return exec.Command(
-					slimctlPath,
-					"controller", "connection", "list",
-					"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
-					"-n", "slim/a",
-				)
-			})
-
-			connectionOutputA := string(connectionListOutA)
-			Expect(connectionOutputA).To(ContainSubstring(fmt.Sprintf(":%d", dataPlaneBPort)))
-
 			// test listing routes for node b
 			routeListOutB := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
 				return exec.Command(
@@ -230,38 +215,19 @@ var _ = Describe("Routing", func() {
 			routeListOutputB := string(routeListOutB)
 			Expect(routeListOutputB).To(ContainSubstring("org/default/a"))
 
-			// test listing connections for node b
-			connectionListOutB := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
+			// test there's a link from node b to node a
+			listLinksOut := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
 				return exec.Command(
 					slimctlPath,
-					"controller", "connection", "list",
+					"controller", "link", "outline",
 					"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
-					"-n", "slim/b",
 				)
 			})
-			connectionOutputB := string(connectionListOutB)
-
-			// The cross-node connections should reference the same controller link_id.
-			linkIDRegex := regexp.MustCompile(`LinkID:\s*Some\("([^"]+)"\)`)
-			extractLinkIDForPort := func(output string, port int) string {
-				target := fmt.Sprintf(":%d", port)
-				for _, line := range strings.Split(output, "\n") {
-					if !strings.Contains(line, target) {
-						continue
-					}
-					matches := linkIDRegex.FindStringSubmatch(line)
-					if len(matches) >= 2 {
-						return matches[1]
-					}
-				}
-				return ""
-			}
-
-			linkIDA := extractLinkIDForPort(connectionOutputA, dataPlaneBPort)
-			linkIDB := extractLinkIDForPort(connectionOutputB, dataPlaneAPort)
-			Expect(linkIDA).ToNot(BeEmpty(), "expected node A connection line to include link_id")
-			Expect(linkIDB).ToNot(BeEmpty(), "expected node B connection line to include link_id")
-			Expect(linkIDB).To(Equal(linkIDA), "node A and node B should reference the same link_id")
+			listLinksOutStr := string(listLinksOut)
+			Expect(listLinksOutStr).To(ContainSubstring("Number of links: 1"))
+			Expect(listLinksOutStr).To(MatchRegexp(
+				`(?m)^\s*[0-9a-f-]{36}\s+slim/a\s+slim/b\s+http://127\.0\.0\.1:\d+\s+APPLIED\s+-\s+No\s+\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\s*$`,
+			))
 
 			terminateSession(clientBSession, 2*time.Second)
 			terminateSession(clientCSession, 2*time.Second)
