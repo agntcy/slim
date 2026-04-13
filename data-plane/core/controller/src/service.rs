@@ -1797,12 +1797,20 @@ impl ControllerService {
                                 if let Some(io_err) = Self::match_for_io_error(&e) {
                                     if io_err.kind() == std::io::ErrorKind::BrokenPipe {
                                         info!("connection closed by peer");
-                                        retry_connect = true;
+                                    } else {
+                                        // Handle other IO errors (ConnectionAborted, etc.)
+                                        error!(
+                                            error = %e.chain(),
+                                            io_error_kind = ?io_err.kind(),
+                                            "IO error receiving control messages"
+                                        );
                                     }
                                 } else {
+                                    // Handle non-IO errors (e.g., gRPC Canceled, Unavailable, etc.)
                                     error!(error = %e.chain(), "error receiving control messages");
                                 }
 
+                                retry_connect = true;
                                 break;
                             }
                             None => {
