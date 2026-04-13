@@ -119,6 +119,7 @@ type RouteStatus int
 const (
 	RouteStatusApplied RouteStatus = iota
 	RouteStatusFailed
+	RouteStatusPending
 )
 
 type Route struct {
@@ -126,19 +127,16 @@ type Route struct {
 	// ID of the node which the route is applied to.
 	// If SourceNodeID is AllNodesID, the route applies to all nodes
 	SourceNodeID string
-	// if DestNodeID is empty, DestEndpoint should be used to determine the destination
 	DestNodeID   string
-	DestEndpoint string
-	// ConnConfigData is a JSON string containing connection configuration details in case DestEndpoint is set
-	ConnConfigData string
-	Component0     string
-	Component1     string
-	Component2     string
-	ComponentID    *wrapperspb.UInt64Value
-	Status         RouteStatus
-	StatusMsg      string
-	Deleted        bool
-	LastUpdated    time.Time
+	LinkID       string
+	Component0   string
+	Component1   string
+	Component2   string
+	ComponentID  *wrapperspb.UInt64Value
+	Status       RouteStatus
+	StatusMsg    string
+	Deleted      bool
+	LastUpdated  time.Time
 }
 
 func (r Route) GetUniqueID() uint64 {
@@ -151,8 +149,15 @@ func (r Route) GetUniqueID() uint64 {
 		compID = fmt.Sprintf("%d", r.ComponentID.Value)
 	}
 	// Concatenate all strings with the separator
-	combinedString := strings.Join([]string{r.SourceNodeID, r.Component0, r.Component1,
-		r.Component2, compID, r.DestNodeID, r.DestEndpoint}, separator)
+	combinedString := strings.Join([]string{
+		r.SourceNodeID,
+		r.Component0,
+		r.Component1,
+		r.Component2,
+		compID,
+		r.DestNodeID,
+		r.LinkID,
+	}, separator)
 
 	// Create a new FNV-1a 64-bit hash.
 	// FNV-1a is a non-cryptographic hash function suitable for hash table lookups.
@@ -169,8 +174,47 @@ func (r Route) GetUniqueID() uint64 {
 }
 
 func (r Route) String() string {
-	return fmt.Sprintf("%s:%s/%s/%s/%v->%s[%s]", r.SourceNodeID,
-		r.Component0, r.Component1, r.Component2, r.ComponentID, r.DestNodeID, r.DestEndpoint)
+	return fmt.Sprintf(
+		"%s:%s/%s/%s/%v->node=%s link=%s",
+		r.SourceNodeID,
+		r.Component0,
+		r.Component1,
+		r.Component2,
+		r.ComponentID,
+		r.DestNodeID,
+		r.LinkID,
+	)
+}
+
+type LinkStatus int
+
+const (
+	LinkStatusPending LinkStatus = iota
+	LinkStatusApplied
+	LinkStatusFailed
+)
+
+type Link struct {
+	LinkID         string
+	SourceNodeID   string
+	DestNodeID     string
+	DestEndpoint   string
+	ConnConfigData string
+	Status         LinkStatus
+	StatusMsg      string
+	Deleted        bool
+	LastUpdated    time.Time
+}
+
+func (l Link) String() string {
+	return fmt.Sprintf(
+		"%s->%s (%s) link=%s [%v]",
+		l.SourceNodeID,
+		l.DestNodeID,
+		l.DestEndpoint,
+		l.LinkID,
+		l.Status,
+	)
 }
 
 type Channel struct {

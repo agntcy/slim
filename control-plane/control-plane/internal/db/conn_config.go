@@ -8,6 +8,8 @@ package db
 type ClientConnectionConfig struct {
 	// Auth configuration for outgoing RPCs.
 	Auth *Auth `json:"auth,omitempty"`
+	// Backoff retry configuration.
+	Backoff *BackoffConfig `json:"backoff,omitempty"`
 	// ReadBufferSize.
 	BufferSize *int64 `json:"buffer_size,omitempty"`
 	// Compression type - TODO(msardara): not implemented yet.
@@ -35,6 +37,32 @@ type ClientConnectionConfig struct {
 	ServerName *string `json:"server_name,omitempty"`
 	// TLS client configuration.
 	TLS *TLS `json:"tls,omitempty"`
+}
+
+// Backoff retry configuration.
+// Matches dataplane tagged enum JSON with flattened fields.
+type BackoffConfig struct {
+	// One of: fixed_interval, exponential
+	Type string `json:"type"`
+	// Flattened fixed-interval fields when Type == "fixed_interval"
+	*FixedIntervalBackoffConfig
+	// Flattened exponential fields when Type == "exponential"
+	*ExponentialBackoffConfig
+}
+
+// Fixed-interval backoff retry configuration.
+type FixedIntervalBackoffConfig struct {
+	Interval    string `json:"interval"`
+	MaxAttempts *int   `json:"max_attempts,omitempty"`
+}
+
+// Exponential backoff retry configuration.
+type ExponentialBackoffConfig struct {
+	Base        uint64 `json:"base"`
+	Factor      uint64 `json:"factor"`
+	MaxDelay    string `json:"max_delay"`
+	MaxAttempts *int   `json:"max_attempts,omitempty"`
+	Jitter      *bool  `json:"jitter,omitempty"`
 }
 
 // Basic authentication configuration.

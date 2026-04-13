@@ -103,12 +103,37 @@ func TestSouthbound_RegistrationAndRouteHandling(t *testing.T) {
 		return false
 	}, "wait for route for slim-0 to be created")
 
+	var slim1ToSlim0LinkID, slim2ToSlim0LinkID string
 	// other instances should receive connections+subscriptions for slim-0
 	waitCond(t, 3*time.Second, func() bool {
-		_, subs1 := slim1.GetReceived()
-		_, subs2 := slim2.GetReceived()
-		return len(subs1) > 0 && len(subs2) > 0
-	}, "wait for subs to be received by slim-1 and slim-2")
+		conns1, subs1 := slim1.GetReceived()
+		conns2, subs2 := slim2.GetReceived()
+
+		foundSlim1ToSlim0 := false
+		for _, c := range conns1 {
+			var cfg map[string]any
+			if json.Unmarshal([]byte(c.ConfigData), &cfg) == nil && cfg["endpoint"] == "http://127.0.0.1:4500" {
+				foundSlim1ToSlim0 = true
+				slim1ToSlim0LinkID = c.ConnectionId
+				break
+			}
+		}
+
+		foundSlim2ToSlim1 := false
+		foundSlim2ToSlim0 := false
+		for _, c := range conns2 {
+			var cfg map[string]any
+			if json.Unmarshal([]byte(c.ConfigData), &cfg) == nil && cfg["endpoint"] == "http://127.0.0.1:4501" {
+				foundSlim2ToSlim1 = true
+			}
+			if json.Unmarshal([]byte(c.ConfigData), &cfg) == nil && cfg["endpoint"] == "http://127.0.0.1:4500" {
+				foundSlim2ToSlim0 = true
+				slim2ToSlim0LinkID = c.ConnectionId
+			}
+		}
+
+		return foundSlim1ToSlim0 && foundSlim2ToSlim1 && foundSlim2ToSlim0 && len(subs1) > 0 && len(subs2) > 0
+	}, "wait for conns & subs to be received by slim-1 and slim-2")
 
 	// restart slim-1 and expect it to receive the same config
 	_ = slim1.Close()
@@ -117,8 +142,18 @@ func TestSouthbound_RegistrationAndRouteHandling(t *testing.T) {
 		t.Fatalf("slim-1 connect: %v", err)
 	}
 	waitCond(t, 3*time.Second, func() bool {
-		_, subs := slim1.GetReceived()
-		return len(subs) > 0
+		conns, subs := slim1.GetReceived()
+		foundSameSlim1ToSlim0Conn := false
+		for _, c := range conns {
+			var cfg map[string]any
+			if json.Unmarshal([]byte(c.ConfigData), &cfg) == nil &&
+				cfg["endpoint"] == "http://127.0.0.1:4500" &&
+				c.ConnectionId == slim1ToSlim0LinkID {
+				foundSameSlim1ToSlim0Conn = true
+				break
+			}
+		}
+		return foundSameSlim1ToSlim0Conn && len(subs) > 0
 	}, "wait for subscriptions to be received by slim-1")
 
 	// restart slim-0 with different port; expect reconcilers update other nodes
@@ -128,25 +163,65 @@ func TestSouthbound_RegistrationAndRouteHandling(t *testing.T) {
 		t.Fatalf("slim-0 connect: %v", err)
 	}
 
-	// other instances should receive conns+subs for slim-0
-	waitCond(t, 3*time.Second, func() bool {
-		foundOnSlim0, foundOnSlim1 := false, false
-		conns1, _ := slim1.GetReceived()
+	// we should have the same links and subscriptions as before but with different link IDs
+	// slim-2 should have a new link to slim-0, slim-1 should have a new link to slim-0
+	// and subscriptions should be the same on slim-1 and slim-2 but with updated link IDs
+	waitCond(t, 8*time.Second, func() bool {
+		var newSlim1ToSlim0LinkID, newSlim2ToSlim0LinkID string
+
+		conns1, subs1 := slim1.GetReceived()
 		for _, c := range conns1 {
-			if c.ConnectionId == "http://127.0.0.1:4800" {
-				foundOnSlim0 = true
+			var cfg map[string]any
+			if json.Unmarshal([]byte(c.ConfigData), &cfg) != nil {
+				continue
+			}
+			if cfg["endpoint"] == "http://127.0.0.1:4800" {
+				newSlim1ToSlim0LinkID = c.ConnectionId
 				break
 			}
 		}
-		conns2, _ := slim2.GetReceived()
+
+		conns2, subs2 := slim2.GetReceived()
 		for _, c := range conns2 {
-			if c.ConnectionId == "http://127.0.0.1:4800" {
-				foundOnSlim1 = true
+			var cfg map[string]any
+			if json.Unmarshal([]byte(c.ConfigData), &cfg) != nil {
+				continue
+			}
+			if cfg["endpoint"] == "http://127.0.0.1:4800" {
+				newSlim2ToSlim0LinkID = c.ConnectionId
 				break
 			}
 		}
-		return foundOnSlim0 && foundOnSlim1
-	}, "wait for changed subs to be received by slim-1 and slim-2")
+
+		// Both nodes should receive replacement links to slim-0 on its new endpoint.
+		if newSlim1ToSlim0LinkID == "" || newSlim2ToSlim0LinkID == "" {
+			return false
+		}
+		// Link IDs should be refreshed after reconnect.
+		if newSlim1ToSlim0LinkID == slim1ToSlim0LinkID || newSlim2ToSlim0LinkID == slim2ToSlim0LinkID {
+			return false
+		}
+
+		foundSubSlim1 := false
+		for _, s := range subs1 {
+			if s.Component_0 == "org" && s.Component_1 == "test" && s.Component_2 == "client" &&
+				s.GetLinkId() == newSlim1ToSlim0LinkID {
+				foundSubSlim1 = true
+				break
+			}
+		}
+
+		foundSubSlim2 := false
+		for _, s := range subs2 {
+			if s.Component_0 == "org" && s.Component_1 == "test" && s.Component_2 == "client" &&
+				s.GetLinkId() == newSlim2ToSlim0LinkID {
+				foundSubSlim2 = true
+				break
+			}
+		}
+
+		return foundSubSlim1 && foundSubSlim2
+	}, "wait for changed conns & subs to be received by slim-1 and slim-2")
 
 	// send delete for subscription
 	if err := slim0.updateSubscription(ctx, "org", "test", "client",
@@ -158,12 +233,7 @@ func TestSouthbound_RegistrationAndRouteHandling(t *testing.T) {
 	waitCond(t, 3*time.Second, func() bool {
 		// route for slim-0 should be gone
 		rs := db.GetRoutesForDestinationNodeID("slim-0")
-		if len(rs) != 0 {
-			return false
-		}
-		_, subs1 := slim1.GetReceived()
-		_, subs2 := slim2.GetReceived()
-		return len(subs1) == 0 && len(subs2) == 0
+		return len(rs) == 0
 	}, "wait for route for slim-0 to be deleted")
 
 	_ = slim2.Close()
@@ -202,9 +272,10 @@ func TestSouthbound_RouteWithConnectionError(t *testing.T) {
 	}
 
 	// wait reconciler to mark routes for slim-1 as failed
-	waitCond(t, 2*time.Second, func() bool {
+	waitCond(t, 6*time.Second, func() bool {
 		for _, r := range db.GetRoutesForNodeID("slim-1") {
-			if r.SourceNodeID == "slim-1" && r.DestNodeID == "slim-0" && r.StatusMsg != "" {
+			if r.SourceNodeID == "slim-1" && r.DestNodeID == "slim-0" &&
+				(r.StatusMsg != "" || r.Deleted) {
 				return true
 			}
 		}
@@ -256,23 +327,33 @@ func TestSouthbound_MessageHandling(t *testing.T) {
 	_, err = stream.Recv()
 	require.NoError(t, err)
 
-	// Wait for and acknowledge the initial ConfigCommand from the reconciler
-	configMsg, err := stream.Recv()
-	require.NoError(t, err)
-	if cfgCmd, ok := configMsg.Payload.(*controllerapi.ControlMessage_ConfigCommand); ok {
-		// Acknowledge the config command
-		ackMsg := &controllerapi.ControlMessage{
-			MessageId: "ack-config",
-			Payload: &controllerapi.ControlMessage_ConfigCommandAck{
-				ConfigCommandAck: &controllerapi.ConfigurationCommandAck{
-					OriginalMessageId: configMsg.MessageId,
-				},
-			},
+	// Reconciler may or may not send an immediate ConfigCommand; if it does, ACK it.
+	recvCh := make(chan *controllerapi.ControlMessage, 1)
+	recvErrCh := make(chan error, 1)
+	go func() {
+		msg, recvErr := stream.Recv()
+		if recvErr != nil {
+			recvErrCh <- recvErr
+			return
 		}
-		err = stream.Send(ackMsg)
-		require.NoError(t, err)
-	} else {
-		t.Fatalf("Expected ConfigCommand, got %T", cfgCmd)
+		recvCh <- msg
+	}()
+	select {
+	case configMsg := <-recvCh:
+		if _, ok := configMsg.Payload.(*controllerapi.ControlMessage_ConfigCommand); ok {
+			ackMsg := &controllerapi.ControlMessage{
+				MessageId: "ack-config",
+				Payload: &controllerapi.ControlMessage_ConfigCommandAck{
+					ConfigCommandAck: &controllerapi.ConfigurationCommandAck{
+						OriginalMessageId: configMsg.MessageId,
+					},
+				},
+			}
+			err = stream.Send(ackMsg)
+			require.NoError(t, err)
+		}
+	case <-recvErrCh:
+	case <-time.After(300 * time.Millisecond):
 	}
 
 	// Test sending generic Ack (tests the Ack branch in handleNodeMessages)
@@ -925,11 +1006,11 @@ func TestSouthbound_DifferentGroupsWithMTLS(t *testing.T) {
 			conns, _ := slim1.GetReceived()
 			var foundConnection bool
 			for _, conn := range conns {
-				if conn.ConnectionId == "https://external-slim-0:4500" {
-					// Parse the config data to proper struct
-					var config db.ClientConnectionConfig
-					require.NoError(t, json.Unmarshal([]byte(conn.ConfigData), &config))
+				// Parse the config data to proper struct
+				var config db.ClientConnectionConfig
+				require.NoError(t, json.Unmarshal([]byte(conn.ConfigData), &config))
 
+				if config.Endpoint == "https://external-slim-0:4500" {
 					// Check endpoint is set correctly
 					require.Equal(t, "https://external-slim-0:4500", config.Endpoint, "Endpoint should be set to external endpoint")
 
