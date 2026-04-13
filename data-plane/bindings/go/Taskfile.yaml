@@ -17,6 +17,7 @@ includes:
 
 vars:
   BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
+  GOLANGCI_LINT_VERSION: "v1.64.8"
   ##############################################################
   # Vars section does not have acces to importd variables
   # (PROFILE, CURRENT_TARGET, TARGET)
@@ -123,7 +124,7 @@ tasks:
       # exists and sources have not changed (sources/generates fingerprinting).
       - task: adapter:bindings:build:all
         vars:
-          PROFILE: '{{.PROFILE}}'
+          PROFILE: "{{.PROFILE}}"
       - task: install-uniffi-bindgen-go
     vars:
       VERSION: '{{.VERSION | default "devel"}}'
@@ -137,7 +138,7 @@ tasks:
       - task: patch-header
       - task: patch-cgo-directives
         vars:
-          VERSION: '{{.VERSION}}'
+          VERSION: "{{.VERSION}}"
       - echo "Bindings generated in slim_bindings/"
     silent: true
 
@@ -215,7 +216,7 @@ tasks:
       - task: patch-header
       - task: patch-cgo-directives
         vars:
-          VERSION: '{{.VERSION}}'
+          VERSION: "{{.VERSION}}"
       - echo "Bindings generated in slim_bindings/"
     silent: true
 
@@ -294,7 +295,7 @@ tasks:
     deps:
       - task: generate
         vars:
-          VERSION: '{{.VERSION}}'
+          VERSION: "{{.VERSION}}"
     cmds:
       - echo "Running all tests..."
       - go test -v ./...
@@ -306,7 +307,7 @@ tasks:
     deps:
       - task: adapter:bindings:build:all
         vars:
-          PROFILE: '{{.PROFILE}}'
+          PROFILE: "{{.PROFILE}}"
     cmds:
       - echo "Running tests with coverage..."
       - go test -v -coverprofile=coverage.out ./...
@@ -325,13 +326,31 @@ tasks:
       - echo "Clean complete"
     silent: true
 
+  lint:install-linter:
+    desc: Install golangci-lint
+    cmds:
+      - go install github.com/golangci/golangci-lint/cmd/golangci-lint@{{.GOLANGCI_LINT_VERSION}}
+    status:
+      - test -f $(go env GOPATH)/bin/golangci-lint
+      - $(go env GOPATH)/bin/golangci-lint version | grep -q "{{.GOLANGCI_LINT_VERSION}}"
+
+  lint:
+    desc: Running lint
+    deps:
+      - task: lint:install-linter
+      - task: generate
+        vars:
+          VERSION: '{{.VERSION | default "devel"}}'
+    cmds:
+      - $(go env GOPATH)/bin/golangci-lint run ./...
+
   # Examples
   build:
     desc: Build all example binaries
     deps:
       - task: generate
         vars:
-          PROFILE: '{{.PROFILE}}'
+          PROFILE: "{{.PROFILE}}"
     dir: examples/slimrpc/simple
     cmds:
       - go build -o slimrpc-go-server ./cmd/server

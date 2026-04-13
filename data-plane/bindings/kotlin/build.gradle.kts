@@ -7,8 +7,9 @@ import org.gradle.api.attributes.Usage
 import org.gradle.api.attributes.java.TargetJvmEnvironment
 
 plugins {
-    kotlin("jvm") version "2.1.0"
-    kotlin("plugin.serialization") version "2.1.0"
+    // Kotlin ≤2.1.0 fails on JDK 25+ (JavaVersion.parse("25.x.y") in the compiler). Use 2.1.10+ for JDK 25 hosts.
+    kotlin("jvm") version "2.1.21"
+    kotlin("plugin.serialization") version "2.1.21"
     application
     `maven-publish`
     signing
@@ -40,11 +41,14 @@ dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter-params:5.10.1")
 }
 
-// Configure source sets to include generated code
+// Main Kotlin sources:
+//   - generated/     UniFFI bindings (io.agntcy.slim.bindings) + jniLibs under resources
+//   - examples/      Runnable samples: *.kt and examples/common/ (packages io.agntcy.slim.examples*)
+//   - src/main/kotlin  Standard location for any additional library sources (optional)
 sourceSets {
     main {
         kotlin {
-            srcDirs("src/main/kotlin", "generated", "examples", "examples/common")
+            srcDirs("src/main/kotlin", "generated", "examples")
         }
         resources {
             srcDirs("generated/jniLibs")
@@ -310,8 +314,10 @@ publishing {
                 password = System.getenv("GITHUB_TOKEN")
             }
         }
-        // Maven Central via OSSRH Staging API (central.sonatype.com). OSSRH (s01.oss.sonatype.org) was shut down June 2025.
-        // Requires Central Portal User Token: https://central.sonatype.org/publish/generate-portal-token/
+        // Maven Central via OSSRH Staging API (central.sonatype.com).
+        // OSSRH (s01.oss.sonatype.org) was shut down June 2025.
+        // Requires Central Portal User Token:
+        // https://central.sonatype.org/publish/generate-portal-token/
         if (System.getenv("MVN_TOKEN_NAME") != null && System.getenv("MVN_TOKEN_PASSWORD") != null) {
             maven {
                 name = "MavenCentral"
