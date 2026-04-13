@@ -43,6 +43,8 @@ use crate::auth::ServerAuthenticator;
 use crate::auth::basic::Config as BasicAuthenticationConfig;
 #[cfg(feature = "native")]
 use crate::auth::jwt::Config as JwtAuthenticationConfig;
+#[cfg(all(feature = "native", not(target_family = "windows")))]
+use crate::auth::spire::SpireConfig as SpireAuthConfig;
 use crate::component::configuration::Configuration;
 use crate::grpc::errors::ConfigError;
 use crate::transport::TransportProtocol;
@@ -92,6 +94,9 @@ pub enum AuthenticationConfig {
     /// JWT authentication configuration.
     #[cfg(feature = "native")]
     Jwt(JwtAuthenticationConfig),
+    /// SPIRE/SPIFFE authentication configuration.
+    #[cfg(all(feature = "native", not(target_family = "windows")))]
+    Spire(SpireAuthConfig),
     /// None
     #[default]
     None,
@@ -420,6 +425,23 @@ impl ServerConfig {
                 let mut auth_layer = <JwtAuthenticationConfig as ServerAuthenticator<
                     http::Response<tonic::body::Body>,
                 >>::get_server_layer(jwt)?;
+
+                auth_layer.initialize().await?;
+
+                let mut builder = builder.layer(auth_layer);
+
+                let mut router = builder.add_service(svc[0].clone());
+                for s in svc.iter().skip(1) {
+                    router = builder.add_service(s.clone());
+                }
+
+                Ok(router.serve_with_incoming(incoming).boxed())
+            }
+            #[cfg(all(feature = "native", not(target_family = "windows")))]
+            AuthenticationConfig::Spire(spire) => {
+                let mut auth_layer = <SpireAuthConfig as ServerAuthenticator<
+                    http::Response<tonic::body::Body>,
+                >>::get_server_layer(spire)?;
 
                 auth_layer.initialize().await?;
 
