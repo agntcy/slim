@@ -545,7 +545,7 @@ async fn test_spiffe_grpc_jwt_auth() {
         client_cfg.tls_setting.insecure = true;
         client_cfg.auth = slim_config::grpc::client::AuthenticationConfig::Spire(spire_cfg.clone());
 
-        let channel = match client_cfg.to_channel().await {
+        let channel = match client_cfg.to_grpc_channel().await {
             Ok(c) => c,
             Err(e) => {
                 tracing::error!(error = %e, "Failed to create authenticated channel");
@@ -582,7 +582,7 @@ async fn test_spiffe_grpc_jwt_auth() {
         );
         unauthenticated_cfg.tls_setting.insecure = true;
 
-        let unauth_channel = match unauthenticated_cfg.to_channel().await {
+        let unauth_channel = match unauthenticated_cfg.to_grpc_channel().await {
             Ok(c) => c,
             Err(e) => {
                 tracing::error!(error = %e, "Failed to create unauthenticated channel");
