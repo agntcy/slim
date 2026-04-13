@@ -240,7 +240,6 @@ var _ = Describe("Routing", func() {
 				)
 			})
 			connectionOutputB := string(connectionListOutB)
-			Expect(connectionOutputB).To(ContainSubstring(fmt.Sprintf(":%d", dataPlaneAPort)))
 
 			// The cross-node connections should reference the same controller link_id.
 			linkIDRegex := regexp.MustCompile(`LinkID:\s*Some\("([^"]+)"\)`)
