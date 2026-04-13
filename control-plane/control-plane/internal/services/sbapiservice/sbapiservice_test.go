@@ -943,6 +943,26 @@ func TestGetConnDetails_MetadataTLSTakesPrecedenceOverLegacyField(t *testing.T) 
 	require.True(t, *conn.TLSConfig.IncludeSystemCACertsPool)
 }
 
+func TestGetConnDetails_ParsesKeepaliveFromMetadata(t *testing.T) {
+	detail := &controllerapi.ConnectionDetails{
+		Endpoint: "127.0.0.1:4500",
+		Metadata: &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"keepalive": structpb.NewStructValue(&structpb.Struct{
+					Fields: map[string]*structpb.Value{
+						"keep_alive_while_idle": structpb.NewBoolValue(true),
+					},
+				}),
+			},
+		},
+	}
+
+	conn := getConnDetails("10.0.0.1", detail)
+	require.NotNil(t, conn.KeepaliveConfig)
+	require.NotNil(t, conn.KeepaliveConfig.KeepAliveWhileIdle)
+	require.True(t, *conn.KeepaliveConfig.KeepAliveWhileIdle)
+}
+
 func TestSouthbound_DifferentGroupsWithMTLS(t *testing.T) {
 	tests := []struct {
 		name                   string

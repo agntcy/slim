@@ -22,6 +22,7 @@ type ConnectionDetails struct {
 	TrustDomain      *string
 	MTLSRequired     bool
 	TLSConfig        *TLS
+	KeepaliveConfig  *KeepaliveClass
 	AuthConfig       *Auth
 }
 

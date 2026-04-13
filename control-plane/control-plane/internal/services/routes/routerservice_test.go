@@ -212,6 +212,9 @@ func TestGenerateConfigData_SetsFixedIntervalBackoff(t *testing.T) {
 	require.Equal(t, "fixed_interval", parsed.Backoff.Type)
 	require.NotNil(t, parsed.Backoff.FixedIntervalBackoffConfig)
 	require.Equal(t, "2000ms", parsed.Backoff.FixedIntervalBackoffConfig.Interval)
+	require.NotNil(t, parsed.Keepalive, "default keepalive config must be set")
+	require.NotNil(t, parsed.Keepalive.KeepAliveWhileIdle)
+	require.False(t, *parsed.Keepalive.KeepAliveWhileIdle)
 }
 
 func TestGenerateConfigData_UsesExplicitTLSConfigOverMTLSFlag(t *testing.T) {
@@ -243,6 +246,35 @@ func TestGenerateConfigData_UsesExplicitTLSConfigOverMTLSFlag(t *testing.T) {
 	require.False(t, *parsed.TLS.Insecure)
 	require.NotNil(t, parsed.TLS.IncludeSystemCACertsPool)
 	require.True(t, *parsed.TLS.IncludeSystemCACertsPool)
+}
+
+func TestGenerateConfigData_UsesKeepaliveFromConnectionDetails(t *testing.T) {
+	ctx := util.GetContextWithLogger(context.Background(), config.LogConfig{Level: "debug"})
+	truev := true
+	http2Keepalive := "10m"
+
+	detail := db.ConnectionDetails{
+		Endpoint:     "127.0.0.1:50052",
+		MTLSRequired: false,
+		KeepaliveConfig: &db.KeepaliveClass{
+			KeepAliveWhileIdle: &truev,
+			HTTP2Keepalive:     &http2Keepalive,
+		},
+	}
+	destNode := &db.Node{ID: "node-dst"}
+	srcNode := &db.Node{ID: "node-src"}
+
+	_, configData, err := generateConfigData(ctx, detail, true, destNode, srcNode)
+	require.NoError(t, err)
+
+	var parsed db.ClientConnectionConfig
+	err = json.Unmarshal([]byte(configData), &parsed)
+	require.NoError(t, err)
+	require.NotNil(t, parsed.Keepalive)
+	require.NotNil(t, parsed.Keepalive.KeepAliveWhileIdle)
+	require.True(t, *parsed.Keepalive.KeepAliveWhileIdle)
+	require.NotNil(t, parsed.Keepalive.HTTP2Keepalive)
+	require.Equal(t, http2Keepalive, *parsed.Keepalive.HTTP2Keepalive)
 }
 
 func TestRouteService_AddRoutes(t *testing.T) {

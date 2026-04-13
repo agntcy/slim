@@ -198,6 +198,7 @@ func getConnDetails(host string, detail *controllerapi.ConnectionDetails) db.Con
 	}
 
 	connDetails.TLSConfig = parseTLSConfig(detail)
+	connDetails.KeepaliveConfig = parseKeepaliveConfig(detail)
 
 	// Parse Auth config from JSON string if provided
 	if detail.Auth != nil && *detail.Auth != "" {
@@ -227,6 +228,30 @@ func parseTLSConfig(detail *controllerapi.ConnectionDetails) *db.TLS {
 				tlsConfig := &db.TLS{}
 				if err := json.Unmarshal([]byte(tlsJSON), tlsConfig); err == nil {
 					return tlsConfig
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func parseKeepaliveConfig(detail *controllerapi.ConnectionDetails) *db.KeepaliveClass {
+	if detail.Metadata != nil && detail.Metadata.Fields != nil {
+		if keepaliveField, ok := detail.Metadata.Fields["keepalive"]; ok && keepaliveField != nil {
+			if keepaliveStruct := keepaliveField.GetStructValue(); keepaliveStruct != nil {
+				keepalive := &db.KeepaliveClass{}
+				if payload, err := json.Marshal(keepaliveStruct.AsMap()); err == nil {
+					if err := json.Unmarshal(payload, keepalive); err == nil {
+						return keepalive
+					}
+				}
+			}
+
+			if keepaliveJSON := keepaliveField.GetStringValue(); keepaliveJSON != "" {
+				keepalive := &db.KeepaliveClass{}
+				if err := json.Unmarshal([]byte(keepaliveJSON), keepalive); err == nil {
+					return keepalive
 				}
 			}
 		}

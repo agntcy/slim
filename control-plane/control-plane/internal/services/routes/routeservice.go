@@ -764,11 +764,15 @@ func generateConfigData(ctx context.Context, detail db.ConnectionDetails, localC
 		"x-custom-header": "value",
 	}
 
-	config.Keepalive = &db.KeepaliveClass{
-		HTTP2Keepalive:     stringPtr("2h"),
-		KeepAliveWhileIdle: &falsev,
-		TCPKeepalive:       stringPtr("20s"),
-		Timeout:            stringPtr("20s"),
+	if detail.KeepaliveConfig != nil {
+		config.Keepalive = detail.KeepaliveConfig
+	} else {
+		config.Keepalive = &db.KeepaliveClass{
+			HTTP2Keepalive:     stringPtr("2h"),
+			KeepAliveWhileIdle: &falsev,
+			TCPKeepalive:       stringPtr("20s"),
+			Timeout:            stringPtr("20s"),
+		}
 	}
 	config.Origin = stringPtr("https://client.example.com")
 	config.RateLimit = stringPtr("20/60")
