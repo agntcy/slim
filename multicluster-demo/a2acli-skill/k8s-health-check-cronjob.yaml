@@ -1,0 +1,60 @@
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: k8s-health-check
+  namespace: slim-multicluster-demo
+spec:
+  # Run every minute
+  schedule: "* * * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: k8s-health-check
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: a2acli
+            image: ghcr.io/agntcy/slim/multicluster-demo/a2acli:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              
+              echo "Discovering k8s_troubleshooting_agent..."
+              AGENT_SHA=$(/app/a2acli list \
+                --slim-endpoint "$SLIM_ENDPOINT" \
+                | grep k8s_troubleshooting_agent \
+                | awk '{print $NF}' \
+                | sed 's/\.\.\.//g')
+              
+              if [ -z "$AGENT_SHA" ]; then
+                echo "ERROR: k8s_troubleshooting_agent not found"
+                echo "Available agents:"
+                bin/a2acli list \
+                  --slim-endpoint "$SLIM_ENDPOINT" \
+                exit 1
+              fi
+              
+              echo "Found agent: $AGENT_SHA"
+              echo ""
+              echo "Sending health check message..."
+              bin/a2acli send-message \
+                --agent "$AGENT_SHA" \
+                --slim-endpoint "$SLIM_ENDPOINT" \
+                --slim-secret "$SLIM_SECRET" \
+                "Check cluster health status of the pods in namespace slim-multicluster-demo. If you see any issues, create a Jira ticket to track it."
+              
+              echo ""
+              echo "Health check completed successfully"
+            env:
+            - name: SLIM_ENDPOINT
+              value: "https://slim-dataplane.dev.eticloud.io:443"
+            - name: SLIM_SECRET
+              value: "default-multicluster-demo-shared-secret"

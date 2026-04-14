@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "supportedInterfaces": [
     {
-      "url": "agntcy/demo/k8s_troubleshooting_agent",
+      "url": "agntcy/aws-cluster/k8s_troubleshooting_agent",
       "protocolBinding": "slimrpc",
       "protocolVersion": "0.3"
     }

@@ -4,6 +4,7 @@
 import asyncio
 import logging
 import os
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ logging.basicConfig(
 import slim_bindings
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
-from a2a.types import AgentCapabilities, AgentCard, AgentSkill
+from a2a.types import AgentCapabilities, AgentCard, AgentSkill, Message, Part, Role, TextPart
 from google.adk.a2a.executor.a2a_agent_executor import A2aAgentExecutor
 from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
 from google.adk.auth.credential_service.in_memory_credential_service import (
@@ -56,8 +57,13 @@ SPIRE_JWT_AUDIENCE = [
 
 # K8s MCP server configuration
 K8S_MCP_SERVER_NAMESPACE = os.getenv("K8S_MCP_SERVER_NAMESPACE", "agntcy")
-K8S_MCP_SERVER_GROUP = os.getenv("K8S_MCP_SERVER_GROUP", "demo")
-K8S_MCP_SERVER_NAME = os.getenv("K8S_MCP_SERVER_NAME", "mcp_server")
+K8S_MCP_SERVER_GROUP = os.getenv("K8S_MCP_SERVER_GROUP", "mpc")
+K8S_MCP_SERVER_NAME = os.getenv("K8S_MCP_SERVER_NAME", "k8s-mcp")
+
+# Atlassian MCP server configuration
+ATLASSIAN_MCP_SERVER_NAMESPACE = os.getenv("ATLASSIAN_MCP_SERVER_NAMESPACE", "agntcy")
+ATLASSIAN_MCP_SERVER_GROUP = os.getenv("ATLASSIAN_MCP_SERVER_GROUP", "mcp")
+ATLASSIAN_MCP_SERVER_NAME = os.getenv("ATLASSIAN_MCP_SERVER_NAME", "atlassian-mcp")
 
 async def create_slim_app() -> tuple[slim_bindings.App, slim_bindings.Name, int]:
     """Initialise SLIM and create an App using SPIRE or shared-secret auth.
@@ -143,20 +149,31 @@ async def main() -> None:
 
     local_app, local_name, conn_id = await create_slim_app()
 
-    # Initialize MCP client after SLIM connection is established
-    mcp_client = K8sMCPClient(
+    # Initialize first MCP client (K8s MCP server)
+    mcp_client_k8s = K8sMCPClient(
         local_app=local_app,
         proxy_name=f"{K8S_MCP_SERVER_NAMESPACE}/{K8S_MCP_SERVER_GROUP}/{K8S_MCP_SERVER_NAME}",
         connection_id=conn_id,
     )
-    await mcp_client.set_proxy_route()
+    await mcp_client_k8s.set_proxy_route()
     
-    # Create the MCP toolset
-    mcp_toolset = SLIMMcpToolSet(mcp_client=mcp_client)
+    # Create the first MCP toolset
+    mcp_toolset_k8s = SLIMMcpToolSet(mcp_client=mcp_client_k8s)
     
-    # Set the toolset on the agent
-    # The toolset will automatically handle tool loading on first use
-    root_agent.tools = [mcp_toolset]
+    # Initialize second MCP client (Atlassian MCP server)
+    mcp_client_atlassian = K8sMCPClient(
+        local_app=local_app,
+        proxy_name=f"{ATLASSIAN_MCP_SERVER_NAMESPACE}/{ATLASSIAN_MCP_SERVER_GROUP}/{ATLASSIAN_MCP_SERVER_NAME}",
+        connection_id=conn_id,
+    )
+    await mcp_client_atlassian.set_proxy_route()
+
+    # Create the second MCP toolset
+    mcp_toolset_atlassian = SLIMMcpToolSet(mcp_client=mcp_client_atlassian)
+
+    # Set both toolsets on the agent
+    # Each toolset will automatically route tool calls to its corresponding MCP proxy
+    root_agent.tools = [mcp_toolset_k8s, mcp_toolset_atlassian]
 
     server = slim_bindings.Server.new_with_connection(local_app, local_name, conn_id)
     add_A2AServiceServicer_to_server(servicer, server)
