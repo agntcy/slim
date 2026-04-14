@@ -1,0 +1,40 @@
+agent {
+    data_dir       = "DATA_DIR_PLACEHOLDER"
+    log_level      = "INFO"
+    server_address = "SPIRE_SERVER_ADDRESS_PLACEHOLDER"
+    server_port    = "443"
+    socket_path    = "/tmp/spire-agent/public/api.sock"
+    join_token     = "TOKEN_PLACEHOLDER"
+
+    # Bootstrap the server trust bundle from a local PEM file fetched from the
+    # EKS SPIRE server via `spire-server bundle show -format pem`.
+    trust_bundle_path = "BUNDLE_PATH_PLACEHOLDER"
+    trust_domain      = "TRUST_DOMAIN_PLACEHOLDER"
+}
+
+plugins {
+    NodeAttestor "join_token" {
+        plugin_data {}
+    }
+
+    # Private key storage on disk (no TPM or macOS Keychain required)
+    KeyManager "disk" {
+        plugin_data {
+            directory = "DATA_DIR_PLACEHOLDER"
+        }
+    }
+
+    # Workload attestation via UNIX process metadata.
+    # On macOS this is matched through selectors such as uid/user/gid/group.
+    WorkloadAttestor "unix" {
+        plugin_data {}
+    }
+}
+
+health_checks {
+    listener_enabled = true
+    bind_address     = "0.0.0.0"
+    bind_port        = "8080"
+    live_path        = "/live"
+    ready_path       = "/ready"
+}

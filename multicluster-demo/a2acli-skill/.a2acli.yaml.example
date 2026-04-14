@@ -24,3 +24,13 @@ slim:
   #   target-spiffe-id: "spiffe://example.org/agent"   # optional
   #   jwt-audiences:                                    # optional
   #     - "my-audience"
+
+# Multicluster demo example using the EKS SLIM dataplane and a local SPIRE agent.
+# Copy this block into .a2acli.yaml for the shared demo setup.
+# slim:
+#   endpoint: "https://<slim-dataplane-host>:443"
+#   local-name: "agntcy/cli/a2acli"
+#   spire:
+#     socket-path: "/tmp/spire-agent/public/api.sock"
+#     jwt-audiences:
+#       - "slim"
