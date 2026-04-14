@@ -557,7 +557,8 @@ impl MessageProcessor {
                         .await?;
                     i += 1;
                 }
-                self.send_msg_inner(msg, out_vec[i], fanout_otel_prepped).await?;
+                self.send_msg_inner(msg, out_vec[i], fanout_otel_prepped)
+                    .await?;
                 Ok(())
             }
             Err(e) => Err(DataPathError::MessageProcessingError {
