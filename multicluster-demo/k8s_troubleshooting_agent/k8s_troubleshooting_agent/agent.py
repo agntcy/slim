@@ -24,8 +24,9 @@ root_agent = Agent(
         "When asked to check the cluster state and create a Jira ticket:\n"
         "1. Query the cluster using the available MCP tools\n"
         "2. Analyze the data returned from the cluster\n"
-        "3. Create a Jira ticket using the available MCP tools to track the issue\n"
-        "4. Include detailed information in the Jira ticket about the cluster state and the issue you found\n"
+        "3. In case of problems, use the available MCP tools to check if a similar issue has already been reported in Jira to avoid duplicates\n"
+        "4. If no similar issue exists, create a Jira ticket using the available MCP tools to track the issue\n"
+        "5. Include detailed information in the Jira ticket about the cluster state and the issue you found\n"
     ),
     tools=[],  # Tools will be set after MCP client initialization
 )
