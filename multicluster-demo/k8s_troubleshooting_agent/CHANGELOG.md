@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/agntcy/slim/compare/k8s-troubleshooting-agent-v0.1.3...k8s-troubleshooting-agent-v0.1.4) (2026-04-14)
+
+
+### Features
+
+* **multicluster-demo:** improve agent prompt ([#1511](https://github.com/agntcy/slim/issues/1511)) ([23b4f51](https://github.com/agntcy/slim/commit/23b4f51d07d45a4b4bae6f47ef9704801f7e8993))
+
 ## [0.1.3](https://github.com/agntcy/slim/compare/k8s-troubleshooting-agent-v0.1.2...k8s-troubleshooting-agent-v0.1.3) (2026-04-14)
 
 
