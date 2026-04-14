@@ -1,0 +1,156 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: "3"
+
+silent: true
+
+vars:
+  SPIRE_VERSION: v1.14.2
+  SPIRE_REPO: https://github.com/spiffe/spire
+  SPIRE_SRC_DIR: /tmp/spire-build-{{.SPIRE_VERSION}}
+  BIN_DIR: bin
+  AGENT_BIN: "{{.BIN_DIR}}/spire-agent"
+  SPIRE_DIR: spire
+  AGENT_CONF_TPL: "{{.SPIRE_DIR}}/agent.conf.tmpl"
+  DATA_DIR: "{{.SPIRE_DIR}}/data"
+  BUNDLE_PATH: "{{.DATA_DIR}}/bootstrap.crt"
+  RUNTIME_CONF: "{{.DATA_DIR}}/agent.conf"
+  SOCKET_DIR: /tmp/spire-agent/public
+  SOCKET_PATH: /tmp/spire-agent/public/api.sock
+
+tasks:
+  default:
+    cmds:
+      - task -l
+
+  build:
+    desc: Build the SPIRE agent binary for macOS from source ({{.SPIRE_VERSION}})
+    cmds:
+      - |
+        if [ -f "{{.AGENT_BIN}}" ]; then
+          echo "==> {{.AGENT_BIN}} already built — run 'task clean' to force rebuild"
+          exit 0
+        fi
+        if [ ! -d "{{.SPIRE_SRC_DIR}}" ]; then
+          echo "==> Cloning spire {{.SPIRE_VERSION}}..."
+          git clone --depth 1 --branch {{.SPIRE_VERSION}} {{.SPIRE_REPO}} {{.SPIRE_SRC_DIR}}
+        fi
+        echo "==> Building spire-agent from source (~2 min)..."
+        mkdir -p {{.BIN_DIR}}
+        OUT="$(pwd)/{{.AGENT_BIN}}"
+        cd {{.SPIRE_SRC_DIR}} && CGO_ENABLED=0 go build -o "$OUT" ./cmd/spire-agent/main.go
+        echo "==> Built: {{.AGENT_BIN}}"
+
+  agent-conf:
+    desc: Generate runtime agent.conf with a fresh join token from the EKS SPIRE server
+    cmds:
+      - mkdir -p {{.DATA_DIR}} {{.SOCKET_DIR}}
+      - |
+        K8S_CONTEXT="${MULTICLUSTER_DEMO_K8S_CONTEXT:?set MULTICLUSTER_DEMO_K8S_CONTEXT}"
+        SPIRE_NS="${MULTICLUSTER_DEMO_SPIRE_NAMESPACE:?set MULTICLUSTER_DEMO_SPIRE_NAMESPACE}"
+        SPIRE_SERVER_POD="${MULTICLUSTER_DEMO_SPIRE_SERVER_POD:?set MULTICLUSTER_DEMO_SPIRE_SERVER_POD}"
+        SPIRE_SERVER_ADDRESS="${MULTICLUSTER_DEMO_SPIRE_SERVER_ADDRESS:?set MULTICLUSTER_DEMO_SPIRE_SERVER_ADDRESS}"
+        TRUST_DOMAIN="${MULTICLUSTER_DEMO_TRUST_DOMAIN:?set MULTICLUSTER_DEMO_TRUST_DOMAIN}"
+        AGENT_SPIFFE_ID="spiffe://$TRUST_DOMAIN/macos/agent/$(hostname -s)"
+        echo "==> Fetching bootstrap PEM bundle ..."
+        kubectl --context "$K8S_CONTEXT" \
+          -n "$SPIRE_NS" \
+          exec "$SPIRE_SERVER_POD" -c spire-server -- \
+          spire-server bundle show -format pem > {{.BUNDLE_PATH}}
+        echo "==> Generating join token for $AGENT_SPIFFE_ID ..."
+        TOKEN=$(kubectl --context "$K8S_CONTEXT" \
+          -n "$SPIRE_NS" \
+          exec "$SPIRE_SERVER_POD" -c spire-server -- \
+          spire-server token generate -spiffeID "$AGENT_SPIFFE_ID" 2>/dev/null \
+          | awk '{print $2}')
+        [ -z "$TOKEN" ] && echo "ERROR: failed to generate token" && exit 1
+        echo "==> Token: $TOKEN"
+        DATA_DIR_ABS="$(pwd)/{{.DATA_DIR}}"
+        BUNDLE_PATH_ABS="$(pwd)/{{.BUNDLE_PATH}}"
+        sed -e "s|TOKEN_PLACEHOLDER|$TOKEN|g" \
+            -e "s|DATA_DIR_PLACEHOLDER|$DATA_DIR_ABS|g" \
+            -e "s|BUNDLE_PATH_PLACEHOLDER|$BUNDLE_PATH_ABS|g" \
+            -e "s|SPIRE_SERVER_ADDRESS_PLACEHOLDER|$SPIRE_SERVER_ADDRESS|g" \
+            -e "s|TRUST_DOMAIN_PLACEHOLDER|$TRUST_DOMAIN|g" \
+            {{.AGENT_CONF_TPL}} > {{.RUNTIME_CONF}}
+        echo "==> Config written: {{.RUNTIME_CONF}}"
+
+  run:
+    desc: Build, configure, and start the SPIRE agent (Ctrl-C to stop)
+    cmds:
+      - task: build
+      - task: agent-conf
+      - echo "==> Starting spire-agent — socket at {{.SOCKET_PATH}}"
+      - "{{.AGENT_BIN}} run -config {{.RUNTIME_CONF}}"
+
+  register:
+    desc: Register a workload SPIFFE entry for a2acli on the EKS SPIRE server (run once after agent is attested)
+    cmds:
+      - |
+        K8S_CONTEXT="${MULTICLUSTER_DEMO_K8S_CONTEXT:?set MULTICLUSTER_DEMO_K8S_CONTEXT}"
+        SPIRE_NS="${MULTICLUSTER_DEMO_SPIRE_NAMESPACE:?set MULTICLUSTER_DEMO_SPIRE_NAMESPACE}"
+        SPIRE_SERVER_POD="${MULTICLUSTER_DEMO_SPIRE_SERVER_POD:?set MULTICLUSTER_DEMO_SPIRE_SERVER_POD}"
+        TRUST_DOMAIN="${MULTICLUSTER_DEMO_TRUST_DOMAIN:?set MULTICLUSTER_DEMO_TRUST_DOMAIN}"
+        AGENT_SPIFFE_ID="spiffe://$TRUST_DOMAIN/macos/agent/$(hostname -s)"
+        A2ACLI_SPIFFE_ID="spiffe://$TRUST_DOMAIN/macos/workload/a2acli"
+        USER_NAME="$(id -un)"
+        USER_UID="$(id -u)"
+        GROUP_NAME="$(id -gn)"
+        GROUP_GID="$(id -g)"
+        echo "==> Registering workload entry:"
+        echo "    parentID : $AGENT_SPIFFE_ID"
+        echo "    spiffeID : $A2ACLI_SPIFFE_ID"
+        echo "    selectors:"
+        echo "      - unix:uid:$USER_UID"
+        echo "      - unix:user:$USER_NAME"
+        echo "      - unix:gid:$GROUP_GID"
+        echo "      - unix:group:$GROUP_NAME"
+        kubectl --context "$K8S_CONTEXT" \
+          -n "$SPIRE_NS" \
+          exec "$SPIRE_SERVER_POD" -c spire-server -- \
+          spire-server entry create \
+            -parentID "$AGENT_SPIFFE_ID" \
+            -spiffeID "$A2ACLI_SPIFFE_ID" \
+            -selector "unix:uid:$USER_UID" \
+            -selector "unix:user:$USER_NAME" \
+            -selector "unix:gid:$GROUP_GID" \
+            -selector "unix:group:$GROUP_NAME" \
+          || echo "==> Entry may already exist — run 'task show-entries' to verify"
+        echo ""
+        echo "==> Enable SPIRE auth in a2acli-skill/.a2acli.yaml:"
+        echo "    slim:"
+        echo "      spire:"
+        echo "        socket-path: \"{{.SOCKET_PATH}}\""
+        echo "        jwt-audiences: [\"slim\"]"
+
+  show-entries:
+    desc: Show all SPIRE workload entries registered for this macOS agent
+    cmds:
+      - |
+        K8S_CONTEXT="${MULTICLUSTER_DEMO_K8S_CONTEXT:?set MULTICLUSTER_DEMO_K8S_CONTEXT}"
+        SPIRE_NS="${MULTICLUSTER_DEMO_SPIRE_NAMESPACE:?set MULTICLUSTER_DEMO_SPIRE_NAMESPACE}"
+        SPIRE_SERVER_POD="${MULTICLUSTER_DEMO_SPIRE_SERVER_POD:?set MULTICLUSTER_DEMO_SPIRE_SERVER_POD}"
+        TRUST_DOMAIN="${MULTICLUSTER_DEMO_TRUST_DOMAIN:?set MULTICLUSTER_DEMO_TRUST_DOMAIN}"
+        AGENT_SPIFFE_ID="spiffe://$TRUST_DOMAIN/macos/agent/$(hostname -s)"
+        kubectl --context "$K8S_CONTEXT" \
+          -n "$SPIRE_NS" \
+          exec "$SPIRE_SERVER_POD" -c spire-server -- \
+          spire-server entry show -parentID "$AGENT_SPIFFE_ID"
+
+  fetch-svid:
+    desc: Fetch X.509 SVID from the Workload API socket to verify the agent is running
+    cmds:
+      - "{{.AGENT_BIN}} api fetch x509 -socketPath {{.SOCKET_PATH}}"
+
+  stop:
+    desc: Stop any running spire-agent process
+    cmds:
+      - pkill -f "spire-agent run -config" && echo "==> Stopped" || echo "==> No running agent found"
+
+  clean:
+    desc: Remove the built binary and agent data (forces full rebuild and re-attestation)
+    cmds:
+      - rm -f {{.AGENT_BIN}} {{.RUNTIME_CONF}}
+      - rm -rf {{.DATA_DIR}}
+      - echo "==> Cleaned"
