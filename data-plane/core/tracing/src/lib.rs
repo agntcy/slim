@@ -3,6 +3,8 @@
 
 pub mod utils;
 
+pub use utils::otel_propagation_enabled;
+
 use opentelemetry::{KeyValue, global, trace::TracerProvider as _};
 use opentelemetry_otlp::{ExporterBuildError, WithExportConfig};
 use opentelemetry_sdk::{
@@ -395,6 +397,8 @@ impl TracingConfiguration {
 
     /// Set up a subscriber
     pub fn setup_tracing_subscriber(&self) -> Result<OtelGuard, ConfigError> {
+        utils::set_otel_propagation_enabled(self.opentelemetry.enabled);
+
         let fmt_layer = fmt::layer()
             .with_thread_ids(self.display_thread_ids)
             .with_thread_names(self.display_thread_names)
