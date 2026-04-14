@@ -3,6 +3,7 @@ package db
 import (
 	"fmt"
 	"hash/fnv"
+	"reflect"
 	"strings"
 	"time"
 
@@ -21,9 +22,7 @@ type ConnectionDetails struct {
 	ExternalEndpoint *string
 	TrustDomain      *string
 	MTLSRequired     bool
-	TLSConfig        *TLS
-	KeepaliveConfig  *KeepaliveClass
-	AuthConfig       *Auth
+	ClientConfig     ClientConnectionConfig
 }
 
 func (cd ConnectionDetails) String() string {
@@ -109,6 +108,11 @@ func connectionDetailsEqual(cd1, cd2 ConnectionDetails) bool {
 		if *cd1.ExternalEndpoint != *cd2.ExternalEndpoint {
 			return false
 		}
+	}
+
+	// Compare ClientConfig
+	if !reflect.DeepEqual(cd1.ClientConfig, cd2.ClientConfig) {
+		return false
 	}
 
 	return true

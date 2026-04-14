@@ -689,8 +689,10 @@ func selectConnection(dstNode *db.Node, srcNode *db.Node) (db.ConnectionDetails,
 
 func getSrcNodeSpireSocketPath(srcNode *db.Node) *string {
 	for _, conn := range srcNode.ConnDetails {
-		if conn.TLSConfig != nil && conn.TLSConfig.Source != nil && conn.TLSConfig.Source.SocketPath != nil {
-			return conn.TLSConfig.Source.SocketPath
+		if conn.ClientConfig.TLS != nil &&
+			conn.ClientConfig.TLS.Source != nil &&
+			conn.ClientConfig.TLS.Source.SocketPath != nil {
+			return conn.ClientConfig.TLS.Source.SocketPath
 		}
 	}
 	return nil
@@ -702,15 +704,18 @@ func generateConfigData(ctx context.Context, detail db.ConnectionDetails, localC
 	truev := true
 	falsev := false
 	skipVerify := false
-	config := db.ClientConnectionConfig{
-		Endpoint: detail.Endpoint,
+	config := detail.ClientConfig
+
+	if config.Backoff == nil {
+		config.Backoff = &db.BackoffConfig{
+			Type: "fixed_interval",
+			FixedIntervalBackoffConfig: &db.FixedIntervalBackoffConfig{
+				Interval: "2000ms",
+			},
+		}
 	}
-	config.Backoff = &db.BackoffConfig{
-		Type: "fixed_interval",
-		FixedIntervalBackoffConfig: &db.FixedIntervalBackoffConfig{
-			Interval: "2000ms",
-		},
-	}
+
+	config.Endpoint = detail.Endpoint
 	if !localConnection {
 		if detail.ExternalEndpoint == nil || *detail.ExternalEndpoint == "" {
 			return "", "", fmt.Errorf("no external endpoint defined for connection %v", detail)
@@ -720,9 +725,8 @@ func generateConfigData(ctx context.Context, detail db.ConnectionDetails, localC
 		skipVerify = true // skip verification for local connections
 	}
 	switch {
-	case detail.TLSConfig != nil:
+	case config.TLS != nil:
 		config.Endpoint = "https://" + config.Endpoint
-		config.TLS = detail.TLSConfig
 	case !detail.MTLSRequired:
 		config.Endpoint = "http://" + config.Endpoint
 		config.TLS = &db.TLS{Insecure: &truev}
@@ -755,11 +759,11 @@ func generateConfigData(ctx context.Context, detail db.ConnectionDetails, localC
 			zlog.Debug().Msgf("Trust domain set to: %s", *destNode.GroupName)
 		}
 	}
-	config.Headers = map[string]string{}
+	if config.Headers == nil {
+		config.Headers = map[string]string{}
+	}
 
-	if detail.KeepaliveConfig != nil {
-		config.Keepalive = detail.KeepaliveConfig
-	} else {
+	if config.Keepalive == nil {
 		config.Keepalive = &db.KeepaliveClass{
 			HTTP2Keepalive:     stringPtr("20s"),
 			KeepAliveWhileIdle: &falsev,

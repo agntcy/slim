@@ -895,15 +895,19 @@ func strPtr(s string) *string {
 	return &s
 }
 
-func TestGetConnDetails_ParsesTLSFromMetadata(t *testing.T) {
+func TestGetConnDetails_ParsesTLSFromClientConfigMetadata(t *testing.T) {
 	detail := &controllerapi.ConnectionDetails{
 		Endpoint: "127.0.0.1:4500",
 		Metadata: &structpb.Struct{
 			Fields: map[string]*structpb.Value{
-				"tls": structpb.NewStructValue(&structpb.Struct{
+				"client_config": structpb.NewStructValue(&structpb.Struct{
 					Fields: map[string]*structpb.Value{
-						"insecure":                     structpb.NewBoolValue(false),
-						"include_system_ca_certs_pool": structpb.NewBoolValue(true),
+						"tls": structpb.NewStructValue(&structpb.Struct{
+							Fields: map[string]*structpb.Value{
+								"insecure":                     structpb.NewBoolValue(false),
+								"include_system_ca_certs_pool": structpb.NewBoolValue(true),
+							},
+						}),
 					},
 				}),
 			},
@@ -911,24 +915,28 @@ func TestGetConnDetails_ParsesTLSFromMetadata(t *testing.T) {
 	}
 
 	conn := getConnDetails("10.0.0.1", detail)
-	require.NotNil(t, conn.TLSConfig)
-	require.NotNil(t, conn.TLSConfig.Insecure)
-	require.False(t, *conn.TLSConfig.Insecure)
-	require.NotNil(t, conn.TLSConfig.IncludeSystemCACertsPool)
-	require.True(t, *conn.TLSConfig.IncludeSystemCACertsPool)
+	require.NotNil(t, conn.ClientConfig.TLS)
+	require.NotNil(t, conn.ClientConfig.TLS.Insecure)
+	require.False(t, *conn.ClientConfig.TLS.Insecure)
+	require.NotNil(t, conn.ClientConfig.TLS.IncludeSystemCACertsPool)
+	require.True(t, *conn.ClientConfig.TLS.IncludeSystemCACertsPool)
 }
 
-func TestGetConnDetails_MetadataTLSTakesPrecedenceOverLegacyField(t *testing.T) {
+func TestGetConnDetails_ClientConfigTLSTakesPrecedenceOverLegacyField(t *testing.T) {
 	legacyTLS := `{"insecure":true,"include_system_ca_certs_pool":false}`
 	detail := &controllerapi.ConnectionDetails{
 		Endpoint: "127.0.0.1:4500",
 		Tls:      &legacyTLS,
 		Metadata: &structpb.Struct{
 			Fields: map[string]*structpb.Value{
-				"tls": structpb.NewStructValue(&structpb.Struct{
+				"client_config": structpb.NewStructValue(&structpb.Struct{
 					Fields: map[string]*structpb.Value{
-						"insecure":                     structpb.NewBoolValue(false),
-						"include_system_ca_certs_pool": structpb.NewBoolValue(true),
+						"tls": structpb.NewStructValue(&structpb.Struct{
+							Fields: map[string]*structpb.Value{
+								"insecure":                     structpb.NewBoolValue(false),
+								"include_system_ca_certs_pool": structpb.NewBoolValue(true),
+							},
+						}),
 					},
 				}),
 			},
@@ -936,21 +944,34 @@ func TestGetConnDetails_MetadataTLSTakesPrecedenceOverLegacyField(t *testing.T) 
 	}
 
 	conn := getConnDetails("10.0.0.1", detail)
-	require.NotNil(t, conn.TLSConfig)
-	require.NotNil(t, conn.TLSConfig.Insecure)
-	require.False(t, *conn.TLSConfig.Insecure)
-	require.NotNil(t, conn.TLSConfig.IncludeSystemCACertsPool)
-	require.True(t, *conn.TLSConfig.IncludeSystemCACertsPool)
+	require.NotNil(t, conn.ClientConfig.TLS)
+	require.NotNil(t, conn.ClientConfig.TLS.Insecure)
+	require.False(t, *conn.ClientConfig.TLS.Insecure)
+	require.NotNil(t, conn.ClientConfig.TLS.IncludeSystemCACertsPool)
+	require.True(t, *conn.ClientConfig.TLS.IncludeSystemCACertsPool)
 }
 
-func TestGetConnDetails_ParsesKeepaliveFromMetadata(t *testing.T) {
+func TestGetConnDetails_ParsesKeepaliveAndAuthFromClientConfigMetadata(t *testing.T) {
 	detail := &controllerapi.ConnectionDetails{
 		Endpoint: "127.0.0.1:4500",
 		Metadata: &structpb.Struct{
 			Fields: map[string]*structpb.Value{
-				"keepalive": structpb.NewStructValue(&structpb.Struct{
+				"client_config": structpb.NewStructValue(&structpb.Struct{
 					Fields: map[string]*structpb.Value{
-						"keep_alive_while_idle": structpb.NewBoolValue(true),
+						"keepalive": structpb.NewStructValue(&structpb.Struct{
+							Fields: map[string]*structpb.Value{
+								"keep_alive_while_idle": structpb.NewBoolValue(true),
+							},
+						}),
+						"auth": structpb.NewStructValue(&structpb.Struct{
+							Fields: map[string]*structpb.Value{
+								"type":        structpb.NewStringValue("spire"),
+								"socket_path": structpb.NewStringValue("/a/b/c"),
+								"jwt_audiences": structpb.NewListValue(&structpb.ListValue{
+									Values: []*structpb.Value{structpb.NewStringValue("slim")},
+								}),
+							},
+						}),
 					},
 				}),
 			},
@@ -958,9 +979,16 @@ func TestGetConnDetails_ParsesKeepaliveFromMetadata(t *testing.T) {
 	}
 
 	conn := getConnDetails("10.0.0.1", detail)
-	require.NotNil(t, conn.KeepaliveConfig)
-	require.NotNil(t, conn.KeepaliveConfig.KeepAliveWhileIdle)
-	require.True(t, *conn.KeepaliveConfig.KeepAliveWhileIdle)
+	require.NotNil(t, conn.ClientConfig.Keepalive)
+	require.NotNil(t, conn.ClientConfig.Keepalive.KeepAliveWhileIdle)
+	require.True(t, *conn.ClientConfig.Keepalive.KeepAliveWhileIdle)
+	require.NotNil(t, conn.ClientConfig.Auth)
+	require.Equal(t, db.AuthTypeSpire, conn.ClientConfig.Auth.Type)
+	require.NotNil(t, conn.ClientConfig.Auth.Spire)
+	require.NotNil(t, conn.ClientConfig.Auth.Spire.SocketPath)
+	require.Equal(t, "/a/b/c", *conn.ClientConfig.Auth.Spire.SocketPath)
+	require.NotNil(t, conn.ClientConfig.Auth.Spire.JwtAudiences)
+	require.Equal(t, []string{"slim"}, *conn.ClientConfig.Auth.Spire.JwtAudiences)
 }
 
 func TestSouthbound_DifferentGroupsWithMTLS(t *testing.T) {
@@ -984,7 +1012,7 @@ func TestSouthbound_DifferentGroupsWithMTLS(t *testing.T) {
 			expectedTrustDomain:    "",
 			expectedSourceSocket:   "unix:/tmp1/spire-agent/public/api.sock",
 			expectedCaSourceSocket: "unix:/tmp1/spire-agent/public/api.sock",
-			description:            "TLS comes from destination metadata.tls",
+			description:            "TLS comes from destination metadata.client_config",
 		},
 		{
 			name:                   "fallback_to_group_name",
@@ -995,7 +1023,7 @@ func TestSouthbound_DifferentGroupsWithMTLS(t *testing.T) {
 			expectedTrustDomain:    "",
 			expectedSourceSocket:   "unix:/tmp/spire-agent/public/api.sock",
 			expectedCaSourceSocket: "unix:/tmp/spire-agent/public/api.sock",
-			description:            "TLS comes from destination metadata.tls",
+			description:            "TLS comes from destination metadata.client_config",
 		},
 	}
 
@@ -1014,15 +1042,17 @@ func TestSouthbound_DifferentGroupsWithMTLS(t *testing.T) {
 			slim0.MTLSRequired = true
 			slim0.ExternalEndpoint = strPtr("external-slim-0:4500")
 			slim0.TrustDomain = tt.slim0TrustDomain
-			slim0.TLSConfig = &db.TLS{
-				Source: &db.TLSSource{
-					Type:           "spire",
-					SocketPath:     strPtr(tt.slim0SocketPath),
-					TargetSpiffeID: strPtr("spiffe://example.local/ns/slim/sa/slim"),
-				},
-				CaSource: &db.CaSource{
-					Type:       "spire",
-					SocketPath: strPtr(tt.slim0SocketPath),
+			slim0.ClientConfig = &db.ClientConnectionConfig{
+				TLS: &db.TLS{
+					Source: &db.TLSSource{
+						Type:           "spire",
+						SocketPath:     strPtr(tt.slim0SocketPath),
+						TargetSpiffeID: strPtr("spiffe://example.local/ns/slim/sa/slim"),
+					},
+					CaSource: &db.CaSource{
+						Type:       "spire",
+						SocketPath: strPtr(tt.slim0SocketPath),
+					},
 				},
 			}
 
@@ -1031,15 +1061,17 @@ func TestSouthbound_DifferentGroupsWithMTLS(t *testing.T) {
 			slim1.MTLSRequired = true
 			slim1.ExternalEndpoint = strPtr("external-slim-1:4501")
 			slim1.TrustDomain = tt.slim1TrustDomain
-			slim1.TLSConfig = &db.TLS{
-				Source: &db.TLSSource{
-					Type:           "spire",
-					SocketPath:     strPtr(tt.slim1SocketPath),
-					TargetSpiffeID: strPtr("spiffe://example.local/ns/slim/sa/slim"),
-				},
-				CaSource: &db.CaSource{
-					Type:       "spire",
-					SocketPath: strPtr(tt.slim1SocketPath),
+			slim1.ClientConfig = &db.ClientConnectionConfig{
+				TLS: &db.TLS{
+					Source: &db.TLSSource{
+						Type:           "spire",
+						SocketPath:     strPtr(tt.slim1SocketPath),
+						TargetSpiffeID: strPtr("spiffe://example.local/ns/slim/sa/slim"),
+					},
+					CaSource: &db.CaSource{
+						Type:       "spire",
+						SocketPath: strPtr(tt.slim1SocketPath),
+					},
 				},
 			}
 

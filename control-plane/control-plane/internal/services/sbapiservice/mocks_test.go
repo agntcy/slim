@@ -34,8 +34,7 @@ type MockSlimServer struct {
 	LocalEndpoint    *string
 	ExternalEndpoint *string
 	MTLSRequired     bool
-	Auth             *db.Auth
-	TLSConfig        *db.TLS
+	ClientConfig     *db.ClientConnectionConfig
 	TrustDomain      *string
 
 	// behavior flags (for tests)
@@ -106,16 +105,12 @@ func (m *MockSlimServer) connect(ctx context.Context) error {
 	if m.TrustDomain != nil {
 		connDetails.Metadata.Fields["trust_domain"] = structpb.NewStringValue(*m.TrustDomain)
 	}
-	if m.Auth != nil {
-		authJSON, _ := json.Marshal(m.Auth)
-		connDetails.Auth = stringPtr(string(authJSON))
-	}
-	if m.TLSConfig != nil {
-		tlsJSON, _ := json.Marshal(m.TLSConfig)
-		var tlsMap map[string]any
-		if err := json.Unmarshal(tlsJSON, &tlsMap); err == nil {
-			if tlsStruct, err := structpb.NewStruct(tlsMap); err == nil {
-				connDetails.Metadata.Fields["tls"] = structpb.NewStructValue(tlsStruct)
+	if m.ClientConfig != nil {
+		clientConfigJSON, _ := json.Marshal(m.ClientConfig)
+		var clientConfigMap map[string]any
+		if err := json.Unmarshal(clientConfigJSON, &clientConfigMap); err == nil {
+			if clientConfigStruct, err := structpb.NewStruct(clientConfigMap); err == nil {
+				connDetails.Metadata.Fields["client_config"] = structpb.NewStructValue(clientConfigStruct)
 			}
 		}
 	}
@@ -134,10 +129,6 @@ func (m *MockSlimServer) connect(ctx context.Context) error {
 
 	go m.recvLoop()
 	return nil
-}
-
-func stringPtr(s string) *string {
-	return &s
 }
 
 func (m *MockSlimServer) recvLoop() {

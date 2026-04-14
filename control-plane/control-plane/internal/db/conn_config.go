@@ -1,5 +1,7 @@
 package db
 
+import "encoding/json"
+
 // Struct for the client configuration.
 // This struct contains the endpoint, origin, compression type, rate limit,
 // TLS settings, keepalive settings, timeout settings, buffer size settings,
@@ -77,9 +79,9 @@ type Basic struct {
 type StaticJwt struct {
 	// Path to a file containing the token (auto-reloaded on change)
 	File string `json:"file"`
-	// Duration (in seconds) used by the AddJwtLayer cache for re-fetching the token.
+	// Duration used by the AddJwtLayer cache for re-fetching the token.
 	// This duration bounds the "validity" window before re-reading from file.
-	Duration *int64 `json:"duration,omitempty"`
+	Duration *string `json:"duration,omitempty"`
 }
 
 // JWT authentication configuration.
@@ -95,11 +97,16 @@ type Jwt struct {
 	Key *JwtKey `json:"key"`
 }
 
-// JWT authentication configuration.
-type AuthClass struct {
-	Basic     *Basic     `json:"basic,omitempty"`
-	StaticJwt *StaticJwt `json:"static_jwt,omitempty"`
-	Jwt       *Jwt       `json:"jwt,omitempty"`
+// SPIRE authentication configuration.
+type SpireAuth struct {
+	// Path to the SPIFFE Workload API socket (None => use SPIFFE_ENDPOINT_SOCKET env var)
+	SocketPath *string `json:"socket_path,omitempty"`
+	// Optional target SPIFFE ID when requesting JWT SVIDs
+	TargetSpiffeID *string `json:"target_spiffe_id,omitempty"`
+	// Audiences to request / verify for JWT SVIDs
+	JwtAudiences *[]string `json:"jwt_audiences,omitempty"`
+	// Optional trust domains override for X.509 bundle retrieval.
+	TrustDomains *[]string `json:"trust_domains,omitempty"`
 }
 
 // Claims
@@ -163,7 +170,11 @@ type TLS struct {
 type AuthEnum string
 
 const (
-	None AuthEnum = "none"
+	AuthTypeBasic     AuthEnum = "basic"
+	AuthTypeStaticJwt AuthEnum = "static_jwt"
+	AuthTypeJWT       AuthEnum = "jwt"
+	AuthTypeSpire     AuthEnum = "spire"
+	None              AuthEnum = "none"
 )
 
 // CompressionType represents the supported compression types for gRPC messages.
@@ -186,8 +197,178 @@ const (
 //
 // Enum holding one configuration for the client.
 type Auth struct {
-	AuthClass *AuthClass
-	Enum      *AuthEnum
+	// Discriminator for the tagged auth union.
+	Type AuthEnum `json:"type"`
+	// Variant payloads; marshaled/unmarshaled as flattened fields.
+	Basic     *Basic     `json:"-"`
+	StaticJwt *StaticJwt `json:"-"`
+	Jwt       *Jwt       `json:"-"`
+	Spire     *SpireAuth `json:"-"`
+}
+
+// MarshalJSON serializes Auth in the same tagged + flattened shape used by
+// Rust's AuthenticationConfig (`#[serde(tag = "type")]`).
+func (a Auth) MarshalJSON() ([]byte, error) {
+	typ := a.Type
+	if typ == "" {
+		typ = None
+	}
+
+	payload := map[string]interface{}{
+		"type": typ,
+	}
+
+	switch typ {
+	case AuthTypeBasic:
+		if a.Basic != nil {
+			payload["username"] = a.Basic.Username
+			payload["password"] = a.Basic.Password
+		}
+	case AuthTypeStaticJwt:
+		if a.StaticJwt != nil {
+			payload["file"] = a.StaticJwt.File
+			if a.StaticJwt.Duration != nil {
+				payload["duration"] = *a.StaticJwt.Duration
+			}
+		}
+	case AuthTypeJWT:
+		if a.Jwt != nil {
+			if a.Jwt.Claims != nil {
+				payload["claims"] = a.Jwt.Claims
+			}
+			if a.Jwt.Duration != nil {
+				payload["duration"] = *a.Jwt.Duration
+			}
+			if a.Jwt.Key != nil {
+				payload["key"] = a.Jwt.Key
+			}
+		}
+	case AuthTypeSpire:
+		if a.Spire != nil {
+			if a.Spire.SocketPath != nil {
+				payload["socket_path"] = *a.Spire.SocketPath
+			}
+			if a.Spire.TargetSpiffeID != nil {
+				payload["target_spiffe_id"] = *a.Spire.TargetSpiffeID
+			}
+			if a.Spire.JwtAudiences != nil {
+				payload["jwt_audiences"] = *a.Spire.JwtAudiences
+			}
+			if a.Spire.TrustDomains != nil {
+				payload["trust_domains"] = *a.Spire.TrustDomains
+			}
+		}
+	case None:
+		// no extra fields
+	}
+
+	return json.Marshal(payload)
+}
+
+// UnmarshalJSON deserializes tagged + flattened auth objects.
+func (a *Auth) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	if t, ok := raw["type"]; ok {
+		if err := json.Unmarshal(t, &a.Type); err != nil {
+			return err
+		}
+	} else {
+		a.Type = None
+	}
+
+	switch a.Type {
+	case AuthTypeBasic:
+		var basic Basic
+		if v, ok := raw["username"]; ok {
+			if err := json.Unmarshal(v, &basic.Username); err != nil {
+				return err
+			}
+		}
+		if v, ok := raw["password"]; ok {
+			if err := json.Unmarshal(v, &basic.Password); err != nil {
+				return err
+			}
+		}
+		a.Basic = &basic
+	case AuthTypeStaticJwt:
+		var sj StaticJwt
+		if v, ok := raw["file"]; ok {
+			if err := json.Unmarshal(v, &sj.File); err != nil {
+				return err
+			}
+		}
+		if v, ok := raw["duration"]; ok {
+			var d string
+			if err := json.Unmarshal(v, &d); err != nil {
+				return err
+			}
+			sj.Duration = &d
+		}
+		a.StaticJwt = &sj
+	case AuthTypeJWT:
+		var jwt Jwt
+		if v, ok := raw["claims"]; ok {
+			var c Claims
+			if err := json.Unmarshal(v, &c); err != nil {
+				return err
+			}
+			jwt.Claims = &c
+		}
+		if v, ok := raw["duration"]; ok {
+			var d string
+			if err := json.Unmarshal(v, &d); err != nil {
+				return err
+			}
+			jwt.Duration = &d
+		}
+		if v, ok := raw["key"]; ok {
+			var k JwtKey
+			if err := json.Unmarshal(v, &k); err != nil {
+				return err
+			}
+			jwt.Key = &k
+		}
+		a.Jwt = &jwt
+	case AuthTypeSpire:
+		var spire SpireAuth
+		if v, ok := raw["socket_path"]; ok {
+			var s string
+			if err := json.Unmarshal(v, &s); err != nil {
+				return err
+			}
+			spire.SocketPath = &s
+		}
+		if v, ok := raw["target_spiffe_id"]; ok {
+			var s string
+			if err := json.Unmarshal(v, &s); err != nil {
+				return err
+			}
+			spire.TargetSpiffeID = &s
+		}
+		if v, ok := raw["jwt_audiences"]; ok {
+			var audiences []string
+			if err := json.Unmarshal(v, &audiences); err != nil {
+				return err
+			}
+			spire.JwtAudiences = &audiences
+		}
+		if v, ok := raw["trust_domains"]; ok {
+			var domains []string
+			if err := json.Unmarshal(v, &domains); err != nil {
+				return err
+			}
+			spire.TrustDomains = &domains
+		}
+		a.Spire = &spire
+	case None:
+		// no-op
+	}
+
+	return nil
 }
 
 // A generic metadata map. Newtype with a flattened map so that serde encodes

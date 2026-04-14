@@ -197,6 +197,7 @@ func TestGenerateConfigData_SetsFixedIntervalBackoff(t *testing.T) {
 	detail := db.ConnectionDetails{
 		Endpoint:     "127.0.0.1:50052",
 		MTLSRequired: false,
+		ClientConfig: db.ClientConnectionConfig{},
 	}
 	destNode := &db.Node{ID: "node-dst"}
 	srcNode := &db.Node{ID: "node-src"}
@@ -225,10 +226,12 @@ func TestGenerateConfigData_UsesExplicitTLSConfigOverMTLSFlag(t *testing.T) {
 	detail := db.ConnectionDetails{
 		Endpoint:     "127.0.0.1:50052",
 		MTLSRequired: false,
-		TLSConfig: &db.TLS{
-			Insecure:                 &falsev,
-			IncludeSystemCACertsPool: &truev,
-			InsecureSkipVerify:       &falsev,
+		ClientConfig: db.ClientConnectionConfig{
+			TLS: &db.TLS{
+				Insecure:                 &falsev,
+				IncludeSystemCACertsPool: &truev,
+				InsecureSkipVerify:       &falsev,
+			},
 		},
 	}
 	destNode := &db.Node{ID: "node-dst"}
@@ -248,7 +251,7 @@ func TestGenerateConfigData_UsesExplicitTLSConfigOverMTLSFlag(t *testing.T) {
 	require.True(t, *parsed.TLS.IncludeSystemCACertsPool)
 }
 
-func TestGenerateConfigData_UsesKeepaliveFromConnectionDetails(t *testing.T) {
+func TestGenerateConfigData_UsesKeepaliveFromClientConfig(t *testing.T) {
 	ctx := util.GetContextWithLogger(context.Background(), config.LogConfig{Level: "debug"})
 	truev := true
 	http2Keepalive := "10m"
@@ -256,9 +259,11 @@ func TestGenerateConfigData_UsesKeepaliveFromConnectionDetails(t *testing.T) {
 	detail := db.ConnectionDetails{
 		Endpoint:     "127.0.0.1:50052",
 		MTLSRequired: false,
-		KeepaliveConfig: &db.KeepaliveClass{
-			KeepAliveWhileIdle: &truev,
-			HTTP2Keepalive:     &http2Keepalive,
+		ClientConfig: db.ClientConnectionConfig{
+			Keepalive: &db.KeepaliveClass{
+				KeepAliveWhileIdle: &truev,
+				HTTP2Keepalive:     &http2Keepalive,
+			},
 		},
 	}
 	destNode := &db.Node{ID: "node-dst"}

@@ -195,69 +195,34 @@ func getConnDetails(host string, detail *controllerapi.ConnectionDetails) db.Con
 		MTLSRequired:     detail.MtlsRequired,
 		ExternalEndpoint: externalEndpoint,
 		TrustDomain:      trustDomain,
-	}
-
-	connDetails.TLSConfig = parseTLSConfig(detail)
-	connDetails.KeepaliveConfig = parseKeepaliveConfig(detail)
-
-	// Parse Auth config from JSON string if provided
-	if detail.Auth != nil && *detail.Auth != "" {
-		var authConfig db.Auth
-		if err := json.Unmarshal([]byte(*detail.Auth), &authConfig); err == nil {
-			connDetails.AuthConfig = &authConfig
-		}
+		ClientConfig:     parseClientConfig(detail),
 	}
 
 	return connDetails
 }
 
-func parseTLSConfig(detail *controllerapi.ConnectionDetails) *db.TLS {
-	// Preferred source: metadata.tls (object or JSON string)
+func parseClientConfig(detail *controllerapi.ConnectionDetails) db.ClientConnectionConfig {
+	clientConfig := db.ClientConnectionConfig{}
+
 	if detail.Metadata != nil && detail.Metadata.Fields != nil {
-		if tlsField, ok := detail.Metadata.Fields["tls"]; ok && tlsField != nil {
-			if tlsStruct := tlsField.GetStructValue(); tlsStruct != nil {
-				tlsConfig := &db.TLS{}
-				if payload, err := json.Marshal(tlsStruct.AsMap()); err == nil {
-					if err := json.Unmarshal(payload, tlsConfig); err == nil {
-						return tlsConfig
+		if cfgField, ok := detail.Metadata.Fields["client_config"]; ok && cfgField != nil {
+			if cfgStruct := cfgField.GetStructValue(); cfgStruct != nil {
+				if payload, err := json.Marshal(cfgStruct.AsMap()); err == nil {
+					if err := json.Unmarshal(payload, &clientConfig); err == nil {
+						return clientConfig
 					}
 				}
 			}
 
-			if tlsJSON := tlsField.GetStringValue(); tlsJSON != "" {
-				tlsConfig := &db.TLS{}
-				if err := json.Unmarshal([]byte(tlsJSON), tlsConfig); err == nil {
-					return tlsConfig
+			if cfgJSON := cfgField.GetStringValue(); cfgJSON != "" {
+				if err := json.Unmarshal([]byte(cfgJSON), &clientConfig); err == nil {
+					return clientConfig
 				}
 			}
 		}
 	}
 
-	return nil
-}
-
-func parseKeepaliveConfig(detail *controllerapi.ConnectionDetails) *db.KeepaliveClass {
-	if detail.Metadata != nil && detail.Metadata.Fields != nil {
-		if keepaliveField, ok := detail.Metadata.Fields["keepalive"]; ok && keepaliveField != nil {
-			if keepaliveStruct := keepaliveField.GetStructValue(); keepaliveStruct != nil {
-				keepalive := &db.KeepaliveClass{}
-				if payload, err := json.Marshal(keepaliveStruct.AsMap()); err == nil {
-					if err := json.Unmarshal(payload, keepalive); err == nil {
-						return keepalive
-					}
-				}
-			}
-
-			if keepaliveJSON := keepaliveField.GetStringValue(); keepaliveJSON != "" {
-				keepalive := &db.KeepaliveClass{}
-				if err := json.Unmarshal([]byte(keepaliveJSON), keepalive); err == nil {
-					return keepalive
-				}
-			}
-		}
-	}
-
-	return nil
+	return clientConfig
 }
 
 func getPeerHost(stream controllerapi.ControllerService_OpenControlChannelServer) string {
