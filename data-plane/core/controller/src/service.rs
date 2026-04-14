@@ -2408,6 +2408,109 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
+    async fn test_create_connection_invalid_config_fails_ack() {
+        let (_control_plane_server, control_plane_client, _client_cfg) = setup_control_planes(
+            "127.0.0.1:50085",
+            "create-invalid-config-server",
+            "create-invalid-config-client",
+        )
+        .await;
+
+        let controller = control_plane_client.controller.clone();
+        let ctrl_msg = ControlMessage {
+            message_id: uuid::Uuid::new_v4().to_string(),
+            payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
+                connections_to_create: vec![v1::Connection {
+                    connection_id: "invalid-config-conn".to_string(),
+                    config_data: "{invalid-json".to_string(),
+                }],
+                connections_to_delete: vec![],
+                subscriptions_to_set: vec![],
+                subscriptions_to_delete: vec![],
+            })),
+        };
+        let (tx, mut rx) = mpsc::channel(1);
+        controller
+            .handle_new_control_message(ctrl_msg, &tx)
+            .await
+            .expect("config command must be handled");
+
+        let ack_msg = rx
+            .recv()
+            .await
+            .expect("expected ack message")
+            .expect("ack should be ok");
+        let ack = match ack_msg.payload {
+            Some(Payload::ConfigCommandAck(ack)) => ack,
+            _ => panic!("expected ConfigCommandAck payload"),
+        };
+        assert_eq!(ack.connections_status.len(), 1);
+        assert!(!ack.connections_status[0].success);
+        assert!(
+            ack.connections_status[0]
+                .error_msg
+                .contains("Failed to parse config")
+        );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_subscription_delete_unknown_link_id_fails_ack() {
+        let (control_plane_server, control_plane_client, _client_cfg) = setup_control_planes(
+            "127.0.0.1:50086",
+            "sub-del-linkid-server-unknown",
+            "sub-del-linkid-client-unknown",
+        )
+        .await;
+
+        let controller = control_plane_client.controller.clone();
+        let ctrl_msg = ControlMessage {
+            message_id: uuid::Uuid::new_v4().to_string(),
+            payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
+                connections_to_create: vec![],
+                connections_to_delete: vec![],
+                subscriptions_to_set: vec![],
+                subscriptions_to_delete: vec![v1::Subscription {
+                    component_0: "org".to_string(),
+                    component_1: "ns".to_string(),
+                    component_2: "agent".to_string(),
+                    id: Some(1),
+                    connection_id: String::new(),
+                    node_id: None,
+                    link_id: Some("missing-link-id-delete".to_string()),
+                    direction: None,
+                }],
+            })),
+        };
+        let (tx, mut rx) = mpsc::channel(1);
+        controller
+            .handle_new_control_message(ctrl_msg, &tx)
+            .await
+            .expect("config command must be handled");
+
+        let ack_msg = rx
+            .recv()
+            .await
+            .expect("expected ack message")
+            .expect("ack should be ok");
+        let ack = match ack_msg.payload {
+            Some(Payload::ConfigCommandAck(ack)) => ack,
+            _ => panic!("expected ConfigCommandAck payload"),
+        };
+
+        assert_eq!(ack.subscriptions_status.len(), 1);
+        assert!(!ack.subscriptions_status[0].success);
+        assert!(
+            ack.subscriptions_status[0]
+                .error_msg
+                .contains("Connection with link_id missing-link-id-delete not found")
+        );
+
+        drop(control_plane_server);
+    }
+
+    #[tokio::test]
+    #[traced_test]
     async fn test_shutdown_drains_resources() {
         // Use a unique port to avoid conflicts with other tests.
         let (mut control_plane_server, mut control_plane_client, _client_cfg) =

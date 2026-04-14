@@ -325,8 +325,8 @@ func testLinkOperations(t *testing.T, da DataAccess) {
 	var deletedLink *Link
 	for _, l := range linksForNode1 {
 		if l.LinkID == link1.LinkID && l.DestEndpoint == "http://node-2:5000" {
-			copy := l
-			deletedLink = &copy
+			linkCopy := l
+			deletedLink = &linkCopy
 			break
 		}
 	}

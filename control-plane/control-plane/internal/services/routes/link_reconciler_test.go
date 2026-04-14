@@ -43,7 +43,8 @@ func (m *testNodeCommandHandler) GetConnectionStatus(
 	return m.connectionStatus, m.connectionErr
 }
 
-func (m *testNodeCommandHandler) UpdateConnectionStatus(context.Context, string, nodecontrol.NodeStatus) {}
+func (m *testNodeCommandHandler) UpdateConnectionStatus(context.Context, string, nodecontrol.NodeStatus) {
+}
 
 func (m *testNodeCommandHandler) WaitForResponse(
 	context.Context, string, reflect.Type, string) (*controllerapi.ControlMessage, error) {
@@ -55,7 +56,8 @@ func (m *testNodeCommandHandler) WaitForResponseWithTimeout(
 	return m.waitResp, m.waitErr
 }
 
-func (m *testNodeCommandHandler) ResponseReceived(context.Context, string, *controllerapi.ControlMessage) {}
+func (m *testNodeCommandHandler) ResponseReceived(context.Context, string, *controllerapi.ControlMessage) {
+}
 
 func newLinkReconcilerForTest(
 	dbService db.DataAccess,
