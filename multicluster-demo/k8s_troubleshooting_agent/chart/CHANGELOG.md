@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/agntcy/slim/compare/helm-k8s-troubleshooting-agent-v0.1.2...helm-k8s-troubleshooting-agent-v0.1.3) (2026-04-14)
+
+
+### Features
+
+* **multicluster-demo:** add second MCP setting in k8s-tba ([#1504](https://github.com/agntcy/slim/issues/1504)) ([824c6f9](https://github.com/agntcy/slim/commit/824c6f9aa8bd918bbc37d4d70eea2d7c53324360))
+
 ## [0.1.2](https://github.com/agntcy/slim/compare/helm-k8s-troubleshooting-agent-v0.1.0...helm-k8s-troubleshooting-agent-v0.1.2) (2026-04-08)
 
 

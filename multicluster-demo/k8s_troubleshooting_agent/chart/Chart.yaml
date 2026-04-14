@@ -5,5 +5,5 @@ apiVersion: v2
 name: k8s-troubleshooting-agent
 description: Helm chart for the Kubernetes Troubleshooting Agent (A2A over SLIM RPC)
 type: application
-version: 0.1.2
+version: 0.1.3
 appVersion: "0.1.2"
