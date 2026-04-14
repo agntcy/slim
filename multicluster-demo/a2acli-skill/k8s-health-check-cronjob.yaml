@@ -30,23 +30,22 @@ spec:
               echo "Discovering k8s_troubleshooting_agent..."
               AGENT_SHA=$(/app/a2acli list \
                 --slim-endpoint "$SLIM_ENDPOINT" \
-                --slim-secret "$SLIM_SECRET" \
                 | grep k8s_troubleshooting_agent \
-                | awk '{print $NF}')
+                | awk '{print $NF}' \
+                | sed 's/\.\.\.//g')
               
               if [ -z "$AGENT_SHA" ]; then
                 echo "ERROR: k8s_troubleshooting_agent not found"
                 echo "Available agents:"
-                /app/a2acli list \
+                bin/a2acli list \
                   --slim-endpoint "$SLIM_ENDPOINT" \
-                  --slim-secret "$SLIM_SECRET"
                 exit 1
               fi
               
               echo "Found agent: $AGENT_SHA"
               echo ""
               echo "Sending health check message..."
-              /app/a2acli send-message \
+              bin/a2acli send-message \
                 --agent "$AGENT_SHA" \
                 --slim-endpoint "$SLIM_ENDPOINT" \
                 --slim-secret "$SLIM_SECRET" \

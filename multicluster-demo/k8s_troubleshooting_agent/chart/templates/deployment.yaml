@@ -74,6 +74,12 @@ spec:
               value: {{ .Values.k8s_mcp_server.group | quote }}
             - name: K8S_MCP_SERVER_NAME
               value: {{ .Values.k8s_mcp_server.name | quote }}
+            - name: ATLASSIAN_MCP_SERVER_NAMESPACE
+              value: {{ .Values.atlassian_mcp_server.namespace | quote }}
+            - name: ATLASSIAN_MCP_SERVER_GROUP
+              value: {{ .Values.atlassian_mcp_server.group | quote }}
+            - name: ATLASSIAN_MCP_SERVER_NAME
+              value: {{ .Values.atlassian_mcp_server.name | quote }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

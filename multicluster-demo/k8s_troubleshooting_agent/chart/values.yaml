@@ -46,8 +46,15 @@ spire:
 # The agent connects to this MCP server via SLIM to query the Kubernetes cluster.
 k8s_mcp_server:
   namespace: "agntcy"
-  group: "demo"
+  group: "mcp"
   name: "mcp_server"
+
+# Atlassian MCP Server configuration.
+# The agent connects to this MCP server via SLIM to interact with Jira.
+atlassian_mcp_server:
+  namespace: "agntcy"
+  group: "mcp"
+  name: "atlassian-mcp"
 
 # Additional environment variables injected into the agent container.
 # Use this to supply LLM API keys (e.g. GEMINI_API_KEY) and any other
