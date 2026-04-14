@@ -755,28 +755,18 @@ func generateConfigData(ctx context.Context, detail db.ConnectionDetails, localC
 			zlog.Debug().Msgf("Trust domain set to: %s", *destNode.GroupName)
 		}
 	}
-	var bufferSize int64 = 1024
-	config.BufferSize = &bufferSize
-	gzip := db.Gzip
-	config.Compression = &gzip
-	config.ConnectTimeout = stringPtr("10s")
-	config.Headers = map[string]string{
-		"x-custom-header": "value",
-	}
+	config.Headers = map[string]string{}
 
 	if detail.KeepaliveConfig != nil {
 		config.Keepalive = detail.KeepaliveConfig
 	} else {
 		config.Keepalive = &db.KeepaliveClass{
-			HTTP2Keepalive:     stringPtr("2h"),
+			HTTP2Keepalive:     stringPtr("20s"),
 			KeepAliveWhileIdle: &falsev,
 			TCPKeepalive:       stringPtr("20s"),
 			Timeout:            stringPtr("20s"),
 		}
 	}
-	config.Origin = stringPtr("https://client.example.com")
-	config.RateLimit = stringPtr("20/60")
-	config.RequestTimeout = stringPtr("30s")
 
 	// render struct as json
 	var buf bytes.Buffer
