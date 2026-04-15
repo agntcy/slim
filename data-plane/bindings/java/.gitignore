@@ -19,6 +19,8 @@ generated/
 *.swp
 *.swo
 *~
+.project
+.classpath
 
 # OS
 .DS_Store

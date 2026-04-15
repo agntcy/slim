@@ -165,7 +165,7 @@ class PointToPointTest {
                 receiverCounts[i] = 0
             }
 
-            val nMessages = 100
+            val nMessages = 1000
 
             /**
              * Receiver task:
