@@ -167,7 +167,25 @@ func (s *RouteService) addSingleRoute(ctx context.Context, dbRoute db.Route) (st
 
 	route, err := s.dbService.AddRoute(dbRoute)
 	if err != nil {
-		return "", fmt.Errorf("failed to add route to database: %w", err)
+		// If the route already exists, check whether the existing record is a
+		// stale deleted route (e.g. left behind by a failed deletion).  If so,
+		// remove it and re-add the new route so the subscription can proceed.
+		existingRoute := s.dbService.GetRouteByID(dbRoute.GetUniqueID())
+		if existingRoute != nil && existingRoute.Deleted {
+			zerolog.Ctx(ctx).Warn().
+				Str("existing_route", existingRoute.String()).
+				Str("status_msg", existingRoute.StatusMsg).
+				Msg("Removing stale deleted route to allow re-add")
+			if delErr := s.dbService.DeleteRoute(existingRoute.ID); delErr != nil {
+				return "", fmt.Errorf("failed to remove stale route before re-add: %w", delErr)
+			}
+			route, err = s.dbService.AddRoute(dbRoute)
+			if err != nil {
+				return "", fmt.Errorf("failed to add route after removing stale record: %w", err)
+			}
+		} else {
+			return "", fmt.Errorf("failed to add route to database: %w", err)
+		}
 	}
 	zerolog.Ctx(ctx).Info().Msgf("Route added: %s", route)
 	if dbRoute.SourceNodeID != AllNodesID {

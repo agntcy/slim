@@ -274,8 +274,27 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 						Msg("Successfully marked route as applied")
 				}
 			} else {
-				// Failure case: mark route as failed with error message
+				// Failure case
 				failedMsg := subAck.ErrorMsg
+
+				// If the route was marked for deletion and the dataplane reports
+				// "subscription not found", the desired state is already reached —
+				// the subscription no longer exists on the dataplane.  Treat this
+				// as a successful deletion instead of a failure.
+				if route.Deleted && isSubscriptionNotFoundErr(failedMsg) {
+					if err := s.dbService.DeleteRoute(route.ID); err != nil {
+						zlog.Error().
+							Err(err).
+							Str("route_key", route.String()).
+							Msg("Failed to delete route from database after subscription-not-found ack")
+						return fmt.Errorf("failed to delete route %s: %w", route.String(), err)
+					}
+					zlog.Info().
+						Str("route_key", route.String()).
+						Str("error_msg", failedMsg).
+						Msg("Subscription already removed on dataplane; route deleted from database")
+					continue
+				}
 
 				if err := s.dbService.MarkRouteAsFailed(route.ID, failedMsg); err != nil {
 					zlog.Error().
@@ -319,4 +338,12 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 func shouldRetryMissingLinkConnection(errMsg string) bool {
 	lower := strings.ToLower(errMsg)
 	return strings.Contains(lower, "connection with link_id") && strings.Contains(lower, "not found")
+}
+
+// isSubscriptionNotFoundErr returns true when the dataplane rejection message
+// indicates the subscription does not exist (e.g. "subscription not found").
+// During an unsubscribe this means the desired state is already reached.
+func isSubscriptionNotFoundErr(errMsg string) bool {
+	lower := strings.ToLower(errMsg)
+	return strings.Contains(lower, "subscription not found")
 }
