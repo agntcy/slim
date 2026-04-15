@@ -2,31 +2,31 @@
 
 This directory contains a macOS workflow for:
 
-1. Building and running a local SPIRE agent against the EKS SPIRE server.
+1. Building and running a local SPIRE agent against the target SPIRE server.
 2. Registering the local `a2acli` binary as a SPIRE-authenticated workload.
-3. Using `a2acli` to connect to a SLIM dataplane exposed by a target cluster.
+3. Using `a2acli` to connect to the target SLIM dataplane.
 
 ## What Is In This Directory
 
-- `Taskfile.yml`: builds the local SPIRE agent, fetches the bootstrap bundle from EKS, generates a join token, starts the agent, and registers the `a2acli` workload.
+- `Taskfile.yml`: builds the local SPIRE agent, fetches the bootstrap bundle from the target cluster, generates a join token, starts the agent, registers the `a2acli` workload, and renders a local `a2acli` config.
+- `.env.local.example`: tracked example of the local environment file.
 - `spire/agent.conf.tmpl`: SPIRE agent config template used to render a local runtime config.
+- `a2acli-skill/.a2acli.yaml.tmpl`: template used to render the ignored local `a2acli` config.
 - `a2acli-skill/`: the `a2acli` source, local agent cards, and CLI config examples.
 
 ## Prerequisites
 
 1. macOS.
 2. `go`, `task`, `kubectl`, and `git` installed.
-3. Valid cloud credentials with access to the target Kubernetes cluster.
-4. The following environment variables exported in your shell:
+3. Valid credentials with access to the target Kubernetes cluster.
+
+Create a local environment file first:
 
 ```bash
-export MULTICLUSTER_DEMO_K8S_CONTEXT="<target-kubernetes-context>"
-export MULTICLUSTER_DEMO_SPIRE_NAMESPACE="<spire-namespace>"
-export MULTICLUSTER_DEMO_SPIRE_SERVER_POD="<spire-server-pod-name>"
-export MULTICLUSTER_DEMO_SPIRE_SERVER_ADDRESS="<spire-server-hostname>"
-export MULTICLUSTER_DEMO_TRUST_DOMAIN="<spiffe-trust-domain>"
-export MULTICLUSTER_DEMO_SLIM_ENDPOINT="https://<slim-dataplane-host>:443"
+cp .env.local.example .env.local
 ```
+
+Then edit `.env.local` with your local values.
 
 ## Build And Run SPIRE
 
@@ -43,10 +43,11 @@ task run
 `task run` performs the full bootstrap flow:
 
 1. Builds `bin/spire-agent` from SPIRE source if it does not already exist.
-2. Fetches the target cluster SPIRE bootstrap bundle in PEM format.
-3. Generates a join token for `spiffe://<trust-domain>/macos/agent/<hostname>`.
-4. Renders a local runtime config under `spire/data/agent.conf`.
-5. Starts the agent and exposes the Workload API on `/tmp/spire-agent/public/api.sock`.
+2. Regenerates `a2acli-skill/.a2acli.yaml` from `.env.local`.
+3. Fetches the target SPIRE bootstrap bundle in PEM format.
+4. Generates a join token for `spiffe://<trust-domain>/macos/agent/<hostname>`.
+5. Renders a local runtime config under `spire/data/agent.conf`.
+6. Starts the agent and exposes the Workload API on `/tmp/spire-agent/public/api.sock`.
 
 Keep `task run` running in a dedicated terminal.
 
@@ -85,27 +86,21 @@ task fetch-svid
 
 ## Configure a2acli
 
-Create a local runtime config at `a2acli-skill/.a2acli.yaml`.
+Generate the ignored local runtime config from `.env.local`:
 
-That file is intentionally ignored by Git so it can stay machine-local.
-
-Example:
-
-```yaml
-slim:
-  endpoint: "${MULTICLUSTER_DEMO_SLIM_ENDPOINT}"
-  local-name: "agntcy/cli/a2acli"
-  spire:
-    socket-path: "/tmp/spire-agent/public/api.sock"
-    jwt-audiences:
-      - "slim"
+```bash
+task a2acli-config
 ```
+
+This writes `a2acli-skill/.a2acli.yaml` locally and keeps the endpoint out of tracked files.
+`task run` also refreshes this file automatically.
 
 ## Send A Test Request Through The Target Dataplane
 
 From `a2acli-skill`:
 
 ```bash
+task -d .. a2acli-config
 ./bin/a2acli list
 ./bin/a2acli send-message --agent sha256:df721aea --return-immediately "What can you do?"
 ```
@@ -113,7 +108,7 @@ From `a2acli-skill`:
 The expected outcome is:
 
 1. `a2acli` initializes the SPIRE provider from the local Workload API socket.
-2. `a2acli` connects to the SLIM dataplane configured in `MULTICLUSTER_DEMO_SLIM_ENDPOINT`.
+2. `a2acli` connects to the endpoint configured in `.env.local`.
 3. The request is accepted and returns a task ID.
 
 ## Useful Tasks
@@ -122,6 +117,7 @@ The expected outcome is:
 task build
 task run
 task register
+task a2acli-config
 task show-entries
 task fetch-svid
 task stop
@@ -134,6 +130,7 @@ Tracked files in this directory do not contain laptop-specific absolute paths.
 
 Local-only artifacts are kept out of Git:
 
+- `.env.local`
 - `a2acli-skill/.a2acli.yaml`
 - `spire/data/`
 - `bin/`

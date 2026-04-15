@@ -1,2 +1,3 @@
 bin/
 spire/data/
+.env.local

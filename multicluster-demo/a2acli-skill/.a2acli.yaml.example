@@ -25,8 +25,9 @@ slim:
   #   jwt-audiences:                                    # optional
   #     - "my-audience"
 
-# Multicluster demo example using the EKS SLIM dataplane and a local SPIRE agent.
-# Copy this block into .a2acli.yaml for the shared demo setup.
+# Multicluster demo example using a local SPIRE agent and a target SLIM dataplane.
+# For local use, prefer generating .a2acli.yaml via `task a2acli-config` from
+# the parent multicluster-demo directory. That keeps the endpoint in .env.local.
 # slim:
 #   endpoint: "https://<slim-dataplane-host>:443"
 #   local-name: "agntcy/cli/a2acli"
