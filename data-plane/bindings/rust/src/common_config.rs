@@ -305,9 +305,20 @@ impl From<BasicAuthConfig> for BasicAuth {
 /// Authentication configuration enum for client
 #[derive(uniffi::Enum, Clone, Debug, PartialEq)]
 pub enum ClientAuthenticationConfig {
-    Basic { config: BasicAuth },
-    StaticJwt { config: StaticJwtAuth },
-    Jwt { config: ClientJwtAuth },
+    Basic {
+        config: BasicAuth,
+    },
+    StaticJwt {
+        config: StaticJwtAuth,
+    },
+    Jwt {
+        config: ClientJwtAuth,
+    },
+    /// SPIRE/SPIFFE authentication (non-Windows only)
+    #[cfg(not(target_family = "windows"))]
+    Spire {
+        config: SpireConfig,
+    },
     None,
 }
 
@@ -322,6 +333,10 @@ impl From<ClientAuthenticationConfig> for slim_config::grpc::client::Authenticat
             }
             ClientAuthenticationConfig::Jwt { config } => {
                 slim_config::grpc::client::AuthenticationConfig::Jwt(config.into())
+            }
+            #[cfg(not(target_family = "windows"))]
+            ClientAuthenticationConfig::Spire { config } => {
+                slim_config::grpc::client::AuthenticationConfig::Spire(config.into())
             }
             ClientAuthenticationConfig::None => {
                 slim_config::grpc::client::AuthenticationConfig::None
@@ -347,6 +362,12 @@ impl From<slim_config::grpc::client::AuthenticationConfig> for ClientAuthenticat
             slim_config::grpc::client::AuthenticationConfig::Jwt(jwt) => {
                 ClientAuthenticationConfig::Jwt { config: jwt.into() }
             }
+            #[cfg(not(target_family = "windows"))]
+            slim_config::grpc::client::AuthenticationConfig::Spire(spire) => {
+                ClientAuthenticationConfig::Spire {
+                    config: spire.into(),
+                }
+            }
         }
     }
 }
@@ -354,8 +375,17 @@ impl From<slim_config::grpc::client::AuthenticationConfig> for ClientAuthenticat
 /// Authentication configuration enum for server
 #[derive(uniffi::Enum, Clone, Debug, PartialEq)]
 pub enum ServerAuthenticationConfig {
-    Basic { config: BasicAuth },
-    Jwt { config: JwtAuth },
+    Basic {
+        config: BasicAuth,
+    },
+    Jwt {
+        config: JwtAuth,
+    },
+    /// SPIRE/SPIFFE authentication (non-Windows only)
+    #[cfg(not(target_family = "windows"))]
+    Spire {
+        config: SpireConfig,
+    },
     None,
 }
 
@@ -367,6 +397,10 @@ impl From<ServerAuthenticationConfig> for slim_config::grpc::server::Authenticat
             }
             ServerAuthenticationConfig::Jwt { config } => {
                 slim_config::grpc::server::AuthenticationConfig::Jwt(config.into())
+            }
+            #[cfg(not(target_family = "windows"))]
+            ServerAuthenticationConfig::Spire { config } => {
+                slim_config::grpc::server::AuthenticationConfig::Spire(config.into())
             }
             ServerAuthenticationConfig::None => {
                 slim_config::grpc::server::AuthenticationConfig::None
@@ -388,6 +422,12 @@ impl From<slim_config::grpc::server::AuthenticationConfig> for ServerAuthenticat
             }
             slim_config::grpc::server::AuthenticationConfig::Jwt(jwt) => {
                 ServerAuthenticationConfig::Jwt { config: jwt.into() }
+            }
+            #[cfg(not(target_family = "windows"))]
+            slim_config::grpc::server::AuthenticationConfig::Spire(spire) => {
+                ServerAuthenticationConfig::Spire {
+                    config: spire.into(),
+                }
             }
         }
     }

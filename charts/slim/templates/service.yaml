@@ -15,14 +15,18 @@ spec:
   clusterIP: None
   {{- end }}
   ports:
-    - port: {{ .Values.slim.service.data.port }}
-      targetPort: data-plane
+    {{- range $i, $data := .Values.slim.service.data }}
+    - port: {{ $data.port }}
+      targetPort: data-plane-{{ $i }}
       protocol: TCP
-      name: data-plane
-    - port: {{ .Values.slim.service.control.port }}
-      targetPort: controller
+      name: data-plane-{{ $i }}
+    {{- end }}
+    {{- range $i, $ctrl := .Values.slim.service.control }}
+    - port: {{ $ctrl.port }}
+      targetPort: controller-{{ $i }}
       protocol: TCP
-      name: controller
+      name: controller-{{ $i }}
+    {{- end }}
   selector:
     {{- include "slim.selectorLabels" . | nindent 4 }}
 {{- if eq .Values.slim.daemonset true }}
@@ -38,14 +42,18 @@ spec:
   type: ClusterIP
   internalTrafficPolicy: Local
   ports:
-    - port: {{ .Values.slim.service.data.port }}
-      targetPort: data-plane
+    {{- range $i, $data := .Values.slim.service.data }}
+    - port: {{ $data.port }}
+      targetPort: data-plane-{{ $i }}
       protocol: TCP
-      name: data-plane
-    - port: {{ .Values.slim.service.control.port }}
-      targetPort: controller
+      name: data-plane-{{ $i }}
+    {{- end }}
+    {{- range $i, $ctrl := .Values.slim.service.control }}
+    - port: {{ $ctrl.port }}
+      targetPort: controller-{{ $i }}
       protocol: TCP
-      name: controller
+      name: controller-{{ $i }}
+    {{- end }}
   selector:
     {{- include "slim.selectorLabels" . | nindent 4 }}
-{{- end }}    
+{{- end }}
