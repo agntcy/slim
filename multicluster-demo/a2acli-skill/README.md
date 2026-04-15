@@ -1,6 +1,6 @@
 # a2acli
 
-A CLI tool and Claude Code skill for interacting with agents that expose the [A2A (Agent-to-Agent) protocol](https://github.com/a2aproject/A2A). Supports both standard HTTP transports (JSON-RPC, REST) and [SLIM RPC](https://docs.agntcy.org/slim/) for agents deployed behind a SLIM messaging node.
+A CLI tool plus local skill assets for interacting with agents that expose the [A2A (Agent-to-Agent) protocol](https://github.com/a2aproject/A2A). Supports both standard HTTP transports (JSON-RPC, REST) and [SLIM RPC](https://docs.agntcy.org/slim/) for agents deployed behind a SLIM messaging node.
 
 ## Building
 
@@ -16,11 +16,20 @@ task build
 # Build and place binary in the skill's scripts/ directory
 task build-skill
 
+# Build and place binary in the Copilot skill's scripts/ directory
+task build-copilot-skill
+
 # Build, copy to scripts/, and zip the skill for distribution
 task package-skill
 
 # Install to GOPATH/bin (adds to PATH)
 task install
+
+# Install the Copilot skill to ~/.copilot/skills/a2acli
+task install-copilot-skill
+
+# Install both the Claude and Copilot skill variants
+task install-all-skills
 ```
 
 `CGO_ENABLED=1` is set automatically by the Taskfile. The `setup` step is also run automatically as a dependency of `build`, `build-skill`, and `install`.
@@ -180,6 +189,15 @@ a2acli send-message \
   "What pods are failing in my cluster?"
 ```
 
-## Claude Code Skill
+## Skill Variants
 
-The `a2acli/` directory contains a Claude Code skill that exposes `a2acli` as a restricted tool (`Bash(a2acli:*)`). Run `task package-skill` to produce `bin/a2acli.zip` for distribution.
+- `a2acli/` contains the existing Claude-oriented skill.
+- `../copilot-skills/a2acli/` contains the Copilot skill source that is kept alongside the multicluster demo.
+
+Run `task install-skill` to refresh `~/.claude/skills/a2acli`, or `task install-copilot-skill` to refresh `~/.copilot/skills/a2acli` for the locally installed `copilot` app.
+
+The Copilot skill assumes:
+
+1. `a2acli` has been built into `~/.copilot/skills/a2acli/scripts/a2acli`.
+2. AgentCard files are present in `.a2aagents/` or `~/.a2aagents/`.
+3. A local `.a2acli.yaml` or `~/.a2acli.yaml` provides the SLIM endpoint and any SPIRE settings needed for the multicluster demo.
