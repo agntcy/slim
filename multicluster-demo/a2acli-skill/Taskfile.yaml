@@ -13,6 +13,8 @@ vars:
   BIN_DIR: bin
   SKILL_DIR: a2acli
   SCRIPTS_DIR: "{{.SKILL_DIR}}/scripts"
+  COPILOT_SKILL_DIR: "../copilot-skills/a2acli"
+  COPILOT_SCRIPTS_DIR: "{{.COPILOT_SKILL_DIR}}/scripts"
   LDFLAGS: "-X google.golang.org/protobuf/reflect/protoregistry.conflictPolicy=ignore"
 
 tasks:
@@ -37,7 +39,16 @@ tasks:
     deps:
       - setup
     cmds:
+      - mkdir -p {{.SCRIPTS_DIR}}
       - go build -ldflags "{{.LDFLAGS}}" -o {{.SCRIPTS_DIR}}/{{.BINARY}} .
+
+  build-copilot-skill:
+    desc: Compile the binary into the Copilot skill's scripts/ directory
+    deps:
+      - setup
+    cmds:
+      - mkdir -p {{.COPILOT_SCRIPTS_DIR}}
+      - go build -ldflags "{{.LDFLAGS}}" -o {{.COPILOT_SCRIPTS_DIR}}/{{.BINARY}} .
 
   package-skill:
     desc: Build the skill binary, copy it to scripts/, and zip the skill directory
@@ -62,9 +73,27 @@ tasks:
       - build-skill
     cmds:
       - mkdir -p {{.SKILLS_DIR}}
-      - cp -r {{.SKILL_DIR}} {{.SKILLS_DIR}}/{{.SKILL_DIR}}
+      - rm -rf {{.SKILLS_DIR}}/{{.SKILL_DIR}}
+      - cp -R {{.SKILL_DIR}} {{.SKILLS_DIR}}/{{.SKILL_DIR}}
+
+  install-copilot-skill:
+    desc: Build and install the Copilot skill into ~/.copilot/skills/
+    vars:
+      SKILLS_DIR: "{{.HOME}}/.copilot/skills"
+    deps:
+      - build-copilot-skill
+    cmds:
+      - mkdir -p {{.SKILLS_DIR}}
+      - rm -rf {{.SKILLS_DIR}}/a2acli
+      - cp -R {{.COPILOT_SKILL_DIR}} {{.SKILLS_DIR}}/a2acli
+
+  install-all-skills:
+    desc: Build and install both the Claude and Copilot skill variants
+    deps:
+      - install-skill
+      - install-copilot-skill
 
   clean:
     desc: Remove compiled binaries
     cmds:
-      - rm -f {{.BIN_DIR}}/{{.BINARY}} {{.SCRIPTS_DIR}}/{{.BINARY}} {{.BIN_DIR}}/{{.BINARY}}.zip
+      - rm -f {{.BIN_DIR}}/{{.BINARY}} {{.SCRIPTS_DIR}}/{{.BINARY}} {{.COPILOT_SCRIPTS_DIR}}/{{.BINARY}} {{.BIN_DIR}}/{{.BINARY}}.zip

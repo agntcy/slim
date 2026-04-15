@@ -1,10 +1,18 @@
 # Multicluster demo
 
-This directory contains a macOS workflow for:
+This directory contains the local IT-OPS side of the multicluster demo.
+
+The end-to-end demo has three moving parts:
+
+1. An adversary in the deployed multicluster environment injects standard Kubernetes issues such as `CrashLoopBackOff`, `ImagePullBackOff`, failed Jobs, and unschedulable pods.
+2. The existing `k8s_troubleshooting_agent` inspects cluster state through MCP tools and can create Jira issues when asked.
+3. The human operator uses local `a2acli`, optionally through the local Copilot skill, to interact with the cloud agent from a laptop.
+
+This directory focuses on the operator workflow for:
 
 1. Building and running a local SPIRE agent against the target SPIRE server.
 2. Registering the local `a2acli` binary as a SPIRE-authenticated workload.
-3. Using `a2acli` to connect to the target SLIM dataplane.
+3. Using `a2acli` or the local Copilot skill to connect to the target SLIM dataplane.
 
 ## What Is In This Directory
 
@@ -13,6 +21,7 @@ This directory contains a macOS workflow for:
 - `spire/agent.conf.tmpl`: SPIRE agent config template used to render a local runtime config.
 - `a2acli-skill/.a2acli.yaml.tmpl`: template used to render the ignored local `a2acli` config.
 - `a2acli-skill/`: the `a2acli` source, local agent cards, and CLI config examples.
+- `copilot-skills/a2acli/`: Copilot skill source for the locally installed `copilot` app.
 
 ## Prerequisites
 
@@ -62,6 +71,19 @@ task build
 
 This creates `a2acli-skill/bin/a2acli`.
 
+## Install The Copilot Skill
+
+From the `a2acli-skill` directory:
+
+```bash
+cd a2acli-skill
+task install-copilot-skill
+```
+
+This refreshes `~/.copilot/skills/a2acli` with the repo-local skill source from `copilot-skills/a2acli/` and installs the built binary into `~/.copilot/skills/a2acli/scripts/a2acli`.
+
+Use this when the IT-OPS workflow should be available directly inside the local `copilot` app.
+
 ## Register a2acli As A SPIRE Workload
 
 From the `multicluster-demo` directory, after the SPIRE agent is already running:
@@ -110,6 +132,8 @@ The expected outcome is:
 1. `a2acli` initializes the SPIRE provider from the local Workload API socket.
 2. `a2acli` connects to the endpoint configured in `.env.local`.
 3. The request is accepted and returns a task ID.
+
+The same runtime config can be reused by the local Copilot skill because it delegates to the same `a2acli` binary and `.a2acli.yaml` settings.
 
 ## Useful Tasks
 
