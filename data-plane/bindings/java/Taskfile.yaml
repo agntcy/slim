@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-version: '3'
+version: "3"
 
 silent: true
 set: [pipefail]
@@ -21,7 +21,7 @@ env:
 
 vars:
   BINDINGS_VERSION:
-    sh: 'mvn -f pom.xml help:evaluate -Dexpression=project.version -q -DforceStdout'
+    sh: "mvn -f pom.xml help:evaluate -Dexpression=project.version -q -DforceStdout"
   BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
   PROFILE: '{{.PROFILE | default "debug"}}'
   CURRENT_TARGET:
@@ -217,6 +217,11 @@ tasks:
       - mvn clean 2>/dev/null || true
       - cd examples && mvn clean 2>/dev/null || true
       - echo "Clean complete"
+
+  lint:
+    desc: Run Maven PMD static analysis
+    cmds:
+      - mvn pmd:check
 
   # ==========================================================================
   # Examples Tasks
