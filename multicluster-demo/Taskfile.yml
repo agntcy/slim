@@ -5,6 +5,9 @@ version: "3"
 
 silent: true
 
+dotenv:
+  - .env.local
+
 vars:
   SPIRE_VERSION: v1.14.2
   SPIRE_REPO: https://github.com/spiffe/spire
@@ -80,6 +83,7 @@ tasks:
     desc: Build, configure, and start the SPIRE agent (Ctrl-C to stop)
     cmds:
       - task: build
+      - task: a2acli-config
       - task: agent-conf
       - echo "==> Starting spire-agent — socket at {{.SOCKET_PATH}}"
       - "{{.AGENT_BIN}} run -config {{.RUNTIME_CONF}}"
@@ -123,6 +127,15 @@ tasks:
         echo "      spire:"
         echo "        socket-path: \"{{.SOCKET_PATH}}\""
         echo "        jwt-audiences: [\"slim\"]"
+
+  a2acli-config:
+    desc: Generate a local a2acli config from .env.local
+    cmds:
+      - |
+        SLIM_ENDPOINT="${MULTICLUSTER_DEMO_SLIM_ENDPOINT:?set MULTICLUSTER_DEMO_SLIM_ENDPOINT}"
+        sed -e "s|SLIM_ENDPOINT_PLACEHOLDER|$SLIM_ENDPOINT|g" \
+          a2acli-skill/.a2acli.yaml.tmpl > a2acli-skill/.a2acli.yaml
+        echo "==> Config written: a2acli-skill/.a2acli.yaml"
 
   show-entries:
     desc: Show all SPIRE workload entries registered for this macOS agent
