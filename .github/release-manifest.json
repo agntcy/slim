@@ -5,6 +5,7 @@
   "charts/slim-control-plane": "1.0.0",
   "multicluster-demo/k8s_troubleshooting_agent": "0.1.4",
   "multicluster-demo/k8s_troubleshooting_agent/chart": "0.1.3",
-  "multicluster-demo/a2acli": "0.1.2"
+  "multicluster-demo/a2acli": "0.1.2",
+  "multicluster-demo/a2acli-skills": "0.1.2"
 }
 
