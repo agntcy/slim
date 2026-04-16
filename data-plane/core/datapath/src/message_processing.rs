@@ -12,6 +12,7 @@ use parking_lot::RwLock;
 use slim_config::component::configuration::Configuration;
 use slim_config::grpc::client::ClientConfig;
 use slim_config::grpc::server::ServerConfig;
+use slim_tracing::otel_propagation_enabled;
 use slim_tracing::utils::INSTANCE_ID;
 use tokio::sync::mpsc::{self, Sender};
 use tokio::task::JoinHandle;
@@ -87,36 +88,39 @@ fn inject_current_context(msg: &mut Message) {
     });
 }
 
-impl MessageProcessor {
-    // Helper to create the trace span, attached to the processor so it carries service_id
-    fn create_span(&self, function: &str, out_conn: u64, msg: &Message) -> Span {
-        let span = tracing::span!(
-            tracing::Level::INFO,
-            "slim_process_message",
-            function = function,
-            service_id = %self.internal.service_id,
-            source = format!("{}", msg.get_source()),
-            destination = format!("{}", msg.get_dst()),
-            instance_id = %INSTANCE_ID.as_str(),
-            connection_id = out_conn,
-            message_type = msg.get_type().to_string(),
-            telemetry = true
+/// Per-connection span vs one span covering all fan-out subscribers.
+enum ProcessSpanTarget {
+    Connection(u64),
+    Fanout { subscribers: u32 },
+}
+
+#[inline]
+fn message_otel_active(msg: &Message) -> bool {
+    otel_propagation_enabled() && !msg.is_link() && !msg.is_subscription_ack()
+}
+
+fn apply_publish_span_attributes(span: &Span, msg: &Message) {
+    if let PublishType(_) = msg.get_type() {
+        span.set_attribute("session_type", msg.get_session_message_type().as_str_name());
+        span.set_attribute(
+            "session_id",
+            msg.get_session_header().get_session_id() as i64,
         );
-
-        if let PublishType(_) = msg.get_type() {
-            span.set_attribute("session_type", msg.get_session_message_type().as_str_name());
-            span.set_attribute(
-                "session_id",
-                msg.get_session_header().get_session_id().to_string(),
-            );
-            span.set_attribute(
-                "message_id",
-                msg.get_session_header().get_message_id().to_string(),
-            );
-        }
-
-        span
+        span.set_attribute(
+            "message_id",
+            msg.get_session_header().get_message_id() as i64,
+        );
     }
+}
+
+fn attach_trace_to_message(msg: &mut Message, span: Span, parent: Option<opentelemetry::Context>) {
+    if let Some(ctx) = parent
+        && let Err(e) = span.set_parent(ctx)
+    {
+        error!(error = %e.chain(), "error setting parent context");
+    }
+    let _guard = span.enter();
+    inject_current_context(msg);
 }
 
 fn local_version() -> &'static str {
@@ -173,6 +177,43 @@ impl MessageProcessor {
 
     pub fn new() -> Self {
         Self::default()
+    }
+
+    fn create_process_span(
+        &self,
+        function: &str,
+        msg: &Message,
+        target: ProcessSpanTarget,
+    ) -> Span {
+        let span = match target {
+            ProcessSpanTarget::Connection(connection_id) => tracing::span!(
+                tracing::Level::INFO,
+                "slim_process_message",
+                function = function,
+                service_id = %self.internal.service_id,
+                source = %msg.get_source(),
+                destination = %msg.get_dst(),
+                instance_id = %INSTANCE_ID.as_str(),
+                connection_id = connection_id,
+                message_type = %msg.get_type(),
+                telemetry = true
+            ),
+            ProcessSpanTarget::Fanout { subscribers } => tracing::span!(
+                tracing::Level::INFO,
+                "slim_process_message",
+                function = function,
+                service_id = %self.internal.service_id,
+                source = %msg.get_source(),
+                destination = %msg.get_dst(),
+                instance_id = %INSTANCE_ID.as_str(),
+                fanout_subscribers = subscribers,
+                connection_id = 0u64,
+                message_type = %msg.get_type(),
+                telemetry = true
+            ),
+        };
+        apply_publish_span_attributes(&span, msg);
+        span
     }
 
     /// Run a data plane gRPC server using this message processor's drain watch.
@@ -409,7 +450,18 @@ impl MessageProcessor {
         Ok((conn_id, tx1, rx2))
     }
 
-    pub async fn send_msg(&self, mut msg: Message, out_conn: u64) -> Result<(), DataPathError> {
+    pub async fn send_msg(&self, msg: Message, out_conn: u64) -> Result<(), DataPathError> {
+        self.send_msg_inner(msg, out_conn, false).await
+    }
+
+    /// Sends a message on `out_conn`. When `outbound_otel_already_prepared` is true, trace
+    /// context was applied once for a fanout (see [`Self::match_and_forward_msg`]).
+    async fn send_msg_inner(
+        &self,
+        mut msg: Message,
+        out_conn: u64,
+        outbound_otel_already_prepared: bool,
+    ) -> Result<(), DataPathError> {
         let connection = self.forwarder().get_connection(out_conn);
         match connection {
             Some(conn) => {
@@ -419,19 +471,15 @@ impl MessageProcessor {
                     // reset header fields
                     msg.clear_slim_header();
 
-                    // telemetry ////////////////////////////////////////////////////////
-                    let parent_context = extract_parent_context(&msg);
-                    let span = self.create_span("send_message", out_conn, &msg);
-
-                    if let Some(ctx) = parent_context
-                        && let Err(e) = span.set_parent(ctx)
-                    {
-                        // log the error but don't fail the message sending
-                        error!(error = %e.chain(), "error setting parent context");
+                    if message_otel_active(&msg) && !outbound_otel_already_prepared {
+                        let parent = extract_parent_context(&msg);
+                        let span = self.create_process_span(
+                            "send_message",
+                            &msg,
+                            ProcessSpanTarget::Connection(out_conn),
+                        );
+                        attach_trace_to_message(&mut msg, span, parent);
                     }
-                    let _guard = span.enter();
-                    inject_current_context(&mut msg);
-                    ///////////////////////////////////////////////////////////////////
                 }
 
                 match conn.channel() {
@@ -459,7 +507,7 @@ impl MessageProcessor {
 
     async fn match_and_forward_msg(
         &self,
-        msg: Message,
+        mut msg: Message,
         name: Name,
         in_connection: u64,
         fanout: u32,
@@ -482,14 +530,35 @@ impl MessageProcessor {
             .on_publish_msg_match(name, in_connection, fanout)
         {
             Ok(out_vec) => {
-                // in case out_vec.len = 1, do not clone the message.
-                // in the other cases clone only len - 1 times.
-                let mut i = 0;
-                while i < out_vec.len() - 1 {
-                    self.send_msg(msg.clone(), out_vec[i]).await?;
+                let len = out_vec.len();
+                // Single destination: preserve per-connection span attributes.
+                if len == 1 {
+                    return self.send_msg(msg, out_vec[0]).await;
+                }
+
+                // Fan-out: one extract + span + inject for all copies (same propagated context).
+                let fanout_otel_prepped = message_otel_active(&msg);
+                if fanout_otel_prepped {
+                    msg.clear_slim_header();
+                    let parent = extract_parent_context(&msg);
+                    let span = self.create_process_span(
+                        "send_message",
+                        &msg,
+                        ProcessSpanTarget::Fanout {
+                            subscribers: len as u32,
+                        },
+                    );
+                    attach_trace_to_message(&mut msg, span, parent);
+                }
+
+                let mut i = 0usize;
+                while i < len - 1 {
+                    self.send_msg_inner(msg.clone(), out_vec[i], fanout_otel_prepped)
+                        .await?;
                     i += 1;
                 }
-                self.send_msg(msg, out_vec[i]).await?;
+                self.send_msg_inner(msg, out_vec[i], fanout_otel_prepped)
+                    .await?;
                 Ok(())
             }
             Err(e) => Err(DataPathError::MessageProcessingError {
@@ -903,23 +972,19 @@ impl MessageProcessor {
             // add incoming connection to the SLIM header
             msg.set_incoming_conn(Some(conn_index));
 
-            // telemetry /////////////////////////////////////////
-            if is_local {
-                let span = self.create_span("process_local", conn_index, &msg);
-                let _guard = span.enter();
-                inject_current_context(&mut msg);
-            } else {
-                let parent_context = extract_parent_context(&msg);
-                let span = self.create_span("process_local", conn_index, &msg);
-                if let Some(ctx) = parent_context
-                    && let Err(e) = span.set_parent(ctx)
-                {
-                    error!(error = %e.chain(), "error setting parent context");
-                }
-                let _guard = span.enter();
-                inject_current_context(&mut msg);
+            if message_otel_active(&msg) {
+                let parent = if is_local {
+                    None
+                } else {
+                    extract_parent_context(&msg)
+                };
+                let span = self.create_process_span(
+                    "process_local",
+                    &msg,
+                    ProcessSpanTarget::Connection(conn_index),
+                );
+                attach_trace_to_message(&mut msg, span, parent);
             }
-            //////////////////////////////////////////////////////
         }
 
         match self.process_message(msg, conn_index, is_local).await {
