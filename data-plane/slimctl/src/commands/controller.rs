@@ -3,6 +3,7 @@
 
 use anyhow::{Result, bail};
 use clap::{Args, Subcommand};
+use std::collections::BTreeMap;
 
 use crate::client::get_control_plane_client;
 use crate::config::ResolvedOpts;
@@ -484,11 +485,7 @@ async fn route_outline(
     let routes = &resp.routes;
     println!("Number of routes: {}\n", routes.len());
     if !routes.is_empty() {
-        let col_widths = compute_route_col_widths(routes);
-        print_route_header(&col_widths);
-        for route in routes {
-            print_route_row(route, &col_widths);
-        }
+        print_routes_grouped(routes);
     }
     Ok(())
 }
@@ -515,19 +512,52 @@ async fn link_outline(
     let links = &resp.links;
     println!("Number of links: {}\n", links.len());
     if !links.is_empty() {
-        let col_widths = compute_link_col_widths(links);
-        print_link_header(&col_widths);
-        for link in links {
-            print_link_row(link, &col_widths);
-        }
+        print_links_grouped(links);
     }
     Ok(())
+}
+
+fn print_routes_grouped(routes: &[RouteEntry]) {
+    // Group routes by (source, dest_node)
+    let mut groups: BTreeMap<(String, String), Vec<&RouteEntry>> = BTreeMap::new();
+    for r in routes {
+        let src = if r.source_node_id.is_empty() {
+            "-".to_string()
+        } else {
+            r.source_node_id.clone()
+        };
+        let dest = if r.dest_node_id.is_empty() {
+            "-".to_string()
+        } else {
+            r.dest_node_id.clone()
+        };
+        groups.entry((src, dest)).or_default().push(r);
+    }
+
+    for (i, ((src, dest), entries)) in groups.iter().enumerate() {
+        if i > 0 {
+            println!();
+        }
+        println!("  \x1b[1;36mSOURCE:\x1b[0m    {}", src);
+        println!("  \x1b[1;36mDEST_NODE:\x1b[0m {}", dest);
+        println!("  \x1b[1mROUTES:\x1b[0m");
+        for entry in entries {
+            let sub = build_subscription_str(entry);
+            let link_id = if entry.link_id.is_empty() {
+                "-".to_string()
+            } else {
+                entry.link_id.clone()
+            };
+            println!("    \x1b[1;33m-\x1b[0m \x1b[1mNAME:\x1b[0m    {}", sub);
+            println!("      \x1b[1mLINK_ID:\x1b[0m {}", link_id);
+        }
+    }
 }
 
 const ROUTE_HEADERS: [&str; 8] = [
     "SOURCE",
     "DEST_NODE",
-    "SUBSCRIPTION",
+    "NAME",
     "STATUS",
     "STATUS_MSG",
     "DELETED",
@@ -588,6 +618,47 @@ fn print_route_header(widths: &[usize; 8]) {
 
 fn print_route_row(route: &RouteEntry, widths: &[usize; 8]) {
     print_row(&route_cells(route), widths);
+}
+
+fn print_links_grouped(links: &[LinkEntry]) {
+    // Group links by (source, dest_node)
+    let mut groups: BTreeMap<(String, String), Vec<&LinkEntry>> = BTreeMap::new();
+    for l in links {
+        let src = if l.source_node_id.is_empty() {
+            "-".to_string()
+        } else {
+            l.source_node_id.clone()
+        };
+        let dest = if l.dest_node_id.is_empty() {
+            "-".to_string()
+        } else {
+            l.dest_node_id.clone()
+        };
+        groups.entry((src, dest)).or_default().push(l);
+    }
+
+    for (i, ((src, dest), entries)) in groups.iter().enumerate() {
+        if i > 0 {
+            println!();
+        }
+        println!("  \x1b[1;36mSOURCE:\x1b[0m    {}", src);
+        println!("  \x1b[1;36mDEST_NODE:\x1b[0m {}", dest);
+        println!("  \x1b[1mLINKS:\x1b[0m");
+        for entry in entries {
+            let link_id = if entry.link_id.is_empty() {
+                "-".to_string()
+            } else {
+                entry.link_id.clone()
+            };
+            let dest_endpoint = if entry.dest_endpoint.is_empty() {
+                "-".to_string()
+            } else {
+                entry.dest_endpoint.clone()
+            };
+            println!("    \x1b[1;33m-\x1b[0m \x1b[1mLINK_ID:\x1b[0m       {}", link_id);
+            println!("      \x1b[1mDEST_ENDPOINT:\x1b[0m {}", dest_endpoint);
+        }
+    }
 }
 
 const LINK_HEADERS: [&str; 8] = [
