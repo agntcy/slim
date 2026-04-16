@@ -194,6 +194,35 @@ func (s *RouteService) addSingleRoute(ctx context.Context, dbRoute db.Route) (st
 	return route.String(), nil
 }
 
+// RequeueRouteForSourceNode looks up routes where nodeID is the source for
+// the given subscription name and triggers reconciliation so the subscriptions
+// are re-pushed to the node's dataplane.  This is needed when a node reports
+// that subscriptions have been lost (e.g. after an internal connection drop)
+// but the control plane still considers the routes "applied".
+func (s *RouteService) RequeueRouteForSourceNode(ctx context.Context, nodeID string, route Route) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	zlog := zerolog.Ctx(ctx)
+
+	// Try to find the route where this node is the source (not the dest).
+	_, err := s.dbService.GetRouteForSrcAndDestinationAndName(
+		nodeID, route.Component0, route.Component1, route.Component2,
+		route.ComponentID, "", "")
+	if err != nil {
+		// No matching route found — nothing to re-queue.
+		return
+	}
+
+	zlog.Info().
+		Str("node_id", nodeID).
+		Str("component0", route.Component0).
+		Str("component1", route.Component1).
+		Str("component2", route.Component2).
+		Msg("Re-queueing route reconciliation for source node after subscription loss report")
+	s.queue.Add(RouteReconcileRequest{NodeID: nodeID})
+}
+
 func (s *RouteService) findMatchingLinkForRoute(dbRoute db.Route) (string, error) {
 	link, err := s.dbService.FindLinkBetweenNodes(dbRoute.SourceNodeID, dbRoute.DestNodeID)
 	if err != nil {
