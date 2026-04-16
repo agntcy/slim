@@ -18,7 +18,7 @@
     {
       "id": "k8s_troubleshooting",
       "name": "Kubernetes Troubleshooting",
-      "description": "Diagnose and resolve issues in Kubernetes clusters. Supports analysis of pod failures, deployment errors, resource constraints, networking problems, and manifest misconfigurations.",
+      "description": "Diagnose and resolve issues in Kubernetes clusters. Supports analysis of pod failures, deployment errors, resource constraints, networking problems, and misconfigurations.",
       "tags": ["kubernetes", "troubleshooting", "k8s", "devops"],
       "examples": [
         "What pods are failing in my cluster?",
