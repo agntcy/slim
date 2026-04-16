@@ -149,15 +149,17 @@ impl<T> Pool<T> {
             // Decrease the length of the pool
             self.len -= 1;
 
-            if index == self.max_set && index != 0 {
-                // find the new max_set
-                for i in (0..(index - 1)).rev() {
-                    let val = self.bitmap.get(i).unwrap_or(false);
-                    if val {
-                        self.max_set = i;
+            if index == self.max_set {
+                // find the new max_set, including index - 1 as a candidate.
+                // If pool became empty, reset to 0.
+                let mut new_max = None;
+                for i in (0..index).rev() {
+                    if self.bitmap.get(i).unwrap_or(false) {
+                        new_max = Some(i);
                         break;
                     }
                 }
+                self.max_set = new_max.unwrap_or(0);
             }
 
             true
@@ -438,5 +440,21 @@ mod tests {
             assert_eq!(iter.next(), Some(element));
         }
         assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_remove_updates_max_set_to_previous_index() {
+        let mut pool = Pool::with_capacity(10);
+
+        for v in 0..4 {
+            let idx = pool.insert(v);
+            assert_eq!(idx, v as usize);
+        }
+        assert_eq!(pool.max_set(), 3);
+
+        assert!(pool.remove(3));
+        assert_eq!(pool.max_set(), 2);
+        assert_eq!(pool.get(2), Some(&2));
+        assert_eq!(pool.get(3), None);
     }
 }
