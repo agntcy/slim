@@ -15,7 +15,7 @@
       "package-name": "helm-k8s-troubleshooting-agent",
       "release-type": "helm"
     },
-    "multicluster-demo/a2acli": {
+    "multicluster-demo/a2acli-skills": {
       "package-name": "a2acli",
       "release-type": "simple"
     }
