@@ -199,6 +199,10 @@ func (s *RouteService) addSingleRoute(ctx context.Context, dbRoute db.Route) (st
 // are re-pushed to the node's dataplane.  This is needed when a node reports
 // that subscriptions have been lost (e.g. after an internal connection drop)
 // but the control plane still considers the routes "applied".
+//
+// Because the subscription loss usually means the underlying link connection
+// was also lost on the dataplane, we reset the link back to pending so the
+// link reconciler re-establishes the connection before routes are re-pushed.
 func (s *RouteService) RequeueRouteForSourceNode(ctx context.Context, nodeID string, route Route) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -206,7 +210,7 @@ func (s *RouteService) RequeueRouteForSourceNode(ctx context.Context, nodeID str
 	zlog := zerolog.Ctx(ctx)
 
 	// Try to find the route where this node is the source (not the dest).
-	_, err := s.dbService.GetRouteForSrcAndDestinationAndName(
+	dbRoute, err := s.dbService.GetRouteForSrcAndDestinationAndName(
 		nodeID, route.Component0, route.Component1, route.Component2,
 		route.ComponentID, "", "")
 	if err != nil {
@@ -220,6 +224,32 @@ func (s *RouteService) RequeueRouteForSourceNode(ctx context.Context, nodeID str
 		Str("component1", route.Component1).
 		Str("component2", route.Component2).
 		Msg("Re-queueing route reconciliation for source node after subscription loss report")
+
+	// Reset the link to pending so the link reconciler re-pushes the
+	// connection to the dataplane.  Without this the route reconciler will
+	// keep failing with "Connection with link_id ... not found" because the
+	// dataplane lost the connection even though the CP still marks the link
+	// as applied.
+	if dbRoute.LinkID != "" {
+		link, lerr := s.dbService.GetLink(dbRoute.LinkID, dbRoute.SourceNodeID, dbRoute.DestNodeID)
+		if lerr == nil && link != nil && !link.Deleted && link.Status == db.LinkStatusApplied {
+			link.Status = db.LinkStatusPending
+			link.StatusMsg = "reset after subscription loss on consumer node"
+			if uerr := s.dbService.UpdateLink(*link); uerr != nil {
+				zlog.Error().Err(uerr).
+					Str("link_id", link.LinkID).
+					Msg("Failed to reset link to pending after subscription loss")
+			} else {
+				zlog.Info().
+					Str("link_id", link.LinkID).
+					Str("source_node_id", link.SourceNodeID).
+					Str("dest_node_id", link.DestNodeID).
+					Msg("Link reset to pending after subscription loss; enqueueing link reconciliation")
+				s.linkQueue.Add(LinkReconcileRequest{NodeID: link.SourceNodeID})
+			}
+		}
+	}
+
 	s.queue.Add(RouteReconcileRequest{NodeID: nodeID})
 }
 
