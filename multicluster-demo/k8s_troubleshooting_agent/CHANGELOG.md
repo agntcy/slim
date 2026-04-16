@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/agntcy/slim/compare/k8s-troubleshooting-agent-v0.1.4...k8s-troubleshooting-agent-v0.1.5) (2026-04-16)
+
+
+### Features
+
+* **multicluster-demo:** add Copilot skill for a2acli ([#1514](https://github.com/agntcy/slim/issues/1514)) ([e9ac939](https://github.com/agntcy/slim/commit/e9ac9396efe0ab58ad0a93039e6a24ff26d49e02))
+
 ## [0.1.4](https://github.com/agntcy/slim/compare/k8s-troubleshooting-agent-v0.1.3...k8s-troubleshooting-agent-v0.1.4) (2026-04-14)
 
 
