@@ -1,18 +1,54 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 
 use parking_lot::{RawRwLock, RwLock, lock_api::RwLockWriteGuard};
-use rand::Rng;
 use tracing::{debug, error, warn};
 
 use super::SubscriptionTable;
 use super::pool::Pool;
 use crate::errors::DataPathError;
 use crate::messages::Name;
+
+thread_local! {
+    /// Per-thread cursor for [`next_index`]: used by [`Connections::get_one`] and [`NameState::get_one_connection`].
+    static NEXT_INDEX: Cell<usize> = const { Cell::new(0_usize) };
+}
+
+/// Returns the current [`NEXT_INDEX`] modulo `n`, then sets it to `(that + 1) % n`.
+fn next_index(n: usize) -> usize {
+    NEXT_INDEX.with(|cell| {
+        let i = cell.get() % n;
+        cell.set(i + 1);
+        i
+    })
+}
+
+/// Round-robin over `0..n`: advance [`next_index`], then return the first `i` where `get(i)` is
+/// `Some(val)` and `val != except`.
+fn pick_one(n: usize, except: u64, get: impl Fn(usize) -> Option<u64>) -> Option<u64> {
+    if n == 0 {
+        return None;
+    }
+    let start = next_index(n);
+    for i in (start..n).chain(0..start) {
+        if let Some(val) = get(i)
+            && val != except
+        {
+            return Some(val);
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+fn reset_next_index_for_test() {
+    NEXT_INDEX.with(|c| c.set(0));
+}
 
 #[derive(Debug, Clone)]
 struct InternalName(Name);
@@ -179,36 +215,16 @@ impl Connections {
         Ok(())
     }
 
+    /// Pick a connection id other than `except_conn` using pseudo-random selection
     fn get_one(&self, except_conn: u64) -> Option<u64> {
-        if self.index.len() == 1 {
-            if self.index.contains_key(&except_conn) {
-                debug!("the only available connection cannot be used");
-                return None;
-            } else {
-                let val = self.index.iter().next().unwrap();
-                return Some(*val.0);
-            }
+        let num_slots = self.pool.max_set() + 1;
+        let result = pick_one(num_slots, except_conn, |i| {
+            self.pool.get(i).map(|c| c.conn_id)
+        });
+        if result.is_none() {
+            debug!("no output connection available");
         }
-
-        // we need to iterate and find a value starting from a random point in the pool
-        let mut rng = rand::rng();
-        let index = rng.random_range(0..self.pool.max_set() + 1);
-        let mut stop = false;
-        let mut i = index;
-        while !stop {
-            let opt = self.pool.get(i);
-            if let Some(opt) = opt
-                && opt.conn_id != except_conn
-            {
-                return Some(opt.conn_id);
-            }
-            i = (i + 1) % (self.pool.max_set() + 1);
-            if i == index {
-                stop = true;
-            }
-        }
-        debug!("no output connection available");
-        None
+        result
     }
 
     fn get_all(&self, except_conn: u64) -> Option<Vec<u64>> {
@@ -344,65 +360,34 @@ impl NameState {
         incoming_conn: u64,
         get_local_connection: bool,
     ) -> Option<u64> {
-        let mut index = 0;
-        if !get_local_connection {
-            index = 1;
-        }
+        let side = if get_local_connection { 0 } else { 1 };
+        let pool = &self.connections[side];
 
         if id == Name::NULL_COMPONENT {
-            return self.connections[index].get_one(incoming_conn);
+            return pool.get_one(incoming_conn);
         }
 
-        let val = self.ids.get(&id);
-        match val {
-            None => {
-                // If there is only 1 connection for the name, we can still
-                // try to use it
-                if self.connections[index].index.len() == 1 {
-                    return self.connections[index].get_one(incoming_conn);
-                }
-
-                // We cannot return any connection for this name
-                debug!(name = %id, "cannot find out connection, name does not exists");
-                None
+        let Some(name_refs) = self.ids.get(&id) else {
+            if pool.index.len() == 1 {
+                return pool.get_one(incoming_conn);
             }
-            Some(refs) => {
-                if refs[index].is_empty() {
-                    // no connections available
-                    return None;
-                }
+            debug!(name = %id, "cannot find out connection, name does not exists");
+            return None;
+        };
 
-                if refs[index].len() == 1 {
-                    // Get the single connection id
-                    let conn_id = *refs[index].keys().next().unwrap();
-                    if conn_id == incoming_conn {
-                        // cannot return the incoming connection
-                        debug!("the only available connection cannot be used");
-                        return None;
-                    } else {
-                        return Some(conn_id);
-                    }
-                }
-
-                // we need to iterate and find a value starting from a random point
-                let conns: Vec<u64> = refs[index].keys().copied().collect();
-                let mut rng = rand::rng();
-                let pos = rng.random_range(0..conns.len());
-                let mut stop = false;
-                let mut i = pos;
-                while !stop {
-                    if conns[i] != incoming_conn {
-                        return Some(conns[i]);
-                    }
-                    i = (i + 1) % conns.len();
-                    if i == pos {
-                        stop = true;
-                    }
-                }
-                debug!("no output connection available");
-                None
-            }
+        let refs = &name_refs[side];
+        if refs.is_empty() {
+            return None;
         }
+
+        let mut conn_ids: Vec<u64> = refs.keys().copied().collect();
+        conn_ids.sort_unstable();
+        let n = conn_ids.len();
+        let result = pick_one(n, incoming_conn, |i| Some(conn_ids[i]));
+        if result.is_none() {
+            debug!("no output connection available");
+        }
+        result
     }
 
     fn get_all_connections(
@@ -411,49 +396,42 @@ impl NameState {
         incoming_conn: u64,
         get_local_connection: bool,
     ) -> Option<Vec<u64>> {
-        let mut index = 0;
-        if !get_local_connection {
-            index = 1;
-        }
+        let side = if get_local_connection { 0 } else { 1 };
+        let pool = &self.connections[side];
 
         if id == Name::NULL_COMPONENT {
-            return self.connections[index].get_all(incoming_conn);
+            return pool.get_all(incoming_conn);
         }
 
-        let val = self.ids.get(&id);
-        match val {
-            None => {
-                debug!(%id, "cannot find out connection, id does not exists");
-                None
-            }
-            Some(refs) => {
-                if refs[index].is_empty() {
-                    // should never happen
-                    return None;
-                }
+        let Some(name_refs) = self.ids.get(&id) else {
+            debug!(name = %id, "cannot find out connection, name does not exists");
+            return None;
+        };
 
-                if refs[index].len() == 1 {
-                    // Get the single connection id
-                    let conn_id = *refs[index].keys().next().unwrap();
-                    if conn_id == incoming_conn {
-                        // cannot return the incoming connection
-                        debug!("the only available connection cannot be used");
-                        return None;
-                    } else {
-                        return Some(vec![conn_id]);
-                    }
-                }
+        let refs = &name_refs[side];
+        if refs.is_empty() {
+            return None;
+        }
 
-                // we need to iterate over the refs and exclude the incoming connection
-                let mut out = Vec::new();
-                for conn_id in refs[index].keys() {
-                    if *conn_id != incoming_conn {
-                        out.push(*conn_id);
-                    }
-                }
-                if out.is_empty() { None } else { Some(out) }
+        if refs.len() == 1 {
+            let Some(conn_id) = refs
+                .keys()
+                .copied()
+                .find(|&conn_id| conn_id != incoming_conn)
+            else {
+                debug!("the only available connection cannot be used");
+                return None;
+            };
+            return Some(vec![conn_id]);
+        }
+
+        let mut out = Vec::with_capacity(refs.len());
+        for conn_id in refs.keys() {
+            if *conn_id != incoming_conn {
+                out.push(*conn_id);
             }
         }
+        if out.is_empty() { None } else { Some(out) }
     }
 }
 
@@ -1207,5 +1185,115 @@ mod tests {
             matches!(err, Err(DataPathError::NoMatch(_))),
             "No connections should remain"
         );
+    }
+
+    /// Covers `pick_one` early exit, full-ring skip, and `next_index` round-robin.
+    #[test]
+    fn pick_one_and_next_index_helpers() {
+        reset_next_index_for_test();
+        assert_eq!(pick_one(0, 0, |_| Some(1)), None);
+
+        reset_next_index_for_test();
+        assert_eq!(
+            pick_one(1, 42, |_| Some(42)),
+            None,
+            "only candidate equals except"
+        );
+
+        reset_next_index_for_test();
+        let values = [10_u64, 20, 30];
+        assert_eq!(
+            pick_one(3, 99, |i| Some(values[i])),
+            Some(10),
+            "cursor 0, first acceptable"
+        );
+        assert_eq!(
+            pick_one(3, 99, |i| Some(values[i])),
+            Some(20),
+            "cursor advanced"
+        );
+        assert_eq!(pick_one(3, 99, |i| Some(values[i])), Some(30));
+        assert_eq!(pick_one(3, 99, |i| Some(values[i])), Some(10));
+
+        reset_next_index_for_test();
+        assert_eq!(
+            pick_one(2, 10, |i| Some([10, 20][i])),
+            Some(20),
+            "skip first slot when it matches except"
+        );
+
+        reset_next_index_for_test();
+        assert_eq!(
+            pick_one(3, 0, |i| if i == 1 { None } else { Some([1, 2, 3][i]) }),
+            Some(1),
+            "ignore None from get"
+        );
+    }
+
+    /// Unknown `name.id()` with a single connection in the pool uses `pool.get_one` fallback.
+    #[test]
+    fn get_one_connection_unknown_id_single_pool_conn_fallback() {
+        reset_next_index_for_test();
+        let base = Name::from_strings(["agntcy", "default", "rr-fallback"]);
+        let name_known = base.clone().with_id(1);
+        let name_unknown = base.clone().with_id(999);
+        let t = SubscriptionTableImpl::default();
+
+        assert!(t.add_subscription(name_known, 42, false, 1).is_ok());
+        assert_eq!(t.match_one(&name_unknown, 100).unwrap(), 42);
+    }
+
+    /// Unknown `name.id()` with zero or multiple pool entries returns `NoMatch`.
+    #[test]
+    fn get_one_connection_unknown_id_no_fallback_when_pool_not_singleton() {
+        reset_next_index_for_test();
+        let base = Name::from_strings(["agntcy", "default", "rr-nofallback"]);
+        let name_known = base.clone().with_id(1);
+        let name_unknown = base.clone().with_id(888);
+        let t = SubscriptionTableImpl::default();
+
+        assert!(t.add_subscription(name_known.clone(), 10, false, 1).is_ok());
+        assert!(t.add_subscription(name_known, 20, false, 2).is_ok());
+
+        let err = t.match_one(&name_unknown, 100);
+        assert!(
+            matches!(err, Err(DataPathError::NoMatch(_))),
+            "pool has 2 remote conns, id missing -> no singleton fallback"
+        );
+    }
+
+    /// Named id exists but only connection equals `incoming_conn` -> `pick_one` finds nothing.
+    #[test]
+    fn get_one_connection_only_candidate_is_incoming() {
+        reset_next_index_for_test();
+        let name = Name::from_strings(["agntcy", "default", "only-incoming"]).with_id(7);
+        let t = SubscriptionTableImpl::default();
+        assert!(t.add_subscription(name.clone(), 55, false, 1).is_ok());
+        let err = t.match_one(&name, 55);
+        assert!(matches!(err, Err(DataPathError::NoMatch(_))));
+    }
+
+    /// `Connections::get_all` when the sole indexed connection is excluded.
+    #[test]
+    fn match_all_null_name_single_conn_excluded() {
+        let name = Name::from_strings(["agntcy", "default", "null-single"]);
+        let t = SubscriptionTableImpl::default();
+        assert!(t.add_subscription(name.clone(), 77, false, 1).is_ok());
+        let err = t.match_all(&name, 77);
+        assert!(matches!(err, Err(DataPathError::NoMatch(_))));
+    }
+
+    /// `get_all_connections` multi-ref path with `Vec::with_capacity` and non-empty output.
+    #[test]
+    fn get_all_connections_multi_sorted_excludes_incoming() {
+        let name = Name::from_strings(["agntcy", "default", "multi-all"]).with_id(3);
+        let t = SubscriptionTableImpl::default();
+        assert!(t.add_subscription(name.clone(), 1, true, 1).is_ok());
+        assert!(t.add_subscription(name.clone(), 2, true, 2).is_ok());
+        assert!(t.add_subscription(name.clone(), 3, true, 3).is_ok());
+
+        let mut out = t.match_all(&name, 2).unwrap();
+        out.sort_unstable();
+        assert_eq!(out, vec![1, 3]);
     }
 }
