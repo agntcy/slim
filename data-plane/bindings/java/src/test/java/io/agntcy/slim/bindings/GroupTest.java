@@ -38,7 +38,7 @@ class GroupTest {
     }
 
     private void inviteParticipants(App participant, Session session, TestHelpers.ServerFixture server,
-            String testId, int participantsCount, Long connId, String partName) throws Exception {
+            String testId, int participantsCount, Long connId) throws Exception {
         for (int i = 0; i < participantsCount; i++) {
             if (i != 0) {
                 String nameToAdd = "participant_" + i;
@@ -69,8 +69,7 @@ class GroupTest {
 
             Name chatName = new Name("org", "test_" + testId, "chat");
 
-            ExecutorService executor = Executors.newFixedThreadPool(participantsCount);
-
+            try (ExecutorService executor = Executors.newFixedThreadPool(participantsCount)) {
             for (int index = 0; index < participantsCount; index++) {
                 final int idx = index;
                 executor.submit(() -> {
@@ -88,7 +87,7 @@ class GroupTest {
                             System.out.println("[GroupTest] moderator: session created");
                             allReady.await(30, TimeUnit.SECONDS);
                             System.out.println("[GroupTest] moderator: inviting " + (participantsCount - 1) + " participants");
-                            inviteParticipants(participant, session, server, testId, participantsCount, connId, partName);
+                            inviteParticipants(participant, session, server, testId, participantsCount, connId);
                             System.out.println("[GroupTest] moderator: sent first message to participant_1");
                         } else {
                             System.out.println("[GroupTest] participant " + idx + ": listening for session");
@@ -148,6 +147,7 @@ class GroupTest {
             executor.shutdown();
             assertTrue(executor.awaitTermination(180, TimeUnit.SECONDS));
             System.out.println("[GroupTest] all participants completed");
+            }
         } finally {
             TestHelpers.teardownServer(server);
         }
