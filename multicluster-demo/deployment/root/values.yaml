@@ -1,0 +1,55 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+#
+# SPIRE nested root (admin cluster) — used with spiffe/spire-nested Helm chart.
+# Install: helm upgrade --install spire spiffe/spire-nested -n spire --create-namespace \
+#   -f spire-root-values.yaml --set global.spire.trustDomain="$SPIFFE_TRUST_DOMAIN"
+
+global:
+  spire:
+    trustDomain: "slim.dev.outshift.ai"
+    clusterName: root-cluster
+    ingressControllerType: "ingress-nginx"
+
+tags:
+  nestedRoot: true
+
+spire-nested:
+  external-spire-server:
+    ingress:
+      enabled: true
+      className: "nginx-internal"
+      host: external.spire.slim.dev.outshift.ai
+      annotations:
+        external-dns.alpha.kubernetes.io/hostname: external.spire.slim.dev.outshift.ai
+      tlsSecret: external-spire-tls
+    controllerManager:
+      className: spire-spire
+
+  spiffe-oidc-discovery-provider:
+    ingress:
+      enabled: true
+      className: "nginx-internal"
+      host: oidc.spire.slim.dev.outshift.ai
+      annotations:
+        external-dns.alpha.kubernetes.io/hostname: oidc.spire.slim.dev.outshift.ai
+      tlsSecret: oidc-spire-tls
+    controllerManager:
+      className: spire-spire
+
+  root-spire-server:
+    persistence:
+      enabled: true
+      size: 8Gi
+    nodeAttestor:
+      k8sPSAT:
+        serviceAccountAllowList:
+          - spire-system:spire-agent-upstream
+      joinToken:
+        enabled: true
+    controllerManager:
+      className: spire-spire
+
+  internal-spire-server:
+    controllerManager:
+      className: spire-spire
