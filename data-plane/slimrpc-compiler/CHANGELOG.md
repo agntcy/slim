@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1](https://github.com/agntcy/slim/compare/protoc-slimrpc-plugin-v1.3.0...protoc-slimrpc-plugin-v1.3.1) - 2026-04-17
+
+### Fixed
+
+- *(bindings/go)* use ChannelInterface and ServerInterface in generated stubs ([#1426](https://github.com/agntcy/slim/pull/1426))
+
 ## [1.3.0](https://github.com/agntcy/slim/compare/protoc-slimrpc-plugin-v1.2.0...protoc-slimrpc-plugin-v1.3.0) - 2026-03-31
 
 ### Added
