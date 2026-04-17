@@ -46,8 +46,10 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    pub(crate) fn new(mut mls: Mls<P, V>) -> Result<Self, SessionError> {
-        mls.initialize()?;
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub(crate) async fn new(mut mls: Mls<P, V>) -> Result<Self, SessionError> {
+        mls.initialize().await?;
 
         Ok(MlsState {
             mls,
@@ -57,12 +59,19 @@ where
         })
     }
 
-    pub(crate) fn generate_key_package(&mut self) -> Result<KeyPackageMsg, SessionError> {
-        let ret = self.mls.generate_key_package()?;
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub(crate) async fn generate_key_package(&mut self) -> Result<KeyPackageMsg, SessionError> {
+        let ret = self.mls.generate_key_package().await?;
         Ok(ret)
     }
 
-    pub(crate) fn process_welcome_message(&mut self, msg: &Message) -> Result<(), SessionError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub(crate) async fn process_welcome_message(
+        &mut self,
+        msg: &Message,
+    ) -> Result<(), SessionError> {
         if self.last_mls_msg_id != 0 {
             debug!("Welcome message already received, drop");
             // we already got a welcome message, ignore this one
@@ -77,12 +86,14 @@ where
         self.last_mls_msg_id = mls_payload.commit_id;
         let welcome = &mls_payload.mls_content;
 
-        self.group = self.mls.process_welcome(welcome)?;
+        self.group = self.mls.process_welcome(welcome).await?;
 
         Ok(())
     }
 
-    pub(crate) fn process_control_message(
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub(crate) async fn process_control_message(
         &mut self,
         msg: Message,
         local_name: &Name,
@@ -105,18 +116,18 @@ where
             // base on the message type, process it
             match msg.get_session_header().session_message_type() {
                 ProtoSessionMessageType::GroupProposal => {
-                    self.process_proposal_message(msg, local_name)?;
+                    self.process_proposal_message(msg, local_name).await?;
                 }
                 ProtoSessionMessageType::GroupAdd => {
                     let payload = msg.extract_group_add()?;
                     let mls_payload = payload.mls.as_ref().ok_or(MlsError::NoGroupAddPayload)?;
-                    self.process_commit_message(mls_payload)?;
+                    self.process_commit_message(mls_payload).await?;
                 }
                 ProtoSessionMessageType::GroupRemove => {
                     let payload = msg.extract_group_remove()?;
                     let mls_payload = payload.mls.as_ref().ok_or(MlsError::NoGroupRemovePayload)?;
 
-                    self.process_commit_message(mls_payload)?;
+                    self.process_commit_message(mls_payload).await?;
                 }
                 _type => {
                     error!(?_type, "unknown control message type, drop it");
@@ -130,16 +141,23 @@ where
         Ok(true)
     }
 
-    fn process_commit_message(&mut self, mls_payload: &MlsPayload) -> Result<(), SessionError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    async fn process_commit_message(
+        &mut self,
+        mls_payload: &MlsPayload,
+    ) -> Result<(), SessionError> {
         trace!(id = %mls_payload.commit_id,  "processing stored commit",);
 
         // process the commit message
-        self.mls.process_commit(&mls_payload.mls_content)?;
+        self.mls.process_commit(&mls_payload.mls_content).await?;
 
         Ok(())
     }
 
-    fn process_proposal_message(
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    async fn process_proposal_message(
         &mut self,
         proposal: Message,
         local_name: &Name,
@@ -159,7 +177,9 @@ where
             return Ok(());
         }
 
-        self.mls.process_proposal(&payload.mls_proposal, false)?;
+        self.mls
+            .process_proposal(&payload.mls_proposal, false)
+            .await?;
 
         Ok(())
     }
@@ -253,7 +273,9 @@ where
     /// # Returns
     /// * `Ok(())` if processing succeeds
     /// * `Err(SessionError)` if processing fails or message format is invalid
-    pub fn process_message(
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn process_message(
         &mut self,
         msg: &mut Message,
         direction: MessageDirection,
@@ -261,11 +283,11 @@ where
         match direction {
             MessageDirection::South => {
                 // Encrypting message going to SLIM
-                self.encrypt_message(msg)
+                self.encrypt_message(msg).await
             }
             MessageDirection::North => {
                 // Decrypting message coming from SLIM
-                self.decrypt_message(msg)
+                self.decrypt_message(msg).await
             }
         }
     }
@@ -278,7 +300,9 @@ where
     /// # Returns
     /// * `Ok(())` if encryption succeeds
     /// * `Err(SessionError)` if encryption fails or message format is invalid
-    fn encrypt_message(&mut self, msg: &mut Message) -> Result<(), SessionError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    async fn encrypt_message(&mut self, msg: &mut Message) -> Result<(), SessionError> {
         if !Self::should_process_message(msg) {
             return Ok(());
         }
@@ -286,7 +310,7 @@ where
         let payload = msg.get_payload().unwrap().as_application_payload()?;
 
         debug!("Encrypting message for group member");
-        let encrypted_payload = self.mls.encrypt_message(&payload.blob)?;
+        let encrypted_payload = self.mls.encrypt_message(&payload.blob).await?;
 
         msg.set_payload(
             ApplicationPayload::new(&payload.payload_type, encrypted_payload.to_vec()).as_content(),
@@ -303,7 +327,9 @@ where
     /// # Returns
     /// * `Ok(())` if decryption succeeds
     /// * `Err(SessionError)` if decryption fails or message format is invalid
-    fn decrypt_message(&mut self, msg: &mut Message) -> Result<(), SessionError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    async fn decrypt_message(&mut self, msg: &mut Message) -> Result<(), SessionError> {
         if !Self::should_process_message(msg) {
             return Ok(());
         }
@@ -311,7 +337,7 @@ where
         let payload = msg.get_payload().unwrap().as_application_payload()?;
 
         debug!("Decrypting message for group member");
-        let decrypted_payload = self.mls.decrypt_message(&payload.blob)?;
+        let decrypted_payload = self.mls.decrypt_message(&payload.blob).await?;
 
         msg.set_payload(
             ApplicationPayload::new(&payload.payload_type, decrypted_payload.to_vec()).as_content(),
@@ -350,19 +376,25 @@ where
         }
     }
 
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
     pub(crate) async fn init_moderator(&mut self) -> Result<(), SessionError> {
-        self.common.mls.create_group()?;
+        tracing::info!("MLS moderator init: calling create_group");
+        self.common.mls.create_group().await?;
+        tracing::info!("MLS moderator init: create_group succeeded");
         Ok(())
     }
 
-    pub(crate) fn add_participant(
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub(crate) async fn add_participant(
         &mut self,
         msg: &Message,
     ) -> Result<(CommitMsg, WelcomeMsg), SessionError> {
         let payload = msg.extract_join_reply()?;
 
         // Propagate MlsError directly (will become SessionError::MlsOp via #[from])
-        let ret = self.common.mls.add_member(payload.key_package())?;
+        let ret = self.common.mls.add_member(payload.key_package()).await?;
 
         // add participant to the list
         self.participants
@@ -371,7 +403,12 @@ where
         Ok((ret.commit_message, ret.welcome_message))
     }
 
-    pub(crate) fn remove_participant(&mut self, msg: &Message) -> Result<CommitMsg, SessionError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub(crate) async fn remove_participant(
+        &mut self,
+        msg: &Message,
+    ) -> Result<CommitMsg, SessionError> {
         debug!("Remove participant from the MLS group");
         let name = msg.get_dst();
         let id = match self.participants.get(&name) {
@@ -382,7 +419,7 @@ where
             }
         };
 
-        let ret = self.common.mls.remove_member(id)?;
+        let ret = self.common.mls.remove_member(id).await?;
 
         // remove the participant from the list
         self.participants.remove(&name);
@@ -391,18 +428,24 @@ where
     }
 
     #[allow(dead_code)]
-    pub(crate) fn process_proposal_message(
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub(crate) async fn process_proposal_message(
         &mut self,
         proposal: &ProposalMsg,
     ) -> Result<CommitMsg, SessionError> {
-        let commit = self.common.mls.process_proposal(proposal, true)?;
+        let commit = self.common.mls.process_proposal(proposal, true).await?;
 
         Ok(commit)
     }
 
     #[allow(dead_code)]
-    pub(crate) fn process_local_pending_proposal(&mut self) -> Result<CommitMsg, SessionError> {
-        let commit = self.common.mls.process_local_pending_proposal()?;
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub(crate) async fn process_local_pending_proposal(
+        &mut self,
+    ) -> Result<CommitMsg, SessionError> {
+        let commit = self.common.mls.process_local_pending_proposal().await?;
 
         Ok(commit)
     }

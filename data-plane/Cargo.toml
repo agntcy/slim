@@ -11,6 +11,7 @@ members = [
     "core/session",
     "core/signal",
     "core/slim",
+    "core/slim-wasm",
     "core/tracing",
     "core/version",
     "examples",
@@ -38,20 +39,20 @@ resolver = "2"
 
 [workspace.dependencies]
 # Local dependencies
-agntcy-slim = { path = "core/slim", version = "1.3.0" }
-agntcy-slim-auth = { path = "core/auth", version = "0.6.2" }
-agntcy-slim-bindings = { path = "bindings/rust", version = "1.3.0" }
-agntcy-slim-config = { path = "core/config", version = "0.8.2" }
-agntcy-slim-controller = { path = "core/controller", version = "0.4.12" }
-agntcy-slim-datapath = { path = "core/datapath", version = "0.12.2" }
-agntcy-slim-mls = { path = "core/mls", version = "0.1.14" }
-agntcy-slim-service = { path = "core/service", version = "0.8.11", default-features = false }
-agntcy-slim-session = { path = "core/session", version = "0.1.11" }
-agntcy-slim-signal = { path = "core/signal", version = "0.1.8" }
+agntcy-slim = { path = "core/slim", version = "1.3.0-rc.2" }
+agntcy-slim-auth = { path = "core/auth", version = "0.6.0", default-features = false }
+agntcy-slim-bindings = { path = "bindings/rust", version = "1.3.0-rc.1" }
+agntcy-slim-config = { path = "core/config", version = "0.8.0", default-features = false }
+agntcy-slim-controller = { path = "core/controller", version = "0.4.10", default-features = false }
+agntcy-slim-datapath = { path = "core/datapath", version = "0.12.0", default-features = false }
+agntcy-slim-mls = { path = "core/mls", version = "0.1.12", default-features = false }
+agntcy-slim-service = { path = "core/service", version = "0.8.9", default-features = false }
+agntcy-slim-session = { path = "core/session", version = "0.1.9", default-features = false }
+agntcy-slim-signal = { path = "core/signal", version = "0.1.6", default-features = false }
 agntcy-slim-testing = { path = "testing" }
-agntcy-slim-tracing = { path = "core/tracing", version = "0.3.8" }
-agntcy-slim-version = { path = "core/version", version = "1.3.0" }
-agntcy-slimctl = { path = "slimctl", version = "1.3.0" }
+agntcy-slim-tracing = { path = "core/tracing", version = "0.3.6", default-features = false }
+agntcy-slim-version = { path = "core/version", version = "1.3.0-rc.2" }
+agntcy-slimctl = { path = "slimctl", version = "1.3.0-rc.1" }
 
 anyhow = "1.0.98"
 
@@ -69,18 +70,21 @@ criterion = { version = "0.5", features = ["html_reports"] }
 display-error-chain = { version = "0.2" }
 drain = { version = "0.2", features = ["retain"] }
 duration-string = { version = "0.5.3", features = ["serde"] }
+fastwebsockets = { version = "0.10.0", features = ["upgrade", "unstable-split"] }
 futures = "0.3.31"
 futures-timer = "3.0.3"
 h2 = "0.4.7"
 headers = "0.4.1"
 hex = "0.4.3"
 http = "1.2.0"
+http-body-util = "0.1.3"
+hyper = { version = "1.8.1", features = ["http1", "server", "client"] }
 hyper-rustls = { version = "0.27", features = ["http2", "aws-lc-rs"], default-features = false }
 hyper-util = "0.1.10"
 indexmap = "2"
 indicatif = "0.17.11"
 jemallocator = { version = "0.5" }
-jsonwebtoken = { version = "10.3.0", features = ["aws_lc_rs"]}
+jsonwebtoken = { version = "10.3.0", features = ["aws_lc_rs"] }
 
 lazy_static = "1.5.0"
 mls-rs = { version = "0.54" }
@@ -105,7 +109,7 @@ protoc-bin-vendored = "3.1.0"
 pyo3 = { version = "0.26" }
 pyo3-async-runtimes = { version = "0.26", features = ["tokio-runtime"] }
 pyo3-stub-gen = "0.14"
-rand = "0.9.0"
+rand = "0.9.3"
 regex = "1.11.1"
 
 reqwest = { version = "0.12", features = ["json", "rustls-tls-no-provider", "charset", "http2", "system-proxy", "blocking"], default-features = false }
@@ -124,6 +128,7 @@ test-fork = "0.1.3"
 thiserror = "2.0.9"
 tokio = "1.45"
 tokio-retry = "0.3"
+tokio-rustls = "0.26.4"
 tokio-stream = "0.1"
 tokio-test = "0.4.4"
 tokio-util = "0.7.14"

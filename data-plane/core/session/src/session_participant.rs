@@ -78,7 +78,8 @@ where
 
 /// Implementation of MessageHandler trait for SessionParticipant
 /// This allows the participant to be used as a layer in the generic layer system
-#[async_trait]
+#[cfg_attr(feature = "native", async_trait)]
+#[cfg_attr(feature = "wasm", async_trait(?Send))]
 impl<P, V, I, M> MessageHandler for SessionParticipant<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -89,11 +90,18 @@ where
     async fn init(&mut self) -> Result<(), SessionError> {
         // Initialize MLS
         self.mls_state = if self.common.settings.config.mls_enabled {
-            let mls_state = MlsState::new(Mls::new(
+            let mls = Mls::new(
                 self.common.settings.identity_provider.clone(),
                 self.common.settings.identity_verifier.clone(),
-            ))
-            .expect("failed to create MLS state");
+            );
+
+            #[cfg(feature = "native")]
+            let mls_state = MlsState::new(mls).expect("failed to create MLS state");
+
+            #[cfg(all(feature = "wasm", not(feature = "native")))]
+            let mls_state = MlsState::new(mls)
+                .await
+                .expect("failed to create MLS state");
 
             Some(mls_state)
         } else {
@@ -120,7 +128,10 @@ where
                 } else {
                     // Apply MLS encryption/decryption if enabled
                     if let Some(mls_state) = &mut self.mls_state {
+                        #[cfg(not(mls_build_async))]
                         mls_state.process_message(&mut message, direction)?;
+                        #[cfg(mls_build_async)]
+                        mls_state.process_message(&mut message, direction).await?;
                     }
 
                     self.inner
@@ -352,7 +363,10 @@ where
 
         let payload = if let Some(mls_state) = &mut self.mls_state {
             debug!("mls enabled, create the package key");
+            #[cfg(not(mls_build_async))]
             let key = mls_state.generate_key_package()?;
+            #[cfg(mls_build_async)]
+            let key = mls_state.generate_key_package().await?;
             Some(key)
         } else {
             None
@@ -380,7 +394,10 @@ where
         );
 
         if let Some(mls_state) = &mut self.mls_state {
+            #[cfg(not(mls_build_async))]
             mls_state.process_welcome_message(&msg)?;
+            #[cfg(mls_build_async)]
+            mls_state.process_welcome_message(&msg).await?;
         }
 
         self.join(&msg).await?;
@@ -432,8 +449,13 @@ where
 
         if let Some(mls_state) = &mut self.mls_state {
             debug!("process mls control update");
+            #[cfg(not(mls_build_async))]
             let ret =
                 mls_state.process_control_message(msg.clone(), &self.common.settings.source)?;
+            #[cfg(mls_build_async)]
+            let ret = mls_state
+                .process_control_message(msg.clone(), &self.common.settings.source)
+                .await?;
 
             if !ret {
                 debug!(

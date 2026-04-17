@@ -74,13 +74,15 @@ where
     }
 }
 
+#[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+#[cfg_attr(mls_build_async, maybe_async::must_be_async)]
 impl<V> IdentityProvider for SlimIdentityProvider<V>
 where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     type Error = MlsError;
 
-    fn validate_member(
+    async fn validate_member(
         &self,
         signing_identity: &SigningIdentity,
         _timestamp: Option<MlsTime>,
@@ -102,7 +104,7 @@ where
         Ok(())
     }
 
-    fn validate_external_sender(
+    async fn validate_external_sender(
         &self,
         _signing_identity: &SigningIdentity,
         _timestamp: Option<MlsTime>,
@@ -112,7 +114,7 @@ where
         Err(MlsError::ExternalCommitNotSupported)
     }
 
-    fn identity(
+    async fn identity(
         &self,
         signing_identity: &SigningIdentity,
         _extensions: &ExtensionList,
@@ -122,7 +124,7 @@ where
         Ok(identity_claims.subject.into_bytes())
     }
 
-    fn valid_successor(
+    async fn valid_successor(
         &self,
         predecessor: &SigningIdentity,
         successor: &SigningIdentity,

@@ -22,7 +22,7 @@ SPDX-License-Identifier: Apache-2.0
 //! Design notes:
 //! * `id` is randomized per construction (`<base_id>_<random_suffix>`).
 //! * Replay cache stores only (nonce, timestamp) for memory efficiency.
-//! * HMAC via `aws-lc-rs` for constant-time primitives.
+//! * HMAC-SHA256: on native, `aws-lc-rs`; on wasm, the `hmac` + `sha2` crates.
 //! * `SharedSecret` is cheap to clone (Arc increment) and cloning preserves
 //!   replay cache state (when enabled).
 //!
@@ -51,7 +51,6 @@ SPDX-License-Identifier: Apache-2.0
 //! * All other fields are immutable after construction.
 
 use async_trait::async_trait;
-use aws_lc_rs::hmac;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as STANDARD_BASE64;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -60,14 +59,38 @@ use rand::{Rng, distr::Alphanumeric};
 use std::{
     collections::{HashSet, VecDeque},
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
 };
+
+#[cfg(feature = "native")]
+use std::time::{SystemTime, UNIX_EPOCH};
+
+#[cfg(feature = "native")]
+use aws_lc_rs::hmac as aws_hmac;
+
+#[cfg(all(feature = "wasm", not(feature = "native")))]
+use hmac::{Hmac, Mac};
+#[cfg(all(feature = "wasm", not(feature = "native")))]
+use sha2::Sha256;
 
 use crate::{
     errors::AuthError,
     traits::{TokenProvider, Verifier},
-    utils::generate_mls_signature_keys,
 };
+
+#[cfg(feature = "native")]
+use crate::utils::generate_mls_signature_keys;
+
+/// WASM fallback: generate random bytes as MLS signature key material.
+/// The keys are used as opaque blobs embedded in shared-secret tokens,
+/// not for actual MLS crypto operations in this context.
+#[cfg(all(feature = "wasm", not(feature = "native")))]
+fn generate_mls_signature_keys() -> Result<(Vec<u8>, Vec<u8>), AuthError> {
+    let mut secret = vec![0u8; 32];
+    let mut public = vec![0u8; 32];
+    rand::Fill::fill(&mut secret[..], &mut rand::rng());
+    rand::Fill::fill(&mut public[..], &mut rand::rng());
+    Ok((secret, public))
+}
 
 /// Minimum length (in bytes) required for the shared secret (baseline 256 bits).
 const MIN_SECRET_LEN: usize = 32;
@@ -365,6 +388,7 @@ impl SharedSecret {
         Ok(())
     }
 
+    #[cfg(feature = "native")]
     fn get_current_timestamp(&self) -> u64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -372,10 +396,24 @@ impl SharedSecret {
             .as_secs()
     }
 
+    #[cfg(all(feature = "wasm", not(feature = "native")))]
+    fn get_current_timestamp(&self) -> u64 {
+        (js_sys::Date::now() / 1000.0) as u64
+    }
+
+    #[cfg(feature = "native")]
     fn create_hmac_raw(&self, message: &[u8]) -> Result<Vec<u8>, AuthError> {
-        let key = hmac::Key::new(hmac::HMAC_SHA256, self.inner.shared_secret.as_bytes());
-        let tag = hmac::sign(&key, message);
+        let key = aws_hmac::Key::new(aws_hmac::HMAC_SHA256, self.inner.shared_secret.as_bytes());
+        let tag = aws_hmac::sign(&key, message);
         Ok(tag.as_ref().to_vec())
+    }
+
+    #[cfg(all(feature = "wasm", not(feature = "native")))]
+    fn create_hmac_raw(&self, message: &[u8]) -> Result<Vec<u8>, AuthError> {
+        let mut mac = Hmac::<Sha256>::new_from_slice(self.inner.shared_secret.as_bytes())
+            .map_err(|_e| AuthError::HmacKeyMissing)?;
+        mac.update(message);
+        Ok(mac.finalize().into_bytes().to_vec())
     }
 
     fn create_hmac_b64(&self, message: &str) -> Result<String, AuthError> {
@@ -383,13 +421,27 @@ impl SharedSecret {
         Ok(URL_SAFE_NO_PAD.encode(raw))
     }
 
+    #[cfg(feature = "native")]
     fn verify_hmac(&self, message: &str, expected_b64: &str) -> Result<(), AuthError> {
         let expected = URL_SAFE_NO_PAD.decode(expected_b64.as_bytes())?;
         if expected.len() != 32 {
             return Err(AuthError::TokenMalformed);
         }
-        let key = hmac::Key::new(hmac::HMAC_SHA256, self.inner.shared_secret.as_bytes());
-        hmac::verify(&key, message.as_bytes(), &expected).map_err(|_e| AuthError::TokenInvalid)
+        let key = aws_hmac::Key::new(aws_hmac::HMAC_SHA256, self.inner.shared_secret.as_bytes());
+        aws_hmac::verify(&key, message.as_bytes(), &expected).map_err(|_e| AuthError::TokenInvalid)
+    }
+
+    #[cfg(all(feature = "wasm", not(feature = "native")))]
+    fn verify_hmac(&self, message: &str, expected_b64: &str) -> Result<(), AuthError> {
+        let expected = URL_SAFE_NO_PAD.decode(expected_b64.as_bytes())?;
+        if expected.len() != 32 {
+            return Err(AuthError::TokenMalformed);
+        }
+        let mut mac = Hmac::<Sha256>::new_from_slice(self.inner.shared_secret.as_bytes())
+            .map_err(|_e| AuthError::HmacKeyMissing)?;
+        mac.update(message.as_bytes());
+        mac.verify_slice(&expected)
+            .map_err(|_e| AuthError::TokenInvalid)
     }
 
     fn build_message(&self, id: &str, timestamp: u64, nonce: &str, claims_b64: &str) -> String {
@@ -447,7 +499,8 @@ impl SharedSecret {
     }
 }
 
-#[async_trait]
+#[cfg_attr(feature = "native", async_trait)]
+#[cfg_attr(feature = "wasm", async_trait(?Send))]
 impl TokenProvider for SharedSecret {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         // SharedSecret has no async initialization steps.
@@ -491,9 +544,19 @@ impl TokenProvider for SharedSecret {
         self.signature_keys = generate_mls_signature_keys()?;
         Ok(())
     }
+
+    fn set_signature_keys(
+        &mut self,
+        private_key: Vec<u8>,
+        public_key: Vec<u8>,
+    ) -> Result<(), AuthError> {
+        self.signature_keys = (private_key, public_key);
+        Ok(())
+    }
 }
 
-#[async_trait]
+#[cfg_attr(feature = "native", async_trait)]
+#[cfg_attr(feature = "wasm", async_trait(?Send))]
 impl Verifier for SharedSecret {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         Ok(())

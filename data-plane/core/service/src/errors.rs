@@ -16,6 +16,7 @@ pub enum ServiceError {
     // Configuration / setup
     #[error("no server or client configured")]
     NoServerOrClientConfigured,
+    #[cfg(feature = "native")]
     #[error("grpc configuration error")]
     GrpcConfigError(#[from] slim_config::grpc::errors::ConfigError),
     #[error("invalid configuration: {0}")]

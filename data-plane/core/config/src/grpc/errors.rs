@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::auth::ConfigAuthError;
+#[cfg(feature = "native")]
 use slim_auth::errors::AuthError;
 use thiserror::Error;
 
@@ -25,16 +26,48 @@ pub enum ConfigError {
     InvalidEndpointScheme,
     #[error("websocket transport requires endpoint scheme ws:// or wss://")]
     InvalidWebSocketEndpointScheme,
+    #[error("websocket client builder requires websocket transport")]
+    WebSocketClientUnsupportedTransport,
+    #[error("websocket server builder requires websocket transport")]
+    WebSocketServerUnsupportedTransport,
+    #[error("websocket transport TLS configuration is invalid")]
+    WebSocketTlsConfiguration,
+    #[error("websocket support is disabled at compile time")]
+    WebSocketFeatureDisabled,
+    #[error(
+        "browser websocket cannot set Authorization header; configure websocket_auth_query_param"
+    )]
+    WebSocketWasmAuthorizationHeaderUnsupported,
+    #[error("websocket wasm connection error: {0}")]
+    WebSocketWasmConnection(String),
+    #[error("websocket wasm client is only supported on wasm32 target")]
+    WebSocketWasmUnsupportedTarget,
 
     // Network / transport
+    #[cfg(feature = "native")]
     #[error("transport error")]
     TransportError(#[from] tonic::transport::Error),
+    #[cfg(not(feature = "native"))]
+    #[error("transport error")]
+    TransportError,
+    #[error("gRPC support is disabled at compile time")]
+    GrpcFeatureDisabled,
     #[error("gRPC channel builder does not support websocket transport")]
     GrpcChannelUnsupportedTransport,
     #[error("gRPC server builder does not support websocket transport")]
     GrpcServerUnsupportedTransport,
     #[error("bind error")]
     Bind(#[from] std::io::Error),
+    #[error("websocket connection error")]
+    WebSocketConnection(#[source] std::io::Error),
+    #[error("websocket handshake error")]
+    #[cfg(feature = "native")]
+    WebSocketHandshake(#[source] fastwebsockets::WebSocketError),
+    #[error("websocket handshake error: {0}")]
+    #[cfg(not(feature = "native"))]
+    WebSocketHandshake(String),
+    #[error("websocket request error")]
+    WebSocketRequest(#[source] http::Error),
 
     // Unix domain sockets
     #[error("unix domain sockets are unsupported on this platform")]
@@ -65,6 +98,7 @@ pub enum ConfigError {
     TlsConfig(#[from] crate::tls::errors::ConfigError),
 
     // Authentication
+    #[cfg(feature = "native")]
     #[error("auth error")]
     AuthError(#[from] AuthError),
     #[error("auth config error")]
