@@ -49,13 +49,9 @@ dependencies = [
  "base64 0.22.1",
  "display-error-chain",
  "futures",
- "getrandom 0.3.4",
  "headers",
- "hmac",
  "http",
- "js-sys",
  "jsonwebtoken",
- "jsonwebtoken-aws-lc",
  "mls-rs-core",
  "mls-rs-crypto-awslc",
  "notify",
@@ -68,7 +64,6 @@ dependencies = [
  "schemars 1.2.0",
  "serde",
  "serde_json",
- "sha2",
  "spiffe",
  "thiserror 2.0.17",
  "tokio",
@@ -135,8 +130,6 @@ dependencies = [
  "duration-string",
  "fastwebsockets",
  "futures",
- "getrandom 0.3.4",
- "gloo-net",
  "http",
  "http-body-util",
  "hyper",
@@ -216,12 +209,10 @@ dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-tracing",
  "agntcy-slim-version",
- "bit-vec",
  "criterion",
  "display-error-chain",
  "drain",
  "fastwebsockets",
- "getrandom 0.3.4",
  "h2",
  "http",
  "opentelemetry",
@@ -254,13 +245,10 @@ dependencies = [
  "agntcy-slim-datapath",
  "agntcy-slim-version",
  "base64 0.22.1",
- "getrandom 0.3.4",
  "hex",
- "maybe-async",
  "mls-rs",
  "mls-rs-core",
  "mls-rs-crypto-awslc",
- "mls-rs-crypto-webcrypto",
  "serde_json",
  "tempfile",
  "thiserror 2.0.17",
@@ -305,18 +293,15 @@ dependencies = [
  "display-error-chain",
  "futures",
  "futures-timer",
- "getrandom 0.3.4",
- "maybe-async",
  "parking_lot",
  "rand 0.9.4",
  "serde",
  "thiserror 2.0.17",
  "tokio",
  "tokio-util",
- "tokio_with_wasm",
+ "tonic",
  "tracing",
  "tracing-test",
- "web-time",
 ]
 
 [[package]]
@@ -345,7 +330,6 @@ dependencies = [
  "clap",
  "futures",
  "jsonwebtoken",
- "jsonwebtoken-aws-lc",
  "libc",
  "parking_lot",
  "rand 0.9.4",
@@ -364,7 +348,6 @@ version = "0.3.9"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-version",
- "getrandom 0.3.4",
  "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -377,34 +360,6 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "uuid",
- "web-sys",
-]
-
-[[package]]
-name = "agntcy-slim-version"
-version = "1.3.0"
-
-[[package]]
-name = "agntcy-slim-wasm"
-version = "0.1.0"
-dependencies = [
- "agntcy-slim-auth",
- "agntcy-slim-config",
- "agntcy-slim-datapath",
- "agntcy-slim-mls",
- "agntcy-slim-session",
- "agntcy-slim-tracing",
- "console_error_panic_hook",
- "futures",
- "gloo-net",
- "js-sys",
- "parking_lot",
- "prost",
- "tokio_with_wasm",
- "tracing",
- "url",
- "wasm-bindgen",
- "wasm-bindgen-futures",
 ]
 
 [[package]]
@@ -781,12 +736,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bit-vec"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e764a1d40d510daf35e07be9eb06e75770908c27d411ee6c92109c9840eaaf7"
-
-[[package]]
 name = "bitflags"
 version = "2.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1021,26 +970,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
-name = "console_error_panic_hook"
-version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
-dependencies = [
- "cfg-if",
- "wasm-bindgen",
-]
-
-[[package]]
 name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
-
-[[package]]
-name = "const-oid"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 
 [[package]]
 name = "core-foundation"
@@ -1243,18 +1176,7 @@ version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
 dependencies = [
- "const-oid 0.9.6",
-]
-
-[[package]]
-name = "der"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71fd89660b2dc699704064e59e9dba0147b903e85319429e131620d022be411b"
-dependencies = [
- "const-oid 0.10.2",
- "der_derive",
- "zeroize",
+ "const-oid",
 ]
 
 [[package]]
@@ -1269,17 +1191,6 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "rusticata-macros",
-]
-
-[[package]]
-name = "der_derive"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59600e2c2d636fde9b65e99cc6445ac770c63d3628195ff39932b8d6d7409903"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -1300,7 +1211,6 @@ checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
  "block-buffer",
  "crypto-common",
- "subtle",
 ]
 
 [[package]]
@@ -1617,40 +1527,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
-name = "gloo-net"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c06f627b1a58ca3d42b45d6104bf1e1a03799df472df00988b6ba21accc10580"
-dependencies = [
- "futures-channel",
- "futures-core",
- "futures-sink",
- "gloo-utils",
- "http",
- "js-sys",
- "pin-project",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
-name = "gloo-utils"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b5555354113b18c547c1d3a98fbf7fb32a9ff4f6fa112ce823a21641a0ba3aa"
-dependencies = [
- "js-sys",
- "serde",
- "serde_json",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
 name = "goblin"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1755,15 +1631,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 dependencies = [
  "serde",
-]
-
-[[package]]
-name = "hmac"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
-dependencies = [
- "digest",
 ]
 
 [[package]]
@@ -2184,21 +2051,6 @@ dependencies = [
 
 [[package]]
 name = "jsonwebtoken"
-version = "9.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a87cc7a48537badeae96744432de36f4be2b4a34a05a5ef32e9dd8a1c169dde"
-dependencies = [
- "base64 0.22.1",
- "js-sys",
- "pem",
- "ring",
- "serde",
- "serde_json",
- "simple_asn1",
-]
-
-[[package]]
-name = "jsonwebtoken"
 version = "10.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0529410abe238729a60b108898784df8984c87f6054c9c4fcacc47e4803c1ce1"
@@ -2274,46 +2126,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
-name = "logos"
-version = "0.15.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff472f899b4ec2d99161c51f60ff7075eeb3097069a36050d8037a6325eb8154"
-dependencies = [
- "logos-derive",
-]
-
-[[package]]
-name = "logos-codegen"
-version = "0.15.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "192a3a2b90b0c05b27a0b2c43eecdb7c415e29243acc3f89cc8247a5b693045c"
-dependencies = [
- "beef",
- "fnv",
- "lazy_static",
- "proc-macro2",
- "quote",
- "regex-syntax",
- "rustc_version",
- "syn",
-]
-
-[[package]]
-name = "logos-derive"
-version = "0.15.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "605d9697bcd5ef3a42d38efc51541aa3d6a4a25f7ab6d1ed0da5ac632a26b470"
-dependencies = [
- "logos-codegen",
-]
-
-[[package]]
-name = "lru-slab"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
-
-[[package]]
 name = "matchers"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2344,28 +2156,6 @@ name = "memchr"
 version = "2.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
-
-[[package]]
-name = "miette"
-version = "7.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f98efec8807c63c752b5bd61f862c165c115b0a35685bdcfd9238c7aeb592b7"
-dependencies = [
- "cfg-if",
- "miette-derive",
- "unicode-width",
-]
-
-[[package]]
-name = "miette-derive"
-version = "7.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db5b29714e950dbb20d5e6f74f9dcec4edbcc1067bb7f8ed198c097b8c1a818b"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
 
 [[package]]
 name = "mime"
@@ -2502,29 +2292,6 @@ dependencies = [
  "async-trait",
  "maybe-async",
  "mls-rs-core",
- "zeroize",
-]
-
-[[package]]
-name = "mls-rs-crypto-webcrypto"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "292a8e8a85689c029a6f6b0c7a7eef0f390a044ef176b80d0442b38948c66e35"
-dependencies = [
- "async-trait",
- "const-oid 0.10.2",
- "der 0.8.0",
- "js-sys",
- "maybe-async",
- "mls-rs-core",
- "mls-rs-crypto-hpke",
- "mls-rs-crypto-traits",
- "serde",
- "serde-wasm-bindgen",
- "thiserror 2.0.17",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
  "zeroize",
 ]
 
@@ -2835,30 +2602,18 @@ dependencies = [
 
 [[package]]
 name = "pin-project"
-<<<<<<< HEAD
 version = "1.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cbf0d9e68100b3a7989b4901972f265cd542e560a3a8a724e1e20322f4d06ce9"
-=======
-version = "1.1.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "677f1add503faace112b9f1373e43e9e054bfdd22ff1a63c1bc485eaec6a6a8a"
->>>>>>> 2d28f084 (feat(websocket): added the websocket server-client implementation)
 dependencies = [
  "pin-project-internal",
 ]
 
 [[package]]
 name = "pin-project-internal"
-<<<<<<< HEAD
 version = "1.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a990e22f43e84855daf260dded30524ef4a9021cc7541c26540500a50b624389"
-=======
-version = "1.1.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e918e4ff8c4549eb882f14b3a4bc8c8bc93de829416eacf579f1207a8fbf861"
->>>>>>> 2d28f084 (feat(websocket): added the websocket server-client implementation)
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2877,7 +2632,7 @@ version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f950b2377845cebe5cf8b5165cb3cc1a5e0fa5cfa3e1f7f55707d8fd82e0a7b7"
 dependencies = [
- "der 0.7.10",
+ "der",
  "spki",
 ]
 
@@ -3162,9 +2917,9 @@ dependencies = [
 
 [[package]]
 name = "quinn-proto"
-version = "0.11.14"
+version = "0.11.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "434b42fec591c96ef50e21e886936e66d3cc3f737104fdb9b737c40ffb94c098"
+checksum = "f1906b49b0c3bc04b5fe5d86a77925ae6524a19b816ae38ce1e426255f1d8a31"
 dependencies = [
  "bytes",
  "getrandom 0.3.4",
@@ -3632,17 +3387,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde-wasm-bindgen"
-version = "0.6.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
-dependencies = [
- "js-sys",
- "serde",
- "wasm-bindgen",
-]
-
-[[package]]
 name = "serde_core"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3731,15 +3475,9 @@ dependencies = [
 
 [[package]]
 name = "serde_with"
-<<<<<<< HEAD
 version = "3.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f05839ce67618e14a09b286535c0d9c94e85ef25469b0e13cb4f844e5593eb19"
-=======
-version = "3.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fa237f2807440d238e0364a218270b98f767a00d3dada77b1c53ae88940e2e7"
->>>>>>> 2d28f084 (feat(websocket): added the websocket server-client implementation)
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -3907,8 +3645,7 @@ dependencies = [
  "fastrand",
  "futures",
  "hyper-util",
- "jsonwebtoken 9.3.1",
- "log",
+ "jsonwebtoken",
  "pkcs8",
  "prost",
  "prost-types",
@@ -3942,7 +3679,7 @@ version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d91ed6c858b01f942cd56b37a94b3e0a1798290327d1236e4d9cf4eaca44d29d"
 dependencies = [
- "der 0.7.10",
+ "der",
 ]
 
 [[package]]
@@ -4269,30 +4006,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tokio_with_wasm"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef3ce6a8f5b5190dfe4851db6c969e8360a262759e16a0b75dfc43af19d97a86"
-dependencies = [
- "js-sys",
- "tokio",
- "tokio_with_wasm_proc",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
-name = "tokio_with_wasm_proc"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d8aa1d26c1550eef93cfb2dafadc145b3220432dae8d156b5ba485880594ffe"
-dependencies = [
- "quote",
- "syn",
-]
-
-[[package]]
 name = "toml"
 version = "0.9.12+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4314,18 +4027,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92e1cfed4a3038bc5a127e35a2d360f145e1f4b971b551a2ba5fd7aedf7e1347"
 dependencies = [
  "serde_core",
-]
-
-[[package]]
-name = "toml_edit"
-version = "0.23.10+spec-1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84c8b9f757e028cee9fa244aea147aab2a9ec09d5325a9b01e0a49730c2b5269"
-dependencies = [
- "indexmap 2.13.0",
- "toml_datetime",
- "toml_parser",
- "winnow",
 ]
 
 [[package]]
