@@ -95,20 +95,23 @@ tasks:
   control-plane:coverage-reports:
     desc: Check test coverage
     deps:
-      - tools:all
+      - control-plane:test:if-no-coverage-data
+    vars:
+      # Returns the .coverage directory path for each module where tests are available.
+      COVERAGE_LOCS: $(conc=; sep=; for mod in {{.MODULES}}; do if [ -n "$(find "$mod" -type f -name '*_test.go' 2>/dev/null | head -1)" ]; then conc="$conc$sep${mod}/.coverage"; sep=,; fi; done; echo "$conc")
     cmds:
       - task: control-plane:gogen
-      - task: control-plane:foreach-module
-        vars:
-          CMD: |
-            {{.TOOLS_INSTALL_DIR}}/go-acc --output=$(basename  ${dir})-coverage.out ./...
+      - mkdir -p {{.REPO_ROOT}}/control-plane/.coverage
+      - go tool covdata textfmt -i={{.COVERAGE_LOCS}} -o {{.REPO_ROOT}}/control-plane/.coverage/profile
 
   control-plane:coverage:
     desc: Show coverage in browser
     deps:
       - control-plane:coverage-reports
+    vars:
+      COVERAGE_PROFILE: "{{.REPO_ROOT}}/control-plane/.coverage/profile"
     cmds:
-      - echo find . -name '*coverage.out' -execdir go tool cover -html=./{} \;
+      - go tool cover -html={{.COVERAGE_PROFILE}}
 
   control-plane:test:
     desc: Run go tests
@@ -118,7 +121,21 @@ tasks:
       - task: control-plane:gogen
       - task: control-plane:foreach-module
         vars:
-          CMD: go test --tags=test -failfast -v 2>&1 ./...
+          CMD: "mkdir -p $PWD/.coverage && go test --tags=test -failfast -cover -v 2>&1 ./... -args -test.gocoverdir=$PWD/.coverage"
+
+  control-plane:test:if-no-coverage-data:
+    internal: true
+    desc: Run go tests only when no module under MODULES has a .coverage directory
+    status:
+      - |
+        for mod in {{.MODULES}}; do
+          if [ ! -d "$mod/.coverage" ]; then
+            exit 1
+          fi
+        done
+        exit 0
+    cmds:
+      - task: control-plane:test
 
   control-plane:fetch:
     desc: Download go modules
@@ -172,7 +189,6 @@ tasks:
     cmds:
       - task: control-plane:control-plane:build
       - task: control-plane:token-service:build
-
 
   #  control plane related tasks
   control-plane:control-plane:build:

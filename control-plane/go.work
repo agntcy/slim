@@ -1,0 +1,7 @@
+go 1.25.8
+
+use (
+	./common
+	./control-plane
+	./token-service
+)
