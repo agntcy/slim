@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-version: '3'
+version: "3"
 
 silent: true
 set: [pipefail]
@@ -46,6 +46,11 @@ vars:
           ;;
       esac
   LIB_PATH: "{{.LIB_PATH | default ._DEFAULT_LIB_PATH}}"
+  # detekt CLI (pinned release; override with DETEKT_VERSION=…)
+  DETEKT_VERSION: '{{.DETEKT_VERSION | default "1.23.8"}}'
+  DETEKT_JAR: "{{.TASKFILE_DIR}}/.tools/detekt/detekt-cli-{{.DETEKT_VERSION}}-all.jar"
+  # Scope detekt to this binding; exclude build outputs and UniFFI output
+  DETEKT_EXCLUDES: "**/build/**,**/generated/**,**/.gradle/**,.kotlin/**,.tools/**"
   # Platform mapping: rust-target|jni-path|extension
   PLATFORMS: |
     x86_64-unknown-linux-gnu|linux-x86-64|so
@@ -202,6 +207,44 @@ tasks:
         curl -sS -X POST -H "Authorization: Bearer $AUTH" \
           "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/io.agntcy?publishing_type=automatic"
       - echo "Successfully published."
+
+  # ==========================================================================
+  # linter (static analysis)
+  # ==========================================================================
+
+  lint:install-detekt:
+    desc: Download detekt CLI JAR into .tools/detekt (pin with DETEKT_VERSION)
+    status:
+      - test -f "{{.DETEKT_JAR}}"
+    cmds:
+      - echo "Installing detekt {{.DETEKT_VERSION}} CLI..."
+      - mkdir -p "{{.TASKFILE_DIR}}/.tools/detekt"
+      - curl -fsSL -o "{{.DETEKT_JAR}}" "https://github.com/detekt/detekt/releases/download/v{{.DETEKT_VERSION}}/detekt-cli-{{.DETEKT_VERSION}}-all.jar"
+      - echo "detekt CLI installed at {{.DETEKT_JAR}}"
+
+  lint:
+    desc: Run detekt on Kotlin under this folder (sources, tests, examples, Gradle Kotlin DSL)
+    deps:
+      - lint:install-detekt
+    cmds:
+      - echo "Running detekt on Kotlin sources..."
+      - |
+        java -jar "{{.DETEKT_JAR}}" \
+          --input "{{.TASKFILE_DIR}}" \
+          --excludes "{{.DETEKT_EXCLUDES}}" \
+          --base-path "{{.TASKFILE_DIR}}" \
+          --config "{{.TASKFILE_DIR}}/detekt.yml" \
+          --jvm-target 17 \
+          --parallel {{.DETEKT_EXTRA_ARGS}}
+    vars:
+      DETEKT_EXTRA_ARGS: '{{.DETEKT_EXTRA_ARGS | default ""}}'
+
+  lint:clean:
+    desc: Remove downloaded detekt CLI from .tools/detekt
+    cmds:
+      - echo "Removing detekt CLI cache..."
+      - rm -rf "{{.TASKFILE_DIR}}/.tools/detekt"
+      - echo "detekt tool cache removed"
 
   clean:
     desc: Clean build artifacts and generated code
