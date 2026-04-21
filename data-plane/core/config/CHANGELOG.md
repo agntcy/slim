@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0](https://github.com/agntcy/slim/compare/slim-config-v0.8.2...slim-config-v0.9.0) - 2026-04-21
+
+### Added
+
+- add tower auth middleware using spire ([#1452](https://github.com/agntcy/slim/pull/1452))
+
+### Fixed
+
+- revert "build(deps): upgrade to spire 0.12" ([#1528](https://github.com/agntcy/slim/pull/1528))
+
+### Other
+
+- *(deps)* upgrade to spire 0.12 ([#1436](https://github.com/agntcy/slim/pull/1436))
+
 ## [0.8.2](https://github.com/agntcy/slim/compare/slim-config-v0.8.1...slim-config-v0.8.2) - 2026-03-31
 
 ### Other
