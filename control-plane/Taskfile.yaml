@@ -1,6 +1,5 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
-
 ---
 version: "3"
 
@@ -98,14 +97,18 @@ tasks:
       - control-plane:test:if-no-coverage-data
     vars:
       # Returns the .coverage directory path for each module where tests are available.
-      COVERAGE_LOCS: $(conc=; sep=; for mod in {{.MODULES}}; do if [ -n "$(find "$mod" -type f -name '*_test.go' 2>/dev/null | head -1)" ]; then conc="$conc$sep${mod}/.coverage"; sep=,; fi; done; echo "$conc")
+      COVERAGE_LOCS: $(conc=; sep=; for mod in {{.MODULES}}; do if [ -n "$(find "$mod"
+        -type f -name '*_test.go' 2>/dev/null | head -1)" ]; then
+        conc="$conc$sep${mod}/.coverage"; sep=,; fi; done; echo "$conc")
     cmds:
       - task: control-plane:gogen
       - mkdir -p {{.REPO_ROOT}}/control-plane/.coverage
-      - go tool covdata textfmt -i={{.COVERAGE_LOCS}} -o {{.REPO_ROOT}}/control-plane/.coverage/profile
+      - go tool covdata textfmt -i={{.COVERAGE_LOCS}} -o
+        {{.REPO_ROOT}}/control-plane/.coverage/profile
 
   control-plane:coverage:
     desc: Show coverage in browser
+    dir: "{{.REPO_ROOT}}/control-plane/control-plane"
     deps:
       - control-plane:coverage-reports
     vars:
@@ -121,7 +124,8 @@ tasks:
       - task: control-plane:gogen
       - task: control-plane:foreach-module
         vars:
-          CMD: "mkdir -p $PWD/.coverage && go test --tags=test -failfast -cover -v 2>&1 ./... -args -test.gocoverdir=$PWD/.coverage"
+          CMD: "mkdir -p $PWD/.coverage && go test --tags=test -failfast -cover -v 2>&1
+            ./... -args -test.gocoverdir=$PWD/.coverage"
 
   control-plane:test:if-no-coverage-data:
     internal: true
