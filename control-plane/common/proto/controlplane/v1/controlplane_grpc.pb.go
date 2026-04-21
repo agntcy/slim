@@ -35,6 +35,7 @@ const (
 	ControlPlaneService_ListChannels_FullMethodName      = "/controlplane.proto.v1.ControlPlaneService/ListChannels"
 	ControlPlaneService_ListParticipants_FullMethodName  = "/controlplane.proto.v1.ControlPlaneService/ListParticipants"
 	ControlPlaneService_ListRoutes_FullMethodName        = "/controlplane.proto.v1.ControlPlaneService/ListRoutes"
+	ControlPlaneService_ListLinks_FullMethodName         = "/controlplane.proto.v1.ControlPlaneService/ListLinks"
 )
 
 // ControlPlaneServiceClient is the client API for ControlPlaneService service.
@@ -55,6 +56,8 @@ type ControlPlaneServiceClient interface {
 	ListParticipants(ctx context.Context, in *v1.ListParticipantsRequest, opts ...grpc.CallOption) (*v1.ListParticipantsResponse, error)
 	// List routes registered at the controller with optional filtering by source and destination node IDs
 	ListRoutes(ctx context.Context, in *RouteListRequest, opts ...grpc.CallOption) (*RouteListResponse, error)
+	// List links stored in the controller DB with optional filtering by source and destination node IDs
+	ListLinks(ctx context.Context, in *LinkListRequest, opts ...grpc.CallOption) (*LinkListResponse, error)
 }
 
 type controlPlaneServiceClient struct {
@@ -185,6 +188,16 @@ func (c *controlPlaneServiceClient) ListRoutes(ctx context.Context, in *RouteLis
 	return out, nil
 }
 
+func (c *controlPlaneServiceClient) ListLinks(ctx context.Context, in *LinkListRequest, opts ...grpc.CallOption) (*LinkListResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LinkListResponse)
+	err := c.cc.Invoke(ctx, ControlPlaneService_ListLinks_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ControlPlaneServiceServer is the server API for ControlPlaneService service.
 // All implementations must embed UnimplementedControlPlaneServiceServer
 // for forward compatibility.
@@ -203,6 +216,8 @@ type ControlPlaneServiceServer interface {
 	ListParticipants(context.Context, *v1.ListParticipantsRequest) (*v1.ListParticipantsResponse, error)
 	// List routes registered at the controller with optional filtering by source and destination node IDs
 	ListRoutes(context.Context, *RouteListRequest) (*RouteListResponse, error)
+	// List links stored in the controller DB with optional filtering by source and destination node IDs
+	ListLinks(context.Context, *LinkListRequest) (*LinkListResponse, error)
 	mustEmbedUnimplementedControlPlaneServiceServer()
 }
 
@@ -248,6 +263,9 @@ func (UnimplementedControlPlaneServiceServer) ListParticipants(context.Context, 
 }
 func (UnimplementedControlPlaneServiceServer) ListRoutes(context.Context, *RouteListRequest) (*RouteListResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListRoutes not implemented")
+}
+func (UnimplementedControlPlaneServiceServer) ListLinks(context.Context, *LinkListRequest) (*LinkListResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListLinks not implemented")
 }
 func (UnimplementedControlPlaneServiceServer) mustEmbedUnimplementedControlPlaneServiceServer() {}
 func (UnimplementedControlPlaneServiceServer) testEmbeddedByValue()                             {}
@@ -486,6 +504,24 @@ func _ControlPlaneService_ListRoutes_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ControlPlaneService_ListLinks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LinkListRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlPlaneServiceServer).ListLinks(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlPlaneService_ListLinks_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlPlaneServiceServer).ListLinks(ctx, req.(*LinkListRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ControlPlaneService_ServiceDesc is the grpc.ServiceDesc for ControlPlaneService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -540,6 +576,10 @@ var ControlPlaneService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListRoutes",
 			Handler:    _ControlPlaneService_ListRoutes_Handler,
+		},
+		{
+			MethodName: "ListLinks",
+			Handler:    _ControlPlaneService_ListLinks_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
