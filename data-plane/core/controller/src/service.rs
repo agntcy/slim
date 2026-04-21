@@ -703,7 +703,7 @@ impl ControllerService {
             .connection_table()
             .for_each(|id, conn| {
                 if conn.link_id().as_deref() == Some(link_id) && resolved.is_none() {
-                    resolved = Some(id as u64);
+                    resolved = Some(id);
                 }
             });
 

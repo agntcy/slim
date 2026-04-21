@@ -312,5 +312,4 @@ mod tests {
         pairs.sort_by_key(|&(id, _)| id);
         assert_eq!(pairs, vec![(id0, 10), (id2, 30)]);
     }
-
 }
