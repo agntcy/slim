@@ -55,7 +55,6 @@ pub struct SpireTestEnvironment {
     socket_path: std::path::PathBuf,
     server_port: Option<u16>,
     dns_name: String,
-    jwt_svid_ttl: String,
 }
 
 impl SpireTestEnvironment {
@@ -95,25 +94,7 @@ impl SpireTestEnvironment {
             socket_path,
             server_port: None,
             dns_name,
-            jwt_svid_ttl: "1h".to_string(),
         })
-    }
-
-    /// Set a custom JWT SVID TTL (e.g. `"45s"`, `"5m"`).  Must be called before [`start`].
-    pub fn with_jwt_svid_ttl(mut self, ttl: impl Into<String>) -> Self {
-        self.jwt_svid_ttl = ttl.into();
-        self
-    }
-
-    /// Stop the SPIRE agent container without removing it.
-    ///
-    /// Useful for simulating a broken SPIRE connection during tests.
-    pub async fn stop_agent(&self) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(agent_id) = &self.agent_container_id {
-            self.docker.stop_container(agent_id, None).await?;
-            tracing::info!("SPIRE agent container stopped");
-        }
-        Ok(())
     }
 
     /// Start the SPIRE server and agent containers
@@ -233,12 +214,12 @@ impl SpireTestEnvironment {
 server {{
     bind_address = "0.0.0.0"
     bind_port = "8081"
-    trust_domain = "{trust_domain}"
+    trust_domain = "{}"
     data_dir = "/opt/spire/data/server"
     log_level = "INFO"
     ca_ttl = "1h"
     default_x509_svid_ttl = "1h"
-    default_jwt_svid_ttl = "{jwt_svid_ttl}"
+    default_jwt_svid_ttl = "1h"
 }}
 
 plugins {{
@@ -258,8 +239,7 @@ plugins {{
     }}
 }}
 "#,
-            trust_domain = TRUST_DOMAIN,
-            jwt_svid_ttl = self.jwt_svid_ttl,
+            TRUST_DOMAIN
         );
 
         let server_config_path = self.temp_dir.join("server.conf");
