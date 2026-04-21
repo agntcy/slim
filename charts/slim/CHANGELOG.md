@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0-rc.0](https://github.com/agntcy/slim/compare/helm-slim-v1.4.0-rc.0...helm-slim-v1.5.0-rc.0) (2026-04-21)
+
+
+### Features
+
+* **helm:** add southbound ingress and named data-plane ports ([#1536](https://github.com/agntcy/slim/issues/1536)) ([194e546](https://github.com/agntcy/slim/commit/194e546341caa86d0363197038342fe7b51055df))
+
 ## [1.4.0-rc.0](https://github.com/agntcy/slim/compare/helm-slim-v1.3.0...helm-slim-v1.4.0-rc.0) (2026-04-21)
 
 
