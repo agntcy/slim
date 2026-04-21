@@ -52,8 +52,10 @@ func setBinaryPaths(target string) {
 	receiverPath = mustAbs(filepath.Join(examplesTarget, "receiver"))
 	senderPath = mustAbs(filepath.Join(examplesTarget, "sender"))
 
+	dataPlaneDebug := filepath.Join("..", "..", "data-plane", "target", "debug")
+	controlPlanePath = mustAbs(filepath.Join(dataPlaneDebug, "slim-control-plane"))
+
 	distBin := filepath.Join("..", "..", ".dist", "bin")
-	controlPlanePath = mustAbs(filepath.Join(distBin, "control-plane"))
 	legacySlimPath = mustAbs(filepath.Join(distBin, "slim-legacy"))
 	legacySDKMockPath = mustAbs(filepath.Join(distBin, "sdk-mock-legacy"))
 	legacyReceiverPath = mustAbs(filepath.Join(distBin, "receiver-legacy"))

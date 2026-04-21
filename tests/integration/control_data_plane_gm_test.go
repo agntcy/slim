@@ -51,6 +51,8 @@ var _ = Describe("Group management through control plane", func() {
 			"http://127.0.0.1:50052": fmt.Sprintf("http://127.0.0.1:%d", controlPlaneSouthPort),
 			"httpPort: 50051":        fmt.Sprintf("httpPort: %d", controlPlaneNorthPort),
 			"httpPort: 50052":        fmt.Sprintf("httpPort: %d", controlPlaneSouthPort),
+			"0.0.0.0:50051":          fmt.Sprintf("0.0.0.0:%d", controlPlaneNorthPort),
+			"0.0.0.0:50052":          fmt.Sprintf("0.0.0.0:%d", controlPlaneSouthPort),
 		}
 
 		tempDir = newTempDir("slim-integration-gm-")

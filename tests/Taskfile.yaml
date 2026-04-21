@@ -5,11 +5,6 @@
 version: "3"
 
 includes:
-  control-plane:
-    taskfile: ../control-plane/Taskfile.yaml
-    flatten: true
-    dir: ../control-plane
-    internal: true
   data-plane:
     taskfile: ../data-plane/Taskfile.yaml
     flatten: true
@@ -69,7 +64,6 @@ tasks:
     deps:
       - data-plane:build
       - tests:build-legacy-binaries
-      - control-plane:build
     cmds:
       - task: tests:build-slimrpc-examples
       - go -C ./integration test -v -failfast -test.paniconexit0 -ginkgo.timeout 5m -timeout 5m .

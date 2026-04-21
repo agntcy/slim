@@ -1,0 +1,55 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "agntcy-slim-control-plane"
+version = "0.1.0"
+edition = { workspace = true }
+license = { workspace = true }
+description = "Rust implementation of the SLIM control plane (northbound + southbound gRPC servers)."
+include = ["src/**", "build.rs", "proto/**"]
+
+[[bin]]
+name = "slim-control-plane"
+path = "src/main.rs"
+
+[lib]
+name = "slim_control_plane"
+path = "src/lib.rs"
+
+[dependencies]
+agntcy-slim-config = { workspace = true }
+agntcy-slim-tracing = { workspace = true }
+
+anyhow = { workspace = true }
+parking_lot = { workspace = true }
+diesel = { workspace = true }
+diesel-async = { workspace = true }
+diesel_migrations = { workspace = true }
+libsqlite3-sys = { workspace = true }
+async-trait = { workspace = true }
+clap = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
+tonic = { workspace = true }
+tonic-prost = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+twox-hash = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio-test = { workspace = true }
+
+[build-dependencies]
+protoc-bin-vendored = { workspace = true }
+tonic-prost-build = { workspace = true }
+diesel = { workspace = true }
+libsqlite3-sys = { workspace = true }

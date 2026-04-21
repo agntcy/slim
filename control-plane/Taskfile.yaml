@@ -176,16 +176,12 @@ tasks:
 
   #  control plane related tasks
   control-plane:control-plane:build:
-    desc: Builds the control plane binary
-    dir: control-plane/cmd
-    deps:
-      - control-plane:proto:generate
+    desc: Builds the Rust control plane binary and stages it in .dist/bin
+    dir: "{{.REPO_ROOT}}/data-plane"
     cmds:
-      - task: control-plane:modtidy
-      - task: control-plane:gogen
-      - |
-        go build -o \
-          {{.OUTPUT_DIR}}/bin/control-plane
+      - cargo build --package agntcy-slim-control-plane
+      - mkdir -p {{.OUTPUT_DIR}}/bin
+      - cp target/debug/slim-control-plane {{.OUTPUT_DIR}}/bin/control-plane
 
   control-plane:control-plane:run:
     desc: Runs the control plane binary

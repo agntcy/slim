@@ -4,6 +4,7 @@ members = [
     "bindings/rust",
     "core/auth",
     "core/config",
+    "core/control-plane",
     "core/controller",
     "core/datapath",
     "core/mls",
@@ -111,6 +112,10 @@ regex = "1.11.1"
 reqwest = { version = "0.12", features = ["json", "rustls-tls-no-provider", "charset", "http2", "system-proxy", "blocking"], default-features = false }
 rustls = { version = "0.23.31" }
 rustls-native-certs = "0.8"
+diesel = { version = "2", features = ["sqlite"] }
+diesel-async = { version = "0.8", features = ["sqlite", "deadpool", "migrations"] }
+diesel_migrations = { version = "2" }
+libsqlite3-sys = { version = "0.30", features = ["bundled"] }
 rustls-pki-types = "1.10.0"
 schemars = "1.0.3"
 semver = "1"
