@@ -40,11 +40,8 @@ where
         match existing_index {
             None => Some(self.connection_table.insert(conn)),
             Some(x) => {
-                if self.connection_table.insert_at(conn, x) {
-                    existing_index
-                } else {
-                    None
-                }
+                self.connection_table.insert_at(conn, x);
+                existing_index
             }
         }
     }

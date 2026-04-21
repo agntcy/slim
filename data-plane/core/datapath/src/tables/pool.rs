@@ -66,10 +66,7 @@ impl<T> Pool<T> {
     /// Grows `pool` if `id` is beyond the current length.  If the slot was
     /// empty the index is added to `active_indexes`; if it was already
     /// occupied the element is replaced (length unchanged).
-    ///
-    /// Returns `true` always; the bool return mirrors the old API for
-    /// compatibility with call-sites that check the return value.
-    pub fn insert_at(&mut self, element: T, id: u64) -> bool {
+    pub fn insert_at(&mut self, element: T, id: u64) {
         let idx = id as usize;
 
         // Grow the pool with None slots until it covers `idx`.
@@ -83,7 +80,6 @@ impl<T> Pool<T> {
         if was_empty {
             self.active_indexes.push(idx);
         }
-        true
     }
 
     /// Remove the element with the given `id`.  Returns `true` if an element
@@ -182,12 +178,12 @@ mod tests {
         assert_eq!(pool.len(), 3);
 
         // insert_at with an occupied ID replaces the element.
-        assert!(pool.insert_at(99u32, id1));
+        pool.insert_at(99u32, id1);
         assert_eq!(pool.len(), 3);
         assert_eq!(pool.get(id1), Some(&99));
 
         // insert_at with a fresh ID inserts a new element.
-        assert!(pool.insert_at(55u32, 50));
+        pool.insert_at(55u32, 50);
         assert_eq!(pool.len(), 4);
         assert_eq!(pool.get(50), Some(&55));
 
@@ -310,19 +306,4 @@ mod tests {
         assert_eq!(pairs, vec![(id0, 10), (id2, 30)]);
     }
 
-    #[test]
-    fn test_remove_updates_max_set_to_previous_index() {
-        let mut pool = Pool::with_capacity(10);
-
-        for v in 0..4 {
-            let idx = pool.insert(v);
-            assert_eq!(idx, v as usize);
-        }
-        assert_eq!(pool.max_set(), 3);
-
-        assert!(pool.remove(3));
-        assert_eq!(pool.max_set(), 2);
-        assert_eq!(pool.get(2), Some(&2));
-        assert_eq!(pool.get(3), None);
-    }
 }

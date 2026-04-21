@@ -34,7 +34,7 @@ where
     }
 
     /// Add a connection at a specific ID.
-    pub fn insert_at(&self, connection: T, id: u64) -> bool {
+    pub fn insert_at(&self, connection: T, id: u64) {
         let mut pool = self.pool.write();
         pool.insert_at(Arc::new(connection), id)
     }
