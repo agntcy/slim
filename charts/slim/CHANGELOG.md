@@ -1,12 +1,5 @@
 # Changelog
 
-## [1.5.0-rc.0](https://github.com/agntcy/slim/compare/helm-slim-v1.4.0-rc.0...helm-slim-v1.5.0-rc.0) (2026-04-21)
-
-
-### Features
-
-* **helm:** add southbound ingress and named data-plane ports ([#1536](https://github.com/agntcy/slim/issues/1536)) ([194e546](https://github.com/agntcy/slim/commit/194e546341caa86d0363197038342fe7b51055df))
-
 ## [1.4.0-rc.0](https://github.com/agntcy/slim/compare/helm-slim-v1.3.0...helm-slim-v1.4.0-rc.0) (2026-04-21)
 
 
@@ -14,6 +7,7 @@
 
 * **helm:** allow to expose multiple ports via the service ([#1498](https://github.com/agntcy/slim/issues/1498)) ([1139f5f](https://github.com/agntcy/slim/commit/1139f5f8e6aa35429914fc487f2483818b09d2bc))
 * **slim-chart:** add extraEnv param ([#1491](https://github.com/agntcy/slim/issues/1491)) ([9fe7da3](https://github.com/agntcy/slim/commit/9fe7da38001c636f115de3eb5584d1e07bae9750))
+* **helm:** add southbound ingress and named data-plane ports ([#1536](https://github.com/agntcy/slim/issues/1536)) ([194e546](https://github.com/agntcy/slim/commit/194e546341caa86d0363197038342fe7b51055df))
 
 ### Bug Fixes
 
