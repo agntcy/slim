@@ -216,16 +216,17 @@ var _ = Describe("Routing", func() {
 			Expect(routeListOutputB).To(ContainSubstring("org/default/a"))
 
 			// test there's a link from node b to node a
-			Eventually(func() string {
-				out, _ := exec.Command(
+			listLinksOut := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
+				return exec.Command(
 					slimctlPath,
 					"controller", "link", "outline",
 					"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
-				).CombinedOutput()
-				return string(out)
-			}, 30*time.Second, 500*time.Millisecond).Should(And(
-				ContainSubstring("Number of links: 1"),
-				MatchRegexp(`(?m)^\s*[0-9a-f-]{36}\s+slim/a\s+slim/b\s+http://127\.0\.0\.1:\d+\s+APPLIED\s+-\s+No\s+\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\s*$`),
+				)
+			})
+			listLinksOutStr := string(listLinksOut)
+			Expect(listLinksOutStr).To(ContainSubstring("Number of links: 1"))
+			Expect(listLinksOutStr).To(MatchRegexp(
+				`(?m)^\s*[0-9a-f-]{36}\s+slim/a\s+slim/b\s+http://127\.0\.0\.1:\d+\s+APPLIED\s+-\s+No\s+\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\s*$`,
 			))
 
 			terminateSession(clientBSession, 2*time.Second)
