@@ -17,9 +17,9 @@ spec:
   ports:
     {{- range $i, $data := .Values.slim.service.data }}
     - port: {{ $data.port }}
-      targetPort: data-plane-{{ $i }}
+      targetPort: {{ $data.name | default (printf "data-plane-%d" $i) }}
       protocol: TCP
-      name: data-plane-{{ $i }}
+      name: {{ $data.name | default (printf "data-plane-%d" $i) }}
     {{- end }}
     {{- range $i, $ctrl := .Values.slim.service.control }}
     - port: {{ $ctrl.port }}
@@ -44,9 +44,9 @@ spec:
   ports:
     {{- range $i, $data := .Values.slim.service.data }}
     - port: {{ $data.port }}
-      targetPort: data-plane-{{ $i }}
+      targetPort: {{ $data.name | default (printf "data-plane-%d" $i) }}
       protocol: TCP
-      name: data-plane-{{ $i }}
+      name: {{ $data.name | default (printf "data-plane-%d" $i) }}
     {{- end }}
     {{- range $i, $ctrl := .Values.slim.service.control }}
     - port: {{ $ctrl.port }}
