@@ -6,8 +6,7 @@ use jsonwebtoken::jwk::KeyAlgorithm;
 
 #[cfg(not(target_family = "windows"))]
 use spiffe::{
-    JwtSvidError, SpiffeIdError, TrustDomain, error::GrpcClientError,
-    workload_api::x509_source::X509SourceError,
+    JwtSourceError, JwtSvidError, SpiffeIdError, TrustDomain, WorkloadApiError, X509SourceError,
 };
 
 use thiserror::Error;
@@ -119,13 +118,16 @@ pub enum AuthError {
     SpiffeError(#[from] SpiffeIdError),
     #[cfg(not(target_family = "windows"))]
     #[error("spiffe grpc error")]
-    SpiffeGrpcError(#[from] GrpcClientError),
+    SpiffeGrpcError(#[from] WorkloadApiError),
     #[cfg(not(target_family = "windows"))]
     #[error("spiffe workload api unavailable")]
     SpiffeWorkloadApiUnavailable,
     #[cfg(not(target_family = "windows"))]
     #[error("spiffe x509 source error")]
     SpiffeX509SourceError(#[from] X509SourceError),
+    #[cfg(not(target_family = "windows"))]
+    #[error("spiffe jwt source error")]
+    SpiffeJwtSourceError(#[from] JwtSourceError),
     #[cfg(not(target_family = "windows"))]
     #[error("jwt source not initialized")]
     SpiffeJwtSourceNotInitialized,
@@ -147,16 +149,6 @@ pub enum AuthError {
     #[cfg(not(target_family = "windows"))]
     #[error("x509 trust bundle not available: {0}")]
     SpiffeX509BundleMissing(TrustDomain),
-    #[cfg(not(target_family = "windows"))]
-    #[error("error fetching x509 SVID: {source}")]
-    SpiffeX509SvidFetch {
-        source: Box<dyn std::error::Error + Send + Sync + 'static>,
-    },
-    #[cfg(not(target_family = "windows"))]
-    #[error("error fetching x509 trust bundle: {source}")]
-    SpiffeX509BundleFetch {
-        source: Box<dyn std::error::Error + Send + Sync + 'static>,
-    },
     #[cfg(not(target_family = "windows"))]
     #[error("spire x509 empty certificate chain")]
     SpiffeX509EmptyCertChain,
