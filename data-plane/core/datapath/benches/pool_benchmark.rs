@@ -67,7 +67,7 @@ fn bench_remove(c: &mut Criterion) {
     c.bench_function("pool remove", |b| {
         b.iter(|| {
             let mut pool = Pool::with_capacity(1024);
-            let ids: Vec<usize> = (0..1024).map(|i| pool.insert(i)).collect();
+            let ids: Vec<u64> = (0..1024).map(|i| pool.insert(i)).collect();
             for id in &ids {
                 black_box(pool.remove(*id));
             }
@@ -80,7 +80,7 @@ fn bench_remove_insert_cycle(c: &mut Criterion) {
     c.bench_function("pool remove+insert cycle", |b| {
         b.iter(|| {
             let mut pool = Pool::with_capacity(1024);
-            let ids: Vec<usize> = (0..1024).map(|i| pool.insert(i)).collect();
+            let ids: Vec<u64> = (0..1024).map(|i| pool.insert(i)).collect();
             for (i, &id) in ids.iter().enumerate() {
                 pool.remove(id);
                 black_box(pool.insert(i as i32));
