@@ -191,15 +191,18 @@ impl Connections {
 
         // Pick a random starting point in the (dense) pool and walk forward,
         // looking for a connection that isn't except_conn.
-        let conn_ids: Vec<u64> = self.pool.iter().map(|c| c.conn_id).collect();
-        if conn_ids.is_empty() {
+        let n = self.pool.len();
+        if n == 0 {
             debug!("no output connection available");
             return None;
         }
-        let mut rng = rand::rng();
-        let start = rng.random_range(0..conn_ids.len());
-        for i in 0..conn_ids.len() {
-            let conn_id = conn_ids[(start + i) % conn_ids.len()];
+        let start = rand::rng().random_range(0..n);
+        for i in 0..n {
+            let conn_id = self
+                .pool
+                .get_by_position((start + i) % n)
+                .expect("position within 0..len is always valid")
+                .conn_id;
             if conn_id != except_conn {
                 return Some(conn_id);
             }
