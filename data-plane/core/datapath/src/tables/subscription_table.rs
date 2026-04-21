@@ -189,22 +189,22 @@ impl Connections {
             }
         }
 
-        // Pick a random starting point in the (dense) pool and walk forward,
-        // looking for a connection that isn't except_conn.
+        // Pick a random starting point and walk forward circularly, looking
+        // for a connection that isn't except_conn.
         let n = self.pool.len();
         if n == 0 {
             debug!("no output connection available");
             return None;
         }
         let start = rand::rng().random_range(0..n);
-        for i in 0..n {
-            let conn_id = self
-                .pool
-                .get_by_position((start + i) % n)
-                .expect("position within 0..len is always valid")
-                .conn_id;
-            if conn_id != except_conn {
-                return Some(conn_id);
+        for c in self
+            .pool
+            .iter()
+            .skip(start)
+            .chain(self.pool.iter().take(start))
+        {
+            if c.conn_id != except_conn {
+                return Some(c.conn_id);
             }
         }
         debug!("no output connection available");

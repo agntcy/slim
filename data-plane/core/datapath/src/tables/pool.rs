@@ -133,15 +133,11 @@ impl<T> Pool<T> {
         })
     }
 
-    /// Return the element at dense position `pos` (0-based rank among live
-    /// elements), without requiring a stable ID.  Useful for random sampling:
-    /// pick a position in `0..pool.len()` and call this to get the element.
-    pub fn get_by_position(&self, pos: usize) -> Option<&T> {
-        self.active_indexes.get(pos).map(|&i| {
-            self.pool[i]
-                .as_ref()
-                .expect("active_indexes must point to live slots")
-        })
+    /// Iterate over the stable IDs of all live elements, analogous to
+    /// `HashMap::keys()`.  Order is unspecified but consistent within a single
+    /// borrow of the pool.
+    pub fn ids(&self) -> impl Iterator<Item = u64> + '_ {
+        self.active_indexes.iter().map(|&i| i as u64)
     }
 
     /// Number of elements currently in the pool.
