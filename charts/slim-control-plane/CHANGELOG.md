@@ -1,28 +1,11 @@
 # Changelog
 
-## [1.5.0-rc.0](https://github.com/agntcy/slim/compare/helm-slim-control-plane-v1.4.0-rc.0...helm-slim-control-plane-v1.5.0-rc.0) (2026-04-21)
+## [1.4.0-rc.0](https://github.com/agntcy/slim/compare/helm-slim-control-plane-v1.0.0...helm-slim-control-plane-v1.4.0-rc.0) (2026-04-21)
 
 
 ### Features
 
-* add basic auth to ingress ([#722](https://github.com/agntcy/slim/issues/722)) ([bfe81b6](https://github.com/agntcy/slim/commit/bfe81b66ec4bacba5b637a7bfd406c53f3babe17))
-* **charts/slim-control-plane:** upgrade to control plane image 0.1.1 ([#716](https://github.com/agntcy/slim/issues/716)) ([6b066ef](https://github.com/agntcy/slim/commit/6b066efa91ebdbff3f8c32a61f59ca207754bb66))
-* **control-plane-helm:** upgrade cp to 1.0.0 ([#1167](https://github.com/agntcy/slim/issues/1167)) ([d5f4f38](https://github.com/agntcy/slim/commit/d5f4f38178517e48f5322f491b927b56826516e1))
-* corrected the release config, controller chart verison (test the release) ([#480](https://github.com/agntcy/slim/issues/480)) ([840ad88](https://github.com/agntcy/slim/commit/840ad88cc2719f48acf86d26f8ba329dedfa8b8e))
-* handle updates from SLIM nodes ([#708](https://github.com/agntcy/slim/issues/708)) ([ccc5183](https://github.com/agntcy/slim/commit/ccc518386d0ece16237647511118e7d032e033c6))
-* **helm:** add southbound ingress and named data-plane ports ([#1536](https://github.com/agntcy/slim/issues/1536)) ([194e546](https://github.com/agntcy/slim/commit/194e546341caa86d0363197038342fe7b51055df))
-* **slim-control-plane:** upgrade chart to latest control-plane image ([#503](https://github.com/agntcy/slim/issues/503)) ([af7adb5](https://github.com/agntcy/slim/commit/af7adb5ae25aad2f66bcf5a484b5fb1510782bb6))
-* **slim-control-plane:** upgrade to latest image ([#967](https://github.com/agntcy/slim/issues/967)) ([8084e19](https://github.com/agntcy/slim/commit/8084e190f2065bbda39dc23e0f318e52aac6b754))
-* upgrade helm chart to latest control-plane image ([#824](https://github.com/agntcy/slim/issues/824)) ([402c0ad](https://github.com/agntcy/slim/commit/402c0ad2de688124e5ef99a1a34ccc125ae6525f))
-* use slqlite for Controller persistence ([#916](https://github.com/agntcy/slim/issues/916)) ([706916a](https://github.com/agntcy/slim/commit/706916a850cea78f46db6590ba92e37bc0c83f3c))
 
-
-### Bug Fixes
-
-* add group id to node id ([#746](https://github.com/agntcy/slim/issues/746)) ([06c42b3](https://github.com/agntcy/slim/commit/06c42b3f3846da331554ac72ec6d77e61876d78d))
-* add original MsgID to all response messages ([#891](https://github.com/agntcy/slim/issues/891)) ([f297d5b](https://github.com/agntcy/slim/commit/f297d5bf1062994eca94bd07ada915e11f1d32f9))
-* **helm-charts:** add configmap checksum annotation for auto reload ([#1493](https://github.com/agntcy/slim/issues/1493)) ([691e86a](https://github.com/agntcy/slim/commit/691e86afec21457db64ee039092d4d88fffdc54f))
-* **helm:** use template comments for copyright headers ([#595](https://github.com/agntcy/slim/issues/595)) ([c8b39de](https://github.com/agntcy/slim/commit/c8b39de1ec41261c57d54691a4be3b72556d659c))
 
 ## [1.0.0](https://github.com/agntcy/slim/compare/helm-slim-control-plane-v0.7.0...helm-slim-control-plane-v1.0.0) (2026-02-02)
 
