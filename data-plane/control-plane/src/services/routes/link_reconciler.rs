@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use tokio::sync::{Mutex, Semaphore, mpsc};
+use tokio::sync::{Mutex, Semaphore};
 use uuid::Uuid;
 
 use crate::api::proto::controller::proto::v1::{
@@ -13,13 +13,13 @@ use crate::api::proto::controller::proto::v1::{
 use crate::db::SharedDb;
 use crate::node_control::{DefaultNodeCommandHandler, NodeStatus, ResponseKind};
 use crate::services::routes::ReconcilerConfig;
+use crate::workqueue::WorkQueue;
 
 pub struct LinkReconciler {
     db: SharedDb,
     cmd_handler: Arc<DefaultNodeCommandHandler>,
-    queue_rx: mpsc::UnboundedReceiver<String>,
-    queue_tx: mpsc::UnboundedSender<String>,
-    route_queue_tx: mpsc::UnboundedSender<String>,
+    queue: WorkQueue<String>,
+    route_queue: WorkQueue<String>,
     requeue_counts: Arc<Mutex<HashMap<String, usize>>>,
     max_requeues: usize,
     semaphore: Arc<Semaphore>,
@@ -29,28 +29,25 @@ impl LinkReconciler {
     pub fn new(
         db: SharedDb,
         cmd_handler: Arc<DefaultNodeCommandHandler>,
-        queue_rx: mpsc::UnboundedReceiver<String>,
-        queue_tx: mpsc::UnboundedSender<String>,
-        route_queue_tx: mpsc::UnboundedSender<String>,
-        requeue_counts: Arc<Mutex<HashMap<String, usize>>>,
+        queue: WorkQueue<String>,
+        route_queue: WorkQueue<String>,
         config: ReconcilerConfig,
     ) -> Self {
         Self {
             db,
             cmd_handler,
-            queue_rx,
-            queue_tx,
-            route_queue_tx,
-            requeue_counts,
+            queue,
+            route_queue,
+            requeue_counts: Arc::new(Mutex::new(HashMap::new())),
             max_requeues: config.max_requeues,
             semaphore: Arc::new(Semaphore::new(config.max_parallel_reconciles)),
         }
     }
 
-    pub async fn run(mut self) {
+    pub async fn run(self) {
         tracing::info!("link reconciler: starting");
 
-        while let Some(node_id) = self.queue_rx.recv().await {
+        while let Some(node_id) = self.queue.pop().await {
             let permit = match self.semaphore.clone().acquire_owned().await {
                 Ok(p) => p,
                 Err(_) => break,
@@ -58,15 +55,15 @@ impl LinkReconciler {
 
             let db = self.db.clone();
             let cmd_handler = self.cmd_handler.clone();
-            let queue_tx = self.queue_tx.clone();
-            let route_queue_tx = self.route_queue_tx.clone();
+            let queue = self.queue.clone();
+            let route_queue = self.route_queue.clone();
             let requeue_counts = self.requeue_counts.clone();
             let max_requeues = self.max_requeues;
 
             tokio::spawn(async move {
                 let _permit = permit;
 
-                if let Err(e) = handle_request(&db, &cmd_handler, &node_id, &route_queue_tx).await {
+                if let Err(e) = handle_request(&db, &cmd_handler, &node_id, &route_queue).await {
                     tracing::error!("link reconciler: failed for node {node_id}: {e}");
 
                     let count = {
@@ -80,16 +77,19 @@ impl LinkReconciler {
                         tracing::debug!(
                             "link reconciler: requeuing node {node_id} (attempt {count}/{max_requeues})"
                         );
-                        queue_tx.send(node_id).ok();
+                        // Adding while in-flight marks dirty; done() will re-queue.
+                        queue.add(node_id.clone());
                     } else {
                         tracing::warn!(
                             "link reconciler: dropping node {node_id} after {max_requeues} retries"
                         );
-                        requeue_counts.lock().await.remove(&node_id.clone());
+                        requeue_counts.lock().await.remove(&node_id);
                     }
                 } else {
                     requeue_counts.lock().await.remove(&node_id);
                 }
+
+                queue.done(&node_id);
             });
         }
 
@@ -101,7 +101,7 @@ async fn handle_request(
     db: &SharedDb,
     cmd_handler: &Arc<DefaultNodeCommandHandler>,
     node_id: &str,
-    route_queue_tx: &mpsc::UnboundedSender<String>,
+    route_queue: &WorkQueue<String>,
 ) -> Result<(), String> {
     if cmd_handler.get_connection_status(node_id).await != NodeStatus::Connected {
         tracing::info!("link reconciler: node {node_id} not connected, skipping");
@@ -255,7 +255,7 @@ async fn handle_request(
     // Enqueue route reconciliation for affected source nodes.
     for src_node_id in &reconcile_routes_for {
         tracing::debug!("link reconciler: enqueuing route reconcile for node {src_node_id}");
-        route_queue_tx.send(src_node_id.clone()).ok();
+        route_queue.add(src_node_id.clone());
     }
 
     if !retry_delete.is_empty() {

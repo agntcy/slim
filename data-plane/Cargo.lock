@@ -167,6 +167,7 @@ name = "agntcy-slim-control-plane"
 version = "0.1.0"
 dependencies = [
  "agntcy-slim-config",
+ "agntcy-slim-signal",
  "agntcy-slim-tracing",
  "anyhow",
  "async-trait",
@@ -174,6 +175,7 @@ dependencies = [
  "diesel",
  "diesel-async",
  "diesel_migrations",
+ "drain",
  "libsqlite3-sys",
  "parking_lot",
  "prost",

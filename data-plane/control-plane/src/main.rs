@@ -91,23 +91,26 @@ async fn main() -> Result<()> {
     );
 
     // ── gRPC servers ──────────────────────────────────────────────────────────
-    let nb_future = cfg
-        .northbound
-        .to_server_future(&[ControlPlaneServiceServer::new(nb_svc)])
-        .await
-        .context("failed to configure northbound server")?;
+    // A single drain channel coordinates graceful shutdown of both servers.
+    let (drain_tx, drain_rx) = drain::channel();
 
-    // Port is bound once to_server_future returns; log before accepting connections.
+    cfg.northbound
+        .run_server(
+            &[ControlPlaneServiceServer::new(nb_svc)],
+            drain_rx.clone(),
+        )
+        .await
+        .context("failed to start northbound server")?;
+
     tracing::info!(
         "Northbound API Service is listening on {}",
         cfg.northbound.endpoint
     );
 
-    let sb_future = cfg
-        .southbound
-        .to_server_future(&[ControllerServiceServer::new(sb_svc)])
+    cfg.southbound
+        .run_server(&[ControllerServiceServer::new(sb_svc)], drain_rx)
         .await
-        .context("failed to configure southbound server")?;
+        .context("failed to start southbound server")?;
 
     tracing::info!(
         "Southbound API Service is listening on {}",
@@ -116,10 +119,15 @@ async fn main() -> Result<()> {
 
     tracing::info!("control plane started");
 
-    // Run both servers concurrently; wait for both (mirrors Go's WaitGroup).
-    let (nb_res, sb_res) = tokio::join!(nb_future, sb_future);
-    nb_res.context("northbound server error")?;
-    sb_res.context("southbound server error")?;
+    // Block until SIGINT or SIGTERM is received.
+    slim_signal::shutdown().await;
+    tracing::info!("shutdown signal received, draining connections");
+
+    // Stop reconciler workers and wait for in-flight reconciliations to finish.
+    route_service.shutdown().await;
+
+    // Signal both gRPC servers to stop and wait for them to finish.
+    drain_tx.drain().await;
 
     tracing::info!("control plane stopped");
     Ok(())

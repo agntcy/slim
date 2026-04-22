@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use tokio::sync::{Mutex, Semaphore, mpsc};
+use tokio::sync::{Mutex, Semaphore};
 use uuid::Uuid;
 
 use crate::api::proto::controller::proto::v1::{
@@ -12,12 +12,12 @@ use crate::api::proto::controller::proto::v1::{
 };
 use crate::db::SharedDb;
 use crate::node_control::{DefaultNodeCommandHandler, NodeStatus, ResponseKind};
+use crate::workqueue::WorkQueue;
 
 pub struct RouteReconciler {
     db: SharedDb,
     cmd_handler: Arc<DefaultNodeCommandHandler>,
-    queue_rx: mpsc::UnboundedReceiver<String>,
-    queue_tx: mpsc::UnboundedSender<String>,
+    queue: WorkQueue<String>,
     requeue_counts: Arc<Mutex<HashMap<String, usize>>>,
     max_requeues: usize,
     semaphore: Arc<Semaphore>,
@@ -27,27 +27,24 @@ impl RouteReconciler {
     pub fn new(
         db: SharedDb,
         cmd_handler: Arc<DefaultNodeCommandHandler>,
-        queue_rx: mpsc::UnboundedReceiver<String>,
-        queue_tx: mpsc::UnboundedSender<String>,
-        requeue_counts: Arc<Mutex<HashMap<String, usize>>>,
+        queue: WorkQueue<String>,
         max_requeues: usize,
         max_parallel_reconciles: usize,
     ) -> Self {
         Self {
             db,
             cmd_handler,
-            queue_rx,
-            queue_tx,
-            requeue_counts,
+            queue,
+            requeue_counts: Arc::new(Mutex::new(HashMap::new())),
             max_requeues,
             semaphore: Arc::new(Semaphore::new(max_parallel_reconciles)),
         }
     }
 
-    pub async fn run(mut self) {
+    pub async fn run(self) {
         tracing::info!("route reconciler: starting");
 
-        while let Some(node_id) = self.queue_rx.recv().await {
+        while let Some(node_id) = self.queue.pop().await {
             let permit = match self.semaphore.clone().acquire_owned().await {
                 Ok(p) => p,
                 Err(_) => break, // semaphore closed
@@ -55,7 +52,7 @@ impl RouteReconciler {
 
             let db = self.db.clone();
             let cmd_handler = self.cmd_handler.clone();
-            let queue_tx = self.queue_tx.clone();
+            let queue = self.queue.clone();
             let requeue_counts = self.requeue_counts.clone();
             let max_requeues = self.max_requeues;
 
@@ -76,16 +73,19 @@ impl RouteReconciler {
                         tracing::debug!(
                             "route reconciler: requeuing node {node_id} (attempt {count}/{max_requeues})"
                         );
-                        queue_tx.send(node_id).ok();
+                        // Adding while in-flight marks dirty; done() will re-queue.
+                        queue.add(node_id.clone());
                     } else {
                         tracing::warn!(
                             "route reconciler: dropping node {node_id} after {max_requeues} retries"
                         );
-                        requeue_counts.lock().await.remove(&node_id.clone());
+                        requeue_counts.lock().await.remove(&node_id);
                     }
                 } else {
                     requeue_counts.lock().await.remove(&node_id);
                 }
+
+                queue.done(&node_id);
             });
         }
 

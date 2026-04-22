@@ -4,13 +4,13 @@
 pub mod link_reconciler;
 pub mod route_reconciler;
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::SystemTime;
 
 use serde_json::json;
-use tokio::sync::{Mutex, mpsc};
 use uuid::Uuid;
+
+use crate::workqueue::WorkQueue;
 
 use crate::api::proto::controller::proto::v1::{
     ConnectionListResponse, ControlMessage, SubscriptionListResponse, control_message::Payload,
@@ -41,16 +41,10 @@ pub struct RouteService {
     db: SharedDb,
     cmd_handler: Arc<DefaultNodeCommandHandler>,
     reconciler_config: ReconcilerConfig,
-    /// Sender for the route reconcile queue.
-    route_queue_tx: mpsc::UnboundedSender<String>,
-    /// Sender for the link reconcile queue.
-    link_queue_tx: mpsc::UnboundedSender<String>,
-    // These Arcs are shared with the reconciler workers; the struct holds them
-    // only to keep the maps alive for the lifetime of RouteService.
-    #[allow(dead_code)]
-    route_requeue_counts: Arc<Mutex<HashMap<String, usize>>>,
-    #[allow(dead_code)]
-    link_requeue_counts: Arc<Mutex<HashMap<String, usize>>>,
+    /// Work queue for route reconciliation.
+    route_queue: WorkQueue<String>,
+    /// Work queue for link reconciliation.
+    link_queue: WorkQueue<String>,
 }
 
 impl RouteService {
@@ -59,39 +53,30 @@ impl RouteService {
         cmd_handler: Arc<DefaultNodeCommandHandler>,
         reconciler_config: ReconcilerConfig,
     ) -> Arc<Self> {
-        let (route_tx, route_rx) = mpsc::unbounded_channel::<String>();
-        let (link_tx, link_rx) = mpsc::unbounded_channel::<String>();
-
-        let route_requeue_counts = Arc::new(Mutex::new(HashMap::new()));
-        let link_requeue_counts = Arc::new(Mutex::new(HashMap::new()));
+        let route_queue: WorkQueue<String> = WorkQueue::new();
+        let link_queue: WorkQueue<String> = WorkQueue::new();
 
         let svc = Arc::new(Self {
             db: db.clone(),
             cmd_handler: cmd_handler.clone(),
             reconciler_config,
-            route_queue_tx: route_tx,
-            link_queue_tx: link_tx,
-            route_requeue_counts: route_requeue_counts.clone(),
-            link_requeue_counts: link_requeue_counts.clone(),
+            route_queue: route_queue.clone(),
+            link_queue: link_queue.clone(),
         });
 
         // Spawn reconciler workers.
         let route_reconciler = route_reconciler::RouteReconciler::new(
             db.clone(),
             cmd_handler.clone(),
-            route_rx,
-            svc.route_queue_tx.clone(),
-            route_requeue_counts,
+            route_queue,
             svc.reconciler_config.max_requeues,
             svc.reconciler_config.max_parallel_reconciles,
         );
         let link_reconciler = link_reconciler::LinkReconciler::new(
             db,
             cmd_handler,
-            link_rx,
-            svc.link_queue_tx.clone(),
-            svc.route_queue_tx.clone(),
-            link_requeue_counts,
+            link_queue,
+            svc.route_queue.clone(),
             ReconcilerConfig {
                 max_requeues: svc.reconciler_config.max_requeues,
                 max_parallel_reconciles: svc.reconciler_config.max_parallel_reconciles,
@@ -101,6 +86,17 @@ impl RouteService {
         tokio::spawn(async move { link_reconciler.run().await });
 
         svc
+    }
+
+    /// Stop the reconciler workers and wait for any in-flight reconciliations
+    /// to finish before returning.
+    pub async fn shutdown(&self) {
+        tracing::info!("route service: shutting down reconcilers");
+        tokio::join!(
+            self.route_queue.shutdown_with_drain(),
+            self.link_queue.shutdown_with_drain(),
+        );
+        tracing::info!("route service: reconcilers stopped");
     }
 
     pub async fn add_route(&self, route: Route) -> Result<String, String> {
@@ -200,7 +196,7 @@ impl RouteService {
         }
 
         if db_route.source_node_id != ALL_NODES_ID {
-            let _ = self.route_queue_tx.send(db_route.source_node_id);
+            self.route_queue.add(db_route.source_node_id);
         }
         Ok(route_str)
     }
@@ -279,7 +275,7 @@ impl RouteService {
         self.db.mark_route_deleted(route_id).await?;
         tracing::info!("route marked for delete: {route_key}");
         if node_id != ALL_NODES_ID {
-            let _ = self.route_queue_tx.send(node_id.to_string());
+            self.route_queue.add(node_id.to_string());
         }
         Ok(())
     }
@@ -301,7 +297,7 @@ impl RouteService {
         reconcile_link_for_nodes.insert(node_id.to_string());
 
         for nid in reconcile_link_for_nodes {
-            let _ = self.link_queue_tx.send(nid);
+            self.link_queue.add(nid);
         }
     }
 
@@ -613,10 +609,10 @@ impl RouteService {
             if let Err(e) = self.db.update_link(updated_link).await {
                 tracing::error!("failed to reset link to pending after subscription loss: {e}");
             } else {
-                let _ = self.link_queue_tx.send(db_route.source_node_id.clone());
+                self.link_queue.add(db_route.source_node_id.clone());
             }
         }
-        let _ = self.route_queue_tx.send(node_id.to_string());
+        self.route_queue.add(node_id.to_string());
     }
 
     pub async fn list_subscriptions(
