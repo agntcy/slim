@@ -24,6 +24,11 @@ pub struct Pool<T> {
 
     /// Stack of recycled indices available for reuse by the next `insert`.
     free_slots: Vec<usize>,
+
+    /// Cursor for the persistent round-robin iterator (`next_id`).
+    /// Holds a position in `active_indexes`; wrapped on each call and
+    /// clamped on entry if elements have been removed since last use.
+    cursor: usize,
 }
 
 impl<T> Pool<T> {
@@ -33,6 +38,7 @@ impl<T> Pool<T> {
             pool: Vec::with_capacity(capacity),
             active_indexes: Vec::with_capacity(capacity),
             free_slots: Vec::new(),
+            cursor: 0,
         }
     }
 
@@ -138,6 +144,27 @@ impl<T> Pool<T> {
     /// borrow of the pool.
     pub fn ids(&self) -> impl Iterator<Item = u64> + '_ {
         self.active_indexes.iter().map(|&i| i as u64)
+    }
+
+    /// Persistent round-robin iterator: returns the ID of the next live
+    /// element on each call, cycling back to the first when the end is
+    /// reached.  Returns `None` if the pool is empty.
+    ///
+    /// The cursor survives across calls.  If elements are removed between
+    /// calls the cursor is clamped back into range automatically, so the
+    /// sequence remains valid even as the pool changes size.
+    pub fn next_id(&mut self) -> Option<u64> {
+        let n = self.active_indexes.len();
+        if n == 0 {
+            return None;
+        }
+        // Clamp in case removals shrank active_indexes since the last call.
+        if self.cursor >= n {
+            self.cursor = 0;
+        }
+        let id = self.active_indexes[self.cursor] as u64;
+        self.cursor = (self.cursor + 1) % n;
+        Some(id)
     }
 
     /// Number of elements currently in the pool.
@@ -311,5 +338,54 @@ mod tests {
         let mut pairs: Vec<(u64, u32)> = pool.iter_with_ids().map(|(id, &v)| (id, v)).collect();
         pairs.sort_by_key(|&(id, _)| id);
         assert_eq!(pairs, vec![(id0, 10), (id2, 30)]);
+    }
+
+    #[test]
+    fn test_next_id_round_robin() {
+        let mut pool = Pool::with_capacity(4);
+        let id0 = pool.insert(10u32);
+        let id1 = pool.insert(20u32);
+        let id2 = pool.insert(30u32);
+
+        // Collect the sequence emitted by the first full cycle.
+        let first: Vec<u64> = (0..3).map(|_| pool.next_id().unwrap()).collect();
+        assert_eq!(first.len(), 3);
+        // Every live ID must appear exactly once per cycle.
+        let mut sorted = first.clone();
+        sorted.sort();
+        assert_eq!(sorted, vec![id0, id1, id2]);
+
+        // The second cycle must repeat in the same order.
+        let second: Vec<u64> = (0..3).map(|_| pool.next_id().unwrap()).collect();
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn test_next_id_empty() {
+        let mut pool: Pool<u32> = Pool::with_capacity(4);
+        assert_eq!(pool.next_id(), None);
+    }
+
+    #[test]
+    fn test_next_id_cursor_clamped_after_remove() {
+        let mut pool = Pool::with_capacity(4);
+        let id0 = pool.insert(10u32);
+        let id1 = pool.insert(20u32);
+        let id2 = pool.insert(30u32);
+
+        // Advance cursor to the last position.
+        assert_eq!(pool.next_id(), Some(id0));
+        assert_eq!(pool.next_id(), Some(id1));
+        assert_eq!(pool.next_id(), Some(id2));
+        // Cursor is now at position 0 (wrapped).
+
+        // Remove two elements so the pool has only one left; cursor must clamp.
+        pool.remove(id0);
+        pool.remove(id1);
+        assert_eq!(pool.len(), 1);
+
+        // next_id must still return the surviving element without panicking.
+        assert_eq!(pool.next_id(), Some(id2));
+        assert_eq!(pool.next_id(), Some(id2));
     }
 }
