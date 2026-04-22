@@ -1,6 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use tracing::trace;
 
 /// A collection that assigns each inserted element a stable `u64` ID.
@@ -26,9 +28,10 @@ pub struct Pool<T> {
     free_slots: Vec<usize>,
 
     /// Cursor for the persistent round-robin iterator (`next_id`).
-    /// Holds a position in `active_indexes`; wrapped on each call and
-    /// clamped on entry if elements have been removed since last use.
-    cursor: usize,
+    /// Stored as an `AtomicUsize` so that `next_id` can advance it through
+    /// a shared `&self` reference — callers that hold only a read lock on
+    /// an outer container are not forced to upgrade to a write lock.
+    cursor: AtomicUsize,
 }
 
 impl<T> Pool<T> {
@@ -38,7 +41,7 @@ impl<T> Pool<T> {
             pool: Vec::with_capacity(capacity),
             active_indexes: Vec::with_capacity(capacity),
             free_slots: Vec::new(),
-            cursor: 0,
+            cursor: AtomicUsize::new(0),
         }
     }
 
@@ -150,21 +153,18 @@ impl<T> Pool<T> {
     /// element on each call, cycling back to the first when the end is
     /// reached.  Returns `None` if the pool is empty.
     ///
-    /// The cursor survives across calls.  If elements are removed between
-    /// calls the cursor is clamped back into range automatically, so the
-    /// sequence remains valid even as the pool changes size.
-    pub fn next_id(&mut self) -> Option<u64> {
+    /// The cursor survives across calls and is advanced atomically, so
+    /// `next_id` only requires `&self` — callers that hold a shared
+    /// (read) lock on an outer container are not forced to upgrade to a
+    /// write lock.  If elements are removed between calls the modulo
+    /// wraps the cursor back into range automatically.
+    pub fn next_id(&self) -> Option<u64> {
         let n = self.active_indexes.len();
         if n == 0 {
             return None;
         }
-        // Clamp in case removals shrank active_indexes since the last call.
-        if self.cursor >= n {
-            self.cursor = 0;
-        }
-        let id = self.active_indexes[self.cursor] as u64;
-        self.cursor = (self.cursor + 1) % n;
-        Some(id)
+        let pos = self.cursor.fetch_add(1, Ordering::Relaxed) % n;
+        Some(self.active_indexes[pos] as u64)
     }
 
     /// Number of elements currently in the pool.
@@ -346,6 +346,7 @@ mod tests {
         let id0 = pool.insert(10u32);
         let id1 = pool.insert(20u32);
         let id2 = pool.insert(30u32);
+        let pool = pool; // rebind as immutable — next_id only needs &self
 
         // Collect the sequence emitted by the first full cycle.
         let first: Vec<u64> = (0..3).map(|_| pool.next_id().unwrap()).collect();
