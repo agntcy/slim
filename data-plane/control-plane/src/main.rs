@@ -58,7 +58,9 @@ async fn main() -> Result<()> {
         }
         DatabaseConfig::Sqlite { path } => {
             tracing::info!("using sqlite database at {path}");
-            SqliteDb::shared(path).await.map_err(|e| anyhow::anyhow!(e))?
+            SqliteDb::shared(path)
+                .await
+                .map_err(|e| anyhow::anyhow!(e))?
         }
     };
 
@@ -95,10 +97,7 @@ async fn main() -> Result<()> {
     let (drain_tx, drain_rx) = drain::channel();
 
     cfg.northbound
-        .run_server(
-            &[ControlPlaneServiceServer::new(nb_svc)],
-            drain_rx.clone(),
-        )
+        .run_server(&[ControlPlaneServiceServer::new(nb_svc)], drain_rx.clone())
         .await
         .context("failed to start northbound server")?;
 

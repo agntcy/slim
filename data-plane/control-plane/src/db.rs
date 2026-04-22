@@ -94,8 +94,7 @@ pub trait DataAccess: Send + Sync {
 
     // ── Channels ───────────────────────────────────────────────────────────
 
-    async fn save_channel(&self, channel_id: &str, moderators: Vec<String>)
-        -> Result<(), String>;
+    async fn save_channel(&self, channel_id: &str, moderators: Vec<String>) -> Result<(), String>;
     async fn delete_channel(&self, channel_id: &str) -> Result<(), String>;
     async fn get_channel(&self, channel_id: &str) -> Option<Channel>;
     async fn update_channel(&self, channel: Channel) -> Result<(), String>;

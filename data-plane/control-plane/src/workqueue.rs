@@ -15,7 +15,9 @@
 
 use std::collections::{HashSet, VecDeque};
 use std::hash::Hash;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 use tokio::sync::Notify;
 
@@ -73,7 +75,7 @@ impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
     /// - After **shutdown** → silently ignored.
     pub fn add(&self, item: T) {
         {
-            let mut g = self.inner.lock().unwrap();
+            let mut g = self.inner.lock();
             if g.shutdown || g.queued.contains(&item) || g.dirty.contains(&item) {
                 return;
             }
@@ -95,7 +97,7 @@ impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
     pub async fn pop(&self) -> Option<T> {
         loop {
             {
-                let mut g = self.inner.lock().unwrap();
+                let mut g = self.inner.lock();
                 if let Some(item) = g.queue.pop_front() {
                     g.queued.remove(&item);
                     g.processing.insert(item.clone());
@@ -118,7 +120,7 @@ impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
     /// Calling `done` for an item that is not currently being processed is a no-op.
     pub fn done(&self, item: &T) {
         let (re_queued, drain_complete) = {
-            let mut g = self.inner.lock().unwrap();
+            let mut g = self.inner.lock();
             if !g.processing.remove(item) {
                 return;
             }
@@ -151,7 +153,7 @@ impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
     /// `shutdown` cancels the drain and unblocks it immediately.
     pub fn shutdown(&self) {
         {
-            let mut g = self.inner.lock().unwrap();
+            let mut g = self.inner.lock();
             g.drain = false;
             g.shutdown = true;
         }
@@ -170,7 +172,7 @@ impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
     /// `drain` is already false and this returns immediately.
     pub async fn shutdown_with_drain(&self) {
         {
-            let mut g = self.inner.lock().unwrap();
+            let mut g = self.inner.lock();
             // Only enable drain if we are the ones initiating shutdown.
             // If shutdown() already ran, it set drain=false — don't override it.
             if !g.shutdown {
@@ -189,7 +191,7 @@ impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
             notified.as_mut().enable();
 
             {
-                let g = self.inner.lock().unwrap();
+                let g = self.inner.lock();
                 // Exit if drain was cancelled (by shutdown()) or no items in flight.
                 if !g.drain || g.processing.is_empty() {
                     return;
@@ -200,15 +202,15 @@ impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
     }
 
     pub fn len(&self) -> usize {
-        self.inner.lock().unwrap().queue.len()
+        self.inner.lock().queue.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.inner.lock().unwrap().queue.is_empty()
+        self.inner.lock().queue.is_empty()
     }
 
     pub fn is_shutdown(&self) -> bool {
-        self.inner.lock().unwrap().shutdown
+        self.inner.lock().shutdown
     }
 }
 
@@ -316,9 +318,7 @@ mod tests {
 
         q.add("a"); // marks dirty, not queued yet
         assert!(
-            timeout(Duration::from_millis(10), q.pop())
-                .await
-                .is_err(),
+            timeout(Duration::from_millis(10), q.pop()).await.is_err(),
             "pop should block while item is processing"
         );
 
@@ -404,7 +404,7 @@ mod tests {
             .unwrap();
 
         // item never had done() called — drain exited anyway.
-        drop(item);
+        let _ = item;
     }
 
     #[tokio::test]

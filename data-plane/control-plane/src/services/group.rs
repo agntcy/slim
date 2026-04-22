@@ -108,7 +108,10 @@ impl GroupService {
         if !ack.success {
             return Ok(ack);
         }
-        tracing::info!("Channel deletion result for {}: success=true", req.channel_name);
+        tracing::info!(
+            "Channel deletion result for {}: success=true",
+            req.channel_name
+        );
         self.db.delete_channel(&req.channel_name).await?;
         tracing::info!("Channel deleted successfully");
         Ok(ack)
@@ -384,7 +387,9 @@ mod tests {
     #[tokio::test]
     async fn list_participants_ok() {
         let db = make_db();
-        db.save_channel("chan", vec!["mod".to_string()]).await.unwrap();
+        db.save_channel("chan", vec!["mod".to_string()])
+            .await
+            .unwrap();
         db.update_channel(Channel {
             id: "chan".to_string(),
             moderators: vec!["mod".to_string()],
@@ -406,24 +411,26 @@ mod tests {
     async fn list_participants_empty_channel_id_returns_error() {
         let db = make_db();
         let svc = make_service(db);
-        assert!(svc
-            .list_participants(ListParticipantsRequest {
+        assert!(
+            svc.list_participants(ListParticipantsRequest {
                 channel_name: String::new(),
             })
             .await
-            .is_err());
+            .is_err()
+        );
     }
 
     #[tokio::test]
     async fn list_participants_not_found_returns_error() {
         let db = make_db();
         let svc = make_service(db);
-        assert!(svc
-            .list_participants(ListParticipantsRequest {
+        assert!(
+            svc.list_participants(ListParticipantsRequest {
                 channel_name: "ghost".to_string(),
             })
             .await
-            .is_err());
+            .is_err()
+        );
     }
 
     // ── get_channel_details ────────────────────────────────────────────────
@@ -431,7 +438,9 @@ mod tests {
     #[tokio::test]
     async fn get_channel_details_ok() {
         let db = make_db();
-        db.save_channel("chan", vec!["mod".to_string()]).await.unwrap();
+        db.save_channel("chan", vec!["mod".to_string()])
+            .await
+            .unwrap();
         let svc = make_service(db);
         let ch = svc.get_channel_details("chan").await.unwrap();
         assert_eq!(ch.id, "chan");

@@ -226,13 +226,16 @@ impl RouteService {
             self.db.delete_route(db_route.id).await?;
 
             // Also delete all per-node expansions.
-            let per_node = self.db.get_routes_for_dest_node_id_and_name(
-                &route.dest_node_id,
-                &route.component0,
-                &route.component1,
-                &route.component2,
-                route.component_id.map(|v| v as i64),
-            ).await;
+            let per_node = self
+                .db
+                .get_routes_for_dest_node_id_and_name(
+                    &route.dest_node_id,
+                    &route.component0,
+                    &route.component1,
+                    &route.component2,
+                    route.component_id.map(|v| v as i64),
+                )
+                .await;
             for r in per_node {
                 self.delete_single_route(&r.source_node_id, r.id, &r.to_string())
                     .await?;
@@ -241,7 +244,8 @@ impl RouteService {
         }
 
         let link_id = if route.link_id.is_empty() {
-            self.find_matching_link(&route.source_node_id, &route.dest_node_id).await?
+            self.find_matching_link(&route.source_node_id, &route.dest_node_id)
+                .await?
         } else {
             route.link_id.clone()
         };
@@ -324,17 +328,21 @@ impl RouteService {
                     continue;
                 }
             };
-            let replacement = match self.db.add_link(crate::db::Link {
-                link_id: Uuid::new_v4().to_string(),
-                source_node_id: link.source_node_id.clone(),
-                dest_node_id: link.dest_node_id.clone(),
-                dest_endpoint: endpoint,
-                conn_config_data: config_data,
-                status: LinkStatus::Pending,
-                status_msg: String::new(),
-                deleted: false,
-                last_updated: SystemTime::now(),
-            }).await {
+            let replacement = match self
+                .db
+                .add_link(crate::db::Link {
+                    link_id: Uuid::new_v4().to_string(),
+                    source_node_id: link.source_node_id.clone(),
+                    dest_node_id: link.dest_node_id.clone(),
+                    dest_endpoint: endpoint,
+                    conn_config_data: config_data,
+                    status: LinkStatus::Pending,
+                    status_msg: String::new(),
+                    deleted: false,
+                    last_updated: SystemTime::now(),
+                })
+                .await
+            {
                 Ok(l) => l,
                 Err(e) => {
                     tracing::error!("reconnect: failed to add replacement link: {e}");
@@ -345,12 +353,16 @@ impl RouteService {
             affected.insert(replacement.source_node_id.clone());
 
             for r in self.db.get_routes_by_link_id(&link.link_id).await {
-                if let Err(e) = self.db.repoint_route(
-                    r.id,
-                    &replacement.link_id,
-                    RouteStatus::Pending,
-                    "waiting for replacement link apply",
-                ).await {
+                if let Err(e) = self
+                    .db
+                    .repoint_route(
+                        r.id,
+                        &replacement.link_id,
+                        RouteStatus::Pending,
+                        "waiting for replacement link apply",
+                    )
+                    .await
+                {
                     tracing::error!("reconnect: failed to repoint route {}: {e}", r);
                 } else {
                     affected.insert(r.source_node_id.clone());
@@ -438,17 +450,21 @@ impl RouteService {
         {
             Ok((endpoint, config_data)) => {
                 let link_id = Uuid::new_v4().to_string();
-                if let Err(e) = self.db.add_link(crate::db::Link {
-                    link_id,
-                    source_node_id: source_node_id.to_string(),
-                    dest_node_id: dest_node_id.to_string(),
-                    dest_endpoint: endpoint,
-                    conn_config_data: config_data,
-                    status: LinkStatus::Pending,
-                    status_msg: String::new(),
-                    deleted: false,
-                    last_updated: SystemTime::now(),
-                }).await {
+                if let Err(e) = self
+                    .db
+                    .add_link(crate::db::Link {
+                        link_id,
+                        source_node_id: source_node_id.to_string(),
+                        dest_node_id: dest_node_id.to_string(),
+                        dest_endpoint: endpoint,
+                        conn_config_data: config_data,
+                        status: LinkStatus::Pending,
+                        status_msg: String::new(),
+                        deleted: false,
+                        last_updated: SystemTime::now(),
+                    })
+                    .await
+                {
                     tracing::error!(
                         "ensure_direct_link: failed to add link {source_node_id}->{dest_node_id}: {e}"
                     );
@@ -483,17 +499,21 @@ impl RouteService {
             .map(|l| l.link_id)
             .unwrap_or_else(|| Uuid::new_v4().to_string());
 
-        if let Err(e) = self.db.add_link(crate::db::Link {
-            link_id,
-            source_node_id: source_node_id.to_string(),
-            dest_node_id: dest_node_id.to_string(),
-            dest_endpoint: endpoint,
-            conn_config_data: config_data,
-            status: LinkStatus::Pending,
-            status_msg: String::new(),
-            deleted: false,
-            last_updated: SystemTime::now(),
-        }).await {
+        if let Err(e) = self
+            .db
+            .add_link(crate::db::Link {
+                link_id,
+                source_node_id: source_node_id.to_string(),
+                dest_node_id: dest_node_id.to_string(),
+                dest_endpoint: endpoint,
+                conn_config_data: config_data,
+                status: LinkStatus::Pending,
+                status_msg: String::new(),
+                deleted: false,
+                last_updated: SystemTime::now(),
+            })
+            .await
+        {
             tracing::error!(
                 "ensure_group_link: failed to add link {source_node_id}->{dest_node_id}: {e}"
             );
@@ -833,8 +853,8 @@ fn generate_config_data(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::inmemory::InMemoryDb;
     use crate::db::ConnectionDetails;
+    use crate::db::inmemory::InMemoryDb;
     use crate::node_control::DefaultNodeCommandHandler;
     use std::time::SystemTime;
 
@@ -848,7 +868,11 @@ mod tests {
         }
     }
 
-    fn make_node(id: &str, group: Option<&str>, details: Vec<ConnectionDetails>) -> crate::db::Node {
+    fn make_node(
+        id: &str,
+        group: Option<&str>,
+        details: Vec<ConnectionDetails>,
+    ) -> crate::db::Node {
         crate::db::Node {
             id: id.to_string(),
             group_name: group.map(|s| s.to_string()),

@@ -11,15 +11,15 @@ use diesel::serialize::{self, IsNull, Output, ToSql};
 use diesel::sql_types::{Integer, Text};
 use diesel::sqlite::Sqlite;
 use diesel::sqlite::SqliteConnection;
-use diesel_migrations::{EmbeddedMigrations, MigrationHarness as _, embed_migrations};
 use diesel_async::RunQueryDsl;
 use diesel_async::pooled_connection::AsyncDieselConnectionManager;
 use diesel_async::pooled_connection::deadpool::Pool;
 use diesel_async::sync_connection_wrapper::SyncConnectionWrapper;
+use diesel_migrations::{EmbeddedMigrations, MigrationHarness as _, embed_migrations};
 
 use super::model::{
-    ALL_NODES_ID, Channel, ConnDetailsJson, ConnectionDetails, DbTimestamp, JsonStrings, Link,
-    LinkStatus, Node, Route, RouteStatus, SubscriptionName, has_connection_details_changed,
+    ALL_NODES_ID, Channel, ConnDetailsJson, DbTimestamp, JsonStrings, Link, LinkStatus, Node,
+    Route, RouteStatus, SubscriptionName, has_connection_details_changed,
 };
 use super::schema::{channels, links, nodes, routes};
 use super::{DataAccess, SharedDb};
@@ -261,9 +261,7 @@ impl DataAccess for SqliteDb {
         } else {
             q = q.filter(routes::component_id.is_null());
         }
-        q.load::<Route>(&mut conn)
-            .await
-            .unwrap_or_default()
+        q.load::<Route>(&mut conn).await.unwrap_or_default()
     }
 
     async fn get_route_for_src_dest_name(
@@ -293,11 +291,7 @@ impl DataAccess for SqliteDb {
         } else {
             q = q.filter(routes::component_id.is_null());
         }
-        q.limit(1)
-            .first::<Route>(&mut conn)
-            .await
-            .optional()
-            .ok()?
+        q.limit(1).first::<Route>(&mut conn).await.optional().ok()?
     }
 
     async fn filter_routes_by_src_dest(
@@ -315,9 +309,7 @@ impl DataAccess for SqliteDb {
         if !dest_node_id.is_empty() {
             q = q.filter(routes::dest_node_id.eq(dest_node_id));
         }
-        q.load::<Route>(&mut conn)
-            .await
-            .unwrap_or_default()
+        q.load::<Route>(&mut conn).await.unwrap_or_default()
     }
 
     async fn get_destination_node_id_for_name(
@@ -471,9 +463,7 @@ impl DataAccess for SqliteDb {
             || link.dest_node_id.is_empty()
             || link.dest_endpoint.is_empty()
         {
-            return Err(
-                "source_node_id, dest_node_id and dest_endpoint are required".to_string(),
-            );
+            return Err("source_node_id, dest_node_id and dest_endpoint are required".to_string());
         }
         if link.link_id.is_empty() {
             if let Some(existing) = self
@@ -669,11 +659,7 @@ impl DataAccess for SqliteDb {
 
     // ── Channels ───────────────────────────────────────────────────────────
 
-    async fn save_channel(
-        &self,
-        channel_id: &str,
-        moderators: Vec<String>,
-    ) -> Result<(), String> {
+    async fn save_channel(&self, channel_id: &str, moderators: Vec<String>) -> Result<(), String> {
         let channel = Channel {
             id: channel_id.to_string(),
             moderators,
@@ -766,14 +752,13 @@ impl DataAccess for SqliteDb {
 mod tests {
     use super::*;
     use crate::db::DataAccess;
+    use crate::db::model::ConnectionDetails;
     use std::time::SystemTime;
     use tempfile::NamedTempFile;
 
     async fn tmp_db() -> (NamedTempFile, Arc<dyn DataAccess>) {
         let f = NamedTempFile::new().unwrap();
-        let db = SqliteDb::shared(f.path().to_str().unwrap())
-            .await
-            .unwrap();
+        let db = SqliteDb::shared(f.path().to_str().unwrap()).await.unwrap();
         (f, db)
     }
 
@@ -1073,14 +1058,16 @@ mod tests {
         db.add_link(make_link("src", "dst", "ep:8080", "lid"))
             .await
             .unwrap();
-        assert!(db
-            .get_link_for_source_and_endpoint("src", "ep:8080")
-            .await
-            .is_some());
-        assert!(db
-            .get_link_for_source_and_endpoint("src", "other")
-            .await
-            .is_none());
+        assert!(
+            db.get_link_for_source_and_endpoint("src", "ep:8080")
+                .await
+                .is_some()
+        );
+        assert!(
+            db.get_link_for_source_and_endpoint("src", "other")
+                .await
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -1142,23 +1129,21 @@ mod tests {
         })
         .await
         .unwrap();
-        assert_eq!(
-            db.get_channel("c1").await.unwrap().participants,
-            vec!["p1"]
-        );
+        assert_eq!(db.get_channel("c1").await.unwrap().participants, vec!["p1"]);
     }
 
     #[tokio::test]
     async fn update_channel_not_found_returns_error() {
         let (_f, db) = tmp_db().await;
-        assert!(db
-            .update_channel(Channel {
+        assert!(
+            db.update_channel(Channel {
                 id: "missing".to_string(),
                 moderators: vec![],
                 participants: vec![],
             })
             .await
-            .is_err());
+            .is_err()
+        );
     }
 
     #[tokio::test]
