@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "agntcy-protoc-slimrpc-plugin"
-version = "1.3.0"
+version = "1.4.0-rc.0"
 dependencies = [
  "anyhow",
  "heck",
@@ -14,7 +14,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim"
-version = "1.3.0"
+version = "1.4.0-rc.0"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-service",
@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-auth"
-version = "0.6.2"
+version = "0.7.0"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-testing",
@@ -80,7 +80,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-bindings"
-version = "1.3.0"
+version = "1.4.0-rc.0"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
@@ -117,7 +117,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-config"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-testing",
@@ -198,7 +198,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-controller"
-version = "0.4.12"
+version = "0.5.0"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -232,7 +232,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-datapath"
-version = "0.12.2"
+version = "0.12.3"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-tracing",
@@ -266,7 +266,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-mls"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
@@ -284,7 +284,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-service"
-version = "0.8.11"
+version = "0.8.12"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -309,7 +309,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-session"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
@@ -333,7 +333,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-signal"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "agntcy-slim-version",
  "tokio",
@@ -371,7 +371,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-tracing"
-version = "0.3.8"
+version = "0.3.9"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-version",
@@ -391,11 +391,11 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-version"
-version = "1.3.0"
+version = "1.4.0-rc.0"
 
 [[package]]
 name = "agntcy-slimctl"
-version = "1.3.0"
+version = "1.4.0-rc.0"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-config",

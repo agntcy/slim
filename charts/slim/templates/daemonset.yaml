@@ -65,7 +65,7 @@ spec:
             {{- end }}
           ports:
             {{- range $i, $data := .Values.slim.service.data }}
-            - name: data-plane-{{ $i }}
+            - name: {{ $data.name | default (printf "data-plane-%d" $i) }}
               containerPort: {{ $data.port }}
               protocol: TCP
               hostPort: {{ $data.port }}
