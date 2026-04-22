@@ -11,9 +11,11 @@ use diesel::serialize::{self, IsNull, Output, ToSql};
 use diesel::sql_types::{Integer, Text};
 use diesel::sqlite::Sqlite;
 use diesel::sqlite::SqliteConnection;
+use diesel_async::AsyncConnection;
 use diesel_async::RunQueryDsl;
-use diesel_async::pooled_connection::AsyncDieselConnectionManager;
+use diesel_async::SimpleAsyncConnection;
 use diesel_async::pooled_connection::deadpool::Pool;
+use diesel_async::pooled_connection::{AsyncDieselConnectionManager, ManagerConfig};
 use diesel_async::sync_connection_wrapper::SyncConnectionWrapper;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness as _, embed_migrations};
 
@@ -99,7 +101,22 @@ impl SqliteDb {
         .map_err(|e| format!("migration task panicked: {e}"))??;
 
         // Build async pool.
-        let manager = AsyncDieselConnectionManager::<AsyncSqliteConn>::new(path);
+        // Each connection enables WAL mode (one writer + concurrent readers) and a
+        // 5-second busy timeout so that concurrent writers retry instead of
+        // immediately returning "database is locked".
+        let mut manager_config = ManagerConfig::<AsyncSqliteConn>::default();
+        manager_config.custom_setup = Box::new(|url| {
+            let url = url.to_string();
+            Box::pin(async move {
+                let mut conn: AsyncSqliteConn = AsyncSqliteConn::establish(&url).await?;
+                conn.batch_execute("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")
+                    .await
+                    .map_err(|e| diesel::ConnectionError::BadConnection(e.to_string()))?;
+                Ok(conn)
+            })
+        });
+        let manager =
+            AsyncDieselConnectionManager::<AsyncSqliteConn>::new_with_config(path, manager_config);
         let pool = Pool::builder(manager)
             .max_size(16)
             .build()

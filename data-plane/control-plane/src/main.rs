@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use slim_config::provider::ConfigResolver;
 use slim_config::tls::provider::initialize_crypto_provider;
 
 use slim_control_plane::api::proto::controller::proto::v1::controller_service_server::ControllerServiceServer;
@@ -36,10 +37,7 @@ async fn main() -> Result<()> {
     initialize_crypto_provider();
 
     // ── Load config ──────────────────────────────────────────────────────────
-    let mut cfg = load_config(args.config)?;
-
-    // Apply environment-variable overrides (mirrors Go's OverrideFromEnv).
-    cfg.apply_env_overrides();
+    let cfg = load_config(args.config)?;
 
     // ── Initialise tracing ───────────────────────────────────────────────────
     let _tracing_guard = cfg
@@ -134,13 +132,23 @@ async fn main() -> Result<()> {
 
 /// Load configuration from a file, falling back to "config.yaml" (if it
 /// exists), then to built-in defaults — matching Go's OverrideFromFile logic.
+///
+/// `${env:VAR}` and `${file:PATH}` references in YAML values are resolved
+/// before deserialisation, matching the pattern used by SLIM.
 fn load_config(path: Option<String>) -> Result<Config> {
     let explicit = path.is_some();
     let path = path.unwrap_or_else(|| "config.yaml".to_string());
 
     match std::fs::read_to_string(&path) {
-        Ok(text) => serde_yaml::from_str(&text)
-            .with_context(|| format!("failed to parse config file: {path}")),
+        Ok(text) => {
+            let mut root: serde_yaml::Value = serde_yaml::from_str(&text)
+                .with_context(|| format!("failed to parse config file: {path}"))?;
+            ConfigResolver::new()
+                .resolve(&mut root)
+                .with_context(|| format!("failed to resolve config variables in: {path}"))?;
+            serde_yaml::from_value(root)
+                .with_context(|| format!("failed to deserialise config file: {path}"))
+        }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound && !explicit => {
             tracing::debug!("no config file found at {path}, using defaults");
             Ok(Config::default())
