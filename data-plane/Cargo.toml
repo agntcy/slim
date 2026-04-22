@@ -2,9 +2,9 @@
 
 members = [
     "bindings/rust",
+    "control-plane",
     "core/auth",
     "core/config",
-    "core/control-plane",
     "core/controller",
     "core/datapath",
     "core/mls",
@@ -22,6 +22,7 @@ members = [
 
 default-members = [
     "bindings/rust",
+    "control-plane",
     "core/config",
     "core/datapath",
     "core/service",

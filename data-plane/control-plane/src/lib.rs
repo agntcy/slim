@@ -6,3 +6,4 @@ pub mod config;
 pub mod db;
 pub mod node_control;
 pub mod services;
+pub mod workqueue;

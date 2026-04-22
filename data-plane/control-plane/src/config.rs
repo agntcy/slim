@@ -4,6 +4,7 @@
 use serde::Deserialize;
 
 use slim_config::grpc::server::ServerConfig;
+use slim_config::tls::server::TlsServerConfig;
 use slim_tracing::TracingConfiguration;
 
 /// Top-level control-plane configuration.
@@ -26,11 +27,13 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             northbound: ServerConfig {
-                endpoint: "localhost:50051".to_string(),
+                endpoint: "0.0.0.0:50051".to_string(),
+                tls_setting: TlsServerConfig::insecure(),
                 ..Default::default()
             },
             southbound: ServerConfig {
-                endpoint: "localhost:50052".to_string(),
+                endpoint: "0.0.0.0:50052".to_string(),
+                tls_setting: TlsServerConfig::insecure(),
                 ..Default::default()
             },
             reconciler: ReconcilerConfig::default(),
@@ -171,8 +174,8 @@ mod tests {
     #[test]
     fn config_defaults() {
         let c = Config::default();
-        assert_eq!(c.northbound.endpoint, "localhost:50051");
-        assert_eq!(c.southbound.endpoint, "localhost:50052");
+        assert_eq!(c.northbound.endpoint, "0.0.0.0:50051");
+        assert_eq!(c.southbound.endpoint, "0.0.0.0:50052");
     }
 
     #[test]
