@@ -73,7 +73,7 @@ use spiffe::{
 use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use tracing::{Instrument, debug, info, warn};
 
 use crate::errors::AuthError;
 use crate::identity_claims::IdentityClaims;
@@ -210,7 +210,8 @@ impl CachedJwtSvid {
         let parsed_target: Option<SpiffeId> =
             target_spiffe_id.as_deref().map(|s| s.parse()).transpose()?;
 
-        // Best-effort initial fetch — background task will retry if this fails.
+        // Initial fetch — must succeed so callers can use get_token() immediately after
+        // initialize() returns Ok. The background task will keep the cache fresh afterwards.
         match source
             .get_jwt_svid_with_id(&audiences, parsed_target.as_ref())
             .await
@@ -219,18 +220,24 @@ impl CachedJwtSvid {
                 *cached_svid.write() = Some(svid);
             }
             Err(err) => {
-                warn!(error = %err, "jwt_source: initial SVID fetch failed; will retry in background");
+                return Err(AuthError::SpiffeJwtSourceError(err));
             }
         }
 
         // Spawn background SVID refresh task.
+        // Propagate the current tracing span so that logs from the background task
+        // remain associated with the caller's span (important for test log capture).
         let bg_source = source.clone();
         let bg_cache = cached_svid.clone();
         let bg_cancel = cancellation_token.clone();
-        tokio::spawn(async move {
-            Self::background_refresh(bg_source, audiences, parsed_target, bg_cache, bg_cancel)
-                .await;
-        });
+        let bg_span = tracing::Span::current();
+        tokio::spawn(
+            async move {
+                Self::background_refresh(bg_source, audiences, parsed_target, bg_cache, bg_cancel)
+                    .await;
+            }
+            .instrument(bg_span),
+        );
 
         Ok(Self {
             source,
@@ -379,7 +386,13 @@ pub struct SpireIdentityManager {
     target_spiffe_id: Option<String>,
     jwt_audiences: Vec<String>,
     x509_source: Option<X509Source>,
-    jwt_source: Option<CachedJwtSvid>,
+    // Wrapped in Arc so that cloning SpireIdentityManager (e.g. when tonic applies tower
+    // middleware layers) only increments the reference count rather than cloning the
+    // CachedJwtSvid — and therefore never drops the underlying JwtSource prematurely.
+    // JwtSource::Drop cancels a shared CancellationToken inside Arc<Inner>; if the
+    // original CachedJwtSvid were dropped while a clone still held a reference to the
+    // same Arc<Inner>, all bundle_set() calls on the clone would return Err(Closed).
+    jwt_source: Option<Arc<CachedJwtSvid>>,
     /// MLS Ed25519 signature key pair: (secret_key_bytes, public_key_bytes).
     signature_keys: (Vec<u8>, Vec<u8>),
 }
@@ -449,7 +462,7 @@ impl SpireIdentityManager {
         )
         .await?;
 
-        self.jwt_source = Some(jwt_source);
+        self.jwt_source = Some(Arc::new(jwt_source));
 
         info!("spire provider initialized successfully");
 
@@ -597,7 +610,7 @@ impl TokenProvider for SpireIdentityManager {
             ))
         })?;
 
-        self.jwt_source = Some(new_jwt_source);
+        self.jwt_source = Some(Arc::new(new_jwt_source));
 
         Ok(())
     }
