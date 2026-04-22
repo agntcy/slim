@@ -268,7 +268,12 @@ impl GroupService {
         let organization = &parts[0];
         let namespace = &parts[1];
         let agent_type = &parts[2];
-        let component_id: Option<i64> = parts.get(3).and_then(|s| s.parse::<i64>().ok());
+        // The route table stores component_id as u64-bits reinterpreted as i64.
+        let component_id: Option<i64> = parts.get(3).and_then(|s| {
+            s.parse::<i64>()
+                .ok()
+                .or_else(|| s.parse::<u64>().ok().map(|v| v as i64))
+        });
 
         self.db
             .get_destination_node_id_for_name(organization, namespace, agent_type, component_id)
