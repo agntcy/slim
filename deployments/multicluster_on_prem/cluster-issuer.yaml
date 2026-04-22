@@ -1,0 +1,21 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+#
+# ClusterIssuer for cert-manager (name must match cert-manager.io/cluster-issuer on Ingress).
+#
+# Apply with: task cert-manager:cluster-issuer:apply ACME_EMAIL=you@example.com
+# (The task substitutes PLACEHOLDER_ACME_EMAIL before kubectl apply.)
+#
+# Staging CA: certificates are NOT publicly trusted; use for dev/safety.
+# For production trusted certs, change spec.acme.server to:
+#   https://acme-v02.api.letsencrypt.org/directory
+#
+# Local / fake hostnames (e.g. slim.local.example) cannot complete Let's Encrypt
+# HTTP-01 unless ACME can reach your ingress on the public internet.
+
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-issuer
+spec:
+  selfSigned: {}
