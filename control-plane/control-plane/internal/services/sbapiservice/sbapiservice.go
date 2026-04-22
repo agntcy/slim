@@ -195,25 +195,34 @@ func getConnDetails(host string, detail *controllerapi.ConnectionDetails) db.Con
 		MTLSRequired:     detail.MtlsRequired,
 		ExternalEndpoint: externalEndpoint,
 		TrustDomain:      trustDomain,
-	}
-
-	// Parse TLS config from JSON string if provided
-	if detail.Tls != nil && *detail.Tls != "" {
-		var tlsConfig db.SeverTLSConfig
-		if err := json.Unmarshal([]byte(*detail.Tls), &tlsConfig); err == nil {
-			connDetails.TLSConfig = &tlsConfig
-		}
-	}
-
-	// Parse Auth config from JSON string if provided
-	if detail.Auth != nil && *detail.Auth != "" {
-		var authConfig db.Auth
-		if err := json.Unmarshal([]byte(*detail.Auth), &authConfig); err == nil {
-			connDetails.AuthConfig = &authConfig
-		}
+		ClientConfig:     parseClientConfig(detail),
 	}
 
 	return connDetails
+}
+
+func parseClientConfig(detail *controllerapi.ConnectionDetails) db.ClientConnectionConfig {
+	clientConfig := db.ClientConnectionConfig{}
+
+	if detail.Metadata != nil && detail.Metadata.Fields != nil {
+		if cfgField, ok := detail.Metadata.Fields["client_config"]; ok && cfgField != nil {
+			if cfgStruct := cfgField.GetStructValue(); cfgStruct != nil {
+				if payload, err := json.Marshal(cfgStruct.AsMap()); err == nil {
+					if err := json.Unmarshal(payload, &clientConfig); err == nil {
+						return clientConfig
+					}
+				}
+			}
+
+			if cfgJSON := cfgField.GetStringValue(); cfgJSON != "" {
+				if err := json.Unmarshal([]byte(cfgJSON), &clientConfig); err == nil {
+					return clientConfig
+				}
+			}
+		}
+	}
+
+	return clientConfig
 }
 
 func getPeerHost(stream controllerapi.ControllerService_OpenControlChannelServer) string {
@@ -294,6 +303,16 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 				})
 				if err != nil {
 					zlog.Error().Msgf("Error deleting route: %v", err)
+					// The delete failed — this node may not be the route owner
+					// (DestNodeID) but rather a consumer (SourceNodeID) that lost
+					// its subscriptions (e.g. after an internal connection drop).
+					// Trigger re-reconciliation so the subscriptions get re-pushed.
+					s.routeService.RequeueRouteForSourceNode(ctx, registeredNodeID, routes.Route{
+						Component0:  sub.Component_0,
+						Component1:  sub.Component_1,
+						Component2:  sub.Component_2,
+						ComponentID: sub.Id,
+					})
 				}
 			}
 			continue

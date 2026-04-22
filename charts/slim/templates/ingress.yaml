@@ -3,24 +3,31 @@ Copyright AGNTCY Contributors (https://github.com/agntcy)
 SPDX-License-Identifier: Apache-2.0
 */}}
 
-{{ if .Values.slim.ingress.enabled }}
+{{- range .Values.slim.ingresses }}
+{{- $ingress := . }}
+---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "slim.fullname" . }}
+  name: {{ include "slim.fullname" $ }}-{{ $ingress.portName }}
   labels:
-    {{- include "slim.labels" . | nindent 4 }}
-  {{- with .Values.slim.ingress.annotations }}
+    {{- include "slim.labels" $ | nindent 4 }}
   annotations:
+  {{- if and $ingress.basicAuth $ingress.basicAuth.enabled }}
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: {{ $ingress.basicAuth.existingBasicAuthSecret }}
+    nginx.ingress.kubernetes.io/auth-realm: {{ $ingress.basicAuth.realm }}
+  {{- end }}
+  {{- with $ingress.annotations }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  {{- with .Values.slim.ingress.className }}
+  {{- with $ingress.className }}
   ingressClassName: {{ . }}
   {{- end }}
-  {{- if .Values.slim.ingress.tls }}
+  {{- if $ingress.tls }}
   tls:
-    {{- range .Values.slim.ingress.tls }}
+    {{- range $ingress.tls }}
     - hosts:
         {{- range .hosts }}
         - {{ . | quote }}
@@ -29,7 +36,7 @@ spec:
     {{- end }}
   {{- end }}
   rules:
-    {{- range .Values.slim.ingress.hosts }}
+    {{- range $ingress.hosts }}
     - host: {{ .host | quote }}
       http:
         paths:
@@ -42,7 +49,7 @@ spec:
               service:
                 name: {{ include "slim.fullname" $ }}
                 port:
-                  number: {{ $.Values.slim.service.data.port }}
+                  name: {{ $ingress.portName }}
           {{- end }}
     {{- end }}
-{{ end }}
+{{- end }}

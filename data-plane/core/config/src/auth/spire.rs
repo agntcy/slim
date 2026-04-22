@@ -139,7 +139,7 @@ impl ClientAuthenticator for SpireConfig {
 
 impl<Response> ServerAuthenticator<Response> for SpireConfig
 where
-    Response: Default + Send + Sync + 'static,
+    Response: Default + Send + 'static,
 {
     type ServerLayer = ValidateJwtLayer<MetadataMap, SpireIdentityManager>;
 

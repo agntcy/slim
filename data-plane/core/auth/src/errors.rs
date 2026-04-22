@@ -123,7 +123,7 @@ pub enum AuthError {
     #[error("spiffe workload api unavailable")]
     SpiffeWorkloadApiUnavailable,
     #[cfg(not(target_family = "windows"))]
-    #[error("spiffe x509 dource error")]
+    #[error("spiffe x509 source error")]
     SpiffeX509SourceError(#[from] X509SourceError),
     #[cfg(not(target_family = "windows"))]
     #[error("spiffe jwt source error")]
