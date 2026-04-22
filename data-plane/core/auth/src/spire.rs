@@ -368,32 +368,40 @@ impl SpireIdentityManagerBuilder {
 
     pub fn build(self) -> Result<SpireIdentityManager, crate::errors::AuthError> {
         let signature_keys = generate_mls_signature_keys()?;
-        Ok(SpireIdentityManager {
+        let internal = SpireIdentityManagerInternal {
             socket_path: self.socket_path,
             target_spiffe_id: self.target_spiffe_id,
             jwt_audiences: self.jwt_audiences,
-            x509_source: None,
-            jwt_source: None,
+            x509_source: RwLock::new(None),
+            jwt_source: RwLock::new(None),
+        };
+        Ok(SpireIdentityManager {
+            inner: Arc::new(internal),
             signature_keys,
         })
     }
 }
 
-/// SPIFFE certificate and JWT provider that automatically rotates credentials
-#[derive(Clone)]
-pub struct SpireIdentityManager {
+/// Shared internal state for [`SpireIdentityManager`].
+/// Wrapped in `Arc` so cloning only increments the reference count.
+/// Mutable sources use `RwLock` for interior mutability after construction.
+struct SpireIdentityManagerInternal {
     socket_path: Option<String>,
     target_spiffe_id: Option<String>,
     jwt_audiences: Vec<String>,
-    x509_source: Option<X509Source>,
-    // Wrapped in Arc so that cloning SpireIdentityManager (e.g. when tonic applies tower
-    // middleware layers) only increments the reference count rather than cloning the
-    // CachedJwtSvid — and therefore never drops the underlying JwtSource prematurely.
-    // JwtSource::Drop cancels a shared CancellationToken inside Arc<Inner>; if the
-    // original CachedJwtSvid were dropped while a clone still held a reference to the
-    // same Arc<Inner>, all bundle_set() calls on the clone would return Err(Closed).
-    jwt_source: Option<Arc<CachedJwtSvid>>,
+    x509_source: RwLock<Option<X509Source>>,
+    jwt_source: RwLock<Option<Arc<CachedJwtSvid>>>,
+}
+
+/// SPIFFE certificate and JWT provider that automatically rotates credentials.
+///
+/// Cloning shares all internal state (sources, config) via `Arc` but gives each
+/// clone its own independent MLS signature key pair, mirroring `SharedSecret`.
+#[derive(Clone)]
+pub struct SpireIdentityManager {
+    inner: Arc<SpireIdentityManagerInternal>,
     /// MLS Ed25519 signature key pair: (secret_key_bytes, public_key_bytes).
+    /// Plain field so each clone owns an independent copy.
     signature_keys: (Vec<u8>, Vec<u8>),
 }
 
@@ -410,7 +418,7 @@ impl SpireIdentityManager {
     fn jwt_audiences_with_pubkey(&self) -> Result<Vec<String>, AuthError> {
         let pubkey_claims = IdentityClaims::from_public_key_bytes(&self.signature_keys.1);
         let pubkey_audience = CustomClaimsCodec::encode_audience(&pubkey_claims)?;
-        let mut audiences = self.jwt_audiences.clone();
+        let mut audiences = self.inner.jwt_audiences.clone();
         audiences.push(pubkey_audience);
         Ok(audiences)
     }
@@ -436,7 +444,7 @@ impl SpireIdentityManager {
         // Quick-fail: verify the Workload API is reachable before creating
         // long-lived sources whose internal retry loops never give up.
         // The client is intentionally dropped after the check.
-        let _client = match self.socket_path.as_ref() {
+        let _client = match self.inner.socket_path.as_ref() {
             Some(path) => WorkloadApiClient::connect_to(path).await?,
             None => WorkloadApiClient::connect_env().await?,
         };
@@ -444,12 +452,12 @@ impl SpireIdentityManager {
 
         // Initialize X509Source for certificate management
         let mut x509_builder = X509SourceBuilder::new();
-        if let Some(path) = self.socket_path.as_ref() {
+        if let Some(path) = self.inner.socket_path.as_ref() {
             x509_builder = x509_builder.endpoint(path);
         }
         let x509_source = x509_builder.build().await?;
 
-        self.x509_source = Some(x509_source);
+        *self.inner.x509_source.write() = Some(x509_source);
 
         // Initialize JwtSource (library) + cached SVID wrapper with audiences
         // that include the MLS pubkey as a custom-claim audience so every
@@ -457,12 +465,12 @@ impl SpireIdentityManager {
         let jwt_audiences = self.jwt_audiences_with_pubkey()?;
         let jwt_source = Self::build_jwt_source(
             jwt_audiences,
-            self.target_spiffe_id.clone(),
-            self.socket_path.clone(),
+            self.inner.target_spiffe_id.clone(),
+            self.inner.socket_path.clone(),
         )
         .await?;
 
-        self.jwt_source = Some(Arc::new(jwt_source));
+        *self.inner.jwt_source.write() = Some(Arc::new(jwt_source));
 
         info!("spire provider initialized successfully");
 
@@ -471,8 +479,8 @@ impl SpireIdentityManager {
 
     /// Get the current X.509 SVID (leaf cert + key)
     pub fn get_x509_svid(&self) -> Result<X509Svid, AuthError> {
-        let x509_source = self
-            .x509_source
+        let guard = self.inner.x509_source.read();
+        let x509_source = guard
             .as_ref()
             .ok_or(AuthError::SpiffeX509SourceNotInitialized)?;
         let svid = x509_source.svid()?;
@@ -513,17 +521,17 @@ impl SpireIdentityManager {
 
     /// Get a cached JWT SVID (background refreshed)
     pub fn get_jwt_svid(&self) -> Result<JwtSvid, AuthError> {
-        self.jwt_source
+        let guard = self.inner.jwt_source.read();
+        let cached = guard
             .as_ref()
-            .ok_or(AuthError::SpiffeJwtSourceNotInitialized)?
-            .get_svid()
-            .ok_or(AuthError::SpiffeJwtSvidMissing)
+            .ok_or(AuthError::SpiffeJwtSourceNotInitialized)?;
+        cached.get_svid().ok_or(AuthError::SpiffeJwtSvidMissing)
     }
 
     /// Get X.509 bundle for the trust domain of our SVID (for verification use-cases)
     pub fn get_x509_bundle(&self) -> Result<X509Bundle, AuthError> {
-        let x509_source = self
-            .x509_source
+        let guard = self.inner.x509_source.read();
+        let x509_source = guard
             .as_ref()
             .ok_or(AuthError::SpiffeX509SourceNotInitialized)?;
 
@@ -549,8 +557,8 @@ impl SpireIdentityManager {
         let td_str = trust_domain.into();
         let td = TrustDomain::new(&td_str)?;
 
-        let x509_source = self
-            .x509_source
+        let guard = self.inner.x509_source.read();
+        let x509_source = guard
             .as_ref()
             .ok_or(AuthError::SpiffeX509SourceNotInitialized)?;
 
@@ -562,7 +570,8 @@ impl SpireIdentityManager {
 
     /// Internal helper to access JWT bundles from the library's `JwtSource`.
     fn get_jwt_bundles(&self) -> Result<Arc<JwtBundleSet>, AuthError> {
-        self.jwt_source
+        let guard = self.inner.jwt_source.read();
+        guard
             .as_ref()
             .ok_or(AuthError::SpiffeJwtSourceNotInitialized)?
             .get_bundles()
@@ -599,8 +608,8 @@ impl TokenProvider for SpireIdentityManager {
         // Rebuild the CachedJwtSvid so the next get_token() call returns a fresh
         // SVID with the new pubkey embedded in its audiences.
         let new_audiences = self.jwt_audiences_with_pubkey()?;
-        let target_spiffe_id = self.target_spiffe_id.clone();
-        let socket_path = self.socket_path.clone();
+        let target_spiffe_id = self.inner.target_spiffe_id.clone();
+        let socket_path = self.inner.socket_path.clone();
 
         let new_jwt_source = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(Self::build_jwt_source(
@@ -610,7 +619,7 @@ impl TokenProvider for SpireIdentityManager {
             ))
         })?;
 
-        self.jwt_source = Some(Arc::new(new_jwt_source));
+        *self.inner.jwt_source.write() = Some(Arc::new(new_jwt_source));
 
         Ok(())
     }
@@ -729,7 +738,7 @@ impl Verifier for SpireIdentityManager {
 
     fn try_verify(&self, token: impl Into<String>) -> Result<(), AuthError> {
         let bundles = self.get_jwt_bundles()?;
-        JwtSvid::parse_and_validate(&token.into(), &*bundles, &self.jwt_audiences)?;
+        JwtSvid::parse_and_validate(&token.into(), &*bundles, &self.inner.jwt_audiences)?;
         debug!("Successfully verified JWT token (sync)");
         Ok(())
     }
@@ -746,7 +755,8 @@ impl Verifier for SpireIdentityManager {
         Claims: DeserializeOwned + Send,
     {
         let bundles = self.get_jwt_bundles()?;
-        let jwt_svid = JwtSvid::parse_and_validate(&token.into(), &*bundles, &self.jwt_audiences)?;
+        let jwt_svid =
+            JwtSvid::parse_and_validate(&token.into(), &*bundles, &self.inner.jwt_audiences)?;
 
         debug!(
             spiffe_id = %jwt_svid.spiffe_id(),
