@@ -66,10 +66,13 @@ impl RecoveryTable {
         local_subs: HashSet<Name>,
         remote_subs: HashSet<SubscriptionInfo>,
     ) {
-        self.inner
-            .table
-            .write()
-            .insert(link_id, RecoveryEntry { local_subs, remote_subs });
+        self.inner.table.write().insert(
+            link_id,
+            RecoveryEntry {
+                local_subs,
+                remote_subs,
+            },
+        );
     }
 
     /// Atomically remove and return the entry for `link_id`, if present.
@@ -87,12 +90,8 @@ impl RecoveryTable {
     ///
     /// `on_expire` is only called when the entry is still present at expiry time, i.e. recovery
     /// has not already consumed it via [`RecoveryTable::take`].
-    pub(crate) fn spawn_ttl_task<F, Fut>(
-        &self,
-        link_id: String,
-        drain: drain::Watch,
-        on_expire: F,
-    ) where
+    pub(crate) fn spawn_ttl_task<F, Fut>(&self, link_id: String, drain: drain::Watch, on_expire: F)
+    where
         F: FnOnce(RecoveryEntry) -> Fut + Send + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
@@ -119,8 +118,8 @@ mod tests {
     use super::*;
 
     use std::collections::HashSet;
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
 
     use tokio::sync::oneshot;
@@ -167,7 +166,9 @@ mod tests {
         local2.insert(Name::from_strings(["org", "ns", "svc"]));
         t.store("link-1".into(), local2, HashSet::new());
 
-        let entry = t.take("link-1").expect("entry should exist after overwrite");
+        let entry = t
+            .take("link-1")
+            .expect("entry should exist after overwrite");
         assert_eq!(entry.local_subs.len(), 1);
     }
 
@@ -250,11 +251,17 @@ mod tests {
         });
 
         // Consume the entry before the 50 ms TTL fires.
-        assert!(t.take("link-1").is_some(), "entry should be present before TTL");
+        assert!(
+            t.take("link-1").is_some(),
+            "entry should be present before TTL"
+        );
 
         // Wait well past the TTL to confirm the callback is not invoked.
         tokio::time::sleep(Duration::from_millis(250)).await;
-        assert!(!fired.load(Ordering::SeqCst), "on_expire must not fire when entry is gone");
+        assert!(
+            !fired.load(Ordering::SeqCst),
+            "on_expire must not fire when entry is gone"
+        );
     }
 
     /// Drain fires before TTL: task exits silently without calling `on_expire`,
@@ -277,7 +284,10 @@ mod tests {
         // Signal drain and wait for the TTL task to acknowledge it.
         signal.drain().await;
 
-        assert!(!fired.load(Ordering::SeqCst), "on_expire must not fire on drain");
+        assert!(
+            !fired.load(Ordering::SeqCst),
+            "on_expire must not fire on drain"
+        );
         // Entry must still be in the table — the drain path does not consume it.
         assert!(
             t.take("link-1").is_some(),

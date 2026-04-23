@@ -291,12 +291,18 @@ impl MessageProcessor {
             .open_channel(Request::new(ReceiverStream::new(rx)))
             .await?;
 
+        // The link_id is embedded in the Connection before it enters the table so that
+        // it is never None during the connection's lifetime — including reconnects where
+        // the old Connection object is replaced by a fresh one.
+        let link_id = client_config.link_id.clone();
+
         let cancellation_token = CancellationToken::new();
         let connection = Connection::new(ConnectionType::Remote, Channel::Client(tx))
             .with_local_addr(local)
             .with_remote_addr(remote)
             .with_config_data(Some(client_config.clone()))
-            .with_cancellation_token(Some(cancellation_token.clone()));
+            .with_cancellation_token(Some(cancellation_token.clone()))
+            .with_link_id(link_id.clone());
 
         debug!(
             remote = ?connection.remote_addr(),
@@ -326,15 +332,8 @@ impl MessageProcessor {
             false,
         )?;
 
-        // Perform link negotiation: generate or use the configured link_id, store it
-        // in the connection, and send a negotiation message to the remote peer.
+        // Send the link negotiation message to the remote peer.
         // Old SLIM instances that do not understand this message will silently drop it.
-        let link_id = client_config.link_id.clone();
-
-        if let Some(conn) = self.forwarder().get_connection(conn_index) {
-            conn.set_link_id(link_id.clone());
-        }
-
         let negotiation_msg =
             ProtoMessage::builder().build_link_negotiation(&link_id, local_version(), false);
         if let Err(e) = self.send_msg(negotiation_msg, conn_index).await {
@@ -625,10 +624,12 @@ impl MessageProcessor {
                 // Re-add local routing entries.  A new conn_index was allocated for this
                 // connection, so we must re-register each name under the current index.
                 for name in &entry.local_subs {
-                    if let Err(e) = self
-                        .forwarder()
-                        .on_subscription_msg(name.clone(), in_connection, false, true)
-                    {
+                    if let Err(e) = self.forwarder().on_subscription_msg(
+                        name.clone(),
+                        in_connection,
+                        false,
+                        true,
+                    ) {
                         error!(
                             error = %e.chain(), %in_connection,
                             "error re-adding local subscription during recovery",
@@ -1196,9 +1197,7 @@ impl MessageProcessor {
                     // that does not support link negotiation): notify the control plane now.
                     if !is_local {
                         MessageProcessor::notify_control_plane_subscriptions_lost(
-                            tx_cp,
-                            local_subs,
-                            conn_index,
+                            tx_cp, local_subs, conn_index,
                         )
                         .await;
                     }
