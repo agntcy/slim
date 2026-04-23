@@ -1,25 +1,16 @@
 apiVersion: v2
-name: spire
+name: slim-spire
 description: >
-  A Helm chart for deploying the complete Spire stack including: spire-server, spire-agent, spiffe-csi-driver, spiffe-oidc-discovery-provider and spire-controller-manager.
+  A Helm chart for deploying the SPIRE identity stack for SLIM, including: spire-server,
+  spire-agent, upstream-agent (join token), and SPIFFE CSI drivers.
+  Based on https://github.com/spiffe/helm-charts-hardened/tree/main/charts/spire
 type: application
 version: 0.28.3
 appVersion: "1.14.2"
-keywords: ["spiffe", "spire", "spire-server", "spire-agent", "oidc", "spire-controller-manager"]
-home: https://github.com/spiffe/helm-charts-hardened/tree/main/charts/spire
+keywords: ["spiffe", "spire", "spire-server", "spire-agent", "slim"]
+home: https://github.com/agntcy/slim
 sources:
-  - https://github.com/spiffe/helm-charts-hardened/tree/main/charts/spire
-icon: https://spiffe.io/img/logos/spire/icon/color/spire-icon-color.png
-maintainers:
-  - name: marcofranssen
-    email: marco.franssen@gmail.com
-    url: https://marcofranssen.nl
-  - name: kfox1111
-    email: Kevin.Fox@pnnl.gov
-  - name: faisal-memon
-    email: fymemon@yahoo.com
-  - name: edwbuck
-    email: edwbuck@gmail.com
+  - https://github.com/agntcy/slim
 kubeVersion: ">=1.21.0-0"
 dependencies:
   - name: spire-lib
@@ -44,7 +35,7 @@ dependencies:
     version: 0.1.0
   - name: spiffe-csi-driver
     alias: upstream-spiffe-csi-driver
-    condition: upstream.enabled
+    condition: upstream-spiffe-csi-driver.enabled
     repository: file://./charts/spiffe-csi-driver
     version: 0.1.0
   - name: spiffe-oidc-discovery-provider

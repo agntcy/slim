@@ -23,6 +23,8 @@ global:
     trustDomain: example.org
     ## @param global.spire.upstreamServerAddress Set what address to use for the upstream server when using nested spire
     upstreamServerAddress: ""
+    ## @param global.spire.upstreamSpireAddress Hostname of the root SPIRE server (used by the upstream agent)
+    upstreamSpireAddress: ""
 
     ## @param global.spire.caSubject.country Country for Spire server CA
     ## @param global.spire.caSubject.organization Organization for Spire server CA
@@ -91,7 +93,7 @@ global:
 
   installAndUpgradeHooks:
     ## @param global.installAndUpgradeHooks.enabled Enable Helm hooks to autofix common install/upgrade issues (should be disabled when using `helm template`)
-    enabled: true
+    enabled: false
     ## @param global.installAndUpgradeHooks.resources [object] Resource requests and limits for installAndUpgradeHooks
     resources: {}
       # We usually recommend not to specify default resources and to leave this as a conscious
@@ -106,7 +108,7 @@ global:
       #   memory: 128Mi
   deleteHooks:
     ## @param global.deleteHooks.enabled Enable Helm hooks to autofix common delete issues (should be disabled when using `helm template`)
-    enabled: true
+    enabled: false
     ## @param global.deleteHooks.resources [object] Resource requests and limits for deleteHooks
     resources: {}
     # We usually recommend not to specify default resources and to leave this as a conscious
@@ -146,7 +148,28 @@ spire-server:
     enabled: true
   externalControllerManagers:
     ## @param spire-server.externalControllerManagers.enabled Enable external controller manager support
-    enabled: true
+    enabled: false
+  nodeAttestor:
+    k8sPSAT:
+      enabled: true
+  upstreamAuthority:
+    spire:
+      enabled: true
+      upstreamDriver: "upstream.csi.spiffe.io"
+      server:
+        port: 443
+  # The server must run on the same node as the upstream agent so it can access
+  # the upstream agent socket via the upstream.csi.spiffe.io CSI driver (node-local).
+  affinity:
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - agent-upstream
+          topologyKey: kubernetes.io/hostname
 
 ## @section Spire agent parameters
 ## Parameter values for Spire agent
@@ -171,7 +194,7 @@ upstream-spire-agent:
   ## @param upstream-spire-agent.upstream Flag for enabling upstream Spire agent
   upstream: true
   ## @param upstream-spire-agent.nameOverride Name override for upstream Spire agent
-  nameOverride: agent-upstream
+  nameOverride: agent-upstream-placeholder
   ## @param upstream-spire-agent.bundleConfigMap The configmap name for upstream Spire agent bundle
   bundleConfigMap: spire-bundle-upstream
   ## @param upstream-spire-agent.socketPath Socket path where Spire agent socket is mounted
@@ -186,9 +209,38 @@ upstream-spire-agent:
     prometheus:
       ## @param upstream-spire-agent.telemetry.prometheus.port The port where prometheus metrics are available
       port: 9989
+  server:
+    ## @param upstream-spire-agent.server.port Port of the root SPIRE server
+    port: 443
   ## @param upstream-spire-agent.persistence.hostPath Which path to use on the host when persistence.type = hostPath
   persistence:
     hostPath: /var/lib/spire/k8s/upstream-agent
+  # Join token for bootstrapping the upstream agent against the root SPIRE server.
+  # Provide ONE of the following options:
+  #
+  #   Option A – inline value (chart creates the Secret automatically):
+  #     joinToken:
+  #       value: "<token>"
+  #
+  #   Option B – reference an existing Secret:
+  #     joinToken:
+  #       existingSecret:
+  #         name: my-secret
+  #         key: token   # optional, defaults to "token"
+  #
+  joinToken:
+    # Set to true when using join_token node attestation for the upstream agent.
+    # When enabled, exactly one of .value or .existingSecret.name must be provided.
+    enabled: false
+    value: ""
+    existingSecret:
+      name: ""
+      key: ""
+  # URL of the root SPIRE server's trust bundle endpoint (e.g. https://spire-bundle.example.org).
+  # When empty, insecure_bootstrap = true is set in the agent config.
+  trustBundleURL: ""
+  trustBundleFormat: "spiffe"
+  extraEnvVars: []
 
 ## @section SPIFFE CSI Driver parameters
 ## Parameter values for spiffe-csi-driver
@@ -208,13 +260,15 @@ upstream-spiffe-csi-driver:
   healthChecks:
     ## @param upstream-spiffe-csi-driver.healthChecks.port The port where Spiffe CSI driver health checks are exposed
     port: 9810
+  validatingAdmissionPolicy:
+    enabled: false
 
 ## @section SPIFFE oidc discovery provider parameters
 ## Parameter values for spiffe-oidc-discovery-provider
 ##
 spiffe-oidc-discovery-provider:
   ## @param spiffe-oidc-discovery-provider.enabled Flag to enable spiffe-oidc-discovery-provider for the cluster
-  enabled: true
+  enabled: false
 
 ## @section Tornjak frontend parameters
 ## Parameter values for Tornjak frontend
