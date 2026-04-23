@@ -1,0 +1,14 @@
+# CI test values for slim-spire.
+# Disables components that require CRDs or external connectivity not available in the CI cluster.
+
+global:
+  spire:
+    clusterName: ci-cluster
+    trustDomain: ci.example.org
+    upstreamSpireAddress: spire.ci.example.org
+
+spire-server:
+  # Disable the controller manager to avoid rendering ClusterSPIFFEID resources,
+  # which require the SPIRE CRDs to be installed in the cluster.
+  controllerManager:
+    enabled: false
