@@ -24,11 +24,6 @@ dependencies:
     condition: spire-agent.enabled
     repository: file://./charts/spire-agent
     version: 0.1.0
-  - name: spire-agent
-    alias: upstream-spire-agent
-    condition: upstream.enabled
-    repository: file://./charts/spire-agent
-    version: 0.1.0
   - name: spiffe-csi-driver
     condition: spiffe-csi-driver.enabled
     repository: file://./charts/spiffe-csi-driver
@@ -37,26 +32,6 @@ dependencies:
     alias: upstream-spiffe-csi-driver
     condition: upstream-spiffe-csi-driver.enabled
     repository: file://./charts/spiffe-csi-driver
-    version: 0.1.0
-  - name: spiffe-oidc-discovery-provider
-    condition: spiffe-oidc-discovery-provider.enabled
-    repository: file://./charts/spiffe-oidc-discovery-provider
-    version: 0.1.0
-  - name: tornjak-frontend
-    condition: tornjak-frontend.enabled
-    repository: file://./charts/tornjak-frontend
-    version: 0.1.0
-  - name: spike-keeper
-    condition: spike-keeper.enabled
-    repository: file://./charts/spike-keeper
-    version: 0.1.0
-  - name: spike-nexus
-    condition: spike-nexus.enabled
-    repository: file://./charts/spike-nexus
-    version: 0.1.0
-  - name: spike-pilot
-    condition: spike-pilot.enabled
-    repository: file://./charts/spike-pilot
     version: 0.1.0
 annotations:
   artifacthub.io/category: security

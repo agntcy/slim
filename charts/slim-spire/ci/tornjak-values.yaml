@@ -1,6 +1,0 @@
-spire-server:
-  tornjak:
-    enabled: true
-
-tornjak-frontend:
-  enabled: true

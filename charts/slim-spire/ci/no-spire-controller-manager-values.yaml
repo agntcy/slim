@@ -1,5 +1,0 @@
-spire-server:
-  controllerManager:
-    enabled: false
-spiffe-oidc-discovery-provider:
-  enabled: false
