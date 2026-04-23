@@ -25,4 +25,3 @@ version: 1.4.0-rc.0
 # follow Semantic Versioning. They should reflect the version the application is using.
 # It is recommended to use it with quotes.
 appVersion: "1.4.0-rc.0"
-
