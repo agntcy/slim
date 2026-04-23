@@ -68,7 +68,6 @@ where
                 HashSet::new()
             });
         let remote_subs = self.remote_subscription_table.remove_connection(conn_index);
-
         (local_subs, remote_subs)
     }
 
