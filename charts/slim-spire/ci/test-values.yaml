@@ -12,3 +12,5 @@ spire-server:
   # which require the SPIRE CRDs to be installed in the cluster.
   controllerManager:
     enabled: false
+  # Remove the upstream-agent podAffinity — no upstream agent runs in CI.
+  affinity: {}
