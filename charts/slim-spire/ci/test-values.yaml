@@ -12,5 +12,10 @@ spire-server:
   # which require the SPIRE CRDs to be installed in the cluster.
   controllerManager:
     enabled: false
-  # Remove the upstream-agent podAffinity — no upstream agent runs in CI.
-  affinity: {}
+  # No upstream agent in CI, so disable the co-location requirement.
+  requireUpstreamAgentCoLocation: false
+  # Disable upstream authority so the server starts as a self-signed root CA
+  # instead of waiting for the upstream agent socket (which doesn't exist in CI).
+  upstreamAuthority:
+    spire:
+      enabled: false

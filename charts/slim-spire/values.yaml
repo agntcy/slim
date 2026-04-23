@@ -40,17 +40,9 @@ spire-server:
       upstreamDriver: "upstream.csi.spiffe.io"
       server:
         port: 443
-  # Must run on the same node as the upstream agent to access its socket via the CSI driver.
-  affinity:
-    podAffinity:
-      requiredDuringSchedulingIgnoredDuringExecution:
-        - labelSelector:
-            matchExpressions:
-              - key: app.kubernetes.io/name
-                operator: In
-                values:
-                  - agent-upstream
-          topologyKey: kubernetes.io/hostname
+  # When true, the server is pinned to the same node as the upstream agent via podAffinity.
+  # Set to false when the upstream agent is not deployed (e.g. CI or standalone testing).
+  requireUpstreamAgentCoLocation: true
 
 ## @section Spire agent parameters
 spire-agent:
