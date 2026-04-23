@@ -1,0 +1,72 @@
+apiVersion: v2
+name: spire
+description: >
+  A Helm chart for deploying the complete Spire stack including: spire-server, spire-agent, spiffe-csi-driver, spiffe-oidc-discovery-provider and spire-controller-manager.
+type: application
+version: 0.28.3
+appVersion: "1.14.2"
+keywords: ["spiffe", "spire", "spire-server", "spire-agent", "oidc", "spire-controller-manager"]
+home: https://github.com/spiffe/helm-charts-hardened/tree/main/charts/spire
+sources:
+  - https://github.com/spiffe/helm-charts-hardened/tree/main/charts/spire
+icon: https://spiffe.io/img/logos/spire/icon/color/spire-icon-color.png
+maintainers:
+  - name: marcofranssen
+    email: marco.franssen@gmail.com
+    url: https://marcofranssen.nl
+  - name: kfox1111
+    email: Kevin.Fox@pnnl.gov
+  - name: faisal-memon
+    email: fymemon@yahoo.com
+  - name: edwbuck
+    email: edwbuck@gmail.com
+kubeVersion: ">=1.21.0-0"
+dependencies:
+  - name: spire-lib
+    repository: file://./charts/spire-lib
+    version: 0.1.0
+  - name: spire-server
+    condition: spire-server.enabled
+    repository: file://./charts/spire-server
+    version: 0.1.0
+  - name: spire-agent
+    condition: spire-agent.enabled
+    repository: file://./charts/spire-agent
+    version: 0.1.0
+  - name: spire-agent
+    alias: upstream-spire-agent
+    condition: upstream.enabled
+    repository: file://./charts/spire-agent
+    version: 0.1.0
+  - name: spiffe-csi-driver
+    condition: spiffe-csi-driver.enabled
+    repository: file://./charts/spiffe-csi-driver
+    version: 0.1.0
+  - name: spiffe-csi-driver
+    alias: upstream-spiffe-csi-driver
+    condition: upstream.enabled
+    repository: file://./charts/spiffe-csi-driver
+    version: 0.1.0
+  - name: spiffe-oidc-discovery-provider
+    condition: spiffe-oidc-discovery-provider.enabled
+    repository: file://./charts/spiffe-oidc-discovery-provider
+    version: 0.1.0
+  - name: tornjak-frontend
+    condition: tornjak-frontend.enabled
+    repository: file://./charts/tornjak-frontend
+    version: 0.1.0
+  - name: spike-keeper
+    condition: spike-keeper.enabled
+    repository: file://./charts/spike-keeper
+    version: 0.1.0
+  - name: spike-nexus
+    condition: spike-nexus.enabled
+    repository: file://./charts/spike-nexus
+    version: 0.1.0
+  - name: spike-pilot
+    condition: spike-pilot.enabled
+    repository: file://./charts/spike-pilot
+    version: 0.1.0
+annotations:
+  artifacthub.io/category: security
+  artifacthub.io/license: Apache-2.0

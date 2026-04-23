@@ -1,0 +1,129 @@
+{{- if eq ((dig "installAndUpgradeHooks" "enabled" .Values.installAndUpgradeHook.enabled .Values.global) | toString) "true" }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "spike-nexus.serviceAccountName" . }}-bootstrap
+  namespace: {{ include "spike-nexus.namespace" . }}
+  labels:
+    {{- include "spike-nexus.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": "post-install,post-upgrade"
+    "helm.sh/hook-delete-policy": before-hook-creation, hook-succeeded, hook-failed
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "spike-nexus.fullname" . }}-bootstrap
+  namespace: {{ include "spike-nexus.namespace" . }}
+  annotations:
+    "helm.sh/hook": "post-install,post-upgrade"
+    "helm.sh/hook-delete-policy": before-hook-creation, hook-succeeded, hook-failed
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create","list"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "update", "patch"]
+    resourceNames:
+    - {{ include "spike-nexus.fullname" . }}-bootstrap
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ include "spike-nexus.fullname" . }}-bootstrap
+  namespace: {{ include "spike-nexus.namespace" . }}
+  annotations:
+    "helm.sh/hook": "post-install,post-upgrade"
+    "helm.sh/hook-delete-policy": before-hook-creation, hook-succeeded, hook-failed
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "spike-nexus.serviceAccountName" . }}-bootstrap
+    namespace: {{ include "spike-nexus.namespace" . }}
+roleRef:
+  kind: Role
+  name: {{ include "spike-nexus.fullname" . }}-bootstrap
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "spike-nexus.fullname" . }}-bootstrap
+  namespace: {{ include "spike-nexus.namespace" . }}
+  labels:
+    {{- include "spike-nexus.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": "post-install,post-upgrade"
+    "helm.sh/hook-delete-policy": before-hook-creation, hook-succeeded, hook-failed
+    # "helm.sh/hook-delete-policy": before-hook-creation # for debugging.
+spec:
+  # ttlSecondsAfterFinished: 3600 # 1 hour; useful for debugging
+  template:
+    metadata:
+      name: {{ include "spike-nexus.fullname" . }}-bootstrap
+      labels:
+        {{- include "spike-nexus.labels" . | nindent 8 }}
+        release: {{ .Release.Name }}
+        release-namespace: {{ .Release.Namespace }}
+        component: spike-bootstrap
+    spec:
+      restartPolicy: Never
+      {{- with (coalesce .Values.imagePullSecrets .Values.global.imagePullSecrets) }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "spike-nexus.serviceAccountName" . }}-bootstrap
+      securityContext:
+        {{- include "spire-lib.podsecuritycontext" . | nindent 8 }}
+      containers:
+      - name: bootstrap-job
+        securityContext:
+          {{- include "spire-lib.securitycontext" . | nindent 10 }}
+        image: {{ template "spire-lib.image" (dict "appVersion" $.Chart.AppVersion "image" .Values.bootstrap.image "global" .Values.global "ubi" false) }}
+        command:
+          - "/bootstrap"
+          - "-init"
+        {{- with (((.Values).global).installAndUpgradeHooks).resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        env:
+          - name: SPIKE_BOOTSTRAP_CONFIGMAP_NAME
+            value: {{ include "spike-nexus.fullname" . }}-bootstrap
+          - name: SPIKE_TRUST_ROOT
+            value: {{ include "spire-lib.trust-domain" . }}
+          - name: SPIKE_TRUST_ROOT_KEEPER
+            value: {{ if gt (len .Values.trustRoot.keeper) 0 }}{{ .Values.trustRoot.keeper | join "," | quote }}{{ else }}{{ include "spire-lib.trust-domain" . }}{{ end }}
+          - name: SPIKE_TRUST_ROOT_BOOTSTRAP
+            value: {{ if gt (len .Values.trustRoot.bootstrap) 0 }}{{ .Values.trustRoot.bootstrap | join "," | quote }}{{ else }}{{ include "spire-lib.trust-domain" . }}{{ end }}
+            # This is required for bootstrap to work while calling nexus for a pop validation.
+          - name: SPIKE_TRUST_ROOT_NEXUS
+            value: {{ if gt (len .Values.trustRoot.nexus) 0 }}{{ .Values.trustRoot.nexus | join "," | quote }}{{ else }}{{ include "spire-lib.trust-domain" . }}{{ end }}
+          - name: SPIKE_SYSTEM_LOG_LEVEL
+            value: {{ .Values.logLevel | upper }}
+          - name: SPIKE_NEXUS_KEEPER_PEERS
+            {{- if gt (len .Values.keeperPeers) 0 }}
+            value: {{ .Values.keeperPeers | join "," | quote }}
+            {{- else }}
+            value: https://{{ .Release.Name }}-spike-keeper-0.{{ .Release.Name }}-spike-keeper-headless:8443,https://{{ .Release.Name }}-spike-keeper-1.{{ .Release.Name }}-spike-keeper-headless:8443,https://{{ .Release.Name }}-spike-keeper-2.{{ .Release.Name }}-spike-keeper-headless:8443
+            {{- end }}
+          - name: SPIKE_NEXUS_SHAMIR_SHARES
+            value: {{ .Values.shamir.shares | quote }}
+          - name: SPIKE_NEXUS_SHAMIR_THRESHOLD
+            value: {{ .Values.shamir.threshold | quote }}
+          - name: SPIFFE_ENDPOINT_SOCKET
+            value: unix://{{ include "spike-nexus.workload-api-socket-path" . }}
+          - name: SPIKE_NEXUS_API_URL
+            value: https://{{ include "spike-nexus.fullname" . }}:443
+          - name: SPIKE_BOOTSTRAP_FORCE
+            value: {{ .Values.bootstrap.force | toString | quote }}
+        volumeMounts:
+          - name: spiffe-workload-api
+            mountPath: {{ include "spike-nexus.workload-api-socket-path" . | dir }}
+            readOnly: true
+      volumes:
+        - name: spiffe-workload-api
+          csi:
+            driver: "{{ .Values.csiDriverName }}"
+            readOnly: true
+{{- end }}

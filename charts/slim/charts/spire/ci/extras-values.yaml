@@ -1,0 +1,61 @@
+spire-agent:
+  initContainers:
+  - name: extra-init
+    image: cgr.dev/chainguard/busybox:latest-glibc
+    command:
+    - sh
+    - -xec
+    - |
+      echo 'hi there' > /extra/file
+    volumeMounts:
+    - name: extra
+      mountPath: /extra
+  extraContainers:
+  - name: extra
+    image: cgr.dev/chainguard/busybox:latest-glibc
+    command:
+    - sh
+    - -xec
+    - |
+      [ -f /extra/file ]
+      while true; do sleep 1000; done
+    volumeMounts:
+    - name: extra
+      mountPath: /extra
+  extraVolumeMounts:
+  - name: extra
+    mountPath: /extra
+  extraVolumes:
+  - name: extra
+    emptyDir: {}
+
+spire-server:
+  initContainers:
+  - name: extra-init
+    image: cgr.dev/chainguard/busybox:latest-glibc
+    command:
+    - sh
+    - -xec
+    - |
+      echo 'hi there' > /extra/file
+    volumeMounts:
+    - name: extra
+      mountPath: /extra
+  extraContainers:
+  - name: extra
+    image: cgr.dev/chainguard/busybox:latest-glibc
+    command:
+    - sh
+    - -xec
+    - |
+      [ -f /extra/file ]
+      while true; do sleep 1000; done
+    volumeMounts:
+    - name: extra
+      mountPath: /extra
+  extraVolumeMounts:
+  - name: extra
+    mountPath: /extra
+  extraVolumes:
+  - name: extra
+    emptyDir: {}

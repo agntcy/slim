@@ -1,0 +1,58 @@
+server:
+  config:
+    upstreamAuthority:
+      disk:
+        enabled: true
+        secret:
+          data:
+            # This cert is generated using create-cert.sh and should only be used for the test
+            certificate: |
+              -----BEGIN CERTIFICATE-----
+              MIIDBDCCAewCCQCK4mz8rTwvHDANBgkqhkiG9w0BAQsFADBEMQswCQYDVQQGEwJO
+              TDEPMA0GA1UECgwGU1BJRkZFMQ4wDAYDVQQLDAVTUElSRTEUMBIGA1UEAwwLZXhh
+              bXBsZS5vcmcwHhcNMjMwMjIwMTAwNTA5WhcNMjQwMjIwMTAwNTA5WjBEMQswCQYD
+              VQQGEwJOTDEPMA0GA1UECgwGU1BJRkZFMQ4wDAYDVQQLDAVTUElSRTEUMBIGA1UE
+              AwwLZXhhbXBsZS5vcmcwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC4
+              1hcad074AFQlQiM9j54tuh1yCpRfO2pFPOwESqT/gYrnAMfl24nI28FaC/gZWmhD
+              5VZrThY8QlLesk7iyDmrvB6VMMs5di40C5XE11FLf+efS1CpD9atqLyBQ1tjB0yZ
+              zIPZFP97HRI4DQb7BXqgOmDEnJ5gk6IleBsomQlDwyu9TXgUd8c4SEFgrxHMjfyb
+              ZN3dKzw4jCB3SrEqouaSq7eelCe0q58y4Lq8fkD+Zc2GrRJ0K5y3eMoRzp5ByK8Q
+              YPm8AJgFVTS9kCs+HROqC+Y7WqracUiEHCDWY1HG5IbdC9GSNdPDu2GHUxFWtKhh
+              Pw+I7iuu3jF5LRikLtDpAgMBAAEwDQYJKoZIhvcNAQELBQADggEBACK0PQa7+2za
+              GOacBqbmeycEJmiSZYEi1sMbgjFjmROcW+wyzWZDvMlDSS2z22B6Cp7qS5ZY3T7H
+              ZMVbpRkkNMF9h+51cTFoUlppgFEEqIXRkE+Jejs5Fq2FvgSdx/2LJZkTzt4Rlo07
+              UiP4nlHhsEVPRNPuus/MfoA2RZYfGJt+4eLXqjS6TAcccfGqVcMmq/FjjZjzWY5w
+              gYXC5ID4NB54N7ag0iBltcZ+OnYWlhReTOxih9yZXq8lRzE2Ny5aA2ztM9YfDuYu
+              ATU9T+cfd9UTu8PPNPLuXLgVr1P+1JOApzq1EA0fjDq4L6FzMqgoumWFV3kXHwop
+              m27t/52Pu8U=
+              -----END CERTIFICATE-----
+            # This key is generated using create-cert.sh and should only be used for the test
+            key: |
+              -----BEGIN PRIVATE KEY-----
+              MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC41hcad074AFQl
+              QiM9j54tuh1yCpRfO2pFPOwESqT/gYrnAMfl24nI28FaC/gZWmhD5VZrThY8QlLe
+              sk7iyDmrvB6VMMs5di40C5XE11FLf+efS1CpD9atqLyBQ1tjB0yZzIPZFP97HRI4
+              DQb7BXqgOmDEnJ5gk6IleBsomQlDwyu9TXgUd8c4SEFgrxHMjfybZN3dKzw4jCB3
+              SrEqouaSq7eelCe0q58y4Lq8fkD+Zc2GrRJ0K5y3eMoRzp5ByK8QYPm8AJgFVTS9
+              kCs+HROqC+Y7WqracUiEHCDWY1HG5IbdC9GSNdPDu2GHUxFWtKhhPw+I7iuu3jF5
+              LRikLtDpAgMBAAECggEAQNS+98Z/SVd8LDFdgPs95RYRu+1gC2MgrDZpJjw0UXZT
+              jSDl/Iabdns1/2qRU/s09ROc0zhpbitpO7lZGAxYxhbOt0+NCJOeMx0ZJBjN5+hu
+              Cp51JUdr6i90JvbEOCDYSl3EpUDLN5iDymsvVp6eW1L+nBe/KWq/Bdtx0zSSXlSe
+              sdlQenZ6JcsLBqOwSzSkvG4DBH097pYhePzLOLyZ+watyaD5QoKUg1n2jtqCEBxG
+              2QV2D0UJVgkJrsytc9LRqIBVqKvwD3GkRtQcIlg4Cf3oWmFrwkVE0wYikLtnzfGt
+              GJ1dee1enHkexjwjD4RUd2Es1XDPmQNNZ9a2LrfynQKBgQDou2+8SdB60eyt2KwH
+              58Jeh+L/2nTt0VkiczsTp1RgXg+ZKWNuudmTlPR40Yg52uhDKec7Yb9XXfyuTXvL
+              v3lXYmsjFutj12u3pAEFWj63O7NpJ9R9vnyjwa1lwMQ3Ps9gp2pJmHtMy0alLMqt
+              H+yEYlbS0DexIclVOQMkcNkzpwKBgQDLUM2ddShG+SYZiC6eDtZU6DXjMdncdDp8
+              koTh+cJLL1tqqbmVRSBkWuhqlH6nenbnSLCZ+pbZ22bXJ8Jl/LXwmCpyUzt71wbQ
+              li+eGEvgGSZ4PV4JsqV7j70VD0BpxtJUFBT+6Zq2+Lns7ZgisHfvHyydRSai4+pp
+              4tCDvK6o7wKBgET/vSLPp5WiQ09PW8GEPqYUF4LPW7deR9Tk4PD0vRlNCcbY9HfR
+              deZBVTG0vXSZqB6xf7KlSjs2zEFJC5jejbUQor7mfqc9KNxrLTpPBSUB+DEG9ALL
+              xNwwAZ6XRhUy8/yt5d8n6/ZalflGjFhDjLW7Cg66WKiVYcF4g6v8IQklAoGBAKGS
+              MCRuQzjLrGRj3bAL2HYXJyPKrPhNgWEXyvQN2EKJettzz6B5E7nMqKByK4iKgM1h
+              7b4f7xtoCPz4grsrraZqNmkuDbpncen3QBYh9sI7GmA5XG7Wgj2ER93hhe3Ja8IX
+              R2wgVqwLUy2ezuTaWiU0H+9HUeHmv5WwAsZ9/ksPAoGBALmfyzS8J1jfkjMLhwvQ
+              vaS7UzPEufeJb/vg2WMd31TRc6fMcGZKwCvjE3z2xLewU+DwSynqjdRZn4mOt+sm
+              5LOMBdOTK6nEoVbGdCktYM8BpgxFSBaQ7oJDVRaHOOs7cauCOz7NCCd/e6q//S6L
+              wS6zVciWfFotxYTyTyj0WiiT
+              -----END PRIVATE KEY-----

@@ -1,0 +1,13 @@
+apiVersion: v2
+name: spike-nexus
+description: A Helm chart to deploy SPIKE Nexus
+type: application
+version: 0.1.0
+appVersion: "0.5.0"
+home: https://github.com/spiffe/helm-charts-hardened/tree/main/charts/spire
+sources:
+  - https://github.com/spiffe/spike
+icon: https://spike.ist/assets/spike-banner.png
+maintainers:
+  - name: kfox1111
+    email: Kevin.Fox@pnnl.gov

@@ -1,0 +1,3 @@
+spire-server:
+  federation:
+    enabled: true

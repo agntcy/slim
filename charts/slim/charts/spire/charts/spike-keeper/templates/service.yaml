@@ -1,0 +1,48 @@
+{{ $root := . }}
+{{ $last := sub (.Values.replicas | int) 1 | int }}
+{{ range (seq 0 ($last) | toString | split " ") }}
+{{ $i := . }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: {{ include "spike-keeper.namespace" $root }}
+  name: {{ include "spike-keeper.fullname" $root }}-{{ $i }}
+  {{- with $root.Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  labels:
+    apps.kubernetes.io/pod-index: {{ $i | quote }}
+    {{- include "spike-keeper.labels" $root | nindent 4 }}
+spec:
+  type: {{ $root.Values.service.type }}
+  selector:
+    apps.kubernetes.io/pod-index: {{ $i | quote }}
+    {{- include "spike-keeper.selectorLabels" $root | nindent 4 }}
+  ports:
+    - name: {{ include "spike-keeper.fullname" $root }}
+      port: {{ $root.Values.service.port }}
+      targetPort: http
+{{ end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: {{ include "spike-keeper.namespace" $root }}
+  name: {{ include "spike-keeper.fullname" $root }}-headless
+  {{- with $root.Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  labels:
+    {{- include "spike-keeper.labels" $root | nindent 4 }}
+spec:
+  type: {{ $root.Values.service.type }}
+  clusterIP: None
+  selector:
+    {{- include "spike-keeper.selectorLabels" $root | nindent 4 }}
+  ports:
+    - name: {{ include "spike-keeper.fullname" $root }}
+      port: {{ $root.Values.service.port }}
+      targetPort: http

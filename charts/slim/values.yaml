@@ -161,7 +161,26 @@ slim:
     #       name: my-configmap
     #       key: config-key
 
+# Global values propagated to all subcharts (including the spire subchart and its children).
+# The spire hardened chart reads global.spire.* in every subchart, so these must live here
+# rather than under spire.global.
+global:
+  spire:
+    clusterName: ""
+    trustDomain: ""
+    strictMode: false
+    upstreamSpireAddress: ""
+    caSubject:
+      country: ""
+      organization: ""
+      commonName: ""
+  installAndUpgradeHooks:
+    enabled: false
+  deleteHooks:
+    enabled: false
+
 spire:
+  # Enable SPIRE integration for SLIM mTLS (creates ClusterSPIFFEID for this release).
   enabled: false
   helperImage:
     repository: ghcr.io/spiffe/spiffe-helper
@@ -173,6 +192,87 @@ spire:
   trustedDomains: []
     # - cluster-a.example.org
     # - cluster-b.example.org
+
+  # Deploy the full SPIRE infrastructure stack as a subchart.
+  # When true, this chart installs spire-server, downstream spire-agent (DaemonSet),
+  # the single upstream-agent Deployment (join-token based), and the SPIFFE CSI drivers.
+  # Can be true independently of spire.enabled (e.g. deploy SPIRE without the ClusterSPIFFEID).
+  deploy: false
+
+  # ----------------------------------------------------------------
+  # Downstream spire-server (StatefulSet).
+  # ----------------------------------------------------------------
+  spire-server:
+    enabled: true
+    nodeAttestor:
+      k8sPSAT:
+        enabled: true
+    upstreamAuthority:
+      spire:
+        enabled: true
+        upstreamDriver: "upstream.csi.spiffe.io"
+        server:
+          port: 443
+
+  # ----------------------------------------------------------------
+  # Downstream spire-agent DaemonSet (k8sPSAT, one per node).
+  # ----------------------------------------------------------------
+  spire-agent:
+    enabled: true
+
+  # ----------------------------------------------------------------
+  # Upstream agent – single Deployment that joins the cloud
+  # SPIRE server via a one-time join token.
+  # ----------------------------------------------------------------
+  upstream:
+    enabled: true
+
+  upstream-spire-agent:
+    nameOverride: agent-upstream-placeholder
+    # Join token for bootstrapping the upstream agent against the cloud SPIRE server.
+    # Provide ONE of the following options:
+    #
+    #   Option A – inline value (chart creates the Secret automatically):
+    #     joinToken:
+    #       value: "<token>"
+    #
+    #   Option B – reference an existing Secret:
+    #     joinToken:
+    #       existingSecret:
+    #         name: my-secret
+    #         key: token   # optional, defaults to "token"
+    #
+    joinToken:
+      # Set to true when using join_token node attestation for the upstream agent.
+      # When enabled, exactly one of .value or .existingSecret.name must be provided.
+      enabled: false
+      value: ""
+      existingSecret:
+        name: ""
+        key: "token"
+    serviceAccount:
+      name: spire-agent-upstream
+    server:
+      port: 443
+    trustBundleURL: ""
+    trustBundleFormat: "spiffe"
+    persistence:
+      type: hostPath
+      hostPath: "/var/lib/spire/k8s/upstream-agent"
+    extraEnvVars: []
+
+  # ----------------------------------------------------------------
+  # SPIFFE CSI drivers.
+  # ----------------------------------------------------------------
+  spiffe-csi-driver:
+    enabled: true
+
+  upstream-spiffe-csi-driver:
+    validatingAdmissionPolicy:
+      enabled: false
+
+  spiffe-oidc-discovery-provider:
+    enabled: false
 
 
 # This is for the secretes for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/

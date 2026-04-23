@@ -1,0 +1,14 @@
+global:
+  telemetry:
+    prometheus:
+      enabled: true
+      podMonitor:
+        enabled: true
+        labels:
+          release: kube-prometheus-stack
+
+spiffe-oidc-discovery-provider:
+  enabled: true
+  tls:
+    spire:
+      enabled: false

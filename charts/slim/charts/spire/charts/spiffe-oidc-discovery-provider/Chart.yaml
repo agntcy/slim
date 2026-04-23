@@ -1,0 +1,21 @@
+apiVersion: v2
+name: spiffe-oidc-discovery-provider
+description: A Helm chart to install the SPIFFE OIDC discovery provider.
+type: application
+version: 0.1.0
+appVersion: "1.14.2"
+keywords: ["spiffe", "oidc"]
+home: https://github.com/spiffe/helm-charts-hardened/tree/main/charts/spire
+sources:
+  - https://github.com/spiffe/helm-charts-hardened/tree/main/charts/spire
+icon: https://spiffe.io/img/logos/spire/icon/color/spire-icon-color.png
+maintainers:
+  - name: marcofranssen
+    email: marco.franssen@gmail.com
+    url: https://marcofranssen.nl
+  - name: kfox1111
+    email: Kevin.Fox@pnnl.gov
+  - name: faisal-memon
+    email: fymemon@yahoo.com
+  - name: edwbuck
+    email: edwbuck@gmail.com
