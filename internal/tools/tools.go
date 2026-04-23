@@ -9,8 +9,8 @@ package tools
 // https://go.dev/wiki/Modules#how-can-i-track-tool-dependencies-for-a-module
 
 import (
-	_ "github.com/golangci/golangci-lint/cmd/golangci-lint"
-	_ "github.com/pavius/impi/cmd/impi"
+	_ "github.com/daixiang0/gci"
+	_ "github.com/golangci/golangci-lint/v2/cmd/golangci-lint"
 	_ "go.opentelemetry.io/build-tools/multimod"
 	_ "golang.org/x/vuln/cmd/govulncheck"
 	_ "google.golang.org/grpc/cmd/protoc-gen-go-grpc"
