@@ -5,40 +5,76 @@
 //!
 //! Provides a Channel type for making RPC calls to remote services.
 //! Supports all gRPC streaming patterns over SLIM sessions.
+//!
+//! All eight public RPC methods are built on top of `responses_from_stream_input`.
+//! Single-request callers wrap their request in `futures::stream::once`.
+//!
+//! Both core methods dispatch based on `self.is_group`:
+//! - P2P (`is_group = false`): uses a PointToPoint session; stream ends on server EOS
+//! - GROUP (`is_group = true`): uses a Multicast session; stream ends when all members
+//!   have sent their final response (EOS); member errors are yielded as stream items
+//!
+//! The "unary" variants are simply the streaming variants followed by `.next()`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use async_stream::try_stream;
+use async_stream::stream;
 use display_error_chain::ErrorChainExt;
 use futures::StreamExt;
 use futures::future::join_all;
 use futures::stream::Stream;
 use futures_timer::Delay;
 use parking_lot::RwLock as ParkingRwLock;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, unbounded_channel};
 use tokio::task::JoinHandle;
 
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_datapath::api::ProtoSessionType;
 use slim_datapath::messages::Name;
 use slim_service::app::App as SlimApp;
+use slim_session::errors::SessionError;
+
+// ── Multicast response types ──────────────────────────────────────────────────
+
+/// Per-message context attached to every item in a multicast response stream.
+///
+/// Identifies which group member produced the response, allowing callers to
+/// correlate responses with their origin when multiple members are involved.
+#[derive(Debug, Clone)]
+pub struct MessageContext {
+    /// SLIM name of the member app that sent this message.
+    pub source: Name,
+}
+
+/// A single item in a multicast response stream: the decoded response together
+/// with the context identifying its origin.
+#[derive(Debug, Clone)]
+pub struct MulticastItem<T> {
+    /// Context identifying the member that produced this response.
+    pub context: MessageContext,
+    /// The decoded response message.
+    pub message: T,
+}
 
 use super::{
-    BidiStreamHandler, Context, METHOD_KEY, Metadata, RPC_ID_KEY, ReceivedMessage,
+    BidiStreamHandler, Context, METHOD_KEY, Metadata, MulticastBidiStreamHandler,
+    MulticastResponseReader, RPC_DIR_KEY, RPC_DIR_REQ, RPC_ID_KEY, ReceivedMessage,
     RequestStreamWriter, ResponseStreamReader, RpcCode, RpcError, SERVICE_KEY, STATUS_CODE_KEY,
-    calculate_deadline, calculate_timeout_duration,
+    calculate_timeout_duration,
     codec::{Decoder, Encoder},
-    msg_is_terminal,
+    send_eos,
     session_wrapper::{SessionRx, SessionTx, new_session},
 };
 
+// ── ResponseDispatcher ────────────────────────────────────────────────────────
+
 /// Routes incoming response messages to the correct per-RPC mpsc channel.
 ///
-/// The background `response_dispatcher_task` calls `dispatch()` for each message
-/// it receives from the shared `SessionRx`.  RPC callers register before sending
-/// their request and unregister after they have received all expected responses.
+/// The background `response_dispatcher_task` calls `dispatch()` for each
+/// message it receives from the shared `SessionRx`. RPC callers register
+/// before sending their request and unregister after receiving all responses.
 struct ResponseDispatcher {
     pending: ParkingRwLock<HashMap<String, mpsc::UnboundedSender<ReceivedMessage>>>,
 }
@@ -50,22 +86,20 @@ impl ResponseDispatcher {
         }
     }
 
-    /// Register a new RPC call and return the receiver end of its private channel.
     fn register(&self, rpc_id: &str) -> mpsc::UnboundedReceiver<ReceivedMessage> {
         let (tx, rx) = mpsc::unbounded_channel();
         self.pending.write().insert(rpc_id.to_string(), tx);
         rx
     }
 
-    /// Remove the registration for a finished RPC call.
     fn unregister(&self, rpc_id: &str) {
         self.pending.write().remove(rpc_id);
     }
 
-    /// Forward a message to the channel registered for the given `rpc_id`.
+    /// Forward a message to the channel registered for `rpc_id`.
     ///
-    /// Returns `true` when the message was delivered, `false` when no registration
-    /// exists for that id (e.g. the caller already timed out).
+    /// Returns `true` on delivery to an active RPC caller, `false` if
+    /// no caller is registered for this rpc-id (message is dropped).
     fn dispatch(&self, msg: ReceivedMessage, rpc_id: &str) -> bool {
         let lock = self.pending.read();
         if let Some(tx) = lock.get(rpc_id) {
@@ -74,32 +108,68 @@ impl ResponseDispatcher {
             false
         }
     }
+
+    /// Drop all pending registrations.
+    ///
+    /// Called when the underlying session closes. Dropping every sender causes
+    /// each waiting `rx.recv().await` to return `None`, cleanly ending the
+    /// response loop in all in-flight multicast callers.
+    fn close_all(&self) {
+        self.pending.write().clear();
+    }
 }
 
-/// Reads every message from the shared session and routes it to the per-RPC
-/// mpsc channel that matches the `rpc-id` metadata field.
+// ── DispatcherGuard ───────────────────────────────────────────────────────────
+
+/// RAII guard that calls `dispatcher.unregister(rpc_id)` on drop.
+///
+/// Ensures the per-RPC channel is always removed from the dispatcher even
+/// when a stream is abandoned early (e.g. after a single `.next()` call).
+struct DispatcherGuard {
+    dispatcher: Arc<ResponseDispatcher>,
+    rpc_id: String,
+}
+
+impl Drop for DispatcherGuard {
+    fn drop(&mut self) {
+        self.dispatcher.unregister(&self.rpc_id);
+    }
+}
+
+// ── Dispatcher task ───────────────────────────────────────────────────────────
+
+/// Reads every message from `session_rx` and routes it by `rpc-id`.
+///
+/// On session close `close_all()` is called so any in-flight receive loop
+/// unblocks with `None`.
 async fn response_dispatcher_task(mut session_rx: SessionRx, dispatcher: Arc<ResponseDispatcher>) {
     loop {
         match session_rx.get_message(None).await {
             Ok(msg) => {
                 let rpc_id = msg.metadata.get(RPC_ID_KEY).cloned().unwrap_or_default();
                 if !dispatcher.dispatch(msg, &rpc_id) {
-                    tracing::warn!(%rpc_id, "Received response for unknown or expired RPC ID");
+                    tracing::trace!(%rpc_id, "Received message for unknown rpc-id, dropping");
                 }
+            }
+            Err(SessionError::ParticipantDisconnected(name)) => {
+                tracing::debug!(%name, "Response dispatcher: group member disconnected, continuing");
             }
             Err(e) => {
                 tracing::debug!(error = %e, "Response dispatcher: session closed");
+                dispatcher.close_all();
                 break;
             }
         }
     }
 }
 
-/// A live SLIM session together with its dispatcher and background task.
+// ── ChannelSession ────────────────────────────────────────────────────────────
+
+/// A live SLIM session together with its dispatcher, background task, and member set.
 struct ChannelSession {
     tx: SessionTx,
     dispatcher: Arc<ResponseDispatcher>,
-    /// Background task reading from the session.  When finished the session
+    /// Background task reading from the session. When finished the session
     /// is considered dead and will be recreated on the next RPC call.
     task: JoinHandle<()>,
 }
@@ -110,141 +180,223 @@ impl ChannelSession {
     }
 }
 
-/// Generate a unique RPC ID
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 fn generate_rpc_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-/// Metadata for the first (or only) message of an RPC call.
-/// Carries routing info (service, method), the rpc-id, and any deadline / user
-/// metadata from the context.
+async fn send_invite(session_tx: &SessionTx, member: &Name) -> Result<(), RpcError> {
+    tracing::debug!("Inviting member to rpc channel.. {}", member);
+    session_tx
+        .controller()
+        .invite_participant(member)
+        .await
+        .map_err(|e| RpcError::internal(format!("Failed to invite {}: {}", member, e)))?
+        .await
+        .map_err(|e| RpcError::internal(format!("Failed to invite {}: {}", member, e)))
+}
+
+/// Generate a random group session name derived from the client name.
+///
+/// Uses the first two components of `client_name` and a UUID as the third,
+/// so the group address lives in the same namespace as the client app.
+fn generate_group_name(client_name: &Name) -> Name {
+    let parts = client_name.components_strings();
+    Name::from_strings([
+        parts[0].as_str(),
+        parts[1].as_str(),
+        &uuid::Uuid::new_v4().to_string(),
+    ])
+}
+
+/// Metadata for the first message of an RPC call.
 fn first_msg_metadata(ctx: &Context, service: &str, method: &str, rpc_id: &str) -> Metadata {
     let mut meta = ctx.metadata();
     meta.insert(SERVICE_KEY.to_string(), service.to_string());
     meta.insert(METHOD_KEY.to_string(), method.to_string());
     meta.insert(RPC_ID_KEY.to_string(), rpc_id.to_string());
+    meta.insert(RPC_DIR_KEY.to_string(), RPC_DIR_REQ.to_string());
     meta
 }
 
 /// Metadata for a stream continuation message (not the first).
-/// Only carries the rpc-id so the server demultiplexer can route it.
 fn continuation_metadata(rpc_id: &str) -> Metadata {
     let mut meta = HashMap::new();
     meta.insert(RPC_ID_KEY.to_string(), rpc_id.to_string());
+    meta.insert(RPC_DIR_KEY.to_string(), RPC_DIR_REQ.to_string());
     meta
 }
 
-/// Metadata for an end-of-stream marker.
-/// Carries status OK + rpc-id. When the stream was empty `routing` provides
-/// the context/service/method so the server can identify the handler.
-fn eos_metadata(rpc_id: &str, routing: Option<(&Context, &str, &str)>) -> Metadata {
-    let mut meta = match routing {
-        Some((ctx, service, method)) => first_msg_metadata(ctx, service, method, rpc_id),
-        None => continuation_metadata(rpc_id),
-    };
-    let code: i32 = RpcCode::Ok.into();
-    meta.insert(STATUS_CODE_KEY.to_string(), code.to_string());
-    meta
-}
+// ── Channel ───────────────────────────────────────────────────────────────────
 
-/// Client-side channel for making RPC calls
+/// Client-side channel for making RPC calls.
 ///
-/// A Channel manages the connection to a remote service and provides methods
-/// for making RPC calls with different streaming patterns.
+/// Manages a single persistent SLIM session: either a `PointToPoint` session
+/// to a single remote server, or a `Multicast` (GROUP) session shared across
+/// multiple remote servers. The session is lazily initialised and recreated
+/// when dead.
 ///
-/// A single SLIM session is maintained per remote and reused across concurrent
-/// RPC calls (see module-level documentation for the demultiplexing design).
+/// ## Constructor
+///
+/// - `new_with_members_internal(app, members)` — Smart constructor:
+///   - **1 member**: creates a P2P channel.
+///   - **Many members**: creates a GROUP channel with a generated session name
+///     and auto-invites all members on the first multicast call.
 #[derive(Clone, uniffi::Object)]
 pub struct Channel {
-    /// The SLIM app instance
     app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
-    /// Remote service name
+    /// Session destination: the remote server name for P2P channels, or a
+    /// generated group name (same org/namespace as the client, random UUID)
+    /// for GROUP channels.
     remote: Name,
-    /// Optional connection ID for session creation propagation
+    /// `true` for GROUP channels (`new_group` / `new_group_with_connection`),
+    /// `false` for P2P channels (`new` / `new_with_connection`).
+    is_group: bool,
+    /// Initial group members set at construction time. Used to seed a new
+    /// session on the first call. Dynamically invited members are stored
+    /// in `ChannelSession::members` and inherited across session recreations.
+    initial_members: HashSet<Name>,
     connection_id: Option<u64>,
-    /// Runtime handle for spawning tasks (resolved at construction)
     runtime: tokio::runtime::Handle,
-    /// Shared persistent session (lazily initialised, recreated when dead)
-    session: Arc<ParkingRwLock<Option<ChannelSession>>>,
+    /// Persistent session (lazily initialised, recreated when dead).
+    /// PointToPoint for P2P channels, Multicast for GROUP channels.
+    session: Arc<tokio::sync::Mutex<Option<ChannelSession>>>,
 }
 
 impl Channel {
-    /// Create a new channel to a remote service
-    pub fn new_internal(app: Arc<SlimApp<AuthProvider, AuthVerifier>>, remote: Name) -> Self {
-        Self::new_with_connection_internal(app, remote, None, None)
-    }
-
-    /// Create a new channel with optional connection ID for session propagation
-    pub fn new_with_connection_internal(
+    /// Create a channel. This is the single construction point.
+    ///
+    /// - `is_group = false`: P2P channel; `members` must contain exactly one entry.
+    /// - `is_group = true`: GROUP channel; a random UUID session name is generated
+    ///   and all `members` are auto-invited on the first multicast call.
+    ///
+    /// Returns an error if `members` is empty.
+    pub fn new_with_members_internal(
         app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
-        remote: Name,
+        members: Vec<Name>,
+        is_group: bool,
         connection_id: Option<u64>,
-        runtime: Option<tokio::runtime::Handle>,
-    ) -> Self {
-        let runtime = runtime.unwrap_or_else(|| {
-            tokio::runtime::Handle::try_current()
-                .expect("No tokio runtime found. Either provide a runtime handle or call from within a tokio runtime context")
-        });
+    ) -> Result<Self, RpcError> {
+        if members.is_empty() {
+            return Err(RpcError::invalid_argument("members must not be empty"));
+        }
+        if !is_group && members.len() != 1 {
+            return Err(RpcError::invalid_argument(
+                "P2P channel requires exactly one member",
+            ));
+        }
 
-        Self {
+        let runtime = crate::get_runtime().handle().clone();
+
+        let members_set: HashSet<Name> = members.into_iter().collect();
+
+        let remote = if is_group {
+            generate_group_name(app.app_name())
+        } else {
+            members_set.iter().next().unwrap().clone()
+        };
+
+        Ok(Self {
             app,
             remote,
+            is_group,
+            initial_members: members_set,
             connection_id,
             runtime,
-            session: Arc::new(ParkingRwLock::new(None)),
-        }
+            session: Arc::new(tokio::sync::Mutex::new(None)),
+        })
     }
 
-    /// Return the existing session if alive, otherwise create a new one.
+    // ── Session management ────────────────────────────────────────────────────
+
+    /// Return the active session, creating it if needed.
     ///
-    /// Fast path: read lock — return the session if it is alive.
-    /// Slow path: create a new session outside any lock, then take the write lock
-    /// and store it (re-checking in case a concurrent caller beat us to it).
+    /// - Single-member channel (`is_group == false`): uses the P2P slot.
+    /// - Multi-member channel (`is_group == true`): uses the GROUP slot and
+    ///   auto-invites all members on every (re)creation under the session lock.
     async fn get_or_create_session(
         &self,
-    ) -> Result<(SessionTx, Arc<ResponseDispatcher>), RpcError> {
-        // Fast path: cheap read lock, no session creation needed.
+    ) -> Result<(SessionTx, Arc<ResponseDispatcher>, HashMap<Name, bool>), RpcError> {
+        let mut guard = self.session.lock().await;
+        self.ensure_session(&mut guard).await?;
+        let cs = guard
+            .as_ref()
+            .ok_or_else(|| RpcError::internal("session missing after creation"))?;
+        let members = self
+            .initial_members
+            .iter()
+            .map(|m| {
+                let mut name = m.clone();
+                name.reset_id();
+                (name, false)
+            })
+            .collect();
+        Ok((cs.tx.clone(), cs.dispatcher.clone(), members))
+    }
+
+    /// Create (or recreate) the SLIM session inside an already-held lock guard.
+    ///
+    /// If the session is already alive this is a no-op. Members are always
+    /// taken from `self.initial_members` since the member set is fixed at
+    /// channel construction time.
+    async fn ensure_session(
+        &self,
+        guard: &mut tokio::sync::MutexGuard<'_, Option<ChannelSession>>,
+    ) -> Result<(), RpcError> {
+        if let Some(ref cs) = **guard
+            && cs.is_alive()
         {
-            let guard = self.session.read();
-            if let Some(ref cs) = *guard
-                && cs.is_alive()
-            {
-                return Ok((cs.tx.clone(), cs.dispatcher.clone()));
-            }
+            return Ok(());
         }
 
-        // Slow path: session is absent or dead.
-        // Create outside any lock — session creation is async.
-        tracing::debug!("no persistent session - recreating");
-        let (session_tx, session_rx) = self.create_raw_session().await?;
+        let session_type = if self.is_group {
+            ProtoSessionType::Multicast
+        } else {
+            ProtoSessionType::PointToPoint
+        };
+
+        tracing::debug!(?session_type, "no persistent session — recreating");
+        let (session_tx, session_rx) = self.create_raw_session(session_type).await?;
         let dispatcher = Arc::new(ResponseDispatcher::new());
-        let task = tokio::spawn(response_dispatcher_task(session_rx, dispatcher.clone()));
-        let new_cs = ChannelSession {
+        let task = self
+            .runtime
+            .spawn(response_dispatcher_task(session_rx, dispatcher.clone()));
+
+        **guard = Some(ChannelSession {
             tx: session_tx.clone(),
             dispatcher: dispatcher.clone(),
             task,
-        };
+        });
 
-        // Write lock: re-check in case a concurrent caller already recreated.
-        let mut guard = self.session.write();
-        if let Some(ref existing) = *guard
-            && existing.is_alive()
-        {
-            // Discard ours and return the one that was already there.
-            new_cs.task.abort();
-            return Ok((existing.tx.clone(), existing.dispatcher.clone()));
+        // Invite all members whenever the GROUP session is (re)created.
+        if self.is_group {
+            for member in &self.initial_members {
+                if let Some(conn_id) = self.connection_id {
+                    self.app.set_route(member, conn_id).await.map_err(|e| {
+                        RpcError::internal(format!(
+                            "Failed to set route for group member {member}: {e}"
+                        ))
+                    })?;
+                }
+                send_invite(&session_tx, member).await?;
+            }
         }
-        *guard = Some(new_cs);
-        Ok((session_tx, dispatcher))
+
+        Ok(())
     }
 
     /// Create a raw SLIM session to the remote peer.
-    async fn create_raw_session(&self) -> Result<(SessionTx, SessionRx), RpcError> {
+    async fn create_raw_session(
+        &self,
+        session_type: ProtoSessionType,
+    ) -> Result<(SessionTx, SessionRx), RpcError> {
         let app = self.app.clone();
         let remote = self.remote.clone();
         let connection_id = self.connection_id;
         let runtime = &self.runtime;
 
+        // Runs in a tokio task because create_session needs tokio runtime
         let handle = runtime.spawn(async move {
             if let Some(conn_id) = connection_id {
                 tracing::debug!(
@@ -262,10 +414,10 @@ impl Channel {
                 }
             }
 
-            tracing::debug!(remote = %remote, "Creating persistent session");
+            tracing::debug!(remote = %remote, ?session_type, "Creating persistent session");
 
             let slim_config = slim_session::session_config::SessionConfig {
-                session_type: ProtoSessionType::PointToPoint,
+                session_type,
                 mls_enabled: true,
                 max_retries: Some(10),
                 interval: Some(Duration::from_secs(1)),
@@ -290,79 +442,9 @@ impl Channel {
             .map_err(|e| RpcError::internal(format!("Session creation task failed: {}", e)))?
     }
 
-    /// Check if received message is end-of-stream or error
-    fn check_stream_message(&self, received: &ReceivedMessage) -> Result<Option<()>, RpcError> {
-        if msg_is_terminal(received) {
-            return Ok(None); // End of stream
-        }
+    // ── Send helpers ──────────────────────────────────────────────────────────
 
-        let code = self.parse_status_code(received.metadata.get(STATUS_CODE_KEY))?;
-        if code != RpcCode::Ok {
-            let message = String::from_utf8_lossy(&received.payload).to_string();
-            return Err(RpcError::new(code, message));
-        }
-
-        Ok(Some(()))
-    }
-
-    /// Parse status code from metadata value
-    fn parse_status_code(&self, code_str: Option<&String>) -> Result<RpcCode, RpcError> {
-        match code_str {
-            Some(s) => s
-                .parse::<i32>()
-                .ok()
-                .and_then(|code| RpcCode::try_from(code).ok())
-                .ok_or(RpcError::internal(format!("Invalid status code: {}", s))),
-            None => Ok(RpcCode::Ok),
-        }
-    }
-
-    /// Send a single request message carrying all per-call metadata.
-    ///
-    /// The first (and only) message of a unary request carries:
-    /// - `service` / `method` — handler dispatch
-    /// - `rpc-id` — demultiplexing on the shared session
-    /// - deadline + user metadata from `ctx`
-    async fn send_request<Req>(
-        &self,
-        session: &SessionTx,
-        ctx: &Context,
-        request: Req,
-        service_name: &str,
-        method_name: &str,
-        rpc_id: &str,
-    ) -> Result<(), RpcError>
-    where
-        Req: Encoder,
-    {
-        let request_bytes = request.encode()?;
-
-        let handle = session
-            .publish(
-                request_bytes,
-                Some("msg".to_string()),
-                Some(first_msg_metadata(ctx, service_name, method_name, rpc_id)),
-            )
-            .await?;
-
-        tracing::debug!(%service_name, %method_name, %rpc_id, "Sent request");
-        handle.await.map_err(|e| {
-            RpcError::internal(format!(
-                "Failed to complete sending request for {}-{}: {}",
-                service_name,
-                method_name,
-                e.chain()
-            ))
-        })?;
-
-        Ok(())
-    }
-
-    /// Send a stream of requests followed by an end-of-stream marker.
-    ///
-    /// Every message (including the EOS) carries `rpc-id` so the server
-    /// demultiplexer can route them to the correct stream handler.
-    /// Only the first message carries the service/method/deadline metadata.
+    /// Send a stream of request messages.
     async fn send_request_stream<Req>(
         &self,
         session: &SessionTx,
@@ -376,47 +458,41 @@ impl Channel {
         Req: Encoder,
     {
         let mut request_stream = std::pin::pin!(request_stream);
-
         let mut handles = vec![];
         let mut first = true;
         while let Some(request) = request_stream.next().await {
             let request_bytes = request.encode()?;
-
             let msg_meta = if first {
                 first = false;
                 first_msg_metadata(ctx, service_name, method_name, rpc_id)
             } else {
                 continuation_metadata(rpc_id)
             };
-
             let handle = session
-                .publish(request_bytes, Some("msg".to_string()), Some(msg_meta))
+                .publish(
+                    session.destination(),
+                    request_bytes,
+                    Some("msg".to_string()),
+                    Some(msg_meta),
+                )
                 .await?;
             handles.push(handle);
         }
+        // The client EOS always carries RPC_DIR_KEY so the server can distinguish
+        // it from an echoed server EOS.  When the request stream was empty we also
+        // include service + method so the server can dispatch without a data frame.
+        let mut eos_meta = HashMap::from([(RPC_DIR_KEY.to_string(), RPC_DIR_REQ.to_string())]);
+        if first {
+            eos_meta.insert(SERVICE_KEY.to_string(), service_name.to_string());
+            eos_meta.insert(METHOD_KEY.to_string(), method_name.to_string());
+        }
+        handles.push(send_eos(session, session.destination(), rpc_id, Some(eos_meta)).await?);
 
-        // EOS marker — always carries status OK + rpc-id.
-        // When the stream was empty, also include service/method/deadline so the
-        // server can identify the target handler from this sole message.
-        let routing = if first {
-            Some((ctx, service_name, method_name))
-        } else {
-            None
-        };
-        let handle = session
-            .publish(
-                Vec::new(),
-                Some("msg".to_string()),
-                Some(eos_metadata(rpc_id, routing)),
-            )
-            .await?;
-        handles.push(handle);
-
-        let results = join_all(handles).await;
-        for result in results {
+        // Wait for all (data + EOS) acks in a single batch.
+        for result in join_all(handles).await {
             result.map_err(|e| {
                 RpcError::internal(format!(
-                    "Failed to complete sending request for {}-{}: {}",
+                    "Failed to complete sending {}-{}: {}",
                     service_name,
                     method_name,
                     ErrorChainExt::chain(&e)
@@ -424,40 +500,164 @@ impl Channel {
             })?;
         }
 
+        // When the stream was empty `first` is still true: the EOS must carry
+        // service + method so the server can dispatch without a preceding data frame.
+        let extra = if first {
+            Some(HashMap::from([
+                (SERVICE_KEY.to_string(), service_name.to_string()),
+                (METHOD_KEY.to_string(), method_name.to_string()),
+            ]))
+        } else {
+            None
+        };
+        send_eos(session, session.destination(), rpc_id, extra).await?;
         Ok(())
     }
 
-    /// Receive and decode a single response from an RPC-private mpsc channel.
+    // ── Core streaming methods ────────────────────────────────────────────────
+
+    /// Core streaming method for all interaction patterns (P2P and GROUP).
     ///
-    /// Distinguishes between:
-    /// - RPC errors: `RpcCode` in metadata from the handler
-    /// - Transport errors: channel closed or decode failure
-    async fn receive_response_from_channel<Res>(
+    /// Broadcasts `request_stream` concurrently while collecting responses.
+    /// For P2P (`num_members = 1`) the stream ends on the single server EOS.
+    /// For GROUP the stream ends when all members have sent their EOS.
+    /// Member errors are yielded as `Err` items and count as that member's EOS.
+    fn responses_from_stream_input<Req, Res>(
         &self,
-        rx: &mut mpsc::UnboundedReceiver<ReceivedMessage>,
-    ) -> Result<Res, ReceiveError>
+        service_name: &str,
+        method_name: &str,
+        request_stream: impl Stream<Item = Req> + Send + 'static,
+        timeout: Option<Duration>,
+        metadata: Option<Metadata>,
+    ) -> impl Stream<Item = Result<MulticastItem<Res>, RpcError>>
     where
-        Res: Decoder,
+        Req: Encoder + Send + 'static,
+        Res: Decoder + Send + 'static,
     {
-        let received = rx.recv().await.ok_or_else(|| {
-            ReceiveError::Transport(RpcError::internal("Response channel closed"))
-        })?;
+        let service_name = service_name.to_string();
+        let method_name = method_name.to_string();
+        let channel = self.clone();
 
-        let code = self
-            .parse_status_code(received.metadata.get(STATUS_CODE_KEY))
-            .map_err(ReceiveError::Transport)?;
+        stream! {
+            let ctx = Context::for_rpc(timeout, metadata.clone());
+            let timeout_duration = calculate_timeout_duration(timeout);
+            let mut delay = Delay::new(timeout_duration);
 
-        if code != RpcCode::Ok {
-            let message = String::from_utf8_lossy(&received.payload).to_string();
-            return Err(ReceiveError::Rpc(RpcError::new(code, message)));
+            let (session_tx, dispatcher, members) = match tokio::select! {
+                result = channel.get_or_create_session() => result,
+                _ = &mut delay => Err(RpcError::deadline_exceeded("Client deadline exceeded during session setup")),
+            } {
+                Ok(v) => v,
+                Err(e) => { yield Err(e); return; }
+            };
+
+            let rpc_id = generate_rpc_id();
+            let mut rx = dispatcher.register(&rpc_id);
+            let _guard = DispatcherGuard { dispatcher: dispatcher.clone(), rpc_id: rpc_id.clone() };
+
+            let session_tx_for_send = session_tx.clone();
+            let ctx_for_send = ctx.clone();
+            let service_for_send = service_name.clone();
+            let method_for_send = method_name.clone();
+            let rpc_id_for_send = rpc_id.clone();
+            let channel_for_send = channel.clone();
+            let mut send_handle = channel.runtime.spawn(async move {
+                channel_for_send
+                    .send_request_stream(
+                        &session_tx_for_send, &ctx_for_send, request_stream,
+                        &service_for_send, &method_for_send, &rpc_id_for_send,
+                    )
+                    .await
+            });
+            let mut members = members;
+            let num_members = members.len();
+            let mut num_completed = 0usize;
+            let mut send_completed = false;
+
+            loop {
+                let received_opt = tokio::select! {
+                    msg = rx.recv() => Ok(msg),
+                    send_result = &mut send_handle, if !send_completed => {
+                        send_completed = true;
+                        match send_result {
+                            Ok(Ok(_)) => continue,
+                            Ok(Err(e)) => Err(e),
+                            Err(e) => Err(RpcError::internal(format!("Send task panicked: {}", e))),
+                        }
+                    },
+                    _ = &mut delay => Err(RpcError::deadline_exceeded(
+                        "Client deadline exceeded while receiving response"
+                    )),
+                };
+
+                let received = match received_opt {
+                    Err(e) => { yield Err(e); break; }
+                    Ok(None) => {
+                        if num_completed < num_members {
+                            if channel.is_group {
+                                yield Err(RpcError::multicast_session_closed(
+                                    members.iter().map(|(m, done)| (m, *done))
+                                ));
+                            } else {
+                                yield Err(RpcError::internal(format!(
+                                    "Session closed after {}/{} EOS markers",
+                                    num_completed, num_members
+                                )));
+                            }
+                        }
+                        break;
+                    }
+                    Ok(Some(m)) => m,
+                };
+
+                let mut source = received.source.clone();
+                source.reset_id();
+
+                if received.is_eos() {
+                    if !*members.get(&source).unwrap_or(&true) {
+                        members.insert(source, true);
+                        num_completed += 1;
+                    }
+                    if num_completed >= num_members { break; }
+                    continue;
+                }
+                let code = RpcCode::from_metadata_str(
+                    received.metadata.get(STATUS_CODE_KEY).map(String::as_str)
+                );
+                if code != RpcCode::Ok {
+                    let msg_text = String::from_utf8_lossy(&received.payload).to_string();
+                    if !*members.get(&source).unwrap_or(&true) {
+                        members.insert(source.clone(), true);
+                        num_completed += 1;
+                    }
+                    let err = RpcError::new(code, msg_text);
+                    yield Err(if channel.is_group { err.with_origin(source.to_string()) } else { err });
+                    if num_completed >= num_members { break; }
+                    continue;
+                }
+
+                let response = match Res::decode(received.payload) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        if !*members.get(&source).unwrap_or(&true) {
+                            members.insert(source.clone(), true);
+                            num_completed += 1;
+                        }
+                        yield Err(if channel.is_group { e.with_origin(source.to_string()) } else { e });
+                        if num_completed >= num_members { break; }
+                        continue;
+                    }
+                };
+                yield Ok(MulticastItem { context: MessageContext { source }, message: response });
+            }
         }
-
-        Res::decode(received.payload).map_err(ReceiveError::Transport)
     }
 
-    /// Make a unary RPC call
+    // ── RPC methods ───────────────────────────────────────────────────────────
+
+    /// Unary RPC: single request → single response.
     ///
-    /// Sends a single request and receives a single response.
+    /// Equivalent to `unary_stream(...).next()`.
     pub async fn unary<Req, Res>(
         &self,
         service_name: &str,
@@ -467,42 +667,25 @@ impl Channel {
         metadata: Option<Metadata>,
     ) -> Result<Res, RpcError>
     where
-        Req: Encoder,
-        Res: Decoder,
+        Req: Encoder + Send + 'static,
+        Res: Decoder + Send + 'static,
     {
-        tracing::debug!(%service_name, %method_name, "Making unary RPC call");
-
-        let timeout_duration = calculate_timeout_duration(timeout);
-        let mut delay = Delay::new(timeout_duration);
-        let ctx = self.create_context_for_rpc(timeout, metadata);
-
-        let (session_tx, dispatcher) = tokio::select! {
-            result = self.get_or_create_session() => result,
-            _ = &mut delay => Err(RpcError::deadline_exceeded("Client deadline exceeded during unary call")),
-        }?;
-
-        let rpc_id = generate_rpc_id();
-        let mut rx = dispatcher.register(&rpc_id);
-
-        let result = tokio::select! {
-            result = async {
-                self.send_request(&session_tx, &ctx, request, service_name, method_name, &rpc_id).await?;
-                match self.receive_response_from_channel(&mut rx).await {
-                    Ok(response) => Ok(response),
-                    Err(ReceiveError::Transport(e)) => Err(e),
-                    Err(ReceiveError::Rpc(e)) => Err(e),
-                }
-            } => result,
-            _ = &mut delay => Err(RpcError::deadline_exceeded("Client deadline exceeded during unary call")),
-        };
-
-        dispatcher.unregister(&rpc_id);
-        result
+        let stream = self.responses_from_stream_input(
+            service_name,
+            method_name,
+            futures::stream::once(std::future::ready(request)),
+            timeout,
+            metadata,
+        );
+        futures::pin_mut!(stream);
+        stream
+            .next()
+            .await
+            .unwrap_or_else(|| Err(RpcError::internal("No response received")))
+            .map(|item| item.message)
     }
 
-    /// Make a unary-stream RPC call
-    ///
-    /// Sends a single request and receives a stream of responses.
+    /// Unary-stream RPC: single request → stream of responses.
     pub fn unary_stream<Req, Res>(
         &self,
         service_name: &str,
@@ -515,59 +698,19 @@ impl Channel {
         Req: Encoder + Send + 'static,
         Res: Decoder + Send + 'static,
     {
-        let service_name = service_name.to_string();
-        let method_name = method_name.to_string();
-        let channel = self.clone();
-
-        try_stream! {
-            let timeout_duration = calculate_timeout_duration(timeout);
-            let mut delay = Delay::new(timeout_duration);
-            let ctx = channel.create_context_for_rpc(timeout, metadata.clone());
-
-            let (session_tx, dispatcher) = tokio::select! {
-                result = channel.get_or_create_session() => result,
-                _ = &mut delay => Err(RpcError::deadline_exceeded("Client deadline exceeded during unary-stream call")),
-            }?;
-
-            let rpc_id = generate_rpc_id();
-            let mut rx = dispatcher.register(&rpc_id);
-
-            let send_result = tokio::select! {
-                result = channel.send_request(&session_tx, &ctx, request, &service_name, &method_name, &rpc_id) => result,
-                _ = &mut delay => Err(RpcError::deadline_exceeded("Client deadline exceeded while sending request")),
-            };
-            if let Err(e) = send_result {
-                dispatcher.unregister(&rpc_id);
-                Err(e)?;
-            }
-
-            loop {
-                let received = tokio::select! {
-                    msg = rx.recv() => msg.ok_or_else(|| RpcError::internal("Response channel closed")),
-                    _ = &mut delay => Err(RpcError::deadline_exceeded("Client deadline exceeded while receiving stream")),
-                };
-                let received = match received {
-                    Ok(r) => r,
-                    Err(e) => {
-                        dispatcher.unregister(&rpc_id);
-                        Err(e)?
-                    }
-                };
-
-                if channel.check_stream_message(&received)?.is_none() {
-                    dispatcher.unregister(&rpc_id);
-                    break;
-                }
-
-                let response = Res::decode(received.payload)?;
-                yield response;
-            }
-        }
+        self.responses_from_stream_input(
+            service_name,
+            method_name,
+            futures::stream::once(std::future::ready(request)),
+            timeout,
+            metadata,
+        )
+        .map(|r| r.map(|item| item.message))
     }
 
-    /// Make a stream-unary RPC call
+    /// Stream-unary RPC: stream of requests → single response.
     ///
-    /// Sends a stream of requests and receives a single response.
+    /// Equivalent to `stream_stream(...).next()`.
     pub async fn stream_unary<Req, Res>(
         &self,
         service_name: &str,
@@ -577,40 +720,25 @@ impl Channel {
         metadata: Option<Metadata>,
     ) -> Result<Res, RpcError>
     where
-        Req: Encoder,
-        Res: Decoder,
+        Req: Encoder + Send + 'static,
+        Res: Decoder + Send + 'static,
     {
-        let timeout_duration = calculate_timeout_duration(timeout);
-        let mut delay = Delay::new(timeout_duration);
-        let ctx = self.create_context_for_rpc(timeout, metadata.clone());
-
-        let (session_tx, dispatcher) = tokio::select! {
-            result = self.get_or_create_session() => result,
-            _ = &mut delay => Err(RpcError::deadline_exceeded("Client deadline exceeded during stream-unary call")),
-        }?;
-
-        let rpc_id = generate_rpc_id();
-        let mut rx = dispatcher.register(&rpc_id);
-
-        let result = tokio::select! {
-            result = async {
-                self.send_request_stream(&session_tx, &ctx, request_stream, service_name, method_name, &rpc_id).await?;
-                match self.receive_response_from_channel(&mut rx).await {
-                    Ok(response) => Ok(response),
-                    Err(ReceiveError::Transport(e)) => Err(e),
-                    Err(ReceiveError::Rpc(e)) => Err(e),
-                }
-            } => result,
-            _ = &mut delay => Err(RpcError::deadline_exceeded("Client deadline exceeded during stream-unary call")),
-        };
-
-        dispatcher.unregister(&rpc_id);
-        result
+        let stream = self.responses_from_stream_input(
+            service_name,
+            method_name,
+            request_stream,
+            timeout,
+            metadata,
+        );
+        futures::pin_mut!(stream);
+        stream
+            .next()
+            .await
+            .unwrap_or_else(|| Err(RpcError::internal("No response received")))
+            .map(|item| item.message)
     }
 
-    /// Make a stream-stream RPC call
-    ///
-    /// Sends a stream of requests and receives a stream of responses.
+    /// Stream-stream RPC: stream of requests → stream of responses.
     pub fn stream_stream<Req, Res>(
         &self,
         service_name: &str,
@@ -623,97 +751,124 @@ impl Channel {
         Req: Encoder + Send + 'static,
         Res: Decoder + Send + 'static,
     {
-        let service_name = service_name.to_string();
-        let method_name = method_name.to_string();
-        let channel = self.clone();
-
-        try_stream! {
-            let timeout_duration = calculate_timeout_duration(timeout);
-            let mut delay = Delay::new(timeout_duration);
-            let ctx = channel.create_context_for_rpc(timeout, metadata.clone());
-
-            let (session_tx, dispatcher) = tokio::select! {
-                result = channel.get_or_create_session() => result,
-                _ = &mut delay => Err(RpcError::deadline_exceeded("Client deadline exceeded during stream-stream call")),
-            }?;
-
-            let rpc_id = generate_rpc_id();
-            let mut rx = dispatcher.register(&rpc_id);
-
-            // Spawn background task to send requests concurrently with receiving
-            let session_tx_for_send = session_tx.clone();
-            let ctx_for_send = ctx.clone();
-            let service_name_for_send = service_name.clone();
-            let method_name_for_send = method_name.clone();
-            let rpc_id_for_send = rpc_id.clone();
-            let channel_for_send = channel.clone();
-            let mut send_handle = channel.runtime.spawn(async move {
-                channel_for_send.send_request_stream(
-                    &session_tx_for_send,
-                    &ctx_for_send,
-                    request_stream,
-                    &service_name_for_send,
-                    &method_name_for_send,
-                    &rpc_id_for_send,
-                ).await
-            });
-
-            let mut send_completed = false;
-            loop {
-                let received = tokio::select! {
-                    msg = rx.recv() => msg.ok_or_else(|| RpcError::internal("Response channel closed")),
-                    send_result = &mut send_handle, if !send_completed => {
-                        send_completed = true;
-                        match send_result {
-                            Ok(Ok(_)) => continue,
-                            Ok(Err(e)) => {
-                                dispatcher.unregister(&rpc_id);
-                                Err(e)
-                            },
-                            Err(e) => {
-                                dispatcher.unregister(&rpc_id);
-                                Err(RpcError::internal(format!("Send task panicked: {}", e)))
-                            },
-                        }
-                    },
-                    _ = &mut delay => {
-                        dispatcher.unregister(&rpc_id);
-                        Err(RpcError::deadline_exceeded("Client deadline exceeded while receiving stream"))
-                    },
-                };
-
-                let received = match received {
-                    Ok(r) => r,
-                    Err(e) => {
-                        dispatcher.unregister(&rpc_id);
-                        Err(e)?
-                    }
-                };
-
-                if channel.check_stream_message(&received)?.is_none() {
-                    dispatcher.unregister(&rpc_id);
-                    break;
-                }
-
-                let response = Res::decode(received.payload)?;
-                yield response;
-            }
-        }
+        self.responses_from_stream_input(
+            service_name,
+            method_name,
+            request_stream,
+            timeout,
+            metadata,
+        )
+        .map(|r| r.map(|item| item.message))
     }
 
-    /// Create a context for a specific RPC call with deadline
-    fn create_context_for_rpc(
+    /// Multicast unary: broadcast one request, receive one `MulticastItem` per member.
+    ///
+    /// Each item carries a `MessageContext` identifying the source member plus the
+    /// decoded response. The stream ends when all members have sent their response.
+    pub fn multicast_unary<Req, Res>(
         &self,
+        service_name: &str,
+        method_name: &str,
+        request: Req,
         timeout: Option<Duration>,
         metadata: Option<Metadata>,
-    ) -> Context {
-        let deadline = calculate_deadline(timeout);
-        let mut ctx = Context::new();
-        ctx.set_deadline(deadline);
-        if let Some(meta) = metadata {
-            ctx.metadata_mut().extend(meta);
-        }
-        ctx
+    ) -> impl Stream<Item = Result<MulticastItem<Res>, RpcError>>
+    where
+        Req: Encoder + Send + 'static,
+        Res: Decoder + Send + 'static,
+    {
+        self.responses_from_stream_input(
+            service_name,
+            method_name,
+            futures::stream::once(std::future::ready(request)),
+            timeout,
+            metadata,
+        )
+    }
+
+    /// Multicast unary-stream: broadcast one request, receive a stream of `MulticastItem`s.
+    ///
+    /// Each group member may return multiple responses. All responses from all
+    /// members are interleaved in arrival order, each tagged with its source.
+    /// The stream ends when all members have sent their final EOS.
+    ///
+    /// Transport is identical to `multicast_unary`; the semantic difference
+    /// (one vs many responses per member) lives in the server handler.
+    pub fn multicast_unary_stream<Req, Res>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        request: Req,
+        timeout: Option<Duration>,
+        metadata: Option<Metadata>,
+    ) -> impl Stream<Item = Result<MulticastItem<Res>, RpcError>>
+    where
+        Req: Encoder + Send + 'static,
+        Res: Decoder + Send + 'static,
+    {
+        self.responses_from_stream_input(
+            service_name,
+            method_name,
+            futures::stream::once(std::future::ready(request)),
+            timeout,
+            metadata,
+        )
+    }
+
+    /// Multicast stream-unary: broadcast a request stream, receive one `MulticastItem` per member.
+    ///
+    /// The request stream is broadcast to all members. Each member replies with
+    /// a single response tagged with its source. The stream ends when all members
+    /// have sent their response.
+    pub fn multicast_stream_unary<Req, Res>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        request_stream: impl Stream<Item = Req> + Send + 'static,
+        timeout: Option<Duration>,
+        metadata: Option<Metadata>,
+    ) -> impl Stream<Item = Result<MulticastItem<Res>, RpcError>>
+    where
+        Req: Encoder + Send + 'static,
+        Res: Decoder + Send + 'static,
+    {
+        self.responses_from_stream_input(
+            service_name,
+            method_name,
+            request_stream,
+            timeout,
+            metadata,
+        )
+    }
+
+    /// Multicast stream-stream: broadcast a request stream, receive a stream of `MulticastItem`s.
+    ///
+    /// The request stream is broadcast to all members. Each member replies with
+    /// its own response stream. All responses from all members are interleaved in
+    /// arrival order, each tagged with its source. The stream ends when all members
+    /// have sent their final EOS.
+    ///
+    /// Transport is identical to `multicast_stream_unary`; the semantic
+    /// difference lives in the server handler.
+    pub fn multicast_stream_stream<Req, Res>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        request_stream: impl Stream<Item = Req> + Send + 'static,
+        timeout: Option<Duration>,
+        metadata: Option<Metadata>,
+    ) -> impl Stream<Item = Result<MulticastItem<Res>, RpcError>>
+    where
+        Req: Encoder + Send + 'static,
+        Res: Decoder + Send + 'static,
+    {
+        self.responses_from_stream_input(
+            service_name,
+            method_name,
+            request_stream,
+            timeout,
+            metadata,
+        )
     }
 
     pub fn app(&self) -> &Arc<SlimApp<AuthProvider, AuthVerifier>> {
@@ -729,37 +884,46 @@ impl Channel {
     }
 }
 
-/// Result type for receive operations that distinguishes error sources
-enum ReceiveError {
-    /// Transport-level error (channel closed, decode failure, etc.)
-    Transport(RpcError),
-    /// RPC-level error from handler (in metadata)
-    Rpc(RpcError),
-}
+// ── UniFFI exports ────────────────────────────────────────────────────────────
 
 #[uniffi::export]
 impl Channel {
-    /// Create a new RPC channel
     #[uniffi::constructor]
-    pub fn new(app: std::sync::Arc<crate::App>, remote: std::sync::Arc<crate::Name>) -> Self {
+    pub fn new(app: Arc<crate::App>, remote: Arc<crate::Name>) -> Self {
         Self::new_with_connection(app, remote, None)
     }
 
-    /// Create a new RPC channel with optional connection ID
     #[uniffi::constructor]
     pub fn new_with_connection(
-        app: std::sync::Arc<crate::App>,
-        remote: std::sync::Arc<crate::Name>,
+        app: Arc<crate::App>,
+        remote: Arc<crate::Name>,
         connection_id: Option<u64>,
     ) -> Self {
         let slim_app = app.inner_app().clone();
         let slim_name = remote.as_slim_name().clone();
-        let runtime = crate::get_runtime().handle().clone();
-
-        Self::new_with_connection_internal(slim_app, slim_name, connection_id, Some(runtime))
+        Self::new_with_members_internal(slim_app, vec![slim_name], false, connection_id)
+            .expect("single non-empty member list is always valid")
     }
 
-    /// Make a unary-to-unary RPC call (blocking version)
+    #[uniffi::constructor]
+    pub fn new_group(
+        app: Arc<crate::App>,
+        members: Vec<Arc<crate::Name>>,
+    ) -> Result<Self, RpcError> {
+        Self::new_group_with_connection(app, members, None)
+    }
+
+    #[uniffi::constructor]
+    pub fn new_group_with_connection(
+        app: Arc<crate::App>,
+        members: Vec<Arc<crate::Name>>,
+        connection_id: Option<u64>,
+    ) -> Result<Self, RpcError> {
+        let slim_app = app.inner_app().clone();
+        let slim_names = members.iter().map(|n| n.as_slim_name().clone()).collect();
+        Self::new_with_members_internal(slim_app, slim_names, true, connection_id)
+    }
+
     pub fn call_unary(
         &self,
         service_name: String,
@@ -777,7 +941,6 @@ impl Channel {
         ))
     }
 
-    /// Make a unary-to-unary RPC call (async version)
     pub async fn call_unary_async(
         &self,
         service_name: String,
@@ -790,7 +953,6 @@ impl Channel {
             .await
     }
 
-    /// Make a unary-to-stream RPC call (blocking version)
     pub fn call_unary_stream(
         &self,
         service_name: String,
@@ -798,7 +960,7 @@ impl Channel {
         request: Vec<u8>,
         timeout: Option<std::time::Duration>,
         metadata: Option<Metadata>,
-    ) -> Result<std::sync::Arc<ResponseStreamReader>, RpcError> {
+    ) -> Result<Arc<ResponseStreamReader>, RpcError> {
         crate::get_runtime().block_on(self.call_unary_stream_async(
             service_name,
             method_name,
@@ -808,7 +970,6 @@ impl Channel {
         ))
     }
 
-    /// Make a unary-to-stream RPC call (async version)
     pub async fn call_unary_stream_async(
         &self,
         service_name: String,
@@ -816,11 +977,9 @@ impl Channel {
         request: Vec<u8>,
         timeout: Option<std::time::Duration>,
         metadata: Option<Metadata>,
-    ) -> Result<std::sync::Arc<ResponseStreamReader>, RpcError> {
+    ) -> Result<Arc<ResponseStreamReader>, RpcError> {
         let channel = self.clone();
-
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-
+        let (tx, rx) = unbounded_channel();
         crate::get_runtime().spawn(async move {
             let stream = channel.unary_stream::<Vec<u8>, Vec<u8>>(
                 &service_name,
@@ -830,26 +989,23 @@ impl Channel {
                 metadata,
             );
             futures::pin_mut!(stream);
-
             while let Some(item) = futures::StreamExt::next(&mut stream).await {
                 if tx.send(item).is_err() {
                     break;
                 }
             }
         });
-
-        Ok(std::sync::Arc::new(ResponseStreamReader::new(rx)))
+        Ok(Arc::new(ResponseStreamReader::new(rx)))
     }
 
-    /// Make a stream-to-unary RPC call (blocking version)
     pub fn call_stream_unary(
         &self,
         service_name: String,
         method_name: String,
         timeout: Option<std::time::Duration>,
         metadata: Option<Metadata>,
-    ) -> std::sync::Arc<RequestStreamWriter> {
-        std::sync::Arc::new(RequestStreamWriter::new(
+    ) -> Arc<RequestStreamWriter> {
+        Arc::new(RequestStreamWriter::new(
             self.clone(),
             service_name,
             method_name,
@@ -858,15 +1014,14 @@ impl Channel {
         ))
     }
 
-    /// Make a stream-to-stream RPC call (blocking version)
     pub fn call_stream_stream(
         &self,
         service_name: String,
         method_name: String,
         timeout: Option<std::time::Duration>,
         metadata: Option<HashMap<String, String>>,
-    ) -> std::sync::Arc<BidiStreamHandler> {
-        std::sync::Arc::new(BidiStreamHandler::new(
+    ) -> Arc<BidiStreamHandler> {
+        Arc::new(BidiStreamHandler::new(
             self.clone(),
             service_name,
             method_name,
@@ -874,7 +1029,207 @@ impl Channel {
             metadata,
         ))
     }
+
+    // ── Multicast UniFFI methods ───────────────────────────────────────────────
+
+    /// Broadcast one request to all GROUP members and collect their responses.
+    ///
+    /// Returns a reader from which each member's response (wrapped in
+    /// `MulticastStreamMessage`) can be pulled one at a time (blocking).
+    pub fn call_multicast_unary(
+        &self,
+        service_name: String,
+        method_name: String,
+        request: Vec<u8>,
+        timeout: Option<std::time::Duration>,
+        metadata: Option<Metadata>,
+    ) -> Result<Arc<MulticastResponseReader>, RpcError> {
+        crate::get_runtime().block_on(self.call_multicast_unary_async(
+            service_name,
+            method_name,
+            request,
+            timeout,
+            metadata,
+        ))
+    }
+
+    /// Broadcast one request to all GROUP members and collect their responses
+    /// (async).
+    pub async fn call_multicast_unary_async(
+        &self,
+        service_name: String,
+        method_name: String,
+        request: Vec<u8>,
+        timeout: Option<std::time::Duration>,
+        metadata: Option<Metadata>,
+    ) -> Result<Arc<MulticastResponseReader>, RpcError> {
+        let channel = self.clone();
+        let (tx, rx) = unbounded_channel();
+        crate::get_runtime().spawn(async move {
+            let stream = channel.multicast_unary::<Vec<u8>, Vec<u8>>(
+                &service_name,
+                &method_name,
+                request,
+                timeout,
+                metadata,
+            );
+            futures::pin_mut!(stream);
+            while let Some(item) = futures::StreamExt::next(&mut stream).await {
+                if tx.send(item).is_err() {
+                    break;
+                }
+            }
+        });
+        Ok(Arc::new(MulticastResponseReader::new(rx)))
+    }
+
+    /// Broadcast one request to all GROUP members and stream their responses
+    /// (blocking).
+    ///
+    /// Semantically identical to `call_multicast_unary` at the transport level;
+    /// the difference is that each member may send multiple responses before its
+    /// EOS, which the server handler determines.
+    pub fn call_multicast_unary_stream(
+        &self,
+        service_name: String,
+        method_name: String,
+        request: Vec<u8>,
+        timeout: Option<std::time::Duration>,
+        metadata: Option<Metadata>,
+    ) -> Result<Arc<MulticastResponseReader>, RpcError> {
+        crate::get_runtime().block_on(self.call_multicast_unary_stream_async(
+            service_name,
+            method_name,
+            request,
+            timeout,
+            metadata,
+        ))
+    }
+
+    /// Broadcast one request to all GROUP members and stream their responses
+    /// (async).
+    pub async fn call_multicast_unary_stream_async(
+        &self,
+        service_name: String,
+        method_name: String,
+        request: Vec<u8>,
+        timeout: Option<std::time::Duration>,
+        metadata: Option<Metadata>,
+    ) -> Result<Arc<MulticastResponseReader>, RpcError> {
+        let channel = self.clone();
+        let (tx, rx) = unbounded_channel();
+        crate::get_runtime().spawn(async move {
+            let stream = channel.multicast_unary_stream::<Vec<u8>, Vec<u8>>(
+                &service_name,
+                &method_name,
+                request,
+                timeout,
+                metadata,
+            );
+            futures::pin_mut!(stream);
+            while let Some(item) = futures::StreamExt::next(&mut stream).await {
+                if tx.send(item).is_err() {
+                    break;
+                }
+            }
+        });
+        Ok(Arc::new(MulticastResponseReader::new(rx)))
+    }
+
+    /// Broadcast a request stream to all GROUP members and collect their
+    /// responses.
+    ///
+    /// Returns a handler that lets you send requests and receive responses
+    /// concurrently. Use `send` / `send_async` to push request messages,
+    /// `close_send` / `close_send_async` to signal end-of-requests, and
+    /// `recv` / `recv_async` to pull response items.
+    pub fn call_multicast_stream_unary(
+        &self,
+        service_name: String,
+        method_name: String,
+        timeout: Option<std::time::Duration>,
+        metadata: Option<Metadata>,
+    ) -> Arc<MulticastBidiStreamHandler> {
+        Arc::new(MulticastBidiStreamHandler::new(
+            self.clone(),
+            service_name,
+            method_name,
+            timeout,
+            metadata,
+        ))
+    }
+
+    /// Broadcast a request stream to all GROUP members and stream their
+    /// responses.
+    ///
+    /// Semantically equivalent to `call_multicast_stream_unary` at the
+    /// transport level; the difference (one vs many responses per member) is
+    /// determined by the server handler.
+    pub fn call_multicast_stream_stream(
+        &self,
+        service_name: String,
+        method_name: String,
+        timeout: Option<std::time::Duration>,
+        metadata: Option<Metadata>,
+    ) -> Arc<MulticastBidiStreamHandler> {
+        Arc::new(MulticastBidiStreamHandler::new(
+            self.clone(),
+            service_name,
+            method_name,
+            timeout,
+            metadata,
+        ))
+    }
+
+    /// Close the persistent SLIM session held by this channel, if any.
+    ///
+    /// `timeout` optionally bounds how long to wait for the session layer to
+    /// confirm the close before giving up and proceeding with cleanup anyway.
+    /// Pass `None` to wait indefinitely.
+    ///
+    /// After this call the channel can still be used; a new session will be
+    /// created automatically on the next RPC call.
+    pub fn close(&self, timeout: Option<Duration>) -> Result<(), RpcError> {
+        crate::get_runtime().block_on(self.close_async(timeout))
+    }
+
+    /// Async version of [`close`](Self::close).
+    pub async fn close_async(&self, timeout: Option<Duration>) -> Result<(), RpcError> {
+        let mut guard = self.session.lock().await;
+        let Some(cs) = guard.take() else {
+            return Ok(());
+        };
+
+        let close_future = cs.tx.close(self.app.as_ref());
+        futures::pin_mut!(close_future);
+
+        if let Some(duration) = timeout {
+            // Bound the wait with a futures-timer delay so this works across
+            // all async runtimes exposed by the bindings.
+            let delay = Delay::new(duration);
+            futures::pin_mut!(delay);
+            match futures::future::select(close_future, delay).await {
+                futures::future::Either::Left((Err(e), _)) => {
+                    tracing::warn!(error = %e, "Error closing session");
+                }
+                futures::future::Either::Right(_) => {
+                    tracing::warn!("Timeout waiting for session close");
+                }
+                _ => {}
+            }
+        } else if let Err(e) = close_future.await {
+            tracing::warn!(error = %e, "Error closing session");
+        }
+
+        // Closing the session tx drops the underlying receive channel; the
+        // dispatcher task detects the closed channel and exits naturally.
+        let _ = cs.task.await;
+
+        Ok(())
+    }
 }
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -894,5 +1249,91 @@ mod tests {
         assert_eq!(id1.len(), 36);
         assert_eq!(id2.len(), 36);
         assert_ne!(id1, id2);
+    }
+
+    // ── ResponseDispatcher ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_response_dispatcher_close_all() {
+        let dispatcher = ResponseDispatcher::new();
+        let mut rx1 = dispatcher.register("rpc-a");
+        let mut rx2 = dispatcher.register("rpc-b");
+
+        dispatcher.close_all();
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            assert!(
+                rx1.recv().await.is_none(),
+                "rx1 should see None after close_all"
+            );
+            assert!(
+                rx2.recv().await.is_none(),
+                "rx2 should see None after close_all"
+            );
+        });
+    }
+
+    #[test]
+    fn test_response_dispatcher_dispatch_and_unregister() {
+        let dispatcher = ResponseDispatcher::new();
+        let mut rx = dispatcher.register("rpc-x");
+
+        let dummy_name = Name::from_strings(["", "", ""]);
+        let msg = ReceivedMessage {
+            metadata: HashMap::new(),
+            payload: vec![1, 2, 3],
+            source: dummy_name.clone(),
+        };
+        assert!(dispatcher.dispatch(msg, "rpc-x"));
+        assert!(!dispatcher.dispatch(
+            ReceivedMessage {
+                metadata: HashMap::new(),
+                payload: vec![],
+                source: dummy_name.clone(),
+            },
+            "rpc-unknown"
+        ));
+
+        dispatcher.unregister("rpc-x");
+        assert!(!dispatcher.dispatch(
+            ReceivedMessage {
+                metadata: HashMap::new(),
+                payload: vec![],
+                source: dummy_name.clone(),
+            },
+            "rpc-x"
+        ));
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let received = rx.recv().await;
+            assert!(received.is_some());
+            assert_eq!(received.unwrap().payload, vec![1, 2, 3]);
+        });
+    }
+
+    // ── DispatcherGuard ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_dispatcher_guard_unregisters_on_drop() {
+        let dispatcher = Arc::new(ResponseDispatcher::new());
+        let _rx = dispatcher.register("rpc-guard");
+        {
+            let _guard = DispatcherGuard {
+                dispatcher: dispatcher.clone(),
+                rpc_id: "rpc-guard".to_string(),
+            };
+            // _guard dropped here → unregister called
+        }
+        // After guard drops, dispatch must fail.
+        assert!(!dispatcher.dispatch(
+            ReceivedMessage {
+                metadata: HashMap::new(),
+                payload: vec![],
+                source: Name::from_strings(["", "", ""]),
+            },
+            "rpc-guard"
+        ));
     }
 }

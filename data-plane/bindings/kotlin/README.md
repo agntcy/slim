@@ -5,6 +5,7 @@ Kotlin/JVM bindings for the SLIM data plane, generated using [UniFFI](https://mo
 ## Overview
 
 This package provides Kotlin bindings for SLIM, enabling secure messaging with:
+
 - **Point-to-point messaging**: Direct communication between two parties
 - **Group messaging**: Multi-party communication with MLS encryption support
 - **Identity management**: Support for shared secrets, JWT, and SPIRE authentication
@@ -28,6 +29,7 @@ kotlin/
 ├── build.gradle.kts        # Gradle build configuration
 ├── settings.gradle.kts     # Gradle settings
 ├── gradle.properties       # Build properties
+├── detekt.yml              # Detekt linter rules (used by `task lint`)
 ├── examples/
 │   ├── common/             # Shared utilities
 │   │   ├── Config.kt       # Configuration data classes
@@ -39,6 +41,7 @@ kotlin/
 └── generated/              # UniFFI-generated code (gitignored)
     └── io/agntcy/slim/bindings/
         └── slim_bindings.kt
+
 ```
 
 ## Quick Start
@@ -52,6 +55,7 @@ task generate
 ```
 
 This will:
+
 1. Build the Rust `slim_bindings` library
 2. Run `uniffi-bindgen` with `uniffi.toml` config to generate Kotlin code in the `io.agntcy.slim.bindings` package
 3. Apply compatibility patches (exception message parameters, wait() method conflicts)
@@ -272,13 +276,16 @@ All examples support the following common arguments:
 - `--enable-opentelemetry` - Enable OpenTelemetry tracing
 
 **Point-to-Point specific:**
+
 - `--message <text>` - Message to send (activates sender mode)
 - `--iterations <n>` - Number of request/reply cycles (default: 10)
 
 **Group specific:**
+
 - `--invites <id>` - Invite participant (can be specified multiple times)
 
 **Server specific:**
+
 - `--slim, -s <address>` - Server address (host:port)
 
 ### Environment Variables
@@ -296,6 +303,7 @@ Configuration can also be provided via environment variables with the `SLIM_` pr
 The bindings support three authentication modes:
 
 1. **Shared Secret** (default, for development):
+
    ```kotlin
    val config = BaseConfig(
        local = "org/alice/app",
@@ -304,6 +312,7 @@ The bindings support three authentication modes:
    ```
 
 2. **JWT with JWKS**:
+
    ```kotlin
    val config = BaseConfig(
        local = "org/alice/app",
@@ -314,6 +323,7 @@ The bindings support three authentication modes:
    ```
 
 3. **SPIRE** (dynamic identity):
+
    ```kotlin
    val config = BaseConfig(
        local = "org/alice/app",
@@ -402,6 +412,7 @@ try {
 - `examples/*.kt` - Example applications
 - `generated/` - UniFFI-generated Kotlin code (not in git)
 - `build.gradle.kts` - Gradle build configuration
+- `detekt.yml` — Static analysis rules (`task lint` in this directory)
 - `Taskfile.yaml` - Task automation
 
 ## License

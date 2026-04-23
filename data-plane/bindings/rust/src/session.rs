@@ -704,11 +704,10 @@ mod tests {
 
     /// Helper to create FFI Name for MessageContext construction
     fn make_ffi_name(parts: [&str; 3]) -> FfiName {
-        FfiName::new_with_id(
+        FfiName::new(
             parts[0].to_string(),
             parts[1].to_string(),
             parts[2].to_string(),
-            u64::MAX, // Default SlimName ID
         )
     }
 

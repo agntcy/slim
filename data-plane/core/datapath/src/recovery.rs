@@ -17,8 +17,9 @@ use crate::tables::remote_subscription_table::SubscriptionInfo;
 /// the connection — callers never need to consult a second table.
 #[derive(Debug)]
 pub(crate) struct RecoveryEntry {
-    /// Subscriptions in the local routing table that pointed through the dropped connection.
-    pub(crate) local_subs: HashSet<Name>,
+    /// Subscriptions in the local routing table that pointed through the dropped connection,
+    /// together with their original subscription IDs so they can be restored exactly.
+    pub(crate) local_subs: HashMap<Name, HashSet<u64>>,
     /// Subscriptions that were forwarded *to* the remote peer on the dropped connection.
     pub(crate) remote_subs: HashSet<SubscriptionInfo>,
 }
@@ -63,7 +64,7 @@ impl RecoveryTable {
     pub(crate) fn store(
         &self,
         link_id: String,
-        local_subs: HashSet<Name>,
+        local_subs: HashMap<Name, HashSet<u64>>,
         remote_subs: HashSet<SubscriptionInfo>,
     ) {
         self.inner.table.write().insert(
@@ -127,8 +128,8 @@ mod tests {
     use crate::messages::Name;
     use crate::tables::remote_subscription_table::SubscriptionInfo;
 
-    fn empty_entry() -> (HashSet<Name>, HashSet<SubscriptionInfo>) {
-        (HashSet::new(), HashSet::new())
+    fn empty_entry() -> (HashMap<Name, HashSet<u64>>, HashSet<SubscriptionInfo>) {
+        (HashMap::new(), HashSet::new())
     }
 
     // ── store / take ──────────────────────────────────────────────────────────
@@ -162,8 +163,11 @@ mod tests {
         let (local, remote) = empty_entry();
         t.store("link-1".into(), local, remote);
 
-        let mut local2: HashSet<Name> = HashSet::new();
-        local2.insert(Name::from_strings(["org", "ns", "svc"]));
+        let mut local2: HashMap<Name, HashSet<u64>> = HashMap::new();
+        local2.insert(
+            Name::from_strings(["org", "ns", "svc"]),
+            HashSet::from([1u64]),
+        );
         t.store("link-1".into(), local2, HashSet::new());
 
         let entry = t

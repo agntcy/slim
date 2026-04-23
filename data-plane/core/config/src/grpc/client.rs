@@ -36,6 +36,8 @@ use super::headers_middleware::SetRequestHeaderLayer;
 use crate::auth::ClientAuthenticator;
 use crate::auth::basic::Config as BasicAuthenticationConfig;
 use crate::auth::jwt::Config as JwtAuthenticationConfig;
+#[cfg(not(target_family = "windows"))]
+use crate::auth::spire::SpireConfig as SpireAuthConfig;
 use crate::auth::static_jwt::Config as BearerAuthenticationConfig;
 use crate::backoff::Strategy;
 use crate::backoff::exponential::Config as ExponentialBackoff;
@@ -206,6 +208,9 @@ pub enum AuthenticationConfig {
     StaticJwt(BearerAuthenticationConfig),
     /// JWT authentication configuration.
     Jwt(JwtAuthenticationConfig),
+    /// SPIRE/SPIFFE authentication configuration.
+    #[cfg(not(target_family = "windows"))]
+    Spire(SpireAuthConfig),
     /// None
     #[default]
     None,
@@ -1055,6 +1060,10 @@ impl ClientConfig {
             }
             AuthenticationConfig::Jwt(jwt) => {
                 create_auth_service_with_init!(self, jwt, header_map, channel)
+            }
+            #[cfg(not(target_family = "windows"))]
+            AuthenticationConfig::Spire(spire) => {
+                create_auth_service_with_init!(self, spire, header_map, channel)
             }
             AuthenticationConfig::None => Ok(tower::ServiceBuilder::new()
                 .layer(SetRequestHeaderLayer::new(header_map))

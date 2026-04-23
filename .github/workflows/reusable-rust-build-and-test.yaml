@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-name: rust-build-and-test
+
+name: reusable-rust-build-and-test
 on:
   workflow_call:
     inputs:
@@ -67,7 +68,9 @@ jobs:
     if: ${{ inputs.rust-lint }}
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
@@ -83,8 +86,10 @@ jobs:
           poetry-install: false
 
       - name: lint
+        env:
+          TASK_PREFIX: ${{ inputs.task-prefix }}
         run: |
-          task ${{ inputs.task-prefix }}:lint
+          task "${TASK_PREFIX}:lint"
 
   test-coverage:
     runs-on: ${{ inputs.runner }}
@@ -97,8 +102,9 @@ jobs:
     needs: [lint]
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Setup Rust
@@ -107,8 +113,10 @@ jobs:
           workspace: ${{ inputs.working-directory }}
 
       - name: Run `coverage`
+        env:
+          TASK_PREFIX: ${{ inputs.task-prefix }}
         run: |
-          task ${{ inputs.task-prefix }}:test:coverage
+          task "${TASK_PREFIX}:test:coverage"
 
   unittest-matrix:
     runs-on: ${{ inputs.runner }}
@@ -121,8 +129,9 @@ jobs:
     needs: [lint]
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Setup Rust
@@ -139,8 +148,10 @@ jobs:
           poetry-install: false
 
       - name: Run Unit Tests
+        env:
+          TASK_PREFIX: ${{ inputs.task-prefix }}
         run: |
-          task ${{ inputs.task-prefix }}:test
+          task "${TASK_PREFIX}:test"
 
   unittest:
     runs-on: ${{ inputs.runner }}
@@ -182,8 +193,9 @@ jobs:
 
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Setup Rust
@@ -193,5 +205,10 @@ jobs:
           cache-enabled: ${{ matrix.profile != 'release' }}
 
       - name: Build
+        env:
+          TASK_PREFIX: ${{ inputs.task-prefix }}
+          ARCH: ${{ matrix.arch }}
+          OS: ${{ matrix.os }}
+          PROFILE: ${{ matrix.profile }}
         run: |
-          task ${{ inputs.task-prefix }}:build TARGET=${{matrix.arch}}-unknown-${{ matrix.os }}-gnu PROFILE=${{ matrix.profile }}
+          task "${TASK_PREFIX}:build" TARGET="${ARCH}-unknown-${OS}-gnu" PROFILE="${PROFILE}"

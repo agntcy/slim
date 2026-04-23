@@ -79,6 +79,32 @@ fn bench_capacity(c: &mut Criterion) {
     });
 }
 
+fn bench_remove(c: &mut Criterion) {
+    c.bench_function("pool remove", |b| {
+        b.iter(|| {
+            let mut pool = Pool::with_capacity(1024);
+            let ids: Vec<usize> = (0..1024).map(|i| pool.insert(i)).collect();
+            for id in &ids {
+                black_box(pool.remove(*id));
+            }
+        })
+    });
+}
+
+fn bench_remove_insert_cycle(c: &mut Criterion) {
+    // Measures the cost of alternating remove+insert, exercising slot reuse.
+    c.bench_function("pool remove+insert cycle", |b| {
+        b.iter(|| {
+            let mut pool = Pool::with_capacity(1024);
+            let ids: Vec<usize> = (0..1024).map(|i| pool.insert(i)).collect();
+            for (i, &id) in ids.iter().enumerate() {
+                pool.remove(id);
+                black_box(pool.insert(i as i32));
+            }
+        })
+    });
+}
+
 criterion_group!(
     benches,
     bench_lookup,
@@ -87,6 +113,8 @@ criterion_group!(
     bench_insert,
     bench_grow,
     bench_capacity,
+    bench_remove,
+    bench_remove_insert_cycle,
 );
 
 criterion_main!(benches);

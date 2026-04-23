@@ -1,7 +1,6 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
-
-version: '3'
+version: "3"
 
 includes:
   rust:
@@ -10,9 +9,11 @@ includes:
 
 vars:
   PROFILE: '{{.PROFILE | default "debug"}}'
+  BINDINGS_PACKAGE: agntcy-slim-bindings
   CURRENT_TARGET:
     sh: 'rustc -vV | sed -n "s|host: ||p"'
   TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
+  SHARED_SECRET: "a-very-long-shared-secret-abcdef1234567890"
 
 tasks:
   default:
@@ -23,31 +24,9 @@ tasks:
     desc: Build the Rust library with cross-compilation support
     dir: "{{.TASKFILE_DIR}}"
     silent: false
-    vars:
-      LIB_FILENAME:
-        sh: |
-          TARGET_OS=$(echo "{{.TARGET}}" | cut -d"-" -f3)
-          case "$TARGET_OS" in
-            linux*)   echo "libslim_bindings.so" ;;
-            darwin*)  echo "libslim_bindings.dylib" ;;
-            windows*) echo "slim_bindings.dll" ;;
-            *)        echo "libslim_bindings.so" ;;
-          esac
-      LIB_STATIC_FILENAME:
-        sh: |
-          TARGET_OS=$(echo "{{.TARGET}}" | cut -d"-" -f3)
-          case "$TARGET_OS" in
-            windows*) echo "slim_bindings.lib" ;;
-            *)        echo "libslim_bindings.a" ;;
-          esac
-    sources:
-      - "../../**/*.rs"
-      - "../../**/Cargo.toml"
-      - "../../Cargo.lock"
-    generates:
-      - "../../target/{{.TARGET}}/{{.PROFILE}}/{{.LIB_FILENAME}}"
-      - "../../target/{{.TARGET}}/{{.PROFILE}}/{{.LIB_STATIC_FILENAME}}"
-    method: timestamp
+    aliases:
+      - build
+      - generate
     cmds:
       - echo "🦀 Building Rust bindings library... {{.TARGET}}"
       - task: rust:crossbuild
@@ -56,3 +35,41 @@ tasks:
           TARGET: "{{.TARGET}}"
           PROFILE: "{{.PROFILE}}"
       - echo "🦀 Rust bindings library built successfully."
+
+  lint:
+    desc: Run Rust format check and clippy for the bindings crate
+    dir: "{{.TASKFILE_DIR}}/../.."
+    cmds:
+      - cargo fmt -p {{.BINDINGS_PACKAGE}} -- --check
+      - cargo clippy -p {{.BINDINGS_PACKAGE}} --all-targets --locked --all-features -- -D warnings
+
+  test:
+    desc: Run the Rust tests for the bindings crate
+    dir: "{{.TASKFILE_DIR}}/../.."
+    vars:
+      RELEASE:
+        sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
+      ARGS: '{{.ARGS | default ""}}'
+    cmds:
+      - cargo test -p {{.BINDINGS_PACKAGE}} {{.RELEASE}} --locked --all-features --all-targets {{.ARGS}}
+
+  clean:
+    desc: Remove Cargo build artifacts for the bindings crate
+    dir: "{{.TASKFILE_DIR}}/../.."
+    cmds:
+      - cargo clean -p {{.BINDINGS_PACKAGE}}
+
+  example:p2p:sender:
+    desc: Start point to point SLIM sender example
+    cmds:
+      - cargo run --example sender -- --local agntcy/ns/bob --shared-secret {{.SHARED_SECRET}}  --session-type p2p --participants agntcy/ns/alice
+
+  example:group:sender:
+    desc: Start group SLIM sender example (agntcy/ns/alice and agntcy/ns/charlie receivers need to be running)
+    cmds:
+      - cargo run --example sender -- --local agntcy/ns/bob --shared-secret {{.SHARED_SECRET}}  --session-type group --participants agntcy/ns/alice agntcy/ns/charlie
+
+  example:receiver:
+    desc: SLIM receiver example (set local name by the LOCAL environment variable)
+    cmds:
+      - cargo run --example receiver -- --local {{.LOCAL}} --shared-secret {{.SHARED_SECRET}}

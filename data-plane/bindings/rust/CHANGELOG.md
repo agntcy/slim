@@ -7,10 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.3.0-rc.0](https://github.com/agntcy/slim/compare/slim-bindings-v1.2.0...slim-bindings-v1.3.0-rc.0) - 2026-03-20
+## [1.4.0-rc.0](https://github.com/agntcy/slim/compare/slim-bindings-v1.3.0...slim-bindings-v1.4.0-rc.0) - 2026-04-21
 
 ### Added
 
+- add tower auth middleware using spire ([#1452](https://github.com/agntcy/slim/pull/1452))
+
+### Fixed
+
+- adding linters to Golang, Java and Kotlin bindings and generaliz… ([#1502](https://github.com/agntcy/slim/pull/1502))
+
+### Other
+
+- prepare 1.4.0-rc.0 ([#1530](https://github.com/agntcy/slim/pull/1530))
+
+## [1.3.0](https://github.com/agntcy/slim/compare/slim-bindings-v1.2.0...slim-bindings-v1.3.0) - 2026-03-31
+
+### Added
+
+- slimrcp multicast examples ([#1346](https://github.com/agntcy/slim/pull/1346))
+- add backward compatibility integration tests ([#1402](https://github.com/agntcy/slim/pull/1402))
+- multicast RPC support ([#1335](https://github.com/agntcy/slim/pull/1335))
+- Fix dotnet bindings ([#1403](https://github.com/agntcy/slim/pull/1403))
+- MLS identity key integration and security dependency upgrades ([#1394](https://github.com/agntcy/slim/pull/1394))
+- add link negotiation protocol between SLIM nodes ([#1353](https://github.com/agntcy/slim/pull/1353))
 - expose json config in bindings ([#1366](https://github.com/agntcy/slim/pull/1366))
 - add agntcy-slim-version crate as single source of truth for version and build info ([#1360](https://github.com/agntcy/slim/pull/1360))
 - *(slimrpc)* session reuse and method demultiplexing ([#1334](https://github.com/agntcy/slim/pull/1334))
@@ -19,7 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Other
 
-- release candidate 1.3.0-rc.0 ([#1367](https://github.com/agntcy/slim/pull/1367))
+- move app ID generation from bindings to core application layer ([#1408](https://github.com/agntcy/slim/pull/1408))
+- reduce allocations in slimrpc Rust bindings ([#1336](https://github.com/agntcy/slim/pull/1336))
 - *(bindings)* Refactor Taskfiles to avoid rebuilds if source unchanged ([#1261](https://github.com/agntcy/slim/pull/1261))
 
 ## [1.2.0](https://github.com/agntcy/slim/compare/slim-bindings-v1.1.1...slim-bindings-v1.2.0) - 2026-02-27

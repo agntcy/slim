@@ -26,11 +26,11 @@ type TestClient interface {
 }
 
 type TestClientImpl struct {
-	channel *slim_bindings.Channel
+	channel slim_bindings.ChannelInterface
 }
 
 // NewTestClient creates a new Test client.
-func NewTestClient(channel *slim_bindings.Channel) TestClient {
+func NewTestClient(channel slim_bindings.ChannelInterface) TestClient {
 	return &TestClientImpl{
 		channel: channel,
 	}
@@ -211,7 +211,7 @@ func (UnimplementedTestServer) Delete(ctx context.Context, req *a2a_a2apb.Delete
 
 
 // RegisterTestServer registers the server with slim_bindings.
-func RegisterTestServer(server *slim_bindings.Server, impl TestServer) {
+func RegisterTestServer(server slim_bindings.ServerInterface, impl TestServer) {
 	server.RegisterUnaryUnary("example_service.Test", "ExampleUnaryUnary", &Test_ExampleUnaryUnary_Handler{impl: impl})
 	server.RegisterUnaryStream("example_service.Test", "ExampleUnaryStream", &Test_ExampleUnaryStream_Handler{impl: impl})
 	server.RegisterStreamUnary("example_service.Test", "ExampleStreamUnary", &Test_ExampleStreamUnary_Handler{impl: impl})

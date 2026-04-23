@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.3](https://github.com/agntcy/slim/compare/slim-datapath-v0.12.2...slim-datapath-v0.12.3) - 2026-04-21
+
+### Added
+
+- update controller connection ([#1485](https://github.com/agntcy/slim/pull/1485))
+
+### Other
+
+- *(datapath)* use Arc instead of Box for Name string storage ([#1435](https://github.com/agntcy/slim/pull/1435))
+
+## [0.12.2](https://github.com/agntcy/slim/compare/slim-datapath-v0.12.1...slim-datapath-v0.12.2) - 2026-03-31
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-config, agntcy-slim-tracing
+
+## [0.12.1](https://github.com/agntcy/slim/compare/slim-datapath-v0.12.0...slim-datapath-v0.12.1) - 2026-03-30
+
+### Added
+
+- slimrcp multicast examples ([#1346](https://github.com/agntcy/slim/pull/1346))
+
+### Other
+
+- move app ID generation from bindings to core application layer ([#1408](https://github.com/agntcy/slim/pull/1408))
+
+## [0.12.0](https://github.com/agntcy/slim/compare/slim-datapath-v0.11.5...slim-datapath-v0.12.0) - 2026-03-26
+
+### Added
+
+- ack for remote subscriptions ([#1364](https://github.com/agntcy/slim/pull/1364))
+- add link negotiation protocol between SLIM nodes ([#1353](https://github.com/agntcy/slim/pull/1353))
+
+### Fixed
+
+- race condition between subscription forwarding and link negotiation ([#1404](https://github.com/agntcy/slim/pull/1404))
+
 ## [0.11.5](https://github.com/agntcy/slim/compare/slim-datapath-v0.11.4...slim-datapath-v0.11.5) - 2026-03-20
 
 ### Added

@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use super::tables::SubscriptionTable;
@@ -56,7 +56,7 @@ where
         &self,
         conn_index: u64,
         is_local: bool,
-    ) -> (HashSet<Name>, HashSet<SubscriptionInfo>) {
+    ) -> (HashMap<Name, HashSet<u64>>, HashSet<SubscriptionInfo>) {
         self.connection_table.remove(conn_index as usize);
         let local_subs = self
             .subscription_table
@@ -65,7 +65,7 @@ where
                 debug!(
                     %conn_index, %is_local, %e, "failed to remove local subscriptions for connection",
                 );
-                HashSet::new()
+                HashMap::new()
             });
         let remote_subs = self.remote_subscription_table.remove_connection(conn_index);
         (local_subs, remote_subs)
@@ -83,19 +83,25 @@ where
             .get_subscriptions_on_connection(conn_index)
     }
 
+    /// Updates the subscription table for the given name/connection.
     pub fn on_subscription_msg(
         &self,
         name: Name,
         conn_index: u64,
         is_local: bool,
         add: bool,
+        subscription_id: u64,
     ) -> Result<(), DataPathError> {
         if add {
             self.subscription_table
-                .add_subscription(name, conn_index, is_local)
+                .add_subscription(name, conn_index, is_local, subscription_id)
         } else {
-            self.subscription_table
-                .remove_subscription(&name, conn_index, is_local)
+            self.subscription_table.remove_subscription(
+                &name,
+                conn_index,
+                is_local,
+                subscription_id,
+            )
         }
     }
 
@@ -106,6 +112,7 @@ where
         source_identity: String,
         conn_index: u64,
         add: bool,
+        subscription_id: u64,
     ) {
         if add {
             self.remote_subscription_table.add_subscription(
@@ -113,6 +120,7 @@ where
                 name,
                 source_identity,
                 conn_index,
+                subscription_id,
             );
         } else {
             self.remote_subscription_table.remove_subscription(
@@ -120,6 +128,7 @@ where
                 name,
                 source_identity,
                 conn_index,
+                subscription_id,
             );
         }
     }
@@ -158,18 +167,18 @@ mod tests {
         let fwd = Forwarder::<u32>::new();
 
         assert!(
-            fwd.on_subscription_msg(name.clone(), 10, false, true)
+            fwd.on_subscription_msg(name.clone(), 10, false, true, 1)
                 .is_ok()
         );
 
         assert!(
-            fwd.on_subscription_msg(name.clone().with_id(1), 12, false, true)
+            fwd.on_subscription_msg(name.clone().with_id(1), 12, false, true, 2)
                 .is_ok()
         );
 
         assert!(
             // this creates a warning
-            fwd.on_subscription_msg(name.clone().with_id(1), 12, false, true)
+            fwd.on_subscription_msg(name.clone().with_id(1), 12, false, true, 3)
                 .is_ok()
         );
 
@@ -185,11 +194,11 @@ mod tests {
         assert!(matches!(err, Err(DataPathError::NoMatch(_))));
 
         assert!(
-            fwd.on_subscription_msg(name.clone(), 10, false, false)
+            fwd.on_subscription_msg(name.clone(), 10, false, false, 1)
                 .is_ok()
         );
 
-        let err = fwd.on_subscription_msg(name.clone(), 10, false, false);
+        let err = fwd.on_subscription_msg(name.clone(), 10, false, false, 1);
         assert!(matches!(err, Err(DataPathError::IdNotFound(_))));
     }
 }

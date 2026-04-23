@@ -4,9 +4,31 @@
 package main
 
 import (
+	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
+
+func TestGetCacheDir(t *testing.T) {
+	dir, err := GetCacheDir()
+	if err != nil {
+		t.Skipf("GetCacheDir() returned error (GOPATH not set?): %v", err)
+	}
+
+	version := Version()
+
+	// Cache dir must include the version as a subdirectory
+	expectedSuffix := filepath.Join("slim-bindings", version)
+	if !strings.HasSuffix(dir, expectedSuffix) {
+		t.Errorf("GetCacheDir() = %q, want path ending with %q", dir, expectedSuffix)
+	}
+
+	// Cache dir must be under .cgo-cache
+	if !strings.Contains(dir, ".cgo-cache") {
+		t.Errorf("GetCacheDir() = %q, want path containing .cgo-cache", dir)
+	}
+}
 
 func TestGetTarget(t *testing.T) {
 	tests := []struct {

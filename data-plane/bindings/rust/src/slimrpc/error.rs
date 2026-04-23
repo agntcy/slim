@@ -58,6 +58,16 @@ impl RpcCode {
     pub fn is_err(&self) -> bool {
         !self.is_ok()
     }
+
+    /// Parse an optional metadata value into an `RpcCode`.
+    ///
+    /// Returns `RpcCode::Ok` when the string is absent or cannot be parsed,
+    /// mirroring the wire convention where a missing status key means success.
+    pub fn from_metadata_str(s: Option<&str>) -> Self {
+        s.and_then(|s| s.parse::<i32>().ok())
+            .and_then(|code| RpcCode::try_from(code).ok())
+            .unwrap_or(RpcCode::Ok)
+    }
 }
 
 impl fmt::Display for RpcCode {
@@ -141,6 +151,22 @@ pub enum RpcError {
         message: String,
         details: Option<Vec<u8>>,
     },
+
+    #[error("[origin: {origin}] {message}")]
+    MulticastRpc {
+        origin: String,
+        code: RpcCode,
+        message: String,
+        details: Option<Vec<u8>>,
+    },
+
+    #[error("Session closed after {completed}/{total} members; received: [{}], missing: [{}]", received.join(", "), missing.join(", "))]
+    MulticastSessionClosed {
+        completed: u64,
+        total: u64,
+        received: Vec<String>,
+        missing: Vec<String>,
+    },
 }
 
 impl RpcError {
@@ -150,6 +176,60 @@ impl RpcError {
             code,
             message: message.into(),
             details: None,
+        }
+    }
+
+    /// Create a new multicast RPC error
+    pub fn new_multicast(
+        origin: impl Into<String>,
+        code: RpcCode,
+        message: impl Into<String>,
+    ) -> Self {
+        Self::MulticastRpc {
+            origin: origin.into(),
+            code,
+            message: message.into(),
+            details: None,
+        }
+    }
+
+    /// Create a multicast session-closed error from a member completion map.
+    ///
+    /// Partitions the members into received (done) and missing (not done) lists.
+    pub fn multicast_session_closed(
+        members: impl IntoIterator<Item = (impl ToString, bool)>,
+    ) -> Self {
+        let mut received = Vec::new();
+        let mut missing = Vec::new();
+        for (m, done) in members {
+            if done {
+                received.push(m.to_string());
+            } else {
+                missing.push(m.to_string());
+            }
+        }
+        let completed = received.len() as u64;
+        let total = (received.len() + missing.len()) as u64;
+        Self::MulticastSessionClosed {
+            completed,
+            total,
+            received,
+            missing,
+        }
+    }
+
+    /// Create a new multicast RPC error with details
+    pub fn multicast_with_details(
+        origin: impl Into<String>,
+        code: RpcCode,
+        message: impl Into<String>,
+        details: Vec<u8>,
+    ) -> Self {
+        Self::MulticastRpc {
+            origin: origin.into(),
+            code,
+            message: message.into(),
+            details: Some(details),
         }
     }
 
@@ -259,21 +339,59 @@ impl RpcError {
     /// Get the error code
     pub fn code(&self) -> RpcCode {
         match self {
-            Self::Rpc { code, .. } => *code,
+            Self::Rpc { code, .. } | Self::MulticastRpc { code, .. } => *code,
+            Self::MulticastSessionClosed { .. } => RpcCode::Internal,
         }
     }
 
     /// Get the error message
     pub fn message(&self) -> &str {
         match self {
-            Self::Rpc { message, .. } => message,
+            Self::Rpc { message, .. } | Self::MulticastRpc { message, .. } => message,
+            Self::MulticastSessionClosed { .. } => "multicast session closed prematurely",
         }
     }
 
     /// Get the error details
     pub fn details(&self) -> Option<&[u8]> {
         match self {
-            Self::Rpc { details, .. } => details.as_deref(),
+            Self::Rpc { details, .. } | Self::MulticastRpc { details, .. } => details.as_deref(),
+            Self::MulticastSessionClosed { .. } => None,
+        }
+    }
+
+    /// Get the origin of the error (only available for multicast errors)
+    pub fn origin(&self) -> Option<&str> {
+        match self {
+            Self::MulticastRpc { origin, .. } => Some(origin),
+            _ => None,
+        }
+    }
+
+    /// Convert this error into a `MulticastRpc` variant, attaching the given origin.
+    ///
+    /// If the error is already a `MulticastRpc`, the origin is replaced.
+    /// `MulticastSessionClosed` is returned as-is since it has no single origin.
+    pub fn with_origin(self, origin: impl Into<String>) -> Self {
+        let origin = origin.into();
+        match self {
+            Self::Rpc {
+                code,
+                message,
+                details,
+            }
+            | Self::MulticastRpc {
+                code,
+                message,
+                details,
+                ..
+            } => Self::MulticastRpc {
+                origin,
+                code,
+                message,
+                details,
+            },
+            other @ Self::MulticastSessionClosed { .. } => other,
         }
     }
 
@@ -290,7 +408,10 @@ impl RpcError {
     /// Add details to an existing error
     pub fn with_details_added(mut self, details: Vec<u8>) -> Self {
         match &mut self {
-            Self::Rpc { details: d, .. } => *d = Some(details),
+            Self::Rpc { details: d, .. } | Self::MulticastRpc { details: d, .. } => {
+                *d = Some(details)
+            }
+            Self::MulticastSessionClosed { .. } => {}
         }
         self
     }
@@ -414,6 +535,125 @@ mod tests {
         assert_eq!(
             RpcError::unauthenticated("msg").code(),
             RpcCode::Unauthenticated
+        );
+    }
+
+    #[test]
+    fn test_with_origin_converts_rpc_to_multicast() {
+        let details = vec![1, 2, 3];
+        let err = RpcError::with_details(RpcCode::NotFound, "gone", details.clone());
+        let err = err.with_origin("org/ns/member-0");
+        match err {
+            RpcError::MulticastRpc {
+                origin,
+                code,
+                message,
+                details: d,
+            } => {
+                assert_eq!(origin, "org/ns/member-0");
+                assert_eq!(code, RpcCode::NotFound);
+                assert_eq!(message, "gone");
+                assert_eq!(d, Some(details));
+            }
+            other => panic!("expected MulticastRpc, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_with_origin_replaces_existing_origin() {
+        let err = RpcError::new_multicast("old-origin", RpcCode::Internal, "msg");
+        let err = err.with_origin("new-origin");
+        match err {
+            RpcError::MulticastRpc { origin, .. } => {
+                assert_eq!(origin, "new-origin");
+            }
+            other => panic!("expected MulticastRpc, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_multicast_session_closed_constructor() {
+        let members = vec![
+            ("member-0".to_string(), true),
+            ("member-1".to_string(), false),
+            ("member-2".to_string(), true),
+            ("member-3".to_string(), false),
+        ];
+        let err = RpcError::multicast_session_closed(members);
+        match err {
+            RpcError::MulticastSessionClosed {
+                completed,
+                total,
+                received,
+                missing,
+            } => {
+                assert_eq!(completed, 2);
+                assert_eq!(total, 4);
+                let mut received = received;
+                received.sort();
+                assert_eq!(received, vec!["member-0", "member-2"]);
+                let mut missing = missing;
+                missing.sort();
+                assert_eq!(missing, vec!["member-1", "member-3"]);
+            }
+            other => panic!("expected MulticastSessionClosed, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_multicast_session_closed_all_done() {
+        let members = vec![("a".to_string(), true), ("b".to_string(), true)];
+        let err = RpcError::multicast_session_closed(members);
+        match err {
+            RpcError::MulticastSessionClosed {
+                completed,
+                total,
+                missing,
+                ..
+            } => {
+                assert_eq!(completed, 2);
+                assert_eq!(total, 2);
+                assert!(missing.is_empty());
+            }
+            other => panic!("expected MulticastSessionClosed, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_multicast_session_closed_none_done() {
+        let members = vec![("a".to_string(), false), ("b".to_string(), false)];
+        let err = RpcError::multicast_session_closed(members);
+        match err {
+            RpcError::MulticastSessionClosed {
+                completed,
+                total,
+                received,
+                ..
+            } => {
+                assert_eq!(completed, 0);
+                assert_eq!(total, 2);
+                assert!(received.is_empty());
+            }
+            other => panic!("expected MulticastSessionClosed, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_multicast_session_closed_display() {
+        let members = vec![("alice".to_string(), true), ("bob".to_string(), false)];
+        let err = RpcError::multicast_session_closed(members);
+        let display = err.to_string();
+        assert!(
+            display.contains("1/2"),
+            "display should contain completed/total"
+        );
+        assert!(
+            display.contains("alice"),
+            "display should contain received member"
+        );
+        assert!(
+            display.contains("bob"),
+            "display should contain missing member"
         );
     }
 }

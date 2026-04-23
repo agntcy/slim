@@ -133,7 +133,7 @@ impl Connection {
 
     /// Return true if this node initiated the connection (client side).
     /// False means the remote peer connected to us (server side).
-    pub(crate) fn is_outgoing(&self) -> bool {
+    pub fn is_outgoing(&self) -> bool {
         matches!(self.channel, Channel::Client(_))
     }
 
