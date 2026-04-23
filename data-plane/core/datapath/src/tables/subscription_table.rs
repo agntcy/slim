@@ -197,12 +197,7 @@ impl Connections {
             return None;
         }
         for _ in 0..n {
-            let id = self.pool.next_id().expect("pool is non-empty");
-            let conn_id = self
-                .pool
-                .get(id)
-                .expect("next_id returns a live ID")
-                .conn_id;
+            let conn_id = self.pool.next_val().expect("pool is non-empty").conn_id;
             if conn_id != except_conn {
                 return Some(conn_id);
             }

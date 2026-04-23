@@ -27,8 +27,8 @@ pub struct Pool<T> {
     /// Stack of recycled indices available for reuse by the next `insert`.
     free_slots: Vec<usize>,
 
-    /// Cursor for the persistent round-robin iterator (`next_id`).
-    /// Stored as an `AtomicUsize` so that `next_id` can advance it through
+    /// Cursor for the persistent round-robin iterators (`next_id`, `next_val`).
+    /// Stored as an `AtomicUsize` so that they can advance it through
     /// a shared `&self` reference — callers that hold only a read lock on
     /// an outer container are not forced to upgrade to a write lock.
     cursor: AtomicUsize,
@@ -165,6 +165,23 @@ impl<T> Pool<T> {
         }
         let pos = self.cursor.fetch_add(1, Ordering::Relaxed) % n;
         Some(self.active_indexes[pos] as u64)
+    }
+
+    /// Round-robin iterator that returns a direct reference to the next live
+    /// element, advancing the shared cursor on each call.  Shares the same
+    /// cursor as `next_id`.  Returns `None` if the pool is empty.
+    pub fn next_val(&self) -> Option<&T> {
+        let n = self.active_indexes.len();
+        if n == 0 {
+            return None;
+        }
+        let pos = self.cursor.fetch_add(1, Ordering::Relaxed) % n;
+        let idx = self.active_indexes[pos];
+        Some(
+            self.pool[idx]
+                .as_ref()
+                .expect("active_indexes must point to live slots"),
+        )
     }
 
     /// Number of elements currently in the pool.
@@ -363,8 +380,29 @@ mod tests {
 
     #[test]
     fn test_next_id_empty() {
-        let mut pool: Pool<u32> = Pool::with_capacity(4);
+        let pool: Pool<u32> = Pool::with_capacity(4);
         assert_eq!(pool.next_id(), None);
+    }
+
+    #[test]
+    fn test_next_val_round_robin() {
+        let mut pool = Pool::with_capacity(4);
+        pool.insert(10u32);
+        pool.insert(20u32);
+        pool.insert(30u32);
+        let pool = pool; // rebind as immutable — next_val only needs &self
+
+        // Collect the sequence emitted by the first full cycle.
+        let first: Vec<u32> = (0..3).map(|_| *pool.next_val().unwrap()).collect();
+        assert_eq!(first.len(), 3);
+        // Every live value must appear exactly once per cycle.
+        let mut sorted = first.clone();
+        sorted.sort();
+        assert_eq!(sorted, vec![10, 20, 30]);
+
+        // The second cycle must repeat in the same order.
+        let second: Vec<u32> = (0..3).map(|_| *pool.next_val().unwrap()).collect();
+        assert_eq!(first, second);
     }
 
     #[test]

@@ -89,6 +89,29 @@ fn bench_remove_insert_cycle(c: &mut Criterion) {
     });
 }
 
+fn bench_next_id(c: &mut Criterion) {
+    // Representative pool size: a handful of outbound connections per name.
+    let mut pool = Pool::with_capacity(8);
+    for i in 0..8i32 {
+        pool.insert(i);
+    }
+
+    c.bench_function("pool next_id", |b| {
+        b.iter(|| black_box(pool.next_id()))
+    });
+}
+
+fn bench_next_val(c: &mut Criterion) {
+    let mut pool = Pool::with_capacity(8);
+    for i in 0..8i32 {
+        pool.insert(i);
+    }
+
+    c.bench_function("pool next_val", |b| {
+        b.iter(|| black_box(pool.next_val()))
+    });
+}
+
 criterion_group!(
     benches,
     bench_lookup,
@@ -98,6 +121,8 @@ criterion_group!(
     bench_capacity,
     bench_remove,
     bench_remove_insert_cycle,
+    bench_next_id,
+    bench_next_val,
 );
 
 criterion_main!(benches);
