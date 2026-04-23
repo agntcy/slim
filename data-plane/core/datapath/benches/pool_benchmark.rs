@@ -96,9 +96,7 @@ fn bench_next_id(c: &mut Criterion) {
         pool.insert(i);
     }
 
-    c.bench_function("pool next_id", |b| {
-        b.iter(|| black_box(pool.next_id()))
-    });
+    c.bench_function("pool next_id", |b| b.iter(|| black_box(pool.next_id())));
 }
 
 fn bench_next_val(c: &mut Criterion) {
@@ -107,9 +105,7 @@ fn bench_next_val(c: &mut Criterion) {
         pool.insert(i);
     }
 
-    c.bench_function("pool next_val", |b| {
-        b.iter(|| black_box(pool.next_val()))
-    });
+    c.bench_function("pool next_val", |b| b.iter(|| black_box(pool.next_val())));
 }
 
 criterion_group!(

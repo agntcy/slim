@@ -5,6 +5,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use tracing::trace;
 
+/// Internal wrapper stored in `pool`.  Bundles the user value with the
+/// element's current position in `active_indexes` so that `remove` can
+/// find and patch that dense list in O(1) without scanning.
+#[derive(Debug)]
+struct PoolEntry<T> {
+    value: T,
+    /// Index of this slot's entry within `active_indexes`.
+    active_pos: usize,
+}
+
 /// A collection that assigns each inserted element a stable `u64` ID.
 ///
 /// IDs map directly to Vec indices, giving O(1) `get()` with no hash
@@ -16,9 +26,9 @@ use tracing::trace;
 /// not retain an ID after calling `remove`.
 #[derive(Debug)]
 pub struct Pool<T> {
-    /// Sparse storage; `pool[i]` holds `Some(element)` when slot `i` is live.
+    /// Sparse storage; `pool[i]` holds `Some(entry)` when slot `i` is live.
     /// The u64 ID handed to callers equals the Vec index as a `u64`.
-    pool: Vec<Option<T>>,
+    pool: Vec<Option<PoolEntry<T>>>,
 
     /// Dense list of currently-live indices into `pool`.  Used for O(len)
     /// dense iteration without scanning `None` slots.
@@ -64,7 +74,11 @@ impl<T> Pool<T> {
             }
         };
 
-        self.pool[idx] = Some(element);
+        let active_pos = self.active_indexes.len();
+        self.pool[idx] = Some(PoolEntry {
+            value: element,
+            active_pos,
+        });
         self.active_indexes.push(idx);
         trace!(pool_len = self.active_indexes.len(), "pool insert");
         idx as u64
@@ -83,50 +97,74 @@ impl<T> Pool<T> {
             self.pool.resize_with(idx + 1, || None);
         }
 
-        let was_empty = self.pool[idx].is_none();
-        self.pool[idx] = Some(element);
-
-        if was_empty {
-            self.active_indexes.push(idx);
+        match self.pool[idx].as_mut() {
+            Some(entry) => {
+                // Slot already live: replace value in-place, active_pos unchanged.
+                entry.value = element;
+            }
+            None => {
+                let active_pos = self.active_indexes.len();
+                self.pool[idx] = Some(PoolEntry {
+                    value: element,
+                    active_pos,
+                });
+                self.active_indexes.push(idx);
+            }
         }
     }
 
     /// Remove the element with the given `id`.  Returns `true` if an element
     /// was present, `false` if the slot was already empty.
+    ///
+    /// Runs in O(1): the `active_pos` back-pointer stored inside the entry
+    /// lets us jump directly to the right position in `active_indexes` instead
+    /// of scanning for it.
     pub fn remove(&mut self, id: u64) -> bool {
         let idx = id as usize;
+        let pos = match self.pool.get(idx).and_then(|e| e.as_ref()) {
+            Some(entry) => entry.active_pos,
+            None => return false,
+        };
 
-        if self.pool.get(idx).and_then(|x| x.as_ref()).is_none() {
-            return false;
+        self.active_indexes.swap_remove(pos);
+
+        // If swap_remove moved an element into `pos`, update its back-pointer.
+        if pos < self.active_indexes.len() {
+            let moved_slot = self.active_indexes[pos];
+            self.pool[moved_slot]
+                .as_mut()
+                .expect("active_indexes must point to live slots")
+                .active_pos = pos;
         }
 
         self.pool[idx] = None;
-
-        // Remove from active_indexes (swap_remove is O(1) after the scan).
-        if let Some(pos) = self.active_indexes.iter().position(|&i| i == idx) {
-            self.active_indexes.swap_remove(pos);
-        }
-
         self.free_slots.push(idx);
         true
     }
 
     /// Look up an element by its stable ID.
     pub fn get(&self, id: u64) -> Option<&T> {
-        self.pool.get(id as usize).and_then(|x| x.as_ref())
+        self.pool
+            .get(id as usize)
+            .and_then(|x| x.as_ref())
+            .map(|entry| &entry.value)
     }
 
     /// Mutably look up an element by its stable ID.
     pub fn get_mut(&mut self, id: u64) -> Option<&mut T> {
-        self.pool.get_mut(id as usize).and_then(|x| x.as_mut())
+        self.pool
+            .get_mut(id as usize)
+            .and_then(|x| x.as_mut())
+            .map(|entry| &mut entry.value)
     }
 
     /// Iterate over all live elements.  No empty slots are visited.
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.active_indexes.iter().map(|&i| {
-            self.pool[i]
+            &self.pool[i]
                 .as_ref()
                 .expect("active_indexes must point to live slots")
+                .value
         })
     }
 
@@ -135,9 +173,10 @@ impl<T> Pool<T> {
         self.active_indexes.iter().map(|&i| {
             (
                 i as u64,
-                self.pool[i]
+                &self.pool[i]
                     .as_ref()
-                    .expect("active_indexes must point to live slots"),
+                    .expect("active_indexes must point to live slots")
+                    .value,
             )
         })
     }
@@ -178,9 +217,10 @@ impl<T> Pool<T> {
         let pos = self.cursor.fetch_add(1, Ordering::Relaxed) % n;
         let idx = self.active_indexes[pos];
         Some(
-            self.pool[idx]
+            &self.pool[idx]
                 .as_ref()
-                .expect("active_indexes must point to live slots"),
+                .expect("active_indexes must point to live slots")
+                .value,
         )
     }
 
@@ -403,6 +443,92 @@ mod tests {
         // The second cycle must repeat in the same order.
         let second: Vec<u32> = (0..3).map(|_| *pool.next_val().unwrap()).collect();
         assert_eq!(first, second);
+    }
+
+    /// Removing a middle element forces a `swap_remove` that relocates the
+    /// last active entry.  The back-pointer of the moved entry must be updated
+    /// so subsequent removes of *that* entry are still O(1) and correct.
+    #[test]
+    fn test_remove_is_consistent_after_swap() {
+        let mut pool = Pool::with_capacity(8);
+        let id0 = pool.insert(0u32); // active_indexes: [0]
+        let id1 = pool.insert(1u32); // active_indexes: [0, 1]
+        let id2 = pool.insert(2u32); // active_indexes: [0, 1, 2]
+        let id3 = pool.insert(3u32); // active_indexes: [0, 1, 2, 3]
+
+        // Remove id1 (middle).  swap_remove swaps id3 into position 1.
+        // active_indexes becomes [0, 3, 2].
+        assert!(pool.remove(id1));
+        assert_eq!(pool.len(), 3);
+        assert_eq!(pool.get(id1), None);
+
+        // All survivors still reachable.
+        assert_eq!(pool.get(id0), Some(&0));
+        assert_eq!(pool.get(id2), Some(&2));
+        assert_eq!(pool.get(id3), Some(&3));
+
+        // iter returns exactly the three surviving values.
+        let mut vals: Vec<u32> = pool.iter().copied().collect();
+        vals.sort();
+        assert_eq!(vals, vec![0, 2, 3]);
+
+        // Re-insert into the freed slot, then remove it again to verify
+        // active_pos is set correctly on the re-inserted entry.
+        pool.insert_at(99u32, id1);
+        assert_eq!(pool.len(), 4);
+        assert!(pool.remove(id1));
+        assert_eq!(pool.len(), 3);
+        assert_eq!(pool.get(id1), None);
+
+        // Remaining entries still intact.
+        assert_eq!(pool.get(id0), Some(&0));
+        assert_eq!(pool.get(id2), Some(&2));
+        assert_eq!(pool.get(id3), Some(&3));
+    }
+
+    /// Remove the very last element in `active_indexes`.  No back-pointer
+    /// fixup is needed (the swap_remove doesn't move anything).
+    #[test]
+    fn test_remove_last_active_no_fixup() {
+        let mut pool = Pool::with_capacity(4);
+        let id0 = pool.insert(10u32);
+        let id1 = pool.insert(20u32);
+        let id2 = pool.insert(30u32);
+
+        // id2 is at position 2 — the last entry; removing it needs no fixup.
+        assert!(pool.remove(id2));
+        assert_eq!(pool.len(), 2);
+        assert_eq!(pool.get(id2), None);
+        assert_eq!(pool.get(id0), Some(&10));
+        assert_eq!(pool.get(id1), Some(&20));
+
+        // Removing the now-last element (id1) must also work.
+        assert!(pool.remove(id1));
+        assert_eq!(pool.len(), 1);
+        assert_eq!(pool.get(id1), None);
+        assert_eq!(pool.get(id0), Some(&10));
+    }
+
+    /// `insert_at` on an occupied slot must replace the value without touching
+    /// `active_pos`.  A subsequent `remove` must therefore still succeed in O(1).
+    #[test]
+    fn test_insert_at_replace_preserves_active_pos() {
+        let mut pool = Pool::with_capacity(4);
+        let id0 = pool.insert(1u32);
+        let id1 = pool.insert(2u32);
+        let id2 = pool.insert(3u32);
+
+        // Replace the value at id1 (occupied slot).
+        pool.insert_at(99u32, id1);
+        assert_eq!(pool.len(), 3);
+        assert_eq!(pool.get(id1), Some(&99));
+
+        // Now remove id1; active_pos must still point to the right position.
+        assert!(pool.remove(id1));
+        assert_eq!(pool.len(), 2);
+        assert_eq!(pool.get(id1), None);
+        assert_eq!(pool.get(id0), Some(&1));
+        assert_eq!(pool.get(id2), Some(&3));
     }
 
     #[test]
