@@ -139,7 +139,7 @@ mod tests {
     }
 
     #[test]
-    fn create_temp_config_file_is_writeable() {
+    fn create_temp_config_file_is_writable() {
         let tmp = create_temp_config(Some("0.0.0.0:1234")).unwrap();
         assert!(tmp.path().exists());
         let content = std::fs::read_to_string(tmp.path()).unwrap();

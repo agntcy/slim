@@ -174,6 +174,62 @@ func TestListNodes_Error(t *testing.T) {
 	mockNodeService.AssertExpectations(t)
 }
 
+func TestListLinks_Success(t *testing.T) {
+	request := &controlplaneApi.LinkListRequest{
+		SrcNodeId:  "node-1",
+		DestNodeId: "node-2",
+	}
+	expectedResponse := &controlplaneApi.LinkListResponse{
+		Links: []*controlplaneApi.LinkEntry{
+			{
+				Id:           "node-1->node-2",
+				LinkId:       "link-1",
+				SourceNodeId: "node-1",
+				DestNodeId:   "node-2",
+			},
+		},
+	}
+
+	mockNodeService := new(mockNodeService)
+	mockRouteService := new(mockRouteService)
+	mockRouteService.On("ListLinks", mock.Anything, request).Return(expectedResponse, nil)
+
+	s := &nbAPIService{
+		nodeService:  mockNodeService,
+		routeService: mockRouteService,
+	}
+
+	result, err := s.ListLinks(context.Background(), request)
+
+	assert.NoError(t, err)
+	assert.Equal(t, expectedResponse, result)
+	mockRouteService.AssertExpectations(t)
+}
+
+func TestListLinks_Error(t *testing.T) {
+	request := &controlplaneApi.LinkListRequest{
+		SrcNodeId:  "node-1",
+		DestNodeId: "node-2",
+	}
+	expectedError := errors.New("list links failed")
+
+	mockNodeService := new(mockNodeService)
+	mockRouteService := new(mockRouteService)
+	mockRouteService.On("ListLinks", mock.Anything, request).Return(nil, expectedError)
+
+	s := &nbAPIService{
+		nodeService:  mockNodeService,
+		routeService: mockRouteService,
+	}
+
+	result, err := s.ListLinks(context.Background(), request)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Equal(t, expectedError, err)
+	mockRouteService.AssertExpectations(t)
+}
+
 // TestValidateConnection_Success tests the successful validation of a connection.
 func TestValidateConnection_Success(t *testing.T) {
 	// Arrange
@@ -315,7 +371,8 @@ func TestAddRoute_Success_WithDestNode(t *testing.T) {
 func TestAddRoute_Success_WithConnection(t *testing.T) {
 	// Arrange
 	request := &controlplaneApi.AddRouteRequest{
-		NodeId: "source-node",
+		NodeId:     "source-node",
+		DestNodeId: "dest-node",
 		Subscription: &controllerapi.Subscription{
 			Component_0:  "org",
 			Component_1:  "namespace",
@@ -330,12 +387,14 @@ func TestAddRoute_Success_WithConnection(t *testing.T) {
 	}
 
 	sourceNode := &controlplaneApi.NodeEntry{Id: "source-node"}
+	destNode := &controlplaneApi.NodeEntry{Id: "dest-node"}
 	routeID := "route-123"
 
 	mockNodeService := new(mockNodeService)
 	mockRouteService := new(mockRouteService)
 
 	mockNodeService.On("GetNodeByID", "source-node").Return(sourceNode, nil)
+	mockNodeService.On("GetNodeByID", "dest-node").Return(destNode, nil)
 	mockRouteService.On("AddRoute", mock.Anything, mock.AnythingOfType("routes.Route")).Return(routeID, nil)
 
 	s := &nbAPIService{
@@ -418,7 +477,7 @@ func TestAddRoute_MissingDestination(t *testing.T) {
 	// Assert
 	assert.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "either destNodeId or connectionId must be provided")
+	assert.Contains(t, err.Error(), "destNodeId must be provided")
 	mockNodeService.AssertExpectations(t)
 }
 
@@ -466,7 +525,8 @@ func TestDeleteRoute_Success_WithDestNode(t *testing.T) {
 func TestDeleteRoute_Success_WithConnection(t *testing.T) {
 	// Arrange
 	request := &controlplaneApi.DeleteRouteRequest{
-		NodeId: "source-node",
+		NodeId:     "source-node",
+		DestNodeId: "dest-node",
 		Subscription: &controllerapi.Subscription{
 			Component_0:  "org",
 			Component_1:  "namespace",
@@ -477,11 +537,13 @@ func TestDeleteRoute_Success_WithConnection(t *testing.T) {
 	}
 
 	sourceNode := &controlplaneApi.NodeEntry{Id: "source-node"}
+	destNode := &controlplaneApi.NodeEntry{Id: "dest-node"}
 
 	mockNodeService := new(mockNodeService)
 	mockRouteService := new(mockRouteService)
 
 	mockNodeService.On("GetNodeByID", "source-node").Return(sourceNode, nil)
+	mockNodeService.On("GetNodeByID", "dest-node").Return(destNode, nil)
 	mockRouteService.On("DeleteRoute", mock.Anything, mock.AnythingOfType("routes.Route")).Return(nil)
 
 	s := &nbAPIService{

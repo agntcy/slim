@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.4.0-rc.0](https://github.com/agntcy/slim/compare/control-plane-v1.4.0-rc.0...control-plane-v1.0.0) (2026-04-21)
+
+### Features
+
+* update controller connection ([#1485](https://github.com/agntcy/slim/issues/1485)) ([f1ef1a8](https://github.com/agntcy/slim/commit/f1ef1a85040af6947f1d865bdcd0db3ed62c97c7))
+
 ## [1.0.0](https://github.com/agntcy/slim/compare/control-plane-v0.7.1...control-plane-v1.0.0) (2026-01-30)
 
 

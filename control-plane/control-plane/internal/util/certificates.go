@@ -16,7 +16,6 @@ import (
 )
 
 func LoadCertificates(ctx context.Context, apiConfig config.APIConfig) (credentials.TransportCredentials, error) {
-
 	zlog := zerolog.Ctx(ctx)
 
 	var tlsConfig *tls.Config
@@ -60,17 +59,13 @@ func LoadCertificates(ctx context.Context, apiConfig config.APIConfig) (credenti
 		}
 	}
 
-	// Add custom verification callback for detailed logging
-	tlsConfig.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
-		zlog.Debug().Int("cert_count", len(rawCerts)).Msg("Received client certificates")
+	// Log peer certs after verification. Use VerifyConnection (not VerifyPeerCertificate) so logging
+	// still runs when TLS session resumption is used; VerifyPeerCertificate can be skipped on resume (gosec G123).
+	tlsConfig.VerifyConnection = func(state tls.ConnectionState) error {
+		certs := state.PeerCertificates
+		zlog.Debug().Int("cert_count", len(certs)).Msg("Received client certificates")
 
-		for i, rawCert := range rawCerts {
-			cert, err := x509.ParseCertificate(rawCert)
-			if err != nil {
-				zlog.Error().Err(err).Int("cert_index", i).Msg("Failed to parse client certificate")
-				continue
-			}
-
+		for i, cert := range certs {
 			zlog.Debug().
 				Int("cert_index", i).
 				Str("subject", cert.Subject.String()).
@@ -80,8 +75,8 @@ func LoadCertificates(ctx context.Context, apiConfig config.APIConfig) (credenti
 				Time("not_after", cert.NotAfter).
 				Msg("Client certificate details")
 		}
-		// log size of verified chains
-		zlog.Debug().Int("verified_chain_count", len(verifiedChains)).Msg("Verified certificate chains")
+
+		zlog.Debug().Int("verified_chain_count", len(state.VerifiedChains)).Msg("Verified certificate chains")
 
 		return nil
 	}

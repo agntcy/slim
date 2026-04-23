@@ -28,6 +28,8 @@ use super::errors::ConfigError;
 use crate::auth::ServerAuthenticator;
 use crate::auth::basic::Config as BasicAuthenticationConfig;
 use crate::auth::jwt::Config as JwtAuthenticationConfig;
+#[cfg(not(target_family = "windows"))]
+use crate::auth::spire::SpireConfig as SpireAuthConfig;
 use crate::component::configuration::Configuration;
 use crate::transport::TransportProtocol;
 use slim_auth::metadata::MetadataMap;
@@ -70,6 +72,9 @@ pub enum AuthenticationConfig {
     Basic(BasicAuthenticationConfig),
     /// JWT authentication configuration.
     Jwt(JwtAuthenticationConfig),
+    /// SPIRE/SPIFFE authentication configuration.
+    #[cfg(not(target_family = "windows"))]
+    Spire(SpireAuthConfig),
     /// None
     #[default]
     None,
@@ -395,6 +400,23 @@ impl ServerConfig {
                 let mut auth_layer = <JwtAuthenticationConfig as ServerAuthenticator<
                     http::Response<tonic::body::Body>,
                 >>::get_server_layer(jwt)?;
+
+                auth_layer.initialize().await?;
+
+                let mut builder = builder.layer(auth_layer);
+
+                let mut router = builder.add_service(svc[0].clone());
+                for s in svc.iter().skip(1) {
+                    router = builder.add_service(s.clone());
+                }
+
+                Ok(router.serve_with_incoming(incoming).boxed())
+            }
+            #[cfg(not(target_family = "windows"))]
+            AuthenticationConfig::Spire(spire) => {
+                let mut auth_layer = <SpireAuthConfig as ServerAuthenticator<
+                    http::Response<tonic::body::Body>,
+                >>::get_server_layer(spire)?;
 
                 auth_layer.initialize().await?;
 

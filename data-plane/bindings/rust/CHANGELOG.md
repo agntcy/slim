@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0-rc.0](https://github.com/agntcy/slim/compare/slim-bindings-v1.3.0...slim-bindings-v1.4.0-rc.0) - 2026-04-21
+
+### Added
+
+- add tower auth middleware using spire ([#1452](https://github.com/agntcy/slim/pull/1452))
+
+### Fixed
+
+- adding linters to Golang, Java and Kotlin bindings and generaliz… ([#1502](https://github.com/agntcy/slim/pull/1502))
+
+### Other
+
+- prepare 1.4.0-rc.0 ([#1530](https://github.com/agntcy/slim/pull/1530))
+
 ## [1.3.0](https://github.com/agntcy/slim/compare/slim-bindings-v1.2.0...slim-bindings-v1.3.0) - 2026-03-31
 
 ### Added

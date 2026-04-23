@@ -293,7 +293,9 @@ func (h *TestHarness) CreateSession() (*slim.Session, error) {
 }
 
 // SendMessage sends a message through the session
-func (h *TestHarness) SendMessage(session *slim.Session, data []byte, payloadType *string, metadata *map[string]string) error {
+func (h *TestHarness) SendMessage(
+	session *slim.Session, data []byte, payloadType *string, metadata *map[string]string,
+) error {
 	h.t.Helper()
 
 	h.t.Logf("[Sender] Sending message: %d bytes", len(data))
@@ -307,7 +309,9 @@ func (h *TestHarness) SendMessage(session *slim.Session, data []byte, payloadTyp
 }
 
 // SendMessageWithCompletion sends a message and waits for delivery confirmation
-func (h *TestHarness) SendMessageWithCompletion(session *slim.Session, data []byte, payloadType *string, metadata *map[string]string) error {
+func (h *TestHarness) SendMessageWithCompletion(
+	session *slim.Session, data []byte, payloadType *string, metadata *map[string]string,
+) error {
 	h.t.Helper()
 
 	h.t.Logf("[Sender] Sending message with completion: %d bytes", len(data))
@@ -332,7 +336,9 @@ func (h *TestHarness) MustCreateSession() *slim.Session {
 }
 
 // MustSendMessage sends a message and fails the test on error.
-func (h *TestHarness) MustSendMessage(session *slim.Session, data []byte, payloadType *string, metadata *map[string]string) {
+func (h *TestHarness) MustSendMessage(
+	session *slim.Session, data []byte, payloadType *string, metadata *map[string]string,
+) {
 	h.t.Helper()
 
 	if err := h.SendMessage(session, data, payloadType, metadata); err != nil {
@@ -341,7 +347,9 @@ func (h *TestHarness) MustSendMessage(session *slim.Session, data []byte, payloa
 }
 
 // MustSendMessageWithCompletion sends a message with completion tracking and fails the test on error.
-func (h *TestHarness) MustSendMessageWithCompletion(session *slim.Session, data []byte, payloadType *string, metadata *map[string]string) {
+func (h *TestHarness) MustSendMessageWithCompletion(
+	session *slim.Session, data []byte, payloadType *string, metadata *map[string]string,
+) {
 	h.t.Helper()
 
 	if err := h.SendMessageWithCompletion(session, data, payloadType, metadata); err != nil {

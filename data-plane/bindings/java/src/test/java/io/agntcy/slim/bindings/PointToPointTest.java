@@ -104,12 +104,12 @@ class PointToPointTest {
             Object[] senderResult = setupSender(server, senderName, testId, receiverName);
             App sender = (App) senderResult[0];
 
-            ConcurrentHashMap<Integer, AtomicInteger> receiverCounts = new ConcurrentHashMap<>();
+            Map<Integer, AtomicInteger> receiverCounts = new ConcurrentHashMap<>();
             for (int i = 0; i < 10; i++) {
                 receiverCounts.put(i, new AtomicInteger(0));
             }
 
-            ExecutorService executor = Executors.newFixedThreadPool(10);
+            try (ExecutorService executor = Executors.newFixedThreadPool(10)) {
 
             for (int i = 0; i < 10; i++) {
                 final int idx = i;
@@ -188,6 +188,7 @@ class PointToPointTest {
 
             executor.shutdownNow();
             executor.awaitTermination(10, TimeUnit.SECONDS);
+            }
         } finally {
             TestHelpers.teardownServer(server);
         }
