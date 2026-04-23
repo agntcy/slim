@@ -15,7 +15,7 @@ spire-server entry create \
   -parentID spiffe://<trust-domain>/tenants/<tenant>/clusters/<cluster-name> \
   -spiffeID spiffe://<trust-domain>/tenants/<tenant>/clusters/<cluster-name>/spire-server \
   -downstream \
-  -selector k8s:ns:<namespace> # The namespace of the downstream spire server \
+  -selector k8s:ns:<namespace> \ # The namespace of the downstream spire server
   -selector k8s:sa:<release-name>-server # The service account of the downstream spire server
 ```
 
