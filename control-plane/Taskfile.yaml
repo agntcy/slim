@@ -66,8 +66,8 @@ tasks:
         vars:
           CMD: "echo ${PWD} && {{.TOOLS_INSTALL_DIR}}/golangci-lint run"
 
-  control-plane:impi:
-    desc: Run go impi
+  control-plane:gci:
+    desc: Verify import grouping with gci (stdlib, third party, then Prefix local module)
     deps:
       - tools:all
     cmds:
@@ -75,11 +75,10 @@ tasks:
       - task: control-plane:foreach-module
         vars:
           CMD: |
-            {{.TOOLS_INSTALL_DIR}}/impi \
-              --local github.com/agntcy/slim \
-              --ignore-generated=true \
-              --scheme stdThirdPartyLocal \
-              ./...
+            find . \( -path './vendor' -o -path './third-party' \) -prune -o \
+              -name '*.go' -print0 | \
+              xargs -0 {{.TOOLS_INSTALL_DIR}}/gci diff --skip-generated \
+                -s standard -s default -s 'Prefix({{.MAIN_MODULE}})'
 
   control-plane:vuln:
     desc: Run go govulncheck

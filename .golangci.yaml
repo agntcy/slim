@@ -1,6 +1,9 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
+# golangci-lint v2 configuration (see https://golangci-lint.run/docs/product/migration-guide/)
+version: "2"
+
 run:
   # concurrency when linting
   concurrency: 4
@@ -14,94 +17,116 @@ run:
   # also format test files
   tests: true
 
-  skip-files: []
-
-  # this will gguarantees that go.mod does not need updates
+  # this guarantees that go.mod does not need updates
   modules-download-mode: readonly
 
   # parallel golangci-lint instances running.
   allow-parallel-runners: true
 
-issues:
-  exclude-dirs:
-    - third-party
-  # do not skip anything
-  skip-dirs-use-default: false
-
-# output configuration
+# output configuration (v2: map-based formats; text + colors replaces v1 colored-line-number)
 output:
   formats:
-    - format: colored-line-number
+    text:
       path: stdout
-  print-issued-lines: true
-  print-linter-name: true
-
-# settings of specific linters
-linters-settings:
-  govet:
-    shadow: true
-
-    settings:
-      printf:
-        funcs:
-          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Infof
-          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Warnf
-          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Errorf
-          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Fatalf
-
-    enable-all: true
-    disable:
-      - fieldalignment
-
-  revive:
-    # minimal confidence for issues, default is 0.8
-    min-confidence: 0.8
-
-  gofmt:
-    # simplify code: gofmt with `-s` option, true by default
-    simplify: true
-
-  goimports:
-    # put imports beginning with prefix after 3rd-party packages;
-    # it's a comma-separated list of prefixes
-    local-prefixes: github.com/agntcy/slim
-  misspell:
-    # US locale
-    locale: US
-
-  depguard:
-    rules:
-      denied-deps:
-        deny:
-          - pkg: go.uber.org/atomic
-            desc: "Use 'sync/atomic' instead of go.uber.org/atomic"
-          - pkg: github.com/pkg/errors
-            desc: "Use 'errors' or 'fmt' instead of github.com/pkg/errors"
-          - pkg: github.com/hashicorp/go-multierror
-            desc: "Use go.uber.org/multierr instead of github.com/hashicorp/go-multierror"
-
-  lll:
-    # max line length, lines longer will be reported. Default is 120.
-    # '\t' is counted as 1 character by default, and can be changed with the tab-width option
-    line-length: 120
-    # tab width in spaces. Default to 1.
-    tab-width: 1
+      colors: true
+      print-linter-name: true
+      print-issued-lines: true
 
 linters:
   enable:
+    - copyloopvar
     - depguard
     - errcheck
     - errorlint
-    - copyloopvar
     - gocritic
-    - gofmt
-    - goimports
     - gosec
     - govet
+    - lll
     - misspell
     - revive
     - staticcheck
     - unconvert
-    - unused
     - unparam
-    - lll
+    - unused
+
+  # settings of specific linters (v2: was linters-settings)
+  settings:
+    depguard:
+      rules:
+        denied-deps:
+          deny:
+            - pkg: go.uber.org/atomic
+              desc: "Use 'sync/atomic' instead of go.uber.org/atomic"
+            - pkg: github.com/pkg/errors
+              desc: "Use 'errors' or 'fmt' instead of github.com/pkg/errors"
+            - pkg: github.com/hashicorp/go-multierror
+              desc: "Use go.uber.org/multierr instead of github.com/hashicorp/go-multierror"
+
+    govet:
+      # shadow variable checks (v1: shadow: true)
+      enable:
+        - shadow
+      enable-all: true
+      disable:
+        - fieldalignment
+      settings:
+        printf:
+          funcs:
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Infof
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Warnf
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Errorf
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Fatalf
+
+    lll:
+      # max line length, lines longer will be reported. Default is 120.
+      # '\t' is counted as 1 character by default, and can be changed with the tab-width option
+      line-length: 120
+      # tab width in spaces. Default to 1.
+      tab-width: 1
+
+    misspell:
+      # US locale
+      locale: US
+
+    revive:
+      # minimal confidence for issues, default is 0.8
+      min-confidence: 0.8
+
+  # v1 issues.exclude-dirs (third-party) and skip-dirs-use-default: false migration:
+  # explicit paths plus default preset dirs golangci would otherwise skip.
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - third-party
+      - third_party$
+      - builtin$
+      - examples$
+
+# v2: gofmt and goimports are formatters, not linters
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+  settings:
+    gofmt:
+      # simplify code: gofmt with `-s` option, true by default
+      simplify: true
+
+    goimports:
+      # put imports beginning with this prefix after 3rd-party packages (v2: list form)
+      local-prefixes:
+        - github.com/agntcy/slim
+
+  exclusions:
+    generated: lax
+    paths:
+      - third-party
+      - third_party$
+      - builtin$
+      - examples$
