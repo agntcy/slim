@@ -3,5 +3,5 @@
   "data-plane/testing": "0.7.1",
   "control-plane/control-plane": "1.4.0-rc.0",
   "charts/slim-control-plane": "1.4.0-rc.0",
-  "charts/slim-spire": "1.5.0-rc.0"
+  "charts/slim-spire": "1.4.0-rc.0"
 }
