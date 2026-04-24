@@ -15,6 +15,10 @@
       "package-name": "helm-slim-control-plane",
       "release-type": "helm"
     },
+    "charts/slim-spire": {
+      "package-name": "helm-slim-spire",
+      "release-type": "helm"
+    },
     "control-plane/control-plane": {
       "package-name": "control-plane",
       "release-type": "go"
