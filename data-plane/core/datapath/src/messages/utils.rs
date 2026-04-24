@@ -104,12 +104,13 @@ pub enum MessageError {
 /// ProtoName from Name
 impl From<&Name> for ProtoName {
     fn from(name: &Name) -> Self {
+        use super::encoder::id_to_bytes;
         Self {
             name: Some(EncodedName {
                 component_0: name.components()[0],
                 component_1: name.components()[1],
                 component_2: name.components()[2],
-                component_3: name.components()[3],
+                name_id: id_to_bytes(name.id()),
             }),
             str_name: Some(StringName {
                 str_component_0: name.components_strings()[0].clone(),
@@ -1921,6 +1922,8 @@ mod tests {
 
     #[test]
     fn test_conversions() {
+        use crate::messages::encoder::{id_from_bytes};
+
         // Name to ProtoName
         let name = Name::from_strings(["org", "ns", "type"]).with_id(1);
         let proto_name = ProtoName::from(&name);
@@ -1938,8 +1941,8 @@ mod tests {
             name.components()[2]
         );
         assert_eq!(
-            proto_name.name.as_ref().unwrap().component_3,
-            name.components()[3]
+            id_from_bytes(&proto_name.name.as_ref().unwrap().name_id),
+            name.id()
         );
 
         // ProtoName to Name
@@ -1957,8 +1960,8 @@ mod tests {
             proto_name.name.as_ref().unwrap().component_2
         );
         assert_eq!(
-            name_from_proto.components()[3],
-            proto_name.name.as_ref().unwrap().component_3
+            name_from_proto.id(),
+            id_from_bytes(&proto_name.name.as_ref().unwrap().name_id)
         );
 
         // ProtoMessage to ProtoSubscribe

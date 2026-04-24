@@ -46,6 +46,23 @@ use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::Name;
 use slim_datapath::messages::encoder::calculate_hash;
 use slim_datapath::messages::utils::{DELETE_GROUP, IS_MODERATOR, SlimHeaderFlags, TRUE_VAL};
+
+/// Hash a u128 ID down to u64 for the controller proto which still uses UInt64Value.
+/// TODO: remove once the controller proto is updated to use bytes for 128-bit IDs.
+fn id_u128_to_u64(id: u128) -> u64 {
+    let hi = (id >> 64) as u64;
+    let lo = id as u64;
+    hi ^ lo
+}
+
+/// Convert an Option<u64> from the controller proto back to u128.
+/// TODO: remove once the controller proto is updated to use bytes for 128-bit IDs.
+fn id_u64_to_u128(id: Option<u64>) -> u128 {
+    match id {
+        Some(v) => v as u128,
+        None => Name::NULL_COMPONENT,
+    }
+}
 use slim_datapath::tables::SubscriptionTable;
 
 use slim_session::timer::{Timer, TimerType};
@@ -230,7 +247,7 @@ impl ControlPlane {
             CONTROLLER_COMPONENT,
             CONTROLLER_COMPONENT,
         ])
-        .with_id(rand::random::<u64>());
+        .with_id(rand::random::<u128>());
         debug!("create controller with name: {}", controller_name);
 
         ControlPlane {
@@ -521,13 +538,16 @@ impl ControlPlane {
 fn generate_session_id(moderator: &Name, channel: &Name) -> u32 {
     // get all the components of the two names
     // and hash them together to get the session id
-    let mut all: [u64; 8] = [0; 8];
+    let mut all: [u64; 6] = [0; 6];
     let m = moderator.components();
     let c = channel.components();
-    all[..4].copy_from_slice(m);
-    all[4..].copy_from_slice(c);
+    all[..3].copy_from_slice(m);
+    all[3..6].copy_from_slice(c);
 
-    let hash = calculate_hash(&all);
+    // Include IDs in the hash as well
+    let hash1 = calculate_hash(&all);
+    let hash2 = calculate_hash(&(moderator.id(), channel.id()));
+    let hash = hash1 ^ hash2;
     (hash ^ (hash >> 32)) as u32
 }
 
@@ -539,7 +559,7 @@ fn get_name_from_string(string_name: &str) -> Result<Name, ControllerError> {
 
     if parts.len() == 4 {
         let id = parts[3]
-            .parse::<u64>()
+            .parse::<u128>()
             .map_err(|_e| ControllerError::MalformedName(string_name.to_owned()))?;
         return Ok(Name::from_strings([parts[0], parts[1], parts[2]]).with_id(id));
     }
@@ -907,7 +927,7 @@ impl ControllerService {
                                     subscription.component_1.as_str(),
                                     subscription.component_2.as_str(),
                                 ])
-                                .with_id(subscription.id.unwrap_or(Name::NULL_COMPONENT));
+                                .with_id(id_u64_to_u128(subscription.id));
 
                                 let msg = DataPlaneMessage::builder()
                                     .source(source.clone())
@@ -977,7 +997,7 @@ impl ControllerService {
                                     subscription.component_1.as_str(),
                                     subscription.component_2.as_str(),
                                 ])
-                                .with_id(subscription.id.unwrap_or(Name::NULL_COMPONENT));
+                                .with_id(id_u64_to_u128(subscription.id));
 
                                 let msg = DataPlaneMessage::builder()
                                     .source(source.clone())
@@ -1078,7 +1098,7 @@ impl ControllerService {
                                     component_0: name.components_strings()[0].to_string(),
                                     component_1: name.components_strings()[1].to_string(),
                                     component_2: name.components_strings()[2].to_string(),
-                                    id: Some(id),
+                                    id: Some(id_u128_to_u64(id)),
                                     ..Default::default()
                                 };
 
@@ -1514,7 +1534,7 @@ impl ControllerService {
             component_0: components[0].to_string(),
             component_1: components[1].to_string(),
             component_2: components[2].to_string(),
-            id: Some(dst.id()),
+            id: Some(id_u128_to_u64(dst.id())),
             connection_id: "n/a".to_string(),
             node_id: None,
             link_id: None,
@@ -1540,11 +1560,12 @@ impl ControllerService {
         let mut unsub_vec = vec![];
 
         let components = dst.components_strings();
+        
         let cmd = v1::Subscription {
             component_0: components[0].to_string(),
             component_1: components[1].to_string(),
             component_2: components[2].to_string(),
-            id: Some(dst.id()),
+            id: Some(id_u128_to_u64(dst.id())),
             connection_id: "n/a".to_string(),
             node_id: None,
             link_id: None,

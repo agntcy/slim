@@ -27,8 +27,8 @@ impl Hash for InternalName {
 
 impl PartialEq for InternalName {
     fn eq(&self, other: &Self) -> bool {
-        // check only the first 3 components
-        self.0.components()[0..3] == other.0.components()[0..3]
+        // check only the first 3 components (prefix matching, ignoring id)
+        self.0.components() == other.0.components()
     }
 }
 
@@ -237,7 +237,7 @@ struct NameState {
     // the array contains the local connections at position 0 and the
     // remote ones at position 1
     // SubscriptionRefs tracks reference counts for each connection
-    ids: HashMap<u64, [SubscriptionRefs; 2]>,
+    ids: HashMap<u128, [SubscriptionRefs; 2]>,
     // List of all the connections that are available for this name
     // as for the ids map position 0 stores local connections and position
     // 1 store remotes ones
@@ -245,7 +245,7 @@ struct NameState {
 }
 
 impl NameState {
-    fn new(id: u64, conn: u64, is_local: bool, subscription_id: u64) -> Self {
+    fn new(id: u128, conn: u64, is_local: bool, subscription_id: u64) -> Self {
         let mut type_state = NameState::default();
         let refs = SubscriptionRefs::new(conn, subscription_id);
         if is_local {
@@ -262,7 +262,7 @@ impl NameState {
         type_state
     }
 
-    fn insert(&mut self, id: u64, conn: u64, is_local: bool, subscription_id: u64) {
+    fn insert(&mut self, id: u128, conn: u64, is_local: bool, subscription_id: u64) {
         let index = if is_local { 0 } else { 1 };
 
         let actually_new = match self.ids.get_mut(&id) {
@@ -284,7 +284,7 @@ impl NameState {
 
     fn remove(
         &mut self,
-        id: &u64,
+        id: &u128,
         conn: u64,
         is_local: bool,
         subscription_id: u64,
@@ -314,7 +314,7 @@ impl NameState {
         }
     }
 
-    fn force_remove(&mut self, id: &u64, conn: u64, is_local: bool) -> Result<(), DataPathError> {
+    fn force_remove(&mut self, id: &u128, conn: u64, is_local: bool) -> Result<(), DataPathError> {
         // Force remove regardless of counter - used when connection dies
         match self.ids.get_mut(id) {
             None => {
@@ -340,7 +340,7 @@ impl NameState {
 
     fn get_one_connection(
         &self,
-        id: u64,
+        id: u128,
         incoming_conn: u64,
         get_local_connection: bool,
     ) -> Option<u64> {
@@ -407,7 +407,7 @@ impl NameState {
 
     fn get_all_connections(
         &self,
-        id: u64,
+        id: u128,
         incoming_conn: u64,
         get_local_connection: bool,
     ) -> Option<Vec<u64>> {
@@ -650,7 +650,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
 
     fn for_each<F>(&self, mut f: F)
     where
-        F: FnMut(&Name, u64, &[u64], &[u64]),
+        F: FnMut(&Name, u128, &[u64], &[u64]),
     {
         let table = self.table.read();
 

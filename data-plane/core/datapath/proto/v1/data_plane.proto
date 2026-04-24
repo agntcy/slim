@@ -82,7 +82,7 @@ message EncodedName {
   uint64 component_0 = 1;
   uint64 component_1 = 2;
   uint64 component_2 = 3;
-  uint64 component_3 = 4;
+  bytes name_id = 4; // 16 bytes = 128-bit ID
 }
 
 message StringName {

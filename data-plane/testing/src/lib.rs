@@ -94,7 +94,7 @@ fn parse_ids(iter: &mut SplitWhitespace<'_>) -> Result<Name, ParsingError> {
     let id = iter
         .next()
         .ok_or(ParsingError::MissingId)?
-        .parse::<u64>()
+        .parse::<u128>()
         .map_err(|_e| ParsingError::MissingId)?;
 
     Ok(Name::from_strings([org, namespace, app_val]).with_id(id))

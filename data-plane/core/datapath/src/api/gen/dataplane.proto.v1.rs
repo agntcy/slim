@@ -111,7 +111,7 @@ pub struct Name {
     #[prost(message, optional, tag = "2")]
     pub str_name: ::core::option::Option<StringName>,
 }
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct EncodedName {
     #[prost(uint64, tag = "1")]
     pub component_0: u64,
@@ -119,8 +119,9 @@ pub struct EncodedName {
     pub component_1: u64,
     #[prost(uint64, tag = "3")]
     pub component_2: u64,
-    #[prost(uint64, tag = "4")]
-    pub component_3: u64,
+    /// 16 bytes = 128-bit ID
+    #[prost(bytes = "vec", tag = "4")]
+    pub name_id: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct StringName {

@@ -1964,7 +1964,7 @@ mod tests {
         // Create a leave request message coming directly from the participant
         // When coming from participant directly (not controller), the source is the participant
         // and the destination is the moderator, with LEAVING_SESSION metadata set
-        let participant_with_id = participant_name.clone().with_id(participant_id);
+        let participant_with_id = participant_name.clone().with_id(participant_id as u128);
         let mut leave_msg = Message::builder()
             .source(participant_with_id.clone())
             .destination(source.clone())

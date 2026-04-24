@@ -32,7 +32,7 @@ pub enum DataPathError {
     #[error("subscription id not found: {0}")]
     SubscriptionIdNotFound(u64),
     #[error("id not found: {0}")]
-    IdNotFound(u64),
+    IdNotFound(u128),
 
     // Connection lookup
     #[error("connection not found: {0}")]

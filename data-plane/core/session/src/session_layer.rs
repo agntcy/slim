@@ -92,7 +92,7 @@ where
     pool: Arc<SyncRwLock<HashMap<u32, Arc<SessionController>>>>,
 
     /// Default name of the local app
-    app_id: u64,
+    app_id: u128,
 
     /// Names registered by local app, keyed by name → subscription_id
     app_names: SyncRwLock<HashMap<Name, u64>>,
@@ -196,7 +196,7 @@ where
         self.conn_id
     }
 
-    pub fn app_id(&self) -> u64 {
+    pub fn app_id(&self) -> u128 {
         self.app_id
     }
 

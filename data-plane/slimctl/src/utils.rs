@@ -10,6 +10,8 @@ use crate::proto::controller::proto::v1::Connection;
 /// Literal keyword required between a route and its destination in `route add/del` commands.
 pub const VIA_KEYWORD: &str = "via";
 
+pub const NULL_COMPONENT_U64: u64 = u64::MAX; // This needs to be replaces with the Name::NULL_COMPONENT
+
 /// Parse a route string `"org/namespace/agentname[/agentid]"` into its components.
 ///
 /// The fourth component (`agentid`) is optional; when omitted it defaults to
@@ -42,7 +44,7 @@ pub fn parse_route(route: &str) -> Result<(String, String, String, u64)> {
             .parse()
             .map_err(|_| anyhow::anyhow!("invalid agent instance ID (must be u64): '{}'", id_str))?
     } else {
-        Name::NULL_COMPONENT
+        NULL_COMPONENT_U64
     };
     Ok((
         parts[0].to_string(),
@@ -160,7 +162,7 @@ mod tests {
         assert_eq!(org, "myorg");
         assert_eq!(ns, "mynamespace");
         assert_eq!(agent, "myagent");
-        assert_eq!(id, Name::NULL_COMPONENT);
+        assert_eq!(id, NULL_COMPONENT_U64);
     }
 
     #[test]

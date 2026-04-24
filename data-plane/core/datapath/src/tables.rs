@@ -19,7 +19,7 @@ pub trait SubscriptionTable {
 
     fn for_each<F>(&self, f: F)
     where
-        F: FnMut(&Name, u64, &[u64], &[u64]);
+        F: FnMut(&Name, u128, &[u64], &[u64]);
 
     fn add_subscription(
         &self,

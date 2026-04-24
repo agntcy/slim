@@ -341,13 +341,20 @@ mod tests {
     fn test_received_message() {
         let msg = ReceivedMessage {
             context: MessageContext::new(
-                Name::new_with_id("org".to_string(), "ns".to_string(), "app".to_string(), 123),
-                Some(Name::new_with_id(
+                Name::new_with_id(
                     "org".to_string(),
                     "ns".to_string(),
-                    "dest".to_string(),
-                    456,
-                )),
+                    "app".to_string(),
+                    "00000000-0000-0000-0000-000000000001".to_string(),
+                ),
+                Some(
+                    Name::new_with_id(
+                        "org".to_string(),
+                        "ns".to_string(),
+                        "dest".to_string(),
+                        "00000000-0000-0000-0000-000000000002".to_string(),
+                    )
+                ),
                 "application/json".to_string(),
                 std::collections::HashMap::new(),
                 789,
