@@ -1,0 +1,71 @@
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+package channel_manager.v1;
+
+service ChannelManagerService {
+  rpc Command(ControlRequest) returns (ControlResponse) {}
+}
+
+message ControlRequest {
+    uint64 msg_id = 1;
+    oneof payload {
+        CreateChannelRequest create_channel_request = 2;
+        DeleteChannelRequest delete_channel_request = 3;
+        AddParticipantRequest add_participant_request = 4;
+        DeleteParticipantRequest delete_participant_request = 5;
+        ListChannelsRequest list_channels_request = 6;
+        ListParticipantsRequest list_participants_request = 7;
+    }
+}
+
+message ControlResponse {
+    uint64 msg_id = 1;
+    oneof payload {
+        CommandResponse command_response = 2;
+        ListChannelsResponse list_channels_response = 3;
+        ListParticipantsResponse list_participants_response = 4;
+    }
+}
+
+message CreateChannelRequest {
+    string channel_name = 1;
+    bool mls_enabled = 2;
+}
+
+message DeleteChannelRequest {
+    string channel_name = 1;
+}
+
+message AddParticipantRequest {
+    string channel_name = 1;
+    string participant_name = 2;
+}
+
+message DeleteParticipantRequest {
+    string channel_name = 1;
+    string participant_name = 2;
+}
+
+message ListChannelsRequest {}
+
+message ListChannelsResponse {
+    uint64 msg_id = 1;
+    repeated string channel_name = 2;
+}
+
+message ListParticipantsRequest {
+    string channel_name = 1;
+}
+
+message ListParticipantsResponse {
+    uint64 msg_id = 1;
+    repeated string participant_name = 2;
+}
+
+message CommandResponse {
+    uint64 msg_id = 1;
+    bool success = 2;
+    optional string error_msg = 3;
+}
