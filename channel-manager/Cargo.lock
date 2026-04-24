@@ -99,6 +99,7 @@ version = "0.1.0"
 dependencies = [
  "agntcy-slim-bindings",
  "agntcy-slim-config",
+ "agntcy-slim-datapath",
  "agntcy-slim-session",
  "agntcy-slim-tracing",
  "anyhow",
@@ -107,6 +108,7 @@ dependencies = [
  "rand 0.9.4",
  "serde",
  "serde_yaml",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tonic",

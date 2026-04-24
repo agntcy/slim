@@ -157,3 +157,143 @@ fn handle_session_error(channel_name: &str, error: &SessionError) -> bool {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use slim_datapath::messages::Name as DatapathName;
+
+    // ── handle_session_error ─────────────────────────────────────────────
+
+    #[test]
+    fn test_participant_disconnected_continues() {
+        let name = DatapathName::from_strings(["org", "ns", "participant"]);
+        let err = SessionError::ParticipantDisconnected(name);
+        assert!(handle_session_error("test/channel/1", &err));
+    }
+
+    #[test]
+    fn test_receive_timeout_continues() {
+        assert!(handle_session_error("test/channel/1", &SessionError::ReceiveTimeout));
+    }
+
+    #[test]
+    fn test_session_closed_stops() {
+        assert!(!handle_session_error("test/channel/1", &SessionError::SessionClosed));
+    }
+
+    #[test]
+    fn test_slim_channel_closed_stops() {
+        assert!(!handle_session_error("test/channel/1", &SessionError::SlimChannelClosed));
+    }
+
+    #[test]
+    fn test_send_failed_stops() {
+        assert!(!handle_session_error("test/channel/1", &SessionError::SlimMessageSendFailed));
+    }
+
+    // ── Helper: create a dummy Session for testing ─────────────────────
+
+    /// Build an `Arc<Session>` backed by a dead `Weak` and a real channel.
+    /// The session cannot actually send/receive SLIM messages, but it is
+    /// enough to exercise `SessionsList` insert / get / remove / list logic.
+    fn dummy_session() -> Arc<Session> {
+        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        Arc::new(Session {
+            session: std::sync::Weak::new(),
+            rx: tokio::sync::RwLock::new(rx),
+        })
+    }
+
+    // ── try_insert_session / add_session ─────────────────────────────────
+
+    #[tokio::test]
+    async fn test_try_insert_session_success() {
+        let sessions = SessionsList::new();
+        let s = dummy_session();
+        assert!(sessions.try_insert_session("a/b/c".into(), s).await);
+        assert!(sessions.get_session("a/b/c").await.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_try_insert_session_duplicate_returns_false() {
+        let sessions = SessionsList::new();
+        assert!(sessions.try_insert_session("a/b/c".into(), dummy_session()).await);
+        assert!(!sessions.try_insert_session("a/b/c".into(), dummy_session()).await);
+        // Only one channel should exist
+        assert_eq!(sessions.list_channel_names().await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_add_session_success() {
+        let sessions = SessionsList::new();
+        assert!(sessions.add_session("x/y/z".into(), dummy_session()).await.is_ok());
+        assert!(sessions.get_session("x/y/z").await.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_add_session_duplicate_returns_error() {
+        let sessions = SessionsList::new();
+        sessions.add_session("x/y/z".into(), dummy_session()).await.unwrap();
+        let err = sessions.add_session("x/y/z".into(), dummy_session()).await;
+        assert!(err.is_err());
+        assert!(err.unwrap_err().to_string().contains("already exists"));
+    }
+
+    #[tokio::test]
+    async fn test_insert_multiple_channels() {
+        let sessions = SessionsList::new();
+        sessions.try_insert_session("ch/1/a".into(), dummy_session()).await;
+        sessions.try_insert_session("ch/2/b".into(), dummy_session()).await;
+        sessions.try_insert_session("ch/3/c".into(), dummy_session()).await;
+        assert_eq!(sessions.list_channel_names().await.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_remove_session_returns_session() {
+        let sessions = SessionsList::new();
+        let s = dummy_session();
+        let ptr = Arc::as_ptr(&s);
+        sessions.try_insert_session("a/b/c".into(), s).await;
+        let removed = sessions.remove_session("a/b/c").await.unwrap();
+        assert_eq!(Arc::as_ptr(&removed), ptr);
+        assert!(sessions.get_session("a/b/c").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_list_channel_names_after_remove() {
+        let sessions = SessionsList::new();
+        sessions.try_insert_session("ch/1/a".into(), dummy_session()).await;
+        sessions.try_insert_session("ch/2/b".into(), dummy_session()).await;
+        sessions.remove_session("ch/1/a").await;
+        let names = sessions.list_channel_names().await;
+        assert_eq!(names.len(), 1);
+        assert!(names.contains(&"ch/2/b".to_string()));
+    }
+
+    // ── SessionsList basic operations (no SLIM needed) ───────────────────
+
+    #[tokio::test]
+    async fn test_new_sessions_list_is_empty() {
+        let sessions = SessionsList::new();
+        assert!(sessions.list_channel_names().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_default_sessions_list_is_empty() {
+        let sessions = SessionsList::default();
+        assert!(sessions.list_channel_names().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_nonexistent_session() {
+        let sessions = SessionsList::new();
+        assert!(sessions.get_session("nonexistent").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_remove_nonexistent_session() {
+        let sessions = SessionsList::new();
+        assert!(sessions.remove_session("nonexistent").await.is_none());
+    }
+}

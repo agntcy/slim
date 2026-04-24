@@ -199,9 +199,11 @@ impl Config {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_parse_valid_config() {
-        let yaml = r#"
+    // ── Helpers ───────────────────────────────────────────────────────────
+
+    fn base_yaml(overrides: &str) -> String {
+        format!(
+            r#"
 channel-manager:
   slim-connection:
     endpoint: "http://127.0.0.1:46357"
@@ -215,14 +217,23 @@ channel-manager:
   auth:
     type: shared_secret
     secret: "test-secret-0123456789-abcdefghijk"
-  channels:
+{overrides}"#
+        )
+    }
+
+    // ── Config parsing ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_valid_config() {
+        let yaml = base_yaml(
+            r#"  channels:
     - name: "agntcy/otel/channel"
       participants:
         - "agntcy/otel/exporter"
         - "agntcy/otel/receiver"
-      mls-enabled: true
-"#;
-        let cfg: Config = serde_yaml::from_str(yaml).unwrap();
+      mls-enabled: true"#,
+        );
+        let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
         assert!(cfg.validate().is_ok());
         assert_eq!(cfg.manager.channels.len(), 1);
         assert_eq!(cfg.manager.channels[0].participants.len(), 2);
@@ -230,67 +241,23 @@ channel-manager:
     }
 
     #[test]
-    fn test_empty_endpoint_fails_validation() {
-        let yaml = r#"
-channel-manager:
-  slim-connection:
-    endpoint: ""
-    tls:
-      insecure: true
-  api-server:
-    endpoint: "127.0.0.1:10356"
-    tls:
-      insecure: true
-  local-name: "agntcy/otel/channel-manager"
-  auth:
-    type: shared_secret
-    secret: "secret"
-"#;
-        let cfg: Config = serde_yaml::from_str(yaml).unwrap();
-        assert!(cfg.validate().is_err());
-    }
-
-    #[test]
-    fn test_invalid_name_format_fails() {
-        let yaml = r#"
-channel-manager:
-  slim-connection:
-    endpoint: "http://127.0.0.1:46357"
-    tls:
-      insecure: true
-  api-server:
-    endpoint: "127.0.0.1:10356"
-    tls:
-      insecure: true
-  local-name: "invalid-name"
-  auth:
-    type: shared_secret
-    secret: "secret"
-"#;
-        let cfg: Config = serde_yaml::from_str(yaml).unwrap();
-        assert!(cfg.validate().is_err());
-    }
-
-    #[test]
     fn test_no_channels_is_valid() {
-        let yaml = r#"
-channel-manager:
-  slim-connection:
-    endpoint: "http://127.0.0.1:46357"
-    tls:
-      insecure: true
-  api-server:
-    endpoint: "127.0.0.1:10356"
-    tls:
-      insecure: true
-  local-name: "agntcy/otel/cm"
-  auth:
-    type: shared_secret
-    secret: "secret"
-"#;
-        let cfg: Config = serde_yaml::from_str(yaml).unwrap();
+        let yaml = base_yaml("");
+        let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
         assert!(cfg.validate().is_ok());
         assert!(cfg.manager.channels.is_empty());
+    }
+
+    #[test]
+    fn test_mls_disabled_by_default() {
+        let yaml = base_yaml(
+            r#"  channels:
+    - name: "a/b/c"
+      participants:
+        - "a/b/d""#,
+        );
+        let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
+        assert!(!cfg.manager.channels[0].mls_enabled);
     }
 
     #[test]
@@ -309,5 +276,322 @@ channel-manager:
 "#;
         let result: Result<Config, _> = serde_yaml::from_str(yaml);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_unknown_auth_type_fails_parsing() {
+        let yaml = r#"
+channel-manager:
+  slim-connection:
+    endpoint: "http://127.0.0.1:46357"
+    tls:
+      insecure: true
+  api-server:
+    endpoint: "127.0.0.1:10356"
+    tls:
+      insecure: true
+  local-name: "a/b/c"
+  auth:
+    type: unknown_type
+    secret: "secret"
+"#;
+        let result: Result<Config, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err());
+    }
+
+    // ── Endpoint validation ──────────────────────────────────────────────
+
+    #[test]
+    fn test_empty_slim_connection_endpoint_fails() {
+        let yaml = r#"
+channel-manager:
+  slim-connection:
+    endpoint: ""
+    tls:
+      insecure: true
+  api-server:
+    endpoint: "127.0.0.1:10356"
+    tls:
+      insecure: true
+  local-name: "agntcy/otel/channel-manager"
+  auth:
+    type: shared_secret
+    secret: "secret"
+"#;
+        let cfg: Config = serde_yaml::from_str(yaml).unwrap();
+        let err = cfg.validate().unwrap_err().to_string();
+        assert!(err.contains("slim-connection.endpoint"), "got: {err}");
+    }
+
+    #[test]
+    fn test_empty_api_server_endpoint_fails() {
+        let yaml = r#"
+channel-manager:
+  slim-connection:
+    endpoint: "http://127.0.0.1:46357"
+    tls:
+      insecure: true
+  api-server:
+    endpoint: ""
+    tls:
+      insecure: true
+  local-name: "agntcy/otel/channel-manager"
+  auth:
+    type: shared_secret
+    secret: "secret"
+"#;
+        let cfg: Config = serde_yaml::from_str(yaml).unwrap();
+        let err = cfg.validate().unwrap_err().to_string();
+        assert!(err.contains("api-server.endpoint"), "got: {err}");
+    }
+
+    // ── local-name validation ────────────────────────────────────────────
+
+    #[test]
+    fn test_empty_local_name_fails() {
+        let yaml = r#"
+channel-manager:
+  slim-connection:
+    endpoint: "http://127.0.0.1:46357"
+    tls:
+      insecure: true
+  api-server:
+    endpoint: "127.0.0.1:10356"
+    tls:
+      insecure: true
+  local-name: ""
+  auth:
+    type: shared_secret
+    secret: "secret"
+"#;
+        let cfg: Config = serde_yaml::from_str(yaml).unwrap();
+        let err = cfg.validate().unwrap_err().to_string();
+        assert!(err.contains("local-name"), "got: {err}");
+    }
+
+    #[test]
+    fn test_invalid_name_format_two_parts() {
+        let yaml = r#"
+channel-manager:
+  slim-connection:
+    endpoint: "http://127.0.0.1:46357"
+    tls:
+      insecure: true
+  api-server:
+    endpoint: "127.0.0.1:10356"
+    tls:
+      insecure: true
+  local-name: "org/app"
+  auth:
+    type: shared_secret
+    secret: "secret"
+"#;
+        let cfg: Config = serde_yaml::from_str(yaml).unwrap();
+        let err = cfg.validate().unwrap_err().to_string();
+        assert!(err.contains("org/namespace/app"), "got: {err}");
+    }
+
+    #[test]
+    fn test_invalid_name_format_four_parts() {
+        let yaml = r#"
+channel-manager:
+  slim-connection:
+    endpoint: "http://127.0.0.1:46357"
+    tls:
+      insecure: true
+  api-server:
+    endpoint: "127.0.0.1:10356"
+    tls:
+      insecure: true
+  local-name: "a/b/c/d"
+  auth:
+    type: shared_secret
+    secret: "secret"
+"#;
+        let cfg: Config = serde_yaml::from_str(yaml).unwrap();
+        let err = cfg.validate().unwrap_err().to_string();
+        assert!(err.contains("org/namespace/app"), "got: {err}");
+    }
+
+    #[test]
+    fn test_invalid_name_format_no_slashes() {
+        let yaml = r#"
+channel-manager:
+  slim-connection:
+    endpoint: "http://127.0.0.1:46357"
+    tls:
+      insecure: true
+  api-server:
+    endpoint: "127.0.0.1:10356"
+    tls:
+      insecure: true
+  local-name: "flat-name"
+  auth:
+    type: shared_secret
+    secret: "secret"
+"#;
+        let cfg: Config = serde_yaml::from_str(yaml).unwrap();
+        assert!(cfg.validate().is_err());
+    }
+
+    // ── Channel validation ───────────────────────────────────────────────
+
+    #[test]
+    fn test_empty_channel_name_fails() {
+        let yaml = base_yaml(
+            r#"  channels:
+    - name: ""
+      participants:
+        - "a/b/c""#,
+        );
+        let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
+        let err = cfg.validate().unwrap_err().to_string();
+        assert!(err.contains("channel[0].name"), "got: {err}");
+    }
+
+    #[test]
+    fn test_invalid_channel_name_format() {
+        let yaml = base_yaml(
+            r#"  channels:
+    - name: "bad-channel"
+      participants:
+        - "a/b/c""#,
+        );
+        let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
+        let err = cfg.validate().unwrap_err().to_string();
+        assert!(err.contains("channel[0].name"), "got: {err}");
+    }
+
+    #[test]
+    fn test_empty_participants_fails() {
+        let yaml = base_yaml(
+            r#"  channels:
+    - name: "a/b/c"
+      participants: []"#,
+        );
+        let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
+        let err = cfg.validate().unwrap_err().to_string();
+        assert!(err.contains("participants cannot be empty"), "got: {err}");
+    }
+
+    #[test]
+    fn test_invalid_participant_name_format() {
+        let yaml = base_yaml(
+            r#"  channels:
+    - name: "a/b/c"
+      participants:
+        - "bad-participant""#,
+        );
+        let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
+        let err = cfg.validate().unwrap_err().to_string();
+        assert!(
+            err.contains("participants[0]"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_second_channel_validation_error() {
+        let yaml = base_yaml(
+            r#"  channels:
+    - name: "a/b/c"
+      participants:
+        - "a/b/d"
+    - name: "bad"
+      participants:
+        - "a/b/e""#,
+        );
+        let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
+        let err = cfg.validate().unwrap_err().to_string();
+        assert!(err.contains("channel[1]"), "got: {err}");
+    }
+
+    #[test]
+    fn test_multiple_channels_valid() {
+        let yaml = base_yaml(
+            r#"  channels:
+    - name: "a/b/c1"
+      participants:
+        - "a/b/p1"
+    - name: "a/b/c2"
+      participants:
+        - "a/b/p2"
+        - "a/b/p3"
+      mls-enabled: true"#,
+        );
+        let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
+        assert!(cfg.validate().is_ok());
+        assert_eq!(cfg.manager.channels.len(), 2);
+        assert!(!cfg.manager.channels[0].mls_enabled);
+        assert!(cfg.manager.channels[1].mls_enabled);
+    }
+
+    // ── AuthConfig identity configs ──────────────────────────────────────
+
+    #[test]
+    fn test_shared_secret_identity_configs() {
+        let auth = AuthConfig::SharedSecret {
+            secret: "my-secret".to_string(),
+        };
+        let (provider, verifier) = auth.to_identity_configs("org/ns/app");
+
+        match &provider {
+            IdentityProviderConfig::SharedSecret { id, data } => {
+                assert_eq!(id, "org/ns/app");
+                assert_eq!(data, "my-secret");
+            }
+            _ => panic!("expected SharedSecret provider"),
+        }
+
+        match &verifier {
+            IdentityVerifierConfig::SharedSecret { id, data } => {
+                assert_eq!(id, "org/ns/app");
+                assert_eq!(data, "my-secret");
+            }
+            _ => panic!("expected SharedSecret verifier"),
+        }
+    }
+
+    #[test]
+    fn test_shared_secret_uses_local_name_as_id() {
+        let auth = AuthConfig::SharedSecret {
+            secret: "s".to_string(),
+        };
+        let (provider, _) = auth.to_identity_configs("different/local/name");
+
+        match &provider {
+            IdentityProviderConfig::SharedSecret { id, .. } => {
+                assert_eq!(id, "different/local/name");
+            }
+            _ => panic!("expected SharedSecret"),
+        }
+    }
+
+    // ── Config::load from file ───────────────────────────────────────────
+
+    #[test]
+    fn test_load_nonexistent_file() {
+        let result = Config::load(Path::new("/nonexistent/path.yaml"));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("reading config file"));
+    }
+
+    #[test]
+    fn test_load_invalid_yaml_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("bad.yaml");
+        std::fs::write(&file_path, "not: valid: yaml: [").unwrap();
+        let result = Config::load(&file_path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_valid_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("good.yaml");
+        let yaml = base_yaml("");
+        std::fs::write(&file_path, yaml).unwrap();
+        let cfg = Config::load(&file_path).unwrap();
+        assert_eq!(cfg.manager.local_name, "agntcy/otel/channel-manager");
     }
 }

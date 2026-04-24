@@ -45,6 +45,10 @@ rand = "0.9"
 [build-dependencies]
 tonic-prost-build = "0.14"
 
+[dev-dependencies]
+tempfile = "3"
+agntcy-slim-datapath = { path = "../data-plane/core/datapath" }
+
 [[bin]]
 name = "channel-manager"
 path = "src/bin/channel_manager.rs"

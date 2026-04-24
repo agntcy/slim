@@ -12,5 +12,5 @@ pub mod service;
 pub mod sessions;
 
 pub mod proto {
-    tonic::include_proto!("channel_manager.v1");
+    include!("gen/channel_manager.v1.rs");
 }
