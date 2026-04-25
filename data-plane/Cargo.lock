@@ -360,11 +360,35 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "uuid",
+ "web-sys",
 ]
 
 [[package]]
 name = "agntcy-slim-version"
 version = "1.4.0-rc.0"
+
+[[package]]
+name = "agntcy-slim-wasm"
+version = "0.1.0"
+dependencies = [
+ "agntcy-slim-auth",
+ "agntcy-slim-config",
+ "agntcy-slim-datapath",
+ "agntcy-slim-mls",
+ "agntcy-slim-session",
+ "agntcy-slim-tracing",
+ "console_error_panic_hook",
+ "futures",
+ "gloo-net",
+ "js-sys",
+ "parking_lot",
+ "prost",
+ "tokio_with_wasm",
+ "tracing",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+]
 
 [[package]]
 name = "agntcy-slimctl"
@@ -1311,7 +1335,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "pin-project",
- "rand 0.8.5",
+ "rand 0.8.6",
  "sha1",
  "simdutf8",
  "thiserror 1.0.69",
@@ -2124,6 +2148,12 @@ name = "log"
 version = "0.4.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
+
+[[package]]
+name = "lru-slab"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 
 [[package]]
 name = "matchers"
