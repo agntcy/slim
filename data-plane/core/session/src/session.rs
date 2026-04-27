@@ -320,8 +320,8 @@ impl MessageHandler for Session {
     }
 
     fn needs_drain(&self) -> bool {
-        let sender_done = self.sender.as_ref().map_or(true, |s| s.drain_completed());
-        let receiver_done = self.receiver.as_ref().map_or(true, |r| r.drain_completed());
+        let sender_done = self.sender.as_ref().is_none_or(|s| s.drain_completed());
+        let receiver_done = self.receiver.as_ref().is_none_or(|r| r.drain_completed());
         !(sender_done && receiver_done)
     }
 
