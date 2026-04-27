@@ -61,7 +61,7 @@ find "$BINDINGS_DIR" -name "*.java" -type f -exec sed -i.bak \
   {} \;
 
 # Fix 5: Duplicate variable names in pattern matching for sealed types
-# When sealed interface records have fields named "value", the pattern variable 
+# When sealed interface records have fields named "value", the pattern variable
 # conflicts with the field name in switch expressions
 #
 # Changes:
@@ -92,7 +92,23 @@ if [ -f "$BINDINGS_DIR/io/agntcy/slim/bindings/RpcCode.java" ]; then
     "$BINDINGS_DIR/io/agntcy/slim/bindings/RpcCode.java"
 fi
 
-# Fix 8: ResponseSink close() conflict with AutoCloseable
+# Fix 8: Missing java.util.List / java.util.ArrayList imports
+# UniFFI generates List<String> fields for MulticastSessionClosed but does not
+# add the required import statements. The converter file also needs ArrayList.
+# Some generated files have no existing imports, so we insert after the package line.
+echo "  → Adding missing java.util.List imports..."
+find "$BINDINGS_DIR" -name "*.java" -type f -exec grep -l 'List<' {} \; | while read -r file; do
+  if ! grep -q 'import java.util.List;' "$file"; then
+    awk '/^package / { print; print ""; print "import java.util.List;"; next } {print}' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+  fi
+done
+find "$BINDINGS_DIR" -name "*.java" -type f -exec grep -l 'ArrayList<' {} \; | while read -r file; do
+  if ! grep -q 'import java.util.ArrayList;' "$file"; then
+    awk '/^package / { print; print ""; print "import java.util.ArrayList;"; next } {print}' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+  fi
+done
+
+# Fix 9: ResponseSink close() conflict with AutoCloseable
 # ResponseSink implements both AutoCloseable.close() and ResponseSinkInterface.close()
 # Rename the stream close to closeStream() to avoid duplicate method
 echo "  → Fixing ResponseSink close() conflict with AutoCloseable..."
@@ -101,7 +117,7 @@ find "$BINDINGS_DIR" -name "*.java" -type f -exec sed -i.bak \
   -e 's/sink\.close()/sink.closeStream()/g' \
   {} \;
 
-# Fix 6: UniFFI contract version mismatch  
+# Fix 6: UniFFI contract version mismatch
 # uniffi-bindgen-java 0.2.1 generates contract version 29, but needs to match Rust uniffi version
 # After testing, Rust uniffi 0.28.3 uses contract version 29, not 28
 #
@@ -125,4 +141,5 @@ echo "   - Fixed equals() return type: Boolean → boolean"
 echo "   - Fixed equals() Object casting for lower() method"
 echo "   - Fixed duplicate pattern variable names in sealed type switches"
 echo "   - Fixed enum unsigned literals (0u → 0), delimiters (,} → ,; ;} → ;), and Short cast for RpcCode"
+echo "   - Added missing java.util.List/ArrayList imports where needed"
 echo "   - Renamed ResponseSink.close() → closeStream() to avoid AutoCloseable conflict"

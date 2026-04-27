@@ -1,6 +1,6 @@
 [package]
 name = "agntcy-slim-datapath"
-version = "0.11.5"
+version = "0.12.3"
 edition = { workspace = true }
 license = { workspace = true }
 description = "Core data plane functionality for SLIM"
@@ -12,7 +12,6 @@ name = "slim_datapath"
 agntcy-slim-config = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
 agntcy-slim-version = { workspace = true }
-bincode = { workspace = true }
 bit-vec = { workspace = true }
 display-error-chain = { workspace = true }
 drain = { workspace = true }
@@ -41,6 +40,7 @@ tonic-prost-build = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 tracing-test = { workspace = true, features = ["no-env-filter"] }
 
 [[bench]]

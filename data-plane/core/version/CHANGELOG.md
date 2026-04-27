@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.3.0-rc.0](https://github.com/agntcy/slim/releases/tag/slim-version-v1.3.0-rc.0) - 2026-03-20
+## [1.3.0](https://github.com/agntcy/slim/releases/tag/slim-version-v1.3.0) - 2026-03-20
 
 ### Added
 

@@ -51,33 +51,44 @@ impl ConnId {
 
 #[derive(Debug, Default)]
 struct SubscriptionRefs {
-    // map from connection id to reference counter
-    refs: HashMap<u64, usize>,
+    // map from connection id to set of subscription_ids
+    refs: HashMap<u64, HashSet<u64>>,
 }
 
 impl SubscriptionRefs {
-    fn new(conn: u64) -> Self {
-        let refs = HashMap::from([(conn, 1)]);
+    fn new(conn: u64, subscription_id: u64) -> Self {
+        let mut set = HashSet::new();
+        set.insert(subscription_id);
+        let refs = HashMap::from([(conn, set)]);
         SubscriptionRefs { refs }
     }
 
-    fn insert(&mut self, conn: u64) {
-        *self.refs.entry(conn).or_insert(0) += 1;
+    /// Inserts a subscription_id for the given connection.
+    /// Returns true if the subscription_id was actually new (not a duplicate).
+    fn insert(&mut self, conn: u64, subscription_id: u64) -> bool {
+        self.refs.entry(conn).or_default().insert(subscription_id)
     }
 
-    fn remove(&mut self, conn: u64) -> Result<bool, DataPathError> {
+    /// Removes a subscription_id for the given connection.
+    /// Returns `Ok(true)` if the connection has no remaining subscription_ids.
+    /// Returns `Ok(false)` if the connection still has other subscription_ids.
+    /// Returns `Err(SubscriptionIdNotFound)` if the subscription_id was not present.
+    /// Returns `Err(ConnectionIdNotFound)` if the connection was not found.
+    fn remove(&mut self, conn: u64, subscription_id: u64) -> Result<bool, DataPathError> {
         match self.refs.get_mut(&conn) {
             None => {
                 debug!(%conn, "connection not found in refs");
                 Err(DataPathError::ConnectionIdNotFound(conn))
             }
-            Some(count) => {
-                if *count == 1 {
+            Some(set) => {
+                if !set.remove(&subscription_id) {
+                    return Err(DataPathError::SubscriptionIdNotFound(subscription_id));
+                }
+                if set.is_empty() {
                     self.refs.remove(&conn);
-                    Ok(true) // fully removed
+                    Ok(true)
                 } else {
-                    *count -= 1;
-                    Ok(false) // still has references
+                    Ok(false)
                 }
             }
         }
@@ -87,6 +98,7 @@ impl SubscriptionRefs {
         // Returns the count that was removed
         self.refs
             .remove(&conn)
+            .map(|set| set.len())
             .ok_or(DataPathError::ConnectionIdNotFound(conn))
     }
 
@@ -102,8 +114,8 @@ impl SubscriptionRefs {
         self.refs.keys()
     }
 
-    fn iter(&self) -> impl Iterator<Item = (&u64, &usize)> {
-        self.refs.iter()
+    fn iter(&self) -> impl Iterator<Item = (&u64, usize)> + '_ {
+        self.refs.iter().map(|(k, v)| (k, v.len()))
     }
 }
 
@@ -233,9 +245,9 @@ struct NameState {
 }
 
 impl NameState {
-    fn new(id: u64, conn: u64, is_local: bool) -> Self {
+    fn new(id: u64, conn: u64, is_local: bool, subscription_id: u64) -> Self {
         let mut type_state = NameState::default();
-        let refs = SubscriptionRefs::new(conn);
+        let refs = SubscriptionRefs::new(conn, subscription_id);
         if is_local {
             type_state.connections[0].insert(conn);
             type_state
@@ -250,25 +262,33 @@ impl NameState {
         type_state
     }
 
-    fn insert(&mut self, id: u64, conn: u64, is_local: bool) {
+    fn insert(&mut self, id: u64, conn: u64, is_local: bool, subscription_id: u64) {
         let index = if is_local { 0 } else { 1 };
-        self.connections[index].insert(conn);
 
-        match self.ids.get_mut(&id) {
+        let actually_new = match self.ids.get_mut(&id) {
             None => {
                 // the id does not exist
                 let mut connections = [SubscriptionRefs::default(), SubscriptionRefs::default()];
-                connections[index].insert(conn);
+                connections[index].insert(conn, subscription_id);
                 self.ids.insert(id, connections);
+                true
             }
-            Some(v) => {
-                v[index].insert(conn);
-            }
+            Some(v) => v[index].insert(conn, subscription_id),
+        };
+
+        // Only add to connections pool if this was actually a new subscription_id
+        if actually_new {
+            self.connections[index].insert(conn);
         }
     }
 
-    fn remove(&mut self, id: &u64, conn: u64, is_local: bool) -> Result<bool, DataPathError> {
-        // Returns true if the subscription was fully removed (ref count reached 0)
+    fn remove(
+        &mut self,
+        id: &u64,
+        conn: u64,
+        is_local: bool,
+        subscription_id: u64,
+    ) -> Result<bool, DataPathError> {
         match self.ids.get_mut(id) {
             None => {
                 warn!(%id, "not found");
@@ -277,16 +297,19 @@ impl NameState {
             Some(connection_refs) => {
                 let index = if is_local { 0 } else { 1 };
 
-                let fully_removed = connection_refs[index].remove(conn)?;
+                let conn_fully_removed = connection_refs[index].remove(conn, subscription_id)?;
+                // Decrement the Connections counter — it was incremented
+                // once per unique subscription_id in insert().
                 self.connections[index].remove(conn)?;
 
-                if fully_removed {
-                    // if both refs are empty remove the id from the tables
-                    if connection_refs[0].is_empty() && connection_refs[1].is_empty() {
-                        self.ids.remove(id);
-                    }
+                if conn_fully_removed
+                    && connection_refs[0].is_empty()
+                    && connection_refs[1].is_empty()
+                {
+                    self.ids.remove(id);
                 }
-                Ok(fully_removed)
+
+                Ok(conn_fully_removed)
             }
         }
     }
@@ -333,13 +356,6 @@ impl NameState {
         let val = self.ids.get(&id);
         match val {
             None => {
-                // If there is only 1 connection for the name, we can still
-                // try to use it
-                if self.connections[index].index.len() == 1 {
-                    return self.connections[index].get_one(incoming_conn);
-                }
-
-                // We cannot return any connection for this name
                 debug!(name = %id, "cannot find out connection, name does not exists");
                 None
             }
@@ -486,6 +502,7 @@ fn add_subscription_to_sub_table(
     name: Name,
     conn: u64,
     is_local: bool,
+    subscription_id: u64,
     mut table: RwLockWriteGuard<'_, RawRwLock, HashMap<InternalName, NameState>>,
 ) {
     let uid = name.id();
@@ -497,15 +514,11 @@ fn add_subscription_to_sub_table(
                 name = %internal_name.0, %conn,
                 "subscription table: add first subscription",
             );
-            // the subscription does not exists, init
-            // create and init type state
-            let state = NameState::new(uid, conn, is_local);
-
-            // insert the map in the table
+            let state = NameState::new(uid, conn, is_local, subscription_id);
             table.insert(internal_name, state);
         }
         Some(state) => {
-            state.insert(uid, conn, is_local);
+            state.insert(uid, conn, is_local, subscription_id);
         }
     }
 }
@@ -555,19 +568,18 @@ fn remove_subscription_from_sub_table(
     name: &Name,
     conn_index: u64,
     is_local: bool,
+    subscription_id: u64,
     table: &mut RwLockWriteGuard<'_, RawRwLock, HashMap<InternalName, NameState>>,
 ) -> Result<bool, DataPathError> {
-    // Returns true if the subscription was fully removed (ref count reached 0)
-    // Convert &Name to &InternalName. This is unsafe, but we know the types are compatible.
     let query_name = unsafe { std::mem::transmute::<&Name, &InternalName>(name) };
 
     if let Some(state) = table.get_mut(query_name) {
-        let fully_removed = state.remove(&name.id(), conn_index, is_local)?;
+        let conn_fully_removed = state.remove(&name.id(), conn_index, is_local, subscription_id)?;
 
         if state.ids.is_empty() {
             table.remove(query_name);
         }
-        Ok(fully_removed)
+        Ok(conn_fully_removed)
     } else {
         debug!("subscription not found {}", name);
         Err(DataPathError::SubscriptionNotFound(name.clone()))
@@ -645,13 +657,17 @@ impl SubscriptionTable for SubscriptionTableImpl {
         }
     }
 
-    fn add_subscription(&self, name: Name, conn: u64, is_local: bool) -> Result<(), Self::Error> {
-        // Add to sub_table and increment counter if the subscription already exists
+    fn add_subscription(
+        &self,
+        name: Name,
+        conn: u64,
+        is_local: bool,
+        subscription_id: u64,
+    ) -> Result<(), Self::Error> {
         {
             let table = self.table.write();
-            add_subscription_to_sub_table(name.clone(), conn, is_local, table);
+            add_subscription_to_sub_table(name.clone(), conn, is_local, subscription_id, table);
         }
-        // Try to add to connections map (will fail silently if already exists)
         {
             let conn_table = self.connections.write();
             let _ = add_subscription_to_connection(name, conn, conn_table);
@@ -664,13 +680,13 @@ impl SubscriptionTable for SubscriptionTableImpl {
         name: &Name,
         conn: u64,
         is_local: bool,
+        subscription_id: u64,
     ) -> Result<(), Self::Error> {
-        let fully_removed = {
+        let conn_fully_removed = {
             let mut table = self.table.write();
-            remove_subscription_from_sub_table(name, conn, is_local, &mut table)?
+            remove_subscription_from_sub_table(name, conn, is_local, subscription_id, &mut table)?
         };
-        // Only remove from connections HashSet if subscription was fully removed (ref count = 0)
-        if fully_removed {
+        if conn_fully_removed {
             let conn_table = self.connections.write();
             remove_subscription_from_connection(name, conn, conn_table)?;
         }
@@ -775,10 +791,10 @@ mod tests {
 
         let t = SubscriptionTableImpl::default();
 
-        assert!(t.add_subscription(name1.clone(), 1, false).is_ok());
-        assert!(t.add_subscription(name1.clone(), 2, false).is_ok());
-        assert!(t.add_subscription(name1_1.clone(), 3, false).is_ok());
-        assert!(t.add_subscription(name2_2.clone(), 3, false).is_ok());
+        assert!(t.add_subscription(name1.clone(), 1, false, 1).is_ok());
+        assert!(t.add_subscription(name1.clone(), 2, false, 2).is_ok());
+        assert!(t.add_subscription(name1_1.clone(), 3, false, 3).is_ok());
+        assert!(t.add_subscription(name2_2.clone(), 3, false, 4).is_ok());
 
         // returns three matches on connection 1,2,3
         let out = t.match_all(&name1, 100).unwrap();
@@ -793,7 +809,7 @@ mod tests {
         assert!(out.contains(&2));
         assert!(out.contains(&3));
 
-        assert!(t.remove_subscription(&name1, 2, false).is_ok());
+        assert!(t.remove_subscription(&name1, 2, false, 2).is_ok());
 
         // return two matches on connection 1,3
         let out = t.match_all(&name1, 100).unwrap();
@@ -801,7 +817,7 @@ mod tests {
         assert!(out.contains(&1));
         assert!(out.contains(&3));
 
-        assert!(t.remove_subscription(&name1_1, 3, false).is_ok());
+        assert!(t.remove_subscription(&name1_1, 3, false, 3).is_ok());
 
         // return one matches on connection 1
         let out = t.match_all(&name1, 100).unwrap();
@@ -813,7 +829,7 @@ mod tests {
         assert!(matches!(err, Err(DataPathError::NoMatch(_))));
 
         // add subscription again
-        assert!(t.add_subscription(name1_1.clone(), 2, false).is_ok());
+        assert!(t.add_subscription(name1_1.clone(), 2, false, 5).is_ok());
 
         // returns two matches on connection 1 and 2
         let out = t.match_all(&name1, 100).unwrap();
@@ -846,7 +862,7 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert!(out.contains(&1));
 
-        assert!(t.add_subscription(name2_2.clone(), 4, false).is_ok());
+        assert!(t.add_subscription(name2_2.clone(), 4, false, 6).is_ok());
 
         // run multiple times for randomness
         for _ in 0..20 {
@@ -865,10 +881,10 @@ mod tests {
             }
         }
 
-        assert!(t.remove_subscription(&name2_2, 4, false).is_ok());
+        assert!(t.remove_subscription(&name2_2, 4, false, 6).is_ok());
 
         // test local vs remote
-        assert!(t.add_subscription(name1.clone(), 2, true).is_ok());
+        assert!(t.add_subscription(name1.clone(), 2, true, 7).is_ok());
 
         // returns both local (2) and remote (1) connections
         let out = t.match_all(&name1, 100).unwrap();
@@ -893,17 +909,20 @@ mod tests {
         let err = t.remove_connection(4, false);
         assert!(matches!(err, Err(DataPathError::ConnectionIdNotFound(_))));
 
-        assert_eq!(t.match_one(&name1_1, 100).unwrap(), 2);
+        // Test that specific ID (name1_1) does NOT match NULL_COMPONENT subscriptions
+        // At this point only name1 (NULL_COMPONENT) subscriptions exist on conn 1 and 2
+        let err = t.match_one(&name1_1, 100);
+        assert!(matches!(err, Err(DataPathError::NoMatch(_))));
 
         assert!(
             // this generates a warning
-            t.add_subscription(name2_2.clone(), 3, false).is_ok()
+            t.add_subscription(name2_2.clone(), 3, false, 8).is_ok()
         );
 
-        let err = t.remove_subscription(&name3, 2, false);
+        let err = t.remove_subscription(&name3, 2, false, 9);
         assert!(matches!(err, Err(DataPathError::SubscriptionNotFound(_))));
 
-        let err = t.remove_subscription(&name2, 2, false);
+        let err = t.remove_subscription(&name2, 2, false, 10);
         assert!(matches!(err, Err(DataPathError::IdNotFound(_))));
     }
 
@@ -914,9 +933,9 @@ mod tests {
 
         let t = SubscriptionTableImpl::default();
 
-        assert!(t.add_subscription(name1.clone(), 1, false).is_ok());
-        assert!(t.add_subscription(name1.clone(), 2, false).is_ok());
-        assert!(t.add_subscription(name2.clone(), 3, true).is_ok());
+        assert!(t.add_subscription(name1.clone(), 1, false, 1).is_ok());
+        assert!(t.add_subscription(name1.clone(), 2, false, 2).is_ok());
+        assert!(t.add_subscription(name2.clone(), 3, true, 3).is_ok());
 
         let mut h = HashMap::new();
 
@@ -947,12 +966,12 @@ mod tests {
         let t = SubscriptionTableImpl::default();
 
         // Add local connections
-        assert!(t.add_subscription(name.clone(), 1, true).is_ok());
-        assert!(t.add_subscription(name.clone(), 2, true).is_ok());
+        assert!(t.add_subscription(name.clone(), 1, true, 1).is_ok());
+        assert!(t.add_subscription(name.clone(), 2, true, 2).is_ok());
 
         // Add remote connections
-        assert!(t.add_subscription(name.clone(), 3, false).is_ok());
-        assert!(t.add_subscription(name.clone(), 4, false).is_ok());
+        assert!(t.add_subscription(name.clone(), 3, false, 3).is_ok());
+        assert!(t.add_subscription(name.clone(), 4, false, 4).is_ok());
 
         // Test match_all returns both local and remote connections
         let result = t.match_all(&name, 100).unwrap();
@@ -1006,8 +1025,8 @@ mod tests {
         }
 
         // Remove all local connections
-        assert!(t.remove_subscription(&name, 1, true).is_ok());
-        assert!(t.remove_subscription(&name, 2, true).is_ok());
+        assert!(t.remove_subscription(&name, 1, true, 1).is_ok());
+        assert!(t.remove_subscription(&name, 2, true, 2).is_ok());
 
         // Now match_all should only return remote connections
         let result = t.match_all(&name, 100).unwrap();
@@ -1031,83 +1050,76 @@ mod tests {
         let name1 = Name::from_strings(["agntcy", "default", "service"]);
         let t = SubscriptionTableImpl::default();
 
-        // Add the same subscription multiple times
-        assert!(t.add_subscription(name1.clone(), 1, false).is_ok());
-        assert!(t.add_subscription(name1.clone(), 1, false).is_ok());
-        assert!(t.add_subscription(name1.clone(), 1, false).is_ok());
+        // Adding the same subscription_id multiple times is idempotent (dedup)
+        assert!(t.add_subscription(name1.clone(), 1, false, 100).is_ok());
+        assert!(t.add_subscription(name1.clone(), 1, false, 100).is_ok());
+        assert!(t.add_subscription(name1.clone(), 1, false, 100).is_ok());
 
-        // Should still be able to match to connection 1
-        let result = t.match_one(&name1, 100).unwrap();
+        let result = t.match_one(&name1, 100_u64).unwrap();
         assert_eq!(result, 1, "Should match to connection 1");
 
-        // Remove once - subscription should still exist (counter: 3 -> 2)
-        assert!(t.remove_subscription(&name1, 1, false).is_ok());
-        let result = t.match_one(&name1, 100).unwrap();
-        assert_eq!(
-            result, 1,
-            "Should still match to connection 1 after first remove"
-        );
-
-        // Remove again - subscription should still exist (counter: 2 -> 1)
-        assert!(t.remove_subscription(&name1, 1, false).is_ok());
-        let result = t.match_one(&name1, 100).unwrap();
-        assert_eq!(
-            result, 1,
-            "Should still match to connection 1 after second remove"
-        );
-
-        // Remove final time - subscription should now be fully removed (counter: 1 -> 0)
-        assert!(t.remove_subscription(&name1, 1, false).is_ok());
-        let err = t.match_one(&name1, 100);
+        // One remove is enough since it was deduped to a single entry
+        assert!(t.remove_subscription(&name1, 1, false, 100).is_ok());
+        let err = t.match_one(&name1, 100_u64);
         assert!(
             matches!(err, Err(DataPathError::NoMatch(_))),
-            "Should have no match after final remove"
+            "Subscription should be fully removed after removing its subscription_id"
         );
 
-        // Test with multiple connections having different ref counts
+        // Test with multiple connections and subscription_ids
         let name2 = Name::from_strings(["agntcy", "default", "multi"]);
 
-        // Connection 1: ref count 3
-        assert!(t.add_subscription(name2.clone(), 1, false).is_ok());
-        assert!(t.add_subscription(name2.clone(), 1, false).is_ok());
-        assert!(t.add_subscription(name2.clone(), 1, false).is_ok());
+        // Connection 1: 3 different subscription_ids = 3 refs
+        assert!(t.add_subscription(name2.clone(), 1, false, 201).is_ok());
+        assert!(t.add_subscription(name2.clone(), 1, false, 202).is_ok());
+        assert!(t.add_subscription(name2.clone(), 1, false, 203).is_ok());
 
-        // Connection 2: ref count 1
-        assert!(t.add_subscription(name2.clone(), 2, false).is_ok());
+        // Connection 2: 1 subscription_id
+        assert!(t.add_subscription(name2.clone(), 2, false, 204).is_ok());
 
-        // Connection 3: ref count 2
-        assert!(t.add_subscription(name2.clone(), 3, false).is_ok());
-        assert!(t.add_subscription(name2.clone(), 3, false).is_ok());
+        // Connection 3: 2 different subscription_ids
+        assert!(t.add_subscription(name2.clone(), 3, false, 205).is_ok());
+        assert!(t.add_subscription(name2.clone(), 3, false, 206).is_ok());
 
         // All three connections should be available
-        let result = t.match_all(&name2, 100).unwrap();
+        let result = t.match_all(&name2, 100_u64).unwrap();
         assert_eq!(result.len(), 3, "Should have 3 connections");
         assert!(result.contains(&1));
         assert!(result.contains(&2));
         assert!(result.contains(&3));
 
-        // Remove connection 2 once - should be gone (ref count 1 -> 0)
-        assert!(t.remove_subscription(&name2, 2, false).is_ok());
-        let result = t.match_all(&name2, 100).unwrap();
+        // Remove connection 2's subscription
+        assert!(t.remove_subscription(&name2, 2, false, 204).is_ok());
+        let result = t.match_all(&name2, 100_u64).unwrap();
         assert_eq!(
             result.len(),
             2,
             "Should have 2 connections after removing conn 2"
         );
-        assert!(!result.contains(&2), "Connection 2 should be removed");
+        assert!(!result.contains(&2));
 
-        // Remove connection 1 once - should still exist (ref count 3 -> 2)
-        assert!(t.remove_subscription(&name2, 1, false).is_ok());
-        let result = t.match_all(&name2, 100).unwrap();
+        // Remove one subscription_id from connection 1
+        assert!(t.remove_subscription(&name2, 1, false, 201).is_ok());
+        // Connection 1 still has 2 more subscription_ids
+        let result = t.match_all(&name2, 100_u64).unwrap();
         assert_eq!(result.len(), 2, "Should still have 2 connections");
-        assert!(result.contains(&1), "Connection 1 should still exist");
+        assert!(result.contains(&1));
 
-        // Remove connection 3 twice - should be gone (ref count 2 -> 0)
-        assert!(t.remove_subscription(&name2, 3, false).is_ok());
-        assert!(t.remove_subscription(&name2, 3, false).is_ok());
-        let result = t.match_all(&name2, 100).unwrap();
-        assert_eq!(result.len(), 1, "Should have only 1 connection");
-        assert!(result.contains(&1), "Only connection 1 should remain");
+        // Remove remaining subscription_ids from connection 1
+        assert!(t.remove_subscription(&name2, 1, false, 202).is_ok());
+        assert!(t.remove_subscription(&name2, 1, false, 203).is_ok());
+        let result = t.match_all(&name2, 100_u64).unwrap();
+        assert_eq!(result.len(), 1, "Should have 1 connection");
+        assert!(result.contains(&3));
+
+        // Remove connection 3's subscription_ids
+        assert!(t.remove_subscription(&name2, 3, false, 205).is_ok());
+        assert!(t.remove_subscription(&name2, 3, false, 206).is_ok());
+        let err = t.match_one(&name2, 100_u64);
+        assert!(
+            matches!(err, Err(DataPathError::NoMatch(_))),
+            "No connections should remain"
+        );
     }
 
     #[test]
@@ -1116,13 +1128,13 @@ mod tests {
         let name1 = Name::from_strings(["agntcy", "default", "cleanup"]);
         let t = SubscriptionTableImpl::default();
 
-        // Add subscription multiple times
-        assert!(t.add_subscription(name1.clone(), 1, false).is_ok());
-        assert!(t.add_subscription(name1.clone(), 1, false).is_ok());
-        assert!(t.add_subscription(name1.clone(), 1, false).is_ok());
+        // Add subscription with different subscription_ids
+        assert!(t.add_subscription(name1.clone(), 1, false, 301).is_ok());
+        assert!(t.add_subscription(name1.clone(), 1, false, 302).is_ok());
+        assert!(t.add_subscription(name1.clone(), 1, false, 303).is_ok());
 
         // Add another connection with single ref
-        assert!(t.add_subscription(name1.clone(), 2, false).is_ok());
+        assert!(t.add_subscription(name1.clone(), 2, false, 304).is_ok());
 
         // Both connections should be available
         let result = t.match_all(&name1, 100).unwrap();
@@ -1151,14 +1163,14 @@ mod tests {
         let name1 = Name::from_strings(["agntcy", "default", "mixed"]);
         let t = SubscriptionTableImpl::default();
 
-        // Add local connection multiple times
-        assert!(t.add_subscription(name1.clone(), 1, true).is_ok());
-        assert!(t.add_subscription(name1.clone(), 1, true).is_ok());
+        // Add local connection with different subscription_ids
+        assert!(t.add_subscription(name1.clone(), 1, true, 401).is_ok());
+        assert!(t.add_subscription(name1.clone(), 1, true, 402).is_ok());
 
-        // Add remote connection multiple times
-        assert!(t.add_subscription(name1.clone(), 2, false).is_ok());
-        assert!(t.add_subscription(name1.clone(), 2, false).is_ok());
-        assert!(t.add_subscription(name1.clone(), 2, false).is_ok());
+        // Add remote connection with different subscription_ids
+        assert!(t.add_subscription(name1.clone(), 2, false, 403).is_ok());
+        assert!(t.add_subscription(name1.clone(), 2, false, 404).is_ok());
+        assert!(t.add_subscription(name1.clone(), 2, false, 405).is_ok());
 
         // Should prefer local connection
         for _ in 0..10 {
@@ -1166,30 +1178,118 @@ mod tests {
             assert_eq!(result, 1, "Should prefer local connection");
         }
 
-        // Remove local once - should still exist
-        assert!(t.remove_subscription(&name1, 1, true).is_ok());
+        // Remove one local subscription_id - should still exist (has 402)
+        assert!(t.remove_subscription(&name1, 1, true, 401).is_ok());
         let result = t.match_one(&name1, 100).unwrap();
         assert_eq!(result, 1, "Local connection should still exist");
 
-        // Remove local again - should be gone, fall back to remote
-        assert!(t.remove_subscription(&name1, 1, true).is_ok());
+        // Remove last local subscription_id - should be gone, fall back to remote
+        assert!(t.remove_subscription(&name1, 1, true, 402).is_ok());
         for _ in 0..10 {
             let result = t.match_one(&name1, 100).unwrap();
             assert_eq!(result, 2, "Should fall back to remote connection");
         }
 
-        // Remove remote twice - should still exist (ref count 3 -> 1)
-        assert!(t.remove_subscription(&name1, 2, false).is_ok());
-        assert!(t.remove_subscription(&name1, 2, false).is_ok());
+        // Remove remote subscription_ids one by one
+        assert!(t.remove_subscription(&name1, 2, false, 403).is_ok());
+        assert!(t.remove_subscription(&name1, 2, false, 404).is_ok());
+        // Still has one remaining
         let result = t.match_one(&name1, 100).unwrap();
-        assert_eq!(result, 2, "Remote should still exist with ref count 1");
+        assert_eq!(result, 2, "Remote should still exist with one sub");
 
-        // Remove remote final time - should be gone
-        assert!(t.remove_subscription(&name1, 2, false).is_ok());
+        assert!(t.remove_subscription(&name1, 2, false, 405).is_ok());
         let err = t.match_one(&name1, 100);
         assert!(
             matches!(err, Err(DataPathError::NoMatch(_))),
             "No connections should remain"
         );
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_null_component_matching_behavior() {
+        // This test validates the NULL_COMPONENT matching rules:
+        // 1. Messages with NULL_COMPONENT match ANY subscription (NULL_COMPONENT or specific ID)
+        // 2. Messages with specific ID match ONLY subscriptions with that exact ID
+
+        let name = Name::from_strings(["agntcy", "default", "service"]);
+        let name_id1 = name.clone().with_id(1);
+        let name_id2 = name.clone().with_id(2);
+
+        let t = SubscriptionTableImpl::default();
+
+        // Setup: Add subscriptions for NULL_COMPONENT and specific IDs
+        // conn 1: NULL_COMPONENT (for discovery)
+        // conn 2: NULL_COMPONENT (for discovery)
+        // conn 3: specific ID 1
+        // conn 4: specific ID 2
+        assert!(t.add_subscription(name.clone(), 1, false, 1).is_ok());
+        assert!(t.add_subscription(name.clone(), 2, false, 2).is_ok());
+        assert!(t.add_subscription(name_id1.clone(), 3, false, 3).is_ok());
+        assert!(t.add_subscription(name_id2.clone(), 4, false, 4).is_ok());
+
+        // Test 1: Message with NULL_COMPONENT should match ALL subscriptions
+        // (both NULL_COMPONENT and specific IDs)
+        let result = t.match_all(&name, 100).unwrap();
+        assert_eq!(
+            result.len(),
+            4,
+            "NULL_COMPONENT message should match all subscriptions"
+        );
+        assert!(result.contains(&1), "Should match NULL_COMPONENT conn 1");
+        assert!(result.contains(&2), "Should match NULL_COMPONENT conn 2");
+        assert!(result.contains(&3), "Should match specific ID 1 conn 3");
+        assert!(result.contains(&4), "Should match specific ID 2 conn 4");
+
+        // Test 2: Message with specific ID 1 should match ONLY ID 1 subscription
+        // (excluding NULL_COMPONENT subscriptions)
+        let result = t.match_all(&name_id1, 100).unwrap();
+        assert_eq!(
+            result.len(),
+            1,
+            "Specific ID message should match only exact ID subscription"
+        );
+        assert!(result.contains(&3), "Should match only conn 3 (ID 1)");
+
+        // Test 3: Message with specific ID 2 should match ONLY ID 2 subscription
+        let result = t.match_all(&name_id2, 100).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(result.contains(&4), "Should match only conn 4 (ID 2)");
+
+        // Test 4: match_one should also respect these rules
+        let result = t.match_one(&name_id1, 100).unwrap();
+        assert_eq!(result, 3, "Should return only the specific ID connection");
+
+        // Test 5: Remove specific ID subscription, the match for message with that ID should fail
+        assert!(t.remove_subscription(&name_id1, 3, false, 3).is_ok());
+        let err = t.match_one(&name_id1, 100);
+        assert!(
+            matches!(err, Err(DataPathError::NoMatch(_))),
+            "Specific ID message should NOT match NULL_COMPONENT subscriptions"
+        );
+
+        // Test 6: But NULL_COMPONENT message should still match remaining subscriptions
+        let result = t.match_all(&name, 100).unwrap();
+        assert_eq!(result.len(), 3, "Should match remaining subscriptions");
+        assert!(result.contains(&1));
+        assert!(result.contains(&2));
+        assert!(result.contains(&4));
+
+        // Test 7: Remove all NULL_COMPONENT subscriptions
+        assert!(t.remove_subscription(&name, 1, false, 1).is_ok());
+        assert!(t.remove_subscription(&name, 2, false, 2).is_ok());
+
+        // NULL_COMPONENT message should still match the specific ID subscription
+        let result = t.match_all(&name, 100).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(result.contains(&4), "Should match ID 2 subscription");
+
+        // Specific ID 2 message should still work
+        let result = t.match_one(&name_id2, 100).unwrap();
+        assert_eq!(result, 4);
+
+        // But specific ID 1 should still fail (was removed earlier)
+        let err = t.match_one(&name_id1, 100);
+        assert!(matches!(err, Err(DataPathError::NoMatch(_))));
     }
 }

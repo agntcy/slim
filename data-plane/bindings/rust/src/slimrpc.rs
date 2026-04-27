@@ -46,7 +46,7 @@
 //! # let request = Request::default();
 //! // Create a channel
 //! let remote = Name::new("org".to_string(), "namespace".to_string(), "service".to_string());
-//! let channel = Channel::new_internal(app.clone(), remote.as_slim_name());
+//! let channel = Channel::new_with_members_internal(app.clone(), vec![remote.as_slim_name().clone()], false, None).unwrap();
 //!
 //! // Make an RPC call (typically through generated code)
 //! let response: Response = channel.unary("MyService", "MyMethod", request, None, None).await?;
@@ -141,12 +141,14 @@ mod session_wrapper;
 mod handler_traits;
 mod stream_types;
 
-pub use channel::Channel;
+pub use channel::{Channel, MessageContext, MulticastItem};
 pub use codec::{Codec, Decoder, Encoder};
 pub use context::{Context, Metadata, SessionContext};
 pub use error::{InvalidRpcCode, RpcCode, RpcError};
-pub use rpc_session::{HandlerInfo, RpcSession, StreamRpcSession, send_error, send_error_for_rpc};
-pub use server::{HandlerResponse, HandlerType, ItemStream, RpcHandler, Server, StreamRpcHandler};
+pub use rpc_session::{
+    HandlerInfo, RpcSession, send_eos, send_error, send_error_for_rpc, send_response_stream,
+};
+pub use server::{HandlerType, RpcHandler, Server, StreamRpcHandler};
 pub use session_wrapper::{ReceivedMessage, SessionRx, SessionTx, new_session};
 
 // UniFFI handler traits and stream types
@@ -154,8 +156,10 @@ pub use handler_traits::{
     StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
 };
 pub use stream_types::{
-    BidiStreamHandler, RequestStream as UniffiRequestStream, RequestStreamWriter, ResponseSink,
-    ResponseStreamReader, StreamMessage,
+    BidiStreamHandler, DecodedStream, MulticastBidiStreamHandler, MulticastResponseReader,
+    MulticastStreamMessage, RawStream, RequestStream as UniffiRequestStream, RequestStreamWriter,
+    ResponseSink, ResponseStreamReader, RpcMessageContext, RpcMulticastItem, StreamMessage,
+    StreamSource,
 };
 
 /// Key used in metadata for RPC deadline/timeout
@@ -173,6 +177,14 @@ pub const SERVICE_KEY: &str = "service";
 /// Key used in metadata for the RPC method name
 pub const METHOD_KEY: &str = "method";
 
+/// Key used in metadata to mark a message as a client request.
+/// Present on all client-originated messages (data frames and EOS).
+/// Absent on server responses so the server can tell them apart.
+pub const RPC_DIR_KEY: &str = "slimrpc-dir";
+
+/// Value for [`RPC_DIR_KEY`] that marks a message as a client request.
+pub const RPC_DIR_REQ: &str = "req";
+
 /// Maximum timeout in seconds (10 hours)
 pub const MAX_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(36000);
 
@@ -182,21 +194,6 @@ pub const MAX_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3600
 /// This is the single point of truth for timeout duration calculation in SlimRPC.
 pub fn calculate_timeout_duration(timeout: Option<std::time::Duration>) -> std::time::Duration {
     timeout.unwrap_or(MAX_TIMEOUT)
-}
-
-/// Returns `true` when `msg` is an end-of-stream marker: status code is `Ok`
-/// **and** the payload is empty.
-///
-/// This is the canonical test used by both the client and server to decide
-/// whether a received message terminates the current RPC stream.
-pub(crate) fn msg_is_terminal(msg: &session_wrapper::ReceivedMessage) -> bool {
-    let code = msg
-        .metadata
-        .get(STATUS_CODE_KEY)
-        .and_then(|s| s.parse::<i32>().ok())
-        .and_then(|c| RpcCode::try_from(c).ok())
-        .unwrap_or(RpcCode::Ok);
-    code == RpcCode::Ok && msg.payload.is_empty()
 }
 
 /// Calculate deadline from optional timeout duration

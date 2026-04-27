@@ -22,7 +22,7 @@ concurrency:
 
 permissions:
   contents: read
-  actions: write
+  actions: read
 
 jobs:
   control-plane-build-and-test:

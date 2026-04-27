@@ -16,12 +16,39 @@ import (
 	"github.com/onsi/gomega/gexec"
 )
 
+// extractSubscriptionName finds a subscription matching prefix in the route
+// list output and returns "prefix/id". Returns "" if not found.
+func extractSubscriptionName(routeListOutput, prefix string) string {
+	for _, line := range strings.Split(routeListOutput, "\n") {
+		if !strings.Contains(line, prefix) {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) == 0 {
+			continue
+		}
+		nameWithoutID := parts[0]
+		for _, part := range parts {
+			idStr, ok := strings.CutPrefix(part, "id=")
+			if !ok {
+				continue
+			}
+			idStr, _ = strings.CutPrefix(idStr, "Some(")
+			idStr, _ = strings.CutPrefix(idStr, "{value:")
+			idStr = strings.TrimRight(idStr, ")}")
+			return fmt.Sprintf("%s/%s", nameWithoutID, idStr)
+		}
+	}
+	return ""
+}
+
 var _ = Describe("Group management through control plane with timeout", func() {
 	var (
 		controlPlaneSession *gexec.Session
 		slimNodeSession     *gexec.Session
 		moderatorSession    *gexec.Session
 		controlPlaneDBPath  string
+		moderatorName       string
 
 		tempDir               string
 		serverAConfig         string
@@ -50,7 +77,7 @@ var _ = Describe("Group management through control plane with timeout", func() {
 
 		tempDir = newTempDir("slim-integration-gm-timeout-")
 		serverAConfig = writeTempConfig(tempDir, "./testdata/server-a-config-cp.yaml", "server-a-config-cp.yaml", replacements)
-		moderatorConfig = writeTempConfig(tempDir, "./testdata/moderator-config.yaml", "moderator-config.yaml", replacements)
+		moderatorConfig = writeTempConfig(tempDir, "./testdata/client.yaml", "moderator-config.yaml", replacements)
 		controlPlaneConfig = writeTempConfig(tempDir, "./testdata/control-plane-config.yaml", "control-plane-config.yaml", replacements)
 
 		// start control plane
@@ -91,8 +118,38 @@ var _ = Describe("Group management through control plane with timeout", func() {
 		)
 		Expect(errModerator).NotTo(HaveOccurred())
 
-		// wait for moderator to connect
-		time.Sleep(1000 * time.Millisecond)
+		// Poll the route list until the moderator subscription appears.
+		// The moderator needs time to connect and subscribe; a single
+		// query right after start may not yet show the subscription.
+		Eventually(func() string {
+			out, err := exec.Command(
+				slimctlPath,
+				"controller", "route", "list",
+				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
+				"-n", "slim/a",
+			).CombinedOutput()
+			if err != nil {
+				return ""
+			}
+			return extractSubscriptionName(string(out), "org/default/moderator1")
+		}, 30*time.Second, 1*time.Second).ShouldNot(BeEmpty(),
+			"moderator subscription did not appear in route list within 30s")
+
+		// Capture the result from the last successful poll.
+		routeListOut := runCombinedOutputWithRetry(5*time.Second, func() *exec.Cmd {
+			return exec.Command(
+				slimctlPath,
+				"controller", "route", "list",
+				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
+				"-n", "slim/a",
+			)
+		})
+		routeListOutput := string(routeListOut)
+		fmt.Fprintf(GinkgoWriter, "Route list output:\n%s\n", routeListOutput)
+
+		moderatorName = extractSubscriptionName(routeListOutput, "org/default/moderator1")
+		Expect(moderatorName).NotTo(BeEmpty(), "failed to extract moderator name from route list")
+		fmt.Fprintf(GinkgoWriter, "Extracted moderator name: %s\n", moderatorName)
 	})
 
 	AfterEach(func() {
@@ -127,7 +184,7 @@ var _ = Describe("Group management through control plane with timeout", func() {
 				return exec.Command(
 					slimctlPath,
 					"c", "channel", "create",
-					"moderators=org/default/moderator1/0",
+					fmt.Sprintf("moderators=%s", moderatorName),
 					"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
 				)
 			})

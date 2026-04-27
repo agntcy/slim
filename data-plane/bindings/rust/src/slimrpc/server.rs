@@ -8,10 +8,11 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::future::join_all;
 use futures::stream::Stream;
-use futures::{FutureExt, StreamExt, future::BoxFuture, stream::BoxStream};
+use futures::{FutureExt, StreamExt, future::BoxFuture, stream};
 use parking_lot::RwLock;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -22,32 +23,29 @@ use slim_service::app::App as SlimApp;
 use slim_session::errors::SessionError;
 use slim_session::notification::Notification;
 
+use super::{RPC_DIR_KEY, RPC_DIR_REQ};
+use crate::STATUS_CODE_KEY;
+
 use super::{
-    Context, HandlerInfo, METHOD_KEY, RPC_ID_KEY, ReceivedMessage, RequestStream, ResponseSink,
-    RpcCode, RpcError, RpcSession, SERVICE_KEY, StreamRpcSession, StreamStreamHandler,
-    StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler, UniffiRequestStream,
+    Context, HandlerInfo, METHOD_KEY, RPC_ID_KEY, ReceivedMessage, ResponseSink, RpcCode, RpcError,
+    RpcSession, SERVICE_KEY, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler,
+    UnaryUnaryHandler, UniffiRequestStream,
     codec::{Decoder, Encoder},
-    msg_is_terminal, send_error_for_rpc,
+    send_error_for_rpc, send_response_stream,
     session_wrapper::{SessionRx, SessionTx, new_session},
+    stream_types::{DecodedStream, StreamSource},
 };
 
 pub type Item = Vec<u8>;
-pub type ItemStream = BoxStream<'static, Result<Vec<u8>, RpcError>>;
-pub type ResponseStream = BoxFuture<'static, Result<HandlerResponse, RpcError>>;
+pub type ResponseStream = BoxFuture<'static, Result<(), RpcError>>;
 
 /// Handler function type for RPC methods (unary input)
-pub type RpcHandler = Arc<dyn Fn(Item, Context) -> ResponseStream + Send + Sync>;
+pub type RpcHandler =
+    Arc<dyn Fn(Item, Context, SessionTx, Name, Arc<str>) -> ResponseStream + Send + Sync>;
 
 /// Handler function type for stream-input RPC methods
-pub type StreamRpcHandler = Arc<dyn Fn(ItemStream, Context) -> ResponseStream + Send + Sync>;
-
-/// Response from an RPC handler
-pub enum HandlerResponse {
-    /// Single response message
-    Unary(Item),
-    /// Stream of response messages
-    Stream(ItemStream),
-}
+pub type StreamRpcHandler =
+    Arc<dyn Fn(StreamSource, Context, SessionTx, Name, Arc<str>) -> ResponseStream + Send + Sync>;
 
 /// Type of RPC handler
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,9 +64,9 @@ pub enum HandlerType {
 #[derive(Clone)]
 struct ServiceRegistry {
     /// Map of method paths to handlers (for unary-input methods)
-    handlers: HashMap<String, (RpcHandler, HandlerType)>,
+    handlers: HashMap<String, RpcHandler>,
     /// Map of method paths to stream handlers (for stream-input methods)
-    stream_handlers: HashMap<String, (StreamRpcHandler, HandlerType)>,
+    stream_handlers: HashMap<String, StreamRpcHandler>,
 }
 
 impl ServiceRegistry {
@@ -93,20 +91,28 @@ impl ServiceRegistry {
         Res: Encoder + Send + 'static,
     {
         let method_path = format!("{}/{}", service_name, method_name);
-        let handler = Arc::new(handler);
-        let wrapper = Arc::new(move |bytes: Vec<u8>, ctx: Context| {
-            let handler = Arc::clone(&handler);
-            async move {
-                let request = Req::decode(bytes)?;
-                let response = handler(request, ctx).await?;
-                let response_bytes = response.encode()?;
-                Ok(HandlerResponse::Unary(response_bytes))
-            }
-            .boxed()
-        });
+        let wrapper = Arc::new(
+            move |bytes: Vec<u8>,
+                  ctx: Context,
+                  session_tx: SessionTx,
+                  source: Name,
+                  rpc_id: Arc<str>| {
+                let fut = Req::decode(bytes).map(|req| handler(req, ctx));
+                async move {
+                    let encoded = fut?.await?.encode()?;
+                    send_response_stream(
+                        &session_tx,
+                        stream::once(std::future::ready(Ok(encoded))),
+                        &rpc_id,
+                        &source,
+                    )
+                    .await
+                }
+                .boxed()
+            },
+        );
 
-        self.handlers
-            .insert(method_path, (wrapper, HandlerType::UnaryUnary));
+        self.handlers.insert(method_path, wrapper);
     }
 
     /// Register a unary-stream handler
@@ -123,22 +129,23 @@ impl ServiceRegistry {
         Res: Encoder + Send + 'static,
     {
         let method_path = format!("{}/{}", service_name, method_name);
-        let handler = Arc::new(handler);
-        let wrapper = Arc::new(move |bytes: Vec<u8>, ctx: Context| {
-            let handler = Arc::clone(&handler);
-            async move {
-                let request = Req::decode(bytes)?;
-                let response_stream = handler(request, ctx).await?;
-                let byte_mapped = response_stream
-                    .map(|res| res.and_then(|r| r.encode()))
-                    .boxed();
-                Ok(HandlerResponse::Stream(byte_mapped))
-            }
-            .boxed()
-        });
+        let wrapper = Arc::new(
+            move |bytes: Vec<u8>,
+                  ctx: Context,
+                  session_tx: SessionTx,
+                  source: Name,
+                  rpc_id: Arc<str>| {
+                let fut = Req::decode(bytes).map(|req| handler(req, ctx));
+                async move {
+                    let response_stream = fut?.await?;
+                    let byte_mapped = response_stream.map(|res| res.and_then(|r| r.encode()));
+                    send_response_stream(&session_tx, byte_mapped, &rpc_id, &source).await
+                }
+                .boxed()
+            },
+        );
 
-        self.handlers
-            .insert(method_path, (wrapper, HandlerType::UnaryStream));
+        self.handlers.insert(method_path, wrapper);
     }
 
     /// Register a stream-unary handler
@@ -148,27 +155,37 @@ impl ServiceRegistry {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(RequestStream<Req>, Context) -> Fut + Send + Sync + 'static,
+        F: Fn(DecodedStream<Req>, Context) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
     {
         let method_path = format!("{}/{}", service_name, method_name);
-        let handler = Arc::new(handler);
-        let wrapper = Arc::new(move |stream: ItemStream, ctx: Context| {
-            let handler = Arc::clone(&handler);
-            async move {
-                let mapped = stream.map(|res| res.and_then(|bytes| Req::decode(bytes)));
-                let boxed_stream = mapped.boxed();
-                let response = handler(boxed_stream, ctx).await?;
-                let response_bytes = response.encode()?;
-                Ok(HandlerResponse::Unary(response_bytes))
-            }
-            .boxed()
-        });
+        let wrapper = Arc::new(
+            move |source: StreamSource,
+                  ctx: Context,
+                  session_tx: SessionTx,
+                  target: Name,
+                  rpc_id: Arc<str>| {
+                let decode_fn: fn(Result<Vec<u8>, RpcError>) -> Result<Req, RpcError> =
+                    |res| res.and_then(|bytes| Req::decode(bytes));
+                let decoded: DecodedStream<Req> = source.into_raw_stream().map(decode_fn);
+                let fut = handler(decoded, ctx);
+                async move {
+                    let encoded = fut.await?.encode()?;
+                    send_response_stream(
+                        &session_tx,
+                        stream::once(std::future::ready(Ok(encoded))),
+                        &rpc_id,
+                        &target,
+                    )
+                    .await
+                }
+                .boxed()
+            },
+        );
 
-        self.stream_handlers
-            .insert(method_path, (wrapper, HandlerType::StreamUnary));
+        self.stream_handlers.insert(method_path, wrapper);
     }
 
     /// Register a stream-stream handler
@@ -178,40 +195,47 @@ impl ServiceRegistry {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(RequestStream<Req>, Context) -> Fut + Send + Sync + 'static,
+        F: Fn(DecodedStream<Req>, Context) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<S, RpcError>> + Send + 'static,
         S: Stream<Item = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
     {
         let method_path = format!("{}/{}", service_name, method_name);
-        let handler = Arc::new(handler);
-        let wrapper = Arc::new(move |stream: ItemStream, ctx: Context| {
-            let handler = Arc::clone(&handler);
-            async move {
-                let mapped = stream.map(|res| res.and_then(|bytes| Req::decode(bytes)));
-                let boxed_stream = mapped.boxed();
-                let response_stream = handler(boxed_stream, ctx).await?;
-                let byte_mapped = response_stream.map(|res| res.and_then(|r| r.encode()));
-                Ok(HandlerResponse::Stream(byte_mapped.boxed()))
-            }
-            .boxed()
-        });
+        let wrapper = Arc::new(
+            move |source: StreamSource,
+                  ctx: Context,
+                  session_tx: SessionTx,
+                  target: Name,
+                  rpc_id: Arc<str>| {
+                let decode_fn: fn(Result<Vec<u8>, RpcError>) -> Result<Req, RpcError> =
+                    |res| res.and_then(|bytes| Req::decode(bytes));
+                let decoded: DecodedStream<Req> = source.into_raw_stream().map(decode_fn);
+                let fut = handler(decoded, ctx);
+                async move {
+                    let response_stream = fut.await?;
+                    let byte_mapped = response_stream.map(|res| res.and_then(|r| r.encode()));
+                    send_response_stream(&session_tx, byte_mapped, &rpc_id, &target).await
+                }
+                .boxed()
+            },
+        );
 
-        self.stream_handlers
-            .insert(method_path, (wrapper, HandlerType::StreamStream));
+        self.stream_handlers.insert(method_path, wrapper);
     }
 
     /// Get handler info (either stream or unary) in one lookup
     fn get_handler_info(&self, method_path: &str) -> Option<HandlerInfo> {
-        if let Some((stream_handler, handler_type)) = self.stream_handlers.get(method_path).cloned()
-        {
-            Some(HandlerInfo::Stream(stream_handler, handler_type))
-        } else if let Some((handler, handler_type)) = self.handlers.get(method_path).cloned() {
-            Some(HandlerInfo::Unary(handler, handler_type))
-        } else {
-            None
-        }
+        self.stream_handlers
+            .get(method_path)
+            .cloned()
+            .map(HandlerInfo::Stream)
+            .or_else(|| {
+                self.handlers
+                    .get(method_path)
+                    .cloned()
+                    .map(HandlerInfo::Unary)
+            })
     }
 
     /// Get all registered method paths
@@ -301,45 +325,52 @@ pub struct Server {
 fn spawn_handler_task(
     handler_info: HandlerInfo,
     msg: ReceivedMessage,
-    rpc_id: String,
+    rpc_id: Arc<str>,
     method_path: String,
     session_tx: SessionTx,
-    pending_streams: &mut HashMap<String, mpsc::UnboundedSender<ReceivedMessage>>,
-) -> JoinHandle<()> {
-    match handler_info {
-        HandlerInfo::Stream(stream_handler, handler_type) => {
+    pending_streams: &mut HashMap<Arc<str>, mpsc::UnboundedSender<ReceivedMessage>>,
+    session_drain_watch: drain::Watch,
+) {
+    // For stream-input handlers, create the mpsc channel and register the sender
+    // so that subsequent messages can be routed to the same handler task.
+    // Only register if the first message is not already terminal; otherwise drop
+    // stream_tx immediately so the handler's channel closes after the first message.
+    let stream_rx = match &handler_info {
+        HandlerInfo::Stream(_) => {
             let (stream_tx, stream_rx) = mpsc::unbounded_channel();
-            // Only register the sender if the first message is not already terminal; otherwise
-            // drop stream_tx immediately so the handler's channel closes after the first message.
-            if !msg_is_terminal(&msg) {
+            if !msg.is_eos() {
                 pending_streams.insert(rpc_id.clone(), stream_tx);
             }
-            tokio::spawn(async move {
-                let session = StreamRpcSession::new_with_rpc_id(
-                    &session_tx,
-                    stream_rx,
-                    method_path.clone(),
-                    msg,
-                    rpc_id.clone(),
-                );
-                if let Err(e) = session.handle(stream_handler, handler_type).await {
-                    tracing::error!(%method_path, error = %e, "Error in stream RPC handler");
-                    let _ = send_error_for_rpc(&session_tx, e, &rpc_id).await;
-                }
-            })
+            Some(stream_rx)
         }
-        HandlerInfo::Unary(handler, handler_type) => tokio::spawn(async move {
-            let session =
-                RpcSession::new_with_rpc_id(&session_tx, method_path.clone(), msg, rpc_id.clone());
-            if let Err(e) = session
-                .handle(HandlerInfo::Unary(handler, handler_type))
-                .await
-            {
-                tracing::error!(%method_path, error = %e, "Error in unary RPC handler");
-                let _ = send_error_for_rpc(&session_tx, e, &rpc_id).await;
+        HandlerInfo::Unary(_) => None,
+    };
+
+    tokio::spawn(async move {
+        let session = match stream_rx {
+            Some(rx) => RpcSession::new_stream(&session_tx, rx, &method_path, msg),
+            None => RpcSession::new_unary(&session_tx, &method_path, msg),
+        };
+        let handler_fut = async {
+            match session.handle(handler_info, rpc_id.clone()).await {
+                Ok(_) => None,
+                Err(e) => {
+                    tracing::error!(%method_path, error = %e, "Error in RPC handler");
+                    Some(e)
+                }
             }
-        }),
-    }
+        };
+        let error = tokio::select! {
+            err = handler_fut => err,
+            _ = session_drain_watch.signaled() => {
+                tracing::debug!(%method_path, %rpc_id, "Session closed, aborting handler");
+                Some(RpcError::cancelled("Server shutting down"))
+            }
+        };
+        if let Some(e) = error {
+            let _ = send_error_for_rpc(&session_tx, e, &rpc_id).await;
+        }
+    });
 }
 
 /// Per-session demultiplexer: routes incoming messages by `rpc-id` and dispatches each new
@@ -353,32 +384,27 @@ async fn run_session_demux(
     drain_watch: drain::Watch,
 ) {
     // Map rpc_id → mpsc sender for live stream-input handlers.
-    let mut pending_streams: HashMap<String, mpsc::UnboundedSender<ReceivedMessage>> =
+    let mut pending_streams: HashMap<Arc<str>, mpsc::UnboundedSender<ReceivedMessage>> =
         HashMap::new();
-    // Map rpc_id → JoinHandle for all active handler tasks (lazily pruned).
-    let mut active_tasks: HashMap<String, JoinHandle<()>> = HashMap::new();
+
+    // Per-session drain: signals all active handler tasks when the session closes.
+    // drain().await serves as a barrier — it resolves once every task has dropped its Watch.
+    let (session_drain_signal, session_drain_watch) = drain::channel();
 
     let mut drain_fut = std::pin::pin!(drain_watch.signaled());
 
     loop {
         let msg = tokio::select! {
             _ = &mut drain_fut => {
-                tracing::debug!(
-                    "Session demux task: server shutdown — cancelling {} active RPCs",
-                    active_tasks.len()
-                );
-                for rpc_id in active_tasks.keys() {
-                    let _ = send_error_for_rpc(
-                        &session_tx,
-                        RpcError::cancelled("Server shutting down"),
-                        rpc_id,
-                    )
-                    .await;
-                }
+                tracing::info!("Session demux task: server shutdown");
                 break;
             }
             result = session_rx.get_message(None) => match result {
                 Ok(m) => m,
+                Err(SessionError::ParticipantDisconnected(name)) => {
+                    tracing::warn!(%name, "Participant disconnected, closing session");
+                    break;
+                }
                 Err(e) => {
                     tracing::debug!(error = %e, "Session closed by peer");
                     break;
@@ -386,22 +412,60 @@ async fn run_session_demux(
             }
         };
 
-        active_tasks.retain(|_, h| !h.is_finished());
-        let rpc_id = msg.metadata.get(RPC_ID_KEY).cloned().unwrap_or_default();
+        let Some(rpc_id_str) = msg.metadata.get(RPC_ID_KEY).filter(|s| !s.is_empty()) else {
+            tracing::trace!("Skipping message with missing or empty rpc-id");
+            continue;
+        };
 
-        if let Some(tx) = pending_streams.get(&rpc_id) {
-            // Route continuation message to the existing stream-input handler.
-            let is_terminal = msg_is_terminal(&msg);
-            let _ = tx.send(msg);
-            if is_terminal {
-                pending_streams.remove(&rpc_id);
+        if let Some(tx) = pending_streams.get(rpc_id_str.as_str()).cloned() {
+            // Route client request messages (data or EOS) to the existing stream-input handler.
+            //
+            // All client-originated messages carry RPC_DIR_KEY="req".  Server responses
+            // (data frames, EOSes, and error replies — including echoes of this server's own
+            // responses in a GROUP session and responses from peer servers) do not carry
+            // this key.  Drop anything that isn't tagged as a client request.
+            if msg.metadata.get(RPC_DIR_KEY).map(String::as_str) != Some(RPC_DIR_REQ) {
+                tracing::trace!(%rpc_id_str, "Skipping server response for active stream");
+                continue;
             }
+            // Remove before send so rpc_id_str (borrows msg.metadata) is last used
+            // before msg is moved — NLL lets the borrow end here.
+            let is_terminal = msg.is_eos();
+            if is_terminal {
+                pending_streams.remove(rpc_id_str.as_str());
+            }
+            let _ = tx.send(msg);
             continue;
         }
 
-        // New RPC call — resolve handler and dispatch.
-        let service = msg.metadata.get(SERVICE_KEY).cloned().unwrap_or_default();
-        let method = msg.metadata.get(METHOD_KEY).cloned().unwrap_or_default();
+        // No active stream for this rpc_id.
+        // Drop server responses: they have STATUS_CODE_KEY but are NOT tagged as client
+        // requests.  An empty-stream client EOS also has STATUS_CODE_KEY but carries
+        // RPC_DIR_KEY="req", so it passes through and is dispatched as a new RPC call.
+        if msg.metadata.contains_key(STATUS_CODE_KEY)
+            && msg.metadata.get(RPC_DIR_KEY).map(String::as_str) != Some(RPC_DIR_REQ)
+        {
+            tracing::trace!("Skipping server response (no pending stream)");
+            continue;
+        }
+
+        // New RPC call — create Arc now that we know we need it.
+        let rpc_id: Arc<str> = Arc::from(rpc_id_str.as_str());
+
+        let (Some(service), Some(method)) = (
+            msg.metadata
+                .get(SERVICE_KEY)
+                .filter(|s| !s.is_empty())
+                .map(|s| s.as_str()),
+            msg.metadata
+                .get(METHOD_KEY)
+                .filter(|s| !s.is_empty())
+                .map(|s| s.as_str()),
+        ) else {
+            tracing::trace!(%rpc_id, "Skipping message missing service or method key");
+            continue;
+        };
+
         let method_path = format!("{}/{}", service, method);
 
         tracing::debug!(%method_path, %rpc_id, "Dispatching new RPC call");
@@ -417,38 +481,27 @@ async fn run_session_demux(
             continue;
         };
 
-        let task = spawn_handler_task(
+        spawn_handler_task(
             handler_info,
             msg,
-            rpc_id.clone(),
+            rpc_id,
             method_path,
             session_tx.clone(),
             &mut pending_streams,
+            session_drain_watch.clone(),
         );
-        active_tasks.insert(rpc_id, task);
     }
 
-    cleanup_handler_tasks(pending_streams, active_tasks).await;
-    let _ = session_tx.close(app.as_ref()).await;
-}
-
-/// Drop stream senders (unblocking any handlers blocked on `recv()`), then abort and join all
-/// active handler tasks.
-///
-/// Called from `run_session_demux` on both the drain and session-close exit paths.
-async fn cleanup_handler_tasks(
-    pending_streams: HashMap<String, mpsc::UnboundedSender<ReceivedMessage>>,
-    active_tasks: HashMap<String, JoinHandle<()>>,
-) {
-    // Drop senders first: stream-input handlers whose stream_rx.recv() is waiting will see
-    // the channel close and can exit cleanly at their next await point.
+    // Drop mpsc senders so stream-input handlers see channel close at their next recv.
     drop(pending_streams);
-    // Abort everything still running.  Handles unary-input handlers (no channel to close)
-    // and any stream handler that hasn't had a chance to notice the channel close yet.
-    for task in active_tasks.values() {
-        task.abort();
-    }
-    join_all(active_tasks.into_values()).await;
+    // Drop watch otherwise next call to drain would also wait for this
+    drop(session_drain_watch);
+    // Fire the session drain and wait: resolves once every handler task drops its Watch,
+    // so when each task completes
+    session_drain_signal.drain().await;
+
+    // Close session_tx. This might fail if session was already dropped by the channel endpoint
+    let _ = tokio::time::timeout(Duration::from_secs(10), session_tx.close(app.as_ref())).await;
 }
 
 impl Server {
@@ -750,11 +803,11 @@ impl Server {
     /// # impl Encoder for Response {
     /// #     fn encode(self) -> Result<Vec<u8>, RpcError> { Ok(vec![]) }
     /// # }
-    /// # use futures::stream::BoxStream;
+    /// # use slim_bindings::DecodedStream;
     /// server.register_stream_unary_internal(
     ///     "AggregateService",
     ///     "SumNumbers",
-    ///     |mut request_stream: BoxStream<'static, Result<Request, RpcError>>, _ctx: Context| async move {
+    ///     |mut request_stream: DecodedStream<Request>, _ctx: Context| async move {
     ///         let mut sum = 0;
     ///         while let Some(result) = request_stream.next().await {
     ///             let request = result?;
@@ -772,7 +825,7 @@ impl Server {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(RequestStream<Req>, Context) -> Fut + Send + Sync + 'static,
+        F: Fn(DecodedStream<Req>, Context) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
@@ -817,11 +870,11 @@ impl Server {
     /// # impl Encoder for Response {
     /// #     fn encode(self) -> Result<Vec<u8>, RpcError> { Ok(vec![]) }
     /// # }
-    /// # use futures::stream::BoxStream;
+    /// # use slim_bindings::DecodedStream;
     /// server.register_stream_stream_internal(
     ///     "EchoService",
     ///     "Echo",
-    ///     |mut request_stream: BoxStream<'static, Result<Request, RpcError>>, _ctx: Context| async move {
+    ///     |mut request_stream: DecodedStream<Request>, _ctx: Context| async move {
     ///         let responses = stream! {
     ///             while let Some(result) = request_stream.next().await {
     ///                 match result {
@@ -849,7 +902,7 @@ impl Server {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(RequestStream<Req>, Context) -> Fut + Send + Sync + 'static,
+        F: Fn(DecodedStream<Req>, Context) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<S, RpcError>> + Send + 'static,
         S: Stream<Item = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
@@ -1084,9 +1137,7 @@ impl Server {
 
         // Signal all session handlers to terminate
         if let Some(signal) = drain_signal {
-            tracing::debug!("Draining active sessions");
             signal.drain().await;
-            tracing::info!("All sessions drained successfully");
         }
 
         // Recreate drain signal and watch so the server can be restarted
@@ -1207,9 +1258,7 @@ impl Server {
                 let handler = handler.clone();
                 tracing::debug!(service = %service_clone, method = %method_clone, "Handling unary-unary request");
 
-                Box::pin(async move {
-                    handler.handle(request, Arc::new(context)).await
-                })
+                async move { handler.handle(request, Arc::new(context)).await }
             },
         );
     }
@@ -1232,7 +1281,7 @@ impl Server {
             move |request: Vec<u8>, context: Context| {
                 let handler = handler.clone();
 
-                Box::pin(async move {
+                async move {
                     let (sink, rx) = ResponseSink::receiver();
                     let sink_arc = Arc::new(sink);
 
@@ -1255,7 +1304,7 @@ impl Server {
                     // Convert the receiver to a stream
                     let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
                     Ok(stream)
-                })
+                }
             },
         );
     }
@@ -1275,11 +1324,11 @@ impl Server {
         self.register_stream_unary_internal(
             &service_name,
             &method_name,
-            move |stream: RequestStream<Vec<u8>>, context: Context| {
+            move |stream: DecodedStream<Vec<u8>>, context: Context| {
                 let handler = handler.clone();
                 let request_stream = Arc::new(UniffiRequestStream::new(stream));
 
-                Box::pin(async move { handler.handle(request_stream, Arc::new(context)).await })
+                async move { handler.handle(request_stream, Arc::new(context)).await }
             },
         );
     }
@@ -1299,11 +1348,11 @@ impl Server {
         self.register_stream_stream_internal(
             &service_name,
             &method_name,
-            move |stream: RequestStream<Vec<u8>>, context: Context| {
+            move |stream: DecodedStream<Vec<u8>>, context: Context| {
                 let handler = handler.clone();
                 let request_stream = Arc::new(UniffiRequestStream::new(stream));
 
-                Box::pin(async move {
+                async move {
                     let (sink, rx) = ResponseSink::receiver();
                     let sink_arc = Arc::new(sink);
 
@@ -1326,7 +1375,7 @@ impl Server {
                     // Convert the receiver to a stream
                     let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
                     Ok(stream)
-                })
+                }
             },
         );
     }
@@ -1378,41 +1427,6 @@ impl Server {
 #[cfg(test)]
 mod tests {
     use super::*;
-    // ── cleanup_handler_tasks tests ──────────────────────────────────────────
-
-    /// Stuck tasks (e.g. unary handlers waiting on a resource) are aborted and
-    /// joined.  The test would hang if cleanup_handler_tasks failed to abort.
-    #[tokio::test]
-    async fn test_cleanup_frees_stuck_tasks() {
-        let t1 = tokio::spawn(std::future::pending::<()>());
-        let t2 = tokio::spawn(std::future::pending::<()>());
-        cleanup_handler_tasks(
-            HashMap::new(),
-            HashMap::from([("rpc-1".to_string(), t1), ("rpc-2".to_string(), t2)]),
-        )
-        .await;
-        // reaching here without hanging proves both tasks were freed
-    }
-
-    /// Stream-input handler tasks are freed on cleanup: the mpsc sender is
-    /// dropped first (so a handler blocked on recv() can see the channel close),
-    /// then abort() + join_all ensure the task is gone regardless of scheduling.
-    #[tokio::test]
-    async fn test_cleanup_drops_stream_sender_and_frees_handler() {
-        let (tx, mut rx) = mpsc::unbounded_channel::<ReceivedMessage>();
-
-        // Simulate a stream handler blocked waiting for the next message.
-        let task = tokio::spawn(async move {
-            rx.recv().await;
-        });
-
-        cleanup_handler_tasks(
-            HashMap::from([("rpc-1".to_string(), tx)]),
-            HashMap::from([("rpc-1".to_string(), task)]),
-        )
-        .await;
-        // reaching here proves the task was freed (channel close or abort)
-    }
 
     #[test]
     fn test_service_registry_new() {

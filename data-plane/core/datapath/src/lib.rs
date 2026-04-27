@@ -9,5 +9,6 @@ pub mod tables;
 
 mod connection;
 mod forwarder;
+pub(crate) mod subscription_ack;
 
 pub use tonic::Status;

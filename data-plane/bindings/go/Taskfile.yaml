@@ -17,6 +17,7 @@ includes:
 
 vars:
   BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
+  GOLANGCI_LINT_VERSION: "v1.64.8"
   ##############################################################
   # Vars section does not have acces to importd variables
   # (PROFILE, CURRENT_TARGET, TARGET)
@@ -41,8 +42,10 @@ tasks:
   patch-cgo-directives:
     desc: Patch generated Go bindings with proper cgo directives
     internal: true
+    vars:
+      VERSION: '{{.VERSION | default "devel"}}'
     cmds:
-      - echo "🔧 Patching cgo directives..."
+      - echo "Patching cgo directives..."
       - |
         GO_FILE="slim_bindings/{{.LIB_NAME}}.go"
         if [ -f "$GO_FILE" ]; then
@@ -52,11 +55,11 @@ tasks:
 
         /*
         #cgo CFLAGS: -I${SRCDIR}
-        #cgo linux,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings -lslim_bindings_x86_64_linux_gnu -lm
-        #cgo linux,arm64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings -lslim_bindings_aarch64_linux_gnu -lm
-        #cgo darwin,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings -lslim_bindings_x86_64_darwin -Wl,-undefined,dynamic_lookup
-        #cgo darwin,arm64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings -lslim_bindings_aarch64_darwin -Wl,-undefined,dynamic_lookup
-        #cgo windows,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings -lslim_bindings_x86_64_windows_gnu -lws2_32 -lbcrypt -ladvapi32 -luserenv -lntdll -lgcc_eh -lgcc -lkernel32 -lole32
+        #cgo linux,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings/{{.VERSION}} -lslim_bindings_x86_64_linux_gnu -lm
+        #cgo linux,arm64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings/{{.VERSION}} -lslim_bindings_aarch64_linux_gnu -lm
+        #cgo darwin,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings/{{.VERSION}} -lslim_bindings_x86_64_darwin -Wl,-undefined,dynamic_lookup
+        #cgo darwin,arm64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings/{{.VERSION}} -lslim_bindings_aarch64_darwin -Wl,-undefined,dynamic_lookup
+        #cgo windows,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cgo-cache/slim-bindings/{{.VERSION}} -lslim_bindings_x86_64_windows_gnu -lws2_32 -lbcrypt -ladvapi32 -luserenv -lntdll -lgcc_eh -lgcc -lkernel32 -lole32
         #include <slim_bindings.h>
         */
         import "C"
@@ -70,9 +73,9 @@ tasks:
 
           # Cleanup
           rm -f /tmp/cgo_preamble.txt /tmp/go_rest.txt
-          echo "✅ Patched $GO_FILE with cgo directives"
+          echo "Patched $GO_FILE with cgo directives"
         else
-          echo "⚠️  Go file not found: $GO_FILE"
+          echo "Go file not found: $GO_FILE"
           exit 1
         fi
     silent: true
@@ -81,13 +84,13 @@ tasks:
     desc: Patch slim_bindings.h with Windows dllexport directives
     internal: true
     cmds:
-      - echo "🔧 Patching slim_bindings.h..."
+      - echo "Patching slim_bindings.h..."
       - |
         HEADER_FILE="slim_bindings/{{.LIB_NAME}}.h"
         if [ -f "$HEADER_FILE" ]; then
           # Check if patch is already applied
           if grep -q "#ifdef _WIN32" "$HEADER_FILE" && grep -q "__declspec(dllexport) void slim_bindings_uniffiFutureContinuationCallback" "$HEADER_FILE"; then
-            echo "✅ Header already patched"
+            echo "Header already patched"
           else
             # Apply the patch: wrap the two function declarations with Windows conditional
             # First, create a temporary file with the patched content
@@ -106,10 +109,10 @@ tasks:
               { print }
             ' "$HEADER_FILE" > "$HEADER_FILE.tmp"
             mv "$HEADER_FILE.tmp" "$HEADER_FILE"
-            echo "✅ Patched $HEADER_FILE with Windows dllexport directives"
+            echo "Patched $HEADER_FILE with Windows dllexport directives"
           fi
         else
-          echo "⚠️  Header file not found: $HEADER_FILE"
+          echo "Header file not found: $HEADER_FILE"
           exit 1
         fi
     silent: true
@@ -120,9 +123,13 @@ tasks:
       # bindings:build:all is skipped automatically when the library already
       # exists and sources have not changed (sources/generates fingerprinting).
       - task: adapter:bindings:build:all
+        vars:
+          PROFILE: "{{.PROFILE}}"
       - task: install-uniffi-bindgen-go
+    vars:
+      VERSION: '{{.VERSION | default "devel"}}'
     cmds:
-      - echo "🔧 Generating Go bindings from compiled library..."
+      - echo "Generating Go bindings from compiled library..."
       - |
         uniffi-bindgen-go \
           --library '{{.LIB_PATH}}' \
@@ -130,15 +137,19 @@ tasks:
       - task: copy-library
       - task: patch-header
       - task: patch-cgo-directives
-      - echo "✅ Bindings generated in slim_bindings/"
+        vars:
+          VERSION: "{{.VERSION}}"
+      - echo "Bindings generated in slim_bindings/"
     silent: true
 
   generate-from-cache:
     desc: Generate Go bindings using a cached native library
     deps:
       - task: install-uniffi-bindgen-go
+    vars:
+      VERSION: '{{.VERSION | default "devel"}}'
     cmds:
-      - echo "🔧 Generating Go bindings from cached library..."
+      - echo "Generating Go bindings from cached library..."
       - |
         set -euo pipefail
 
@@ -178,23 +189,23 @@ tasks:
               TARGET_ABI="gnu"
             fi
             if [ "$TARGET_ARCH" != "amd64" ] && [ "$TARGET_ARCH" != "x86_64" ]; then
-              echo "❌ Unsupported TARGETARCH for windows: $TARGET_ARCH"
+              echo "Unsupported TARGETARCH for windows: $TARGET_ARCH"
               exit 1
             fi
             LIB_NAME="lib{{.LIB_NAME}}_x86_64_windows_${TARGET_ABI}.a"
             ;;
           *)
-            echo "❌ Unsupported TARGETOS: $TARGET_OS"
+            echo "Unsupported TARGETOS: $TARGET_OS"
             exit 1
             ;;
         esac
 
         GOPATH_DIR=$(go env GOPATH)
-        CACHE_DIR="$GOPATH_DIR/.cgo-cache/slim-bindings"
+        CACHE_DIR="$GOPATH_DIR/.cgo-cache/slim-bindings/{{.VERSION}}"
         LIB_PATH="$CACHE_DIR/$LIB_NAME"
 
         if [ ! -f "$LIB_PATH" ]; then
-          echo "❌ Cached bindings library not found: $LIB_PATH"
+          echo "Cached bindings library not found: $LIB_PATH"
           exit 1
         fi
 
@@ -204,7 +215,9 @@ tasks:
 
       - task: patch-header
       - task: patch-cgo-directives
-      - echo "✅ Bindings generated in slim_bindings/"
+        vars:
+          VERSION: "{{.VERSION}}"
+      - echo "Bindings generated in slim_bindings/"
     silent: true
 
   install-uniffi-bindgen-go:
@@ -212,7 +225,7 @@ tasks:
     status:
       - which uniffi-bindgen-go
     cmds:
-      - echo "📦 Installing uniffi-bindgen-go..."
+      - echo "Installing uniffi-bindgen-go..."
       - cargo install uniffi-bindgen-go --git https://github.com/NordSecurity/uniffi-bindgen-go.git --tag v0.5.0+v0.29.5 --config net.git-fetch-with-cli=true
     silent: true
 
@@ -220,13 +233,13 @@ tasks:
     desc: Copy the static library for the current target to the generated directory
     internal: true
     cmds:
-      - echo "📦 Copying static library for {{.TARGET}}..."
+      - echo "Copying static library for {{.TARGET}}..."
       - |
         LIB_PATH='{{.LIB_PATH}}'
         DEST_DIR="slim_bindings"
 
         if [ ! -f "$LIB_PATH" ]; then
-          echo "⚠️  Library not found: $LIB_PATH"
+          echo "Library not found: $LIB_PATH"
           exit 1
         fi
 
@@ -252,18 +265,18 @@ tasks:
         file_size=$(stat -f%z "$LIB_PATH" 2>/dev/null || stat -c%s "$LIB_PATH" 2>/dev/null)
         echo "   $TARGET → $DEST_NAME ($((file_size / 1024 / 1024))MB)"
         cp "$LIB_PATH" "$DEST_DIR/$DEST_NAME"
-      - echo "✅ Libraries in slim_bindings/:"
+      - echo "Libraries in slim_bindings/:"
       - ls -lah "slim_bindings/"*{{.LIB_NAME}}*.a "slim_bindings/"*{{.LIB_NAME}}*.lib 2>/dev/null || echo "  (no library files found)"
     silent: true
 
   generate-proto:
     desc: "Generate proto files for the Python bindings"
     deps:
-      - task: rust:toolchain:run-command
+      - task: rust:run-command
         vars:
           COMMAND: |
             cargo build --package agntcy-protoc-slimrpc-plugin --bin protoc-gen-slimrpc-go --release
-      - task: tools:buf
+      - task: buf
     cmds:
       - |
         # Find all the buf.gen.yaml files in the current directory and its subdirectories
@@ -277,12 +290,16 @@ tasks:
 
   test:
     desc: Run all tests
+    vars:
+      VERSION: '{{.VERSION | default "devel"}}'
     deps:
       - task: generate
+        vars:
+          VERSION: "{{.VERSION}}"
     cmds:
-      - echo "🧪 Running all tests..."
+      - echo "Running all tests..."
       - go test -v ./...
-      - echo "✅ All Go tests passed"
+      - echo "All Go tests passed"
     silent: true
 
   test-coverage:
@@ -290,106 +307,155 @@ tasks:
     deps:
       - task: adapter:bindings:build:all
         vars:
-          PROFILE: release
+          PROFILE: "{{.PROFILE}}"
     cmds:
-      - echo "📊 Running tests with coverage..."
+      - echo "Running tests with coverage..."
       - go test -v -coverprofile=coverage.out ./...
       - go tool cover -html=coverage.out -o coverage.html
-      - echo "✅ Coverage report generated in coverage.html"
+      - echo "Coverage report generated in coverage.html"
     silent: true
 
   clean:
     desc: Clean build artifacts
     cmds:
-      - echo "🧹 Cleaning build artifacts..."
+      - echo "Cleaning build artifacts..."
       - cd {{.BINDINGS_DIR}} && cargo clean
       - rm slim_bindings/slim_bindings.go || true
       - rm slim_bindings/slim_bindings.h || true
       - rm slim_bindings/libslim_bindings_*.a || true
-      - echo "✅ Clean complete"
+      - echo "Clean complete"
     silent: true
 
+  lint:install-linter:
+    desc: Install golangci-lint
+    cmds:
+      - go install github.com/golangci/golangci-lint/cmd/golangci-lint@{{.GOLANGCI_LINT_VERSION}}
+    status:
+      - test -f $(go env GOPATH)/bin/golangci-lint
+      - $(go env GOPATH)/bin/golangci-lint version | grep -q "{{.GOLANGCI_LINT_VERSION}}"
+
+  lint:
+    desc: Running lint
+    deps:
+      - task: lint:install-linter
+      - task: generate
+        vars:
+          VERSION: '{{.VERSION | default "devel"}}'
+    cmds:
+      - $(go env GOPATH)/bin/golangci-lint run ./...
+
   # Examples
-  example:server:
+  build:
+    desc: Build all example binaries
+    deps:
+      - task: generate
+        vars:
+          PROFILE: "{{.PROFILE}}"
+    dir: examples/slimrpc/simple
+    cmds:
+      - go build -o slimrpc-go-server ./cmd/server
+      - go build -o slimrpc-go-client ./cmd/client
+      - go build -o slimrpc-go-group-client ./cmd/client_group
+    silent: true
+
+  examples:server:
     desc: Run the SLIM server
     deps:
-      - task: adapter:bindings:build:all
-        vars:
-          PROFILE: release
+      - build
     dir: examples/server
     cmds:
-      - echo "🚀 Starting SLIM server..."
+      - echo "Starting SLIM server..."
       - go run . {{.CLI_ARGS}}
     silent: true
 
-  example:p2p:alice:
+  examples:p2p:alice:
     desc: Run Alice (receiver) for point-to-point example
     deps:
-      - task: adapter:bindings:build:all
-        vars:
-          PROFILE: release
+      - build
     dir: examples/point_to_point
     cmds:
-      - echo "👩 Starting Alice (receiver)..."
+      - echo "Starting Alice (receiver)..."
       - go run . --local="org/alice/app" --server="http://localhost:46357" {{.CLI_ARGS}}
     silent: true
 
-  example:p2p:no-mls:bob:
+  examples:p2p:no-mls:bob:
     desc: Run Bob (sender) for point-to-point example
     deps:
-      - task: adapter:bindings:build:all
-        vars:
-          PROFILE: release
+      - build
     dir: examples/point_to_point
     cmds:
-      - echo "👨 Starting Bob (sender)..."
+      - echo "Starting Bob (sender)..."
       - go run . --local="org/bob/app" --remote="org/alice/app" --message="Hello SLIM" --iterations=5 --server="http://localhost:46357" {{.CLI_ARGS}}
     silent: true
 
-  example:p2p:mls:bob:
+  examples:p2p:mls:bob:
     desc: Run Bob (sender) for point-to-point example
     deps:
-      - task: adapter:bindings:build:all
-        vars:
-          PROFILE: release
+      - build
     dir: examples/point_to_point
     cmds:
-      - echo "👨 Starting Bob (sender)..."
+      - echo "Starting Bob (sender)..."
       - go run . --enable-mls --local="org/bob/app" --remote="org/alice/app" --message="Hello SLIM" --iterations=5 --server="http://localhost:46357" {{.CLI_ARGS}}
     silent: true
 
-  example:group:moderator:
+  examples:group:moderator:
     desc: Run group moderator (creates session and invites participants)
     deps:
-      - task: adapter:bindings:build:all
-        vars:
-          PROFILE: release
+      - build
     dir: examples/group
     cmds:
-      - echo "👑 Starting group moderator..."
+      - echo "Starting group moderator..."
       - go run . --local="org/moderator/app" --remote="org/default/chat-room" --invites="org/alice/app,org/bob/app" --server="http://localhost:46357" {{.CLI_ARGS}}
     silent: true
 
-  example:group:participant:alice:
+  examples:group:participant:alice:
     desc: Run group participant (waits for invitation)
     deps:
-      - task: adapter:bindings:build:all
-        vars:
-          PROFILE: release
+      - build
     dir: examples/group
     cmds:
-      - echo "👤 Starting group participant..."
+      - echo "Starting group participant..."
       - go run . --local="org/alice/app" --server="http://localhost:46357" {{.CLI_ARGS}}
     silent: true
 
-  example:group:participant:bob:
+  examples:group:participant:bob:
     desc: Run group participant (waits for invitation)
     deps:
-      - task: adapter:bindings:build:all
-        vars:
-          PROFILE: release
+      - build
     dir: examples/group
     cmds:
-      - echo "👤 Starting group participant..."
+      - echo "Starting group participant..."
       - go run . --local="org/bob/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+    silent: true
+
+  examples:rpc:server:
+    desc: Run the SlimRPC server example
+    deps:
+      - build
+    dir: examples/slimrpc/simple
+    cmds:
+      - echo "Starting SlimRPC server (instance={{.INSTANCE}})..."
+      - go run ./cmd/server -instance={{.INSTANCE}} {{.CLI_ARGS}}
+    vars:
+      INSTANCE: '{{.INSTANCE | default "server"}}'
+    silent: true
+
+  examples:rpc:client:
+    desc: Run the SlimRPC client example
+    deps:
+      - build
+    dir: examples/slimrpc/simple
+    cmds:
+      - echo "Starting SlimRPC client..."
+      - go run ./cmd/client {{.CLI_ARGS}}
+    silent: true
+
+  examples:rpc:group-client:
+    desc: Run the SlimRPC group (multicast) client example
+    deps:
+      - build
+    dir: examples/slimrpc/simple
+    cmds:
+      - echo "Starting SlimRPC group client..."
+      - go run ./cmd/client_group {{.CLI_ARGS}}
     silent: true

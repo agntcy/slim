@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.exampleservice</groupId>
+    <groupId>com.example_service</groupId>
     <artifactId>slimrpc-java-example</artifactId>
     <version>0.1.0</version>
     <packaging>jar</packaging>
@@ -22,6 +22,11 @@
         <dependency>
             <groupId>io.agntcy.slim</groupId>
             <artifactId>slim-bindings-java</artifactId>
+            <version>${slim.bindings.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.agntcy.slim</groupId>
+            <artifactId>slim-bindings-java-examples</artifactId>
             <version>${slim.bindings.version}</version>
         </dependency>
         <dependency>
@@ -83,13 +88,19 @@
                     <execution>
                         <id>server</id>
                         <configuration>
-                            <mainClass>com.exampleservice.example.server.SlimrpcServerMain</mainClass>
+                            <mainClass>com.example_service.example.server.SlimrpcServerMain</mainClass>
                         </configuration>
                     </execution>
                     <execution>
                         <id>client</id>
                         <configuration>
-                            <mainClass>com.exampleservice.example.client.SlimrpcClientMain</mainClass>
+                            <mainClass>com.example_service.example.client.SlimrpcClientMain</mainClass>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>group-client</id>
+                        <configuration>
+                            <mainClass>com.example_service.example.client.SlimrpcGroupClientMain</mainClass>
                         </configuration>
                     </execution>
                 </executions>

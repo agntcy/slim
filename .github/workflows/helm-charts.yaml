@@ -21,6 +21,8 @@ concurrency:
 jobs:
   helm-chart-lint-test:
     name: Helm charts lint & test
+    permissions:
+      contents: read
     uses: ./.github/workflows/reusable-helm-lint-test.yaml
     with:
       chart-path: charts

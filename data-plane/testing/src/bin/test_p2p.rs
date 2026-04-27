@@ -12,9 +12,7 @@ use slim_datapath::messages::Name;
 use slim_service::ServiceError;
 use slim_session::{Notification, SessionConfig};
 use slim_testing::build_client_service;
-use slim_testing::common::{
-    DEFAULT_SERVICE_ID, create_and_subscribe_app, reserve_local_port, run_slim_node,
-};
+use slim_testing::common::{create_and_subscribe_app, reserve_local_port, run_slim_node};
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -81,7 +79,7 @@ async fn run_client_task(name: Name, moderator_name: Name, port: u16) -> Result<
     /* this is the same */
     println!("client {} task starting...", name);
 
-    let svc = build_client_service(port, DEFAULT_SERVICE_ID);
+    let svc = build_client_service(port, &name);
 
     let (_app, mut rx, conn_id, _svc) = create_and_subscribe_app(svc, &name).await?;
 
@@ -195,8 +193,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     clients.push(client_2_name.clone());
 
     // create client-1 replicas
-    for i in 0..tot_clients {
-        let c = clients[0].clone().with_id(i.into());
+    for _ in 0..tot_clients {
+        let c = clients[0].clone();
         clients.push(c.clone());
         let moderator = moderator_name.clone();
         let port = dataplane_port;
@@ -206,8 +204,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // create client-2 replicas
-    for i in 0..tot_clients {
-        let c = clients[1].clone().with_id(i.into());
+    for _ in 0..tot_clients {
+        let c = clients[1].clone();
         clients.push(c.clone());
         let moderator = moderator_name.clone();
         let port = dataplane_port;
@@ -218,7 +216,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // start moderator
 
-    let svc = build_client_service(dataplane_port, DEFAULT_SERVICE_ID);
+    let svc = build_client_service(dataplane_port, &moderator_name);
 
     let (app, _rx, conn_id, _svc) = create_and_subscribe_app(svc, &moderator_name.clone()).await?;
 
@@ -492,21 +490,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // if multiple-remotes is set we expect messages from exactly 2 clients,
     // otherwise all messages must come from client_1_name.with_id(0)
-    if multiple_remotes && found_sender.len() != 2 {
-        println!(
-            "expected messages from 2 clients, but got messages from {} clients. test failed",
-            found_sender.len(),
-        );
-        std::process::exit(1);
-    } else if !multiple_remotes
-        && (found_sender.len() != 1 || !found_sender.contains(&client_1_name.clone().with_id(0)))
-    {
-        println!(
-            "expected messages only from {}, but got messages from {:?}. test failed",
-            client_1_name.clone().with_id(0),
-            found_sender,
-        );
-        std::process::exit(1);
+    if multiple_remotes {
+        let name_1 = found_sender
+            .iter()
+            .find(|n| n.components_strings() == client_1_name.clone().components_strings());
+        let name_2 = found_sender
+            .iter()
+            .find(|n| n.components_strings() == client_2_name.clone().components_strings());
+        if found_sender.len() != 2 || name_1.is_none() || name_2.is_none() {
+            println!(
+                "expected messages from 2 clients, but got messages from {} clients. test failed",
+                found_sender.len(),
+            );
+            std::process::exit(1);
+        }
+    } else {
+        let name = found_sender
+            .iter()
+            .find(|n| n.components_strings() == client_1_name.clone().components_strings());
+        if name.is_none() || found_sender.len() != 1 {
+            println!(
+                "expected messages only from {}, but got messages from {:?}. test failed",
+                client_1_name.clone().with_id(0),
+                found_sender,
+            );
+            std::process::exit(1);
+        }
     }
 
     if sum != expected_total {

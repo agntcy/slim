@@ -52,6 +52,8 @@
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <jna.version>5.14.0</jna.version>
+        <maven-pmd-plugin.version>3.28.0</maven-pmd-plugin.version>
+        <pmd.version>7.23.0</pmd.version>
     </properties>
 
     <dependencies>
@@ -140,6 +142,41 @@
                 <version>3.3.1</version>
             </plugin>
 
+            <!-- Run: mvn pmd:check (used by Task lint) -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-pmd-plugin</artifactId>
+                <version>${maven-pmd-plugin.version}</version>
+                <dependencies>
+                    <!-- Pin the full PMD stack to one version (plugin may otherwise mix pmd-core and pmd-java). -->
+                    <dependency>
+                        <groupId>net.sourceforge.pmd</groupId>
+                        <artifactId>pmd-core</artifactId>
+                        <version>${pmd.version}</version>
+                    </dependency>
+                    <dependency>
+                        <groupId>net.sourceforge.pmd</groupId>
+                        <artifactId>pmd-java</artifactId>
+                        <version>${pmd.version}</version>
+                    </dependency>
+                </dependencies>
+                <configuration>
+                    <targetJdk>21</targetJdk>
+                    <includeTests>true</includeTests>
+                    <failOnViolation>true</failOnViolation>
+                    <printFailingErrors>true</printFailingErrors>
+                    <!-- Avoid "Unable to locate Source XRef" when JXR was not run -->
+                    <linkXRef>false</linkXRef>
+                    <!-- Skip generated UniFFI output; lint hand-written sources only -->
+                    <excludeRoots>
+                        <excludeRoot>${project.basedir}/generated</excludeRoot>
+                    </excludeRoots>
+                    <rulesets>
+                        <ruleset>${project.basedir}/config/pmd-ruleset.xml</ruleset>
+                    </rulesets>
+                </configuration>
+            </plugin>
+
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>flatten-maven-plugin</artifactId>
@@ -192,6 +229,7 @@
                     </execution>
                 </executions>
             </plugin>
+
 
         </plugins>
     </build>

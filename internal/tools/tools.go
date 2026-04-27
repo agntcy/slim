@@ -10,7 +10,6 @@ package tools
 
 import (
 	_ "github.com/golangci/golangci-lint/cmd/golangci-lint"
-	_ "github.com/ory/go-acc"
 	_ "github.com/pavius/impi/cmd/impi"
 	_ "go.opentelemetry.io/build-tools/multimod"
 	_ "golang.org/x/vuln/cmd/govulncheck"

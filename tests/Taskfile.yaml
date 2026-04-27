@@ -23,24 +23,43 @@ tasks:
     cmds:
       - task -l
 
-  tests:build-legacy-slim:
-    desc: "Build the slim binary from the latest slim-v release tag for backward-compat testing"
+  tests:build-legacy-binaries:
+    desc: "Build all legacy binaries (slim, receiver, sender, sdk-mock) for backward-compat testing"
     dir: ".."
     vars:
-      LEGACY_TAG:
-        sh: git tag --sort=-version:refname | grep -E "^slim-v[0-9]+\.[0-9]+\.[0-9]+$" | head -1
+      LEGACY_BRANCH: "slim-v1.1.0-test-apps"
     status:
-      - .dist/bin/slim-legacy --version | grep -qF "$(git rev-parse --short {{.LEGACY_TAG}}^{})"
+      - test -f .dist/bin/slim-legacy
+      - test -f .dist/bin/receiver-legacy
+      - test -f .dist/bin/sender-legacy
+      - test -f .dist/bin/sdk-mock-legacy
     cmds:
       - |
+        # Fetch the legacy branch if it doesn't exist locally
+        if ! git rev-parse --verify {{.LEGACY_BRANCH}} >/dev/null 2>&1; then
+          echo "Fetching legacy branch {{.LEGACY_BRANCH}}..."
+          git fetch origin {{.LEGACY_BRANCH}}:{{.LEGACY_BRANCH}} || \
+          git fetch origin refs/heads/{{.LEGACY_BRANCH}}:refs/heads/{{.LEGACY_BRANCH}}
+        fi
+
         WORKTREE=$(mktemp -d)
         trap 'git worktree remove --force "$WORKTREE"' EXIT
-        git worktree add "$WORKTREE" {{.LEGACY_TAG}}
+        git worktree add "$WORKTREE" {{.LEGACY_BRANCH}}
+
+        # Build slim, sdk-mock, and the test apps
         cargo build --manifest-path "$WORKTREE/data-plane/Cargo.toml" \
-          --config data-plane/.cargo/config.toml \
-          -p agntcy-slim --target-dir data-plane/target
+          --config "$WORKTREE/data-plane/.cargo/config.toml" \
+          --bins \
+          -p agntcy-slim \
+          -p slim-examples \
+          -p agntcy-slim-bindings \
+          --examples
+
         mkdir -p .dist/bin
-        cp data-plane/target/debug/slim .dist/bin/slim-legacy
+        cp "$WORKTREE/data-plane/target/debug/slim" .dist/bin/slim-legacy
+        cp "$WORKTREE/data-plane/target/debug/sdk-mock" .dist/bin/sdk-mock-legacy
+        cp "$WORKTREE/data-plane/target/debug/examples/receiver" .dist/bin/receiver-legacy
+        cp "$WORKTREE/data-plane/target/debug/examples/sender" .dist/bin/sender-legacy
 
   tests:integration:
     desc: "Run integration tests"
@@ -49,11 +68,23 @@ tasks:
       FORCE_LOCAL_BINDINGS: '{{.FORCE_LOCAL_BINDINGS | default "false"}}'
     deps:
       - data-plane:build
-      - data-plane:slimctl:build
-      - tests:build-legacy-slim
-      - task: control-plane:build
-        vars:
-          USE_LOCAL_BINDINGS: "{{.USE_LOCAL_BINDINGS}}"
-          FORCE_LOCAL_BINDINGS: "{{.FORCE_LOCAL_BINDINGS}}"
+      - tests:build-legacy-binaries
+      - control-plane:build
     cmds:
-      - go -C ./integration test -v -failfast -test.v -test.paniconexit0 -ginkgo.timeout 5m -timeout 5m -ginkgo.v .
+      - task: tests:build-slimrpc-examples
+      - go -C ./integration test -v -failfast -test.paniconexit0 -ginkgo.timeout 5m -timeout 5m .
+
+  tests:build-slimrpc-examples:
+    desc: "Build all slimrpc example binaries for cross-language testing"
+    cmds:
+      - task -d ../data-plane/bindings/go build
+      - task -d ../data-plane/bindings/java build
+      - task -d ../data-plane/bindings/dotnet build
+      - task -d ../data-plane/bindings/python python:build
+
+  tests:integration:slimrpc:
+    desc: "Run cross-language slimrpc integration tests"
+    deps:
+      - tests:build-slimrpc-examples
+    cmds:
+      - go -C ./integration test -v -failfast -test.paniconexit0 -ginkgo.timeout 5m -timeout 5m -ginkgo.focus "SlimRPC cross-language" .

@@ -1,0 +1,65 @@
+{{- $upstreamAgent := index .Values "upstream-spire-agent" }}
+{{- $joinToken := $upstreamAgent.joinToken | default dict }}
+{{- if $joinToken.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-agent-upstream" .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+data:
+  agent.conf: |
+    agent {
+      data_dir = "/var/lib/spire"
+      log_level = {{ default "info" $upstreamAgent.logLevel | quote }}
+      log_format = {{ default "text" $upstreamAgent.logFormat | quote }}
+      server_address = {{ .Values.global.spire.upstreamSpireAddress | quote }}
+      server_port = {{ default 443 $upstreamAgent.server.port | quote }}
+      socket_path = "/tmp/spire-agent/public/spire-agent.sock"
+      {{- if $upstreamAgent.trustBundleURL }}
+      trust_bundle_url = {{ $upstreamAgent.trustBundleURL | quote }}
+      trust_bundle_format = {{ default "spiffe" $upstreamAgent.trustBundleFormat | quote }}
+      rebootstrap_mode = {{ default "always" $upstreamAgent.rebootstrapMode | quote }}
+      rebootstrap_delay = {{ default "10m" $upstreamAgent.rebootstrapDelay | quote }}
+      {{- else }}
+      insecure_bootstrap = true
+      {{- end }}
+      trust_domain = {{ .Values.global.spire.trustDomain | quote }}
+    }
+
+    plugins {
+      {{- if $joinToken.enabled }}
+      NodeAttestor "join_token" {
+        plugin_data {}
+      }
+      {{- else }}
+      NodeAttestor "k8s_psat" {
+        plugin_data {
+          clusters = {
+            {{ .Values.global.spire.clusterName | quote }} = {
+              service_account_allow_list = ["spire:{{ $upstreamAgent.serviceAccount.name }}"]
+            }
+          }
+        }
+      }
+      {{- end }}
+      KeyManager "memory" {
+        plugin_data {}
+      }
+      WorkloadAttestor "k8s" {
+        plugin_data {
+          skip_kubelet_verification = true
+          disable_container_selectors = false
+          use_new_container_locator = true
+          verbose_container_locator_logs = false
+        }
+      }
+    }
+
+    health_checks {
+      listener_enabled = true
+      bind_address = "0.0.0.0"
+      bind_port = {{ default 9981 $upstreamAgent.healthChecks.port | quote }}
+      live_path = "/live"
+      ready_path = "/ready"
+    }
+{{- end }}

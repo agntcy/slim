@@ -126,12 +126,10 @@ mod tests {
 
     /// Helper to create FFI Name from string parts (matches what SlimName converts to)
     fn ffi_name(parts: [&str; 3]) -> Arc<Name> {
-        // SlimName.id() returns u64::MAX by default, and our From impl always sets Some(id)
-        Arc::new(Name::new_with_id(
+        Arc::new(Name::new(
             parts[0].to_string(),
             parts[1].to_string(),
             parts[2].to_string(),
-            u64::MAX, // Default SlimName ID
         ))
     }
 
