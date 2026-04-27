@@ -65,7 +65,7 @@ type StreamTx = tokio::sync::mpsc::UnboundedSender<Result<ControlMessage, Status
 
 #[derive(Default)]
 struct Inner {
-	/// control stream towards a node
+    /// control stream towards a node
     streams: RwLock<HashMap<String, StreamTx>>,
 
     /// node statuses
@@ -108,7 +108,8 @@ impl DefaultNodeCommandHandler {
     }
 
     pub async fn get_connection_status(&self, node_id: &str) -> NodeStatus {
-        self.0.statuses
+        self.0
+            .statuses
             .read()
             .await
             .get(node_id)
@@ -117,7 +118,8 @@ impl DefaultNodeCommandHandler {
     }
 
     pub async fn update_connection_status(&self, node_id: &str, status: NodeStatus) {
-        self.0.statuses
+        self.0
+            .statuses
             .write()
             .await
             .insert(node_id.to_string(), status);
@@ -137,11 +139,9 @@ impl DefaultNodeCommandHandler {
         }
 
         let streams = self.0.streams.read().await;
-        let tx = streams
-            .get(node_id)
-            .ok_or_else(|| Error::StreamNotFound {
-                node_id: node_id.to_string(),
-            })?;
+        let tx = streams.get(node_id).ok_or_else(|| Error::StreamNotFound {
+            node_id: node_id.to_string(),
+        })?;
 
         tx.send(Ok(msg)).map_err(|e| Error::SendFailed {
             node_id: node_id.to_string(),

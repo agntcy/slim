@@ -117,13 +117,19 @@ impl RouteService {
 
     pub async fn add_route(&self, route: Route) -> Result<String> {
         if route.source_node_id.is_empty() {
-            return Err(Error::InvalidInput("source node ID cannot be empty".to_string()));
+            return Err(Error::InvalidInput(
+                "source node ID cannot be empty".to_string(),
+            ));
         }
         if route.dest_node_id.is_empty() {
-            return Err(Error::InvalidInput("destination node ID cannot be empty".to_string()));
+            return Err(Error::InvalidInput(
+                "destination node ID cannot be empty".to_string(),
+            ));
         }
         if route.source_node_id == route.dest_node_id {
-            return Err(Error::InvalidInput("destination node ID cannot be the same as source node ID".to_string()));
+            return Err(Error::InvalidInput(
+                "destination node ID cannot be the same as source node ID".to_string(),
+            ));
         }
 
         let db_route = crate::db::Route::from(&route);
@@ -199,7 +205,8 @@ impl RouteService {
         if route.source_node_id == ALL_NODES_ID {
             // Delete the wildcard route itself.
             let db_route = self
-                .0.db
+                .0
+                .db
                 .get_route_for_src_dest_name(
                     &route.source_node_id,
                     &SubscriptionName {
@@ -217,7 +224,8 @@ impl RouteService {
 
             // Also delete all per-node expansions.
             let per_node = self
-                .0.db
+                .0
+                .db
                 .get_routes_for_dest_node_id_and_name(
                     &route.dest_node_id,
                     &route.component0,
@@ -241,7 +249,8 @@ impl RouteService {
         };
 
         let db_route = self
-            .0.db
+            .0
+            .db
             .get_route_for_src_dest_name(
                 &route.source_node_id,
                 &SubscriptionName {
@@ -302,10 +311,12 @@ impl RouteService {
                 continue;
             }
 
-            let dp_says_alive =
-                !conn_details_updated && dp_reported_connections && active_link_ids.contains(&link.link_id);
-            let dp_says_dead =
-                !conn_details_updated && dp_reported_connections && !active_link_ids.contains(&link.link_id);
+            let dp_says_alive = !conn_details_updated
+                && dp_reported_connections
+                && active_link_ids.contains(&link.link_id);
+            let dp_says_dead = !conn_details_updated
+                && dp_reported_connections
+                && !active_link_ids.contains(&link.link_id);
 
             if dp_says_alive {
                 // DP explicitly reports this connection is alive — mark Applied and
@@ -402,7 +413,8 @@ impl RouteService {
                 continue;
             }
             if self
-                .0.db
+                .0
+                .db
                 .find_link_between_nodes(node_id, &other.id)
                 .await
                 .map(|l| !l.deleted)
@@ -457,7 +469,8 @@ impl RouteService {
             Ok((endpoint, config_data)) => {
                 let link_id = Uuid::new_v4().to_string();
                 if let Err(e) = self
-                    .0.db
+                    .0
+                    .db
                     .add_link(crate::db::Link {
                         link_id,
                         source_node_id: source_node_id.to_string(),
@@ -499,14 +512,16 @@ impl RouteService {
 
         // Reuse an existing link with the same source + endpoint.
         let link_id = self
-            .0.db
+            .0
+            .db
             .get_link_for_source_and_endpoint(source_node_id, &endpoint)
             .await
             .map(|l| l.link_id)
             .unwrap_or_else(|| Uuid::new_v4().to_string());
 
         if let Err(e) = self
-            .0.db
+            .0
+            .db
             .add_link(crate::db::Link {
                 link_id,
                 source_node_id: source_node_id.to_string(),
@@ -536,7 +551,8 @@ impl RouteService {
                 continue;
             }
             if self
-                .0.db
+                .0
+                .db
                 .get_route_for_src_dest_name(
                     node_id,
                     &SubscriptionName {
@@ -587,7 +603,9 @@ impl RouteService {
     async fn find_matching_link(&self, source: &str, dest: &str) -> Result<String> {
         match self.0.db.find_link_between_nodes(source, dest).await {
             Some(l) if !l.deleted => Ok(l.link_id),
-            _ => Err(Error::InvalidInput(format!("no matching link found for source={source} destination={dest}"))),
+            _ => Err(Error::InvalidInput(format!(
+                "no matching link found for source={source} destination={dest}"
+            ))),
         }
     }
 
@@ -595,7 +613,8 @@ impl RouteService {
     /// is reported by the data plane.
     pub async fn requeue_route_for_source_node(&self, node_id: &str, route: Route) {
         let db_route = match self
-            .0.db
+            .0
+            .db
             .get_route_for_src_dest_name(
                 node_id,
                 &SubscriptionName {
@@ -617,7 +636,8 @@ impl RouteService {
 
         if !db_route.link_id.is_empty()
             && let Some(link) = self
-                .0.db
+                .0
+                .db
                 .get_link(
                     &db_route.link_id,
                     &db_route.source_node_id,
@@ -639,10 +659,7 @@ impl RouteService {
         self.0.route_queue.add(node_id.to_string());
     }
 
-    pub async fn list_subscriptions(
-        &self,
-        node_id: &str,
-    ) -> Result<SubscriptionListResponse> {
+    pub async fn list_subscriptions(&self, node_id: &str) -> Result<SubscriptionListResponse> {
         let message_id = Uuid::new_v4().to_string();
         let msg = ControlMessage {
             message_id: message_id.clone(),
@@ -650,16 +667,17 @@ impl RouteService {
                 crate::api::proto::controller::proto::v1::SubscriptionListRequest {},
             )),
         };
-        self.0.cmd_handler
-            .send_message(node_id, msg)
-            .await?;
+        self.0.cmd_handler.send_message(node_id, msg).await?;
         let resp = self
-            .0.cmd_handler
+            .0
+            .cmd_handler
             .wait_for_response(node_id, ResponseKind::SubscriptionListResponse, &message_id)
             .await?;
         match resp.payload {
             Some(Payload::SubscriptionListResponse(r)) => Ok(r),
-            _ => Err(Error::UnexpectedResponse("no SubscriptionListResponse received".to_string())),
+            _ => Err(Error::UnexpectedResponse(
+                "no SubscriptionListResponse received".to_string(),
+            )),
         }
     }
 
@@ -671,16 +689,17 @@ impl RouteService {
                 crate::api::proto::controller::proto::v1::ConnectionListRequest {},
             )),
         };
-        self.0.cmd_handler
-            .send_message(node_id, msg)
-            .await?;
+        self.0.cmd_handler.send_message(node_id, msg).await?;
         let resp = self
-            .0.cmd_handler
+            .0
+            .cmd_handler
             .wait_for_response(node_id, ResponseKind::ConnectionListResponse, &message_id)
             .await?;
         match resp.payload {
             Some(Payload::ConnectionListResponse(r)) => Ok(r),
-            _ => Err(Error::UnexpectedResponse("no ConnectionListResponse received".to_string())),
+            _ => Err(Error::UnexpectedResponse(
+                "no ConnectionListResponse received".to_string(),
+            )),
         }
     }
 
@@ -691,19 +710,27 @@ impl RouteService {
         source_node_id: &str,
         dest_node_id: &str,
     ) -> Result<(String, String)> {
-        let dest_node = self
-            .0.db
-            .get_node(dest_node_id)
-            .await
-            .ok_or_else(|| Error::NodeNotFound { id: dest_node_id.to_string() })?;
+        let dest_node =
+            self.0
+                .db
+                .get_node(dest_node_id)
+                .await
+                .ok_or_else(|| Error::NodeNotFound {
+                    id: dest_node_id.to_string(),
+                })?;
         if dest_node.conn_details.is_empty() {
-            return Err(Error::InvalidInput(format!("no connections for destination node {dest_node_id}")));
+            return Err(Error::InvalidInput(format!(
+                "no connections for destination node {dest_node_id}"
+            )));
         }
-        let src_node = self
-            .0.db
-            .get_node(source_node_id)
-            .await
-            .ok_or_else(|| Error::NodeNotFound { id: source_node_id.to_string() })?;
+        let src_node =
+            self.0
+                .db
+                .get_node(source_node_id)
+                .await
+                .ok_or_else(|| Error::NodeNotFound {
+                    id: source_node_id.to_string(),
+                })?;
 
         let (conn, local_connection) = select_connection(&dest_node, &src_node);
 
@@ -771,7 +798,12 @@ fn generate_config_data(
             .external_endpoint
             .clone()
             .filter(|e| !e.is_empty())
-            .ok_or_else(|| Error::InvalidInput(format!("no external endpoint for connection {}", detail.endpoint)))?
+            .ok_or_else(|| {
+                Error::InvalidInput(format!(
+                    "no external endpoint for connection {}",
+                    detail.endpoint
+                ))
+            })?
     };
 
     // Set TLS / endpoint scheme.
@@ -793,7 +825,12 @@ fn generate_config_data(
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string())
             })
-            .ok_or_else(|| Error::InvalidInput(format!("no SPIRE socket path found for source node {}", src_node.id)))?;
+            .ok_or_else(|| {
+                Error::InvalidInput(format!(
+                    "no SPIRE socket path found for source node {}",
+                    src_node.id
+                ))
+            })?;
 
         config.insert("endpoint".to_string(), json!(format!("https://{endpoint}")));
 

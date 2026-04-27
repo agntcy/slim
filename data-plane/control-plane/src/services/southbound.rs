@@ -126,7 +126,9 @@ async fn receive_register(
 ) -> Result<String> {
     let msg = tokio::time::timeout(Duration::from_secs(REGISTER_TIMEOUT_SECS), stream.message())
         .await
-        .map_err(|e| Error::InvalidInput(format!("timeout waiting for register node request: {e}")))?
+        .map_err(|e| {
+            Error::InvalidInput(format!("timeout waiting for register node request: {e}"))
+        })?
         .map_err(|e| Error::InvalidInput(format!("stream error: {e}")))?;
 
     let msg = match msg {

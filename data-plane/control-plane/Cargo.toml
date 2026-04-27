@@ -9,6 +9,9 @@ license = { workspace = true }
 description = "Rust implementation of the SLIM control plane (northbound + southbound gRPC servers)."
 include = ["src/**", "build.rs", "proto/**"]
 
+[package.metadata.cargo-machete]
+ignored = ["libsqlite3-sys"]
+
 [lib]
 name = "slim_control_plane"
 path = "src/lib.rs"
@@ -29,6 +32,7 @@ diesel = { workspace = true }
 diesel-async = { workspace = true }
 diesel_migrations = { workspace = true }
 drain = { workspace = true }
+libsqlite3-sys = { workspace = true }
 parking_lot = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }
@@ -36,7 +40,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 thiserror = { workspace = true }
-libsqlite3-sys = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
 tokio-stream = { workspace = true }
 # tokio-util = { workspace = true }

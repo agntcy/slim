@@ -63,10 +63,10 @@ impl RouteStore {
         if let Some(set) = self.by_dest.get_mut(&route.dest_node_id) {
             set.remove(&route.id);
         }
-        if !route.link_id.is_empty() {
-            if let Some(set) = self.by_link.get_mut(&route.link_id) {
-                set.remove(&route.id);
-            }
+        if !route.link_id.is_empty()
+            && let Some(set) = self.by_link.get_mut(&route.link_id)
+        {
+            set.remove(&route.id);
         }
     }
 }
@@ -452,10 +452,10 @@ impl DataAccess for InMemoryDb {
             .clone();
 
         // Update by_link index: remove old entry, add new one.
-        if !old_link_id.is_empty() {
-            if let Some(set) = store.by_link.get_mut(&old_link_id) {
-                set.remove(&route_id);
-            }
+        if !old_link_id.is_empty()
+            && let Some(set) = store.by_link.get_mut(&old_link_id)
+        {
+            set.remove(&route_id);
         }
         if !link_id.is_empty() {
             store
@@ -495,11 +495,12 @@ impl DataAccess for InMemoryDb {
                 .unwrap_or_default();
 
             for key in &src_keys {
-                if let Some(existing) = store.primary.get(key) {
-                    if !existing.deleted && existing.dest_endpoint == link.dest_endpoint {
-                        link.link_id = existing.link_id.clone();
-                        break;
-                    }
+                if let Some(existing) = store.primary.get(key)
+                    && !existing.deleted
+                    && existing.dest_endpoint == link.dest_endpoint
+                {
+                    link.link_id = existing.link_id.clone();
+                    break;
                 }
             }
             if link.link_id.is_empty() {
@@ -567,10 +568,10 @@ impl DataAccess for InMemoryDb {
                     continue;
                 }
                 if !source_node_id.is_empty() && !dest_node_id.is_empty() {
-                    let direct = link.source_node_id == source_node_id
-                        && link.dest_node_id == dest_node_id;
-                    let reverse = link.source_node_id == dest_node_id
-                        && link.dest_node_id == source_node_id;
+                    let direct =
+                        link.source_node_id == source_node_id && link.dest_node_id == dest_node_id;
+                    let reverse =
+                        link.source_node_id == dest_node_id && link.dest_node_id == source_node_id;
                     if !direct && !reverse {
                         continue;
                     }
@@ -595,25 +596,27 @@ impl DataAccess for InMemoryDb {
 
         // Forward: source_node_id → dest_node_id.
         for key in store.by_src.get(source_node_id).into_iter().flatten() {
-            if let Some(link) = store.primary.get(key) {
-                if !link.deleted && link.dest_node_id == dest_node_id {
-                    match latest {
-                        None => latest = Some(link),
-                        Some(prev) if link.last_updated > prev.last_updated => latest = Some(link),
-                        _ => {}
-                    }
+            if let Some(link) = store.primary.get(key)
+                && !link.deleted
+                && link.dest_node_id == dest_node_id
+            {
+                match latest {
+                    None => latest = Some(link),
+                    Some(prev) if link.last_updated > prev.last_updated => latest = Some(link),
+                    _ => {}
                 }
             }
         }
         // Reverse: dest_node_id → source_node_id.
         for key in store.by_src.get(dest_node_id).into_iter().flatten() {
-            if let Some(link) = store.primary.get(key) {
-                if !link.deleted && link.dest_node_id == source_node_id {
-                    match latest {
-                        None => latest = Some(link),
-                        Some(prev) if link.last_updated > prev.last_updated => latest = Some(link),
-                        _ => {}
-                    }
+            if let Some(link) = store.primary.get(key)
+                && !link.deleted
+                && link.dest_node_id == source_node_id
+            {
+                match latest {
+                    None => latest = Some(link),
+                    Some(prev) if link.last_updated > prev.last_updated => latest = Some(link),
+                    _ => {}
                 }
             }
         }
@@ -629,13 +632,14 @@ impl DataAccess for InMemoryDb {
         let keys = store.by_src.get(source_node_id)?;
         let mut latest: Option<&Link> = None;
         for key in keys {
-            if let Some(link) = store.primary.get(key) {
-                if !link.deleted && link.dest_endpoint == dest_endpoint {
-                    match latest {
-                        None => latest = Some(link),
-                        Some(prev) if link.last_updated > prev.last_updated => latest = Some(link),
-                        _ => {}
-                    }
+            if let Some(link) = store.primary.get(key)
+                && !link.deleted
+                && link.dest_endpoint == dest_endpoint
+            {
+                match latest {
+                    None => latest = Some(link),
+                    Some(prev) if link.last_updated > prev.last_updated => latest = Some(link),
+                    _ => {}
                 }
             }
         }

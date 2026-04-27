@@ -1772,8 +1772,9 @@ impl ControllerService {
                         id: id as u64,
                         connection_type: v1::ConnectionType::Remote as i32,
                         config_data: match conn.config_data() {
-                            Some(data) => serde_json::to_string(data)
-                                .unwrap_or_else(|_| "{}".to_string()),
+                            Some(data) => {
+                                serde_json::to_string(data).unwrap_or_else(|_| "{}".to_string())
+                            }
                             None => "{}".to_string(),
                         },
                         link_id: conn.link_id(),

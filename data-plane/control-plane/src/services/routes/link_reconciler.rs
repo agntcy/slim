@@ -145,9 +145,7 @@ async fn handle_request(
         "link reconciler: sending config command to node {node_id} (msg_id={message_id})"
     );
 
-    cmd_handler
-        .send_message(node_id, msg)
-        .await?;
+    cmd_handler.send_message(node_id, msg).await?;
 
     let response = cmd_handler
         .wait_for_response(node_id, ResponseKind::ConfigCommandAck, &message_id)
@@ -155,7 +153,11 @@ async fn handle_request(
 
     let ack = match response.payload {
         Some(Payload::ConfigCommandAck(a)) => a,
-        _ => return Err(Error::UnexpectedResponse(format!("received unexpected response from node {node_id}"))),
+        _ => {
+            return Err(Error::UnexpectedResponse(format!(
+                "received unexpected response from node {node_id}"
+            )));
+        }
     };
 
     // Build a map of connection_id → (success, error_msg) from the ack.
@@ -252,7 +254,9 @@ async fn handle_request(
     }
 
     if !retry_delete.is_empty() {
-        return Err(Error::InvalidInput(format!("delete ack failed or missing for links: {retry_delete:?}")));
+        return Err(Error::InvalidInput(format!(
+            "delete ack failed or missing for links: {retry_delete:?}"
+        )));
     }
 
     Ok(())

@@ -146,9 +146,9 @@ jobs:
         echo "GOROOT: $GOROOT"
         echo "Working directory: $(pwd)"
 
-        # Download Go module dependencies for control-plane modules
+        # Download Go module dependencies for remaining Go modules
         echo "Pre-downloading Go module dependencies..."
-        for module_dir in control-plane/common control-plane/control-plane control-plane/token-service; do
+        for module_dir in tests; do
           if [ -f "$module_dir/go.mod" ]; then
             echo "Downloading deps for $module_dir"
             (cd "$module_dir" && go mod download) || echo "Failed to download deps for $module_dir"
