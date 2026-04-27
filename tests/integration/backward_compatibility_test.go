@@ -144,7 +144,7 @@ func testGroupSession(tempDir string, getSlimPath, getModeratorPath, getParticip
 	Eventually(moderatorSession.Out, 15*time.Second).Should(gbytes.Say("✓ All participants replied correctly"))
 }
 
-var _ = Describe("Backward Compatibility", func() {
+var _ = BackwardCompatDescribe("Backward Compatibility", func() {
 	var (
 		tempDir string
 	)
