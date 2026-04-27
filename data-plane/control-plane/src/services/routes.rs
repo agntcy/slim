@@ -10,6 +10,8 @@ use std::time::SystemTime;
 use serde_json::json;
 use uuid::Uuid;
 
+use crate::config::ReconcilerConfig;
+use crate::error::{Error, Result};
 use crate::workqueue::WorkQueue;
 
 use crate::api::proto::controller::proto::v1::{
@@ -32,85 +34,9 @@ pub struct Route {
     pub component_id: Option<u64>,
 }
 
-pub struct ReconcilerConfig {
-    pub max_requeues: usize,
-    pub max_parallel_reconciles: usize,
-}
-
-pub struct RouteService {
-    db: SharedDb,
-    cmd_handler: Arc<DefaultNodeCommandHandler>,
-    reconciler_config: ReconcilerConfig,
-    /// Work queue for route reconciliation.
-    route_queue: WorkQueue<String>,
-    /// Work queue for link reconciliation.
-    link_queue: WorkQueue<String>,
-}
-
-impl RouteService {
-    pub fn new(
-        db: SharedDb,
-        cmd_handler: Arc<DefaultNodeCommandHandler>,
-        reconciler_config: ReconcilerConfig,
-    ) -> Arc<Self> {
-        let route_queue: WorkQueue<String> = WorkQueue::new();
-        let link_queue: WorkQueue<String> = WorkQueue::new();
-
-        let svc = Arc::new(Self {
-            db: db.clone(),
-            cmd_handler: cmd_handler.clone(),
-            reconciler_config,
-            route_queue: route_queue.clone(),
-            link_queue: link_queue.clone(),
-        });
-
-        // Spawn reconciler workers.
-        let route_reconciler = route_reconciler::RouteReconciler::new(
-            db.clone(),
-            cmd_handler.clone(),
-            route_queue,
-            svc.reconciler_config.max_requeues,
-            svc.reconciler_config.max_parallel_reconciles,
-        );
-        let link_reconciler = link_reconciler::LinkReconciler::new(
-            db,
-            cmd_handler,
-            link_queue,
-            svc.route_queue.clone(),
-            ReconcilerConfig {
-                max_requeues: svc.reconciler_config.max_requeues,
-                max_parallel_reconciles: svc.reconciler_config.max_parallel_reconciles,
-            },
-        );
-        tokio::spawn(async move { route_reconciler.run().await });
-        tokio::spawn(async move { link_reconciler.run().await });
-
-        svc
-    }
-
-    /// Stop the reconciler workers and wait for any in-flight reconciliations
-    /// to finish before returning.
-    pub async fn shutdown(&self) {
-        tracing::info!("route service: shutting down reconcilers");
-        tokio::join!(
-            self.route_queue.shutdown_with_drain(),
-            self.link_queue.shutdown_with_drain(),
-        );
-        tracing::info!("route service: reconcilers stopped");
-    }
-
-    pub async fn add_route(&self, route: Route) -> Result<String, String> {
-        if route.source_node_id.is_empty() {
-            return Err("source node ID cannot be empty".to_string());
-        }
-        if route.dest_node_id.is_empty() {
-            return Err("destination node ID cannot be empty".to_string());
-        }
-        if route.source_node_id == route.dest_node_id {
-            return Err("destination node ID cannot be the same as source node ID".to_string());
-        }
-
-        let db_route = crate::db::Route {
+impl From<&Route> for crate::db::Route {
+    fn from(route: &Route) -> Self {
+        crate::db::Route {
             id: 0,
             source_node_id: route.source_node_id.clone(),
             dest_node_id: route.dest_node_id.clone(),
@@ -127,13 +53,86 @@ impl RouteService {
             status_msg: String::new(),
             deleted: false,
             last_updated: SystemTime::now(),
-        };
+        }
+    }
+}
 
-        let route_id = self.add_single_route(db_route.clone()).await?;
+struct Inner {
+    db: SharedDb,
+    cmd_handler: DefaultNodeCommandHandler,
+    /// Work queue for route reconciliation.
+    route_queue: WorkQueue<String>,
+    /// Work queue for link reconciliation.
+    link_queue: WorkQueue<String>,
+}
+
+#[derive(Clone)]
+pub struct RouteService(Arc<Inner>);
+
+impl RouteService {
+    pub fn new(
+        db: SharedDb,
+        cmd_handler: DefaultNodeCommandHandler,
+        reconciler_config: ReconcilerConfig,
+    ) -> Self {
+        let route_queue: WorkQueue<String> = WorkQueue::new();
+        let link_queue: WorkQueue<String> = WorkQueue::new();
+
+        // Spawn reconciler workers.
+        let route_reconciler = route_reconciler::RouteReconciler::new(
+            db.clone(),
+            cmd_handler.clone(),
+            route_queue.clone(),
+            link_queue.clone(),
+            reconciler_config.max_requeues,
+        );
+        let link_reconciler = link_reconciler::LinkReconciler::new(
+            db.clone(),
+            cmd_handler.clone(),
+            link_queue.clone(),
+            route_queue.clone(),
+            reconciler_config,
+        );
+        tokio::spawn(route_reconciler.run());
+        tokio::spawn(link_reconciler.run());
+
+        Self(Arc::new(Inner {
+            db,
+            cmd_handler,
+            route_queue,
+            link_queue,
+        }))
+    }
+
+    /// Stop the reconciler workers and wait for any in-flight reconciliations
+    /// to finish before returning.
+    pub async fn shutdown(&self) {
+        tracing::info!("route service: shutting down reconcilers");
+        tokio::join!(
+            self.0.route_queue.shutdown_with_drain(),
+            self.0.link_queue.shutdown_with_drain(),
+        );
+        tracing::info!("route service: reconcilers stopped");
+    }
+
+    pub async fn add_route(&self, route: Route) -> Result<String> {
+        if route.source_node_id.is_empty() {
+            return Err(Error::InvalidInput("source node ID cannot be empty".to_string()));
+        }
+        if route.dest_node_id.is_empty() {
+            return Err(Error::InvalidInput("destination node ID cannot be empty".to_string()));
+        }
+        if route.source_node_id == route.dest_node_id {
+            return Err(Error::InvalidInput("destination node ID cannot be the same as source node ID".to_string()));
+        }
+
+        let db_route = crate::db::Route::from(&route);
+
+        let route_id = self.add_single_route(db_route).await?;
 
         // For wildcard source, create per-node routes for all existing nodes.
         if route.source_node_id == ALL_NODES_ID {
-            let all_nodes = self.db.list_nodes().await;
+            let all_nodes = self.0.db.list_nodes().await;
             for n in all_nodes {
                 if n.id == route.dest_node_id {
                     continue;
@@ -143,18 +142,10 @@ impl RouteService {
                     .await
                     .unwrap_or_default();
                 let per_node = crate::db::Route {
-                    id: 0,
                     source_node_id: n.id.clone(),
-                    dest_node_id: route.dest_node_id.clone(),
                     link_id,
-                    component0: route.component0.clone(),
-                    component1: route.component1.clone(),
-                    component2: route.component2.clone(),
-                    component_id: route.component_id.map(|v| v as i64),
                     status: RouteStatus::Pending,
-                    status_msg: String::new(),
-                    deleted: false,
-                    last_updated: SystemTime::now(),
+                    ..crate::db::Route::from(&route)
                 };
                 let _ = self.add_single_route(per_node).await;
             }
@@ -163,16 +154,15 @@ impl RouteService {
         Ok(route_id)
     }
 
-    async fn add_single_route(&self, mut db_route: crate::db::Route) -> Result<String, String> {
+    async fn add_single_route(&self, mut db_route: crate::db::Route) -> Result<String> {
         if db_route.source_node_id != ALL_NODES_ID {
             db_route.link_id = self
                 .find_matching_link(&db_route.source_node_id, &db_route.dest_node_id)
-                .await
-                .map_err(|e| format!("failed to find matching link: {e}"))?;
+                .await?;
         }
 
         let route_str;
-        match self.db.add_route(db_route.clone()).await {
+        match self.0.db.add_route(db_route.clone()).await {
             Ok(r) => {
                 route_str = r.to_string();
                 tracing::info!("route added: {route_str}");
@@ -180,36 +170,36 @@ impl RouteService {
             Err(e) => {
                 // If the route already exists and is marked deleted, clean it up and retry.
                 let unique_id = db_route.compute_id();
-                if let Some(existing) = self.db.get_route_by_id(unique_id).await {
+                if let Some(existing) = self.0.db.get_route_by_id(unique_id).await {
                     if existing.deleted {
                         tracing::warn!("removing stale deleted route {} to allow re-add", existing);
-                        self.db.delete_route(existing.id).await?;
-                        let r = self.db.add_route(db_route.clone()).await?;
+                        self.0.db.delete_route(existing.id).await?;
+                        let r = self.0.db.add_route(db_route.clone()).await?;
                         route_str = r.to_string();
                     } else {
-                        return Err(format!("failed to add route: {e}"));
+                        return Err(Error::InvalidInput(format!("failed to add route: {e}")));
                     }
                 } else {
-                    return Err(format!("failed to add route: {e}"));
+                    return Err(Error::InvalidInput(format!("failed to add route: {e}")));
                 }
             }
         }
 
         if db_route.source_node_id != ALL_NODES_ID {
-            self.route_queue.add(db_route.source_node_id);
+            self.0.route_queue.add(db_route.source_node_id);
         }
         Ok(route_str)
     }
 
-    pub async fn delete_route(&self, route: Route) -> Result<(), String> {
+    pub async fn delete_route(&self, route: Route) -> Result<()> {
         if route.dest_node_id.is_empty() {
-            return Err("destNodeID must be set".to_string());
+            return Err(Error::InvalidInput("destNodeID must be set".to_string()));
         }
 
         if route.source_node_id == ALL_NODES_ID {
             // Delete the wildcard route itself.
             let db_route = self
-                .db
+                .0.db
                 .get_route_for_src_dest_name(
                     &route.source_node_id,
                     &SubscriptionName {
@@ -222,17 +212,20 @@ impl RouteService {
                     "",
                 )
                 .await
-                .ok_or_else(|| "route not found".to_string())?;
-            self.db.delete_route(db_route.id).await?;
+                .ok_or(Error::InvalidInput("route not found".to_string()))?;
+            self.0.db.delete_route(db_route.id).await?;
 
             // Also delete all per-node expansions.
-            let per_node = self.db.get_routes_for_dest_node_id_and_name(
-                &route.dest_node_id,
-                &route.component0,
-                &route.component1,
-                &route.component2,
-                route.component_id.map(|v| v as i64),
-            ).await;
+            let per_node = self
+                .0.db
+                .get_routes_for_dest_node_id_and_name(
+                    &route.dest_node_id,
+                    &route.component0,
+                    &route.component1,
+                    &route.component2,
+                    route.component_id.map(|v| v as i64),
+                )
+                .await;
             for r in per_node {
                 self.delete_single_route(&r.source_node_id, r.id, &r.to_string())
                     .await?;
@@ -247,7 +240,7 @@ impl RouteService {
         };
 
         let db_route = self
-            .db
+            .0.db
             .get_route_for_src_dest_name(
                 &route.source_node_id,
                 &SubscriptionName {
@@ -260,7 +253,7 @@ impl RouteService {
                 &link_id,
             )
             .await
-            .ok_or_else(|| "route not found".to_string())?;
+            .ok_or(Error::InvalidInput("route not found".to_string()))?;
 
         self.delete_single_route(&route.source_node_id, db_route.id, &db_route.to_string())
             .await
@@ -271,105 +264,129 @@ impl RouteService {
         node_id: &str,
         route_id: i64,
         route_key: &str,
-    ) -> Result<(), String> {
-        self.db.mark_route_deleted(route_id).await?;
+    ) -> Result<()> {
+        self.0.db.mark_route_deleted(route_id).await?;
         tracing::info!("route marked for delete: {route_key}");
         if node_id != ALL_NODES_ID {
-            self.route_queue.add(node_id.to_string());
+            self.0.route_queue.add(node_id.to_string());
         }
         Ok(())
     }
 
-    /// Called when a new node registers. Creates links/routes and triggers reconciliation.
-    pub async fn node_registered(&self, node_id: &str, conn_details_updated: bool) {
-        let mut reconcile_link_for_nodes: std::collections::HashSet<String> =
+    /// Called when a new node registers. Syncs link state against the connections
+    /// the data plane reported, then triggers reconciliation as needed.
+    pub async fn node_registered(
+        &self,
+        node_id: &str,
+        conn_details_updated: bool,
+        dp_connections: Vec<crate::api::proto::controller::proto::v1::ConnectionEntry>,
+    ) {
+        // Build the set of link IDs the DP still has active.
+        let active_link_ids: std::collections::HashSet<String> = dp_connections
+            .iter()
+            .filter_map(|e| e.link_id.as_deref().filter(|id| !id.is_empty()))
+            .map(str::to_string)
+            .collect();
+
+        let mut link_reconcile_nodes: std::collections::HashSet<String> =
             std::collections::HashSet::new();
 
-        if conn_details_updated {
-            for nid in self.reconnect_existing_links(node_id).await {
-                reconcile_link_for_nodes.insert(nid);
-            }
-        }
-        for nid in self.ensure_links_for_node(node_id).await {
-            reconcile_link_for_nodes.insert(nid);
-        }
-        self.ensure_routes_for_node(node_id).await;
-        reconcile_link_for_nodes.insert(node_id.to_string());
+        // True only when the DP explicitly sent a non-empty connections list.  An
+        // empty list may mean the DP just started and hasn't established any
+        // connections yet, or that it doesn't support the connections field.
+        let dp_reported_connections = !dp_connections.is_empty();
 
-        for nid in reconcile_link_for_nodes {
-            self.link_queue.add(nid);
-        }
-    }
-
-    /// Re-add links that point to a reconnecting node with potentially new
-    /// connection details, and repoint existing routes to the new links.
-    async fn reconnect_existing_links(&self, node_id: &str) -> Vec<String> {
-        let mut affected: std::collections::HashSet<String> =
-            [node_id.to_string()].into_iter().collect();
-        for link in self.db.get_links_for_node(node_id).await {
+        for mut link in self.0.db.get_links_for_node(node_id).await {
             if link.deleted || link.dest_node_id != node_id {
                 continue;
             }
-            let (endpoint, config_data) = match self
-                .get_connection_details(&link.source_node_id, node_id)
-                .await
-            {
-                Ok(cd) => cd,
-                Err(e) => {
-                    tracing::error!(
-                        "reconnect: failed to get connection details for {} -> {}: {e}",
-                        link.source_node_id,
-                        node_id
-                    );
-                    continue;
-                }
-            };
-            let replacement = match self.db.add_link(crate::db::Link {
-                link_id: Uuid::new_v4().to_string(),
-                source_node_id: link.source_node_id.clone(),
-                dest_node_id: link.dest_node_id.clone(),
-                dest_endpoint: endpoint,
-                conn_config_data: config_data,
-                status: LinkStatus::Pending,
-                status_msg: String::new(),
-                deleted: false,
-                last_updated: SystemTime::now(),
-            }).await {
-                Ok(l) => l,
-                Err(e) => {
-                    tracing::error!("reconnect: failed to add replacement link: {e}");
-                    continue;
-                }
-            };
 
-            affected.insert(replacement.source_node_id.clone());
+            let dp_says_alive =
+                !conn_details_updated && dp_reported_connections && active_link_ids.contains(&link.link_id);
+            let dp_says_dead =
+                !conn_details_updated && dp_reported_connections && !active_link_ids.contains(&link.link_id);
 
-            for r in self.db.get_routes_by_link_id(&link.link_id).await {
-                if let Err(e) = self.db.repoint_route(
-                    r.id,
-                    &replacement.link_id,
-                    RouteStatus::Pending,
-                    "waiting for replacement link apply",
-                ).await {
-                    tracing::error!("reconnect: failed to repoint route {}: {e}", r);
-                } else {
-                    affected.insert(r.source_node_id.clone());
+            if dp_says_alive {
+                // DP explicitly reports this connection is alive — mark Applied and
+                // re-trigger routes only, no link reconciliation needed.
+                if link.status != LinkStatus::Applied {
+                    link.status = LinkStatus::Applied;
+                    link.status_msg = String::new();
+                    link.last_updated = SystemTime::now();
+                    if let Err(e) = self.0.db.update_link(link.clone()).await {
+                        tracing::warn!(
+                            "node_registered: failed to mark link {} applied: {e}",
+                            link.link_id
+                        );
+                    }
                 }
-            }
-
-            let mut old_link = link;
-            old_link.deleted = true;
-            old_link.status_msg = "marked deleted after replacement link creation".to_string();
-            if let Err(e) = self.db.update_link(old_link).await {
-                tracing::error!("reconnect: failed to mark old link deleted: {e}");
+                self.0.route_queue.add(link.source_node_id.clone());
+            } else if !conn_details_updated && !dp_says_dead && link.status == LinkStatus::Applied {
+                // Endpoint unchanged, DP did not explicitly report the link as dead
+                // (either doesn't support connections reporting or just started up).
+                // Optimistically trust the existing Applied link and only re-verify
+                // routes — this avoids triggering a needless connection recreation on
+                // the relay DP when the other side has a CP-only reconnect.
+                tracing::debug!(
+                    "node_registered: link {} still Applied and endpoint unchanged, skipping link reconcile",
+                    link.link_id
+                );
+                self.0.route_queue.add(link.source_node_id.clone());
+            } else {
+                // Connection lost, DP says dead, or endpoint changed — update config
+                // in-place and reset to Pending for full link reconciliation.
+                if conn_details_updated {
+                    match self
+                        .get_connection_details(&link.source_node_id, node_id)
+                        .await
+                    {
+                        Ok((endpoint, config_data)) => {
+                            link.dest_endpoint = endpoint;
+                            link.conn_config_data = config_data;
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                "node_registered: failed to get updated connection details \
+                                 for {} -> {node_id}: {e}",
+                                link.source_node_id
+                            );
+                        }
+                    }
+                }
+                if link.status != LinkStatus::Pending || conn_details_updated {
+                    link.status = LinkStatus::Pending;
+                    link.status_msg = String::new();
+                    link.last_updated = SystemTime::now();
+                    if let Err(e) = self.0.db.update_link(link.clone()).await {
+                        tracing::warn!(
+                            "node_registered: failed to reset link {} to pending: {e}",
+                            link.link_id
+                        );
+                    }
+                }
+                link_reconcile_nodes.insert(link.source_node_id.clone());
             }
         }
-        affected.into_iter().collect()
+
+        for nid in self.ensure_links_for_node(node_id).await {
+            link_reconcile_nodes.insert(nid);
+        }
+        self.ensure_routes_for_node(node_id).await;
+        // Always enqueue the reconnecting node for route reconciliation so that
+        // any pending deletes (deleted=true routes) and pending applies are
+        // pushed to the data plane immediately, rather than waiting for the link
+        // reconciler to trigger it later.
+        self.0.route_queue.add(node_id.to_string());
+        link_reconcile_nodes.insert(node_id.to_string());
+
+        for nid in link_reconcile_nodes {
+            self.0.link_queue.add(nid);
+        }
     }
 
     /// Ensure direct or group links exist between `node_id` and every other node.
     async fn ensure_links_for_node(&self, node_id: &str) -> Vec<String> {
-        let src_node = match self.db.get_node(node_id).await {
+        let src_node = match self.0.db.get_node(node_id).await {
             Some(n) => n,
             None => {
                 tracing::error!("ensure_links: node {node_id} not found");
@@ -379,12 +396,12 @@ impl RouteService {
         let mut affected: std::collections::HashSet<String> =
             [node_id.to_string()].into_iter().collect();
 
-        for other in self.db.list_nodes().await {
+        for other in self.0.db.list_nodes().await {
             if other.id == node_id {
                 continue;
             }
             if self
-                .db
+                .0.db
                 .find_link_between_nodes(node_id, &other.id)
                 .await
                 .map(|l| !l.deleted)
@@ -438,17 +455,21 @@ impl RouteService {
         {
             Ok((endpoint, config_data)) => {
                 let link_id = Uuid::new_v4().to_string();
-                if let Err(e) = self.db.add_link(crate::db::Link {
-                    link_id,
-                    source_node_id: source_node_id.to_string(),
-                    dest_node_id: dest_node_id.to_string(),
-                    dest_endpoint: endpoint,
-                    conn_config_data: config_data,
-                    status: LinkStatus::Pending,
-                    status_msg: String::new(),
-                    deleted: false,
-                    last_updated: SystemTime::now(),
-                }).await {
+                if let Err(e) = self
+                    .0.db
+                    .add_link(crate::db::Link {
+                        link_id,
+                        source_node_id: source_node_id.to_string(),
+                        dest_node_id: dest_node_id.to_string(),
+                        dest_endpoint: endpoint,
+                        conn_config_data: config_data,
+                        status: LinkStatus::Pending,
+                        status_msg: String::new(),
+                        deleted: false,
+                        last_updated: SystemTime::now(),
+                    })
+                    .await
+                {
                     tracing::error!(
                         "ensure_direct_link: failed to add link {source_node_id}->{dest_node_id}: {e}"
                     );
@@ -477,23 +498,27 @@ impl RouteService {
 
         // Reuse an existing link with the same source + endpoint.
         let link_id = self
-            .db
+            .0.db
             .get_link_for_source_and_endpoint(source_node_id, &endpoint)
             .await
             .map(|l| l.link_id)
             .unwrap_or_else(|| Uuid::new_v4().to_string());
 
-        if let Err(e) = self.db.add_link(crate::db::Link {
-            link_id,
-            source_node_id: source_node_id.to_string(),
-            dest_node_id: dest_node_id.to_string(),
-            dest_endpoint: endpoint,
-            conn_config_data: config_data,
-            status: LinkStatus::Pending,
-            status_msg: String::new(),
-            deleted: false,
-            last_updated: SystemTime::now(),
-        }).await {
+        if let Err(e) = self
+            .0.db
+            .add_link(crate::db::Link {
+                link_id,
+                source_node_id: source_node_id.to_string(),
+                dest_node_id: dest_node_id.to_string(),
+                dest_endpoint: endpoint,
+                conn_config_data: config_data,
+                status: LinkStatus::Pending,
+                status_msg: String::new(),
+                deleted: false,
+                last_updated: SystemTime::now(),
+            })
+            .await
+        {
             tracing::error!(
                 "ensure_group_link: failed to add link {source_node_id}->{dest_node_id}: {e}"
             );
@@ -505,12 +530,12 @@ impl RouteService {
     /// For each wildcard route, create a per-node route for `node_id` if one
     /// does not exist yet.
     async fn ensure_routes_for_node(&self, node_id: &str) {
-        for r in self.db.get_routes_for_node_id(ALL_NODES_ID).await {
+        for r in self.0.db.get_routes_for_node_id(ALL_NODES_ID).await {
             if r.dest_node_id == node_id {
                 continue;
             }
             if self
-                .db
+                .0.db
                 .get_route_for_src_dest_name(
                     node_id,
                     &SubscriptionName {
@@ -551,19 +576,17 @@ impl RouteService {
                 deleted: false,
                 last_updated: SystemTime::now(),
             };
-            match self.db.add_route(new_route).await {
+            match self.0.db.add_route(new_route).await {
                 Ok(added) => tracing::info!("generic route created: {added}"),
                 Err(e) => tracing::debug!("generic route already exists or cannot be added: {e}"),
             }
         }
     }
 
-    async fn find_matching_link(&self, source: &str, dest: &str) -> Result<String, String> {
-        match self.db.find_link_between_nodes(source, dest).await {
+    async fn find_matching_link(&self, source: &str, dest: &str) -> Result<String> {
+        match self.0.db.find_link_between_nodes(source, dest).await {
             Some(l) if !l.deleted => Ok(l.link_id),
-            _ => Err(format!(
-                "no matching link found for source={source} destination={dest}"
-            )),
+            _ => Err(Error::InvalidInput(format!("no matching link found for source={source} destination={dest}"))),
         }
     }
 
@@ -571,7 +594,7 @@ impl RouteService {
     /// is reported by the data plane.
     pub async fn requeue_route_for_source_node(&self, node_id: &str, route: Route) {
         let db_route = match self
-            .db
+            .0.db
             .get_route_for_src_dest_name(
                 node_id,
                 &SubscriptionName {
@@ -593,7 +616,7 @@ impl RouteService {
 
         if !db_route.link_id.is_empty()
             && let Some(link) = self
-                .db
+                .0.db
                 .get_link(
                     &db_route.link_id,
                     &db_route.source_node_id,
@@ -606,19 +629,19 @@ impl RouteService {
             let mut updated_link = link;
             updated_link.status = LinkStatus::Pending;
             updated_link.status_msg = "reset after subscription loss on consumer node".to_string();
-            if let Err(e) = self.db.update_link(updated_link).await {
+            if let Err(e) = self.0.db.update_link(updated_link).await {
                 tracing::error!("failed to reset link to pending after subscription loss: {e}");
             } else {
-                self.link_queue.add(db_route.source_node_id.clone());
+                self.0.link_queue.add(db_route.source_node_id.clone());
             }
         }
-        self.route_queue.add(node_id.to_string());
+        self.0.route_queue.add(node_id.to_string());
     }
 
     pub async fn list_subscriptions(
         &self,
         node_id: &str,
-    ) -> Result<SubscriptionListResponse, String> {
+    ) -> Result<SubscriptionListResponse> {
         let message_id = Uuid::new_v4().to_string();
         let msg = ControlMessage {
             message_id: message_id.clone(),
@@ -626,21 +649,20 @@ impl RouteService {
                 crate::api::proto::controller::proto::v1::SubscriptionListRequest {},
             )),
         };
-        self.cmd_handler
+        self.0.cmd_handler
             .send_message(node_id, msg)
-            .await
-            .map_err(|e| format!("failed to send message: {e}"))?;
+            .await?;
         let resp = self
-            .cmd_handler
+            .0.cmd_handler
             .wait_for_response(node_id, ResponseKind::SubscriptionListResponse, &message_id)
             .await?;
         match resp.payload {
             Some(Payload::SubscriptionListResponse(r)) => Ok(r),
-            _ => Err("no SubscriptionListResponse received".to_string()),
+            _ => Err(Error::UnexpectedResponse("no SubscriptionListResponse received".to_string())),
         }
     }
 
-    pub async fn list_connections(&self, node_id: &str) -> Result<ConnectionListResponse, String> {
+    pub async fn list_connections(&self, node_id: &str) -> Result<ConnectionListResponse> {
         let message_id = Uuid::new_v4().to_string();
         let msg = ControlMessage {
             message_id: message_id.clone(),
@@ -648,17 +670,16 @@ impl RouteService {
                 crate::api::proto::controller::proto::v1::ConnectionListRequest {},
             )),
         };
-        self.cmd_handler
+        self.0.cmd_handler
             .send_message(node_id, msg)
-            .await
-            .map_err(|e| format!("failed to send message: {e}"))?;
+            .await?;
         let resp = self
-            .cmd_handler
+            .0.cmd_handler
             .wait_for_response(node_id, ResponseKind::ConnectionListResponse, &message_id)
             .await?;
         match resp.payload {
             Some(Payload::ConnectionListResponse(r)) => Ok(r),
-            _ => Err("no ConnectionListResponse received".to_string()),
+            _ => Err(Error::UnexpectedResponse("no ConnectionListResponse received".to_string())),
         }
     }
 
@@ -668,22 +689,20 @@ impl RouteService {
         &self,
         source_node_id: &str,
         dest_node_id: &str,
-    ) -> Result<(String, String), String> {
+    ) -> Result<(String, String)> {
         let dest_node = self
-            .db
+            .0.db
             .get_node(dest_node_id)
             .await
-            .ok_or_else(|| format!("destination node {dest_node_id} not found"))?;
+            .ok_or_else(|| Error::NodeNotFound { id: dest_node_id.to_string() })?;
         if dest_node.conn_details.is_empty() {
-            return Err(format!(
-                "no connections for destination node {dest_node_id}"
-            ));
+            return Err(Error::InvalidInput(format!("no connections for destination node {dest_node_id}")));
         }
         let src_node = self
-            .db
+            .0.db
             .get_node(source_node_id)
             .await
-            .ok_or_else(|| format!("source node {source_node_id} not found"))?;
+            .ok_or_else(|| Error::NodeNotFound { id: source_node_id.to_string() })?;
 
         let (conn, local_connection) = select_connection(&dest_node, &src_node);
 
@@ -719,16 +738,16 @@ fn generate_config_data(
     local_connection: bool,
     dest_node: &crate::db::Node,
     src_node: &crate::db::Node,
-) -> Result<(String, String), String> {
+) -> Result<(String, String)> {
     // Start with client_config as a mutable JSON object.
     let mut config: serde_json::Map<String, serde_json::Value> = match &detail.client_config {
         serde_json::Value::Object(m) => m.clone(),
         serde_json::Value::Null => serde_json::Map::new(),
         other => {
-            return Err(format!(
+            return Err(Error::InvalidInput(format!(
                 "unexpected client_config type: expected object, got {}",
                 other
-            ));
+            )));
         }
     };
 
@@ -751,7 +770,7 @@ fn generate_config_data(
             .external_endpoint
             .clone()
             .filter(|e| !e.is_empty())
-            .ok_or_else(|| format!("no external endpoint for connection {}", detail.endpoint))?
+            .ok_or_else(|| Error::InvalidInput(format!("no external endpoint for connection {}", detail.endpoint)))?
     };
 
     // Set TLS / endpoint scheme.
@@ -773,7 +792,7 @@ fn generate_config_data(
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string())
             })
-            .ok_or_else(|| format!("no SPIRE socket path found for source node {}", src_node.id))?;
+            .ok_or_else(|| Error::InvalidInput(format!("no SPIRE socket path found for source node {}", src_node.id)))?;
 
         config.insert("endpoint".to_string(), json!(format!("https://{endpoint}")));
 
@@ -819,7 +838,7 @@ fn generate_config_data(
     }
 
     let config_data = serde_json::to_string(&config)
-        .map_err(|e| format!("failed to encode connection config: {e}"))?;
+        .map_err(|e| Error::InvalidInput(format!("failed to encode connection config: {e}")))?;
 
     let effective_endpoint = config
         .get("endpoint")
@@ -857,16 +876,9 @@ mod tests {
         }
     }
 
-    fn make_route_service(db: crate::db::SharedDb) -> Arc<RouteService> {
+    fn make_route_service(db: crate::db::SharedDb) -> RouteService {
         let handler = DefaultNodeCommandHandler::new();
-        RouteService::new(
-            db,
-            handler,
-            ReconcilerConfig {
-                max_requeues: 3,
-                max_parallel_reconciles: 10,
-            },
-        )
+        RouteService::new(db, handler, ReconcilerConfig { max_requeues: 3 })
     }
 
     // ── select_connection ──────────────────────────────────────────────────
@@ -996,7 +1008,7 @@ mod tests {
             })
             .await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("source"));
+        assert!(result.unwrap_err().to_string().contains("source"));
     }
 
     #[tokio::test]
@@ -1015,7 +1027,7 @@ mod tests {
             })
             .await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("destination"));
+        assert!(result.unwrap_err().to_string().contains("destination"));
     }
 
     #[tokio::test]
@@ -1034,7 +1046,7 @@ mod tests {
             })
             .await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("same"));
+        assert!(result.unwrap_err().to_string().contains("same"));
     }
 
     // ── delete_route validation ────────────────────────────────────────────
@@ -1055,7 +1067,7 @@ mod tests {
             })
             .await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("destNodeID"));
+        assert!(result.unwrap_err().to_string().contains("destNodeID"));
     }
 
     #[tokio::test]
@@ -1084,7 +1096,7 @@ mod tests {
         let svc = make_route_service(db);
         let result = svc.get_connection_details("src", "ghost_dst").await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("ghost_dst"));
+        assert!(result.unwrap_err().to_string().contains("ghost_dst"));
     }
 
     #[tokio::test]
@@ -1100,7 +1112,7 @@ mod tests {
         let svc = make_route_service(db);
         let result = svc.get_connection_details("ghost_src", "dst").await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("ghost_src"));
+        assert!(result.unwrap_err().to_string().contains("ghost_src"));
     }
 
     #[tokio::test]

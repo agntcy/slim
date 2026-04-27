@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::SystemTime;
 
 use parking_lot::RwLock;
@@ -14,11 +14,122 @@ use super::model::{
     has_connection_details_changed,
 };
 use super::{DataAccess, SharedDb};
+use crate::error::{Error, Result};
+
+// ── Route store ────────────────────────────────────────────────────────────────
+
+struct RouteStore {
+    /// Primary map: route id → Route.
+    primary: HashMap<i64, Route>,
+    /// Secondary index: source_node_id → set of route IDs.
+    by_src: HashMap<String, HashSet<i64>>,
+    /// Secondary index: dest_node_id → set of route IDs.
+    by_dest: HashMap<String, HashSet<i64>>,
+    /// Secondary index: link_id → set of route IDs (only for non-empty link_ids).
+    by_link: HashMap<String, HashSet<i64>>,
+}
+
+impl RouteStore {
+    fn new() -> Self {
+        Self {
+            primary: HashMap::new(),
+            by_src: HashMap::new(),
+            by_dest: HashMap::new(),
+            by_link: HashMap::new(),
+        }
+    }
+
+    fn index_add(&mut self, route: &Route) {
+        self.by_src
+            .entry(route.source_node_id.clone())
+            .or_default()
+            .insert(route.id);
+        self.by_dest
+            .entry(route.dest_node_id.clone())
+            .or_default()
+            .insert(route.id);
+        if !route.link_id.is_empty() {
+            self.by_link
+                .entry(route.link_id.clone())
+                .or_default()
+                .insert(route.id);
+        }
+    }
+
+    fn index_remove(&mut self, route: &Route) {
+        if let Some(set) = self.by_src.get_mut(&route.source_node_id) {
+            set.remove(&route.id);
+        }
+        if let Some(set) = self.by_dest.get_mut(&route.dest_node_id) {
+            set.remove(&route.id);
+        }
+        if !route.link_id.is_empty() {
+            if let Some(set) = self.by_link.get_mut(&route.link_id) {
+                set.remove(&route.id);
+            }
+        }
+    }
+}
+
+// ── Link store ─────────────────────────────────────────────────────────────────
+
+struct LinkStore {
+    /// Primary map: Link::storage_key() → Link.
+    primary: HashMap<String, Link>,
+    /// Secondary index: source_node_id → set of storage keys.
+    by_src: HashMap<String, HashSet<String>>,
+    /// Secondary index: dest_node_id → set of storage keys.
+    by_dest: HashMap<String, HashSet<String>>,
+    /// Secondary index: link_id → set of storage keys.
+    by_link_id: HashMap<String, HashSet<String>>,
+}
+
+impl LinkStore {
+    fn new() -> Self {
+        Self {
+            primary: HashMap::new(),
+            by_src: HashMap::new(),
+            by_dest: HashMap::new(),
+            by_link_id: HashMap::new(),
+        }
+    }
+
+    fn index_add(&mut self, link: &Link) {
+        let key = link.storage_key();
+        self.by_src
+            .entry(link.source_node_id.clone())
+            .or_default()
+            .insert(key.clone());
+        self.by_dest
+            .entry(link.dest_node_id.clone())
+            .or_default()
+            .insert(key.clone());
+        self.by_link_id
+            .entry(link.link_id.clone())
+            .or_default()
+            .insert(key);
+    }
+
+    fn index_remove(&mut self, link: &Link) {
+        let key = link.storage_key();
+        if let Some(set) = self.by_src.get_mut(&link.source_node_id) {
+            set.remove(&key);
+        }
+        if let Some(set) = self.by_dest.get_mut(&link.dest_node_id) {
+            set.remove(&key);
+        }
+        if let Some(set) = self.by_link_id.get_mut(&link.link_id) {
+            set.remove(&key);
+        }
+    }
+}
+
+// ── InMemoryDb ─────────────────────────────────────────────────────────────────
 
 pub struct InMemoryDb {
     nodes: RwLock<HashMap<String, Node>>,
-    routes: RwLock<HashMap<i64, Route>>,
-    links: RwLock<HashMap<String, Link>>,
+    routes: RwLock<RouteStore>,
+    links: RwLock<LinkStore>,
     channels: RwLock<HashMap<String, Channel>>,
 }
 
@@ -26,8 +137,8 @@ impl InMemoryDb {
     pub fn new() -> Self {
         Self {
             nodes: RwLock::new(HashMap::new()),
-            routes: RwLock::new(HashMap::new()),
-            links: RwLock::new(HashMap::new()),
+            routes: RwLock::new(RouteStore::new()),
+            links: RwLock::new(LinkStore::new()),
             channels: RwLock::new(HashMap::new()),
         }
     }
@@ -55,7 +166,7 @@ impl DataAccess for InMemoryDb {
         self.nodes.read().get(id).cloned()
     }
 
-    async fn save_node(&self, mut node: Node) -> Result<(String, bool), String> {
+    async fn save_node(&self, mut node: Node) -> Result<(String, bool)> {
         let mut nodes = self.nodes.write();
         let conn_details_changed;
         if node.id.is_empty() {
@@ -73,48 +184,62 @@ impl DataAccess for InMemoryDb {
         Ok((id, conn_details_changed))
     }
 
-    async fn delete_node(&self, id: &str) -> Result<(), String> {
+    async fn delete_node(&self, id: &str) -> Result<()> {
         let mut nodes = self.nodes.write();
         if nodes.remove(id).is_none() {
-            return Err(format!("node {id} not found"));
+            return Err(Error::NodeNotFound { id: id.to_string() });
         }
         Ok(())
     }
 
     // ── Routes ─────────────────────────────────────────────────────────────
 
-    async fn add_route(&self, mut route: Route) -> Result<Route, String> {
+    async fn add_route(&self, mut route: Route) -> Result<Route> {
         let route_id = route.compute_id();
-        let mut routes = self.routes.write();
-        if routes.contains_key(&route_id) {
-            return Err(format!("route {} already exists", route));
+        let mut store = self.routes.write();
+        if store.primary.contains_key(&route_id) {
+            return Err(Error::RouteAlreadyExists {
+                id: route.to_string(),
+            });
         }
         route.id = route_id;
         route.last_updated = SystemTime::now();
-        routes.insert(route_id, route.clone());
+        store.index_add(&route);
+        store.primary.insert(route_id, route.clone());
         Ok(route)
     }
 
     async fn get_route_by_id(&self, route_id: i64) -> Option<Route> {
-        self.routes.read().get(&route_id).cloned()
+        self.routes.read().primary.get(&route_id).cloned()
     }
 
     async fn get_routes_for_node_id(&self, node_id: &str) -> Vec<Route> {
-        self.routes
-            .read()
-            .values()
-            .filter(|r| r.source_node_id == node_id)
-            .cloned()
-            .collect()
+        let store = self.routes.read();
+        store
+            .by_src
+            .get(node_id)
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|id| store.primary.get(id))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     async fn get_routes_for_dest_node_id(&self, node_id: &str) -> Vec<Route> {
-        self.routes
-            .read()
-            .values()
-            .filter(|r| r.dest_node_id == node_id && r.source_node_id != ALL_NODES_ID)
-            .cloned()
-            .collect()
+        let store = self.routes.read();
+        store
+            .by_dest
+            .get(node_id)
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|id| store.primary.get(id))
+                    .filter(|r| r.source_node_id != ALL_NODES_ID)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     async fn get_routes_for_dest_node_id_and_name(
@@ -125,18 +250,23 @@ impl DataAccess for InMemoryDb {
         component2: &str,
         component_id: Option<i64>,
     ) -> Vec<Route> {
-        self.routes
-            .read()
-            .values()
-            .filter(|r| {
-                r.dest_node_id == node_id
-                    && r.component0 == component0
-                    && r.component1 == component1
-                    && r.component2 == component2
-                    && r.component_id == component_id
+        let store = self.routes.read();
+        store
+            .by_dest
+            .get(node_id)
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|id| store.primary.get(id))
+                    .filter(|r| {
+                        r.component0 == component0
+                            && r.component1 == component1
+                            && r.component2 == component2
+                            && r.component_id == component_id
+                    })
+                    .cloned()
+                    .collect()
             })
-            .cloned()
-            .collect()
+            .unwrap_or_default()
     }
 
     async fn get_route_for_src_dest_name(
@@ -146,12 +276,14 @@ impl DataAccess for InMemoryDb {
         dest_node_id: &str,
         link_id: &str,
     ) -> Option<Route> {
-        self.routes
-            .read()
-            .values()
+        let store = self.routes.read();
+        store
+            .by_src
+            .get(src_node_id)?
+            .iter()
+            .filter_map(|id| store.primary.get(id))
             .find(|r| {
-                r.source_node_id == src_node_id
-                    && (dest_node_id.is_empty() || r.dest_node_id == dest_node_id)
+                (dest_node_id.is_empty() || r.dest_node_id == dest_node_id)
                     && (link_id.is_empty() || r.link_id == link_id)
                     && r.component0 == name.component0
                     && r.component1 == name.component1
@@ -161,16 +293,60 @@ impl DataAccess for InMemoryDb {
             .cloned()
     }
 
-    async fn filter_routes_by_src_dest(&self, source_node_id: &str, dest_node_id: &str) -> Vec<Route> {
-        self.routes
-            .read()
-            .values()
-            .filter(|r| {
-                (source_node_id.is_empty() || r.source_node_id == source_node_id)
-                    && (dest_node_id.is_empty() || r.dest_node_id == dest_node_id)
-            })
-            .cloned()
-            .collect()
+    async fn filter_routes_by_src_dest(
+        &self,
+        source_node_id: &str,
+        dest_node_id: &str,
+    ) -> Vec<Route> {
+        let store = self.routes.read();
+        match (source_node_id.is_empty(), dest_node_id.is_empty()) {
+            (true, true) => store.primary.values().cloned().collect(),
+            (false, true) => store
+                .by_src
+                .get(source_node_id)
+                .map(|ids| {
+                    ids.iter()
+                        .filter_map(|id| store.primary.get(id))
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default(),
+            (true, false) => store
+                .by_dest
+                .get(dest_node_id)
+                .map(|ids| {
+                    ids.iter()
+                        .filter_map(|id| store.primary.get(id))
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default(),
+            (false, false) => {
+                let src_ids = store.by_src.get(source_node_id);
+                let dest_ids = store.by_dest.get(dest_node_id);
+                match (src_ids, dest_ids) {
+                    (Some(src_ids), Some(dest_ids)) => {
+                        // Iterate the smaller set and filter by the other dimension.
+                        if src_ids.len() <= dest_ids.len() {
+                            src_ids
+                                .iter()
+                                .filter_map(|id| store.primary.get(id))
+                                .filter(|r| r.dest_node_id == dest_node_id)
+                                .cloned()
+                                .collect()
+                        } else {
+                            dest_ids
+                                .iter()
+                                .filter_map(|id| store.primary.get(id))
+                                .filter(|r| r.source_node_id == source_node_id)
+                                .cloned()
+                                .collect()
+                        }
+                    }
+                    _ => vec![],
+                }
+            }
+        }
     }
 
     async fn get_destination_node_id_for_name(
@@ -180,12 +356,13 @@ impl DataAccess for InMemoryDb {
         component2: &str,
         component_id: Option<i64>,
     ) -> Option<String> {
-        let routes = self.routes.read();
-        let mut matching: Vec<&Route> = routes
-            .values()
+        let store = self.routes.read();
+        let ids = store.by_src.get(ALL_NODES_ID)?;
+        let mut matching: Vec<&Route> = ids
+            .iter()
+            .filter_map(|id| store.primary.get(id))
             .filter(|r| {
-                r.source_node_id == ALL_NODES_ID
-                    && r.component0 == component0
+                r.component0 == component0
                     && r.component1 == component1
                     && r.component2 == component2
                     && r.component_id == component_id
@@ -199,48 +376,58 @@ impl DataAccess for InMemoryDb {
     }
 
     async fn get_routes_by_link_id(&self, link_id: &str) -> Vec<Route> {
-        self.routes
-            .read()
-            .values()
-            .filter(|r| r.link_id == link_id)
-            .cloned()
-            .collect()
+        let store = self.routes.read();
+        store
+            .by_link
+            .get(link_id)
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|id| store.primary.get(id))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
-    async fn delete_route(&self, route_id: i64) -> Result<(), String> {
-        let mut routes = self.routes.write();
-        if routes.remove(&route_id).is_none() {
-            return Err(format!("route {route_id} not found"));
-        }
+    async fn delete_route(&self, route_id: i64) -> Result<()> {
+        let mut store = self.routes.write();
+        let route = store
+            .primary
+            .remove(&route_id)
+            .ok_or(Error::RouteNotFound { id: route_id })?;
+        store.index_remove(&route);
         Ok(())
     }
 
-    async fn mark_route_deleted(&self, route_id: i64) -> Result<(), String> {
-        let mut routes = self.routes.write();
-        let route = routes
+    async fn mark_route_deleted(&self, route_id: i64) -> Result<()> {
+        let mut store = self.routes.write();
+        let route = store
+            .primary
             .get_mut(&route_id)
-            .ok_or_else(|| format!("route {route_id} not found"))?;
+            .ok_or(Error::RouteNotFound { id: route_id })?;
         route.deleted = true;
         route.last_updated = SystemTime::now();
         Ok(())
     }
 
-    async fn mark_route_applied(&self, route_id: i64) -> Result<(), String> {
-        let mut routes = self.routes.write();
-        let route = routes
+    async fn mark_route_applied(&self, route_id: i64) -> Result<()> {
+        let mut store = self.routes.write();
+        let route = store
+            .primary
             .get_mut(&route_id)
-            .ok_or_else(|| format!("route {route_id} not found"))?;
+            .ok_or(Error::RouteNotFound { id: route_id })?;
         route.status = RouteStatus::Applied;
         route.status_msg.clear();
         route.last_updated = SystemTime::now();
         Ok(())
     }
 
-    async fn mark_route_failed(&self, route_id: i64, msg: &str) -> Result<(), String> {
-        let mut routes = self.routes.write();
-        let route = routes
+    async fn mark_route_failed(&self, route_id: i64, msg: &str) -> Result<()> {
+        let mut store = self.routes.write();
+        let route = store
+            .primary
             .get_mut(&route_id)
-            .ok_or_else(|| format!("route {route_id} not found"))?;
+            .ok_or(Error::RouteNotFound { id: route_id })?;
         route.status = RouteStatus::Failed;
         route.status_msg = msg.to_string();
         route.last_updated = SystemTime::now();
@@ -253,11 +440,32 @@ impl DataAccess for InMemoryDb {
         link_id: &str,
         status: RouteStatus,
         msg: &str,
-    ) -> Result<(), String> {
-        let mut routes = self.routes.write();
-        let route = routes
-            .get_mut(&route_id)
-            .ok_or_else(|| format!("route {route_id} not found"))?;
+    ) -> Result<()> {
+        let mut store = self.routes.write();
+
+        // Read old link_id before mutating.
+        let old_link_id = store
+            .primary
+            .get(&route_id)
+            .ok_or(Error::RouteNotFound { id: route_id })?
+            .link_id
+            .clone();
+
+        // Update by_link index: remove old entry, add new one.
+        if !old_link_id.is_empty() {
+            if let Some(set) = store.by_link.get_mut(&old_link_id) {
+                set.remove(&route_id);
+            }
+        }
+        if !link_id.is_empty() {
+            store
+                .by_link
+                .entry(link_id.to_string())
+                .or_default()
+                .insert(route_id);
+        }
+
+        let route = store.primary.get_mut(&route_id).unwrap();
         route.link_id = link_id.to_string();
         route.status = status;
         route.status_msg = msg.to_string();
@@ -267,24 +475,31 @@ impl DataAccess for InMemoryDb {
 
     // ── Links ──────────────────────────────────────────────────────────────
 
-    async fn add_link(&self, mut link: Link) -> Result<Link, String> {
+    async fn add_link(&self, mut link: Link) -> Result<Link> {
         if link.source_node_id.is_empty()
             || link.dest_node_id.is_empty()
             || link.dest_endpoint.is_empty()
         {
-            return Err("sourceNodeID, destNodeID and destEndpoint are required".to_string());
+            return Err(Error::LinkMissingFields);
         }
-        let mut links = self.links.write();
+        let mut store = self.links.write();
 
         // Reuse an existing non-deleted link with the same source + endpoint.
         if link.link_id.is_empty() {
-            for existing in links.values() {
-                if !existing.deleted
-                    && existing.source_node_id == link.source_node_id
-                    && existing.dest_endpoint == link.dest_endpoint
-                {
-                    link.link_id = existing.link_id.clone();
-                    break;
+            // Collect keys first to avoid holding a reference into store while
+            // also looking up in store.primary.
+            let src_keys: Vec<String> = store
+                .by_src
+                .get(&link.source_node_id)
+                .map(|keys| keys.iter().cloned().collect())
+                .unwrap_or_default();
+
+            for key in &src_keys {
+                if let Some(existing) = store.primary.get(key) {
+                    if !existing.deleted && existing.dest_endpoint == link.dest_endpoint {
+                        link.link_id = existing.link_id.clone();
+                        break;
+                    }
                 }
             }
             if link.link_id.is_empty() {
@@ -293,83 +508,111 @@ impl DataAccess for InMemoryDb {
         }
         link.last_updated = SystemTime::now();
         let key = link.storage_key();
-        links.insert(key, link.clone());
+        // Only update indices for new keys; overwriting an existing key leaves
+        // the index entry intact (HashSet::insert is idempotent anyway).
+        if !store.primary.contains_key(&key) {
+            store.index_add(&link);
+        }
+        store.primary.insert(key, link.clone());
         Ok(link)
     }
 
-    async fn update_link(&self, mut link: Link) -> Result<(), String> {
+    async fn update_link(&self, mut link: Link) -> Result<()> {
         if link.link_id.is_empty()
             || link.source_node_id.is_empty()
             || link.dest_node_id.is_empty()
             || link.dest_endpoint.is_empty()
         {
-            return Err("link identity fields cannot be empty".to_string());
+            return Err(Error::LinkMissingFields);
         }
-        let mut links = self.links.write();
+        let mut store = self.links.write();
         let key = link.storage_key();
-        if !links.contains_key(&key) {
-            return Err("link not found".to_string());
+        if !store.primary.contains_key(&key) {
+            return Err(Error::LinkNotFound {
+                id: link.link_id.clone(),
+            });
         }
+        // The key fields (link_id, source, dest, endpoint) are immutable in an
+        // update — only status/deleted/etc. change — so no index update needed.
         link.last_updated = SystemTime::now();
-        links.insert(key, link);
+        store.primary.insert(key, link);
         Ok(())
     }
 
-    async fn delete_link(&self, link: &Link) -> Result<(), String> {
-        let mut links = self.links.write();
+    async fn delete_link(&self, link: &Link) -> Result<()> {
+        let mut store = self.links.write();
         let key = link.storage_key();
-        if links.remove(&key).is_none() {
-            return Err("link not found".to_string());
-        }
+        let removed = store
+            .primary
+            .remove(&key)
+            .ok_or_else(|| Error::LinkNotFound {
+                id: link.link_id.clone(),
+            })?;
+        store.index_remove(&removed);
         Ok(())
     }
 
-    async fn get_link(&self, link_id: &str, source_node_id: &str, dest_node_id: &str) -> Option<Link> {
-        let links = self.links.read();
+    async fn get_link(
+        &self,
+        link_id: &str,
+        source_node_id: &str,
+        dest_node_id: &str,
+    ) -> Option<Link> {
+        let store = self.links.read();
+        let keys = store.by_link_id.get(link_id)?;
         let mut latest: Option<&Link> = None;
-        for link in links.values() {
-            if link.deleted || link.link_id != link_id {
-                continue;
-            }
-            if !source_node_id.is_empty() && !dest_node_id.is_empty() {
-                let direct =
-                    link.source_node_id == source_node_id && link.dest_node_id == dest_node_id;
-                let reverse =
-                    link.source_node_id == dest_node_id && link.dest_node_id == source_node_id;
-                if !direct && !reverse {
+        for key in keys {
+            if let Some(link) = store.primary.get(key) {
+                if link.deleted {
                     continue;
                 }
-            }
-            match latest {
-                None => latest = Some(link),
-                Some(prev) => {
-                    if link.last_updated > prev.last_updated {
-                        latest = Some(link);
+                if !source_node_id.is_empty() && !dest_node_id.is_empty() {
+                    let direct = link.source_node_id == source_node_id
+                        && link.dest_node_id == dest_node_id;
+                    let reverse = link.source_node_id == dest_node_id
+                        && link.dest_node_id == source_node_id;
+                    if !direct && !reverse {
+                        continue;
                     }
+                }
+                match latest {
+                    None => latest = Some(link),
+                    Some(prev) if link.last_updated > prev.last_updated => latest = Some(link),
+                    _ => {}
                 }
             }
         }
         latest.cloned()
     }
 
-    async fn find_link_between_nodes(&self, source_node_id: &str, dest_node_id: &str) -> Option<Link> {
-        let links = self.links.read();
+    async fn find_link_between_nodes(
+        &self,
+        source_node_id: &str,
+        dest_node_id: &str,
+    ) -> Option<Link> {
+        let store = self.links.read();
         let mut latest: Option<&Link> = None;
-        for link in links.values() {
-            if link.deleted {
-                continue;
+
+        // Forward: source_node_id → dest_node_id.
+        for key in store.by_src.get(source_node_id).into_iter().flatten() {
+            if let Some(link) = store.primary.get(key) {
+                if !link.deleted && link.dest_node_id == dest_node_id {
+                    match latest {
+                        None => latest = Some(link),
+                        Some(prev) if link.last_updated > prev.last_updated => latest = Some(link),
+                        _ => {}
+                    }
+                }
             }
-            let direct = link.source_node_id == source_node_id && link.dest_node_id == dest_node_id;
-            let reverse =
-                link.source_node_id == dest_node_id && link.dest_node_id == source_node_id;
-            if !direct && !reverse {
-                continue;
-            }
-            match latest {
-                None => latest = Some(link),
-                Some(prev) => {
-                    if link.last_updated > prev.last_updated {
-                        latest = Some(link);
+        }
+        // Reverse: dest_node_id → source_node_id.
+        for key in store.by_src.get(dest_node_id).into_iter().flatten() {
+            if let Some(link) = store.primary.get(key) {
+                if !link.deleted && link.dest_node_id == source_node_id {
+                    match latest {
+                        None => latest = Some(link),
+                        Some(prev) if link.last_updated > prev.last_updated => latest = Some(link),
+                        _ => {}
                     }
                 }
             }
@@ -382,20 +625,16 @@ impl DataAccess for InMemoryDb {
         source_node_id: &str,
         dest_endpoint: &str,
     ) -> Option<Link> {
-        let links = self.links.read();
+        let store = self.links.read();
+        let keys = store.by_src.get(source_node_id)?;
         let mut latest: Option<&Link> = None;
-        for link in links.values() {
-            if link.deleted
-                || link.source_node_id != source_node_id
-                || link.dest_endpoint != dest_endpoint
-            {
-                continue;
-            }
-            match latest {
-                None => latest = Some(link),
-                Some(prev) => {
-                    if link.last_updated > prev.last_updated {
-                        latest = Some(link);
+        for key in keys {
+            if let Some(link) = store.primary.get(key) {
+                if !link.deleted && link.dest_endpoint == dest_endpoint {
+                    match latest {
+                        None => latest = Some(link),
+                        Some(prev) if link.last_updated > prev.last_updated => latest = Some(link),
+                        _ => {}
                     }
                 }
             }
@@ -404,20 +643,28 @@ impl DataAccess for InMemoryDb {
     }
 
     async fn get_links_for_node(&self, node_id: &str) -> Vec<Link> {
-        self.links
-            .read()
-            .values()
-            .filter(|l| l.source_node_id == node_id || l.dest_node_id == node_id)
+        let store = self.links.read();
+        let mut keys: HashSet<String> = HashSet::new();
+        if let Some(src_keys) = store.by_src.get(node_id) {
+            keys.extend(src_keys.iter().cloned());
+        }
+        if let Some(dst_keys) = store.by_dest.get(node_id) {
+            keys.extend(dst_keys.iter().cloned());
+        }
+        keys.iter()
+            .filter_map(|k| store.primary.get(k))
             .cloned()
             .collect()
     }
 
     // ── Channels ───────────────────────────────────────────────────────────
 
-    async fn save_channel(&self, channel_id: &str, moderators: Vec<String>) -> Result<(), String> {
+    async fn save_channel(&self, channel_id: &str, moderators: Vec<String>) -> Result<()> {
         let mut channels = self.channels.write();
         if channels.contains_key(channel_id) {
-            return Err(format!("channel {channel_id} already exists"));
+            return Err(Error::ChannelAlreadyExists {
+                id: channel_id.to_string(),
+            });
         }
         channels.insert(
             channel_id.to_string(),
@@ -430,10 +677,12 @@ impl DataAccess for InMemoryDb {
         Ok(())
     }
 
-    async fn delete_channel(&self, channel_id: &str) -> Result<(), String> {
+    async fn delete_channel(&self, channel_id: &str) -> Result<()> {
         let mut channels = self.channels.write();
         if channels.remove(channel_id).is_none() {
-            return Err(format!("channel {channel_id} not found"));
+            return Err(Error::ChannelNotFound {
+                id: channel_id.to_string(),
+            });
         }
         Ok(())
     }
@@ -442,13 +691,15 @@ impl DataAccess for InMemoryDb {
         self.channels.read().get(channel_id).cloned()
     }
 
-    async fn update_channel(&self, channel: Channel) -> Result<(), String> {
+    async fn update_channel(&self, channel: Channel) -> Result<()> {
         if channel.id.is_empty() {
-            return Err("channel ID cannot be empty".to_string());
+            return Err(Error::EmptyChannelId);
         }
         let mut channels = self.channels.write();
         if !channels.contains_key(&channel.id) {
-            return Err(format!("channel {} not found", channel.id));
+            return Err(Error::ChannelNotFound {
+                id: channel.id.clone(),
+            });
         }
         channels.insert(channel.id.clone(), channel);
         Ok(())
@@ -886,6 +1137,60 @@ mod tests {
         db.add_link(l2).await.unwrap();
         let links = db.get_links_for_node("src").await;
         assert_eq!(links.len(), 2);
+    }
+
+    // ── Index consistency tests ────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn delete_route_removes_from_index() {
+        let db = db();
+        let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
+        db.delete_route(r.id).await.unwrap();
+        // Index should no longer return this route.
+        assert!(db.get_routes_for_node_id("src").await.is_empty());
+        assert!(db.get_routes_for_dest_node_id("dst").await.is_empty());
+        assert!(db.get_routes_by_link_id("lnk").await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn repoint_route_updates_link_index() {
+        let db = db();
+        let r = db
+            .add_route(make_route("src", "dst", "old_lnk"))
+            .await
+            .unwrap();
+        db.repoint_route(r.id, "new_lnk", RouteStatus::Pending, "")
+            .await
+            .unwrap();
+        assert!(db.get_routes_by_link_id("old_lnk").await.is_empty());
+        assert_eq!(db.get_routes_by_link_id("new_lnk").await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn delete_link_removes_from_index() {
+        let db = db();
+        let l = db
+            .add_link(make_link("src", "dst", "ep:8080", "lid"))
+            .await
+            .unwrap();
+        db.delete_link(&l).await.unwrap();
+        assert!(db.get_links_for_node("src").await.is_empty());
+        assert!(db.get_links_for_node("dst").await.is_empty());
+        assert!(db.get_link("lid", "src", "dst").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn filter_routes_both_src_and_dest() {
+        let db = db();
+        db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
+        // Different dest, same src.
+        let mut r2 = make_route("src", "other", "lnk2");
+        r2.component1 = "ns2".to_string();
+        db.add_route(r2).await.unwrap();
+
+        let found = db.filter_routes_by_src_dest("src", "dst").await;
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].dest_node_id, "dst");
     }
 
     // ── Channel CRUD ───────────────────────────────────────────────────────

@@ -1,7 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::mpsc;
@@ -13,6 +12,7 @@ use crate::api::proto::controller::proto::v1::{
     Ack, ControlMessage, control_message::Payload, controller_service_server::ControllerService,
 };
 use crate::db::{ConnectionDetails, Node, SharedDb};
+use crate::error::{Error, Result};
 use crate::node_control::{DefaultNodeCommandHandler, NodeStatus};
 use crate::services::group::GroupService;
 use crate::services::routes::{ALL_NODES_ID, Route, RouteService};
@@ -21,17 +21,17 @@ const REGISTER_TIMEOUT_SECS: u64 = 15;
 
 pub struct SouthboundApiService {
     db: SharedDb,
-    cmd_handler: Arc<DefaultNodeCommandHandler>,
-    route_service: Arc<RouteService>,
-    group_service: Arc<GroupService>,
+    cmd_handler: DefaultNodeCommandHandler,
+    route_service: RouteService,
+    group_service: GroupService,
 }
 
 impl SouthboundApiService {
     pub fn new(
         db: SharedDb,
-        cmd_handler: Arc<DefaultNodeCommandHandler>,
-        route_service: Arc<RouteService>,
-        group_service: Arc<GroupService>,
+        cmd_handler: DefaultNodeCommandHandler,
+        route_service: RouteService,
+        group_service: GroupService,
     ) -> Self {
         Self {
             db,
@@ -120,14 +120,14 @@ async fn receive_register(
     stream: &mut Streaming<ControlMessage>,
     peer_host: &str,
     db: &SharedDb,
-    cmd_handler: &Arc<DefaultNodeCommandHandler>,
-    route_service: &Arc<RouteService>,
+    cmd_handler: &DefaultNodeCommandHandler,
+    route_service: &RouteService,
     tx: &mpsc::UnboundedSender<Result<ControlMessage, Status>>,
-) -> Result<String, String> {
+) -> Result<String> {
     let msg = tokio::time::timeout(Duration::from_secs(REGISTER_TIMEOUT_SECS), stream.message())
         .await
-        .map_err(|_| "timeout waiting for register node request".to_string())?
-        .map_err(|e| format!("stream error: {e}"))?;
+        .map_err(|e| Error::InvalidInput(format!("timeout waiting for register node request: {e}")))?
+        .map_err(|e| Error::InvalidInput(format!("stream error: {e}")))?;
 
     let msg = match msg {
         Some(m) => m,
@@ -160,8 +160,7 @@ async fn receive_register(
             conn_details,
             last_updated: std::time::SystemTime::now(),
         })
-        .await
-        .map_err(|e| format!("failed to save node: {e}"))?;
+        .await?;
 
     cmd_handler.add_stream(&node_id, tx.clone()).await;
     cmd_handler
@@ -180,7 +179,7 @@ async fn receive_register(
     tx.send(Ok(ack)).ok();
 
     route_service
-        .node_registered(&node_id, conn_details_updated)
+        .node_registered(&node_id, conn_details_updated, reg_req.connections)
         .await;
 
     Ok(node_id)
@@ -191,9 +190,9 @@ async fn handle_node_messages(
     mut stream: Streaming<ControlMessage>,
     node_id: &str,
     _db: &SharedDb,
-    cmd_handler: &Arc<DefaultNodeCommandHandler>,
-    route_service: &Arc<RouteService>,
-    group_service: &Arc<GroupService>,
+    cmd_handler: &DefaultNodeCommandHandler,
+    route_service: &RouteService,
+    group_service: &GroupService,
     _tx: &mpsc::UnboundedSender<Result<ControlMessage, Status>>,
 ) {
     loop {
@@ -206,10 +205,10 @@ async fn handle_node_messages(
             }
         };
 
-        match msg.payload.clone() {
+        match msg.payload {
             Some(Payload::ConfigCommand(cc)) => {
                 for sub in &cc.subscriptions_to_set {
-                    if sub.connection_id == "n/a"
+                    if sub.link_id.is_none()
                         && let Err(e) = route_service
                             .add_route(Route {
                                 source_node_id: ALL_NODES_ID.to_string(),

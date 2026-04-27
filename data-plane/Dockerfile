@@ -69,21 +69,24 @@ task -v data-plane:fetch TARGET=${RUSTARCH}
 task -v data-plane:build:strip TARGET=${RUSTARCH} PROFILE=release
 mv target/${RUSTARCH}/release/slim /slim
 mv target/${RUSTARCH}/release/slim.dbg /slim.dbg
+
+# Strip and export control plane binary
+task -v data-plane:strip TARGET_BIN=target/${RUSTARCH}/release/slim-control-plane
+mv target/${RUSTARCH}/release/slim-control-plane /slim-control-plane
+mv target/${RUSTARCH}/release/slim-control-plane.dbg /slim-control-plane.dbg
 EOF
+
+# Grab libgcc from the CC image
+FROM gcr.io/distroless/cc-debian12 AS libgcc-provider
 
 # Runtime images  - debug executable, debug symbols and, most importantly, a shell :)
 FROM debian:bookworm-slim AS slim-debug
 
 ARG TARGETARCH
 
-RUN ls -l /app/data-plane/target/
-
 # copy the build artifacts from the build stage
 COPY --from=rust /slim /slim
 COPY --from=rust /slim.dbg /slim.dbg
-
-# Grab libgcc from the CC image
-FROM gcr.io/distroless/cc-debian12 AS libgcc-provider
 
 # Runtime images - release executable
 FROM gcr.io/distroless/base-nossl-debian12:nonroot AS slim-release
@@ -95,3 +98,25 @@ COPY --from=libgcc-provider /lib/*-linux-gnu/libgcc_s.so.1 /lib/
 
 # copy the artifacts from the build stage
 COPY --from=rust /slim /slim
+
+# Runtime image - control plane debug executable, debug symbols and a shell
+FROM debian:bookworm-slim AS control-plane-debug
+
+ARG TARGETARCH
+
+# copy the build artifacts from the build stage
+COPY --from=rust /slim-control-plane /slim-control-plane
+COPY --from=rust /slim-control-plane.dbg /slim-control-plane.dbg
+
+# Runtime image - control plane release executable
+FROM gcr.io/distroless/base-nossl-debian12:nonroot AS control-plane-release
+
+ARG TARGETARCH
+
+# Copy libgcc from the libgcc-provider image
+COPY --from=libgcc-provider /lib/*-linux-gnu/libgcc_s.so.1 /lib/
+
+# copy the artifacts from the build stage
+COPY --from=rust /slim-control-plane /slim-control-plane
+
+ENTRYPOINT ["/slim-control-plane"]

@@ -2,10 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
-use std::sync::Arc;
-
-use tokio::sync::{Mutex, Semaphore};
 use uuid::Uuid;
+
+use crate::error::{Error, Result};
 
 use crate::api::proto::controller::proto::v1::{
     ConfigurationCommand, ControlMessage, Subscription, control_message::Payload,
@@ -16,77 +15,62 @@ use crate::workqueue::WorkQueue;
 
 pub struct RouteReconciler {
     db: SharedDb,
-    cmd_handler: Arc<DefaultNodeCommandHandler>,
+    cmd_handler: DefaultNodeCommandHandler,
     queue: WorkQueue<String>,
-    requeue_counts: Arc<Mutex<HashMap<String, usize>>>,
+    link_queue: WorkQueue<String>,
     max_requeues: usize,
-    semaphore: Arc<Semaphore>,
 }
 
 impl RouteReconciler {
     pub fn new(
         db: SharedDb,
-        cmd_handler: Arc<DefaultNodeCommandHandler>,
+        cmd_handler: DefaultNodeCommandHandler,
         queue: WorkQueue<String>,
+        link_queue: WorkQueue<String>,
         max_requeues: usize,
-        max_parallel_reconciles: usize,
     ) -> Self {
         Self {
             db,
             cmd_handler,
             queue,
-            requeue_counts: Arc::new(Mutex::new(HashMap::new())),
+            link_queue,
             max_requeues,
-            semaphore: Arc::new(Semaphore::new(max_parallel_reconciles)),
         }
     }
 
     pub async fn run(self) {
         tracing::info!("route reconciler: starting");
 
+        let mut requeue_counts: HashMap<String, usize> = HashMap::new();
+
         while let Some(node_id) = self.queue.pop().await {
-            let permit = match self.semaphore.clone().acquire_owned().await {
-                Ok(p) => p,
-                Err(_) => break, // semaphore closed
-            };
+            if let Err(e) = handle_request(&self.db, &self.cmd_handler, &self.link_queue, &node_id).await {
+                tracing::error!("route reconciler: failed for node {node_id}: {e}");
 
-            let db = self.db.clone();
-            let cmd_handler = self.cmd_handler.clone();
-            let queue = self.queue.clone();
-            let requeue_counts = self.requeue_counts.clone();
-            let max_requeues = self.max_requeues;
+                let count = {
+                    let c = requeue_counts.entry(node_id.clone()).or_insert(0);
+                    *c += 1;
+                    *c
+                };
 
-            tokio::spawn(async move {
-                let _permit = permit; // released when this task completes
-
-                if let Err(e) = handle_request(&db, &cmd_handler, &node_id).await {
-                    tracing::error!("route reconciler: failed for node {node_id}: {e}");
-
-                    let count = {
-                        let mut counts = requeue_counts.lock().await;
-                        let c = counts.entry(node_id.clone()).or_insert(0);
-                        *c += 1;
-                        *c
-                    };
-
-                    if count <= max_requeues {
-                        tracing::debug!(
-                            "route reconciler: requeuing node {node_id} (attempt {count}/{max_requeues})"
-                        );
-                        // Adding while in-flight marks dirty; done() will re-queue.
-                        queue.add(node_id.clone());
-                    } else {
-                        tracing::warn!(
-                            "route reconciler: dropping node {node_id} after {max_requeues} retries"
-                        );
-                        requeue_counts.lock().await.remove(&node_id);
-                    }
+                if count <= self.max_requeues {
+                    tracing::debug!(
+                        "route reconciler: requeuing node {node_id} (attempt {count}/{})",
+                        self.max_requeues
+                    );
+                    self.queue.add(node_id.clone());
                 } else {
-                    requeue_counts.lock().await.remove(&node_id);
+                    tracing::warn!(
+                        "route reconciler: dropping node {node_id} after {} retries",
+                        self.max_requeues
+                    );
+                    requeue_counts.remove(&node_id);
                 }
+            } else {
+                requeue_counts.remove(&node_id);
+            }
 
-                queue.done(&node_id);
-            });
+            self.queue.done(&node_id);
         }
 
         tracing::info!("route reconciler: shutting down");
@@ -95,9 +79,10 @@ impl RouteReconciler {
 
 async fn handle_request(
     db: &SharedDb,
-    cmd_handler: &Arc<DefaultNodeCommandHandler>,
+    cmd_handler: &DefaultNodeCommandHandler,
+    link_queue: &WorkQueue<String>,
     node_id: &str,
-) -> Result<(), String> {
+) -> Result<()> {
     if cmd_handler.get_connection_status(node_id).await != NodeStatus::Connected {
         tracing::info!("route reconciler: node {node_id} not connected, skipping");
         return Ok(());
@@ -107,7 +92,6 @@ async fn handle_request(
 
     let mut subscriptions_to_set: Vec<Subscription> = Vec::new();
     let mut subscriptions_to_delete: Vec<Subscription> = Vec::new();
-    let mut needs_requeue = false;
 
     for route in &routes {
         let link_id = route.link_id.clone();
@@ -152,9 +136,10 @@ async fn handle_request(
             }
             Some(l) if l.status != crate::db::LinkStatus::Applied => {
                 tracing::debug!(
-                    "route reconciler: waiting for link {link_id} to apply before sending route"
+                    "route reconciler: waiting for link {link_id} to apply before sending route, poking link reconciler for {}",
+                    l.source_node_id
                 );
-                needs_requeue = true;
+                link_queue.add(l.source_node_id.clone());
                 continue;
             }
             _ => {}
@@ -164,9 +149,8 @@ async fn handle_request(
     }
 
     if subscriptions_to_set.is_empty() && subscriptions_to_delete.is_empty() {
-        if needs_requeue {
-            return Err("route reconciliation deferred: waiting for link(s) to apply".to_string());
-        }
+        // All routes are either deferred (link not yet applied) or skipped.
+        // The link reconciler will re-enqueue this node when the link applies — no retry needed.
         return Ok(());
     }
 
@@ -187,8 +171,7 @@ async fn handle_request(
 
     cmd_handler
         .send_message(node_id, msg)
-        .await
-        .map_err(|e| format!("failed to send config command to node {node_id}: {e}"))?;
+        .await?;
 
     let response = cmd_handler
         .wait_for_response(node_id, ResponseKind::ConfigCommandAck, &message_id)
@@ -196,7 +179,7 @@ async fn handle_request(
 
     let ack = match response.payload {
         Some(Payload::ConfigCommandAck(a)) => a,
-        _ => return Err(format!("received unexpected response from node {node_id}")),
+        _ => return Err(Error::UnexpectedResponse(format!("received unexpected response from node {node_id}"))),
     };
 
     for sub_ack in &ack.subscriptions_status {
@@ -254,30 +237,43 @@ async fn handle_request(
                 continue;
             }
 
+            // If the underlying DP connection is temporarily gone (e.g. the remote
+            // peer restarted), the data-plane will reconnect on its own — the CP
+            // must not interfere with that.  Leave the route in its current state
+            // and return an error so the reconciler requeues and retries once the
+            // connection is back.
+            if !route.link_id.is_empty() && is_connection_not_found(&err_msg) {
+                tracing::warn!(
+                    "route reconciler: connection not found for route {} (link {}), will retry",
+                    route.id,
+                    route.link_id
+                );
+                return Err(Error::InvalidInput(format!(
+                    "connection not found for route {} on node {node_id}: {err_msg}",
+                    route.id
+                )));
+            }
+
             db.mark_route_failed(route.id, &err_msg).await?;
             tracing::error!(
                 "route reconciler: marked route {} as failed: {err_msg}",
                 route.id
             );
-
-            if should_retry_missing_link(&err_msg) {
-                needs_requeue = true;
-            }
         }
     }
 
-    if needs_requeue {
-        return Err("route reconciliation deferred: waiting for link(s) to apply".to_string());
-    }
-
+    // If some routes were deferred (link not yet applied on the dataplane side), the link
+    // reconciler will re-enqueue this node when the link applies — no retry needed here.
     Ok(())
-}
-
-fn should_retry_missing_link(msg: &str) -> bool {
-    let lower = msg.to_lowercase();
-    lower.contains("connection with link_id") && lower.contains("not found")
 }
 
 fn is_subscription_not_found(msg: &str) -> bool {
     msg.to_lowercase().contains("subscription not found")
+}
+
+fn is_connection_not_found(msg: &str) -> bool {
+    let lower = msg.to_lowercase();
+    lower.contains("connection not found")
+        || lower.contains("no such connection")
+        || (lower.contains("connection") && lower.contains("not found"))
 }

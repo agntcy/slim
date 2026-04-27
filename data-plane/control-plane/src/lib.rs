@@ -4,6 +4,7 @@
 pub mod api;
 pub mod config;
 pub mod db;
+pub mod error;
 pub mod node_control;
 pub mod services;
 pub mod workqueue;

@@ -1,7 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -10,13 +9,11 @@ use slim_config::tls::provider::initialize_crypto_provider;
 
 use slim_control_plane::api::proto::controller::proto::v1::controller_service_server::ControllerServiceServer;
 use slim_control_plane::api::proto::controlplane::proto::v1::control_plane_service_server::ControlPlaneServiceServer;
-use slim_control_plane::config::{Config, DatabaseConfig};
-use slim_control_plane::db::inmemory::InMemoryDb;
-use slim_control_plane::db::sqlite::SqliteDb;
+use slim_control_plane::config::Config;
 use slim_control_plane::node_control::DefaultNodeCommandHandler;
 use slim_control_plane::services::group::GroupService;
 use slim_control_plane::services::northbound::NorthboundApiService;
-use slim_control_plane::services::routes::{ReconcilerConfig, RouteService};
+use slim_control_plane::services::routes::RouteService;
 use slim_control_plane::services::southbound::SouthboundApiService;
 
 #[derive(Debug, Parser)]
@@ -49,16 +46,7 @@ async fn main() -> Result<()> {
     tracing::info!("southbound endpoint: {}", cfg.southbound.endpoint);
 
     // ── Database backend ─────────────────────────────────────────────────────
-    let db = match &cfg.database {
-        DatabaseConfig::InMemory => {
-            tracing::info!("using in-memory database");
-            InMemoryDb::shared()
-        }
-        DatabaseConfig::Sqlite { path } => {
-            tracing::info!("using sqlite database at {path}");
-            SqliteDb::shared(path).await.map_err(|e| anyhow::anyhow!(e))?
-        }
-    };
+    let db = slim_control_plane::db::open(&cfg.database).await?;
 
     // ── Core services ─────────────────────────────────────────────────────────
     let cmd_handler = DefaultNodeCommandHandler::new();
@@ -66,13 +54,10 @@ async fn main() -> Result<()> {
     let route_service = RouteService::new(
         db.clone(),
         cmd_handler.clone(),
-        ReconcilerConfig {
-            max_requeues: cfg.reconciler.max_requeues,
-            max_parallel_reconciles: cfg.reconciler.max_parallel_reconciles,
-        },
+        cfg.reconciler,
     );
 
-    let group_service = Arc::new(GroupService::new(db.clone(), cmd_handler.clone()));
+    let group_service = GroupService::new(db.clone(), cmd_handler.clone());
 
     let nb_svc = NorthboundApiService::new(
         db.clone(),
