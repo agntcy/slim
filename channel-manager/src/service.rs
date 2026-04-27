@@ -67,6 +67,11 @@ impl ChannelManagerServer {
     ) -> ControlResponse {
         let channel_name = &req.channel_name;
 
+        // Check if the channel already exists before doing expensive SLIM work
+        if self.sessions.get_session(channel_name).await.is_some() {
+            return self.error_response(msg_id, format!("channel {channel_name} already exists"));
+        }
+
         // Parse the channel name
         let name = match Name::from_string(channel_name.clone()) {
             Ok(n) => n,
@@ -103,7 +108,7 @@ impl ChannelManagerServer {
             .try_insert_session(channel_name.clone(), session.clone())
             .await
         {
-            // Channel was created by another request — clean up the session we just created
+            // Channel was created by another concurrent request — clean up
             if let Err(e) = self.app.delete_session_and_wait_async(session).await {
                 error!("Failed to clean up duplicate session for {channel_name}: {e}");
             }
@@ -121,18 +126,10 @@ impl ChannelManagerServer {
     ) -> ControlResponse {
         let channel_name = &req.channel_name;
 
-        let session = match self.sessions.remove_session(channel_name).await {
-            Some(s) => s,
-            None => {
-                return self
-                    .error_response(msg_id, format!("channel {channel_name} not found"));
-            }
-        };
-
-        if let Err(e) = self.app.delete_session_and_wait_async(session).await {
+        if let Err(e) = self.sessions.remove_session(channel_name, &self.app).await {
             error!("Failed to delete channel {channel_name}: {e}");
             return self
-                .error_response(msg_id, format!("failed to delete channel {channel_name}: {e}"));
+                .error_response(msg_id, format!("{e}"));
         }
 
         info!("Deleted channel {channel_name}");

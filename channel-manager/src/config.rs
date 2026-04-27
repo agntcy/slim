@@ -18,6 +18,7 @@
 //!   local-name: "agntcy/otel/channel-manager"
 //!   auth:
 //!     type: shared_secret
+//!     # id: "custom/identity/id"  # optional, defaults to local-name
 //!     secret: "a-very-long-shared-secret"
 //!   channels:
 //!     - name: "agntcy/otel/channel"
@@ -41,13 +42,15 @@ use slim_config::grpc::server::ServerConfig;
 
 /// Authentication configuration for the SLIM app identity.
 ///
-/// The `id` used for shared_secret provider/verifier is automatically
-/// derived from the `local-name` field.
+/// For `shared_secret`, an optional `id` can be provided. When omitted it
+/// defaults to the `local-name` field of the manager configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum AuthConfig {
     /// Shared secret authentication (symmetric key)
     SharedSecret {
+        /// Identity id. Defaults to `local-name` when not provided.
+        id: Option<String>,
         /// The shared secret value
         secret: String,
     },
@@ -57,23 +60,45 @@ pub enum AuthConfig {
 }
 
 impl AuthConfig {
-    /// Convert to IdentityProviderConfig + IdentityVerifierConfig pair,
-    /// using `local_name` as the identity id for shared_secret.
+    /// Validate the auth configuration fields.
+    pub fn validate(&self) -> anyhow::Result<()> {
+        match self {
+            AuthConfig::SharedSecret { secret, .. } => {
+                if secret.is_empty() {
+                    bail!("auth.secret cannot be empty for shared_secret");
+                }
+            }
+            #[cfg(not(target_family = "windows"))]
+            AuthConfig::Spire(spire_config) => {
+                if spire_config.socket_path.is_none() {
+                    bail!("auth.socket_path must be set for spire");
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Convert to IdentityProviderConfig + IdentityVerifierConfig pair.
+    /// For shared_secret, uses the explicit `id` if provided, otherwise
+    /// falls back to `local_name`.
     pub fn to_identity_configs(
         &self,
         local_name: &str,
     ) -> (IdentityProviderConfig, IdentityVerifierConfig) {
         match self {
-            AuthConfig::SharedSecret { secret } => (
-                IdentityProviderConfig::SharedSecret {
-                    id: local_name.to_string(),
-                    data: secret.clone(),
-                },
-                IdentityVerifierConfig::SharedSecret {
-                    id: local_name.to_string(),
-                    data: secret.clone(),
-                },
-            ),
+            AuthConfig::SharedSecret { id, secret } => {
+                let identity_id = id.as_deref().unwrap_or(local_name).to_string();
+                (
+                    IdentityProviderConfig::SharedSecret {
+                        id: identity_id.clone(),
+                        data: secret.clone(),
+                    },
+                    IdentityVerifierConfig::SharedSecret {
+                        id: identity_id,
+                        data: secret.clone(),
+                    },
+                )
+            }
             #[cfg(not(target_family = "windows"))]
             AuthConfig::Spire(spire_config) => (
                 IdentityProviderConfig::Spire(spire_config.clone()),
@@ -126,9 +151,13 @@ pub struct ChannelConfig {
     /// Participants to invite to this channel
     pub participants: Vec<String>,
 
-    /// Whether MLS encryption is enabled for this channel
-    #[serde(rename = "mls-enabled", default)]
+    /// Whether MLS encryption is enabled for this channel (default: true)
+    #[serde(rename = "mls-enabled", default = "default_mls_enabled")]
     pub mls_enabled: bool,
+}
+
+fn default_mls_enabled() -> bool {
+    true
 }
 
 impl Config {
@@ -162,6 +191,9 @@ impl Config {
                 self.manager.local_name
             );
         }
+
+        // Validate auth configuration
+        self.manager.auth.validate()?;
 
         for (i, channel) in self.manager.channels.iter().enumerate() {
             if channel.name.is_empty() {
@@ -249,7 +281,7 @@ channel-manager:
     }
 
     #[test]
-    fn test_mls_disabled_by_default() {
+    fn test_mls_enabled_by_default() {
         let yaml = base_yaml(
             r#"  channels:
     - name: "a/b/c"
@@ -257,7 +289,7 @@ channel-manager:
         - "a/b/d""#,
         );
         let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
-        assert!(!cfg.manager.channels[0].mls_enabled);
+        assert!(cfg.manager.channels[0].mls_enabled);
     }
 
     #[test]
@@ -522,15 +554,38 @@ channel-manager:
         let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
         assert!(cfg.validate().is_ok());
         assert_eq!(cfg.manager.channels.len(), 2);
-        assert!(!cfg.manager.channels[0].mls_enabled);
-        assert!(cfg.manager.channels[1].mls_enabled);
+        assert!(cfg.manager.channels[0].mls_enabled); // default is true
+        assert!(cfg.manager.channels[1].mls_enabled); // explicitly true
+    }
+
+    // ── AuthConfig validation ───────────────────────────────────────────
+
+    #[test]
+    fn test_shared_secret_empty_secret_fails() {
+        let auth = AuthConfig::SharedSecret {
+            id: None,
+            secret: "".to_string(),
+        };
+        let err = auth.validate();
+        assert!(err.is_err());
+        assert!(err.unwrap_err().to_string().contains("auth.secret cannot be empty"));
+    }
+
+    #[test]
+    fn test_shared_secret_valid_secret_passes() {
+        let auth = AuthConfig::SharedSecret {
+            id: None,
+            secret: "my-secret".to_string(),
+        };
+        assert!(auth.validate().is_ok());
     }
 
     // ── AuthConfig identity configs ──────────────────────────────────────
 
     #[test]
-    fn test_shared_secret_identity_configs() {
+    fn test_shared_secret_identity_configs_no_id() {
         let auth = AuthConfig::SharedSecret {
+            id: None,
             secret: "my-secret".to_string(),
         };
         let (provider, verifier) = auth.to_identity_configs("org/ns/app");
@@ -553,8 +608,9 @@ channel-manager:
     }
 
     #[test]
-    fn test_shared_secret_uses_local_name_as_id() {
+    fn test_shared_secret_defaults_to_local_name() {
         let auth = AuthConfig::SharedSecret {
+            id: None,
             secret: "s".to_string(),
         };
         let (provider, _) = auth.to_identity_configs("different/local/name");
@@ -562,6 +618,28 @@ channel-manager:
         match &provider {
             IdentityProviderConfig::SharedSecret { id, .. } => {
                 assert_eq!(id, "different/local/name");
+            }
+            _ => panic!("expected SharedSecret"),
+        }
+    }
+
+    #[test]
+    fn test_shared_secret_explicit_id_overrides_local_name() {
+        let auth = AuthConfig::SharedSecret {
+            id: Some("custom/identity/id".to_string()),
+            secret: "s".to_string(),
+        };
+        let (provider, verifier) = auth.to_identity_configs("org/ns/app");
+
+        match &provider {
+            IdentityProviderConfig::SharedSecret { id, .. } => {
+                assert_eq!(id, "custom/identity/id");
+            }
+            _ => panic!("expected SharedSecret"),
+        }
+        match &verifier {
+            IdentityVerifierConfig::SharedSecret { id, .. } => {
+                assert_eq!(id, "custom/identity/id");
             }
             _ => panic!("expected SharedSecret"),
         }

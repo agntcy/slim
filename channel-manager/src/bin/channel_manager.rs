@@ -23,12 +23,12 @@ use slim_bindings::{
 use slim_bindings::ClientConfig as BindingsClientConfig;
 use slim_tracing::TracingConfiguration;
 use tokio::signal;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 /// Channel Manager - manages SLIM channels and participants
 #[derive(Parser)]
 #[command(name = "channel-manager")]
-#[command(about = "Channel Manager for SLIM - manages channels and participants via gRPC")]
+#[command(about = "Channel Manager for SLIM")]
 struct Args {
     /// Path to the configuration file
     #[arg(long = "config-file", default_value = "config.yaml")]
@@ -101,19 +101,13 @@ async fn create_channels_from_config(
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize logging with channel-manager module included
-    let mut filters: Vec<String> = vec![
+    // Initialize logging with channel-manager modules included
+    let filters: Vec<String> = vec![
         "agntcy_slim_channel_manager".to_string(),
         "channel_manager".to_string(),
     ];
-    // Add default slim modules
-    filters.extend([
-        "slim_datapath", "slim_service", "slim_controller", "slim_auth",
-        "slim_config", "slim_mls", "slim_session", "slim_signal",
-        "slim_tracing", "_slim_bindings", "slim",
-    ].iter().map(|s| s.to_string()));
     let tracing = TracingConfiguration::default().with_filter(filters);
-    let _guard = tracing.setup_tracing_subscriber()?;
+    let _guard = tracing.setup_tracing_subscriber();
 
     let args = Args::parse();
 
@@ -148,17 +142,22 @@ async fn main() -> anyhow::Result<()> {
     let provider: IdentityProviderConfig = core_provider.into();
     let verifier: IdentityVerifierConfig = core_verifier.into();
     let app = service
-        .create_app_async(app_name.clone(), provider, verifier)
+        .create_app_with_direction_async(
+            app_name.clone(),
+            provider,
+            verifier,
+            slim_bindings::Direction::None,
+        )
         .await
         .map_err(|e| anyhow::anyhow!("failed to create SLIM app: {e}"))?;
 
     // Subscribe to the local name
-    app.subscribe_async(app_name, Some(conn_id))
+    app.subscribe_async(app.name(), Some(conn_id))
         .await
         .map_err(|e| anyhow::anyhow!("failed to subscribe: {e}"))?;
 
     info!(
-        local_name = %config.manager.local_name,
+        local_name = %app.name(),
         "SLIM app created"
     );
 
@@ -198,9 +197,17 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // Cleanup
+    // Cleanup with timeout to avoid hanging on shutdown
     info!("Shutting down...");
-    sessions.delete_all(&app).await;
+    match tokio::time::timeout(
+        Duration::from_secs(5),
+        sessions.delete_all(&app),
+    )
+    .await
+    {
+        Ok(()) => info!("All sessions cleaned up"),
+        Err(_) => warn!("Session cleanup timed out, forcing shutdown"),
+    }
     shutdown().await.map_err(|e| anyhow::anyhow!("shutdown failed: {e}"))?;
     info!("Shutdown complete");
 

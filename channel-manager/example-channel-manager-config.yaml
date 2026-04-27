@@ -44,6 +44,7 @@ channel-manager:
   # Options: shared_secret or spire.
   auth:
     type: shared_secret
+    # id: "custom/identity/id"  # optional, defaults to local-name
     secret: "a-very-long-shared-secret-abcdef1234567890"
   # For SPIRE authentication:
   # auth:

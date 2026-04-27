@@ -21,7 +21,7 @@ includes:
     internal: true
 
 env:
-  SHARED_SECRET: "my_shared_secret_for_testing_purposes_only"
+  SHARED_SECRET: "a-very-long-shared-secret-abcdef1234567890"
 
 tasks:
   default:
