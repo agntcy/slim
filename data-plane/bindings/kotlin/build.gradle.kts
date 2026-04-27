@@ -34,6 +34,11 @@ dependencies {
     // JSON parsing for config files
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
 
+    // Protobuf — must match checked-in generated code under examples/slimrpc/simple/types (see Java gencode header)
+    val protobufVersion = "4.34.1"
+    implementation("com.google.protobuf:protobuf-java:$protobufVersion")
+    implementation("com.google.protobuf:protobuf-kotlin:$protobufVersion")
+
     // Testing
     testImplementation(kotlin("test"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
