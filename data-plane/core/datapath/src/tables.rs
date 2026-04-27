@@ -12,6 +12,7 @@ pub mod subscription_table;
 
 pub mod pool;
 
+use crate::api::EncodedName;
 use crate::messages::Name;
 
 pub trait SubscriptionTable {
@@ -45,7 +46,8 @@ pub trait SubscriptionTable {
         is_local: bool,
     ) -> Result<HashMap<Name, HashSet<u64>>, Self::Error>;
 
-    fn match_one(&self, name: &Name, incoming_conn: u64) -> Result<u64, Self::Error>;
+    fn match_one(&self, encoded: &EncodedName, incoming_conn: u64) -> Result<u64, Self::Error>;
 
-    fn match_all(&self, name: &Name, incoming_conn: u64) -> Result<Vec<u64>, Self::Error>;
+    fn match_all(&self, encoded: &EncodedName, incoming_conn: u64)
+    -> Result<Vec<u64>, Self::Error>;
 }

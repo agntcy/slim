@@ -8,6 +8,7 @@ use super::tables::SubscriptionTable;
 use super::tables::connection_table::ConnectionTable;
 use super::tables::remote_subscription_table::RemoteSubscriptions;
 use super::tables::subscription_table::SubscriptionTableImpl;
+use crate::api::EncodedName;
 use crate::errors::DataPathError;
 use crate::messages::Name;
 use crate::tables::remote_subscription_table::SubscriptionInfo;
@@ -129,16 +130,16 @@ where
 
     pub fn on_publish_msg_match(
         &self,
-        name: Name,
+        encoded: EncodedName,
         incoming_conn: u64,
         fanout: u32,
     ) -> Result<Vec<u64>, DataPathError> {
         if fanout == 1 {
             self.subscription_table
-                .match_one(&name, incoming_conn)
+                .match_one(&encoded, incoming_conn)
                 .map(|out| vec![out])
         } else {
-            self.subscription_table.match_all(&name, incoming_conn)
+            self.subscription_table.match_all(&encoded, incoming_conn)
         }
     }
 
@@ -177,15 +178,15 @@ mod tests {
         );
 
         assert_eq!(
-            fwd.on_publish_msg_match(name.clone().with_id(1), 100, 1)
+            fwd.on_publish_msg_match(EncodedName::from(&name.clone().with_id(1)), 100, 1)
                 .unwrap(),
             vec![12]
         );
 
         let expected = name.clone().with_id(2);
 
-        let err = fwd.on_publish_msg_match(expected.clone(), 100, 1);
-        assert!(matches!(err, Err(DataPathError::NoMatch(_))));
+        let err = fwd.on_publish_msg_match(EncodedName::from(&expected), 100, 1);
+        assert!(matches!(err, Err(DataPathError::NoMatchEncoded(_))));
 
         assert!(
             fwd.on_subscription_msg(name.clone(), 10, false, false, 1)

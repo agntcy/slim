@@ -27,6 +27,8 @@ pub enum DataPathError {
     // Subscription / matching
     #[error("no matching found for {0}")]
     NoMatch(Name),
+    #[error("no matching found for [{:x}, {:x}, {:x}, {:x}]", .0[0], .0[1], .0[2], .0[3])]
+    NoMatchEncoded([u64; 4]),
     #[error("subscription not found")]
     SubscriptionNotFound(Name),
     #[error("subscription id not found: {0}")]
