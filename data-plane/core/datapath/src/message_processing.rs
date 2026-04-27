@@ -31,7 +31,7 @@ use crate::api::ProtoSubscriptionAckType as SubscriptionAckType;
 use crate::api::ProtoUnsubscribeType as UnsubscribeType;
 use crate::api::proto::dataplane::v1::Message;
 use crate::api::{
-    LinkNegotiationPayload, ProtoLink, ProtoLinkMessageType as LinkType, ProtoLinkType,
+    EncodedName, LinkNegotiationPayload, ProtoLink, ProtoLinkMessageType as LinkType, ProtoLinkType,
 };
 use semver;
 
@@ -514,15 +514,11 @@ impl MessageProcessor {
     async fn match_and_forward_msg(
         &self,
         msg: Message,
-        name: Name,
         in_connection: u64,
         fanout: u32,
     ) -> Result<(), DataPathError> {
-        debug!(
-            %name,
-            %fanout,
-            "match and forward message"
-        );
+        let header = msg.get_slim_header();
+        debug!(name = %header.get_dst(), %fanout, "match and forward message");
 
         // if the message already contains an output connection, use that one
         // without performing any match in the subscription table
@@ -531,9 +527,11 @@ impl MessageProcessor {
             return self.send_msg(msg, val).await;
         }
 
+        let encoded = header.get_encoded_dst();
+
         match self
             .forwarder()
-            .on_publish_msg_match(name, in_connection, fanout)
+            .on_publish_msg_match(encoded, in_connection, fanout)
         {
             Ok(out_vec) => {
                 // in case out_vec.len = 1, do not clone the message.
@@ -706,17 +704,11 @@ impl MessageProcessor {
         );
         //////////////////////////////////////////////////////
 
-        // get header
-        let header = msg.get_slim_header();
-
-        let dst = header.get_dst();
-
         // this function may panic, but at this point we are sure we are processing
         // a publish message
         let fanout = msg.get_fanout();
 
-        self.match_and_forward_msg(msg, dst, in_connection, fanout)
-            .await
+        self.match_and_forward_msg(msg, in_connection, fanout).await
     }
 
     pub(crate) async fn send_subscription_ack(
@@ -1303,7 +1295,7 @@ impl MessageProcessor {
                                     .into_iter()
                                     .filter(|(name, _)| {
                                         mp.forwarder()
-                                            .on_publish_msg_match(name.clone(), u64::MAX, u32::MAX)
+                                            .on_publish_msg_match(EncodedName::from(name), u64::MAX, u32::MAX)
                                             .is_err()
                                     })
                                     .collect();
@@ -1421,6 +1413,7 @@ mod tests {
 
     use super::*;
     use crate::api::ProtoSubscriptionAck;
+    use crate::messages::Name;
     use crate::tables::remote_subscription_table::SubscriptionInfo;
     use tonic::Status;
 
@@ -2374,9 +2367,10 @@ mod tests {
             .unwrap();
 
         // The subscription should have been restored in the routing table.
-        let result = processor
-            .forwarder()
-            .on_publish_msg_match(sub_name, u64::MAX, 1);
+        let result =
+            processor
+                .forwarder()
+                .on_publish_msg_match(EncodedName::from(&sub_name), u64::MAX, 1);
         assert!(result.is_ok(), "recovered subscription should be routable");
         assert_eq!(result.unwrap(), vec![conn_id]);
     }

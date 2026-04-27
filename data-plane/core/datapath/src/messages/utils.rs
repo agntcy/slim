@@ -264,11 +264,19 @@ impl SlimHeader {
         }
     }
 
+    pub fn get_encoded_source(&self) -> EncodedName {
+        self.source.as_ref().unwrap().name.unwrap()
+    }
+
     pub fn get_dst(&self) -> Name {
         match &self.destination {
             Some(destination) => Name::from(destination),
             None => panic!("destination not found"),
         }
+    }
+
+    pub fn get_encoded_dst(&self) -> EncodedName {
+        self.destination.as_ref().unwrap().name.unwrap()
     }
 
     pub fn get_identity(&self) -> String {

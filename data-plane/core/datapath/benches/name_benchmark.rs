@@ -56,9 +56,7 @@ fn make_slim_header() -> SlimHeader {
 
 fn bench_name_from_strings(c: &mut Criterion) {
     c.bench_function("name_from_strings", |b| {
-        b.iter(|| {
-            black_box(Name::from_strings(black_box(["org", "namespace", "agent"])))
-        })
+        b.iter(|| black_box(Name::from_strings(black_box(["org", "namespace", "agent"]))))
     });
 }
 
