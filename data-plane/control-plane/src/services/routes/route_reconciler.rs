@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
+use std::time::SystemTime;
 use uuid::Uuid;
 
 use crate::error::{Error, Result};
@@ -241,21 +242,39 @@ async fn handle_request(
                 continue;
             }
 
-            // If the underlying DP connection is temporarily gone (e.g. the remote
-            // peer restarted), the data-plane will reconnect on its own — the CP
-            // must not interfere with that.  Leave the route in its current state
-            // and return an error so the reconciler requeues and retries once the
-            // connection is back.
+            // The underlying DP connection is temporarily absent (e.g. the remote
+            // peer is still registering the incoming stream after a reconnect).
+            // Reset the link to Pending so the link reconciler will re-apply it,
+            // then wait for it to enqueue route reconciliation again.  Don't count
+            // this against max_requeues — it is a transient infrastructure race,
+            // not a persistent configuration error.
             if !route.link_id.is_empty() && is_connection_not_found(&err_msg) {
                 tracing::warn!(
-                    "route reconciler: connection not found for route {} (link {}), will retry",
+                    "route reconciler: connection not found for route {} (link {}), resetting link for re-reconciliation",
                     route.id,
                     route.link_id
                 );
-                return Err(Error::InvalidInput(format!(
-                    "connection not found for route {} on node {node_id}: {err_msg}",
-                    route.id
-                )));
+                if let Some(link) = db
+                    .get_link(&route.link_id, &route.source_node_id, &route.dest_node_id)
+                    .await
+                    .filter(|l| !l.deleted)
+                {
+                    if link.status == crate::db::LinkStatus::Applied {
+                        let mut updated = link.clone();
+                        updated.status = crate::db::LinkStatus::Pending;
+                        updated.status_msg =
+                            "reset after connection-not-found in route reconciliation".to_string();
+                        updated.last_updated = SystemTime::now();
+                        if let Err(e) = db.update_link(updated).await {
+                            tracing::error!(
+                                "route reconciler: failed to reset link {} to pending: {e}",
+                                route.link_id
+                            );
+                        }
+                    }
+                    link_queue.add(link.source_node_id.clone());
+                }
+                continue;
             }
 
             db.mark_route_failed(route.id, &err_msg).await?;
@@ -280,4 +299,66 @@ fn is_connection_not_found(msg: &str) -> bool {
     lower.contains("connection not found")
         || lower.contains("no such connection")
         || (lower.contains("connection") && lower.contains("not found"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── is_subscription_not_found ─────────────────────────────────────────
+
+    #[test]
+    fn sub_not_found_exact_match() {
+        assert!(is_subscription_not_found("subscription not found"));
+    }
+
+    #[test]
+    fn sub_not_found_case_insensitive() {
+        assert!(is_subscription_not_found("Subscription Not Found"));
+        assert!(is_subscription_not_found("SUBSCRIPTION NOT FOUND"));
+    }
+
+    #[test]
+    fn sub_not_found_embedded_in_longer_message() {
+        assert!(is_subscription_not_found(
+            "error: subscription not found for id=42"
+        ));
+    }
+
+    #[test]
+    fn sub_not_found_no_match() {
+        assert!(!is_subscription_not_found("connection not found"));
+        assert!(!is_subscription_not_found(""));
+        assert!(!is_subscription_not_found("subscription was applied"));
+    }
+
+    // ── is_connection_not_found ───────────────────────────────────────────
+
+    #[test]
+    fn conn_not_found_direct_phrase() {
+        assert!(is_connection_not_found("connection not found"));
+        assert!(is_connection_not_found("Connection Not Found"));
+    }
+
+    #[test]
+    fn conn_not_found_no_such_connection() {
+        assert!(is_connection_not_found("no such connection"));
+        assert!(is_connection_not_found("No Such Connection exists"));
+    }
+
+    #[test]
+    fn conn_not_found_connection_and_not_found_split() {
+        assert!(is_connection_not_found(
+            "the connection a3916184 was not found in the table"
+        ));
+    }
+
+    #[test]
+    fn conn_not_found_no_match() {
+        assert!(!is_connection_not_found("subscription not found"));
+        assert!(!is_connection_not_found(""));
+        assert!(!is_connection_not_found("connection established successfully"));
+        // "not found" without "connection" should not match.
+        assert!(!is_connection_not_found("route not found"));
+    }
 }
