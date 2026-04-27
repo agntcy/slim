@@ -1,8 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
-
 use prost_types::{Struct, Value, value::Kind};
 use tonic::{Request, Response, Status};
 
@@ -24,17 +22,17 @@ use crate::services::routes::RouteService;
 
 pub struct NorthboundApiService {
     db: SharedDb,
-    cmd_handler: Arc<DefaultNodeCommandHandler>,
-    route_service: Arc<RouteService>,
-    group_service: Arc<GroupService>,
+    cmd_handler: DefaultNodeCommandHandler,
+    route_service: RouteService,
+    group_service: GroupService,
 }
 
 impl NorthboundApiService {
     pub fn new(
         db: SharedDb,
-        cmd_handler: Arc<DefaultNodeCommandHandler>,
-        route_service: Arc<RouteService>,
-        group_service: Arc<GroupService>,
+        cmd_handler: DefaultNodeCommandHandler,
+        route_service: RouteService,
+        group_service: GroupService,
     ) -> Self {
         Self {
             db,
@@ -118,7 +116,7 @@ impl ControlPlaneService for NorthboundApiService {
             .list_subscriptions(&node.id)
             .await
             .map(Response::new)
-            .map_err(Status::internal)
+            .map_err(|e| Status::internal(e.to_string()))
     }
 
     async fn list_connections(
@@ -136,7 +134,7 @@ impl ControlPlaneService for NorthboundApiService {
             .list_connections(&node.id)
             .await
             .map(Response::new)
-            .map_err(Status::internal)
+            .map_err(|e| Status::internal(e.to_string()))
     }
 
     async fn add_route(
@@ -172,7 +170,7 @@ impl ControlPlaneService for NorthboundApiService {
             .route_service
             .add_route(route)
             .await
-            .map_err(Status::internal)?;
+            .map_err(|e| Status::internal(e.to_string()))?;
 
         Ok(Response::new(AddRouteResponse {
             success: true,
@@ -212,7 +210,7 @@ impl ControlPlaneService for NorthboundApiService {
         self.route_service
             .delete_route(route)
             .await
-            .map_err(Status::internal)?;
+            .map_err(|e| Status::internal(e.to_string()))?;
 
         Ok(Response::new(DeleteRouteResponse { success: true }))
     }
@@ -225,7 +223,7 @@ impl ControlPlaneService for NorthboundApiService {
             .create_channel(request.into_inner())
             .await
             .map(Response::new)
-            .map_err(Status::internal)
+            .map_err(|e| Status::internal(e.to_string()))
     }
 
     async fn delete_channel(
@@ -236,7 +234,7 @@ impl ControlPlaneService for NorthboundApiService {
             .delete_channel(request.into_inner())
             .await
             .map(Response::new)
-            .map_err(Status::internal)
+            .map_err(|e| Status::internal(e.to_string()))
     }
 
     async fn add_participant(
@@ -247,7 +245,7 @@ impl ControlPlaneService for NorthboundApiService {
             .add_participant(request.into_inner())
             .await
             .map(Response::new)
-            .map_err(Status::internal)
+            .map_err(|e| Status::internal(e.to_string()))
     }
 
     async fn delete_participant(
@@ -258,7 +256,7 @@ impl ControlPlaneService for NorthboundApiService {
             .delete_participant(request.into_inner())
             .await
             .map(Response::new)
-            .map_err(Status::internal)
+            .map_err(|e| Status::internal(e.to_string()))
     }
 
     async fn list_channels(
@@ -269,7 +267,7 @@ impl ControlPlaneService for NorthboundApiService {
             .list_channels(request.into_inner())
             .await
             .map(Response::new)
-            .map_err(Status::internal)
+            .map_err(|e| Status::internal(e.to_string()))
     }
 
     async fn list_participants(
@@ -280,7 +278,7 @@ impl ControlPlaneService for NorthboundApiService {
             .list_participants(request.into_inner())
             .await
             .map(Response::new)
-            .map_err(Status::internal)
+            .map_err(|e| Status::internal(e.to_string()))
     }
 
     async fn list_routes(

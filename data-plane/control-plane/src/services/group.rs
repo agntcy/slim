@@ -5,6 +5,8 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
+use crate::error::{Error, Result};
+
 use crate::api::proto::controller::proto::v1::{
     Ack, AddParticipantRequest, ControlMessage, DeleteChannelRequest, DeleteParticipantRequest,
     ListChannelsRequest, ListChannelsResponse, ListParticipantsRequest, ListParticipantsResponse,
@@ -14,22 +16,25 @@ use crate::api::proto::controlplane::proto::v1::{CreateChannelRequest, CreateCha
 use crate::db::SharedDb;
 use crate::node_control::{DefaultNodeCommandHandler, ResponseKind};
 
-pub struct GroupService {
+struct Inner {
     db: SharedDb,
-    cmd_handler: Arc<DefaultNodeCommandHandler>,
+    cmd_handler: DefaultNodeCommandHandler,
 }
 
+#[derive(Clone)]
+pub struct GroupService(Arc<Inner>);
+
 impl GroupService {
-    pub fn new(db: SharedDb, cmd_handler: Arc<DefaultNodeCommandHandler>) -> Self {
-        Self { db, cmd_handler }
+    pub fn new(db: SharedDb, cmd_handler: DefaultNodeCommandHandler) -> Self {
+        Self(Arc::new(Inner { db, cmd_handler }))
     }
 
     pub async fn create_channel(
         &self,
         req: CreateChannelRequest,
-    ) -> Result<CreateChannelResponse, String> {
+    ) -> Result<CreateChannelResponse> {
         if req.moderators.is_empty() {
-            return Err("at least one moderator is required to create a channel".to_string());
+            return Err(Error::InvalidInput("at least one moderator is required to create a channel".to_string()));
         }
         let moderator_name = &req.moderators[0];
         let parts = validate_name(moderator_name, 4)?;
@@ -48,39 +53,38 @@ impl GroupService {
                 },
             )),
         };
-        self.cmd_handler
+        self.0.cmd_handler
             .send_message(&node_id, msg)
-            .await
-            .map_err(|e| format!("failed to send message: {e}"))?;
+            .await?;
 
         let response = self
-            .cmd_handler
+            .0.cmd_handler
             .wait_for_response(&node_id, ResponseKind::Ack, &message_id)
             .await?;
 
         let ack = match response.payload {
             Some(Payload::Ack(a)) => a,
-            _ => return Err("expected Ack response".to_string()),
+            _ => return Err(Error::UnexpectedResponse("expected Ack response".to_string())),
         };
         if !ack.success {
-            return Err(format!("failed to create channel: {:?}", ack.messages));
+            return Err(Error::InvalidInput(format!("failed to create channel: {:?}", ack.messages)));
         }
 
         tracing::info!("Channel creation result for {channel_name}: success=true");
-        self.db.save_channel(&channel_name, req.moderators).await?;
+        self.0.db.save_channel(&channel_name, req.moderators).await?;
         tracing::info!("Channel saved successfully");
 
         Ok(CreateChannelResponse { channel_name })
     }
 
-    pub async fn delete_channel(&self, req: DeleteChannelRequest) -> Result<Ack, String> {
+    pub async fn delete_channel(&self, req: DeleteChannelRequest) -> Result<Ack> {
         validate_name(&req.channel_name, 3)?;
 
         let channel = self
-            .db
+            .0.db
             .get_channel(&req.channel_name)
             .await
-            .ok_or_else(|| format!("channel {} not found", req.channel_name))?;
+            .ok_or_else(|| Error::ChannelNotFound { id: req.channel_name.clone() })?;
 
         let node_id = self.get_moderator_node(&channel.moderators).await?;
 
@@ -92,18 +96,17 @@ impl GroupService {
             message_id: message_id.clone(),
             payload: Some(Payload::DeleteChannelRequest(req.clone())),
         };
-        self.cmd_handler
+        self.0.cmd_handler
             .send_message(&node_id, msg)
-            .await
-            .map_err(|e| format!("failed to send message: {e}"))?;
+            .await?;
 
         let response = self
-            .cmd_handler
+            .0.cmd_handler
             .wait_for_response(&node_id, ResponseKind::Ack, &message_id)
             .await?;
         let ack = match response.payload {
             Some(Payload::Ack(a)) => a,
-            _ => return Err("expected Ack response".to_string()),
+            _ => return Err(Error::UnexpectedResponse("expected Ack response".to_string())),
         };
         if !ack.success {
             return Ok(ack);
@@ -112,20 +115,20 @@ impl GroupService {
             "Channel deletion result for {}: success=true",
             req.channel_name
         );
-        self.db.delete_channel(&req.channel_name).await?;
+        self.0.db.delete_channel(&req.channel_name).await?;
         tracing::info!("Channel deleted successfully");
         Ok(ack)
     }
 
-    pub async fn add_participant(&self, req: AddParticipantRequest) -> Result<Ack, String> {
+    pub async fn add_participant(&self, req: AddParticipantRequest) -> Result<Ack> {
         validate_name(&req.channel_name, 3)?;
         validate_name(&req.participant_name, 3)?;
 
         let mut channel = self
-            .db
+            .0.db
             .get_channel(&req.channel_name)
             .await
-            .ok_or_else(|| format!("channel {} not found", req.channel_name))?;
+            .ok_or_else(|| Error::ChannelNotFound { id: req.channel_name.clone() })?;
 
         let node_id = self.get_moderator_node(&channel.moderators).await?;
 
@@ -137,57 +140,58 @@ impl GroupService {
             message_id: message_id.clone(),
             payload: Some(Payload::AddParticipantRequest(req.clone())),
         };
-        self.cmd_handler
+        self.0.cmd_handler
             .send_message(&node_id, msg)
-            .await
-            .map_err(|e| format!("failed to send message: {e}"))?;
+            .await?;
 
         let response = self
-            .cmd_handler
+            .0.cmd_handler
             .wait_for_response(&node_id, ResponseKind::Ack, &message_id)
             .await?;
         let ack = match response.payload {
             Some(Payload::Ack(a)) => a,
-            _ => return Err("expected Ack response".to_string()),
+            _ => return Err(Error::UnexpectedResponse("expected Ack response".to_string())),
         };
         tracing::info!("AddParticipant result success={}", ack.success);
         if !ack.success {
             return Ok(ack);
         }
         if channel.participants.contains(&req.participant_name) {
-            return Err(format!(
+            return Err(Error::InvalidInput(format!(
                 "participant {} already exists in channel {}",
-                req.participant_name, req.channel_name
-            ));
+                req.participant_name,
+                req.channel_name
+            )));
         }
         channel.participants.push(req.participant_name);
-        self.db.update_channel(channel).await?;
+        self.0.db.update_channel(channel).await?;
         tracing::info!("Channel updated, participant added successfully.");
         Ok(ack)
     }
 
-    pub async fn delete_participant(&self, req: DeleteParticipantRequest) -> Result<Ack, String> {
+    pub async fn delete_participant(&self, req: DeleteParticipantRequest) -> Result<Ack> {
         if req.channel_name.is_empty() {
-            return Err("channel ID cannot be empty".to_string());
+            return Err(Error::EmptyChannelId);
         }
         if req.participant_name.is_empty() {
-            return Err("participant ID cannot be empty".to_string());
+            return Err(Error::InvalidInput("participant ID cannot be empty".to_string()));
         }
         let mut channel = self
-            .db
+            .0.db
             .get_channel(&req.channel_name)
             .await
-            .ok_or_else(|| format!("channel {} not found", req.channel_name))?;
+            .ok_or_else(|| Error::ChannelNotFound { id: req.channel_name.clone() })?;
 
         let idx = channel
             .participants
             .iter()
             .position(|p| p == &req.participant_name)
             .ok_or_else(|| {
-                format!(
+                Error::InvalidInput(format!(
                     "participant {} not found in channel {}",
-                    req.participant_name, req.channel_name
-                )
+                    req.participant_name,
+                    req.channel_name
+                ))
             })?;
 
         let node_id = self.get_moderator_node(&channel.moderators).await?;
@@ -200,25 +204,24 @@ impl GroupService {
             message_id: message_id.clone(),
             payload: Some(Payload::DeleteParticipantRequest(req.clone())),
         };
-        self.cmd_handler
+        self.0.cmd_handler
             .send_message(&node_id, msg)
-            .await
-            .map_err(|e| format!("failed to send message: {e}"))?;
+            .await?;
 
         let response = self
-            .cmd_handler
+            .0.cmd_handler
             .wait_for_response(&node_id, ResponseKind::Ack, &message_id)
             .await?;
         let ack = match response.payload {
             Some(Payload::Ack(a)) => a,
-            _ => return Err("expected Ack response".to_string()),
+            _ => return Err(Error::UnexpectedResponse("expected Ack response".to_string())),
         };
         if !ack.success {
             return Ok(ack);
         }
         tracing::info!("DeleteParticipant result success=true");
         channel.participants.remove(idx);
-        self.db.update_channel(channel).await?;
+        self.0.db.update_channel(channel).await?;
         tracing::info!("Channel updated, participant deleted successfully");
         Ok(ack)
     }
@@ -226,8 +229,8 @@ impl GroupService {
     pub async fn list_channels(
         &self,
         _req: ListChannelsRequest,
-    ) -> Result<ListChannelsResponse, String> {
-        let channels = self.db.list_channels().await;
+    ) -> Result<ListChannelsResponse> {
+        let channels = self.0.db.list_channels().await;
         Ok(ListChannelsResponse {
             original_message_id: String::new(),
             channel_name: channels.into_iter().map(|c| c.id).collect(),
@@ -237,15 +240,15 @@ impl GroupService {
     pub async fn list_participants(
         &self,
         req: ListParticipantsRequest,
-    ) -> Result<ListParticipantsResponse, String> {
+    ) -> Result<ListParticipantsResponse> {
         if req.channel_name.is_empty() {
-            return Err("channel ID cannot be empty".to_string());
+            return Err(Error::EmptyChannelId);
         }
         let channel = self
-            .db
+            .0.db
             .get_channel(&req.channel_name)
             .await
-            .ok_or_else(|| format!("channel {} not found", req.channel_name))?;
+            .ok_or_else(|| Error::ChannelNotFound { id: req.channel_name.clone() })?;
         Ok(ListParticipantsResponse {
             original_message_id: String::new(),
             participant_name: channel.participants,
@@ -255,16 +258,16 @@ impl GroupService {
     pub async fn get_channel_details(
         &self,
         channel_id: &str,
-    ) -> Result<crate::db::Channel, String> {
-        self.db
+    ) -> Result<crate::db::Channel> {
+        self.0.db
             .get_channel(channel_id)
             .await
-            .ok_or_else(|| format!("channel {channel_id} not found"))
+            .ok_or_else(|| Error::ChannelNotFound { id: channel_id.to_string() })
     }
 
-    async fn get_moderator_node(&self, moderators: &[String]) -> Result<String, String> {
+    async fn get_moderator_node(&self, moderators: &[String]) -> Result<String> {
         if moderators.is_empty() {
-            return Err("no moderators provided".to_string());
+            return Err(Error::InvalidInput("no moderators provided".to_string()));
         }
         let moderator = &moderators[0];
         let parts = validate_name(moderator, 4)?;
@@ -278,26 +281,26 @@ impl GroupService {
                 .or_else(|| s.parse::<u64>().ok().map(|v| v as i64))
         });
 
-        self.db
+        self.0.db
             .get_destination_node_id_for_name(organization, namespace, agent_type, component_id)
             .await
-            .ok_or_else(|| format!("no node found for moderator {moderator}"))
+            .ok_or_else(|| Error::InvalidInput(format!("no node found for moderator {moderator}")))
     }
 }
 
 /// Splits `name` by `/` and validates it has at least `min_parts` parts.
-pub fn validate_name(name: &str, min_parts: usize) -> Result<Vec<String>, String> {
+pub fn validate_name(name: &str, min_parts: usize) -> Result<Vec<String>> {
     let parts: Vec<String> = name.split('/').map(|s| s.to_string()).collect();
     if parts.len() < min_parts {
-        return Err(format!(
+        return Err(Error::InvalidInput(format!(
             "name '{name}' must have at least {min_parts} slash-separated parts"
-        ));
+        )));
     }
     Ok(parts)
 }
 
 /// Returns a random alphanumeric string of `len` characters.
-pub fn get_random_id(len: usize) -> Result<String, String> {
+pub fn get_random_id(len: usize) -> Result<String> {
     let id = Uuid::new_v4().to_string().replace('-', "");
     Ok(id[..len.min(id.len())].to_string())
 }
@@ -468,7 +471,7 @@ mod tests {
             .create_channel(CreateChannelRequest { moderators: vec![] })
             .await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("moderator"));
+        assert!(result.unwrap_err().to_string().contains("moderator"));
     }
 
     #[tokio::test]
@@ -510,6 +513,6 @@ mod tests {
             })
             .await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("not found"));
+        assert!(result.unwrap_err().to_string().contains("not found"));
     }
 }

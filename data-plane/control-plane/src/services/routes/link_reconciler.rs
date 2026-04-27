@@ -2,10 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
-use std::sync::Arc;
-
-use tokio::sync::{Mutex, Semaphore};
 use uuid::Uuid;
+
+use crate::error::{Error, Result};
 
 use crate::api::proto::controller::proto::v1::{
     ConfigurationCommand, Connection, ControlMessage, control_message::Payload,
@@ -17,18 +16,16 @@ use crate::workqueue::WorkQueue;
 
 pub struct LinkReconciler {
     db: SharedDb,
-    cmd_handler: Arc<DefaultNodeCommandHandler>,
+    cmd_handler: DefaultNodeCommandHandler,
     queue: WorkQueue<String>,
     route_queue: WorkQueue<String>,
-    requeue_counts: Arc<Mutex<HashMap<String, usize>>>,
     max_requeues: usize,
-    semaphore: Arc<Semaphore>,
 }
 
 impl LinkReconciler {
     pub fn new(
         db: SharedDb,
-        cmd_handler: Arc<DefaultNodeCommandHandler>,
+        cmd_handler: DefaultNodeCommandHandler,
         queue: WorkQueue<String>,
         route_queue: WorkQueue<String>,
         config: ReconcilerConfig,
@@ -38,59 +35,45 @@ impl LinkReconciler {
             cmd_handler,
             queue,
             route_queue,
-            requeue_counts: Arc::new(Mutex::new(HashMap::new())),
             max_requeues: config.max_requeues,
-            semaphore: Arc::new(Semaphore::new(config.max_parallel_reconciles)),
         }
     }
 
     pub async fn run(self) {
         tracing::info!("link reconciler: starting");
 
+        let mut requeue_counts: HashMap<String, usize> = HashMap::new();
+
         while let Some(node_id) = self.queue.pop().await {
-            let permit = match self.semaphore.clone().acquire_owned().await {
-                Ok(p) => p,
-                Err(_) => break,
-            };
+            if let Err(e) =
+                handle_request(&self.db, &self.cmd_handler, &node_id, &self.route_queue).await
+            {
+                tracing::error!("link reconciler: failed for node {node_id}: {e}");
 
-            let db = self.db.clone();
-            let cmd_handler = self.cmd_handler.clone();
-            let queue = self.queue.clone();
-            let route_queue = self.route_queue.clone();
-            let requeue_counts = self.requeue_counts.clone();
-            let max_requeues = self.max_requeues;
+                let count = {
+                    let c = requeue_counts.entry(node_id.clone()).or_insert(0);
+                    *c += 1;
+                    *c
+                };
 
-            tokio::spawn(async move {
-                let _permit = permit;
-
-                if let Err(e) = handle_request(&db, &cmd_handler, &node_id, &route_queue).await {
-                    tracing::error!("link reconciler: failed for node {node_id}: {e}");
-
-                    let count = {
-                        let mut counts = requeue_counts.lock().await;
-                        let c = counts.entry(node_id.clone()).or_insert(0);
-                        *c += 1;
-                        *c
-                    };
-
-                    if count <= max_requeues {
-                        tracing::debug!(
-                            "link reconciler: requeuing node {node_id} (attempt {count}/{max_requeues})"
-                        );
-                        // Adding while in-flight marks dirty; done() will re-queue.
-                        queue.add(node_id.clone());
-                    } else {
-                        tracing::warn!(
-                            "link reconciler: dropping node {node_id} after {max_requeues} retries"
-                        );
-                        requeue_counts.lock().await.remove(&node_id);
-                    }
+                if count <= self.max_requeues {
+                    tracing::debug!(
+                        "link reconciler: requeuing node {node_id} (attempt {count}/{})",
+                        self.max_requeues
+                    );
+                    self.queue.add(node_id.clone());
                 } else {
-                    requeue_counts.lock().await.remove(&node_id);
+                    tracing::warn!(
+                        "link reconciler: dropping node {node_id} after {} retries",
+                        self.max_requeues
+                    );
+                    requeue_counts.remove(&node_id);
                 }
+            } else {
+                requeue_counts.remove(&node_id);
+            }
 
-                queue.done(&node_id);
-            });
+            self.queue.done(&node_id);
         }
 
         tracing::info!("link reconciler: shutting down");
@@ -99,10 +82,10 @@ impl LinkReconciler {
 
 async fn handle_request(
     db: &SharedDb,
-    cmd_handler: &Arc<DefaultNodeCommandHandler>,
+    cmd_handler: &DefaultNodeCommandHandler,
     node_id: &str,
     route_queue: &WorkQueue<String>,
-) -> Result<(), String> {
+) -> Result<()> {
     if cmd_handler.get_connection_status(node_id).await != NodeStatus::Connected {
         tracing::info!("link reconciler: node {node_id} not connected, skipping");
         return Ok(());
@@ -164,8 +147,7 @@ async fn handle_request(
 
     cmd_handler
         .send_message(node_id, msg)
-        .await
-        .map_err(|e| format!("failed to send link config command to node {node_id}: {e}"))?;
+        .await?;
 
     let response = cmd_handler
         .wait_for_response(node_id, ResponseKind::ConfigCommandAck, &message_id)
@@ -173,7 +155,7 @@ async fn handle_request(
 
     let ack = match response.payload {
         Some(Payload::ConfigCommandAck(a)) => a,
-        _ => return Err(format!("received unexpected response from node {node_id}")),
+        _ => return Err(Error::UnexpectedResponse(format!("received unexpected response from node {node_id}"))),
     };
 
     // Build a map of connection_id → (success, error_msg) from the ack.
@@ -240,6 +222,17 @@ async fn handle_request(
                     None => "missing delete ack".to_string(),
                     _ => unreachable!(),
                 };
+                // If the connection was already gone on the data plane, the
+                // desired state is reached — treat it as a successful delete.
+                if is_connection_not_found(&reason) {
+                    for link in deleted_links {
+                        db.delete_link(link).await?;
+                    }
+                    tracing::info!(
+                        "link reconciler: connection already removed on dataplane, deleted link records for {link_id}"
+                    );
+                    continue;
+                }
                 for link in deleted_links {
                     let mut updated = link.clone();
                     updated.status = crate::db::LinkStatus::Failed;
@@ -259,12 +252,15 @@ async fn handle_request(
     }
 
     if !retry_delete.is_empty() {
-        return Err(format!(
-            "delete ack failed or missing for links: {retry_delete:?}"
-        ));
+        return Err(Error::InvalidInput(format!("delete ack failed or missing for links: {retry_delete:?}")));
     }
 
     Ok(())
+}
+
+fn is_connection_not_found(msg: &str) -> bool {
+    let lower = msg.to_lowercase();
+    lower.contains("not found")
 }
 
 /// Inject `"link_id"` into the JSON config data string if it is not already present.

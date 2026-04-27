@@ -25,6 +25,7 @@ use super::model::{
 };
 use super::schema::{channels, links, nodes, routes};
 use super::{DataAccess, SharedDb};
+use crate::error::{Error, Result};
 
 // ─── Embedded migrations ──────────────────────────────────────────────────────
 
@@ -154,7 +155,7 @@ impl DataAccess for SqliteDb {
             .ok()?
     }
 
-    async fn save_node(&self, node: Node) -> Result<(String, bool), String> {
+    async fn save_node(&self, node: Node) -> Result<(String, bool)> {
         let existing = self.get_node(&node.id).await;
         let conn_details_changed = existing
             .as_ref()
@@ -170,7 +171,7 @@ impl DataAccess for SqliteDb {
             .pool
             .get()
             .await
-            .map_err(|e| format!("pool error: {e}"))?;
+            .map_err(|e| Error::DbError { context: "save_node pool", msg: e.to_string() })?;
         diesel::insert_into(nodes::table)
             .values(node)
             .on_conflict(nodes::id)
@@ -182,42 +183,51 @@ impl DataAccess for SqliteDb {
             ))
             .execute(&mut conn)
             .await
-            .map_err(|e| format!("save_node: {e}"))?;
+            .map_err(|e| Error::DbError { context: "save_node", msg: e.to_string() })?;
 
         Ok((node_id, conn_details_changed))
     }
 
-    async fn delete_node(&self, id: &str) -> Result<(), String> {
+    async fn delete_node(&self, id: &str) -> Result<()> {
         let mut conn = self
             .pool
             .get()
             .await
-            .map_err(|e| format!("pool error: {e}"))?;
+            .map_err(|e| Error::DbError { context: "delete_node pool", msg: e.to_string() })?;
         let n = diesel::delete(nodes::table.find(id))
             .execute(&mut conn)
             .await
-            .map_err(|e| format!("delete_node: {e}"))?;
+            .map_err(|e| Error::DbError { context: "delete_node", msg: e.to_string() })?;
         if n == 0 {
-            return Err(format!("node {id} not found"));
+            return Err(Error::NodeNotFound { id: id.to_string() });
         }
         Ok(())
     }
 
     // ── Routes ─────────────────────────────────────────────────────────────
 
-    async fn add_route(&self, mut route: Route) -> Result<Route, String> {
+    async fn add_route(&self, mut route: Route) -> Result<Route> {
         route.id = route.compute_id();
         route.last_updated = SystemTime::now();
         let mut conn = self
             .pool
             .get()
             .await
-            .map_err(|e| format!("pool error: {e}"))?;
+            .map_err(|e| Error::DbError { context: "add_route pool", msg: e.to_string() })?;
         diesel::insert_into(routes::table)
             .values(route.clone())
             .execute(&mut conn)
             .await
-            .map_err(|e| format!("add_route: {e}"))?;
+            .map_err(|e| {
+                // UNIQUE constraint violation on the primary key means the route
+                // already exists — surface the typed error so callers can match on it.
+                let msg = e.to_string();
+                if msg.contains("UNIQUE constraint failed") || msg.contains("AlreadyExists") {
+                    Error::RouteAlreadyExists { id: route.to_string() }
+                } else {
+                    Error::DbError { context: "add_route", msg }
+                }
+            })?;
         Ok(route)
     }
 
@@ -366,47 +376,47 @@ impl DataAccess for SqliteDb {
             .unwrap_or_default()
     }
 
-    async fn delete_route(&self, route_id: i64) -> Result<(), String> {
+    async fn delete_route(&self, route_id: i64) -> Result<()> {
         let mut conn = self
             .pool
             .get()
             .await
-            .map_err(|e| format!("pool error: {e}"))?;
+            .map_err(|e| Error::DbError { context: "delete_route pool", msg: e.to_string() })?;
         let n = diesel::delete(routes::table.find(route_id))
             .execute(&mut conn)
             .await
-            .map_err(|e| format!("delete_route: {e}"))?;
+            .map_err(|e| Error::DbError { context: "delete_route", msg: e.to_string() })?;
         if n == 0 {
-            return Err(format!("route {route_id} not found"));
+            return Err(Error::RouteNotFound { id: route_id });
         }
         Ok(())
     }
 
-    async fn mark_route_deleted(&self, route_id: i64) -> Result<(), String> {
+    async fn mark_route_deleted(&self, route_id: i64) -> Result<()> {
         let ts = DbTimestamp::from(SystemTime::now());
         let mut conn = self
             .pool
             .get()
             .await
-            .map_err(|e| format!("pool error: {e}"))?;
+            .map_err(|e| Error::DbError { context: "mark_route_deleted pool", msg: e.to_string() })?;
         let n = diesel::update(routes::table.find(route_id))
             .set((routes::deleted.eq(true), routes::last_updated.eq(ts)))
             .execute(&mut conn)
             .await
-            .map_err(|e| format!("mark_route_deleted: {e}"))?;
+            .map_err(|e| Error::DbError { context: "mark_route_deleted", msg: e.to_string() })?;
         if n == 0 {
-            return Err(format!("route {route_id} not found"));
+            return Err(Error::RouteNotFound { id: route_id });
         }
         Ok(())
     }
 
-    async fn mark_route_applied(&self, route_id: i64) -> Result<(), String> {
+    async fn mark_route_applied(&self, route_id: i64) -> Result<()> {
         let ts = DbTimestamp::from(SystemTime::now());
         let mut conn = self
             .pool
             .get()
             .await
-            .map_err(|e| format!("pool error: {e}"))?;
+            .map_err(|e| Error::DbError { context: "mark_route_applied pool", msg: e.to_string() })?;
         let n = diesel::update(routes::table.find(route_id))
             .set((
                 routes::status.eq(RouteStatus::Applied),
@@ -415,20 +425,20 @@ impl DataAccess for SqliteDb {
             ))
             .execute(&mut conn)
             .await
-            .map_err(|e| format!("mark_route_applied: {e}"))?;
+            .map_err(|e| Error::DbError { context: "mark_route_applied", msg: e.to_string() })?;
         if n == 0 {
-            return Err(format!("route {route_id} not found"));
+            return Err(Error::RouteNotFound { id: route_id });
         }
         Ok(())
     }
 
-    async fn mark_route_failed(&self, route_id: i64, msg: &str) -> Result<(), String> {
+    async fn mark_route_failed(&self, route_id: i64, msg: &str) -> Result<()> {
         let ts = DbTimestamp::from(SystemTime::now());
         let mut conn = self
             .pool
             .get()
             .await
-            .map_err(|e| format!("pool error: {e}"))?;
+            .map_err(|e| Error::DbError { context: "mark_route_failed pool", msg: e.to_string() })?;
         let n = diesel::update(routes::table.find(route_id))
             .set((
                 routes::status.eq(RouteStatus::Failed),
@@ -437,9 +447,9 @@ impl DataAccess for SqliteDb {
             ))
             .execute(&mut conn)
             .await
-            .map_err(|e| format!("mark_route_failed: {e}"))?;
+            .map_err(|e| Error::DbError { context: "mark_route_failed", msg: e.to_string() })?;
         if n == 0 {
-            return Err(format!("route {route_id} not found"));
+            return Err(Error::RouteNotFound { id: route_id });
         }
         Ok(())
     }
@@ -450,13 +460,13 @@ impl DataAccess for SqliteDb {
         link_id: &str,
         status: RouteStatus,
         msg: &str,
-    ) -> Result<(), String> {
+    ) -> Result<()> {
         let ts = DbTimestamp::from(SystemTime::now());
         let mut conn = self
             .pool
             .get()
             .await
-            .map_err(|e| format!("pool error: {e}"))?;
+            .map_err(|e| Error::DbError { context: "repoint_route pool", msg: e.to_string() })?;
         let n = diesel::update(routes::table.find(route_id))
             .set((
                 routes::link_id.eq(link_id),
@@ -466,21 +476,21 @@ impl DataAccess for SqliteDb {
             ))
             .execute(&mut conn)
             .await
-            .map_err(|e| format!("repoint_route: {e}"))?;
+            .map_err(|e| Error::DbError { context: "repoint_route", msg: e.to_string() })?;
         if n == 0 {
-            return Err(format!("route {route_id} not found"));
+            return Err(Error::RouteNotFound { id: route_id });
         }
         Ok(())
     }
 
     // ── Links ──────────────────────────────────────────────────────────────
 
-    async fn add_link(&self, mut link: Link) -> Result<Link, String> {
+    async fn add_link(&self, mut link: Link) -> Result<Link> {
         if link.source_node_id.is_empty()
             || link.dest_node_id.is_empty()
             || link.dest_endpoint.is_empty()
         {
-            return Err("source_node_id, dest_node_id and dest_endpoint are required".to_string());
+            return Err(Error::LinkMissingFields);
         }
         if link.link_id.is_empty() {
             if let Some(existing) = self
@@ -498,7 +508,7 @@ impl DataAccess for SqliteDb {
             .pool
             .get()
             .await
-            .map_err(|e| format!("pool error: {e}"))?;
+            .map_err(|e| Error::DbError { context: "add_link pool", msg: e.to_string() })?;
         diesel::insert_into(links::table)
             .values(link.clone())
             .on_conflict((
@@ -517,17 +527,17 @@ impl DataAccess for SqliteDb {
             ))
             .execute(&mut conn)
             .await
-            .map_err(|e| format!("add_link: {e}"))?;
+            .map_err(|e| Error::DbError { context: "add_link", msg: e.to_string() })?;
         Ok(link)
     }
 
-    async fn update_link(&self, mut link: Link) -> Result<(), String> {
+    async fn update_link(&self, mut link: Link) -> Result<()> {
         if link.link_id.is_empty()
             || link.source_node_id.is_empty()
             || link.dest_node_id.is_empty()
             || link.dest_endpoint.is_empty()
         {
-            return Err("link identity fields cannot be empty".to_string());
+            return Err(Error::LinkMissingFields);
         }
         link.last_updated = SystemTime::now();
         let ts = DbTimestamp::from(link.last_updated);
@@ -535,7 +545,7 @@ impl DataAccess for SqliteDb {
             .pool
             .get()
             .await
-            .map_err(|e| format!("pool error: {e}"))?;
+            .map_err(|e| Error::DbError { context: "update_link pool", msg: e.to_string() })?;
         let n = diesel::update(
             links::table
                 .filter(links::link_id.eq(&link.link_id))
@@ -552,26 +562,26 @@ impl DataAccess for SqliteDb {
         ))
         .execute(&mut conn)
         .await
-        .map_err(|e| format!("update_link: {e}"))?;
+        .map_err(|e| Error::DbError { context: "update_link", msg: e.to_string() })?;
         if n == 0 {
-            return Err(format!("link {} not found", link.link_id));
+            return Err(Error::LinkNotFound { id: link.link_id.clone() });
         }
         Ok(())
     }
 
-    async fn delete_link(&self, link: &Link) -> Result<(), String> {
+    async fn delete_link(&self, link: &Link) -> Result<()> {
         if link.link_id.is_empty()
             || link.source_node_id.is_empty()
             || link.dest_node_id.is_empty()
             || link.dest_endpoint.is_empty()
         {
-            return Err("link identity fields cannot be empty".to_string());
+            return Err(Error::LinkMissingFields);
         }
         let mut conn = self
             .pool
             .get()
             .await
-            .map_err(|e| format!("pool error: {e}"))?;
+            .map_err(|e| Error::DbError { context: "delete_link pool", msg: e.to_string() })?;
         let n = diesel::delete(
             links::table
                 .filter(links::link_id.eq(&link.link_id))
@@ -581,9 +591,9 @@ impl DataAccess for SqliteDb {
         )
         .execute(&mut conn)
         .await
-        .map_err(|e| format!("delete_link: {e}"))?;
+        .map_err(|e| Error::DbError { context: "delete_link", msg: e.to_string() })?;
         if n == 0 {
-            return Err(format!("link {} not found", link.link_id));
+            return Err(Error::LinkNotFound { id: link.link_id.clone() });
         }
         Ok(())
     }
@@ -676,7 +686,7 @@ impl DataAccess for SqliteDb {
 
     // ── Channels ───────────────────────────────────────────────────────────
 
-    async fn save_channel(&self, channel_id: &str, moderators: Vec<String>) -> Result<(), String> {
+    async fn save_channel(&self, channel_id: &str, moderators: Vec<String>) -> Result<()> {
         let channel = Channel {
             id: channel_id.to_string(),
             moderators,
@@ -686,31 +696,35 @@ impl DataAccess for SqliteDb {
             .pool
             .get()
             .await
-            .map_err(|e| format!("pool error: {e}"))?;
+            .map_err(|e| Error::DbError { context: "save_channel pool", msg: e.to_string() })?;
         let n = diesel::insert_into(channels::table)
             .values(channel)
             .on_conflict_do_nothing()
             .execute(&mut conn)
             .await
-            .map_err(|e| format!("save_channel: {e}"))?;
+            .map_err(|e| Error::DbError { context: "save_channel", msg: e.to_string() })?;
         if n == 0 {
-            return Err(format!("channel {channel_id} already exists"));
+            return Err(Error::ChannelAlreadyExists {
+                id: channel_id.to_string(),
+            });
         }
         Ok(())
     }
 
-    async fn delete_channel(&self, channel_id: &str) -> Result<(), String> {
+    async fn delete_channel(&self, channel_id: &str) -> Result<()> {
         let mut conn = self
             .pool
             .get()
             .await
-            .map_err(|e| format!("pool error: {e}"))?;
+            .map_err(|e| Error::DbError { context: "delete_channel pool", msg: e.to_string() })?;
         let n = diesel::delete(channels::table.find(channel_id))
             .execute(&mut conn)
             .await
-            .map_err(|e| format!("delete_channel: {e}"))?;
+            .map_err(|e| Error::DbError { context: "delete_channel", msg: e.to_string() })?;
         if n == 0 {
-            return Err(format!("channel {channel_id} not found"));
+            return Err(Error::ChannelNotFound {
+                id: channel_id.to_string(),
+            });
         }
         Ok(())
     }
@@ -727,9 +741,9 @@ impl DataAccess for SqliteDb {
             .ok()?
     }
 
-    async fn update_channel(&self, channel: Channel) -> Result<(), String> {
+    async fn update_channel(&self, channel: Channel) -> Result<()> {
         if channel.id.is_empty() {
-            return Err("channel ID cannot be empty".to_string());
+            return Err(Error::EmptyChannelId);
         }
         let mods = JsonStrings(channel.moderators.clone());
         let parts = JsonStrings(channel.participants.clone());
@@ -737,7 +751,7 @@ impl DataAccess for SqliteDb {
             .pool
             .get()
             .await
-            .map_err(|e| format!("pool error: {e}"))?;
+            .map_err(|e| Error::DbError { context: "update_channel pool", msg: e.to_string() })?;
         let n = diesel::update(channels::table.find(&channel.id))
             .set((
                 channels::moderators.eq(mods),
@@ -745,9 +759,9 @@ impl DataAccess for SqliteDb {
             ))
             .execute(&mut conn)
             .await
-            .map_err(|e| format!("update_channel: {e}"))?;
+            .map_err(|e| Error::DbError { context: "update_channel", msg: e.to_string() })?;
         if n == 0 {
-            return Err(format!("channel {} not found", channel.id));
+            return Err(Error::ChannelNotFound { id: channel.id.clone() });
         }
         Ok(())
     }

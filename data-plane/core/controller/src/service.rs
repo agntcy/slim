@@ -1763,12 +1763,35 @@ impl ControllerService {
 
             let mut retry_connect = false;
 
+            let mut active_connections = Vec::new();
+            this.inner
+                .message_processor
+                .connection_table()
+                .for_each(|id, conn| {
+                    active_connections.push(v1::ConnectionEntry {
+                        id: id as u64,
+                        connection_type: v1::ConnectionType::Remote as i32,
+                        config_data: match conn.config_data() {
+                            Some(data) => serde_json::to_string(data)
+                                .unwrap_or_else(|_| "{}".to_string()),
+                            None => "{}".to_string(),
+                        },
+                        link_id: conn.link_id(),
+                        direction: if conn.is_outgoing() {
+                            v1::ConnectionDirection::Outgoing as i32
+                        } else {
+                            v1::ConnectionDirection::Incoming as i32
+                        },
+                    });
+                });
+
             let register_request = ControlMessage {
                 message_id: uuid::Uuid::new_v4().to_string(),
                 payload: Some(Payload::RegisterNodeRequest(v1::RegisterNodeRequest {
                     node_id: this.inner.id.to_string(),
                     group_name: this.inner.group_name.clone(),
                     connection_details: this.inner.connection_details.clone(),
+                    connections: active_connections,
                 })),
             };
 

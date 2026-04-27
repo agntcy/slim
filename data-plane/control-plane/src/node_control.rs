@@ -10,6 +10,7 @@ use tokio::time::timeout;
 use tonic::Status;
 
 use crate::api::proto::controller::proto::v1::{ControlMessage, control_message::Payload};
+use crate::error::{Error, Result};
 
 pub const DEFAULT_RESPONSE_TIMEOUT_SECS: u64 = 90;
 
@@ -62,50 +63,44 @@ fn original_message_id(payload: &Payload) -> Option<&str> {
 type PendingKey = (String, MessageKind, String); // (node_id, kind, original_msg_id)
 type StreamTx = tokio::sync::mpsc::UnboundedSender<Result<ControlMessage, Status>>;
 
-/// Thread-safe handler for per-node bidirectional gRPC streams.
-pub struct DefaultNodeCommandHandler {
-    /// node_id → unbounded sender into the server's response stream
+#[derive(Default)]
+struct Inner {
+	/// control stream towards a node
     streams: RwLock<HashMap<String, StreamTx>>,
-    /// node_id → connection status
+
+    /// node statuses
     statuses: RwLock<HashMap<String, NodeStatus>>,
-    /// per-node send mutex to serialise concurrent Send calls
-    send_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
-    /// pending oneshot channels waiting for a specific response
+
+    /// in-flight response registry
     pending: Mutex<HashMap<PendingKey, oneshot::Sender<ControlMessage>>>,
 }
 
-impl DefaultNodeCommandHandler {
-    pub fn new() -> Arc<Self> {
-        Arc::new(Self {
-            streams: RwLock::new(HashMap::new()),
-            statuses: RwLock::new(HashMap::new()),
-            send_locks: Mutex::new(HashMap::new()),
-            pending: Mutex::new(HashMap::new()),
-        })
-    }
-}
+/// Thread-safe handler for per-node bidirectional gRPC streams.
+#[derive(Clone, Default)]
+pub struct DefaultNodeCommandHandler(Arc<Inner>);
 
-impl Default for DefaultNodeCommandHandler {
-    fn default() -> Self {
-        Self {
+impl DefaultNodeCommandHandler {
+    pub fn new() -> Self {
+        Self(Arc::new(Inner {
             streams: RwLock::new(HashMap::new()),
             statuses: RwLock::new(HashMap::new()),
-            send_locks: Mutex::new(HashMap::new()),
             pending: Mutex::new(HashMap::new()),
-        }
+        }))
     }
 }
 
 impl DefaultNodeCommandHandler {
     pub async fn add_stream(&self, node_id: &str, tx: StreamTx) {
-        self.streams.write().await.insert(node_id.to_string(), tx);
+        self.0.streams.write().await.insert(node_id.to_string(), tx);
         self.update_connection_status(node_id, NodeStatus::Connected)
             .await;
     }
 
-    pub async fn remove_stream(&self, node_id: &str) -> Result<(), String> {
-        if self.streams.write().await.remove(node_id).is_none() {
-            return Err(format!("no stream found for node {node_id}"));
+    pub async fn remove_stream(&self, node_id: &str) -> Result<()> {
+        if self.0.streams.write().await.remove(node_id).is_none() {
+            return Err(Error::StreamNotFound {
+                node_id: node_id.to_string(),
+            });
         }
         self.update_connection_status(node_id, NodeStatus::NotConnected)
             .await;
@@ -113,7 +108,7 @@ impl DefaultNodeCommandHandler {
     }
 
     pub async fn get_connection_status(&self, node_id: &str) -> NodeStatus {
-        self.statuses
+        self.0.statuses
             .read()
             .await
             .get(node_id)
@@ -122,41 +117,36 @@ impl DefaultNodeCommandHandler {
     }
 
     pub async fn update_connection_status(&self, node_id: &str, status: NodeStatus) {
-        self.statuses
+        self.0.statuses
             .write()
             .await
             .insert(node_id.to_string(), status);
     }
 
-    pub async fn send_message(&self, node_id: &str, msg: ControlMessage) -> Result<(), String> {
+    pub async fn send_message(&self, node_id: &str, msg: ControlMessage) -> Result<()> {
         if node_id.is_empty() {
-            return Err("nodeID cannot be empty".to_string());
+            return Err(Error::EmptyNodeId);
         }
-
-        // Per-node send lock.
-        let lock = {
-            let mut locks = self.send_locks.lock().await;
-            locks
-                .entry(node_id.to_string())
-                .or_insert_with(|| Arc::new(Mutex::new(())))
-                .clone()
-        };
-        let _guard = lock.lock().await;
 
         let status = self.get_connection_status(node_id).await;
         if status != NodeStatus::Connected {
-            return Err(format!(
-                "node {node_id} is not connected, current status: {status}"
-            ));
+            return Err(Error::NodeNotConnected {
+                node_id: node_id.to_string(),
+                status,
+            });
         }
 
-        let streams = self.streams.read().await;
+        let streams = self.0.streams.read().await;
         let tx = streams
             .get(node_id)
-            .ok_or_else(|| format!("no stream found for node {node_id}"))?;
+            .ok_or_else(|| Error::StreamNotFound {
+                node_id: node_id.to_string(),
+            })?;
 
-        tx.send(Ok(msg))
-            .map_err(|e| format!("failed to send message to node {node_id}: {e}"))
+        tx.send(Ok(msg)).map_err(|e| Error::SendFailed {
+            node_id: node_id.to_string(),
+            reason: e.to_string(),
+        })
     }
 
     /// Called when a response is received from a node. Wakes any waiter
@@ -184,7 +174,7 @@ impl DefaultNodeCommandHandler {
             }
         };
         let key = (node_id.to_string(), kind, orig_id);
-        let mut pending = self.pending.lock().await;
+        let mut pending = self.0.pending.lock().await;
         if let Some(tx) = pending.remove(&key) {
             let _ = tx.send(msg);
         } else {
@@ -198,7 +188,7 @@ impl DefaultNodeCommandHandler {
         node_id: &str,
         kind: ResponseKind,
         original_message_id: &str,
-    ) -> Result<ControlMessage, String> {
+    ) -> Result<ControlMessage> {
         self.wait_for_response_with_timeout(
             node_id,
             kind,
@@ -214,12 +204,12 @@ impl DefaultNodeCommandHandler {
         kind: ResponseKind,
         original_message_id: &str,
         dur: Duration,
-    ) -> Result<ControlMessage, String> {
+    ) -> Result<ControlMessage> {
         if node_id.is_empty() {
-            return Err("nodeID cannot be empty".to_string());
+            return Err(Error::EmptyNodeId);
         }
         if original_message_id.is_empty() {
-            return Err("originalMessageID cannot be empty".to_string());
+            return Err(Error::EmptyMessageId);
         }
         let msg_kind: MessageKind = kind.into();
         let key = (
@@ -229,15 +219,18 @@ impl DefaultNodeCommandHandler {
         );
         let (tx, rx) = oneshot::channel();
         {
-            let mut pending = self.pending.lock().await;
+            let mut pending = self.0.pending.lock().await;
             pending.insert(key, tx);
         }
         match timeout(dur, rx).await {
             Ok(Ok(msg)) => Ok(msg),
-            Ok(Err(_)) => Err("response channel closed".to_string()),
-            Err(_) => Err(format!(
-                "timeout waiting for {kind:?} response from node {node_id}"
-            )),
+            Ok(Err(_)) => Err(Error::ResponseChannelClosed {
+                node_id: node_id.to_string(),
+            }),
+            Err(_) => Err(Error::ResponseTimeout {
+                node_id: node_id.to_string(),
+                kind,
+            }),
         }
     }
 }
@@ -271,7 +264,7 @@ mod tests {
         Ack, ConfigurationCommandAck, ControlMessage, control_message::Payload,
     };
 
-    fn make_handler() -> Arc<DefaultNodeCommandHandler> {
+    fn make_handler() -> DefaultNodeCommandHandler {
         DefaultNodeCommandHandler::new()
     }
 
@@ -457,7 +450,7 @@ mod tests {
             )
             .await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("timeout"));
+        assert!(matches!(result.unwrap_err(), Error::ResponseTimeout { .. }));
     }
 
     #[tokio::test]

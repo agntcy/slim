@@ -164,10 +164,6 @@ impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
     /// Shutdown and wait until all items currently being processed have called
     /// [`done`](Self::done).
     ///
-    /// Equivalent to k8s `ShutDownWithDrain`. Workers must call `done` on every
-    /// item they pop, otherwise this will wait forever. Calling
-    /// [`shutdown`](Self::shutdown) from another task cancels the wait.
-    ///
     /// If [`shutdown`](Self::shutdown) was already called before this method,
     /// `drain` is already false and this returns immediately.
     pub async fn shutdown_with_drain(&self) {

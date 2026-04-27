@@ -103,8 +103,24 @@ var _ = Describe("Group management through control plane", func() {
 		// wait for moderator to connect
 		time.Sleep(1000 * time.Millisecond)
 
-		// Query control plane for the moderator's actual subscribed name
-		routeListOut := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
+		// Poll until the moderator subscription appears in the route list.
+		// runCombinedOutputWithRetry only retries on command failure, not on
+		// missing content, so we need Eventually here.
+		Eventually(func() string {
+			out, err := exec.Command(
+				slimctlPath,
+				"controller", "route", "list",
+				"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
+				"-n", "slim/a",
+			).CombinedOutput()
+			if err != nil {
+				return ""
+			}
+			return extractSubscriptionName(string(out), "org/default/moderator1")
+		}, 30*time.Second, 1*time.Second).ShouldNot(BeEmpty(),
+			"moderator subscription did not appear in route list within 30s")
+
+		routeListOut := runCombinedOutputWithRetry(5*time.Second, func() *exec.Cmd {
 			return exec.Command(
 				slimctlPath,
 				"controller", "route", "list",
@@ -115,36 +131,7 @@ var _ = Describe("Group management through control plane", func() {
 		routeListOutput := string(routeListOut)
 		fmt.Fprintf(GinkgoWriter, "Route list output:\n%s\n", routeListOutput)
 
-		// Parse the route list output to find the moderator subscription
-		// Format: "org/default/moderator1 id=Some(ID) local=[...] remote=[...]"
-		for _, line := range strings.Split(routeListOutput, "\n") {
-			if strings.Contains(line, "org/default/moderator1") {
-
-				// Extract the full name with ID from the line
-				// Line format: "org/default/moderator1 id=Some(ID) ..."
-				parts := strings.Fields(line)
-				if len(parts) >= 1 {
-					nameWithoutId := parts[0] // Get "org/default/moderator1"
-					// Look for id=Some(X) or id={value:X}
-					for _, part := range parts {
-						if strings.HasPrefix(part, "id=") {
-							idStr := strings.TrimPrefix(part, "id=")
-							idStr = strings.TrimPrefix(idStr, "Some(")
-							idStr = strings.TrimPrefix(idStr, "{value:")
-							idStr = strings.TrimSuffix(idStr, ")")
-							idStr = strings.TrimSuffix(idStr, "}")
-
-							// ID is already in hex format, just append it
-							moderatorName = fmt.Sprintf("%s/%s", nameWithoutId, idStr)
-							break
-						}
-					}
-					if moderatorName != "" {
-						break
-					}
-				}
-			}
-		}
+		moderatorName = extractSubscriptionName(routeListOutput, "org/default/moderator1")
 		Expect(moderatorName).NotTo(BeEmpty(), "failed to extract moderator name from route list")
 		fmt.Fprintf(GinkgoWriter, "Extracted moderator name: %s\n", moderatorName)
 

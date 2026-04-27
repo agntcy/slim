@@ -88,7 +88,7 @@ jemallocator = { version = "0.5" }
 jsonwebtoken = { version = "10.3.0", features = ["aws_lc_rs"] }
 
 lazy_static = "1.5.0"
-libsqlite3-sys = { version = "0.30", features = ["bundled"] }
+libsqlite3-sys = { version = ">=0.17.2, <0.38.0", features = ["bundled"] }
 mls-rs = { version = "0.54" }
 mls-rs-core = { version = "0.26" }
 mls-rs-crypto-awslc = { version = "0.23" }

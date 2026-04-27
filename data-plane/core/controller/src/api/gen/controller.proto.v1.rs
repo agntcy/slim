@@ -198,6 +198,10 @@ pub struct RegisterNodeRequest {
     pub connection_details: ::prost::alloc::vec::Vec<ConnectionDetails>,
     #[prost(string, optional, tag = "3")]
     pub group_name: ::core::option::Option<::prost::alloc::string::String>,
+    /// Active connections on the data plane at the time of registration.
+    /// Allows the control plane to reconcile link state without an extra round-trip.
+    #[prost(message, repeated, tag = "4")]
+    pub connections: ::prost::alloc::vec::Vec<ConnectionEntry>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RegisterNodeResponse {

@@ -58,21 +58,16 @@ pub enum DatabaseConfig {
 }
 
 /// Reconciler tuning parameters.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct ReconcilerConfig {
     /// Maximum number of times a failed reconcile request is requeued.
     pub max_requeues: usize,
-    /// Maximum number of route/link reconciles running concurrently.
-    pub max_parallel_reconciles: usize,
 }
 
 impl Default for ReconcilerConfig {
     fn default() -> Self {
-        Self {
-            max_requeues: 15,
-            max_parallel_reconciles: 1000,
-        }
+        Self { max_requeues: 15 }
     }
 }
 
@@ -84,7 +79,6 @@ mod tests {
     fn reconciler_config_defaults() {
         let c = ReconcilerConfig::default();
         assert_eq!(c.max_requeues, 15);
-        assert_eq!(c.max_parallel_reconciles, 1000);
     }
 
     #[test]

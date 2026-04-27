@@ -36,7 +36,7 @@ spec:
       serviceAccountName: {{ include "control-plane.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      containers:  
+      containers:
         - name: {{ .Chart.Name }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -54,9 +54,9 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           command:
-            - "/control-plane"
+            - "/slim-control-plane"
           args:
-            - "-config"
+            - "--config"
             - "/config.yaml"
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
@@ -67,7 +67,7 @@ spec:
           volumeMounts:
             - name: config-volume
               mountPath: /config.yaml
-              subPath: config.yaml                          
+              subPath: config.yaml
 {{- if eq .Values.spire.enabled true }}
             - name: spire-agent-socket
               mountPath: /run/spire/agent-sockets
@@ -86,7 +86,7 @@ spec:
           hostPath:
             path: /run/spire/agent-sockets
             type: Directory
-{{- end}}      
+{{- end}}
         - name: config-volume
           configMap:
             name: {{ include "control-plane.fullname" . }}
