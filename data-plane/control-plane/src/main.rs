@@ -1,7 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-
 use anyhow::{Context, Result};
 use clap::Parser;
 use slim_config::provider::ConfigResolver;
@@ -51,11 +50,7 @@ async fn main() -> Result<()> {
     // ── Core services ─────────────────────────────────────────────────────────
     let cmd_handler = DefaultNodeCommandHandler::new();
 
-    let route_service = RouteService::new(
-        db.clone(),
-        cmd_handler.clone(),
-        cfg.reconciler,
-    );
+    let route_service = RouteService::new(db.clone(), cmd_handler.clone(), cfg.reconciler);
 
     let group_service = GroupService::new(db.clone(), cmd_handler.clone());
 

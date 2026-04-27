@@ -44,7 +44,9 @@ impl RouteReconciler {
         let mut requeue_counts: HashMap<String, usize> = HashMap::new();
 
         while let Some(node_id) = self.queue.pop().await {
-            if let Err(e) = handle_request(&self.db, &self.cmd_handler, &self.link_queue, &node_id).await {
+            if let Err(e) =
+                handle_request(&self.db, &self.cmd_handler, &self.link_queue, &node_id).await
+            {
                 tracing::error!("route reconciler: failed for node {node_id}: {e}");
 
                 let count = {
@@ -169,9 +171,7 @@ async fn handle_request(
         "route reconciler: sending config command to node {node_id} (msg_id={message_id})"
     );
 
-    cmd_handler
-        .send_message(node_id, msg)
-        .await?;
+    cmd_handler.send_message(node_id, msg).await?;
 
     let response = cmd_handler
         .wait_for_response(node_id, ResponseKind::ConfigCommandAck, &message_id)
@@ -179,7 +179,11 @@ async fn handle_request(
 
     let ack = match response.payload {
         Some(Payload::ConfigCommandAck(a)) => a,
-        _ => return Err(Error::UnexpectedResponse(format!("received unexpected response from node {node_id}"))),
+        _ => {
+            return Err(Error::UnexpectedResponse(format!(
+                "received unexpected response from node {node_id}"
+            )));
+        }
     };
 
     for sub_ack in &ack.subscriptions_status {
