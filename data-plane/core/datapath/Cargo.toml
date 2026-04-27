@@ -45,3 +45,7 @@ tracing-test = { workspace = true, features = ["no-env-filter"] }
 [[bench]]
 name = "pool_benchmark"
 harness = false
+
+[[bench]]
+name = "name_benchmark"
+harness = false
