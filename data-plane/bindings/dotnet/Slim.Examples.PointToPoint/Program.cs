@@ -93,7 +93,7 @@ class Program
         return await rootCommand.InvokeAsync(args);
     }
 
-    static async Task RunSender(SlimApp app, ulong connId, string remote, string message, 
+    static async Task RunSender(SlimApp app, ulong connId, string remote, string message,
         int iterations, bool enableMls, ulong instance)
     {
         using var remoteName = SlimName.Parse(remote);
@@ -126,17 +126,17 @@ class Program
                 // Wait for reply
                 var msg = await session.GetMessageAsync(TimeSpan.FromSeconds(5));
                 Console.WriteLine($"[{instance}] Received reply '{msg.Text}' - {i + 1}/{iterations}");
-                
+
                 await Task.Delay(1000);
             }
             catch (Exception)
             {
                 Console.WriteLine($"[{instance}] Error sending/receiving message {i + 1}/{iterations}");
+            }
         }
-    }
 
-    // Note: session.Dispose() is automatically called by 'using var' at end of method
-}
+        // Note: session.Dispose() is automatically called by 'using var' at end of method
+    }
 
     static async Task RunReceiver(SlimApp app, ulong instance)
     {
@@ -148,7 +148,7 @@ class Program
             {
                 var session = await app.ListenForSessionAsync();
                 Console.WriteLine($"[{instance}] New session established!");
-                
+
                 // Handle session in background
                 _ = Task.Run(() => HandleSession(app, session, instance));
             }
@@ -181,15 +181,15 @@ class Program
                         Console.WriteLine($"[{instance}] Session ended: {ex.Message}");
                         break;
                     }
+                }
             }
-        }
 
-        // Note: session.Dispose() is automatically called by 'using' block
-        Console.WriteLine($"[{instance}] Session closed");
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"[{instance}] Error handling session: {ex.Message}");
-    }
+            // Note: session.Dispose() is automatically called by 'using' block
+            Console.WriteLine($"[{instance}] Session closed");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[{instance}] Error handling session: {ex.Message}");
+        }
     }
 }

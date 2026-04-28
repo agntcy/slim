@@ -18,4 +18,5 @@ services:
         - endpoint: "http://localhost:46357"
           tls:
             insecure: true
+
       servers: []

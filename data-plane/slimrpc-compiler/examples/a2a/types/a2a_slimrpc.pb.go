@@ -32,11 +32,11 @@ type A2AServiceClient interface {
 }
 
 type A2AServiceClientImpl struct {
-	channel *slim_bindings.Channel
+	channel slim_bindings.ChannelInterface
 }
 
 // NewA2AServiceClient creates a new A2AService client.
-func NewA2AServiceClient(channel *slim_bindings.Channel) A2AServiceClient {
+func NewA2AServiceClient(channel slim_bindings.ChannelInterface) A2AServiceClient {
 	return &A2AServiceClientImpl{
 		channel: channel,
 	}
@@ -485,7 +485,7 @@ func (UnimplementedA2AServiceServer) DeleteTaskPushNotificationConfig(ctx contex
 
 
 // RegisterA2AServiceServer registers the server with slim_bindings.
-func RegisterA2AServiceServer(server *slim_bindings.Server, impl A2AServiceServer) {
+func RegisterA2AServiceServer(server slim_bindings.ServerInterface, impl A2AServiceServer) {
 	server.RegisterUnaryUnary("a2a.v1.A2AService", "SendMessage", &A2AService_SendMessage_Handler{impl: impl})
 	server.RegisterUnaryStream("a2a.v1.A2AService", "SendStreamingMessage", &A2AService_SendStreamingMessage_Handler{impl: impl})
 	server.RegisterUnaryUnary("a2a.v1.A2AService", "GetTask", &A2AService_GetTask_Handler{impl: impl})

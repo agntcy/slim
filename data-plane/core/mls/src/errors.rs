@@ -22,7 +22,7 @@ pub enum MlsError {
     CryptoProviderError(String),
 
     // Auth / identity provider
-    #[error("identity provider error")]
+    #[error("identity provider error: {0}")]
     IdentityProviderError(#[from] AuthError),
 
     // Ciphersuite / client / group lifecycle
@@ -64,14 +64,10 @@ pub enum MlsError {
     VerificationFailed(String),
     #[error("external sender validation failed: {0}")]
     ExternalSenderFailed(String),
-    #[error("public key not found in signed identity")]
-    PublicKeyNotFound,
     #[error(
         "public key mismatch: identity public key does not match provided public key: expected: {expected}, found: {found}"
     )]
     PublicKeyMismatch { expected: String, found: String },
-    #[error("subject not found")]
-    SubjectNotFound,
     #[error("external commit not supported")]
     ExternalCommitNotSupported,
 }

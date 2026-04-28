@@ -58,6 +58,7 @@ mod name;
 mod server_config;
 mod service;
 mod session;
+mod transport_protocol;
 
 // SlimRPC module (unified core + UniFFI bindings)
 pub mod slimrpc;
@@ -67,7 +68,7 @@ pub use app::{App, Direction, SessionWithCompletion};
 pub use build_info::{BuildInfo, get_build_info, get_version};
 pub use client_config::{
     BackoffConfig, ClientConfig, ExponentialBackoff, KeepaliveConfig, ProxyConfig,
-    new_insecure_client_config,
+    new_config_from_json, new_insecure_client_config,
 };
 pub use common_config::{
     BasicAuth, CaSource, ClientAuthenticationConfig, ServerAuthenticationConfig, SpireConfig,
@@ -99,12 +100,16 @@ pub use service::{
     new_dataplane_config, new_service_configuration,
 };
 pub use session::{Session, SessionConfig, SessionType};
+pub use transport_protocol::TransportProtocol;
+pub use transport_protocol::TransportProtocol as ClientTransportProtocol;
+pub use transport_protocol::TransportProtocol as ServerTransportProtocol;
 
 // SLIMRpc re-exports
 pub use slimrpc::{
-    BidiStreamHandler, Channel, Codec, Context, DEADLINE_KEY, Decoder, Encoder, HandlerResponse,
-    HandlerType, InvalidRpcCode, MAX_TIMEOUT, RequestStreamWriter, ResponseSink, ResponseStream,
-    ResponseStreamReader, RpcCode, RpcError, STATUS_CODE_KEY, Server,
+    BidiStreamHandler, Channel, Codec, Context, DEADLINE_KEY, DecodedStream, Decoder, Encoder,
+    HandlerType, InvalidRpcCode, MAX_TIMEOUT, MulticastBidiStreamHandler, MulticastResponseReader,
+    MulticastStreamMessage, RawStream, RequestStreamWriter, ResponseSink, ResponseStreamReader,
+    RpcCode, RpcError, RpcMessageContext, RpcMulticastItem, STATUS_CODE_KEY, Server,
     SessionContext as RpcSessionContext, StreamMessage, StreamStreamHandler, StreamUnaryHandler,
     UnaryStreamHandler, UnaryUnaryHandler, UniffiRequestStream as RequestStream,
     build_method_subscription_name,

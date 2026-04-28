@@ -121,14 +121,12 @@ impl RootStoreBuilder {
         root_store: &mut RootCertStore,
         spiffe_cfg: &spire::SpireConfig,
     ) -> Result<(), ConfigError> {
-        let mut spire_identity_manager = spiffe_cfg.create_provider();
+        let mut spire_identity_manager = spiffe_cfg.create_provider()?;
         spire_identity_manager.initialize().await?;
 
         if !spiffe_cfg.trust_domains.is_empty() {
             for domain in &spiffe_cfg.trust_domains {
-                let bundle = spire_identity_manager
-                    .get_x509_bundle_for_trust_domain(domain)
-                    .await?;
+                let bundle = spire_identity_manager.get_x509_bundle_for_trust_domain(domain)?;
 
                 for cert in bundle.authorities() {
                     let der_cert = CertificateDer::from(cert.as_ref().to_vec());

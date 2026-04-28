@@ -1,0 +1,36 @@
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+
+# Generated code
+generated/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+*.project
+*.classpath
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.class
+*.jar
+*.war
+*.ear
+
+# Logs
+*.log

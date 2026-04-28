@@ -13,4 +13,5 @@ extend-exclude = [
     "bindings/go/generated/**",
     "**/*.pbxproj",
     "**/*.pbxproj.bak",
+    "bindings/java/examples/**/types/**",
 ]

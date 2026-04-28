@@ -50,10 +50,12 @@ jobs:
         working-directory: ${{ inputs.go-bindings-working-directory }}
     steps:
       - name: Checkout source repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: ${{ inputs.go-version }}
 
@@ -61,10 +63,11 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           workspace: ./data-plane
+          cache-enabled: false
 
       # Download all library artifacts
       - name: Download Generated Go Binding Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           merge-multiple: true
           path: ${{ inputs.go-bindings-working-directory }}/downloaded_slim_bindings
@@ -75,8 +78,10 @@ jobs:
           find ./downloaded_slim_bindings -type f -ls
 
       - name: Clone target repository
+        env:
+          GH_TOKEN: ${{ secrets.gh-token }}
         run: |
-          git clone https://x-access-token:${{ secrets.gh-token }}@github.com/${{ env.GO_BINDINGS_REPO }}.git ./target-repo
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${GO_BINDINGS_REPO}.git" ./target-repo
 
       - name: Update target repository
         run: |
@@ -92,11 +97,15 @@ jobs:
           popd
 
       - name: Commit and push to pre-release branch
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
         run: |
           pushd ./target-repo
 
           # Extract version from tag name (remove 'slim-bindings-' prefix)
-          VERSION="${{ github.ref_name }}"
+          VERSION="${REF_NAME}"
           VERSION="${VERSION#slim-bindings-}"
           echo "📦 Extracted version: $VERSION"
 
@@ -107,7 +116,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add ${{ env.FILES_TO_RELEASE }}
+          read -ra files <<< "$FILES_TO_RELEASE"
+          git add "${files[@]}"
 
           # Check if there are changes to commit
           if git diff --cached --quiet; then
@@ -117,7 +127,7 @@ jobs:
 
           git commit -m "Release $VERSION
 
-          Generated from https://github.com/${{ github.repository }}/commit/${{ github.sha }}
+          Generated from https://github.com/${REPO}/commit/${SHA}
 
           Platforms:
           - linux/amd64 (x86_64-unknown-linux-gnu)
@@ -188,16 +198,18 @@ jobs:
         shell: bash
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup QEMU for ARM64 emulation
         if: matrix.platform.use_qemu == true
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
         with:
           platforms: arm64
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: ${{ inputs.go-version }}
 
@@ -208,23 +220,27 @@ jobs:
 
       - name: Test bindings installation and usage (ARM64 with QEMU)
         if: matrix.platform.use_qemu == true
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          PLATFORM_TARGET: ${{ matrix.platform.target }}
+          GO_BINDINGS_REPO_NAME: ${{ env.GO_BINDINGS_REPO }}
         run: |
           # Extract version from tag name
-          VERSION="${{ github.ref_name }}"
+          VERSION="${REF_NAME}"
           VERSION="${VERSION#slim-bindings-}"
           echo "📦 Testing version: $VERSION"
-          echo "🖥️  Platform: ${{ matrix.platform.target }}"
+          echo "🖥️  Platform: $PLATFORM_TARGET"
           echo "🔧 Using QEMU ARM64 emulation"
 
           # Determine Go arch for ARM64
-          if [[ "${{ matrix.platform.target }}" == *"aarch64"* ]]; then
-            GO_ARCH="arm64"
+          if [[ "$PLATFORM_TARGET" == *"aarch64"* ]]; then
+            export GO_ARCH="arm64"
           else
-            GO_ARCH="amd64"
+            export GO_ARCH="amd64"
           fi
 
           # Determine libc variant
-          if [[ "${{ matrix.platform.target }}" == *"musl"* ]]; then
+          if [[ "$PLATFORM_TARGET" == *"musl"* ]]; then
             ALPINE_VARIANT="alpine:latest"
           else
             ALPINE_VARIANT="arm64v8/ubuntu:22.04"
@@ -232,10 +248,10 @@ jobs:
 
           # Run test in ARM64 container
           docker run --rm --platform linux/arm64 \
-            -v $(pwd):/workspace \
-            -v $(pwd):/repo:ro \
+            -v "$(pwd)":/workspace \
+            -v "$(pwd)":/repo:ro \
             -w /workspace \
-            $ALPINE_VARIANT \
+            "$ALPINE_VARIANT" \
             sh -c "
               # Install dependencies
               if command -v apk >/dev/null; then
@@ -254,11 +270,11 @@ jobs:
               echo '✅ Created test module'
 
               # Fetch bindings
-              go get github.com/${{ env.GO_BINDINGS_REPO }}@$VERSION
+              go get github.com/${GO_BINDINGS_REPO_NAME}@$VERSION
               echo '✅ Fetched bindings package version $VERSION'
 
               # Run setup tool
-              go run github.com/${{ env.GO_BINDINGS_REPO }}/cmd/slim-bindings-setup@$VERSION
+              go run github.com/${GO_BINDINGS_REPO_NAME}/cmd/slim-bindings-setup@$VERSION
               echo '✅ Downloaded native libraries'
 
               # Copy test program from repo
@@ -268,14 +284,19 @@ jobs:
               go run main.go
 
               echo ''
-              echo '🎉 All tests passed on ${{ matrix.platform.target }}!'
+              echo '🎉 All tests passed on ${PLATFORM_TARGET}!'
             "
 
       - name: Test bindings installation and usage (Native)
         if: matrix.platform.use_qemu != true
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          PLATFORM_TARGET: ${{ matrix.platform.target }}
+          PLATFORM_RUNNER: ${{ matrix.platform.runner }}
+          GO_BINDINGS_REPO_NAME: ${{ env.GO_BINDINGS_REPO }}
         run: |
           # Extract version from tag name
-          VERSION="${{ github.ref_name }}"
+          VERSION="${REF_NAME}"
           VERSION="${VERSION#slim-bindings-}"
           echo "📦 Testing version: $VERSION"
 
@@ -287,11 +308,11 @@ jobs:
           fi
           cd "$TEST_DIR"
           echo "📂 Testing in: $TEST_DIR"
-          echo "🖥️  Platform: ${{ matrix.platform.target }}"
-          echo "🏃 Runner: ${{ matrix.platform.runner }}"
+          echo "🖥️  Platform: $PLATFORM_TARGET"
+          echo "🏃 Runner: $PLATFORM_RUNNER"
 
           # For Windows MinGW, we need to ensure MinGW tools are in PATH
-          if [[ "${{ matrix.platform.target }}" == "x86_64-pc-windows-gnu" ]]; then
+          if [[ "$PLATFORM_TARGET" == "x86_64-pc-windows-gnu" ]]; then
             echo "🔧 Setting up MinGW environment"
             # GitHub Windows runners have MinGW installed
             export PATH="/c/ProgramData/chocolatey/lib/mingw/tools/install/mingw64/bin:$PATH"
@@ -303,26 +324,28 @@ jobs:
           echo "✅ Created test module"
 
           # Fetch the bindings using the version tag
-          go get github.com/${{ env.GO_BINDINGS_REPO }}@$VERSION
+          go get "github.com/${GO_BINDINGS_REPO_NAME}@$VERSION"
           echo "✅ Fetched bindings package version $VERSION"
 
           # Run the setup tool to download native libraries
-          go run github.com/${{ env.GO_BINDINGS_REPO }}/cmd/slim-bindings-setup@$VERSION
+          go run "github.com/${GO_BINDINGS_REPO_NAME}/cmd/slim-bindings-setup@$VERSION"
           echo "✅ Downloaded native libraries"
 
           # Copy test program from repo
-          cp $GITHUB_WORKSPACE/.github/tests/go/test_installation.go main.go
+          cp "$GITHUB_WORKSPACE/.github/tests/go/test_installation.go" main.go
 
           # Run the test program
           go run main.go
 
           echo ""
-          echo "🎉 All tests passed on ${{ matrix.platform.target }}!"
+          echo "🎉 All tests passed on $PLATFORM_TARGET!"
 
       - name: Test result summary
         if: success()
+        env:
+          PLATFORM_TARGET: ${{ matrix.platform.target }}
         run: |
-          echo "✅ Go bindings verification completed successfully on ${{ matrix.platform.target }}"
+          echo "✅ Go bindings verification completed successfully on $PLATFORM_TARGET"
           echo "The published bindings can be safely tagged for release."
 
   # ==========================================================================
@@ -335,10 +358,14 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/slim-bindings-')
     steps:
       - name: Clone target repository
+        env:
+          GH_TOKEN: ${{ secrets.gh-token }}
         run: |
-          git clone https://x-access-token:${{ secrets.gh-token }}@github.com/${{ env.GO_BINDINGS_REPO }}.git ./target-repo
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${GO_BINDINGS_REPO}.git" ./target-repo
 
       - name: Merge to main and create tag
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
           cd ./target-repo
 
@@ -347,7 +374,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           # Extract version from tag name
-          VERSION="${{ github.ref_name }}"
+          VERSION="${REF_NAME}"
           VERSION="${VERSION#slim-bindings-}"
           PRE_RELEASE_BRANCH="pre-release-$VERSION"
 
@@ -373,12 +400,15 @@ jobs:
           echo "✅ Updated tag $VERSION to point to main"
 
       - name: Cleanup pre-release branch
-        if: always()  # Run even if previous steps fail
+        if: always() # Run even if previous steps fail
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          JOB_STATUS: ${{ job.status }}
         run: |
           cd ./target-repo
 
           # Extract version from tag name
-          VERSION="${{ github.ref_name }}"
+          VERSION="${REF_NAME}"
           VERSION="${VERSION#slim-bindings-}"
           PRE_RELEASE_BRANCH="pre-release-$VERSION"
 
@@ -393,7 +423,7 @@ jobs:
 
           # If the merge step failed, we need to delete the tag too
           # (it's pointing to pre-release branch, not main)
-          if [ "${{ job.status }}" != "success" ]; then
+          if [ "$JOB_STATUS" != "success" ]; then
             echo "⚠️  Job failed - cleaning up pre-release tag as well"
             if git ls-remote --tags origin "$VERSION" | grep -q "$VERSION"; then
               git push origin --delete "$VERSION" && echo "✅ Deleted pre-release tag: $VERSION" || echo "⚠️  Failed to delete tag"
@@ -405,11 +435,13 @@ jobs:
           echo "✅ Cleanup complete"
 
       - name: Release complete
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          VERSION="${{ github.ref_name }}"
+          VERSION="${REF_NAME}"
           VERSION="${VERSION#slim-bindings-}"
           echo ""
           echo "🎉 Release $VERSION complete!"
-          echo "✅ Go bindings published to https://github.com/${{ env.GO_BINDINGS_REPO }}"
+          echo "✅ Go bindings published to https://github.com/${GO_BINDINGS_REPO}"
           echo "✅ Tagged as $VERSION"
           echo "✅ All tests passed on 8 platforms"

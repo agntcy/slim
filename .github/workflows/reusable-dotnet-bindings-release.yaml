@@ -46,16 +46,18 @@ jobs:
         working-directory: ${{ inputs.dotnet-bindings-working-directory }}
     steps:
       - name: Checkout source repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
         with:
           dotnet-version: ${{ inputs.dotnet-version }}
 
       # Download NuGet package artifact
       - name: Download NuGet Package Artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: dotnet-bindings-nuget
           path: ${{ inputs.dotnet-bindings-working-directory }}/nupkg
@@ -68,34 +70,48 @@ jobs:
       - name: Extract version from package name
         id: extract-version
         run: |
-          # Extract version from the .nupkg filename
-          PACKAGE=$(ls ./nupkg/*.nupkg | head -1)
+          # Use Agntcy.Slim (not Agntcy.Slim.SlimRpc) for version metadata
+          PACKAGE=""
+          for f in ./nupkg/Agntcy.Slim.*.nupkg; do
+            [[ "$f" != *SlimRpc* ]] && PACKAGE="$f" && break
+          done
           FILENAME=$(basename "$PACKAGE")
           # Extract version from Agntcy.Slim.X.Y.Z.nupkg
           VERSION=$(echo "$FILENAME" | sed -n 's/Agntcy\.Slim\.\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*.*\)\.nupkg/\1/p')
           echo "Extracted version: $VERSION"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Determine if pre-release
         id: prerelease
         run: |
           VERSION="${{ steps.extract-version.outputs.version }}"
           if [[ "$VERSION" =~ (alpha|beta|rc) ]]; then
-            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
             echo "This is a pre-release version"
           else
-            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
             echo "This is a stable release"
           fi
 
       - name: Publish to NuGet.org
         run: |
-          PACKAGE=$(ls ./nupkg/*.nupkg | head -1)
-          echo "Publishing package: $PACKAGE"
+          set -euo pipefail
+          shopt -s nullglob
 
-          dotnet nuget push "$PACKAGE" \
-            --api-key "${{ secrets.nuget-api-token }}" \
-            --source https://api.nuget.org/v3/index.json \
-            --skip-duplicate
+          for PACKAGE in ./nupkg/*.nupkg; do
+            echo "Publishing package: $PACKAGE"
+            dotnet nuget push "$PACKAGE" \
+              --api-key "${{ secrets.nuget-api-token }}" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
+          done
 
-          echo "Successfully published to NuGet.org"
+          for PACKAGE in ./nupkg/*.snupkg; do
+            echo "Publishing symbol package: $PACKAGE"
+            dotnet nuget push "$PACKAGE" \
+              --api-key "${{ secrets.nuget-api-token }}" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
+          done
+
+          echo "Successfully published all packages to NuGet.org"

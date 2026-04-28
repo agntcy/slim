@@ -1,0 +1,381 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+version: "3"
+
+silent: true
+set: [pipefail]
+shopt: [globstar]
+
+includes:
+  adapter:
+    taskfile: ../rust/Taskfile.yaml
+    internal: false
+  rust:
+    taskfile: ../../../tasks/rust.yaml
+    internal: true
+
+env:
+  SHARED_SECRET: "my_shared_secret_for_testing_purposes_only"
+
+vars:
+  BINDINGS_VERSION:
+    sh: "mvn -f pom.xml help:evaluate -Dexpression=project.version -q -DforceStdout"
+  BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
+  PROFILE: '{{.PROFILE | default "debug"}}'
+  CURRENT_TARGET:
+    sh: 'rustc -vV | sed -n "s|host: ||p"'
+  TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
+  TARGET_DIR: "{{.TASKFILE_DIR}}/../../target"
+  SERVICE_TARGET: "{{.TARGET_DIR}}/{{.TARGET}}/{{.PROFILE}}"
+  LIB_NAME: slim_bindings
+  _DEFAULT_LIB_PATH:
+    sh: |
+      # Detect OS to determine static library extension
+      OS=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
+      case "$OS" in
+        mingw*|msys*|cygwin*)
+          echo "{{.SERVICE_TARGET}}/{{.LIB_NAME}}.lib"
+          ;;
+        *)
+          echo "{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.a"
+          ;;
+      esac
+  LIB_PATH: "{{.LIB_PATH | default ._DEFAULT_LIB_PATH}}"
+  # Platform mapping: rust-target|java-native-path|extension (JNA format: hyphens, win32 for Windows)
+  PLATFORMS: |
+    x86_64-unknown-linux-gnu|linux-x86-64|so
+    x86_64-unknown-linux-musl|linux-x86-64|so
+    aarch64-unknown-linux-gnu|linux-aarch64|so
+    aarch64-unknown-linux-musl|linux-aarch64|so
+    x86_64-apple-darwin|darwin-x86-64|dylib
+    aarch64-apple-darwin|darwin-aarch64|dylib
+    x86_64-pc-windows-msvc|win32-x86-64|dll
+    aarch64-pc-windows-msvc|win32-aarch64|dll
+
+tasks:
+  default:
+    cmds:
+      - task -l
+
+  install-uniffi-bindgen-java:
+    desc: Install uniffi-bindgen-java CLI tool
+    status:
+      - which uniffi-bindgen-java
+    cmds:
+      - echo "Installing uniffi-bindgen-java..."
+      - cargo install uniffi-bindgen-java --git https://github.com/IronCoreLabs/uniffi-bindgen-java --tag 0.2.1 --config net.git-fetch-with-cli=true
+      - echo "uniffi-bindgen-java installed"
+
+  generate:
+    desc: Generate Java bindings from compiled Rust library
+    deps:
+      - task: adapter:bindings:build:all
+        vars:
+          PROFILE: "{{.PROFILE}}"
+      - install-uniffi-bindgen-java
+    cmds:
+      - echo "Generating Java bindings from compiled library..."
+      - task: copy-libraries
+      - echo "Checking library file exists:"
+      - ls -lah '{{.LIB_PATH}}'
+      - |
+        uniffi-bindgen-java generate \
+          --library '{{.LIB_PATH}}' \
+          --out-dir generated/uniffi \
+          --config uniffi.toml
+      - task: patch-bindings
+      - echo "Bindings generated in generated/"
+
+  copy-libraries:
+    desc: Copy native libraries from target folder to generated/native structure
+    internal: true
+    cmds:
+      - rm -rf generated/native
+      - mkdir -p generated/native
+      - |
+        library_count=0
+
+        # Scan all target/*/profile/ directories for shared libraries
+        for target_release_dir in "{{.TARGET_DIR}}"/*/{{.PROFILE}}; do
+          [[ -d "$target_release_dir" ]] || continue
+
+          target=$(basename "$(dirname "$target_release_dir")")
+
+          java_path=""
+          ext=""
+          while IFS='|' read -r platform_target platform_java platform_ext; do
+            if [[ "$platform_target" == "$target" ]]; then
+              java_path="$platform_java"
+              ext="$platform_ext"
+              break
+            fi
+          done <<< "{{.PLATFORMS}}"
+
+          if [[ -z "$java_path" || -z "$ext" ]]; then
+            echo "  Skipping $target (not in PLATFORMS list)"
+            continue
+          fi
+
+          case "$ext" in
+            so|dylib)
+              src="$target_release_dir/lib{{.LIB_NAME}}.$ext"
+              lib_name="lib{{.LIB_NAME}}.$ext"
+              ;;
+            dll)
+              src="$target_release_dir/{{.LIB_NAME}}.$ext"
+              lib_name="{{.LIB_NAME}}.$ext"
+              ;;
+          esac
+
+          if [[ ! -f "$src" ]]; then
+            echo "  $target: library not found ($src)"
+            continue
+          fi
+
+          native_dir="generated/native/$java_path"
+          mkdir -p "$native_dir"
+          cp "$src" "$native_dir/$lib_name"
+          echo "  $target → $java_path/$lib_name"
+          library_count=$((library_count + 1))
+        done
+
+        if [[ $library_count -eq 0 ]]; then
+          echo "No libraries found under {{.TARGET_DIR}}"
+          exit 1
+        fi
+
+        echo "Total libraries copied: $library_count"
+
+  patch-bindings:
+    desc: Patch generated Java bindings to fix compatibility issues
+    internal: true
+    cmds:
+      - ./patch-bindings.sh
+
+  build:
+    desc: Build Java bindings and all examples
+    deps:
+      - generate
+    cmds:
+      - echo "Building Java bindings..."
+      - mvn clean package -DskipTests
+      - echo "Installing bindings to local Maven repository..."
+      - mvn install -DskipTests -q
+      - echo "Compiling examples..."
+      - cd examples && mvn clean compile -q && mvn install -DskipTests -q
+      - cd examples/slimrpc/simple && mvn clean compile -q
+      - echo "Build complete"
+
+  test:
+    desc: Run Java bindings tests
+    deps:
+      - generate
+    cmds:
+      - echo "Running Java bindings tests..."
+      - |
+        if [[ -n "{{.LIB_PATH}}" && "{{.LIB_PATH}}" == generated/native/* ]]; then
+          mvn test -Duniffi.component.slim_bindings.libraryOverride="$(pwd)/{{.LIB_PATH}}"
+        else
+          mvn test
+        fi
+      - echo "Tests complete"
+
+  install:
+    desc: Install Java bindings JAR to local Maven repository
+    deps:
+      - build
+    cmds:
+      - echo "Installing Java bindings to local Maven repository..."
+      - mvn install -DskipTests
+      - echo "Installed to local Maven repository"
+
+  publish:maven-central:
+    desc: Publish Java bindings to Maven Central (requires MVN_TOKEN_NAME, MVN_TOKEN_PASSWORD, GPG_SIGNING_KEY, GPG_PASSPHRASE, PUBLISH_VERSION)
+    deps:
+      - build
+    vars:
+      PUBLISH_VERSION: '{{.PUBLISH_VERSION | default "1.0.0"}}'
+    cmds:
+      - '[ -n "$MVN_TOKEN_NAME" ] && [ -n "$MVN_TOKEN_PASSWORD" ] && [ -n "$GPG_SIGNING_KEY" ] && [ -n "$GPG_PASSPHRASE" ] || (echo "Error: MVN_TOKEN_NAME, MVN_TOKEN_PASSWORD, GPG_SIGNING_KEY, GPG_PASSPHRASE must be set"; exit 1)'
+      - echo "Publishing Java bindings to Maven Central (OSSRH Staging API)..."
+      - mvn deploy -Drevision="{{.PUBLISH_VERSION}}" -DskipTests -DaltDeploymentRepository=central::default::https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/
+      - echo "Transferring deployment to Central Portal..."
+      - |
+        AUTH=$(echo -n "$MVN_TOKEN_NAME:$MVN_TOKEN_PASSWORD" | base64 | tr -d '\n')
+        curl -sS -X POST -H "Authorization: Bearer $AUTH" \
+          "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/io.agntcy?publishing_type=automatic"
+      - echo "Successfully published."
+
+  clean:
+    desc: Clean build artifacts and generated code
+    cmds:
+      - echo "Cleaning build artifacts..."
+      - rm -rf generated/
+      - rm -rf target/
+      - mvn clean 2>/dev/null || true
+      - cd examples && mvn clean 2>/dev/null || true
+      - echo "Clean complete"
+
+  lint:
+    desc: Run Maven PMD static analysis
+    cmds:
+      - mvn pmd:check
+
+  # ==========================================================================
+  # Examples Tasks
+  # ==========================================================================
+
+  examples:install:bindings:
+    desc: Install Java bindings JAR to local Maven repository
+    cmds:
+      - echo "Installing Java bindings to Maven local repository..."
+      - |
+        if [ ! -f target/slim-bindings-java-{{.BINDINGS_VERSION}}.jar ]; then
+          echo "Java bindings JAR not found, building first..."
+          task build
+        fi
+      - |
+        mvn install:install-file \
+          -Dfile=target/slim-bindings-java-{{.BINDINGS_VERSION}}.jar \
+          -DgroupId=io.agntcy.slim \
+          -DartifactId=slim-bindings-java \
+          -Dversion={{.BINDINGS_VERSION}} \
+          -Dpackaging=jar \
+          -DgeneratePom=true
+      - echo "Java bindings installed to ~/.m2/repository/io/agntcy/slim/slim-bindings-java/{{.BINDINGS_VERSION}}/"
+
+  examples:compile:
+    desc: Compile Java examples
+    deps:
+      - examples:install:bindings
+    cmds:
+      - echo "Compiling Java examples..."
+      - cd examples && mvn clean compile
+      - echo "Java compilation complete"
+
+  examples:server:
+    desc: Run the SLIM server example
+    deps:
+      - build
+    cmds:
+      - echo "Starting SLIM server..."
+      - cd examples && mvn exec:java@server -Dexec.args="{{.CLI_ARGS}}"
+    vars:
+      CLI_ARGS: '{{.CLI_ARGS | default ""}}'
+
+  examples:p2p:alice:
+    desc: "Point to Point example - Alice listens for messages and echoes them"
+    deps:
+      - build
+    cmds:
+      - |
+        cd examples && mvn exec:java@p2p \
+          -Dexec.args="--local agntcy/ns/alice --shared-secret $SHARED_SECRET {{.EXTRA_ARGS}}"
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  examples:p2p:no-mls:bob:
+    desc: "Point to Point example - Bob sends unencrypted messages to Alice"
+    deps:
+      - build
+    cmds:
+      - |
+        cd examples && mvn exec:java@p2p \
+          -Dexec.args="--local agntcy/ns/bob --shared-secret $SHARED_SECRET --remote agntcy/ns/alice --message 'hello from Java' --iterations 5 {{.EXTRA_ARGS}}"
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  examples:p2p:mls:bob:
+    desc: "Point to Point example - Bob sends encrypted messages to Alice"
+    deps:
+      - build
+    cmds:
+      - |
+        cd examples && mvn exec:java@p2p \
+          -Dexec.args="--local agntcy/ns/bob --shared-secret $SHARED_SECRET --remote agntcy/ns/alice --message 'hello from Java (MLS)' --iterations 5 --enable-mls {{.EXTRA_ARGS}}"
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  examples:group:moderator:
+    desc: "Group moderator - Creates channel, invites participants"
+    deps:
+      - build
+    cmds:
+      - |
+        cd examples && mvn exec:java@group \
+          -Dexec.args="--local agntcy/ns/moderator --shared-secret $SHARED_SECRET --remote agntcy/ns/chat --invites agntcy/ns/client-1 --invites agntcy/ns/client-2 {{.EXTRA_ARGS}}"
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  examples:group:client-1:
+    desc: "Group participant - Waits for invitation"
+    deps:
+      - build
+    cmds:
+      - |
+        cd examples && mvn exec:java@group \
+          -Dexec.args="--local agntcy/ns/client-1 --shared-secret $SHARED_SECRET {{.EXTRA_ARGS}}"
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  examples:group:client-2:
+    desc: "Group participant - Waits for invitation"
+    deps:
+      - build
+    cmds:
+      - |
+        cd examples && mvn exec:java@group \
+          -Dexec.args="--local agntcy/ns/client-2 --shared-secret $SHARED_SECRET {{.EXTRA_ARGS}}"
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  examples:rpc:compile:
+    desc: Compile SlimRPC Java examples
+    deps:
+      - examples:compile
+    cmds:
+      - echo "Installing examples project to local Maven repo..."
+      - cd examples && mvn install -DskipTests -q
+      - echo "Compiling SlimRPC Java examples..."
+      - cd examples/slimrpc/simple && mvn clean compile
+      - echo "SlimRPC compilation complete"
+
+  examples:rpc:server:
+    desc: Run the SlimRPC server example
+    deps:
+      - build
+    cmds:
+      - echo "Starting SlimRPC server (instance={{.INSTANCE}})..."
+      - cd examples/slimrpc/simple && mvn exec:java@server -Dexec.args="--instance {{.INSTANCE}}"
+    vars:
+      INSTANCE: '{{.INSTANCE | default "server"}}'
+      CLI_ARGS: '{{.CLI_ARGS | default ""}}'
+
+  examples:rpc:client:
+    desc: Run the SlimRPC client example
+    deps:
+      - build
+    cmds:
+      - echo "Starting SlimRPC client..."
+      - cd examples/slimrpc/simple && mvn exec:java@client
+    vars:
+      CLI_ARGS: '{{.CLI_ARGS | default ""}}'
+
+  examples:rpc:group-client:
+    desc: Run the SlimRPC group (multicast) client example
+    deps:
+      - build
+    cmds:
+      - echo "Starting SlimRPC group client..."
+      - cd examples/slimrpc/simple && mvn exec:java@group-client
+    vars:
+      CLI_ARGS: '{{.CLI_ARGS | default ""}}'
+
+  examples:clean:
+    desc: Clean Maven build artifacts for examples
+    cmds:
+      - echo "Cleaning Java example build artifacts..."
+      - cd examples && mvn clean
+      - echo "Clean complete"

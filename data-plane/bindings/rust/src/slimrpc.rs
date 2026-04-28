@@ -12,8 +12,10 @@
 //!
 //! ## Architecture
 //!
-//! SlimRPC uses SLIM sessions as the underlying transport mechanism. Each RPC call creates
-//! a new session, exchanges messages, and closes the session upon completion.
+//! SlimRPC uses SLIM sessions as the underlying transport mechanism. A persistent session
+//! is maintained per remote peer and shared across concurrent RPC calls. Each call is
+//! identified by a unique `rpc-id` in message metadata, which allows the server to
+//! demultiplex concurrent calls over the shared session.
 //!
 //! ## Core Types
 //!
@@ -25,26 +27,26 @@
 //! ## Client Example
 //!
 //! ```no_run
-//! # use slim_bindings::{Channel, Context, Status, Encoder, Decoder};
+//! # use slim_bindings::{Channel, Context, RpcError, Encoder, Decoder};
 //! # use slim_bindings::Name;
 //! # use slim_service::app::App;
 //! # use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 //! # use std::sync::Arc;
-//! # async fn example(app: Arc<App<AuthProvider, AuthVerifier>>) -> Result<(), Status> {
+//! # async fn example(app: Arc<App<AuthProvider, AuthVerifier>>) -> Result<(), RpcError> {
 //! # #[derive(Default)]
 //! # struct Request {}
 //! # impl Encoder for Request {
-//! #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
+//! #     fn encode(self) -> Result<Vec<u8>, RpcError> { Ok(vec![]) }
 //! # }
 //! # #[derive(Default)]
 //! # struct Response {}
 //! # impl Decoder for Response {
-//! #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(Response::default()) }
+//! #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, RpcError> { Ok(Response::default()) }
 //! # }
 //! # let request = Request::default();
 //! // Create a channel
 //! let remote = Name::new("org".to_string(), "namespace".to_string(), "service".to_string());
-//! let channel = Channel::new_internal(app.clone(), remote.as_slim_name());
+//! let channel = Channel::new_with_members_internal(app.clone(), vec![remote.as_slim_name().clone()], false, None).unwrap();
 //!
 //! // Make an RPC call (typically through generated code)
 //! let response: Response = channel.unary("MyService", "MyMethod", request, None, None).await?;
@@ -55,7 +57,7 @@
 //! ## Server Example
 //!
 //! ```no_run
-//! # use slim_bindings::{Server, Context, Status, Encoder, Decoder, App, Name, IdentityProviderConfig, IdentityVerifierConfig};
+//! # use slim_bindings::{Server, Context, RpcError, Encoder, Decoder, App, Name, IdentityProviderConfig, IdentityVerifierConfig};
 //! # use std::sync::Arc;
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # let app_name = Arc::new(Name::new("test".to_string(), "app".to_string(), "v1".to_string()));
@@ -67,12 +69,12 @@
 //! # #[derive(Default)]
 //! # struct Request {}
 //! # impl Decoder for Request {
-//! #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, Status> { Ok(Request::default()) }
+//! #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, RpcError> { Ok(Request::default()) }
 //! # }
 //! # #[derive(Default)]
 //! # struct Response {}
 //! # impl Encoder for Response {
-//! #     fn encode(self) -> Result<Vec<u8>, Status> { Ok(vec![]) }
+//! #     fn encode(self) -> Result<Vec<u8>, RpcError> { Ok(vec![]) }
 //! # }
 //! // Register and run server
 //! let base_name = Name::new("org".to_string(), "namespace".to_string(), "service".to_string());
@@ -139,12 +141,14 @@ mod session_wrapper;
 mod handler_traits;
 mod stream_types;
 
-pub use channel::Channel;
+pub use channel::{Channel, MessageContext, MulticastItem};
 pub use codec::{Codec, Decoder, Encoder};
 pub use context::{Context, Metadata, SessionContext};
 pub use error::{InvalidRpcCode, RpcCode, RpcError};
-pub use rpc_session::{HandlerInfo, RpcSession, StreamRpcSession, send_error};
-pub use server::{HandlerResponse, HandlerType, ItemStream, RpcHandler, Server, StreamRpcHandler};
+pub use rpc_session::{
+    HandlerInfo, RpcSession, send_eos, send_error, send_error_for_rpc, send_response_stream,
+};
+pub use server::{HandlerType, RpcHandler, Server, StreamRpcHandler};
 pub use session_wrapper::{ReceivedMessage, SessionRx, SessionTx, new_session};
 
 // UniFFI handler traits and stream types
@@ -152,8 +156,10 @@ pub use handler_traits::{
     StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
 };
 pub use stream_types::{
-    BidiStreamHandler, RequestStream as UniffiRequestStream, RequestStreamWriter, ResponseSink,
-    ResponseStreamReader, StreamMessage,
+    BidiStreamHandler, DecodedStream, MulticastBidiStreamHandler, MulticastResponseReader,
+    MulticastStreamMessage, RawStream, RequestStream as UniffiRequestStream, RequestStreamWriter,
+    ResponseSink, ResponseStreamReader, RpcMessageContext, RpcMulticastItem, StreamMessage,
+    StreamSource,
 };
 
 /// Key used in metadata for RPC deadline/timeout
@@ -161,6 +167,23 @@ pub const DEADLINE_KEY: &str = "slimrpc-timeout";
 
 /// Key used in metadata for RPC status code
 pub const STATUS_CODE_KEY: &str = "slimrpc-code";
+
+/// Key used in metadata for RPC call ID (used for session multiplexing)
+pub const RPC_ID_KEY: &str = "rpc-id";
+
+/// Key used in metadata for the RPC service name
+pub const SERVICE_KEY: &str = "service";
+
+/// Key used in metadata for the RPC method name
+pub const METHOD_KEY: &str = "method";
+
+/// Key used in metadata to mark a message as a client request.
+/// Present on all client-originated messages (data frames and EOS).
+/// Absent on server responses so the server can tell them apart.
+pub const RPC_DIR_KEY: &str = "slimrpc-dir";
+
+/// Value for [`RPC_DIR_KEY`] that marks a message as a client request.
+pub const RPC_DIR_REQ: &str = "req";
 
 /// Maximum timeout in seconds (10 hours)
 pub const MAX_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(36000);

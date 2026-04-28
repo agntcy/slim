@@ -450,7 +450,7 @@ impl TryFrom<IdentityProviderConfig> for AuthProvider {
                     builder = builder.with_jwt_audiences(config.jwt_audiences);
                 }
 
-                let manager = builder.build();
+                let manager = builder.build()?;
                 Ok(AuthProvider::spire(manager))
             }
             IdentityProviderConfig::None => Err(SlimError::InvalidArgument {
@@ -489,7 +489,7 @@ impl TryFrom<IdentityVerifierConfig> for AuthVerifier {
                     builder = builder.with_jwt_audiences(config.jwt_audiences);
                 }
 
-                let manager = builder.build();
+                let manager = builder.build()?;
                 Ok(AuthVerifier::spire(manager))
             }
             IdentityVerifierConfig::None => Err(SlimError::InvalidArgument {

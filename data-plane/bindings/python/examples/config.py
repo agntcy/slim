@@ -20,6 +20,8 @@ from typing import Any
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from examples.constants import SLIM_ADDR
+
 
 class AuthMode(str, Enum):
     """Authentication mode for SLIM applications."""
@@ -58,8 +60,16 @@ class BaseConfig(BaseSettings):
 
     # Service connection
     slim: str = Field(
-        default="http://127.0.0.1:46357",
-        description="SLIM remote endpoint URL",
+        default=SLIM_ADDR,
+        description="SLIM remote endpoint URL (used when slim_client_config is not set)",
+    )
+
+    slim_client_config: str | None = Field(
+        default=None,
+        description=(
+            "Path to JSON file for full gRPC ClientConfig "
+            "(schema: data-plane/core/config/src/grpc/schema/client-config.schema.json)"
+        ),
     )
 
     # Feature flags
@@ -121,7 +131,7 @@ class BaseConfig(BaseSettings):
             return [a.strip() for a in v.split(",") if a.strip()]
         return v
 
-    @field_validator("jwt", "spire_trust_bundle", mode="after")
+    @field_validator("jwt", "spire_trust_bundle", "slim_client_config", mode="after")
     @classmethod
     def validate_file_paths(cls, v: str | None) -> str | None:
         """Validate that file paths exist if provided."""

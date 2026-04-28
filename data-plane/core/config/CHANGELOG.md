@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0](https://github.com/agntcy/slim/compare/slim-config-v0.8.2...slim-config-v0.9.0) - 2026-04-21
+
+### Added
+
+- add tower auth middleware using spire ([#1452](https://github.com/agntcy/slim/pull/1452))
+
+### Fixed
+
+- revert "build(deps): upgrade to spire 0.12" ([#1528](https://github.com/agntcy/slim/pull/1528))
+
+### Other
+
+- *(deps)* upgrade to spire 0.12 ([#1436](https://github.com/agntcy/slim/pull/1436))
+
+## [0.8.2](https://github.com/agntcy/slim/compare/slim-config-v0.8.1...slim-config-v0.8.2) - 2026-03-31
+
+### Other
+
+- update Cargo.lock dependencies
+
+## [0.8.1](https://github.com/agntcy/slim/compare/slim-config-v0.8.0...slim-config-v0.8.1) - 2026-03-30
+
+### Other
+
+- update Cargo.lock dependencies
+
+## [0.8.0](https://github.com/agntcy/slim/compare/slim-config-v0.7.0...slim-config-v0.8.0) - 2026-03-26
+
+### Added
+
+- MLS identity key integration and security dependency upgrades ([#1394](https://github.com/agntcy/slim/pull/1394))
+- add link negotiation protocol between SLIM nodes ([#1353](https://github.com/agntcy/slim/pull/1353))
+
+## [0.7.0](https://github.com/agntcy/slim/compare/slim-config-v0.6.3...slim-config-v0.7.0) - 2026-03-20
+
+### Added
+
+- add agntcy-slim-version crate as single source of truth for version and build info ([#1360](https://github.com/agntcy/slim/pull/1360))
+- *(websocket)* update the config module while making sure backward compatibility ([#1333](https://github.com/agntcy/slim/pull/1333))
+
 ## [0.6.3](https://github.com/agntcy/slim/compare/slim-config-v0.6.2...slim-config-v0.6.3) - 2026-02-27
 
 ### Added

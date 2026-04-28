@@ -23,6 +23,7 @@ Pass criteria:
   exactly once and match on the receiver side.
 """
 
+import asyncio
 import datetime
 import uuid
 
@@ -72,6 +73,10 @@ async def test_session_metadata_merge_roundtrip(server):
         interval=datetime.timedelta(seconds=1),
         metadata=metadata,
     )
+
+    # Give receivers a moment to start listening (especially important for global service mode)
+    await asyncio.sleep(0.5)
+
     # Create session (returns SessionWithCompletion)
     session_context_sender = await sender.create_session_async(sess_cfg, receiver_name)
     await session_context_sender.completion.wait_async()

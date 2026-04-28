@@ -2,12 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use http::StatusCode;
-use jsonwebtoken_aws_lc::jwk::KeyAlgorithm;
+use jsonwebtoken::jwk::KeyAlgorithm;
 
 #[cfg(not(target_family = "windows"))]
 use spiffe::{
-    JwtSvidError, SpiffeIdError, TrustDomain, error::GrpcClientError,
-    workload_api::x509_source::X509SourceError,
+    JwtSourceError, JwtSvidError, SpiffeIdError, TrustDomain, WorkloadApiError, X509SourceError,
 };
 
 use thiserror::Error;
@@ -88,7 +87,7 @@ pub enum AuthError {
     #[error("token invalid: replay")]
     TokenInvalidReplay,
     #[error("token invalid")]
-    JwtTokenInvalid(#[from] jsonwebtoken_aws_lc::errors::Error),
+    JwtTokenInvalid(#[from] jsonwebtoken::errors::Error),
     #[error("token invalid - missing or invalid exp claim")]
     TokenInvalidMissingExp,
 
@@ -119,13 +118,16 @@ pub enum AuthError {
     SpiffeError(#[from] SpiffeIdError),
     #[cfg(not(target_family = "windows"))]
     #[error("spiffe grpc error")]
-    SpiffeGrpcError(#[from] GrpcClientError),
+    SpiffeGrpcError(#[from] WorkloadApiError),
     #[cfg(not(target_family = "windows"))]
     #[error("spiffe workload api unavailable")]
     SpiffeWorkloadApiUnavailable,
     #[cfg(not(target_family = "windows"))]
-    #[error("spiffe x509 dource error")]
+    #[error("spiffe x509 source error")]
     SpiffeX509SourceError(#[from] X509SourceError),
+    #[cfg(not(target_family = "windows"))]
+    #[error("spiffe jwt source error")]
+    SpiffeJwtSourceError(#[from] JwtSourceError),
     #[cfg(not(target_family = "windows"))]
     #[error("jwt source not initialized")]
     SpiffeJwtSourceNotInitialized,
@@ -148,25 +150,8 @@ pub enum AuthError {
     #[error("x509 trust bundle not available: {0}")]
     SpiffeX509BundleMissing(TrustDomain),
     #[cfg(not(target_family = "windows"))]
-    #[error("error fetching x509 SVID: {source}")]
-    SpiffeX509SvidFetch {
-        source: Box<dyn std::error::Error + Send + Sync + 'static>,
-    },
-    #[cfg(not(target_family = "windows"))]
-    #[error("error fetching x509 trust bundle: {source}")]
-    SpiffeX509BundleFetch {
-        source: Box<dyn std::error::Error + Send + Sync + 'static>,
-    },
-    #[cfg(not(target_family = "windows"))]
     #[error("spire x509 empty certificate chain")]
     SpiffeX509EmptyCertChain,
-    #[cfg(not(target_family = "windows"))]
-    #[error("jwt source closed")]
-    SpiffeCustomAudiencesJwtSourceClosed,
-    #[cfg(not(target_family = "windows"))]
-    #[error("error fetching jwt svid with custom audiences")]
-    SpiffeCustomAudiencesError,
-
     // Serialization
     #[error("JSON serialization error")]
     JsonError(#[from] serde_json::Error),
@@ -176,4 +161,14 @@ pub enum AuthError {
     // Operational
     #[error("operation would block on async I/O; call async variant")]
     WouldBlockOn,
+
+    // MLS
+    #[error("MLS is not supported by this provider")]
+    MlsNotSupported,
+    #[error("MLS signature key generation failed")]
+    MlsKeyGenerationFailed,
+    #[error("public key not found in identity claims")]
+    PublicKeyNotFound,
+    #[error("subject not found in identity claims")]
+    SubjectNotFound,
 }

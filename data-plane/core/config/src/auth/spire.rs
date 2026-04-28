@@ -101,7 +101,7 @@ impl SpireConfig {
 
     /// Internal helper to build & initialize a spire identity manager.
     /// If `include_target` is true and `target_spiffe_id` is set, the target is included.
-    fn build_identity_manager(&self) -> SpireIdentityManager {
+    fn build_identity_manager(&self) -> Result<SpireIdentityManager, ConfigAuthError> {
         let mut builder =
             SpireIdentityManager::builder().with_jwt_audiences(self.jwt_audiences.clone());
 
@@ -113,18 +113,18 @@ impl SpireConfig {
             builder = builder.with_target_spiffe_id(target.clone());
         }
 
-        builder.build()
+        Ok(builder.build()?)
     }
 
     /// Create a spire provider from this configuration using the builder.
     /// Returns an initialized SpireIdentityManager that will rotate X.509 & JWT SVIDs.
-    pub fn create_provider(&self) -> SpireIdentityManager {
+    pub fn create_provider(&self) -> Result<SpireIdentityManager, ConfigAuthError> {
         self.build_identity_manager()
     }
 
     /// Create a spire verifier (identity manager used only for verification).
     /// The target SPIFFE ID (if configured) is intentionally not set.
-    fn create_verifier(&self) -> SpireIdentityManager {
+    fn create_verifier(&self) -> Result<SpireIdentityManager, ConfigAuthError> {
         self.build_identity_manager()
     }
 }
@@ -133,19 +133,19 @@ impl ClientAuthenticator for SpireConfig {
     type ClientLayer = AddJwtLayer<SpireIdentityManager>;
 
     fn get_client_layer(&self) -> Result<Self::ClientLayer, ConfigAuthError> {
-        Ok(Self::ClientLayer::new(self.create_provider()))
+        Ok(Self::ClientLayer::new(self.create_provider()?))
     }
 }
 
 impl<Response> ServerAuthenticator<Response> for SpireConfig
 where
-    Response: Default + Send + Sync + 'static,
+    Response: Default + Send + 'static,
 {
     type ServerLayer = ValidateJwtLayer<MetadataMap, SpireIdentityManager>;
 
     fn get_server_layer(&self) -> Result<Self::ServerLayer, ConfigAuthError> {
         let claims = MetadataMap::default();
-        Ok(Self::ServerLayer::new(self.create_verifier(), claims))
+        Ok(Self::ServerLayer::new(self.create_verifier()?, claims))
     }
 }
 

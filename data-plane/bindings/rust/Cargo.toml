@@ -1,6 +1,6 @@
 [package]
 name = "agntcy-slim-bindings"
-version = "1.2.0"
+version = "1.4.0-rc.0"
 edition = { workspace = true }
 license = { workspace = true }
 description = "UniFFI bindings and FFI adapter for SLIM data plane - enables language integrations (Go, Swift, Kotlin, etc.)"
@@ -20,6 +20,7 @@ agntcy-slim-service = { workspace = true, features = ["session"] }
 agntcy-slim-session = { workspace = true }
 agntcy-slim-signal = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
+agntcy-slim-version = { workspace = true }
 
 # External dependencies
 async-stream = { workspace = true }
@@ -29,21 +30,31 @@ drain = { workspace = true }
 futures = { workspace = true }
 futures-timer = { workspace = true }
 parking_lot = { workspace = true }
-rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tracing = { workspace = true }
-uniffi = { version = "0.30.0", features = ["cli"] }
+uniffi = { workspace = true, features = ["cli"] }
+uuid = { workspace = true }
 
 [build-dependencies]
-uniffi = { version = "0.30.0", features = ["build"] }
+agntcy-slim-version = { workspace = true }
+uniffi = { workspace = true, features = ["build"] }
 
 [dev-dependencies]
 agntcy-slim-testing = { workspace = true }
 bincode = { workspace = true }
+clap = { workspace = true }
 test-fork = { workspace = true }
 tokio-test = { workspace = true }
 tracing-test = { workspace = true }
+
+[[example]]
+name = "receiver"
+path = "examples/receiver.rs"
+
+[[example]]
+name = "sender"
+path = "examples/sender.rs"

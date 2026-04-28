@@ -36,6 +36,8 @@ use super::headers_middleware::SetRequestHeaderLayer;
 use crate::auth::ClientAuthenticator;
 use crate::auth::basic::Config as BasicAuthenticationConfig;
 use crate::auth::jwt::Config as JwtAuthenticationConfig;
+#[cfg(not(target_family = "windows"))]
+use crate::auth::spire::SpireConfig as SpireAuthConfig;
 use crate::auth::static_jwt::Config as BearerAuthenticationConfig;
 use crate::backoff::Strategy;
 use crate::backoff::exponential::Config as ExponentialBackoff;
@@ -43,6 +45,7 @@ use crate::backoff::fixedinterval::Config as FixedIntervalBackoff;
 use crate::component::configuration::Configuration;
 use crate::grpc::proxy::ProxyConfig;
 use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoader};
+use crate::transport::TransportProtocol;
 
 /// Creates an HTTPS connector with optional SNI based on the origin
 fn https_connector<S>(
@@ -205,6 +208,9 @@ pub enum AuthenticationConfig {
     StaticJwt(BearerAuthenticationConfig),
     /// JWT authentication configuration.
     Jwt(JwtAuthenticationConfig),
+    /// SPIRE/SPIFFE authentication configuration.
+    #[cfg(not(target_family = "windows"))]
+    Spire(SpireAuthConfig),
     /// None
     #[default]
     None,
@@ -269,6 +275,14 @@ pub struct ClientConfig {
     /// The target the client will connect to.
     pub endpoint: String,
 
+    /// Transport protocol to use for dataplane communication.
+    #[serde(default)]
+    pub transport: TransportProtocol,
+
+    /// Optional websocket authentication query parameter key.
+    /// This is only used when `transport=websocket`.
+    pub websocket_auth_query_param: Option<String>,
+
     /// Origin (HTTP Host authority override) for the client.
     pub origin: Option<String>,
 
@@ -320,6 +334,11 @@ pub struct ClientConfig {
 
     /// Arbitrary user-provided metadata.
     pub metadata: Option<MetadataMap>,
+
+    /// Link identifier for this connection, used during link negotiation.
+    /// Must be a valid UUID v4. Defaults to a randomly generated UUID v4.
+    #[serde(default = "default_link_id")]
+    pub link_id: String,
 }
 
 /// Defaults for ClientConfig
@@ -327,6 +346,8 @@ impl Default for ClientConfig {
     fn default() -> Self {
         ClientConfig {
             endpoint: String::new(),
+            transport: TransportProtocol::default(),
+            websocket_auth_query_param: None,
             origin: None,
             server_name: None,
             compression: None,
@@ -341,8 +362,13 @@ impl Default for ClientConfig {
             auth: AuthenticationConfig::None,
             backoff: BackoffConfig::default(),
             metadata: None,
+            link_id: default_link_id(),
         }
     }
+}
+
+fn default_link_id() -> String {
+    uuid::Uuid::new_v4().to_string()
 }
 
 fn default_connect_timeout() -> DurationString {
@@ -358,8 +384,10 @@ impl std::fmt::Display for ClientConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ClientConfig {{ endpoint: {}, origin: {:?}, server_name: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?}, backoff: {:?}, metadata: {:?} }}",
+            "ClientConfig {{ endpoint: {}, transport: {:?}, websocket_auth_query_param: {:?}, origin: {:?}, server_name: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?}, backoff: {:?}, metadata: {:?}, link_id: {:?} }}",
             self.endpoint,
+            self.transport,
+            self.websocket_auth_query_param,
             self.origin,
             self.server_name,
             self.compression,
@@ -373,8 +401,16 @@ impl std::fmt::Display for ClientConfig {
             self.headers,
             self.auth,
             self.backoff,
-            self.metadata
+            self.metadata,
+            self.link_id
         )
+    }
+}
+
+pub fn is_valid_uuid_v4(s: &str) -> bool {
+    match uuid::Uuid::parse_str(s) {
+        Ok(id) => id.get_version() == Some(uuid::Version::Random),
+        Err(_) => false,
     }
 }
 
@@ -386,8 +422,14 @@ impl Configuration for ClientConfig {
             return Err(ConfigError::MissingEndpoint);
         }
 
+        // Validate link_id is a UUID v4
+        if !is_valid_uuid_v4(&self.link_id) {
+            return Err(ConfigError::InvalidLinkId);
+        }
+
         // Validate the client configuration
         self.tls_setting.validate()?;
+        self.validate_websocket_endpoint()?;
 
         Ok(())
     }
@@ -407,6 +449,17 @@ impl ClientConfig {
     pub fn with_origin(self, origin: &str) -> Self {
         Self {
             origin: Some(origin.to_string()),
+            ..self
+        }
+    }
+
+    pub fn with_transport(self, transport: TransportProtocol) -> Self {
+        Self { transport, ..self }
+    }
+
+    pub fn with_websocket_auth_query_param(self, query_param: &str) -> Self {
+        Self {
+            websocket_auth_query_param: Some(query_param.to_string()),
             ..self
         }
     }
@@ -557,6 +610,10 @@ impl ClientConfig {
         + use<>,
         ConfigError,
     > {
+        if self.transport == TransportProtocol::Websocket {
+            return Err(ConfigError::GrpcChannelUnsupportedTransport);
+        }
+
         // Validate endpoint
         self.validate_endpoint()?;
 
@@ -583,6 +640,18 @@ impl ClientConfig {
             return Err(ConfigError::MissingEndpoint);
         }
         Ok(())
+    }
+
+    fn validate_websocket_endpoint(&self) -> Result<(), ConfigError> {
+        if self.transport != TransportProtocol::Websocket {
+            return Ok(());
+        }
+
+        let endpoint = Uri::from_str(self.endpoint.as_str())?;
+        match endpoint.scheme_str() {
+            Some("ws") | Some("wss") => Ok(()),
+            _ => Err(ConfigError::InvalidWebSocketEndpointScheme),
+        }
     }
 
     /// Parses the endpoint string into a URI for TCP/HTTP, Unix domain socket endpoints.
@@ -992,6 +1061,10 @@ impl ClientConfig {
             AuthenticationConfig::Jwt(jwt) => {
                 create_auth_service_with_init!(self, jwt, header_map, channel)
             }
+            #[cfg(not(target_family = "windows"))]
+            AuthenticationConfig::Spire(spire) => {
+                create_auth_service_with_init!(self, spire, header_map, channel)
+            }
             AuthenticationConfig::None => Ok(tower::ServiceBuilder::new()
                 .layer(SetRequestHeaderLayer::new(header_map))
                 .service(channel)
@@ -1065,6 +1138,8 @@ mod test {
     fn test_default_client_config() {
         let client = ClientConfig::default();
         assert_eq!(client.endpoint, String::new());
+        assert_eq!(client.transport, TransportProtocol::Grpc);
+        assert_eq!(client.websocket_auth_query_param, None);
         assert_eq!(client.origin, None);
         assert_eq!(client.compression, None);
         assert_eq!(client.rate_limit, None);
@@ -1116,6 +1191,24 @@ mod test {
         let client = ClientConfig::with_endpoint("unix://");
         let err = client.parse_endpoint_uri().expect_err("missing unix path");
         assert!(matches!(err, ConfigError::UnixSocketMissingPath));
+    }
+
+    #[test]
+    fn test_websocket_transport_endpoint_validation() {
+        let ws_config = ClientConfig::with_endpoint("ws://localhost:46357")
+            .with_transport(TransportProtocol::Websocket);
+        assert!(ws_config.validate().is_ok());
+
+        let wss_config = ClientConfig::with_endpoint("wss://localhost:46357")
+            .with_transport(TransportProtocol::Websocket);
+        assert!(wss_config.validate().is_ok());
+
+        let invalid = ClientConfig::with_endpoint("http://localhost:46357")
+            .with_transport(TransportProtocol::Websocket);
+        let err = invalid
+            .validate()
+            .expect_err("expected invalid websocket scheme");
+        assert!(matches!(err, ConfigError::InvalidWebSocketEndpointScheme));
     }
 
     #[tokio::test]
@@ -1324,6 +1417,17 @@ mod test {
         assert!(channel.is_ok());
     }
 
+    #[tokio::test]
+    async fn test_to_channel_rejects_websocket_transport() {
+        let client = ClientConfig::with_endpoint("ws://localhost:46357")
+            .with_transport(TransportProtocol::Websocket);
+        let channel = client.to_channel_lazy().await;
+        assert!(matches!(
+            channel,
+            Err(ConfigError::GrpcChannelUnsupportedTransport)
+        ));
+    }
+
     #[test]
     fn test_client_config_with_proxy() {
         let proxy = ProxyConfig::new("http://proxy.example.com:8080").with_auth("user", "pass");
@@ -1421,5 +1525,27 @@ mod test {
         assert_eq!(ka.http2_keepalive, Duration::from_secs(22));
         assert_eq!(ka.timeout, Duration::from_secs(3));
         assert!(ka.keep_alive_while_idle);
+    }
+
+    #[test]
+    fn test_validate_rejects_non_uuid_link_id() {
+        let mut config = ClientConfig::with_endpoint("http://localhost:1234");
+        config.link_id = "not-a-uuid".to_string();
+        assert!(matches!(config.validate(), Err(ConfigError::InvalidLinkId)));
+    }
+
+    #[test]
+    fn test_validate_rejects_non_v4_uuid() {
+        let mut config = ClientConfig::with_endpoint("http://localhost:1234");
+        // Version 1 UUID.
+        config.link_id = "00000000-0000-1000-8000-000000000000".to_string();
+        assert!(matches!(config.validate(), Err(ConfigError::InvalidLinkId)));
+    }
+
+    #[test]
+    fn test_validate_accepts_default_v4_link_id() {
+        // default_link_id() generates a v4 UUID; validation must pass.
+        let config = ClientConfig::with_endpoint("http://localhost:1234");
+        assert!(config.validate().is_ok());
     }
 }

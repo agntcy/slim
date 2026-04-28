@@ -47,26 +47,36 @@ var _ = Describe("Routing", func() {
 		controlPlaneSouthPort = reservePort()
 		controllerBPort := reservePort()
 
-		replacements := map[string]string{
+		serverAReplacements := map[string]string{
 			"0.0.0.0:46357":          fmt.Sprintf("0.0.0.0:%d", dataPlaneAPort),
+			"http://127.0.0.1:50052": fmt.Sprintf("http://127.0.0.1:%d", controlPlaneSouthPort),
+		}
+
+		serverBReplacements := map[string]string{
 			"0.0.0.0:46367":          fmt.Sprintf("0.0.0.0:%d", dataPlaneBPort),
 			"0.0.0.0:46368":          fmt.Sprintf("0.0.0.0:%d", controllerBPort),
-			"http://localhost:46357": fmt.Sprintf("http://localhost:%d", dataPlaneAPort),
-			"http://localhost:46367": fmt.Sprintf("http://localhost:%d", dataPlaneBPort),
-			"http://127.0.0.1:46357": fmt.Sprintf("http://127.0.0.1:%d", dataPlaneAPort),
-			"http://127.0.0.1:46367": fmt.Sprintf("http://127.0.0.1:%d", dataPlaneBPort),
-			"http://127.0.0.1:50051": fmt.Sprintf("http://127.0.0.1:%d", controlPlaneNorthPort),
 			"http://127.0.0.1:50052": fmt.Sprintf("http://127.0.0.1:%d", controlPlaneSouthPort),
-			"httpPort: 50051":        fmt.Sprintf("httpPort: %d", controlPlaneNorthPort),
-			"httpPort: 50052":        fmt.Sprintf("httpPort: %d", controlPlaneSouthPort),
+		}
+
+		clientAReplacements := map[string]string{
+			"http://localhost:46357": fmt.Sprintf("http://localhost:%d", dataPlaneAPort),
+		}
+
+		clientBReplacements := map[string]string{
+			"http://localhost:46357": fmt.Sprintf("http://localhost:%d", dataPlaneBPort),
+		}
+
+		controlPlaneReplacements := map[string]string{
+			"httpPort: 50051": fmt.Sprintf("httpPort: %d", controlPlaneNorthPort),
+			"httpPort: 50052": fmt.Sprintf("httpPort: %d", controlPlaneSouthPort),
 		}
 
 		tempDir = newTempDir("slim-integration-control-plane-")
-		serverAConfig = writeTempConfig(tempDir, "./testdata/server-a-config-cp.yaml", "server-a-config-cp.yaml", replacements)
-		serverBConfig = writeTempConfig(tempDir, "./testdata/server-b-config-cp.yaml", "server-b-config-cp.yaml", replacements)
-		clientAConfig = writeTempConfig(tempDir, "./testdata/client-a-config.yaml", "client-a-config.yaml", replacements)
-		clientBConfig = writeTempConfig(tempDir, "./testdata/client-b-config.yaml", "client-b-config.yaml", replacements)
-		controlPlaneConfig = writeTempConfig(tempDir, "./testdata/control-plane-config.yaml", "control-plane-config.yaml", replacements)
+		serverAConfig = writeTempConfig(tempDir, "./testdata/server-a-config-cp.yaml", "server-a-config-cp.yaml", serverAReplacements)
+		serverBConfig = writeTempConfig(tempDir, "./testdata/server-b-config-cp.yaml", "server-b-config-cp.yaml", serverBReplacements)
+		clientAConfig = writeTempConfig(tempDir, "./testdata/client.yaml", "client-a-config.yaml", clientAReplacements)
+		clientBConfig = writeTempConfig(tempDir, "./testdata/client.yaml", "client-b-config.yaml", clientBReplacements)
+		controlPlaneConfig = writeTempConfig(tempDir, "./testdata/control-plane-config.yaml", "control-plane-config.yaml", controlPlaneReplacements)
 	})
 
 	AfterEach(func() {
@@ -192,19 +202,6 @@ var _ = Describe("Routing", func() {
 			Expect(routeListOutputA).To(ContainSubstring("org/default/b1"))
 			Expect(routeListOutputA).To(ContainSubstring("org/default/b2"))
 
-			// test listing connections for node a
-			connectionListOutA := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
-				return exec.Command(
-					slimctlPath,
-					"controller", "connection", "list",
-					"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
-					"-n", "slim/a",
-				)
-			})
-
-			connectionOutputA := string(connectionListOutA)
-			Expect(connectionOutputA).To(ContainSubstring(fmt.Sprintf(":%d", dataPlaneBPort)))
-
 			// test listing routes for node b
 			routeListOutB := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
 				return exec.Command(
@@ -218,18 +215,19 @@ var _ = Describe("Routing", func() {
 			routeListOutputB := string(routeListOutB)
 			Expect(routeListOutputB).To(ContainSubstring("org/default/a"))
 
-			// test listing connections for node b
-			connectionListOutB := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
+			// test there's a link from node b to node a
+			listLinksOut := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
 				return exec.Command(
 					slimctlPath,
-					"controller", "connection", "list",
+					"controller", "link", "outline",
 					"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
-					"-n", "slim/b",
 				)
 			})
-
-			connectionOutputB := string(connectionListOutB)
-			Expect(connectionOutputB).To(ContainSubstring(fmt.Sprintf(":%d", dataPlaneAPort)))
+			listLinksOutStr := string(listLinksOut)
+			Expect(listLinksOutStr).To(ContainSubstring("Number of links: 1"))
+			Expect(listLinksOutStr).To(MatchRegexp(
+				`(?m)^\s*[0-9a-f-]{36}\s+slim/a\s+slim/b\s+http://127\.0\.0\.1:\d+\s+APPLIED\s+-\s+No\s+\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\s*$`,
+			))
 
 			terminateSession(clientBSession, 2*time.Second)
 			terminateSession(clientCSession, 2*time.Second)

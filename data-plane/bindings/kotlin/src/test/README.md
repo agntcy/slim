@@ -55,7 +55,9 @@ xdg-open build/reports/tests/test/index.html
 ```
 
 The report includes:
+
 - Test execution time
 - Success/failure statistics
 - Stack traces for failures
 - Standard output/error for each test
+

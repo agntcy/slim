@@ -27,10 +27,11 @@ spec:
     {{- end }}
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
       annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
       labels:
         {{- include "slim.labels" . | nindent 8 }}
         {{- with .Values.podLabels }}
@@ -63,14 +64,21 @@ spec:
             - name: MY_POD_IP
               valueFrom:
                 fieldRef:
-                  fieldPath: status.podIP                  
+                  fieldPath: status.podIP
+            {{- with .Values.slim.extraEnv }}
+            {{ toYaml . | nindent 12 }}
+            {{- end }}
           ports:
-            - name: data-plane
-              containerPort: {{ .Values.slim.service.data.port }}
+            {{- range $i, $data := .Values.slim.service.data }}
+            - name: {{ $data.name | default (printf "data-plane-%d" $i) }}
+              containerPort: {{ $data.port }}
               protocol: TCP
-            - name: controller
-              containerPort: {{ .Values.slim.service.control.port }}
+            {{- end }}
+            {{- range $i, $ctrl := .Values.slim.service.control }}
+            - name: controller-{{ $i }}
+              containerPort: {{ $ctrl.port }}
               protocol: TCP
+            {{- end }}
           resources:
             {{- toYaml .Values.slim.resources | nindent 12 }}
           volumeMounts:

@@ -26,11 +26,19 @@ tasks:
     cmds:
       - task python:bindings:lint
 
+  data-plane:bindings:dotnet:lint:
+    desc: ".NET linter"
+    internal: true
+    dir: ./bindings/dotnet
+    cmds:
+      - task lint
+
   data-plane:lint:
     desc: "Run the linter"
     cmds:
       - task: data-plane:lintall
       - task: data-plane:bindings:lint
+      - task: data-plane:bindings:dotnet:lint
 
   data-plane:build:strip:
     desc: "Build the project and strip the debug symbols"

@@ -11,6 +11,7 @@ on:
       - '.github/workflows/reusable-rust-build-and-test.yaml'
       - '.github/workflows/reusable-docker-build-push.yaml'
       - '.github/workflows/reusable-bindings-build-and-test.yaml'
+      - '.github/actions/setup-rust/action.yaml'
       - 'data-plane/**'
     branches:
       - main
@@ -20,7 +21,11 @@ on:
       - '.github/workflows/reusable-rust-build-and-test.yaml'
       - '.github/workflows/reusable-docker-build-push.yaml'
       - '.github/workflows/reusable-bindings-build-and-test.yaml'
+      - '.github/actions/setup-rust/action.yaml'
       - 'data-plane/**'
+
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

@@ -97,6 +97,11 @@
         "tls_version": "tls1.3"
       }
     },
+    "transport": {
+      "description": "Transport protocol to use for dataplane communication.",
+      "$ref": "#/$defs/TransportProtocol",
+      "default": "grpc"
+    },
     "write_buffer_size": {
       "description": "WriteBufferSize for gRPC server.",
       "type": [
@@ -112,7 +117,7 @@
   ],
   "$defs": {
     "AlgorithmRepr": {
-      "description": "Local enum used only for JSON Schema generation of the `algorithm` field.\nRemote schema representation of jsonwebtoken_aws_lc::Algorithm",
+      "description": "Local enum used only for JSON Schema generation of the `algorithm` field.\nRemote schema representation of jsonwebtoken::Algorithm",
       "type": "string",
       "enum": [
         "HS256",
@@ -686,6 +691,21 @@
           "required": [
             "type"
           ]
+        }
+      ]
+    },
+    "TransportProtocol": {
+      "description": "Transport protocol used by client and server dataplane configuration.",
+      "oneOf": [
+        {
+          "description": "gRPC transport (default).",
+          "type": "string",
+          "const": "grpc"
+        },
+        {
+          "description": "Native websocket transport.",
+          "type": "string",
+          "const": "websocket"
         }
       ]
     }

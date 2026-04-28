@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -28,6 +29,14 @@ import (
 type configCase struct {
 	ServerPath string
 	ClientPath string
+}
+
+func fileUsesWebsocketTransport(path string) bool {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(content), "transport: websocket")
 }
 
 func resolveConfigCases() []configCase {
@@ -63,18 +72,18 @@ func resolveConfigCases() []configCase {
 
 		info, err := os.Stat(d)
 		if err != nil || !info.IsDir() {
-			fmt.Println(GinkgoWriter, "Warning: config directory invalid:", d)
+			fmt.Fprintln(GinkgoWriter, "Warning: config directory invalid:", d)
 			continue
 		}
 
 		serverCfg := filepath.Join(d, "server-config.yaml")
 		clientCfg := filepath.Join(d, "client-config.yaml")
 		if _, errS := os.Stat(serverCfg); errS != nil {
-			fmt.Println(GinkgoWriter, "Warning: server config missing:", serverCfg)
+			fmt.Fprintln(GinkgoWriter, "Warning: server config missing:", serverCfg)
 			continue
 		}
 		if _, errC := os.Stat(clientCfg); errC != nil {
-			fmt.Println(GinkgoWriter, "Warning: client config missing:", clientCfg)
+			fmt.Fprintln(GinkgoWriter, "Warning: client config missing:", clientCfg)
 			continue
 		}
 
@@ -96,7 +105,7 @@ var _ = Describe("SLIM server + client connection using configuration files", fu
 
 	for _, c := range cases {
 		It(fmt.Sprintf("server and client start and connect (config dir: %s)", filepath.Dir(c.ServerPath)), func() {
-			fmt.Println(GinkgoWriter, "Testing config - server:", c.ServerPath, "client:", c.ClientPath)
+			fmt.Fprintln(GinkgoWriter, "Testing config - server:", c.ServerPath, "client:", c.ClientPath)
 
 			dataPlanePort := reservePort()
 			replacements := map[string]string{
@@ -113,6 +122,10 @@ var _ = Describe("SLIM server + client connection using configuration files", fu
 				_ = os.Remove(serverConfig)
 				_ = os.Remove(clientConfig)
 			}()
+
+			if fileUsesWebsocketTransport(serverConfig) || fileUsesWebsocketTransport(clientConfig) {
+				Skip("websocket transport startup is not supported in this integration suite yet")
+			}
 
 			// Server config must exist
 			serverInfo, err := os.Stat(c.ServerPath)

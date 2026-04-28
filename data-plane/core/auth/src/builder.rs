@@ -7,8 +7,8 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 
-use jsonwebtoken_aws_lc::jwk::{Jwk, JwkSet};
-use jsonwebtoken_aws_lc::{Algorithm, DecodingKey, EncodingKey, Validation};
+use jsonwebtoken::jwk::{Jwk, JwkSet};
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Validation};
 use parking_lot::RwLock;
 
 use crate::errors::AuthError;
@@ -369,7 +369,7 @@ impl JwtBuilder<state::WithPrivateKey> {
         let encoding_key = Arc::new(RwLock::new(key));
 
         // Create a signer
-        let signer = SignerJwt::new(self.build_claims(), self.token_duration, validation)
+        let signer = SignerJwt::new(self.build_claims(), self.token_duration, validation)?
             .with_encoding_key(encoding_key.clone());
 
         // If the private key is a file, setup also a file watcher for it
@@ -454,7 +454,7 @@ impl JwtBuilder<state::WithPublicKey> {
         // Set up validation
         let validation = self.build_validation();
 
-        let verifier = VerifierJwt::new(self.build_claims(), self.token_duration, validation);
+        let verifier = VerifierJwt::new(self.build_claims(), self.token_duration, validation)?;
 
         // Autoresolver is enabled
         if self.auto_resolve_keys {
@@ -527,7 +527,7 @@ impl JwtBuilder<state::WithToken> {
             self.build_claims(),               // not used
             std::time::Duration::from_secs(0), // not used
             self.build_validation(),           // not used
-        )
+        )?
         .with_static_token(static_token)
         .with_watcher(w))
     }

@@ -27,7 +27,7 @@ runs:
   steps:
     - name: Setup Go
       if: ${{ inputs.go-fips != 'true' }}
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
       with:
         go-version: ${{ inputs.go-version }}
         check-latest: ${{ inputs.check-latest }}
@@ -40,7 +40,7 @@ runs:
 
     - name: Cache Go
       id: go-cache
-      uses: actions/cache@v4
+      uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
       with:
         path: |
           ~/go/bin
@@ -48,8 +48,10 @@ runs:
         key: go-cache-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
 
     - id: set-cache-hit
-      run: echo "cache-hit=${{ steps.go-cache.outputs.cache-hit }}" >> $GITHUB_OUTPUT
+      run: echo "cache-hit=$CACHE_HIT" >> $GITHUB_OUTPUT
       shell: bash
+      env:
+        CACHE_HIT: ${{ steps.go-cache.outputs.cache-hit }}
 
     - name: Update GITHUB_PATH
       run: echo "$HOME/.local/bin" >> $GITHUB_PATH
