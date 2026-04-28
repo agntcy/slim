@@ -1,0 +1,97 @@
+# Kind defaults for multicluster_on_prem (see spire-cluster-b-values.yaml for overrides).
+# Upstream hostnames match default CLUSTER_A_TRUST_DOMAIN=cluster-a.example (add /etc/hosts to LB IP).
+
+spire:
+  global:
+    spire:
+      clusterName: "cluster-b"
+      trustDomain: "cluster-a.example"
+      strictMode: true
+      upstreamSpireAddress: "spire.cluster-a.example"
+      caSubject:
+        country: US
+        organization: SLIM
+        commonName: cluster-a.example
+
+    installAndUpgradeHooks:
+      enabled: false
+
+    deleteHooks:
+      enabled: false
+
+  spire-server:
+    enabled: true
+    serviceAccount:
+      name: spire-server-downstream
+    hostNetwork: true
+    dnsPolicy: ClusterFirstWithHostNet
+    affinity:
+      podAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - agent-upstream
+            topologyKey: kubernetes.io/hostname
+    nodeAttestor:
+      k8sPSAT:
+        enabled: true
+      externalK8sPSAT:
+        enabled: false
+    upstreamAuthority:
+      spire:
+        enabled: true
+        upstreamDriver: "upstream.csi.spiffe.io"
+        server:
+          port: 443
+    externalControllerManagers:
+      enabled: false
+    bundlePublisher:
+      externalK8sConfigMap:
+        enabled: false
+
+  spire-agent:
+    enabled: true
+
+  upstream:
+    enabled: true
+    bundledAgentEnabled: false
+
+  upstream-spire-agent:
+    nameOverride: agent-upstream-placeholder
+    serviceAccount:
+      name: spire-agent-upstream
+    server:
+      port: 443
+    # trust_bundle_url uses the OS trust store; self-signed ingress on cluster-a fails TLS verify.
+    # Use insecure bootstrap for Kind only; production should use trust_bundle_path or a publicly trusted bundle URL.
+    insecureBootstrap: true
+    trustBundleURL: "https://spire-bundle.cluster-a.example"
+    trustBundleFormat: "spiffe"
+    persistence:
+      type: hostPath
+      hostPath: "/var/lib/spire/k8s/upstream-agent"
+    nodeAttestor:
+      k8sPSAT:
+        enabled: false
+    unsupportedBuiltInPlugins:
+      nodeAttestor:
+        join_token:
+          plugin_data: {}
+    extraEnvVars: []
+    healthChecks:
+      port: 9981
+
+  spiffe-csi-driver:
+    enabled: true
+    kubeletPath: /var/lib/kubelet
+
+  upstream-spiffe-csi-driver:
+    kubeletPath: /var/lib/kubelet
+    validatingAdmissionPolicy:
+      enabled: false
+
+  spiffe-oidc-discovery-provider:
+    enabled: false

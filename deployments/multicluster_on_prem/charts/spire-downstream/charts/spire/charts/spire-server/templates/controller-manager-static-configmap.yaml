@@ -1,0 +1,21 @@
+{{- if not (has .Values.controllerManager.staticManifestMode (list "off" "internal" "external" )) }}
+{{-   fail "Unsupported option specified for controllerManager.staticManifestMode" }}
+{{- end }}
+{{- if eq .Values.controllerManager.staticManifestMode "internal" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "spire-controller-manager.fullname" . }}-static
+  namespace: {{ include "spire-server.namespace" . }}
+data:
+  {{- $t := include "spire-server.cluster-static-entries" (dict "root" . "useShortName" true) | fromYamlArray }}
+  {{- range $_, $v := $t }}
+  "e-{{ $v.metadata.name }}.yaml": |
+    {{- $v | toYaml | nindent 4 }}
+  {{- end }}
+  {{- $t := include "spire-server.cluster-federated-trust-domains" (dict "root" . "useShortName" true) | fromYamlArray }}
+  {{- range $_, $v := $t }}
+  "f-{{ $v.metadata.name }}.yaml": |
+    {{- $v | toYaml | nindent 4 }}
+  {{- end }}
+{{- end }}

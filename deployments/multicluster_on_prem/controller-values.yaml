@@ -54,6 +54,7 @@ ingressSouth:
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600s"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600s"
     nginx.ingress.kubernetes.io/proxy-stream-timeout: "3600s"
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'   
     nginx.ingress.kubernetes.io/server-snippet: |
       grpc_socket_keepalive on;
       keepalive_timeout 3600s;

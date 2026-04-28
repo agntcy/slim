@@ -11,9 +11,9 @@
 controller:
   allowSnippetAnnotations: true
 
-  # Required for nginx.ingress.kubernetes.io/ssl-passthrough on Ingresses (boolean flag).
+  # Required for nginx.ingress.kubernetes.io/ssl-passthrough (SPIRE gRPC to root server).
   extraArgs:
-    enable-ssl-passthrough: false
+    enable-ssl-passthrough: ""
 
   config:
     annotations-risk-level: Critical

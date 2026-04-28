@@ -1,0 +1,44 @@
+{{- if .Values.ingress.enabled -}}
+{{ $root := . }}
+{{- $ingressControllerType := include "spire-lib.ingress-controller-type" (dict "global" .Values.global "ingress" .Values.ingress) }}
+{{- $fullName := include "spike-keeper.fullname" . -}}
+{{- $tlsSection := true }}
+{{- $annotations := deepCopy .Values.ingress.annotations }}
+{{- if eq $ingressControllerType "ingress-nginx" }}
+{{-   $_ := set $annotations "nginx.ingress.kubernetes.io/ssl-redirect" "true" }}
+{{-   $_ := set $annotations "nginx.ingress.kubernetes.io/force-ssl-redirect" "true" }}
+{{-   $_ := set $annotations "nginx.ingress.kubernetes.io/backend-protocol" "HTTPS" }}
+{{-   $_ := set $annotations "nginx.ingress.kubernetes.io/ssl-passthrough" "true" }}
+{{- else if eq $ingressControllerType "openshift" }}
+{{-   $path = "" }}
+{{-   $_ := set $annotations "route.openshift.io/termination" "passthrough" }}
+{{-   $tlsSection = false }}
+{{- end }}
+{{ $last := sub (.Values.replicas | int) 1 | int }}
+{{ range (seq 0 ($last) | toString | split " ") }}
+{{ $i := . }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullName }}-{{ $i }}
+  namespace: {{ include "spike-keeper.namespace" $root }}
+  labels:
+    {{ include "spike-keeper.labels" $root | nindent 4}}
+  {{- with $annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- $host := $root.Values.ingress.host }}
+  {{- if contains "." $host }}
+  {{-   $hostParts := regexSplit "[.]" $host 2 }}
+  {{-   $host = printf "%s-%s.%s" (index $hostParts 0) $i (index $hostParts 1) }}
+  {{- else }}
+  {{-   $host = printf "%s-%s" $host $i }}
+  {{- end }}
+  {{ $ingress := deepCopy $root.Values.ingress }}
+  {{ $_ :=  set $ingress "host" $host }}
+  {{ include "spire-lib.ingress-spec" (dict "ingress" $ingress "svcName" (printf "%s-%s" $fullName $i) "port" $root.Values.service.port "path" "/" "pathType" "Prefix" "tlsSection" $tlsSection "Values" $root.Values) | nindent 2 }}
+{{- end }}
+{{- end }}

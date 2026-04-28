@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "spike-keeper.fullname" . }}
+  namespace: {{ include "spike-keeper.namespace" . }}
+  labels:
+    {{- include "spike-keeper.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "spike-keeper.fullname" . }}-headless
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "spike-keeper.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "spike-keeper.selectorLabels" . | nindent 8 }}
+        release: {{ .Release.Name }}
+        release-namespace: {{ .Release.Namespace }}
+        component: spike-keeper
+    spec:
+      {{- with (coalesce .Values.imagePullSecrets .Values.global.imagePullSecrets) }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "spike-keeper.serviceAccountName" . }}
+      securityContext:
+        {{- include "spire-lib.podsecuritycontext" . | nindent 8 }}
+      containers:
+        - name:  {{ include "spike-keeper.fullname" . }}
+          image: {{ template "spire-lib.image" (dict "appVersion" $.Chart.AppVersion "image" .Values.image "global" .Values.global "ubi" true) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "spire-lib.securitycontext" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8443
+              protocol: TCP
+          env:
+            - name: SPIFFE_ENDPOINT_SOCKET
+              value: unix://{{ include "spike-keeper.workload-api-socket-path" . }}
+            - name: SPIKE_SYSTEM_LOG_LEVEL
+              value: {{ .Values.logLevel | upper }}
+            - name: SPIKE_TRUST_ROOT
+              value: {{ include "spire-lib.trust-domain" . }}
+            - name: SPIKE_TRUST_ROOT_KEEPER
+              value: {{ if gt (len .Values.trustRoot.self) 0 }}{{ .Values.trustRoot.self | join "," | quote }}{{ else }}{{ include "spire-lib.trust-domain" . }}{{ end }}
+            - name: SPIKE_TRUST_ROOT_NEXUS
+              value: {{ if gt (len .Values.trustRoot.nexus) 0 }}{{ .Values.trustRoot.nexus | join "," | quote }}{{ else }}{{ include "spire-lib.trust-domain" . }}{{ end }}
+            - name: SPIKE_TRUST_ROOT_BOOTSTRAP
+              value: {{ if gt (len .Values.trustRoot.bootstrap) 0 }}{{ .Values.trustRoot.bootstrap | join "," | quote }}{{ else }}{{ include "spire-lib.trust-domain" . }}{{ end }}
+
+            - name: SPIKE_KEEPER_TLS_PORT
+              value: ":8443"
+          {{- if .Values.startupProbe.enabled }}
+          startupProbe:
+            tcpSocket:
+              port: 8443
+            failureThreshold: {{ .Values.startupProbe.failureThreshold }}
+            initialDelaySeconds: {{ .Values.startupProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.startupProbe.periodSeconds }}
+            successThreshold: {{ .Values.startupProbe.successThreshold }}
+            timeoutSeconds: {{ .Values.startupProbe.timeoutSeconds }}
+          {{- end }}
+          volumeMounts:
+            - name: spiffe-workload-api
+              mountPath: {{ include "spike-keeper.workload-api-socket-path" . | dir }}
+              readOnly: true
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: spiffe-workload-api
+          csi:
+            driver: "{{ .Values.csiDriverName }}"
+            readOnly: true

@@ -104,6 +104,6 @@ slim:
             - slim.cluster-a.example
 
 spire:
-  enabled: false
-  trustedDomains:
-  - spiffe://cluster-b.example
+  enabled: true
+  # trustedDomains:
+  # - spiffe://cluster-b.example

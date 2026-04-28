@@ -1,0 +1,58 @@
+{{- define "spire-server.cluster-federated-trust-domains" -}}
+{{- $root := .root }}
+{{- $useShortName := .useShortName }}
+{{- range $key, $value := $root.Values.controllerManager.identities.clusterFederatedTrustDomains }}
+{{-   range $skey, $svalue := $value }}
+{{-     if not (has $skey (list "name" "annotations" "labels" "enabled" "bundleEndpointProfile" "bundleEndpointURL" "trustDomain" "trustDomainBundle")) }}
+{{-       fail (printf "Unsupported property specified: %s" $skey) }}
+{{-     end }}
+{{-   end }}
+{{-   range $rprop := list "bundleEndpointProfile" "bundleEndpointURL" "trustDomain" }}
+{{-     if not (hasKey $value $rprop) }}
+{{-       fail (printf "Required property %s was not specified" $rprop) }}
+{{-     end }}
+{{-   end }}
+{{-   if eq ($root.Values.controllerManager.enabled | toString) "true" }}
+{{-     if or (not (hasKey $value "enabled")) (eq ($value.enabled | toString) "true") }}
+- apiVersion: spire.spiffe.io/v1alpha1
+  kind: ClusterFederatedTrustDomain
+  metadata:
+    {{- if $useShortName }}
+    name: {{ $key }}
+    {{- else }}
+    name: {{ $root.Release.Namespace }}-{{ default $root.Release.Name $root.Values.crNameOverride }}-{{ $key }}
+    {{- end }}
+    {{- with $value.annotations }}
+    annotations:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with $value.labels }}
+    labels:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+  spec:
+    className: {{ include "spire-server.controller-manager-class-name" $root | quote }}
+    {{- with $value.bundleEndpointProfile }}
+    bundleEndpointProfile:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with $value.bundleEndpointURL }}
+    bundleEndpointURL: {{ . | quote }}
+    {{- end }}
+    {{- with $value.trustDomain }}
+    trustDomain: {{ . | quote }}
+    {{- end }}
+    {{- with $value.trustDomainBundle }}
+    trustDomainBundle: {{ . | quote }}
+    {{- end }}
+{{-     end }}
+{{-   end }}
+{{- end }}
+{{- end }}
+{{- if eq .Values.controllerManager.staticManifestMode "off" }}
+{{-   $t := include "spire-server.cluster-federated-trust-domains" (dict "root" . "useShortName" false) | fromYamlArray }}
+{{-   range $_, $v := $t }}
+---
+{{- $v | toYaml }}
+{{-   end }}
+{{- end }}
