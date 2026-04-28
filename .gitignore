@@ -97,6 +97,9 @@ dmypy.json
 # VS Code
 .vscode/
 
+# Cursor
+.cursor/
+
 # Ropeproject
 .ropeproject
 

@@ -6,7 +6,7 @@ version: '3'
 includes:
   rust:
     taskfile: ../rust/Taskfile.yaml
-    internal: true
+    # Must be callable so generate can invoke rust:bindings:build:all for local builds
   tools:
     taskfile: ../../../tasks/tools.yaml
     internal: true
