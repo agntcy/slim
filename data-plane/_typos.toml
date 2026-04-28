@@ -16,4 +16,5 @@ extend-exclude = [
     "**/*.yaml",
     "bindings/go/generated/**",
     "bindings/java/examples/**/types/**",
+    "bindings/kotlin/examples/**/types/**",
 ]
