@@ -1039,13 +1039,12 @@ impl MessageProcessor {
         let client_conf_clone = client_config.clone();
         let tx_cp: Option<Sender<Result<Message, Status>>> = self.get_tx_control_plane();
         let watch = self.get_drain_watch()?;
-        let stream_span = tracing::info_span!(
+        let span = tracing::info_span!(
             "process_stream",
             service_id = %self.internal.service_id,
-            conn_index
+            %conn_index,
+            is_local,
         );
-
-        let span = tracing::info_span!("process_stream", %conn_index, is_local);
         let handle = tokio::spawn(async move {
             let mut try_to_reconnect = true;
 
