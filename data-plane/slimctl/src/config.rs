@@ -9,6 +9,7 @@ use duration_string::DurationString;
 
 use slim_config::auth::basic::Config as BasicAuthConfig;
 use slim_config::grpc::client::{AuthenticationConfig, BackoffConfig, ClientConfig};
+use slim_config::tls::client::TlsClientConfig;
 
 pub(crate) const DEFAULT_TIMEOUT: &str = "15s";
 pub(crate) const DEFAULT_NODE_ENDPOINT: &str = "127.0.0.1:46357";
@@ -57,7 +58,18 @@ pub fn resolve_config(
 
     let any_tls_flag = tls_insecure_skip_verify || tls_ca_file.is_some() || tls_cert_file.is_some();
 
+    // Track whether the endpoint came from the file config or from CLI/default
+    let endpoint_from_file = !file_config.endpoint.is_empty() && server.is_none();
+
     let mut tls = config.tls_setting.clone();
+
+    // When no TLS flags are given and the config still has the bare default
+    // (insecure=false but no certs/CA configured), and the endpoint did NOT
+    // come from a file config (which may have intentionally set secure TLS),
+    // treat it as insecure so that a plain `host:port` endpoint defaults to http://.
+    if !any_tls_flag && !endpoint_from_file && tls == TlsClientConfig::default() {
+        tls = TlsClientConfig::insecure();
+    }
 
     // If any TLS flag is provided and the file config was insecure,
     // switch to secure mode.
