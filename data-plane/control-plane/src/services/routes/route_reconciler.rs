@@ -432,8 +432,14 @@ async fn handle_request(
 
     {
         use super::DisplaySubscription;
-        let set_list: Vec<_> = subscriptions_to_set.iter().map(|s| DisplaySubscription(s).to_string()).collect();
-        let del_list: Vec<_> = subscriptions_to_delete.iter().map(|s| DisplaySubscription(s).to_string()).collect();
+        let set_list: Vec<_> = subscriptions_to_set
+            .iter()
+            .map(|s| DisplaySubscription(s).to_string())
+            .collect();
+        let del_list: Vec<_> = subscriptions_to_delete
+            .iter()
+            .map(|s| DisplaySubscription(s).to_string())
+            .collect();
         tracing::info!(
             "route reconciler: sending config command to node {node_id}: \
              set=[{}], del=[{}]",

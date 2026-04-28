@@ -42,39 +42,29 @@ data-plane (DP) nodes. It maintains the desired state of inter-node connections
 reconciliation loop to converge the actual state of each DP node toward the
 desired state.
 
-```
-┌─────────────────────────────────────────────┐
-│                Control Plane                │
-│                                             │
-│  ┌──────────┐  ┌──────────┐  ┌───────────┐ │
-│  │Northbound│  │  Route   │  │Southbound │ │
-│  │  API     │  │ Service  │  │   API     │ │
-│  └────┬─────┘  └────┬─────┘  └─────┬─────┘ │
-│       │             │              │        │
-│       │      ┌──────┴──────┐       │        │
-│       │      │  WorkQueues │       │        │
-│       │      └──┬───────┬──┘       │        │
-│       │    ┌────┴──┐ ┌──┴─────┐    │        │
-│       │    │ Link  │ │ Route  │    │        │
-│       │    │Reconc.│ │Reconc. │    │        │
-│       │    └───────┘ └────────┘    │        │
-│       │                            │        │
-│       └──────────┬─────────────────┘        │
-│                  │                          │
-│           ┌──────┴──────┐                   │
-│           │  Database   │                   │
-│           │ (nodes,     │                   │
-│           │  links,     │                   │
-│           │  routes)    │                   │
-│           └─────────────┘                   │
-└─────────────────────────────────────────────┘
-        │                        │
-   gRPC (mgmt)           gRPC (bidir stream)
-        │                        │
-   ┌────┴────┐       ┌───────────┴───────────┐
-   │ slimctl │       │   DP Node A   DP Node B│
-   │ / API   │       │   (controller service) │
-   └─────────┘       └────────────────────────┘
+```mermaid
+graph TD
+    subgraph CP["Control Plane"]
+        NB["Northbound API"]
+        RS["Route Service"]
+        SB["Southbound API"]
+        WQ["WorkQueues"]
+        LR["Link Reconciler"]
+        RR["Route Reconciler"]
+        DB[("Database\n(nodes, links, routes)")]
+
+        RS --> WQ
+        WQ --> LR
+        WQ --> RR
+        NB --> DB
+        SB --> DB
+        LR --> DB
+        RR --> DB
+    end
+
+    slimctl["slimctl / API"] -- "gRPC (mgmt)" --> NB
+    DPA["DP Node A"] -- "gRPC (bidir stream)" --> SB
+    DPB["DP Node B"] -- "gRPC (bidir stream)" --> SB
 ```
 
 Communication between the CP and DP nodes uses a bidirectional gRPC stream
@@ -104,33 +94,31 @@ mutations back on the same stream.
 When a data-plane node starts, it opens a bidirectional gRPC stream to the
 CP's southbound API (`OpenControlChannel`). The following sequence occurs:
 
-```
-DP Node                          Control Plane (Southbound)
-  │                                       │
-  │──── OpenControlChannel ──────────────>│
-  │<──── Initial ACK ────────────────────│
-  │                                       │
-  │──── RegisterNodeRequest ────────────>│  (15 s timeout)
-  │     { node_id, group_name,           │
-  │       connection_details[],          │
-  │       connections[] }                │
-  │                                       │
-  │                              save_node(Node)
-  │                              add_stream(node_id, tx)
-  │<──── Registration ACK ──────────────│
-  │                                       │
-  │                              route_service.node_registered(
-  │                                node_id,
-  │                                conn_details_updated,
-  │                                dp_connections)
-  │                                       │
-  │<──── ConfigCommands (links) ────────│  (via link reconciler)
-  │──── ConfigCommandAck ──────────────>│
-  │                                       │
-  │<──── ConfigCommands (routes) ───────│  (via route reconciler)
-  │──── ConfigCommandAck ──────────────>│
-  │                                       │
-  │         ... message loop ...          │
+```mermaid
+sequenceDiagram
+    participant DP as DP Node
+    participant CP as Control Plane (Southbound)
+
+    DP->>CP: OpenControlChannel
+    CP-->>DP: Initial ACK
+
+    DP->>CP: RegisterNodeRequest {node_id, group_name, connection_details[], connections[]}
+    Note right of CP: 15 s timeout
+    Note right of CP: save_node(Node)<br/>add_stream(node_id, tx)
+    CP-->>DP: Registration ACK
+    Note right of CP: route_service.node_registered(<br/>node_id, conn_details_updated,<br/>dp_connections)
+
+    CP->>DP: ConfigCommands (links)
+    Note right of CP: via link reconciler
+    DP->>CP: ConfigCommandAck
+
+    CP->>DP: ConfigCommands (routes)
+    Note right of CP: via route reconciler
+    DP->>CP: ConfigCommandAck
+
+    loop Message loop
+        DP-->CP: bidirectional messages
+    end
 ```
 
 **Node ID construction.** If the node provides a `group_name`, the effective
@@ -270,28 +258,16 @@ node is dequeued:
 
 ### Link State Machine
 
-```
-                  ┌──────────────────────────────┐
-                  │                              │
-                  v                              │
-  ┌─────────┐  create   ┌─────────┐  success  ┌─────────┐
-  │ Pending ├──────────>│ (sent)  ├─────────>│ Applied │
-  └────┬────┘           └────┬────┘          └────┬────┘
-       │                     │                    │
-       │                     │ failure            │ connection lost
-       │                     v                    │ or endpoint changed
-       │               ┌─────────┐                │
-       │               │ Failed  │                │
-       │               └─────────┘                │
-       │                                          │
-       │<─────────────────────────────────────────┘
-       │               reset to Pending
-       │
-       │  mark deleted
-       v
-  ┌─────────┐  delete sent   ┌─────────────┐
-  │ Deleted ├───────────────>│ Hard-deleted │
-  └─────────┘  (or not found)└─────────────┘
+```mermaid
+stateDiagram-v2
+    [*] --> Pending
+    Pending --> Sent: create
+    Sent --> Applied: success
+    Sent --> Failed: failure
+    Applied --> Pending: connection lost / endpoint changed\n(reset to Pending)
+    Pending --> Deleted: mark deleted
+    Deleted --> HardDeleted: delete sent\n(or not found)
+    HardDeleted --> [*]
 ```
 
 ## Route Management
@@ -356,30 +332,16 @@ The route reconciler runs as parallel workers consuming from a shared
 
 ### Route State Machine
 
-```
-                  ┌──────────────────────────────┐
-                  │                              │
-                  v                              │
-  ┌─────────┐  subscribe ┌─────────┐  success ┌─────────┐
-  │ Pending ├──────────>│ (sent)  ├────────>│ Applied │
-  └────┬────┘           └────┬────┘         └─────────┘
-       │                     │
-       │                     │ failure
-       │                     v
-       │               ┌─────────┐
-       │               │ Failed  │
-       │               └─────────┘
-       │
-       │  link not ready /
-       │  connection not found
-       │  -> defer to link reconciler
-       │  (stays Pending)
-       │
-       │  mark deleted
-       v
-  ┌─────────┐  unsub sent    ┌─────────────┐
-  │ Deleted ├───────────────>│ Hard-deleted │
-  └─────────┘ (or not found) └─────────────┘
+```mermaid
+stateDiagram-v2
+    [*] --> Pending
+    Pending --> Sent: subscribe
+    Sent --> Applied: success
+    Sent --> Failed: failure
+    Pending --> Pending: link not ready / connection not found\n(defer to link reconciler)
+    Pending --> Deleted: mark deleted
+    Deleted --> HardDeleted: unsub sent\n(or not found)
+    HardDeleted --> [*]
 ```
 
 ## Data-Plane Controller

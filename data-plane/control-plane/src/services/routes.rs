@@ -1220,12 +1220,7 @@ impl std::fmt::Display for DisplaySubscription<'_> {
         write!(
             f,
             "({}/{}/{}, id={:?}, link={}, node={:?})",
-            s.component_0,
-            s.component_1,
-            s.component_2,
-            s.id,
-            s.connection_id,
-            s.node_id,
+            s.component_0, s.component_1, s.component_2, s.id, s.connection_id, s.node_id,
         )
     }
 }

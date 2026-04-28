@@ -264,7 +264,10 @@ async fn handle_request(
 
     {
         use super::DisplayConnection;
-        let create_list: Vec<_> = connections_to_create.iter().map(|c| DisplayConnection(c).to_string()).collect();
+        let create_list: Vec<_> = connections_to_create
+            .iter()
+            .map(|c| DisplayConnection(c).to_string())
+            .collect();
         tracing::info!(
             "link reconciler: sending config command to node {node_id}: \
              create=[{}], delete=[{}]",

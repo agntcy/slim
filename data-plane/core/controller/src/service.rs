@@ -879,13 +879,10 @@ impl ControllerService {
                                             }
                                             Ok(conn_id) => {
                                                 if !requested_link_id.is_empty() {
-                                                    self.inner
-                                                        .link_id_to_conn_id
-                                                        .write()
-                                                        .insert(
-                                                            requested_link_id.clone(),
-                                                            conn_id.1,
-                                                        );
+                                                    self.inner.link_id_to_conn_id.write().insert(
+                                                        requested_link_id.clone(),
+                                                        conn_id.1,
+                                                    );
                                                 }
                                                 info!(
                                                     endpoint = %client_endpoint, "Successfully created connection",
@@ -2498,7 +2495,11 @@ mod tests {
         assert!(ack.connections_status[0].success);
 
         assert!(
-            controller.inner.link_id_to_conn_id.read().contains_key(&link_id),
+            controller
+                .inner
+                .link_id_to_conn_id
+                .read()
+                .contains_key(&link_id),
             "expected link_id to be mapped to reused connection id"
         );
     }
