@@ -215,3 +215,473 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ClientConfig) -> Result<()> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use tokio_stream::wrappers::TcpListenerStream;
+
+    use slim_config::grpc::client::ClientConfig;
+    use crate::proto::channel_manager::proto::v1::{
+        CommandResponse, ControlRequest, ControlResponse, ListChannelsResponse,
+        ListParticipantsResponse,
+        channel_manager_service_server::{ChannelManagerService, ChannelManagerServiceServer},
+        control_request::Payload as RequestPayload,
+        control_response::Payload as RespPayload,
+    };
+
+    use super::*;
+
+    // ── handle_command_response unit tests ───────────────────────────────────
+
+    #[test]
+    fn handle_command_response_success() {
+        let resp = ControlResponse {
+            msg_id: 1,
+            payload: Some(RespPayload::CommandResponse(CommandResponse {
+                msg_id: 1,
+                success: true,
+                error_msg: None,
+            })),
+        };
+        assert!(handle_command_response(resp, "ok").is_ok());
+    }
+
+    #[test]
+    fn handle_command_response_failure_with_message() {
+        let resp = ControlResponse {
+            msg_id: 1,
+            payload: Some(RespPayload::CommandResponse(CommandResponse {
+                msg_id: 1,
+                success: false,
+                error_msg: Some("bad channel".to_string()),
+            })),
+        };
+        let err = handle_command_response(resp, "ok").unwrap_err();
+        assert!(err.to_string().contains("bad channel"));
+    }
+
+    #[test]
+    fn handle_command_response_failure_without_message() {
+        let resp = ControlResponse {
+            msg_id: 1,
+            payload: Some(RespPayload::CommandResponse(CommandResponse {
+                msg_id: 1,
+                success: false,
+                error_msg: None,
+            })),
+        };
+        let err = handle_command_response(resp, "ok").unwrap_err();
+        assert!(err.to_string().contains("unknown error"));
+    }
+
+    #[test]
+    fn handle_command_response_unexpected_payload() {
+        let resp = ControlResponse {
+            msg_id: 1,
+            payload: Some(RespPayload::ListChannelsResponse(ListChannelsResponse {
+                msg_id: 1,
+                channel_name: vec![],
+            })),
+        };
+        let err = handle_command_response(resp, "ok").unwrap_err();
+        assert!(err.to_string().contains("Unexpected response type"));
+    }
+
+    #[test]
+    fn handle_command_response_no_payload() {
+        let resp = ControlResponse {
+            msg_id: 1,
+            payload: None,
+        };
+        let err = handle_command_response(resp, "ok").unwrap_err();
+        assert!(err.to_string().contains("Unexpected response type"));
+    }
+
+    #[test]
+    fn generate_msg_id_returns_nonzero_most_of_the_time() {
+        let ids: Vec<u64> = (0..10).map(|_| generate_msg_id()).collect();
+        assert!(ids.iter().any(|&id| id != 0));
+    }
+
+    // ── mock gRPC servers ───────────────────────────────────────────────────
+
+    struct MockChannelManagerSvc;
+
+    #[tonic::async_trait]
+    impl ChannelManagerService for MockChannelManagerSvc {
+        async fn command(
+            &self,
+            request: tonic::Request<ControlRequest>,
+        ) -> Result<tonic::Response<ControlResponse>, tonic::Status> {
+            let req = request.into_inner();
+            let resp_payload = match req.payload {
+                Some(RequestPayload::CreateChannelRequest(_))
+                | Some(RequestPayload::DeleteChannelRequest(_))
+                | Some(RequestPayload::AddParticipantRequest(_))
+                | Some(RequestPayload::DeleteParticipantRequest(_)) => {
+                    RespPayload::CommandResponse(CommandResponse {
+                        msg_id: req.msg_id,
+                        success: true,
+                        error_msg: None,
+                    })
+                }
+                Some(RequestPayload::ListChannelsRequest(_)) => {
+                    RespPayload::ListChannelsResponse(ListChannelsResponse {
+                        msg_id: req.msg_id,
+                        channel_name: vec![
+                            "org/ns/chan1".to_string(),
+                            "org/ns/chan2".to_string(),
+                        ],
+                    })
+                }
+                Some(RequestPayload::ListParticipantsRequest(_)) => {
+                    RespPayload::ListParticipantsResponse(ListParticipantsResponse {
+                        msg_id: req.msg_id,
+                        participant_name: vec!["org/ns/app1".to_string()],
+                    })
+                }
+                None => {
+                    return Err(tonic::Status::invalid_argument("missing payload"));
+                }
+            };
+            Ok(tonic::Response::new(ControlResponse {
+                msg_id: req.msg_id,
+                payload: Some(resp_payload),
+            }))
+        }
+    }
+
+    struct ErrorChannelManagerSvc;
+
+    #[tonic::async_trait]
+    impl ChannelManagerService for ErrorChannelManagerSvc {
+        async fn command(
+            &self,
+            _request: tonic::Request<ControlRequest>,
+        ) -> Result<tonic::Response<ControlResponse>, tonic::Status> {
+            Err(tonic::Status::internal("forced server error"))
+        }
+    }
+
+    struct NackChannelManagerSvc;
+
+    #[tonic::async_trait]
+    impl ChannelManagerService for NackChannelManagerSvc {
+        async fn command(
+            &self,
+            request: tonic::Request<ControlRequest>,
+        ) -> Result<tonic::Response<ControlResponse>, tonic::Status> {
+            let req = request.into_inner();
+            let err_msg = match req.payload {
+                Some(RequestPayload::ListChannelsRequest(_))
+                | Some(RequestPayload::ListParticipantsRequest(_)) => "list denied",
+                _ => "nack",
+            };
+            Ok(tonic::Response::new(ControlResponse {
+                msg_id: req.msg_id,
+                payload: Some(RespPayload::CommandResponse(CommandResponse {
+                    msg_id: req.msg_id,
+                    success: false,
+                    error_msg: Some(err_msg.to_string()),
+                })),
+            }))
+        }
+    }
+
+    struct UnexpectedPayloadSvc;
+
+    #[tonic::async_trait]
+    impl ChannelManagerService for UnexpectedPayloadSvc {
+        async fn command(
+            &self,
+            request: tonic::Request<ControlRequest>,
+        ) -> Result<tonic::Response<ControlResponse>, tonic::Status> {
+            let req = request.into_inner();
+            Ok(tonic::Response::new(ControlResponse {
+                msg_id: req.msg_id,
+                payload: Some(RespPayload::ListChannelsResponse(ListChannelsResponse {
+                    msg_id: req.msg_id,
+                    channel_name: vec![],
+                })),
+            }))
+        }
+    }
+
+    async fn spawn_svc<S>(svc: S) -> String
+    where
+        S: ChannelManagerService,
+    {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let incoming = TcpListenerStream::new(listener);
+        tokio::spawn(async move {
+            tonic::transport::Server::builder()
+                .add_service(ChannelManagerServiceServer::new(svc))
+                .serve_with_incoming(incoming)
+                .await
+                .unwrap();
+        });
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        format!("{}:{}", addr.ip(), addr.port())
+    }
+
+    fn make_opts(addr: &str) -> ClientConfig {
+        slim_config::grpc::client::ClientConfig::with_endpoint(&format!("http://{}", addr))
+            .with_tls_setting(slim_config::tls::client::TlsClientConfig::insecure())
+            .with_request_timeout(Duration::from_secs(5))
+    }
+
+    // ── happy-path tests ────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn create_channel_succeeds() {
+        let addr = spawn_svc(MockChannelManagerSvc).await;
+        let args = ChannelManagerArgs {
+            command: ChannelManagerCommand::CreateChannel {
+                channel: "org/ns/chan".to_string(),
+                disable_mls: false,
+            },
+        };
+        run(&args, &make_opts(&addr)).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn create_channel_disable_mls_succeeds() {
+        let addr = spawn_svc(MockChannelManagerSvc).await;
+        let args = ChannelManagerArgs {
+            command: ChannelManagerCommand::CreateChannel {
+                channel: "org/ns/chan".to_string(),
+                disable_mls: true,
+            },
+        };
+        run(&args, &make_opts(&addr)).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn delete_channel_succeeds() {
+        let addr = spawn_svc(MockChannelManagerSvc).await;
+        let args = ChannelManagerArgs {
+            command: ChannelManagerCommand::DeleteChannel {
+                channel: "org/ns/chan".to_string(),
+            },
+        };
+        run(&args, &make_opts(&addr)).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn add_participant_succeeds() {
+        let addr = spawn_svc(MockChannelManagerSvc).await;
+        let args = ChannelManagerArgs {
+            command: ChannelManagerCommand::AddParticipant {
+                channel: "org/ns/chan".to_string(),
+                participant: "org/ns/app".to_string(),
+            },
+        };
+        run(&args, &make_opts(&addr)).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn delete_participant_succeeds() {
+        let addr = spawn_svc(MockChannelManagerSvc).await;
+        let args = ChannelManagerArgs {
+            command: ChannelManagerCommand::DeleteParticipant {
+                channel: "org/ns/chan".to_string(),
+                participant: "org/ns/app".to_string(),
+            },
+        };
+        run(&args, &make_opts(&addr)).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn list_channels_succeeds() {
+        let addr = spawn_svc(MockChannelManagerSvc).await;
+        let args = ChannelManagerArgs {
+            command: ChannelManagerCommand::ListChannels,
+        };
+        run(&args, &make_opts(&addr)).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn list_participants_succeeds() {
+        let addr = spawn_svc(MockChannelManagerSvc).await;
+        let args = ChannelManagerArgs {
+            command: ChannelManagerCommand::ListParticipants {
+                channel: "org/ns/chan".to_string(),
+            },
+        };
+        run(&args, &make_opts(&addr)).await.unwrap();
+    }
+
+    // ── gRPC-level error tests ──────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn create_channel_grpc_error_propagates() {
+        let addr = spawn_svc(ErrorChannelManagerSvc).await;
+        let args = ChannelManagerArgs {
+            command: ChannelManagerCommand::CreateChannel {
+                channel: "c".to_string(),
+                disable_mls: false,
+            },
+        };
+        assert!(run(&args, &make_opts(&addr)).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn delete_channel_grpc_error_propagates() {
+        let addr = spawn_svc(ErrorChannelManagerSvc).await;
+        let args = ChannelManagerArgs {
+            command: ChannelManagerCommand::DeleteChannel {
+                channel: "c".to_string(),
+            },
+        };
+        assert!(run(&args, &make_opts(&addr)).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn add_participant_grpc_error_propagates() {
+        let addr = spawn_svc(ErrorChannelManagerSvc).await;
+        let args = ChannelManagerArgs {
+            command: ChannelManagerCommand::AddParticipant {
+                channel: "c".to_string(),
+                participant: "p".to_string(),
+            },
+        };
+        assert!(run(&args, &make_opts(&addr)).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn delete_participant_grpc_error_propagates() {
+        let addr = spawn_svc(ErrorChannelManagerSvc).await;
+        let args = ChannelManagerArgs {
+            command: ChannelManagerCommand::DeleteParticipant {
+                channel: "c".to_string(),
+                participant: "p".to_string(),
+            },
+        };
+        assert!(run(&args, &make_opts(&addr)).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn list_channels_grpc_error_propagates() {
+        let addr = spawn_svc(ErrorChannelManagerSvc).await;
+        let args = ChannelManagerArgs {
+            command: ChannelManagerCommand::ListChannels,
+        };
+        assert!(run(&args, &make_opts(&addr)).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn list_participants_grpc_error_propagates() {
+        let addr = spawn_svc(ErrorChannelManagerSvc).await;
+        let args = ChannelManagerArgs {
+            command: ChannelManagerCommand::ListParticipants {
+                channel: "c".to_string(),
+            },
+        };
+        assert!(run(&args, &make_opts(&addr)).await.is_err());
+    }
+
+    // ── negative-ACK tests (success = false) ────────────────────────────────
+
+    #[tokio::test]
+    async fn create_channel_nack_fails() {
+        let addr = spawn_svc(NackChannelManagerSvc).await;
+        let args = ChannelManagerArgs {
+            command: ChannelManagerCommand::CreateChannel {
+                channel: "c".to_string(),
+                disable_mls: false,
+            },
+        };
+        let err = run(&args, &make_opts(&addr)).await.unwrap_err();
+        assert!(err.to_string().contains("nack"));
+    }
+
+    #[tokio::test]
+    async fn delete_channel_nack_fails() {
+        let addr = spawn_svc(NackChannelManagerSvc).await;
+        let args = ChannelManagerArgs {
+            command: ChannelManagerCommand::DeleteChannel {
+                channel: "c".to_string(),
+            },
+        };
+        let err = run(&args, &make_opts(&addr)).await.unwrap_err();
+        assert!(err.to_string().contains("nack"));
+    }
+
+    #[tokio::test]
+    async fn add_participant_nack_fails() {
+        let addr = spawn_svc(NackChannelManagerSvc).await;
+        let args = ChannelManagerArgs {
+            command: ChannelManagerCommand::AddParticipant {
+                channel: "c".to_string(),
+                participant: "p".to_string(),
+            },
+        };
+        let err = run(&args, &make_opts(&addr)).await.unwrap_err();
+        assert!(err.to_string().contains("nack"));
+    }
+
+    #[tokio::test]
+    async fn delete_participant_nack_fails() {
+        let addr = spawn_svc(NackChannelManagerSvc).await;
+        let args = ChannelManagerArgs {
+            command: ChannelManagerCommand::DeleteParticipant {
+                channel: "c".to_string(),
+                participant: "p".to_string(),
+            },
+        };
+        let err = run(&args, &make_opts(&addr)).await.unwrap_err();
+        assert!(err.to_string().contains("nack"));
+    }
+
+    #[tokio::test]
+    async fn list_channels_nack_fails() {
+        let addr = spawn_svc(NackChannelManagerSvc).await;
+        let args = ChannelManagerArgs {
+            command: ChannelManagerCommand::ListChannels,
+        };
+        let err = run(&args, &make_opts(&addr)).await.unwrap_err();
+        assert!(err.to_string().contains("list denied"));
+    }
+
+    #[tokio::test]
+    async fn list_participants_nack_fails() {
+        let addr = spawn_svc(NackChannelManagerSvc).await;
+        let args = ChannelManagerArgs {
+            command: ChannelManagerCommand::ListParticipants {
+                channel: "c".to_string(),
+            },
+        };
+        let err = run(&args, &make_opts(&addr)).await.unwrap_err();
+        assert!(err.to_string().contains("list denied"));
+    }
+
+    // ── unexpected-payload tests ────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn create_channel_unexpected_payload_fails() {
+        let addr = spawn_svc(UnexpectedPayloadSvc).await;
+        let args = ChannelManagerArgs {
+            command: ChannelManagerCommand::CreateChannel {
+                channel: "c".to_string(),
+                disable_mls: false,
+            },
+        };
+        let err = run(&args, &make_opts(&addr)).await.unwrap_err();
+        assert!(err.to_string().contains("Unexpected response type"));
+    }
+
+    #[tokio::test]
+    async fn delete_channel_unexpected_payload_fails() {
+        let addr = spawn_svc(UnexpectedPayloadSvc).await;
+        let args = ChannelManagerArgs {
+            command: ChannelManagerCommand::DeleteChannel {
+                channel: "c".to_string(),
+            },
+        };
+        let err = run(&args, &make_opts(&addr)).await.unwrap_err();
+        assert!(err.to_string().contains("Unexpected response type"));
+    }
+}

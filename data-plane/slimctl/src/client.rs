@@ -89,16 +89,3 @@ macro_rules! rpc {
             .into_inner()
     };
 }
-
-#[cfg(test)]
-mod tests {
-    use slim_config::grpc::client::ClientConfig;
-    use slim_config::tls::client::TlsClientConfig;
-
-    use super::*;
-
-    fn _base_opts() -> ClientConfig {
-        ClientConfig::with_endpoint("http://localhost:50051")
-            .with_tls_setting(TlsClientConfig::insecure())
-    }
-}

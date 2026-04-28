@@ -321,6 +321,33 @@ mod tests {
     }
 
     #[test]
+    fn resolve_file_timeout_preserved_when_no_cli_flag() {
+        let file_config = ClientConfig::default()
+            .with_request_timeout(Duration::from_secs(10))
+            .with_connect_timeout(Duration::from_secs(10));
+        let opts = resolve_config(
+            &file_config,
+            DEFAULT_NODE_ENDPOINT,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            Duration::from(opts.request_timeout),
+            Duration::from_secs(10)
+        );
+        assert_eq!(
+            Duration::from(opts.connect_timeout),
+            Duration::from_secs(10)
+        );
+    }
+
+    #[test]
     fn resolve_tls_skip_verify_passed_through() {
         let file_config = ClientConfig::default();
         let opts = resolve_config(
