@@ -63,11 +63,31 @@ pub enum DatabaseConfig {
 pub struct ReconcilerConfig {
     /// Maximum number of times a failed reconcile request is requeued.
     pub max_requeues: usize,
+    /// Base delay in milliseconds for the first retry. Subsequent retries use
+    /// exponential backoff (base * 2^(attempt-1)) capped at 30 s.
+    pub base_retry_delay_ms: u64,
+    /// How often (in seconds) all connected nodes are re-enqueued for full
+    /// reconciliation as a background health-check sweep. Set to 0 to disable.
+    pub reconcile_period_secs: u64,
+    /// When true, the link reconciler will delete outgoing connections found on
+    /// a data-plane node whose link_id is not present in the control-plane DB.
+    ///
+    /// Disable this (the default) when data-plane nodes may have connections
+    /// that were established outside the control plane (e.g. connections created
+    /// by a previous CP instance, or manually configured connections). Enabling
+    /// it is useful in greenfield deployments where the CP is the sole source of
+    /// truth for all data-plane connections.
+    pub enable_orphan_detection: bool,
 }
 
 impl Default for ReconcilerConfig {
     fn default() -> Self {
-        Self { max_requeues: 15 }
+        Self {
+            max_requeues: 15,
+            base_retry_delay_ms: 200,
+            reconcile_period_secs: 60,
+            enable_orphan_detection: false,
+        }
     }
 }
 
@@ -79,6 +99,7 @@ mod tests {
     fn reconciler_config_defaults() {
         let c = ReconcilerConfig::default();
         assert_eq!(c.max_requeues, 15);
+        assert_eq!(c.base_retry_delay_ms, 200);
     }
 
     #[test]

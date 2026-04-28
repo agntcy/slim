@@ -187,20 +187,15 @@ impl ControlPlaneService for NorthboundApiService {
     ) -> Result<Response<DeleteRouteResponse>, Status> {
         let req = request.into_inner();
 
-        self.db
-            .get_node(&req.node_id)
-            .await
-            .ok_or_else(|| Status::not_found(format!("invalid source nodeID: {}", req.node_id)))?;
-
+        // Do NOT validate node existence here: the source or destination node
+        // may have been removed from the DB already, but the route record still
+        // exists and must be deletable (Bug #5).
+        if req.node_id.is_empty() {
+            return Err(Status::invalid_argument("nodeId must be provided"));
+        }
         if req.dest_node_id.is_empty() {
             return Err(Status::invalid_argument("destNodeId must be provided"));
         }
-        self.db
-            .get_node(&req.dest_node_id)
-            .await
-            .ok_or_else(|| {
-                Status::not_found(format!("invalid destination nodeID: {}", req.dest_node_id))
-            })?;
 
         let sub = req.subscription.unwrap_or_default();
         let route = crate::services::routes::Route {
@@ -351,58 +346,44 @@ impl ControlPlaneService for NorthboundApiService {
         request: Request<LinkListRequest>,
     ) -> Result<Response<LinkListResponse>, Status> {
         let req = request.into_inner();
-        let nodes = self.db.list_nodes().await;
-        let mut seen = std::collections::HashSet::new();
+        let links = self
+            .db
+            .filter_links_by_src_dest(&req.src_node_id, &req.dest_node_id)
+            .await;
         let mut link_entries = Vec::new();
 
-        for node in &nodes {
-            let links = self.db.get_links_for_node(&node.id).await;
-            for l in links {
-                if !req.src_node_id.is_empty() && l.source_node_id != req.src_node_id {
-                    continue;
-                }
-                if !req.dest_node_id.is_empty() && l.dest_node_id != req.dest_node_id {
-                    continue;
-                }
-                let key = format!(
-                    "{}|{}|{}|{}",
-                    l.source_node_id, l.dest_node_id, l.dest_endpoint, l.link_id
-                );
-                if !seen.insert(key.clone()) {
-                    continue;
-                }
-                let link_status = match l.status {
-                    crate::db::LinkStatus::Pending => LinkStatus::Pending as i32,
-                    crate::db::LinkStatus::Applied => LinkStatus::Applied as i32,
-                    crate::db::LinkStatus::Failed => LinkStatus::Failed as i32,
-                };
-                let last_updated = l
-                    .last_updated
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs() as i64)
-                    .unwrap_or(0);
-                link_entries.push(crate::api::proto::controlplane::proto::v1::LinkEntry {
-                    id: key,
-                    link_id: l.link_id,
-                    source_node_id: l.source_node_id,
-                    dest_node_id: l.dest_node_id,
-                    dest_endpoint: l.dest_endpoint,
-                    conn_config_data: l.conn_config_data,
-                    status: link_status,
-                    status_msg: l.status_msg,
-                    deleted: l.deleted,
-                    last_updated,
-                });
-            }
+        for l in links {
+            let key = format!(
+                "{}|{}|{}|{}",
+                l.source_node_id, l.dest_node_id, l.dest_endpoint, l.link_id
+            );
+            let link_status = match l.status {
+                crate::db::LinkStatus::Pending => LinkStatus::Pending as i32,
+                crate::db::LinkStatus::Applied => LinkStatus::Applied as i32,
+                crate::db::LinkStatus::Failed => LinkStatus::Failed as i32,
+            };
+            let last_updated = l
+                .last_updated
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            link_entries.push(crate::api::proto::controlplane::proto::v1::LinkEntry {
+                id: key,
+                link_id: l.link_id,
+                source_node_id: l.source_node_id,
+                dest_node_id: l.dest_node_id,
+                dest_endpoint: l.dest_endpoint,
+                conn_config_data: l.conn_config_data,
+                status: link_status,
+                status_msg: l.status_msg,
+                deleted: l.deleted,
+                last_updated,
+            });
         }
 
-        link_entries.sort_by(|a, b| {
-            a.source_node_id
-                .cmp(&b.source_node_id)
-                .then(a.dest_node_id.cmp(&b.dest_node_id))
-                .then(a.link_id.cmp(&b.link_id))
-        });
-
+        // Order is delegated to the DB layer (filter_links_by_src_dest adds
+        // ORDER BY source_node_id, dest_node_id, link_id).  No Rust-side sort
+        // needed.
         Ok(Response::new(LinkListResponse {
             links: link_entries,
         }))

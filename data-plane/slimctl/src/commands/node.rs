@@ -371,12 +371,14 @@ mod tests {
                     Payload::SubscriptionListResponse(SubscriptionListResponse {
                         original_message_id: msg.message_id.clone(),
                         entries: vec![],
+                        done: true,
                     })
                 }
                 Some(Payload::ConnectionListRequest(_)) => {
                     Payload::ConnectionListResponse(ConnectionListResponse {
                         original_message_id: msg.message_id.clone(),
                         entries: vec![],
+                        done: true,
                     })
                 }
                 Some(Payload::ConfigCommand(_)) => {

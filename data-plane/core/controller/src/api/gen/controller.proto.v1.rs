@@ -134,6 +134,8 @@ pub struct SubscriptionListResponse {
     pub original_message_id: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "2")]
     pub entries: ::prost::alloc::vec::Vec<SubscriptionEntry>,
+    #[prost(bool, tag = "3")]
+    pub done: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SubscriptionEntry {
@@ -171,6 +173,8 @@ pub struct ConnectionListResponse {
     pub original_message_id: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "2")]
     pub entries: ::prost::alloc::vec::Vec<ConnectionEntry>,
+    #[prost(bool, tag = "3")]
+    pub done: bool,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Node {

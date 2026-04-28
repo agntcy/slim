@@ -992,29 +992,42 @@ impl ControllerService {
                                     .route_subscription_ids
                                     .lock()
                                     .remove(&(name.clone(), conn));
-                                match sub_id {
+                                let unsubscribe_result = match sub_id {
                                     Some(subscription_id) => {
-                                        if let Err(err) = self
-                                            .send_unsubscribe_message_with_ack(msg, subscription_id)
+                                        self.send_unsubscribe_message_with_ack(msg, subscription_id)
                                             .await
-                                        {
-                                            subscription_success = false;
-                                            subscription_error_msg =
-                                                format!("Failed to unsubscribe: {}", err);
-                                        } else {
-                                            info!(
-                                                ?subscription,
-                                                "Successfully deleted subscription"
-                                            );
-                                        }
                                     }
                                     None => {
-                                        subscription_success = false;
-                                        subscription_error_msg = format!(
-                                            "No subscription_id found for ({}, {})",
-                                            name, conn
-                                        );
+                                        // No tracking ID in the map (e.g. after a CP restart
+                                        // or for orphan cleanup from the reconciler).  Generate
+                                        // a fresh ID — the datapath locates the subscription
+                                        // by Name+connection, not by ID; the ID is only used
+                                        // for ack correlation.
+                                        let (ack_id, ack_rx) =
+                                            self.inner.subscription_manager.register_ack();
+                                        let mut fresh_msg = msg;
+                                        fresh_msg.set_subscription_id(ack_id);
+                                        if let Err(e) = self.send_control_message(fresh_msg).await {
+                                            self.inner.subscription_manager.cancel_ack(ack_id);
+                                            Err(format!("datapath send error: {}", e.chain()))
+                                        } else {
+                                            match ack_rx.await {
+                                                Ok(Ok(())) => Ok(()),
+                                                Ok(Err(err)) => Err(err.to_string()),
+                                                Err(_) => {
+                                                    Err("subscription ack channel closed"
+                                                        .to_string())
+                                                }
+                                            }
+                                        }
                                     }
+                                };
+                                if let Err(err) = unsubscribe_result {
+                                    subscription_success = false;
+                                    subscription_error_msg =
+                                        format!("Failed to unsubscribe: {}", err);
+                                } else {
+                                    info!(?subscription, "Successfully deleted subscription");
                                 }
                             } else {
                                 subscription_success = false;
@@ -1117,19 +1130,37 @@ impl ControllerService {
                             },
                         );
 
-                        for chunk in entries.chunks(CHUNK_SIZE) {
+                        let chunks: Vec<_> = entries.chunks(CHUNK_SIZE).collect();
+                        if chunks.is_empty() {
                             let resp = ControlMessage {
                                 message_id: uuid::Uuid::new_v4().to_string(),
                                 payload: Some(Payload::SubscriptionListResponse(
                                     SubscriptionListResponse {
                                         original_message_id: msg.message_id.clone(),
-                                        entries: chunk.to_vec(),
+                                        entries: vec![],
+                                        done: true,
                                     },
                                 )),
                             };
-
                             if let Err(e) = tx.try_send(Ok(resp)) {
-                                error!(error = %e.chain(), "failed to send subscription batch");
+                                error!(error = %e.chain(), "failed to send subscription list response");
+                            }
+                        } else {
+                            let n = chunks.len();
+                            for (i, chunk) in chunks.into_iter().enumerate() {
+                                let resp = ControlMessage {
+                                    message_id: uuid::Uuid::new_v4().to_string(),
+                                    payload: Some(Payload::SubscriptionListResponse(
+                                        SubscriptionListResponse {
+                                            original_message_id: msg.message_id.clone(),
+                                            entries: chunk.to_vec(),
+                                            done: i + 1 == n,
+                                        },
+                                    )),
+                                };
+                                if let Err(e) = tx.try_send(Ok(resp)) {
+                                    error!(error = %e.chain(), "failed to send subscription batch");
+                                }
                             }
                         }
                     }
@@ -1165,19 +1196,37 @@ impl ControllerService {
                             });
 
                         const CHUNK_SIZE: usize = 100;
-                        for chunk in all_entries.chunks(CHUNK_SIZE) {
+                        let chunks: Vec<_> = all_entries.chunks(CHUNK_SIZE).collect();
+                        if chunks.is_empty() {
                             let resp = ControlMessage {
                                 message_id: uuid::Uuid::new_v4().to_string(),
                                 payload: Some(Payload::ConnectionListResponse(
                                     ConnectionListResponse {
                                         original_message_id: msg.message_id.clone(),
-                                        entries: chunk.to_vec(),
+                                        entries: vec![],
+                                        done: true,
                                     },
                                 )),
                             };
-
                             if let Err(e) = tx.try_send(Ok(resp)) {
-                                error!(error = %e.chain(), "failed to send connection list batch");
+                                error!(error = %e.chain(), "failed to send connection list response");
+                            }
+                        } else {
+                            let n = chunks.len();
+                            for (i, chunk) in chunks.into_iter().enumerate() {
+                                let resp = ControlMessage {
+                                    message_id: uuid::Uuid::new_v4().to_string(),
+                                    payload: Some(Payload::ConnectionListResponse(
+                                        ConnectionListResponse {
+                                            original_message_id: msg.message_id.clone(),
+                                            entries: chunk.to_vec(),
+                                            done: i + 1 == n,
+                                        },
+                                    )),
+                                };
+                                if let Err(e) = tx.try_send(Ok(resp)) {
+                                    error!(error = %e.chain(), "failed to send connection list batch");
+                                }
                             }
                         }
                     }

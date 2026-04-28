@@ -1,13 +1,14 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 use crate::error::{Error, Result};
 
 use crate::api::proto::controller::proto::v1::{
-    ConfigurationCommand, Connection, ControlMessage, control_message::Payload,
+    ConfigurationCommand, Connection, ConnectionDirection, ConnectionEntry, ConnectionListRequest,
+    ControlMessage, control_message::Payload,
 };
 use crate::db::SharedDb;
 use crate::node_control::{DefaultNodeCommandHandler, NodeStatus, ResponseKind};
@@ -20,6 +21,8 @@ pub struct LinkReconciler {
     queue: WorkQueue<String>,
     route_queue: WorkQueue<String>,
     max_requeues: usize,
+    base_retry_delay_ms: u64,
+    enable_orphan_detection: bool,
 }
 
 impl LinkReconciler {
@@ -36,6 +39,8 @@ impl LinkReconciler {
             queue,
             route_queue,
             max_requeues: config.max_requeues,
+            base_retry_delay_ms: config.base_retry_delay_ms,
+            enable_orphan_detection: config.enable_orphan_detection,
         }
     }
 
@@ -45,8 +50,14 @@ impl LinkReconciler {
         let mut requeue_counts: HashMap<String, usize> = HashMap::new();
 
         while let Some(node_id) = self.queue.pop().await {
-            if let Err(e) =
-                handle_request(&self.db, &self.cmd_handler, &node_id, &self.route_queue).await
+            if let Err(e) = handle_request(
+                &self.db,
+                &self.cmd_handler,
+                &node_id,
+                &self.route_queue,
+                self.enable_orphan_detection,
+            )
+            .await
             {
                 tracing::error!("link reconciler: failed for node {node_id}: {e}");
 
@@ -57,11 +68,12 @@ impl LinkReconciler {
                 };
 
                 if count <= self.max_requeues {
+                    let delay = crate::backoff::backoff_delay(count, self.base_retry_delay_ms);
                     tracing::debug!(
-                        "link reconciler: requeuing node {node_id} (attempt {count}/{})",
+                        "link reconciler: requeuing node {node_id} in {delay:?} (attempt {count}/{})",
                         self.max_requeues
                     );
-                    self.queue.add(node_id.clone());
+                    self.queue.add_after(node_id.clone(), delay);
                 } else {
                     tracing::warn!(
                         "link reconciler: dropping node {node_id} after {} retries",
@@ -80,11 +92,33 @@ impl LinkReconciler {
     }
 }
 
+/// Query the node's active connections and return all entries.
+async fn query_node_connections(
+    cmd_handler: &DefaultNodeCommandHandler,
+    node_id: &str,
+) -> Result<Vec<ConnectionEntry>> {
+    let msg = ControlMessage {
+        message_id: Uuid::new_v4().to_string(),
+        payload: Some(Payload::ConnectionListRequest(ConnectionListRequest {})),
+    };
+    let chunks = cmd_handler
+        .send_and_wait_chunked(node_id, msg, ResponseKind::ConnectionListResponse)
+        .await?;
+    let mut entries = Vec::new();
+    for chunk in chunks {
+        if let Some(Payload::ConnectionListResponse(r)) = chunk.payload {
+            entries.extend(r.entries);
+        }
+    }
+    Ok(entries)
+}
+
 async fn handle_request(
     db: &SharedDb,
     cmd_handler: &DefaultNodeCommandHandler,
     node_id: &str,
     route_queue: &WorkQueue<String>,
+    enable_orphan_detection: bool,
 ) -> Result<()> {
     if cmd_handler.get_connection_status(node_id).await != NodeStatus::Connected {
         tracing::info!("link reconciler: node {node_id} not connected, skipping");
@@ -93,21 +127,34 @@ async fn handle_request(
 
     let links = db.get_links_for_node(node_id).await;
 
+    // Pre-fetch all routes for this node once and group by link_id.
+    // This avoids O(L) individual get_routes_by_link_id calls inside the loops.
+    let mut routes_by_link: HashMap<String, Vec<String>> = HashMap::new();
+    for r in db.get_routes_for_node_id(node_id).await {
+        if !r.link_id.is_empty() {
+            routes_by_link
+                .entry(r.link_id.clone())
+                .or_default()
+                .push(r.source_node_id.clone());
+        }
+    }
+
     // Maps link_id → Connection proto (deduplicated).
     let mut create_conn_map: HashMap<String, Connection> = HashMap::new();
     // Maps link_id → list of db Link entries marked deleted.
     let mut deleted_links_by_id: HashMap<String, Vec<crate::db::Link>> = HashMap::new();
+    // Set of link IDs the CP expects this node to have as outgoing connections
+    // (includes both pending and applied, excludes deleted).
+    let mut desired_link_ids: HashSet<String> = HashSet::new();
 
     // The current node always gets its routes reconciled after link reconciliation.
-    let mut reconcile_routes_for: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
+    let mut reconcile_routes_for: HashSet<String> = HashSet::new();
     reconcile_routes_for.insert(node_id.to_string());
 
     for link in &links {
         if link.source_node_id != node_id {
             continue;
         }
-
         if link.deleted {
             deleted_links_by_id
                 .entry(link.link_id.clone())
@@ -115,10 +162,59 @@ async fn handle_request(
                 .push(link.clone());
             continue;
         }
+        if !link.link_id.is_empty() {
+            desired_link_ids.insert(link.link_id.clone());
+        }
+    }
 
-        // Inject link_id into the config data JSON if missing.
+    // Query the node's live connections once:
+    //   1. idempotency — Applied links already on the node don't need to be re-sent.
+    //   2. orphan detection — outgoing connections absent from the DB must be removed.
+    let live_connections = query_node_connections(cmd_handler, node_id).await?;
+    let outgoing_direction = ConnectionDirection::Outgoing as i32;
+
+    // Build the set of outgoing link IDs actually present on the node right now.
+    let mut live_link_ids: HashSet<String> = HashSet::new();
+    for entry in &live_connections {
+        if entry.direction != outgoing_direction {
+            continue;
+        }
+        if let Some(lid) = &entry.link_id
+            && !lid.is_empty()
+        {
+            live_link_ids.insert(lid.clone());
+        }
+    }
+
+    // Determine which non-deleted links actually need to be (re)applied vs.
+    // which are already correctly established on the node.
+    for link in &links {
+        if link.source_node_id != node_id || link.deleted {
+            continue;
+        }
+
+        // Idempotency: the link is Applied in the DB and the connection is
+        // confirmed live on the node — no need to resend a create command.
+        // Trigger route reconciliation so that any pending subscriptions on
+        // this link are applied, but skip the connection create itself.
+        if link.status == crate::db::LinkStatus::Applied && live_link_ids.contains(&link.link_id) {
+            if let Some(src_ids) = routes_by_link.get(&link.link_id) {
+                for src_id in src_ids {
+                    reconcile_routes_for.insert(src_id.clone());
+                }
+            }
+            tracing::debug!(
+                "link reconciler: link {} ({}→{}) already live on node, skipping create",
+                link.link_id,
+                link.source_node_id,
+                link.dest_node_id
+            );
+            continue;
+        }
+
+        // Connection is missing from the node or the link is Pending/Failed —
+        // include it in the create list.
         let config_data = inject_link_id(&link.conn_config_data, &link.link_id);
-
         create_conn_map
             .entry(link.link_id.clone())
             .or_insert(Connection {
@@ -127,8 +223,36 @@ async fn handle_request(
             });
     }
 
+    // Orphan detection: outgoing connections present on the node but absent
+    // from the DB desired state (and not already being deleted via a DB record).
+    // Only active when `enable_orphan_detection` is set in the reconciler config.
+    // Disabled by default to avoid deleting connections created outside the CP
+    // (e.g. by a previous CP instance or manual configuration).
+    let mut orphan_link_ids: HashSet<String> = HashSet::new();
+    if enable_orphan_detection {
+        for lid in &live_link_ids {
+            if desired_link_ids.contains(lid) || deleted_links_by_id.contains_key(lid.as_str()) {
+                continue;
+            }
+            tracing::info!(
+                "link reconciler: orphan connection on node {node_id}: link {lid} — scheduling removal"
+            );
+            orphan_link_ids.insert(lid.clone());
+        }
+    }
+
     let connections_to_create: Vec<Connection> = create_conn_map.values().cloned().collect();
-    let connections_to_delete: Vec<String> = deleted_links_by_id.keys().cloned().collect();
+    let mut connections_to_delete: Vec<String> = deleted_links_by_id.keys().cloned().collect();
+    connections_to_delete.extend(orphan_link_ids.iter().cloned());
+
+    if connections_to_create.is_empty() && connections_to_delete.is_empty() {
+        // Nothing to do — all desired links match node state and no orphans found.
+        // Enqueue route reconciliation and return.
+        for src_node_id in &reconcile_routes_for {
+            route_queue.add(src_node_id.clone());
+        }
+        return Ok(());
+    }
 
     let message_id = Uuid::new_v4().to_string();
     let msg = ControlMessage {
@@ -145,10 +269,8 @@ async fn handle_request(
         "link reconciler: sending config command to node {node_id} (msg_id={message_id})"
     );
 
-    cmd_handler.send_message(node_id, msg).await?;
-
     let response = cmd_handler
-        .wait_for_response(node_id, ResponseKind::ConfigCommandAck, &message_id)
+        .send_and_wait(node_id, msg, ResponseKind::ConfigCommandAck)
         .await?;
 
     let ack = match response.payload {
@@ -189,9 +311,10 @@ async fn handle_request(
                     link.dest_node_id
                 );
                 // Enqueue route reconciliation for all routes using this link.
-                let routes = db.get_routes_by_link_id(&link.link_id).await;
-                for r in routes {
-                    reconcile_routes_for.insert(r.source_node_id.clone());
+                if let Some(src_ids) = routes_by_link.get(&link.link_id) {
+                    for src_id in src_ids {
+                        reconcile_routes_for.insert(src_id.clone());
+                    }
                 }
             } else {
                 updated.status = crate::db::LinkStatus::Failed;
@@ -247,6 +370,34 @@ async fn handle_request(
         }
     }
 
+    // ACK-driven cleanup for orphan connections (no DB records to update).
+    for link_id in &orphan_link_ids {
+        match ack_status_by_id.get(link_id.as_str()) {
+            Some((true, _)) => {
+                tracing::info!(
+                    "link reconciler: removed orphan connection {link_id} from node {node_id}"
+                );
+            }
+            Some((false, msg)) => {
+                if is_connection_not_found(msg) {
+                    tracing::debug!(
+                        "link reconciler: orphan connection {link_id} already absent on node {node_id}"
+                    );
+                } else {
+                    tracing::warn!(
+                        "link reconciler: failed to remove orphan connection {link_id} from node {node_id}: {msg}"
+                    );
+                    retry_delete.push(link_id.clone());
+                }
+            }
+            None => {
+                tracing::debug!(
+                    "link reconciler: no ack for orphan connection {link_id} on node {node_id}"
+                );
+            }
+        }
+    }
+
     // Enqueue route reconciliation for affected source nodes.
     for src_node_id in &reconcile_routes_for {
         tracing::debug!("link reconciler: enqueuing route reconcile for node {src_node_id}");
@@ -264,7 +415,9 @@ async fn handle_request(
 
 fn is_connection_not_found(msg: &str) -> bool {
     let lower = msg.to_lowercase();
-    lower.contains("not found")
+    lower.contains("connection not found")
+        || lower.contains("no such connection")
+        || (lower.contains("connection") && lower.contains("not found"))
 }
 
 /// Inject `"link_id"` into the JSON config data string if it is not already present.
@@ -324,5 +477,33 @@ mod tests {
         let data = r#"[1,2,3]"#;
         let result = inject_link_id(data, "lid");
         assert_eq!(result, data);
+    }
+
+    // ── is_connection_not_found ────────────────────────────────────────────
+
+    #[test]
+    fn connection_not_found_exact() {
+        assert!(is_connection_not_found("connection not found"));
+        assert!(is_connection_not_found("Connection Not Found"));
+    }
+
+    #[test]
+    fn connection_not_found_no_such() {
+        assert!(is_connection_not_found("no such connection"));
+        assert!(is_connection_not_found("No Such Connection"));
+    }
+
+    #[test]
+    fn connection_not_found_split_words() {
+        assert!(is_connection_not_found("the connection was not found"));
+    }
+
+    #[test]
+    fn connection_not_found_rejects_unrelated_not_found() {
+        // "subscription not found" must NOT match as a connection error.
+        assert!(!is_connection_not_found("subscription not found"));
+        assert!(!is_connection_not_found("route not found"));
+        assert!(!is_connection_not_found("node not found"));
+        assert!(!is_connection_not_found("not found"));
     }
 }

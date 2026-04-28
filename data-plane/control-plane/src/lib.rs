@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod api;
+pub mod backoff;
 pub mod config;
 pub mod db;
 pub mod error;

@@ -42,9 +42,8 @@ impl GroupService {
 
         let node_id = self.get_moderator_node(&req.moderators).await?;
 
-        let message_id = Uuid::new_v4().to_string();
         let msg = ControlMessage {
-            message_id: message_id.clone(),
+            message_id: Uuid::new_v4().to_string(),
             payload: Some(Payload::CreateChannelRequest(
                 crate::api::proto::controller::proto::v1::CreateChannelRequest {
                     channel_name: channel_name.clone(),
@@ -52,12 +51,10 @@ impl GroupService {
                 },
             )),
         };
-        self.0.cmd_handler.send_message(&node_id, msg).await?;
-
         let response = self
             .0
             .cmd_handler
-            .wait_for_response(&node_id, ResponseKind::Ack, &message_id)
+            .send_and_wait(&node_id, msg, ResponseKind::Ack)
             .await?;
 
         let ack = match response.payload {
@@ -76,10 +73,14 @@ impl GroupService {
         }
 
         tracing::info!("Channel creation result for {channel_name}: success=true");
-        self.0
-            .db
-            .save_channel(&channel_name, req.moderators)
-            .await?;
+        if let Err(e) = self.0.db.save_channel(&channel_name, req.moderators).await {
+            tracing::error!(
+                "create_channel: DB write failed after successful DP ACK for \
+                 channel {channel_name}; CP/DP state is diverged — retry the \
+                 operation once the DB is healthy to reconcile: {e}"
+            );
+            return Err(e);
+        }
         tracing::info!("Channel saved successfully");
 
         Ok(CreateChannelResponse { channel_name })
@@ -102,17 +103,14 @@ impl GroupService {
         let mut req = req;
         req.moderators = channel.moderators;
 
-        let message_id = Uuid::new_v4().to_string();
         let msg = ControlMessage {
-            message_id: message_id.clone(),
+            message_id: Uuid::new_v4().to_string(),
             payload: Some(Payload::DeleteChannelRequest(req.clone())),
         };
-        self.0.cmd_handler.send_message(&node_id, msg).await?;
-
         let response = self
             .0
             .cmd_handler
-            .wait_for_response(&node_id, ResponseKind::Ack, &message_id)
+            .send_and_wait(&node_id, msg, ResponseKind::Ack)
             .await?;
         let ack = match response.payload {
             Some(Payload::Ack(a)) => a,
@@ -129,7 +127,15 @@ impl GroupService {
             "Channel deletion result for {}: success=true",
             req.channel_name
         );
-        self.0.db.delete_channel(&req.channel_name).await?;
+        let channel_name = req.channel_name.clone();
+        if let Err(e) = self.0.db.delete_channel(&channel_name).await {
+            tracing::error!(
+                "delete_channel: DB write failed after successful DP ACK for \
+                 channel {channel_name}; CP/DP state is diverged — retry the \
+                 operation once the DB is healthy to reconcile: {e}"
+            );
+            return Err(e);
+        }
         tracing::info!("Channel deleted successfully");
         Ok(ack)
     }
@@ -138,7 +144,7 @@ impl GroupService {
         validate_name(&req.channel_name, 3)?;
         validate_name(&req.participant_name, 3)?;
 
-        let mut channel = self
+        let channel = self
             .0
             .db
             .get_channel(&req.channel_name)
@@ -147,22 +153,29 @@ impl GroupService {
                 id: req.channel_name.clone(),
             })?;
 
+        // Fix #5: check for duplicate BEFORE sending to the data plane to avoid
+        // CP/DP state divergence (the DP would add the participant but the CP would
+        // then return an error without recording it).
+        if channel.participants.contains(&req.participant_name) {
+            return Err(Error::InvalidInput(format!(
+                "participant {} already exists in channel {}",
+                req.participant_name, req.channel_name
+            )));
+        }
+
         let node_id = self.get_moderator_node(&channel.moderators).await?;
 
         let mut req = req;
         req.moderators = channel.moderators.clone();
 
-        let message_id = Uuid::new_v4().to_string();
         let msg = ControlMessage {
-            message_id: message_id.clone(),
+            message_id: Uuid::new_v4().to_string(),
             payload: Some(Payload::AddParticipantRequest(req.clone())),
         };
-        self.0.cmd_handler.send_message(&node_id, msg).await?;
-
         let response = self
             .0
             .cmd_handler
-            .wait_for_response(&node_id, ResponseKind::Ack, &message_id)
+            .send_and_wait(&node_id, msg, ResponseKind::Ack)
             .await?;
         let ack = match response.payload {
             Some(Payload::Ack(a)) => a,
@@ -176,14 +189,32 @@ impl GroupService {
         if !ack.success {
             return Ok(ack);
         }
-        if channel.participants.contains(&req.participant_name) {
-            return Err(Error::InvalidInput(format!(
-                "participant {} already exists in channel {}",
-                req.participant_name, req.channel_name
-            )));
+        let participant_name = req.participant_name.clone();
+        let channel_name = req.channel_name.clone();
+        // Re-fetch the channel after the DP ACK to get the latest participant
+        // list.  Using the snapshot loaded before the send would silently
+        // overwrite any concurrent add/delete that committed during the DP
+        // round-trip (last-write-wins corruption).
+        let mut fresh_channel =
+            self.0
+                .db
+                .get_channel(&channel_name)
+                .await
+                .ok_or_else(|| Error::ChannelNotFound {
+                    id: channel_name.clone(),
+                })?;
+        if !fresh_channel.participants.contains(&participant_name) {
+            fresh_channel.participants.push(participant_name.clone());
         }
-        channel.participants.push(req.participant_name);
-        self.0.db.update_channel(channel).await?;
+        if let Err(e) = self.0.db.update_channel(fresh_channel).await {
+            tracing::error!(
+                "add_participant: DB write failed after successful DP ACK for \
+                 channel {channel_name} / participant {participant_name}; \
+                 CP/DP state is diverged — retry the operation once the DB \
+                 is healthy to reconcile: {e}"
+            );
+            return Err(e);
+        }
         tracing::info!("Channel updated, participant added successfully.");
         Ok(ack)
     }
@@ -197,7 +228,7 @@ impl GroupService {
                 "participant ID cannot be empty".to_string(),
             ));
         }
-        let mut channel = self
+        let channel = self
             .0
             .db
             .get_channel(&req.channel_name)
@@ -206,33 +237,30 @@ impl GroupService {
                 id: req.channel_name.clone(),
             })?;
 
-        let idx = channel
+        if !channel
             .participants
             .iter()
-            .position(|p| p == &req.participant_name)
-            .ok_or_else(|| {
-                Error::InvalidInput(format!(
-                    "participant {} not found in channel {}",
-                    req.participant_name, req.channel_name
-                ))
-            })?;
+            .any(|p| p == &req.participant_name)
+        {
+            return Err(Error::InvalidInput(format!(
+                "participant {} not found in channel {}",
+                req.participant_name, req.channel_name
+            )));
+        }
 
         let node_id = self.get_moderator_node(&channel.moderators).await?;
 
         let mut req = req;
         req.moderators = channel.moderators.clone();
 
-        let message_id = Uuid::new_v4().to_string();
         let msg = ControlMessage {
-            message_id: message_id.clone(),
+            message_id: Uuid::new_v4().to_string(),
             payload: Some(Payload::DeleteParticipantRequest(req.clone())),
         };
-        self.0.cmd_handler.send_message(&node_id, msg).await?;
-
         let response = self
             .0
             .cmd_handler
-            .wait_for_response(&node_id, ResponseKind::Ack, &message_id)
+            .send_and_wait(&node_id, msg, ResponseKind::Ack)
             .await?;
         let ack = match response.payload {
             Some(Payload::Ack(a)) => a,
@@ -246,8 +274,32 @@ impl GroupService {
             return Ok(ack);
         }
         tracing::info!("DeleteParticipant result success=true");
-        channel.participants.remove(idx);
-        self.0.db.update_channel(channel).await?;
+        let participant_name = req.participant_name.clone();
+        let channel_name = req.channel_name.clone();
+        // Re-fetch the channel after the DP ACK so we write back the latest
+        // participant list rather than the snapshot taken before the send.
+        // Using the old snapshot (and the stale `idx`) would silently overwrite
+        // any concurrent add/delete that committed during the DP round-trip.
+        let mut fresh_channel =
+            self.0
+                .db
+                .get_channel(&channel_name)
+                .await
+                .ok_or_else(|| Error::ChannelNotFound {
+                    id: channel_name.clone(),
+                })?;
+        fresh_channel
+            .participants
+            .retain(|p| p != &participant_name);
+        if let Err(e) = self.0.db.update_channel(fresh_channel).await {
+            tracing::error!(
+                "delete_participant: DB write failed after successful DP ACK for \
+                 channel {channel_name} / participant {participant_name}; \
+                 CP/DP state is diverged — retry the operation once the DB \
+                 is healthy to reconcile: {e}"
+            );
+            return Err(e);
+        }
         tracing::info!("Channel updated, participant deleted successfully");
         Ok(ack)
     }

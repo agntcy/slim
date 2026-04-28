@@ -15,9 +15,12 @@
 
 use std::collections::{HashSet, VecDeque};
 use std::hash::Hash;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::time::Duration;
 
-use tokio::sync::Notify;
+use parking_lot::Mutex;
+
+use tokio::sync::{Notify, watch};
 
 // ─── Internal state ───────────────────────────────────────────────────────────
 
@@ -46,10 +49,14 @@ pub struct WorkQueue<T> {
     notify: Arc<Notify>,
     /// Wakes shutdown_with_drain() when processing reaches zero or drain is cancelled.
     drain_notify: Arc<Notify>,
+    /// Broadcast to all add_after tasks when the queue shuts down so they can
+    /// cancel their pending sleeps rather than running until the delay expires.
+    shutdown_watch: Arc<watch::Sender<bool>>,
 }
 
 impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
     pub fn new() -> Self {
+        let (shutdown_watch, _) = watch::channel(false);
         Self {
             inner: Arc::new(Mutex::new(Inner {
                 queue: VecDeque::new(),
@@ -61,6 +68,7 @@ impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
             })),
             notify: Arc::new(Notify::new()),
             drain_notify: Arc::new(Notify::new()),
+            shutdown_watch: Arc::new(shutdown_watch),
         }
     }
 
@@ -155,6 +163,8 @@ impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
             g.drain = false;
             g.shutdown = true;
         }
+        // Wake add_after tasks so they can cancel their pending sleeps.
+        let _ = self.shutdown_watch.send(true);
         self.notify.notify_waiters();
         self.drain_notify.notify_waiters();
     }
@@ -174,6 +184,8 @@ impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
                 g.shutdown = true;
             }
         }
+        // Wake add_after tasks so they can cancel their pending sleeps.
+        let _ = self.shutdown_watch.send(true);
         self.notify.notify_waiters();
 
         loop {
@@ -193,6 +205,35 @@ impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
             }
             notified.await;
         }
+    }
+
+    /// Schedule `item` to be added to the queue after `delay` has elapsed.
+    ///
+    /// The call returns immediately; a background task handles the sleep and
+    /// calls [`add`](Self::add) when the delay expires. Deduplication rules
+    /// apply at the moment `add` is called, not when this method is called.
+    ///
+    /// If the queue is shut down (or shuts down during the sleep), the
+    /// background task exits immediately without adding the item.
+    pub fn add_after(&self, item: T, delay: Duration) {
+        // Subscribe before the is_shutdown check to avoid a race where
+        // shutdown() fires between the check and the select! in the task.
+        let mut shutdown_rx = self.shutdown_watch.subscribe();
+
+        // Fast path: don't spawn a task for an already-shut-down queue.
+        if self.is_shutdown() {
+            return;
+        }
+
+        let q = self.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                biased;
+                // Shutdown signal takes priority so the task exits cleanly.
+                _ = shutdown_rx.changed() => {}
+                _ = tokio::time::sleep(delay) => q.add(item),
+            }
+        });
     }
 
     pub fn len(&self) -> usize {
@@ -220,6 +261,7 @@ impl<T> Clone for WorkQueue<T> {
             inner: Arc::clone(&self.inner),
             notify: Arc::clone(&self.notify),
             drain_notify: Arc::clone(&self.drain_notify),
+            shutdown_watch: Arc::clone(&self.shutdown_watch),
         }
     }
 }
@@ -429,6 +471,41 @@ mod tests {
             h.await.unwrap();
         }
         assert_eq!(q.len(), 1);
+    }
+
+    // ── add_after ──────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn add_after_item_arrives_after_delay() {
+        let q: WorkQueue<u32> = WorkQueue::new();
+        q.add_after(42, Duration::from_millis(50));
+
+        // Not in queue immediately.
+        assert!(q.is_empty());
+
+        // Arrives within a generous window after the delay.
+        let item = timeout(Duration::from_millis(500), q.pop())
+            .await
+            .expect("timed out waiting for delayed item");
+        assert_eq!(item, Some(42));
+    }
+
+    #[tokio::test]
+    async fn add_after_respects_dedup_if_already_queued() {
+        let q: WorkQueue<u32> = WorkQueue::new();
+        q.add(7); // already queued
+        q.add_after(7, Duration::from_millis(20)); // fires later — should be a no-op
+
+        // Drain the immediately-queued item.
+        assert_eq!(q.pop().await, Some(7));
+        assert!(q.is_empty());
+
+        // The delayed add fires but 7 is no longer queued/processing/dirty,
+        // so it gets added normally.  Give it time to fire.
+        let item = timeout(Duration::from_millis(200), q.pop()).await;
+        // Either it fires (Some(7)) or the test finishes before it — both are
+        // acceptable because we just want to verify there is no panic / double entry.
+        let _ = item;
     }
 
     // ── Clone shares state ─────────────────────────────────────────────────

@@ -64,6 +64,13 @@ struct Inner {
     route_queue: WorkQueue<String>,
     /// Work queue for link reconciliation.
     link_queue: WorkQueue<String>,
+    /// Signals the periodic sweep task to stop.
+    shutdown_tx: tokio::sync::watch::Sender<bool>,
+    /// Per-node mutex that serializes node_registered and node_deregistered for
+    /// the same node.  Without this, a rapid disconnect-reconnect sequence can
+    /// race: node_deregistered deletes links while node_registered is recreating
+    /// them, leaving stale link records for a disconnected node.
+    node_locks: tokio::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 #[derive(Clone)]
@@ -84,30 +91,70 @@ impl RouteService {
             cmd_handler.clone(),
             route_queue.clone(),
             link_queue.clone(),
-            reconciler_config.max_requeues,
+            reconciler_config.clone(),
         );
         let link_reconciler = link_reconciler::LinkReconciler::new(
             db.clone(),
             cmd_handler.clone(),
             link_queue.clone(),
             route_queue.clone(),
-            reconciler_config,
+            reconciler_config.clone(),
         );
         tokio::spawn(route_reconciler.run());
         tokio::spawn(link_reconciler.run());
 
-        Self(Arc::new(Inner {
+        let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
+
+        let svc = Self(Arc::new(Inner {
             db,
             cmd_handler,
             route_queue,
             link_queue,
-        }))
+            shutdown_tx,
+            node_locks: tokio::sync::Mutex::new(std::collections::HashMap::new()),
+        }));
+
+        // Fix #8: periodic full-sweep reconciliation with clean shutdown support.
+        if reconciler_config.reconcile_period_secs > 0 {
+            let period = std::time::Duration::from_secs(reconciler_config.reconcile_period_secs);
+            let svc_clone = svc.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(period);
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    tokio::select! {
+                        biased;
+                        _ = shutdown_rx.changed() => break,
+                        _ = interval.tick() => {}
+                    }
+                    let nodes = svc_clone.0.db.list_nodes().await;
+                    for node in nodes {
+                        if svc_clone
+                            .0
+                            .cmd_handler
+                            .get_connection_status(&node.id)
+                            .await
+                            == crate::node_control::NodeStatus::Connected
+                        {
+                            svc_clone.0.route_queue.add(node.id.clone());
+                            svc_clone.0.link_queue.add(node.id);
+                        }
+                    }
+                }
+                tracing::debug!("route service: periodic sweep task stopped");
+            });
+        }
+
+        svc
     }
 
     /// Stop the reconciler workers and wait for any in-flight reconciliations
     /// to finish before returning.
     pub async fn shutdown(&self) {
         tracing::info!("route service: shutting down reconcilers");
+        // Signal the periodic sweep task to exit (ignore send error: the task
+        // may have already finished if the period was 0).
+        let _ = self.0.shutdown_tx.send(true);
         tokio::join!(
             self.0.route_queue.shutdown_with_drain(),
             self.0.link_queue.shutdown_with_drain(),
@@ -143,13 +190,9 @@ impl RouteService {
                 if n.id == route.dest_node_id {
                     continue;
                 }
-                let link_id = self
-                    .find_matching_link(&n.id, &route.dest_node_id)
-                    .await
-                    .unwrap_or_default();
                 let per_node = crate::db::Route {
                     source_node_id: n.id.clone(),
-                    link_id,
+                    link_id: String::new(),
                     status: RouteStatus::Pending,
                     ..crate::db::Route::from(&route)
                 };
@@ -179,7 +222,17 @@ impl RouteService {
                 if let Some(existing) = self.0.db.get_route_by_id(unique_id).await {
                     if existing.deleted {
                         tracing::warn!("removing stale deleted route {} to allow re-add", existing);
-                        self.0.db.delete_route(existing.id).await?;
+                        match self.0.db.delete_route(existing.id).await {
+                            Ok(()) => {}
+                            Err(Error::RouteNotFound { .. }) => {
+                                // Another concurrent task already deleted it — desired state reached.
+                                tracing::debug!(
+                                    "stale deleted route {} already removed by concurrent task",
+                                    existing.id
+                                );
+                            }
+                            Err(e) => return Err(e),
+                        }
                         let r = self.0.db.add_route(db_route.clone()).await?;
                         route_str = r.to_string();
                     } else {
@@ -290,6 +343,17 @@ impl RouteService {
         conn_details_updated: bool,
         dp_connections: Vec<crate::api::proto::controller::proto::v1::ConnectionEntry>,
     ) {
+        // Serialize with node_deregistered for the same node to prevent a
+        // rapid disconnect-reconnect race from leaving stale link records.
+        let node_lock = {
+            let mut locks = self.0.node_locks.lock().await;
+            locks
+                .entry(node_id.to_string())
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+                .clone()
+        };
+        let _node_guard = node_lock.lock().await;
+
         // Build the set of link IDs the DP still has active.
         let active_link_ids: std::collections::HashSet<String> = dp_connections
             .iter()
@@ -395,10 +459,105 @@ impl RouteService {
         }
     }
 
+    /// Called when a node gracefully deregisters. Cleans up all DB state owned by
+    /// or pointing to `node_id`, and triggers reconciliation on affected peers.
+    pub async fn node_deregistered(&self, node_id: &str) {
+        // Serialize with node_registered for the same node.
+        let node_lock = {
+            let mut locks = self.0.node_locks.lock().await;
+            locks
+                .entry(node_id.to_string())
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+                .clone()
+        };
+        let _node_guard = node_lock.lock().await;
+
+        tracing::info!("route service: cleaning up state for deregistered node {node_id}");
+
+        // Delete all routes where this node is the source (they are gone).
+        for route in self.0.db.get_routes_for_node_id(node_id).await {
+            if let Err(e) = self.0.db.delete_route(route.id).await {
+                tracing::warn!(
+                    "node_deregistered: failed to delete route {}: {e}",
+                    route.id
+                );
+            }
+        }
+
+        // For routes where this node is the destination: mark deleted and
+        // re-trigger source nodes so the subscription is cleaned up on them.
+        let dest_routes = self.0.db.get_routes_for_dest_node_id(node_id).await;
+        for route in &dest_routes {
+            if route.source_node_id == ALL_NODES_ID {
+                // Wildcard template routes are intentionally preserved: they represent
+                // operator intent and will be re-expanded when the node re-registers.
+                continue;
+            }
+            if let Err(e) = self.0.db.mark_route_deleted(route.id).await {
+                tracing::warn!(
+                    "node_deregistered: failed to mark route {} deleted: {e}",
+                    route.id
+                );
+            } else {
+                self.0.route_queue.add(route.source_node_id.clone());
+            }
+        }
+
+        // Links: process all links involving this node.
+        for mut link in self.0.db.get_links_for_node(node_id).await {
+            if link.deleted {
+                continue;
+            }
+            if link.source_node_id == node_id {
+                // Fix #6: outgoing links from the deregistering node can be deleted
+                // immediately — the node is gone so the link reconciler can never
+                // reach it to send a delete command.  Calling update_link(deleted=true)
+                // would leave a DB record that the reconciler waits on forever.
+                if let Err(e) = self.0.db.delete_link(&link).await {
+                    tracing::warn!(
+                        "node_deregistered: failed to delete source link {}: {e}",
+                        link.link_id
+                    );
+                }
+            } else {
+                // Incoming links from peer nodes: mark deleted so the link reconciler
+                // on the peer tears down the outgoing connection.
+                link.deleted = true;
+                link.last_updated = std::time::SystemTime::now();
+                if let Err(e) = self.0.db.update_link(link.clone()).await {
+                    tracing::warn!(
+                        "node_deregistered: failed to mark link {} deleted: {e}",
+                        link.link_id
+                    );
+                    continue;
+                }
+                self.0.link_queue.add(link.source_node_id.clone());
+            }
+        }
+
+        // Remove the node record itself.
+        if let Err(e) = self.0.db.delete_node(node_id).await {
+            tracing::warn!("node_deregistered: failed to delete node {node_id}: {e}");
+        }
+
+        // Remove the map entry while _node_guard is still held.  Any
+        // concurrent node_registered is either waiting for this guard (and
+        // will create a fresh entry after we remove it) or hasn't started
+        // yet.  Dropping the guard first would open a window where a racing
+        // thread re-inserts an entry that we then remove, leaving it without
+        // a lock.
+        // Lock-ordering note: the outer node_locks Mutex is always released
+        // before a per-node Mutex is awaited, so taking the outer lock here
+        // (while holding the inner guard) does not introduce a deadlock.
+        self.0.node_locks.lock().await.remove(node_id);
+        // _node_guard drops here naturally.
+    }
+
     /// Ensure direct or group links exist between `node_id` and every other node.
     async fn ensure_links_for_node(&self, node_id: &str) -> Vec<String> {
-        let src_node = match self.0.db.get_node(node_id).await {
-            Some(n) => n,
+        let all_nodes = self.0.db.list_nodes().await;
+        let src_node = match all_nodes.iter().find(|n| n.id == node_id) {
+            Some(n) => n.clone(),
             None => {
                 tracing::error!("ensure_links: node {node_id} not found");
                 return vec![node_id.to_string()];
@@ -407,23 +566,31 @@ impl RouteService {
         let mut affected: std::collections::HashSet<String> =
             [node_id.to_string()].into_iter().collect();
 
-        for other in self.0.db.list_nodes().await {
+        // Pre-fetch once so we avoid an O(N) `find_link_between_nodes` call per peer.
+        let existing_links = self.0.db.get_links_for_node(node_id).await;
+        let connected_peers: std::collections::HashSet<String> = existing_links
+            .iter()
+            .filter(|l| !l.deleted && l.source_node_id == node_id)
+            .map(|l| l.dest_node_id.clone())
+            .collect();
+
+        let has_src_external = src_node.conn_details.iter().any(|d| {
+            d.external_endpoint
+                .as_deref()
+                .map(|e| !e.is_empty())
+                .unwrap_or(false)
+        });
+
+        for other in &all_nodes {
             if other.id == node_id {
                 continue;
             }
-            if self
-                .0
-                .db
-                .find_link_between_nodes(node_id, &other.id)
-                .await
-                .map(|l| !l.deleted)
-                .unwrap_or(false)
-            {
+            if connected_peers.contains(&other.id) {
                 continue;
             }
             let same_group = src_node.group_name == other.group_name;
             if same_group {
-                if let Some(src) = self.ensure_direct_link(node_id, &other.id).await {
+                if let Some(src) = self.ensure_direct_link(&src_node, other).await {
                     affected.insert(src);
                 }
                 continue;
@@ -435,19 +602,13 @@ impl RouteService {
                     .unwrap_or(false)
             });
             if has_dst_external {
-                if let Some(src) = self.ensure_group_link(node_id, &other.id).await {
+                if let Some(src) = self.ensure_group_link(&src_node, other).await {
                     affected.insert(src);
                 }
                 continue;
             }
-            let has_src_external = src_node.conn_details.iter().any(|d| {
-                d.external_endpoint
-                    .as_deref()
-                    .map(|e| !e.is_empty())
-                    .unwrap_or(false)
-            });
             if has_src_external {
-                if let Some(src) = self.ensure_group_link(&other.id, node_id).await {
+                if let Some(src) = self.ensure_group_link(other, &src_node).await {
                     affected.insert(src);
                 }
                 continue;
@@ -460,11 +621,12 @@ impl RouteService {
         affected.into_iter().collect()
     }
 
-    async fn ensure_direct_link(&self, source_node_id: &str, dest_node_id: &str) -> Option<String> {
-        match self
-            .get_connection_details(source_node_id, dest_node_id)
-            .await
-        {
+    async fn ensure_direct_link(
+        &self,
+        src_node: &crate::db::Node,
+        dst_node: &crate::db::Node,
+    ) -> Option<String> {
+        match compute_connection_details(src_node, dst_node) {
             Ok((endpoint, config_data)) => {
                 let link_id = Uuid::new_v4().to_string();
                 if let Err(e) = self
@@ -472,8 +634,8 @@ impl RouteService {
                     .db
                     .add_link(crate::db::Link {
                         link_id,
-                        source_node_id: source_node_id.to_string(),
-                        dest_node_id: dest_node_id.to_string(),
+                        source_node_id: src_node.id.clone(),
+                        dest_node_id: dst_node.id.clone(),
                         dest_endpoint: endpoint,
                         conn_config_data: config_data,
                         status: LinkStatus::Pending,
@@ -484,11 +646,13 @@ impl RouteService {
                     .await
                 {
                     tracing::error!(
-                        "ensure_direct_link: failed to add link {source_node_id}->{dest_node_id}: {e}"
+                        "ensure_direct_link: failed to add link {}->{}:  {e}",
+                        src_node.id,
+                        dst_node.id
                     );
                     return None;
                 }
-                Some(source_node_id.to_string())
+                Some(src_node.id.clone())
             }
             Err(e) => {
                 tracing::error!("ensure_direct_link: failed to get connection details: {e}");
@@ -497,11 +661,12 @@ impl RouteService {
         }
     }
 
-    async fn ensure_group_link(&self, source_node_id: &str, dest_node_id: &str) -> Option<String> {
-        let (endpoint, config_data) = match self
-            .get_connection_details(source_node_id, dest_node_id)
-            .await
-        {
+    async fn ensure_group_link(
+        &self,
+        src_node: &crate::db::Node,
+        dst_node: &crate::db::Node,
+    ) -> Option<String> {
+        let (endpoint, config_data) = match compute_connection_details(src_node, dst_node) {
             Ok(cd) => cd,
             Err(e) => {
                 tracing::error!("ensure_group_link: failed to get connection details: {e}");
@@ -509,12 +674,16 @@ impl RouteService {
             }
         };
 
-        // Reuse an existing link with the same source + endpoint.
+        // Reuse an existing link only when its destination matches dst_node.
+        // get_link_for_source_and_endpoint searches by (source, endpoint) only;
+        // if it returns a link to a *different* destination, generating a fresh
+        // UUID avoids two DB records sharing the same link_id for different dests.
         let link_id = self
             .0
             .db
-            .get_link_for_source_and_endpoint(source_node_id, &endpoint)
+            .get_link_for_source_and_endpoint(&src_node.id, &endpoint)
             .await
+            .filter(|l| l.dest_node_id == dst_node.id)
             .map(|l| l.link_id)
             .unwrap_or_else(|| Uuid::new_v4().to_string());
 
@@ -523,8 +692,8 @@ impl RouteService {
             .db
             .add_link(crate::db::Link {
                 link_id,
-                source_node_id: source_node_id.to_string(),
-                dest_node_id: dest_node_id.to_string(),
+                source_node_id: src_node.id.clone(),
+                dest_node_id: dst_node.id.clone(),
                 dest_endpoint: endpoint,
                 conn_config_data: config_data,
                 status: LinkStatus::Pending,
@@ -535,20 +704,45 @@ impl RouteService {
             .await
         {
             tracing::error!(
-                "ensure_group_link: failed to add link {source_node_id}->{dest_node_id}: {e}"
+                "ensure_group_link: failed to add link {}->{}:  {e}",
+                src_node.id,
+                dst_node.id
             );
             return None;
         }
-        Some(source_node_id.to_string())
+        Some(src_node.id.clone())
     }
 
     /// For each wildcard route, create a per-node route for `node_id` if one
     /// does not exist yet.
     async fn ensure_routes_for_node(&self, node_id: &str) {
+        // Fix #9: pre-fetch the node's links once (O(1) per route instead of
+        // one `find_link_between_nodes` DB round-trip per wildcard route).
+        let node_links = self.0.db.get_links_for_node(node_id).await;
+        let link_by_dest: std::collections::HashMap<&str, &str> = node_links
+            .iter()
+            .filter(|l| !l.deleted && l.source_node_id == node_id)
+            .map(|l| (l.dest_node_id.as_str(), l.link_id.as_str()))
+            .collect();
+
         for r in self.0.db.get_routes_for_node_id(ALL_NODES_ID).await {
             if r.dest_node_id == node_id {
                 continue;
             }
+            // Resolve the link_id *before* the existence check so we look up the
+            // route by its actual key.  Using "" here would never match a stored
+            // per-node route (whose key includes the real link_id) and would cause
+            // a redundant add_route attempt on every call.
+            let link_id = match link_by_dest.get(r.dest_node_id.as_str()) {
+                Some(id) => id.to_string(),
+                None => {
+                    tracing::error!(
+                        "ensure_routes: no link found for {node_id}->{}",
+                        r.dest_node_id
+                    );
+                    continue;
+                }
+            };
             if self
                 .0
                 .db
@@ -561,23 +755,13 @@ impl RouteService {
                         component_id: r.component_id,
                     },
                     &r.dest_node_id,
-                    "",
+                    &link_id,
                 )
                 .await
-                .is_some()
+                .is_some_and(|existing| !existing.deleted)
             {
                 continue;
             }
-            let link_id = match self.find_matching_link(node_id, &r.dest_node_id).await {
-                Ok(id) => id,
-                Err(e) => {
-                    tracing::error!(
-                        "ensure_routes: failed to find link for {node_id}->{}: {e}",
-                        r.dest_node_id
-                    );
-                    continue;
-                }
-            };
             let new_route = crate::db::Route {
                 id: 0,
                 source_node_id: node_id.to_string(),
@@ -608,56 +792,6 @@ impl RouteService {
         }
     }
 
-    /// Re-queue reconciliation for `node_id` as source when a subscription loss
-    /// is reported by the data plane.
-    pub async fn requeue_route_for_source_node(&self, node_id: &str, route: Route) {
-        let db_route = match self
-            .0
-            .db
-            .get_route_for_src_dest_name(
-                node_id,
-                &SubscriptionName {
-                    component0: &route.component0,
-                    component1: &route.component1,
-                    component2: &route.component2,
-                    component_id: route.component_id.map(|v| v as i64),
-                },
-                "",
-                "",
-            )
-            .await
-        {
-            Some(r) => r,
-            None => return,
-        };
-
-        tracing::info!("re-queuing route reconciliation for {node_id} after subscription loss");
-
-        if !db_route.link_id.is_empty()
-            && let Some(link) = self
-                .0
-                .db
-                .get_link(
-                    &db_route.link_id,
-                    &db_route.source_node_id,
-                    &db_route.dest_node_id,
-                )
-                .await
-            && !link.deleted
-            && link.status == LinkStatus::Applied
-        {
-            let mut updated_link = link;
-            updated_link.status = LinkStatus::Pending;
-            updated_link.status_msg = "reset after subscription loss on consumer node".to_string();
-            if let Err(e) = self.0.db.update_link(updated_link).await {
-                tracing::error!("failed to reset link to pending after subscription loss: {e}");
-            } else {
-                self.0.link_queue.add(db_route.source_node_id.clone());
-            }
-        }
-        self.0.route_queue.add(node_id.to_string());
-    }
-
     pub async fn list_subscriptions(&self, node_id: &str) -> Result<SubscriptionListResponse> {
         let message_id = Uuid::new_v4().to_string();
         let msg = ControlMessage {
@@ -666,18 +800,22 @@ impl RouteService {
                 crate::api::proto::controller::proto::v1::SubscriptionListRequest {},
             )),
         };
-        self.0.cmd_handler.send_message(node_id, msg).await?;
-        let resp = self
+        let chunks = self
             .0
             .cmd_handler
-            .wait_for_response(node_id, ResponseKind::SubscriptionListResponse, &message_id)
+            .send_and_wait_chunked(node_id, msg, ResponseKind::SubscriptionListResponse)
             .await?;
-        match resp.payload {
-            Some(Payload::SubscriptionListResponse(r)) => Ok(r),
-            _ => Err(Error::UnexpectedResponse(
-                "no SubscriptionListResponse received".to_string(),
-            )),
+        let mut entries = Vec::new();
+        for chunk in chunks {
+            if let Some(Payload::SubscriptionListResponse(r)) = chunk.payload {
+                entries.extend(r.entries);
+            }
         }
+        Ok(SubscriptionListResponse {
+            original_message_id: message_id,
+            entries,
+            done: true,
+        })
     }
 
     pub async fn list_connections(&self, node_id: &str) -> Result<ConnectionListResponse> {
@@ -688,18 +826,22 @@ impl RouteService {
                 crate::api::proto::controller::proto::v1::ConnectionListRequest {},
             )),
         };
-        self.0.cmd_handler.send_message(node_id, msg).await?;
-        let resp = self
+        let chunks = self
             .0
             .cmd_handler
-            .wait_for_response(node_id, ResponseKind::ConnectionListResponse, &message_id)
+            .send_and_wait_chunked(node_id, msg, ResponseKind::ConnectionListResponse)
             .await?;
-        match resp.payload {
-            Some(Payload::ConnectionListResponse(r)) => Ok(r),
-            _ => Err(Error::UnexpectedResponse(
-                "no ConnectionListResponse received".to_string(),
-            )),
+        let mut entries = Vec::new();
+        for chunk in chunks {
+            if let Some(Payload::ConnectionListResponse(r)) = chunk.payload {
+                entries.extend(r.entries);
+            }
         }
+        Ok(ConnectionListResponse {
+            original_message_id: message_id,
+            entries,
+            done: true,
+        })
     }
 
     /// Compute the effective endpoint and serialised JSON config data for a
@@ -731,17 +873,41 @@ impl RouteService {
                     id: source_node_id.to_string(),
                 })?;
 
-        let (conn, local_connection) = select_connection(&dest_node, &src_node);
-
-        generate_config_data(conn, local_connection, &dest_node, &src_node)
+        compute_connection_details(&src_node, &dest_node)
     }
 }
 
+/// Compute the effective endpoint and serialised JSON config data from
+/// already-loaded node objects, without hitting the DB.
+fn compute_connection_details(
+    src_node: &crate::db::Node,
+    dst_node: &crate::db::Node,
+) -> Result<(String, String)> {
+    if dst_node.conn_details.is_empty() {
+        return Err(Error::InvalidInput(format!(
+            "no connections for destination node {}",
+            dst_node.id
+        )));
+    }
+    let (conn, local_connection) = select_connection(dst_node, src_node);
+    generate_config_data(conn, local_connection, dst_node, src_node)
+}
+
 /// Select the best connection detail from `dst_node` relative to `src_node`.
+///
+/// # Precondition
+/// `dst_node.conn_details` must be non-empty.  The caller
+/// (`compute_connection_details`) is responsible for enforcing this by
+/// returning an error when `conn_details` is empty before calling here.
 fn select_connection<'a>(
     dst_node: &'a crate::db::Node,
     src_node: &crate::db::Node,
 ) -> (&'a crate::db::ConnectionDetails, bool) {
+    debug_assert!(
+        !dst_node.conn_details.is_empty(),
+        "select_connection called with empty conn_details for node {}",
+        dst_node.id
+    );
     let same_group = dst_node.group_name == src_node.group_name;
     if same_group {
         return (&dst_node.conn_details[0], true);
@@ -915,7 +1081,14 @@ mod tests {
 
     fn make_route_service(db: crate::db::SharedDb) -> RouteService {
         let handler = DefaultNodeCommandHandler::new();
-        RouteService::new(db, handler, ReconcilerConfig { max_requeues: 3 })
+        RouteService::new(
+            db,
+            handler,
+            ReconcilerConfig {
+                max_requeues: 3,
+                ..Default::default()
+            },
+        )
     }
 
     // ── select_connection ──────────────────────────────────────────────────

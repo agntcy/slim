@@ -477,55 +477,15 @@ impl DataAccess for SqliteDb {
         Ok(())
     }
 
-    async fn repoint_route(
-        &self,
-        route_id: i64,
-        link_id: &str,
-        status: RouteStatus,
-        msg: &str,
-    ) -> Result<()> {
-        let ts = DbTimestamp::from(SystemTime::now());
-        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
-            context: "repoint_route pool",
-            msg: e.to_string(),
-        })?;
-        let n = diesel::update(routes::table.find(route_id))
-            .set((
-                routes::link_id.eq(link_id),
-                routes::status.eq(status),
-                routes::status_msg.eq(msg),
-                routes::last_updated.eq(ts),
-            ))
-            .execute(&mut conn)
-            .await
-            .map_err(|e| Error::DbError {
-                context: "repoint_route",
-                msg: e.to_string(),
-            })?;
-        if n == 0 {
-            return Err(Error::RouteNotFound { id: route_id });
-        }
-        Ok(())
-    }
-
     // ── Links ──────────────────────────────────────────────────────────────
 
     async fn add_link(&self, mut link: Link) -> Result<Link> {
-        if link.source_node_id.is_empty()
+        if link.link_id.is_empty()
+            || link.source_node_id.is_empty()
             || link.dest_node_id.is_empty()
             || link.dest_endpoint.is_empty()
         {
             return Err(Error::LinkMissingFields);
-        }
-        if link.link_id.is_empty() {
-            if let Some(existing) = self
-                .get_link_for_source_and_endpoint(&link.source_node_id, &link.dest_endpoint)
-                .await
-            {
-                link.link_id = existing.link_id;
-            } else {
-                link.link_id = uuid::Uuid::new_v4().to_string();
-            }
         }
         link.last_updated = SystemTime::now();
         let ts = DbTimestamp::from(link.last_updated);
@@ -714,6 +674,57 @@ impl DataAccess for SqliteDb {
                     .eq(node_id)
                     .or(links::dest_node_id.eq(node_id)),
             )
+            .load::<Link>(&mut conn)
+            .await
+            .unwrap_or_default()
+    }
+
+    async fn filter_links_by_src_dest(
+        &self,
+        source_node_id: &str,
+        dest_node_id: &str,
+    ) -> Vec<Link> {
+        let Ok(mut conn) = self.pool.get().await else {
+            return vec![];
+        };
+        let order = (
+            links::source_node_id.asc(),
+            links::dest_node_id.asc(),
+            links::link_id.asc(),
+        );
+        match (source_node_id.is_empty(), dest_node_id.is_empty()) {
+            (true, true) => links::table
+                .order(order)
+                .load::<Link>(&mut conn)
+                .await
+                .unwrap_or_default(),
+            (false, true) => links::table
+                .filter(links::source_node_id.eq(source_node_id))
+                .order(order)
+                .load::<Link>(&mut conn)
+                .await
+                .unwrap_or_default(),
+            (true, false) => links::table
+                .filter(links::dest_node_id.eq(dest_node_id))
+                .order(order)
+                .load::<Link>(&mut conn)
+                .await
+                .unwrap_or_default(),
+            (false, false) => links::table
+                .filter(links::source_node_id.eq(source_node_id))
+                .filter(links::dest_node_id.eq(dest_node_id))
+                .order(order)
+                .load::<Link>(&mut conn)
+                .await
+                .unwrap_or_default(),
+        }
+    }
+
+    async fn list_all_links(&self) -> Vec<Link> {
+        let Ok(mut conn) = self.pool.get().await else {
+            return vec![];
+        };
+        links::table
             .load::<Link>(&mut conn)
             .await
             .unwrap_or_default()
@@ -1005,20 +1016,6 @@ mod tests {
     async fn delete_route_not_found() {
         let (_f, db) = tmp_db().await;
         assert!(db.delete_route(9999).await.is_err());
-    }
-
-    #[tokio::test]
-    async fn repoint_route() {
-        let (_f, db) = tmp_db().await;
-        let r = db
-            .add_route(make_route("src", "dst", "old_lnk"))
-            .await
-            .unwrap();
-        db.repoint_route(r.id, "new_lnk", RouteStatus::Pending, "")
-            .await
-            .unwrap();
-        let got = db.get_route_by_id(r.id).await.unwrap();
-        assert_eq!(got.link_id, "new_lnk");
     }
 
     #[tokio::test]

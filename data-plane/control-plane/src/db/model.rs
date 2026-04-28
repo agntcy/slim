@@ -185,6 +185,7 @@ pub fn has_connection_details_changed(
             Some(ncd) => {
                 if ecd.mtls_required != ncd.mtls_required
                     || ecd.external_endpoint != ncd.external_endpoint
+                    || ecd.trust_domain != ncd.trust_domain
                     || ecd.client_config != ncd.client_config
                 {
                     return true;
@@ -543,6 +544,23 @@ mod tests {
         let a = make_cd("ep:8080", Some("ext:9090"), false);
         let b = make_cd("ep:8080", Some("other:9090"), false);
         assert!(has_connection_details_changed(&[a], &[b]));
+    }
+
+    #[test]
+    fn connection_details_changed_different_trust_domain() {
+        let mut a = make_cd("ep:8080", None, false);
+        a.trust_domain = Some("domain-a.example".to_string());
+        let mut b = make_cd("ep:8080", None, false);
+        b.trust_domain = Some("domain-b.example".to_string());
+        assert!(has_connection_details_changed(&[a], &[b]));
+    }
+
+    #[test]
+    fn connection_details_unchanged_same_trust_domain() {
+        let mut a = make_cd("ep:8080", None, false);
+        a.trust_domain = Some("domain.example".to_string());
+        let b = a.clone();
+        assert!(!has_connection_details_changed(&[a], &[b]));
     }
 
     #[test]

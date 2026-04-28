@@ -358,7 +358,7 @@ impl DataAccess for InMemoryDb {
     ) -> Option<String> {
         let store = self.routes.read();
         let ids = store.by_src.get(ALL_NODES_ID)?;
-        let mut matching: Vec<&Route> = ids
+        let matching: Vec<&Route> = ids
             .iter()
             .filter_map(|id| store.primary.get(id))
             .filter(|r| {
@@ -368,11 +368,10 @@ impl DataAccess for InMemoryDb {
                     && r.component_id == component_id
             })
             .collect();
-        if matching.is_empty() {
-            return None;
-        }
-        matching.sort_by(|a, b| b.last_updated.cmp(&a.last_updated));
-        Some(matching[0].dest_node_id.clone())
+        matching
+            .into_iter()
+            .max_by_key(|r| r.last_updated)
+            .map(|r| r.dest_node_id.clone())
     }
 
     async fn get_routes_by_link_id(&self, link_id: &str) -> Vec<Route> {
@@ -434,79 +433,17 @@ impl DataAccess for InMemoryDb {
         Ok(())
     }
 
-    async fn repoint_route(
-        &self,
-        route_id: i64,
-        link_id: &str,
-        status: RouteStatus,
-        msg: &str,
-    ) -> Result<()> {
-        let mut store = self.routes.write();
-
-        // Read old link_id before mutating.
-        let old_link_id = store
-            .primary
-            .get(&route_id)
-            .ok_or(Error::RouteNotFound { id: route_id })?
-            .link_id
-            .clone();
-
-        // Update by_link index: remove old entry, add new one.
-        if !old_link_id.is_empty()
-            && let Some(set) = store.by_link.get_mut(&old_link_id)
-        {
-            set.remove(&route_id);
-        }
-        if !link_id.is_empty() {
-            store
-                .by_link
-                .entry(link_id.to_string())
-                .or_default()
-                .insert(route_id);
-        }
-
-        let route = store.primary.get_mut(&route_id).unwrap();
-        route.link_id = link_id.to_string();
-        route.status = status;
-        route.status_msg = msg.to_string();
-        route.last_updated = SystemTime::now();
-        Ok(())
-    }
-
     // ── Links ──────────────────────────────────────────────────────────────
 
     async fn add_link(&self, mut link: Link) -> Result<Link> {
-        if link.source_node_id.is_empty()
+        if link.link_id.is_empty()
+            || link.source_node_id.is_empty()
             || link.dest_node_id.is_empty()
             || link.dest_endpoint.is_empty()
         {
             return Err(Error::LinkMissingFields);
         }
         let mut store = self.links.write();
-
-        // Reuse an existing non-deleted link with the same source + endpoint.
-        if link.link_id.is_empty() {
-            // Collect keys first to avoid holding a reference into store while
-            // also looking up in store.primary.
-            let src_keys: Vec<String> = store
-                .by_src
-                .get(&link.source_node_id)
-                .map(|keys| keys.iter().cloned().collect())
-                .unwrap_or_default();
-
-            for key in &src_keys {
-                if let Some(existing) = store.primary.get(key)
-                    && !existing.deleted
-                    && existing.dest_endpoint == link.dest_endpoint
-                {
-                    link.link_id = existing.link_id.clone();
-                    break;
-                }
-            }
-            if link.link_id.is_empty() {
-                link.link_id = Uuid::new_v4().to_string();
-            }
-        }
         link.last_updated = SystemTime::now();
         let key = link.storage_key();
         // Only update indices for new keys; overwriting an existing key leaves
@@ -659,6 +596,52 @@ impl DataAccess for InMemoryDb {
             .filter_map(|k| store.primary.get(k))
             .cloned()
             .collect()
+    }
+
+    async fn filter_links_by_src_dest(
+        &self,
+        source_node_id: &str,
+        dest_node_id: &str,
+    ) -> Vec<Link> {
+        let store = self.links.read();
+        match (source_node_id.is_empty(), dest_node_id.is_empty()) {
+            (true, true) => store.primary.values().cloned().collect(),
+            (false, true) => store
+                .by_src
+                .get(source_node_id)
+                .map(|keys| {
+                    keys.iter()
+                        .filter_map(|k| store.primary.get(k))
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default(),
+            (true, false) => store
+                .by_dest
+                .get(dest_node_id)
+                .map(|keys| {
+                    keys.iter()
+                        .filter_map(|k| store.primary.get(k))
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default(),
+            (false, false) => store
+                .by_src
+                .get(source_node_id)
+                .map(|keys| {
+                    keys.iter()
+                        .filter_map(|k| store.primary.get(k))
+                        .filter(|l| l.dest_node_id == dest_node_id)
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default(),
+        }
+    }
+
+    async fn list_all_links(&self) -> Vec<Link> {
+        self.links.read().primary.values().cloned().collect()
     }
 
     // ── Channels ───────────────────────────────────────────────────────────
@@ -995,18 +978,6 @@ mod tests {
         assert_eq!(got.status_msg, "oops");
     }
 
-    #[tokio::test]
-    async fn repoint_route() {
-        let db = db();
-        let r = db.add_route(make_route("src", "dst", "old_lnk")).await.unwrap();
-        db.repoint_route(r.id, "new_lnk", RouteStatus::Pending, "")
-            .await
-            .unwrap();
-        let got = db.get_route_by_id(r.id).await.unwrap();
-        assert_eq!(got.link_id, "new_lnk");
-        assert_eq!(got.status, RouteStatus::Pending);
-    }
-
     // ── Link CRUD ──────────────────────────────────────────────────────────
 
     #[tokio::test]
@@ -1030,16 +1001,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn add_link_reuses_existing_link_id_for_same_src_endpoint() {
+    async fn add_link_empty_link_id_returns_error() {
+        // Callers must supply a non-empty link_id; auto-generation is not permitted.
         let db = db();
-        let l1 = db
-            .add_link(make_link("src", "dst1", "ep:8080", "lid1"))
-            .await
-            .unwrap();
-        // Add without explicit link_id — should reuse lid1.
-        let l2 = make_link("src", "dst2", "ep:8080", "");
-        let added = db.add_link(l2).await.unwrap();
-        assert_eq!(added.link_id, l1.link_id);
+        let l = make_link("src", "dst", "ep:8080", "");
+        assert!(matches!(
+            db.add_link(l).await,
+            Err(Error::LinkMissingFields)
+        ));
     }
 
     #[tokio::test]
@@ -1154,20 +1123,6 @@ mod tests {
         assert!(db.get_routes_for_node_id("src").await.is_empty());
         assert!(db.get_routes_for_dest_node_id("dst").await.is_empty());
         assert!(db.get_routes_by_link_id("lnk").await.is_empty());
-    }
-
-    #[tokio::test]
-    async fn repoint_route_updates_link_index() {
-        let db = db();
-        let r = db
-            .add_route(make_route("src", "dst", "old_lnk"))
-            .await
-            .unwrap();
-        db.repoint_route(r.id, "new_lnk", RouteStatus::Pending, "")
-            .await
-            .unwrap();
-        assert!(db.get_routes_by_link_id("old_lnk").await.is_empty());
-        assert_eq!(db.get_routes_by_link_id("new_lnk").await.len(), 1);
     }
 
     #[tokio::test]

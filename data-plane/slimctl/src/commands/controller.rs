@@ -1192,6 +1192,7 @@ mod tests {
                 Ok(tonic::Response::new(SubscriptionListResponse {
                     original_message_id: String::new(),
                     entries: vec![],
+                    done: true,
                 }))
             }
 
@@ -1202,6 +1203,7 @@ mod tests {
                 Ok(tonic::Response::new(ConnectionListResponse {
                     original_message_id: String::new(),
                     entries: vec![],
+                    done: true,
                 }))
             }
 
@@ -1540,6 +1542,7 @@ mod tests {
                 Ok(tonic::Response::new(SubscriptionListResponse {
                     original_message_id: String::new(),
                     entries: vec![],
+                    done: true,
                 }))
             }
             async fn list_connections(
@@ -1549,6 +1552,7 @@ mod tests {
                 Ok(tonic::Response::new(ConnectionListResponse {
                     original_message_id: String::new(),
                     entries: vec![],
+                    done: true,
                 }))
             }
             async fn list_nodes(

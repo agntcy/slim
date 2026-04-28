@@ -93,6 +93,7 @@ message SubscriptionListRequest {}
 message SubscriptionListResponse {
   string original_message_id = 1;
   repeated SubscriptionEntry entries = 2;
+  bool done = 3;
 }
 
 message SubscriptionEntry {
@@ -127,6 +128,7 @@ message ConnectionListRequest {}
 message ConnectionListResponse {
   string original_message_id = 1;
   repeated ConnectionEntry entries = 2;
+  bool done = 3;
 }
 
 message Node {

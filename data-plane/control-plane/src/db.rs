@@ -63,16 +63,17 @@ pub trait DataAccess: Send + Sync {
     async fn mark_route_deleted(&self, route_id: i64) -> Result<()>;
     async fn mark_route_applied(&self, route_id: i64) -> Result<()>;
     async fn mark_route_failed(&self, route_id: i64, msg: &str) -> Result<()>;
-    async fn repoint_route(
-        &self,
-        route_id: i64,
-        link_id: &str,
-        status: RouteStatus,
-        msg: &str,
-    ) -> Result<()>;
 
     // ── Links ──────────────────────────────────────────────────────────────
 
+    /// Persist a new link record.
+    ///
+    /// **Contract:** `link.link_id` MUST be non-empty; callers are responsible
+    /// for generating the ID (e.g. via `Uuid::new_v4()`) before calling this
+    /// method.  Passing an empty `link_id` is an error and implementations MUST
+    /// return [`Error::LinkMissingFields`].  Auto-generating an ID inside the
+    /// implementation is not permitted — it would silently diverge across
+    /// backends and make idempotency impossible for callers.
     async fn add_link(&self, link: Link) -> Result<Link>;
     async fn update_link(&self, link: Link) -> Result<()>;
     async fn delete_link(&self, link: &Link) -> Result<()>;
@@ -93,6 +94,14 @@ pub trait DataAccess: Send + Sync {
         dest_endpoint: &str,
     ) -> Option<Link>;
     async fn get_links_for_node(&self, node_id: &str) -> Vec<Link>;
+    /// Return links filtered by source and/or destination node.
+    ///
+    /// An empty string for either parameter is treated as "any" (no filter on
+    /// that dimension).  Passing both empty is equivalent to [`list_all_links`].
+    async fn filter_links_by_src_dest(&self, source_node_id: &str, dest_node_id: &str)
+    -> Vec<Link>;
+    /// Return every link record in the store (no filtering).
+    async fn list_all_links(&self) -> Vec<Link>;
 
     // ── Channels ───────────────────────────────────────────────────────────
 

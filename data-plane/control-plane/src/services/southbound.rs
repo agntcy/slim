@@ -3,7 +3,9 @@
 
 use std::time::Duration;
 
-use tokio::sync::mpsc;
+use std::sync::Arc;
+
+use tokio::sync::{Semaphore, mpsc};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
 use uuid::Uuid;
@@ -19,11 +21,17 @@ use crate::services::routes::{ALL_NODES_ID, Route, RouteService};
 
 const REGISTER_TIMEOUT_SECS: u64 = 15;
 
+/// Maximum number of DP-initiated ConfigCommand tasks that may run concurrently.
+/// Each task may issue DB writes; this prevents unbounded task accumulation under
+/// a burst of incoming ConfigCommand messages.
+const MAX_CONCURRENT_DP_CONFIG_CMDS: usize = 64;
+
 pub struct SouthboundApiService {
     db: SharedDb,
     cmd_handler: DefaultNodeCommandHandler,
     route_service: RouteService,
     group_service: GroupService,
+    dp_config_semaphore: Arc<Semaphore>,
 }
 
 impl SouthboundApiService {
@@ -38,6 +46,7 @@ impl SouthboundApiService {
             cmd_handler,
             route_service,
             group_service,
+            dp_config_semaphore: Arc::new(Semaphore::new(MAX_CONCURRENT_DP_CONFIG_CMDS)),
         }
     }
 }
@@ -73,6 +82,7 @@ impl ControllerService for SouthboundApiService {
         let cmd_handler = self.cmd_handler.clone();
         let route_service = self.route_service.clone();
         let group_service = self.group_service.clone();
+        let dp_config_semaphore = Arc::clone(&self.dp_config_semaphore);
 
         tokio::spawn(async move {
             let registered_node_id = match receive_register(
@@ -100,11 +110,10 @@ impl ControllerService for SouthboundApiService {
             handle_node_messages(
                 stream,
                 &registered_node_id,
-                &db,
                 &cmd_handler,
                 &route_service,
                 &group_service,
-                &tx,
+                dp_config_semaphore,
             )
             .await;
         });
@@ -191,11 +200,10 @@ async fn receive_register(
 async fn handle_node_messages(
     mut stream: Streaming<ControlMessage>,
     node_id: &str,
-    _db: &SharedDb,
     cmd_handler: &DefaultNodeCommandHandler,
     route_service: &RouteService,
     group_service: &GroupService,
-    _tx: &mpsc::UnboundedSender<Result<ControlMessage, Status>>,
+    dp_config_semaphore: Arc<Semaphore>,
 ) {
     loop {
         let msg = match stream.message().await {
@@ -209,48 +217,77 @@ async fn handle_node_messages(
 
         match msg.payload {
             Some(Payload::ConfigCommand(cc)) => {
-                for sub in &cc.subscriptions_to_set {
-                    if sub.link_id.is_none()
-                        && let Err(e) = route_service
-                            .add_route(Route {
+                // Process DP-initiated route mutations in a background task so
+                // that slow DB writes do not delay ack routing.
+                // The semaphore caps the number of concurrently running tasks to
+                // prevent unbounded task accumulation under a burst of messages.
+                // Process route mutations in a background task (fast path) or
+                // synchronously in the stream loop (fallback) so they are never
+                // silently dropped.  Dropping a ConfigCommand would leave the CP
+                // unaware of the DP's declared subscriptions, causing CP/DP
+                // divergence with no signal to retry.
+                let apply_config = {
+                    let rs = route_service.clone();
+                    let nid = node_id.to_string();
+                    async move {
+                        for sub in &cc.subscriptions_to_set {
+                            if sub.link_id.is_none()
+                                && let Err(e) = rs
+                                    .add_route(Route {
+                                        source_node_id: ALL_NODES_ID.to_string(),
+                                        dest_node_id: nid.clone(),
+                                        component0: sub.component_0.clone(),
+                                        component1: sub.component_1.clone(),
+                                        component2: sub.component_2.clone(),
+                                        component_id: sub.id,
+                                        link_id: String::new(),
+                                    })
+                                    .await
+                            {
+                                tracing::error!("southbound: error adding route: {e}");
+                            }
+                        }
+                        for sub in &cc.subscriptions_to_delete {
+                            let route = Route {
                                 source_node_id: ALL_NODES_ID.to_string(),
-                                dest_node_id: node_id.to_string(),
+                                dest_node_id: nid.clone(),
                                 component0: sub.component_0.clone(),
                                 component1: sub.component_1.clone(),
                                 component2: sub.component_2.clone(),
                                 component_id: sub.id,
                                 link_id: String::new(),
-                            })
-                            .await
-                    {
-                        tracing::error!("southbound: error adding route: {e}");
+                            };
+                            if let Err(e) = rs.delete_route(route).await {
+                                tracing::error!("southbound: error deleting route: {e}");
+                            }
+                        }
                     }
-                }
-                for sub in &cc.subscriptions_to_delete {
-                    let route = Route {
-                        source_node_id: ALL_NODES_ID.to_string(),
-                        dest_node_id: node_id.to_string(),
-                        component0: sub.component_0.clone(),
-                        component1: sub.component_1.clone(),
-                        component2: sub.component_2.clone(),
-                        component_id: sub.id,
-                        link_id: String::new(),
-                    };
-                    if let Err(e) = route_service.delete_route(route.clone()).await {
-                        tracing::error!("southbound: error deleting route: {e}");
-                        route_service
-                            .requeue_route_for_source_node(node_id, route)
-                            .await;
+                };
+                match dp_config_semaphore.clone().try_acquire_owned() {
+                    Ok(permit) => {
+                        tokio::spawn(async move {
+                            let _permit = permit;
+                            apply_config.await;
+                        });
+                    }
+                    Err(_) => {
+                        // Semaphore is full — fall back to synchronous processing
+                        // in the stream loop rather than dropping the command.
+                        // This keeps the CP and DP in sync at the cost of briefly
+                        // blocking ACK routing for this node.
+                        tracing::warn!(
+                            "southbound: semaphore full for {node_id} — \
+                             processing ConfigCommand synchronously to avoid data loss"
+                        );
+                        apply_config.await;
                     }
                 }
             }
             Some(Payload::DeregisterNodeRequest(dr)) => {
                 if let Some(node) = dr.node {
                     let nid = node.id;
-                    cmd_handler
-                        .update_connection_status(&nid, NodeStatus::NotConnected)
-                        .await;
-                    let _ = cmd_handler.remove_stream(&nid).await;
+                    // Send the response BEFORE removing the stream — once the
+                    // stream is gone send_message fails immediately.
                     let resp = ControlMessage {
                         message_id: Uuid::new_v4().to_string(),
                         payload: Some(Payload::DeregisterNodeResponse(
@@ -263,6 +300,12 @@ async fn handle_node_messages(
                     if let Err(e) = cmd_handler.send_message(&nid, resp).await {
                         tracing::error!("southbound: error sending DeregisterNodeResponse: {e}");
                     }
+                    cmd_handler
+                        .update_connection_status(&nid, NodeStatus::NotConnected)
+                        .await;
+                    let _ = cmd_handler.remove_stream(&nid).await;
+                    // Clean up DB state for the deregistering node.
+                    route_service.node_deregistered(&nid).await;
                     return;
                 }
             }
@@ -484,9 +527,16 @@ fn proto_value_to_json(v: &prost_types::Value) -> serde_json::Value {
     match &v.kind {
         Some(prost_types::value::Kind::NullValue(_)) => serde_json::Value::Null,
         Some(prost_types::value::Kind::BoolValue(b)) => serde_json::Value::Bool(*b),
-        Some(prost_types::value::Kind::NumberValue(n)) => {
-            serde_json::Value::Number(serde_json::Number::from_f64(*n).unwrap_or_else(|| 0.into()))
-        }
+        Some(prost_types::value::Kind::NumberValue(n)) => match serde_json::Number::from_f64(*n) {
+            Some(num) => serde_json::Value::Number(num),
+            None => {
+                tracing::warn!(
+                    "proto_value_to_json: non-finite float ({n}) is not representable \
+                         in JSON; substituting 0"
+                );
+                serde_json::Value::Number(0.into())
+            }
+        },
         Some(prost_types::value::Kind::StringValue(s)) => serde_json::Value::String(s.clone()),
         Some(prost_types::value::Kind::StructValue(sv)) => {
             serde_json::Value::Object(struct_to_map(sv))

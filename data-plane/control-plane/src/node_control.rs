@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::{Mutex, RwLock, oneshot};
+use tokio::sync::{Mutex, RwLock, mpsc, oneshot};
 use tokio::time::timeout;
 use tonic::Status;
 
@@ -40,6 +40,23 @@ enum MessageKind {
     ConnectionListResponse,
 }
 
+/// Returns true if the payload kind uses multi-chunk streaming (mpsc) rather than oneshot.
+fn is_chunked_kind(kind: &MessageKind) -> bool {
+    matches!(
+        kind,
+        MessageKind::ConnectionListResponse | MessageKind::SubscriptionListResponse
+    )
+}
+
+/// Returns true when a chunked response message signals end-of-stream.
+fn chunk_is_done(msg: &ControlMessage) -> bool {
+    match &msg.payload {
+        Some(Payload::ConnectionListResponse(r)) => r.done,
+        Some(Payload::SubscriptionListResponse(r)) => r.done,
+        _ => false,
+    }
+}
+
 fn kind_from_payload(payload: &Payload) -> Option<MessageKind> {
     match payload {
         Payload::Ack(_) => Some(MessageKind::Ack),
@@ -71,8 +88,11 @@ struct Inner {
     /// node statuses
     statuses: RwLock<HashMap<String, NodeStatus>>,
 
-    /// in-flight response registry
+    /// in-flight response registry (oneshot, for single-message responses)
     pending: Mutex<HashMap<PendingKey, oneshot::Sender<ControlMessage>>>,
+
+    /// in-flight chunked response registry (mpsc, for multi-chunk responses)
+    chunked_pending: Mutex<HashMap<PendingKey, mpsc::UnboundedSender<ControlMessage>>>,
 }
 
 /// Thread-safe handler for per-node bidirectional gRPC streams.
@@ -85,6 +105,7 @@ impl DefaultNodeCommandHandler {
             streams: RwLock::new(HashMap::new()),
             statuses: RwLock::new(HashMap::new()),
             pending: Mutex::new(HashMap::new()),
+            chunked_pending: Mutex::new(HashMap::new()),
         }))
     }
 }
@@ -104,6 +125,18 @@ impl DefaultNodeCommandHandler {
         }
         self.update_connection_status(node_id, NodeStatus::NotConnected)
             .await;
+        // Fix #3: cancel any in-flight waiters for this node so they unblock
+        // immediately (ResponseChannelClosed) rather than blocking until the
+        // 90 s timeout. Dropping the sender closes the channel; the receiver
+        // in wait_for_response / send_and_wait gets Err from rx.await.
+        {
+            let mut pending = self.0.pending.lock().await;
+            pending.retain(|k, _| k.0 != node_id);
+        }
+        {
+            let mut chunked = self.0.chunked_pending.lock().await;
+            chunked.retain(|k, _| k.0 != node_id);
+        }
         Ok(())
     }
 
@@ -173,17 +206,39 @@ impl DefaultNodeCommandHandler {
                 return;
             }
         };
-        let key = (node_id.to_string(), kind, orig_id);
-        let mut pending = self.0.pending.lock().await;
-        if let Some(tx) = pending.remove(&key) {
-            let _ = tx.send(msg);
+        let key = (node_id.to_string(), kind.clone(), orig_id);
+
+        if is_chunked_kind(&kind) {
+            let done = chunk_is_done(&msg);
+            let mut chunked = self.0.chunked_pending.lock().await;
+            if let Some(tx) = chunked.get(&key) {
+                let _ = tx.send(msg);
+                if done {
+                    chunked.remove(&key);
+                }
+            } else {
+                tracing::warn!(
+                    "response_received: no chunked waiter for node={node_id} key={key:?}"
+                );
+            }
         } else {
-            tracing::warn!("response_received: no waiter for node={node_id} key={key:?}");
+            let mut pending = self.0.pending.lock().await;
+            if let Some(tx) = pending.remove(&key) {
+                let _ = tx.send(msg);
+            } else {
+                tracing::warn!("response_received: no waiter for node={node_id} key={key:?}");
+            }
         }
     }
 
     /// Wait for a specific response from a node with the default timeout.
-    pub async fn wait_for_response(
+    ///
+    /// **Prefer [`send_and_wait`] over calling `send_message` + `wait_for_response`
+    /// separately.**  Registering the waiter after the send leaves a window where
+    /// a fast response can arrive and be silently dropped.  This method is kept
+    /// for test use only and is intentionally not part of the public API.
+    #[cfg(test)]
+    async fn wait_for_response(
         &self,
         node_id: &str,
         kind: ResponseKind,
@@ -198,7 +253,8 @@ impl DefaultNodeCommandHandler {
         .await
     }
 
-    pub async fn wait_for_response_with_timeout(
+    #[cfg(test)]
+    async fn wait_for_response_with_timeout(
         &self,
         node_id: &str,
         kind: ResponseKind,
@@ -220,17 +276,144 @@ impl DefaultNodeCommandHandler {
         let (tx, rx) = oneshot::channel();
         {
             let mut pending = self.0.pending.lock().await;
-            pending.insert(key, tx);
+            pending.insert(key.clone(), tx);
         }
         match timeout(dur, rx).await {
             Ok(Ok(msg)) => Ok(msg),
             Ok(Err(_)) => Err(Error::ResponseChannelClosed {
                 node_id: node_id.to_string(),
             }),
-            Err(_) => Err(Error::ResponseTimeout {
+            Err(_) => {
+                // Fix #2: remove the stale entry so it doesn't leak forever.
+                self.0.pending.lock().await.remove(&key);
+                Err(Error::ResponseTimeout {
+                    node_id: node_id.to_string(),
+                    kind,
+                })
+            }
+        }
+    }
+
+    // ── Fix #1: race-free combined send-and-wait helpers ──────────────────────
+    //
+    // These register the response waiter BEFORE calling send_message, eliminating
+    // the window where a fast response could arrive between the send and the
+    // separate wait_for_response call and be silently dropped.
+
+    /// Register a waiter, send `msg`, then wait for a single response of `kind`.
+    pub async fn send_and_wait(
+        &self,
+        node_id: &str,
+        msg: ControlMessage,
+        kind: ResponseKind,
+    ) -> Result<ControlMessage> {
+        self.send_and_wait_with_timeout(
+            node_id,
+            msg,
+            kind,
+            Duration::from_secs(DEFAULT_RESPONSE_TIMEOUT_SECS),
+        )
+        .await
+    }
+
+    pub async fn send_and_wait_with_timeout(
+        &self,
+        node_id: &str,
+        msg: ControlMessage,
+        kind: ResponseKind,
+        dur: Duration,
+    ) -> Result<ControlMessage> {
+        if node_id.is_empty() {
+            return Err(Error::EmptyNodeId);
+        }
+        let message_id = msg.message_id.clone();
+        if message_id.is_empty() {
+            return Err(Error::EmptyMessageId);
+        }
+        let msg_kind: MessageKind = kind.into();
+        let key = (node_id.to_string(), msg_kind, message_id);
+        let (tx, rx) = oneshot::channel();
+        {
+            let mut pending = self.0.pending.lock().await;
+            pending.insert(key.clone(), tx); // register BEFORE send
+        }
+        // Clean up the waiter if send fails.
+        if let Err(e) = self.send_message(node_id, msg).await {
+            self.0.pending.lock().await.remove(&key);
+            return Err(e);
+        }
+        match timeout(dur, rx).await {
+            Ok(Ok(msg)) => Ok(msg),
+            Ok(Err(_)) => Err(Error::ResponseChannelClosed {
                 node_id: node_id.to_string(),
-                kind,
             }),
+            Err(_) => {
+                self.0.pending.lock().await.remove(&key);
+                Err(Error::ResponseTimeout {
+                    node_id: node_id.to_string(),
+                    kind,
+                })
+            }
+        }
+    }
+
+    /// Register a waiter, send `msg`, then collect all chunks until `done=true`.
+    pub async fn send_and_wait_chunked(
+        &self,
+        node_id: &str,
+        msg: ControlMessage,
+        kind: ResponseKind,
+    ) -> Result<Vec<ControlMessage>> {
+        self.send_and_wait_chunked_with_timeout(
+            node_id,
+            msg,
+            kind,
+            Duration::from_secs(DEFAULT_RESPONSE_TIMEOUT_SECS),
+        )
+        .await
+    }
+
+    pub async fn send_and_wait_chunked_with_timeout(
+        &self,
+        node_id: &str,
+        msg: ControlMessage,
+        kind: ResponseKind,
+        dur: Duration,
+    ) -> Result<Vec<ControlMessage>> {
+        if node_id.is_empty() {
+            return Err(Error::EmptyNodeId);
+        }
+        let message_id = msg.message_id.clone();
+        if message_id.is_empty() {
+            return Err(Error::EmptyMessageId);
+        }
+        let msg_kind: MessageKind = kind.into();
+        let key = (node_id.to_string(), msg_kind, message_id);
+        let (tx, mut rx) = mpsc::unbounded_channel::<ControlMessage>();
+        {
+            let mut chunked = self.0.chunked_pending.lock().await;
+            chunked.insert(key.clone(), tx); // register BEFORE send
+        }
+        if let Err(e) = self.send_message(node_id, msg).await {
+            self.0.chunked_pending.lock().await.remove(&key);
+            return Err(e);
+        }
+        let collect = async move {
+            let mut chunks = Vec::new();
+            while let Some(msg) = rx.recv().await {
+                chunks.push(msg);
+            }
+            chunks
+        };
+        match timeout(dur, collect).await {
+            Ok(chunks) => Ok(chunks),
+            Err(_) => {
+                self.0.chunked_pending.lock().await.remove(&key);
+                Err(Error::ResponseTimeout {
+                    node_id: node_id.to_string(),
+                    kind,
+                })
+            }
         }
     }
 }
