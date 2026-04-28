@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::{HashMap, HashSet};
-use std::time::SystemTime;
+use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 use uuid::Uuid;
+
+use parking_lot::Mutex;
 
 use crate::config::ReconcilerConfig;
 use crate::error::{Error, Result};
@@ -16,13 +19,17 @@ use crate::db::SharedDb;
 use crate::node_control::{DefaultNodeCommandHandler, NodeStatus, ResponseKind};
 use crate::workqueue::WorkQueue;
 
+use super::is_connection_not_found;
+
+#[derive(Clone)]
 pub struct RouteReconciler {
     db: SharedDb,
     cmd_handler: DefaultNodeCommandHandler,
     queue: WorkQueue<String>,
     link_queue: WorkQueue<String>,
     max_requeues: usize,
-    base_retry_delay_ms: u64,
+    base_retry_delay: Duration,
+    requeue_counts: Arc<Mutex<HashMap<String, usize>>>,
 }
 
 impl RouteReconciler {
@@ -39,14 +46,13 @@ impl RouteReconciler {
             queue,
             link_queue,
             max_requeues: config.max_requeues,
-            base_retry_delay_ms: config.base_retry_delay_ms,
+            base_retry_delay: config.base_retry_delay.into(),
+            requeue_counts: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     pub async fn run(self) {
         tracing::info!("route reconciler: starting");
-
-        let mut requeue_counts: HashMap<String, usize> = HashMap::new();
 
         while let Some(node_id) = self.queue.pop().await {
             if let Err(e) =
@@ -55,13 +61,14 @@ impl RouteReconciler {
                 tracing::error!("route reconciler: failed for node {node_id}: {e}");
 
                 let count = {
-                    let c = requeue_counts.entry(node_id.clone()).or_insert(0);
+                    let mut counts = self.requeue_counts.lock();
+                    let c = counts.entry(node_id.clone()).or_insert(0);
                     *c += 1;
                     *c
                 };
 
                 if count <= self.max_requeues {
-                    let delay = crate::backoff::backoff_delay(count, self.base_retry_delay_ms);
+                    let delay = crate::backoff::backoff_delay(count, self.base_retry_delay);
                     tracing::debug!(
                         "route reconciler: requeuing node {node_id} in {delay:?} (attempt {count}/{})",
                         self.max_requeues
@@ -72,10 +79,10 @@ impl RouteReconciler {
                         "route reconciler: dropping node {node_id} after {} retries",
                         self.max_requeues
                     );
-                    requeue_counts.remove(&node_id);
+                    self.requeue_counts.lock().remove(&node_id);
                 }
             } else {
-                requeue_counts.remove(&node_id);
+                self.requeue_counts.lock().remove(&node_id);
             }
 
             self.queue.done(&node_id);
@@ -198,14 +205,17 @@ async fn handle_request(
     //    (verified live), we mark the DB record Applied and skip the send.
     //    If a route marked deleted is already absent from the node, we delete
     //    the DB record directly without a round-trip.
-    let node_link_ids = query_node_connections(cmd_handler, node_id).await?;
+    let (node_link_ids, node_subs) = tokio::join!(
+        query_node_connections(cmd_handler, node_id),
+        query_node_subscriptions(cmd_handler, node_id),
+    );
+    let node_link_ids = node_link_ids?;
+    let node_subs = node_subs?;
     tracing::debug!(
         "route reconciler: node {node_id} has {} registered link(s): {:?}",
         node_link_ids.len(),
         node_link_ids
     );
-
-    let node_subs = query_node_subscriptions(cmd_handler, node_id).await?;
     tracing::debug!(
         "route reconciler: node {node_id} has {} subscription entries",
         node_subs.len()
@@ -243,6 +253,7 @@ async fn handle_request(
     // here so they are NOT double-queued: the route processing loop below handles
     // them via the normal deletion path.
     let mut tracked_sub_keys: HashSet<SubKey> = HashSet::new();
+    let mut managed_link_ids: HashSet<String> = HashSet::new();
     for route in &routes {
         let key: SubKey = (
             route.component0.clone(),
@@ -252,12 +263,18 @@ async fn handle_request(
             route.link_id.clone(),
         );
         tracked_sub_keys.insert(key);
+        if !route.link_id.is_empty() {
+            managed_link_ids.insert(route.link_id.clone());
+        }
     }
 
     let mut subscriptions_to_set: Vec<Subscription> = Vec::new();
     let mut subscriptions_to_delete: Vec<Subscription> = Vec::new();
 
-    // Schedule deletion of orphan subscriptions: present on node, absent from DB.
+    // Schedule deletion of orphan subscriptions: present on node, absent from DB,
+    // but only for link_ids that the CP manages.  Subscriptions on connections
+    // created outside the CP (e.g. by the node itself or another CP instance) are
+    // not our responsibility.
     for entry in &node_subs {
         let cid = match entry.id {
             Some(x) if x == NULL_COMPONENT_ID => None,
@@ -265,7 +282,7 @@ async fn handle_request(
         };
         for rc in &entry.remote_connections {
             if let Some(lid) = &rc.link_id {
-                if lid.is_empty() {
+                if lid.is_empty() || !managed_link_ids.contains(lid) {
                     continue;
                 }
                 let key: SubKey = (
@@ -413,6 +430,18 @@ async fn handle_request(
         return Ok(());
     }
 
+    {
+        use super::DisplaySubscription;
+        let set_list: Vec<_> = subscriptions_to_set.iter().map(|s| DisplaySubscription(s).to_string()).collect();
+        let del_list: Vec<_> = subscriptions_to_delete.iter().map(|s| DisplaySubscription(s).to_string()).collect();
+        tracing::info!(
+            "route reconciler: sending config command to node {node_id}: \
+             set=[{}], del=[{}]",
+            set_list.join(", "),
+            del_list.join(", "),
+        );
+    }
+
     let message_id = Uuid::new_v4().to_string();
     let msg = ControlMessage {
         message_id: message_id.clone(),
@@ -423,10 +452,6 @@ async fn handle_request(
             subscriptions_to_delete,
         })),
     };
-
-    tracing::info!(
-        "route reconciler: sending config command to node {node_id} (msg_id={message_id})"
-    );
 
     let response = cmd_handler
         .send_and_wait(node_id, msg, ResponseKind::ConfigCommandAck)
@@ -441,38 +466,57 @@ async fn handle_request(
         }
     };
 
+    // Fallback lookup map for acks that arrive without node_id (the DP does not
+    // always echo it back). Keyed by (c0, c1, c2, component_id, link_id).
+    let route_by_key: HashMap<_, _> = routes
+        .iter()
+        .map(|r| {
+            let key: SubKey = (
+                r.component0.clone(),
+                r.component1.clone(),
+                r.component2.clone(),
+                r.component_id.map(|v| v as u64),
+                r.link_id.clone(),
+            );
+            (key, r)
+        })
+        .collect();
+
     for sub_ack in &ack.subscriptions_status {
         let sub = match &sub_ack.subscription {
             Some(s) => s,
             None => continue,
         };
 
-        let dest_node_id = match sub.node_id.clone() {
-            Some(id) if !id.is_empty() => id,
-            _ => {
-                tracing::warn!(
-                    "route reconciler: subscription ack has no node_id, skipping: {:?}",
-                    sub
-                );
-                continue;
-            }
-        };
         let link_id = sub.link_id.clone().unwrap_or_default();
         let component_id = sub.id.map(|v| v as i64);
 
-        let route = db
-            .get_route_for_src_dest_name(
-                node_id,
-                &crate::db::SubscriptionName {
-                    component0: &sub.component_0,
-                    component1: &sub.component_1,
-                    component2: &sub.component_2,
-                    component_id,
-                },
-                &dest_node_id,
-                &link_id,
-            )
-            .await;
+        let route = match sub.node_id.as_deref().filter(|id| !id.is_empty()) {
+            Some(dest_node_id) => {
+                db.get_route_for_src_dest_name(
+                    node_id,
+                    &crate::db::SubscriptionName {
+                        component0: &sub.component_0,
+                        component1: &sub.component_1,
+                        component2: &sub.component_2,
+                        component_id,
+                    },
+                    dest_node_id,
+                    &link_id,
+                )
+                .await
+            }
+            None => {
+                let key: SubKey = (
+                    sub.component_0.clone(),
+                    sub.component_1.clone(),
+                    sub.component_2.clone(),
+                    sub.id,
+                    link_id.clone(),
+                );
+                route_by_key.get(&key).map(|r| (*r).clone())
+            }
+        };
 
         let route = match route {
             Some(r) => r,
@@ -544,13 +588,6 @@ fn is_subscription_not_found(msg: &str) -> bool {
     msg.to_lowercase().contains("subscription not found")
 }
 
-fn is_connection_not_found(msg: &str) -> bool {
-    let lower = msg.to_lowercase();
-    lower.contains("connection not found")
-        || lower.contains("no such connection")
-        || (lower.contains("connection") && lower.contains("not found"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -580,36 +617,5 @@ mod tests {
         assert!(!is_subscription_not_found("connection not found"));
         assert!(!is_subscription_not_found(""));
         assert!(!is_subscription_not_found("subscription was applied"));
-    }
-
-    // ── is_connection_not_found ───────────────────────────────────────────
-
-    #[test]
-    fn conn_not_found_direct_phrase() {
-        assert!(is_connection_not_found("connection not found"));
-        assert!(is_connection_not_found("Connection Not Found"));
-    }
-
-    #[test]
-    fn conn_not_found_no_such_connection() {
-        assert!(is_connection_not_found("no such connection"));
-        assert!(is_connection_not_found("No Such Connection exists"));
-    }
-
-    #[test]
-    fn conn_not_found_connection_and_not_found_split() {
-        assert!(is_connection_not_found(
-            "the connection a3916184 was not found in the table"
-        ));
-    }
-
-    #[test]
-    fn conn_not_found_no_match() {
-        assert!(!is_connection_not_found("subscription not found"));
-        assert!(!is_connection_not_found(""));
-        assert!(!is_connection_not_found(
-            "connection established successfully"
-        ));
-        assert!(!is_connection_not_found("route not found"));
     }
 }

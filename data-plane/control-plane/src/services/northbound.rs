@@ -50,9 +50,13 @@ impl ControlPlaneService for NorthboundApiService {
         _request: Request<NodeListRequest>,
     ) -> Result<Response<NodeListResponse>, Status> {
         let nodes = self.db.list_nodes().await;
+        let status_futs: Vec<_> = nodes
+            .iter()
+            .map(|node| self.cmd_handler.get_connection_status(&node.id))
+            .collect();
+        let statuses = futures::future::join_all(status_futs).await;
         let mut entries = Vec::with_capacity(nodes.len());
-        for node in nodes {
-            let node_status = self.cmd_handler.get_connection_status(&node.id).await;
+        for (node, node_status) in nodes.into_iter().zip(statuses) {
             let status = match node_status {
                 NodeStatus::Connected => {
                     crate::api::proto::controlplane::proto::v1::NodeStatus::Connected as i32

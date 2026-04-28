@@ -87,9 +87,9 @@ where
 {
     fn from_sql(bytes: DB::RawValue<'_>) -> deserialize::Result<Self> {
         let s = String::from_sql(bytes)?;
-        Ok(ConnDetailsJson(
-            serde_json::from_str(&s).unwrap_or_default(),
-        ))
+        let parsed =
+            serde_json::from_str(&s).map_err(|e| format!("invalid conn_details JSON: {e}"))?;
+        Ok(ConnDetailsJson(parsed))
     }
 }
 
@@ -116,7 +116,9 @@ where
 {
     fn from_sql(bytes: DB::RawValue<'_>) -> deserialize::Result<Self> {
         let s = String::from_sql(bytes)?;
-        Ok(JsonStrings(serde_json::from_str(&s).unwrap_or_default()))
+        let parsed =
+            serde_json::from_str(&s).map_err(|e| format!("invalid JSON string array: {e}"))?;
+        Ok(JsonStrings(parsed))
     }
 }
 

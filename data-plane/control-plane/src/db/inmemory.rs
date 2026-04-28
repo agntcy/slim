@@ -59,14 +59,23 @@ impl RouteStore {
     fn index_remove(&mut self, route: &Route) {
         if let Some(set) = self.by_src.get_mut(&route.source_node_id) {
             set.remove(&route.id);
+            if set.is_empty() {
+                self.by_src.remove(&route.source_node_id);
+            }
         }
         if let Some(set) = self.by_dest.get_mut(&route.dest_node_id) {
             set.remove(&route.id);
+            if set.is_empty() {
+                self.by_dest.remove(&route.dest_node_id);
+            }
         }
         if !route.link_id.is_empty()
             && let Some(set) = self.by_link.get_mut(&route.link_id)
         {
             set.remove(&route.id);
+            if set.is_empty() {
+                self.by_link.remove(&route.link_id);
+            }
         }
     }
 }
@@ -114,12 +123,21 @@ impl LinkStore {
         let key = link.storage_key();
         if let Some(set) = self.by_src.get_mut(&link.source_node_id) {
             set.remove(&key);
+            if set.is_empty() {
+                self.by_src.remove(&link.source_node_id);
+            }
         }
         if let Some(set) = self.by_dest.get_mut(&link.dest_node_id) {
             set.remove(&key);
+            if set.is_empty() {
+                self.by_dest.remove(&link.dest_node_id);
+            }
         }
         if let Some(set) = self.by_link_id.get_mut(&link.link_id) {
             set.remove(&key);
+            if set.is_empty() {
+                self.by_link_id.remove(&link.link_id);
+            }
         }
     }
 }

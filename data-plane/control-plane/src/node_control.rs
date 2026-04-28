@@ -125,7 +125,7 @@ impl DefaultNodeCommandHandler {
         }
         self.update_connection_status(node_id, NodeStatus::NotConnected)
             .await;
-        // Fix #3: cancel any in-flight waiters for this node so they unblock
+        // Cancel any in-flight waiters for this node so they unblock
         // immediately (ResponseChannelClosed) rather than blocking until the
         // 90 s timeout. Dropping the sender closes the channel; the receiver
         // in wait_for_response / send_and_wait gets Err from rx.await.
@@ -137,6 +137,7 @@ impl DefaultNodeCommandHandler {
             let mut chunked = self.0.chunked_pending.lock().await;
             chunked.retain(|k, _| k.0 != node_id);
         }
+        self.0.statuses.write().await.remove(node_id);
         Ok(())
     }
 
@@ -284,7 +285,7 @@ impl DefaultNodeCommandHandler {
                 node_id: node_id.to_string(),
             }),
             Err(_) => {
-                // Fix #2: remove the stale entry so it doesn't leak forever.
+                // Remove the entry so it doesn't leak.
                 self.0.pending.lock().await.remove(&key);
                 Err(Error::ResponseTimeout {
                     node_id: node_id.to_string(),
@@ -294,11 +295,11 @@ impl DefaultNodeCommandHandler {
         }
     }
 
-    // ── Fix #1: race-free combined send-and-wait helpers ──────────────────────
+    // Race-free combined send-and-wait helpers.
     //
     // These register the response waiter BEFORE calling send_message, eliminating
     // the window where a fast response could arrive between the send and the
-    // separate wait_for_response call and be silently dropped.
+    // wait_for_response call.
 
     /// Register a waiter, send `msg`, then wait for a single response of `kind`.
     pub async fn send_and_wait(
@@ -496,15 +497,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn remove_stream_sets_not_connected() {
+    async fn remove_stream_prunes_status() {
         let h = make_handler();
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         h.add_stream("node1", tx).await;
         h.remove_stream("node1").await.unwrap();
-        assert_eq!(
-            h.get_connection_status("node1").await,
-            NodeStatus::NotConnected
-        );
+        assert_eq!(h.get_connection_status("node1").await, NodeStatus::Unknown);
     }
 
     #[tokio::test]

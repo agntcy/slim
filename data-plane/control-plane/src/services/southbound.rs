@@ -174,9 +174,6 @@ async fn receive_register(
         .await?;
 
     cmd_handler.add_stream(&node_id, tx.clone()).await;
-    cmd_handler
-        .update_connection_status(&node_id, NodeStatus::Connected)
-        .await;
 
     // Acknowledge the registration.
     let ack = ControlMessage {
@@ -244,7 +241,7 @@ async fn handle_node_messages(
                                     })
                                     .await
                             {
-                                tracing::error!("southbound: error adding route: {e}");
+                                tracing::debug!("southbound: error adding route: {e}");
                             }
                         }
                         for sub in &cc.subscriptions_to_delete {
@@ -258,7 +255,7 @@ async fn handle_node_messages(
                                 link_id: String::new(),
                             };
                             if let Err(e) = rs.delete_route(route).await {
-                                tracing::error!("southbound: error deleting route: {e}");
+                                tracing::debug!("southbound: error deleting route: {e}");
                             }
                         }
                     }
@@ -452,11 +449,11 @@ async fn handle_node_messages(
         }
     }
 
-    // Stream ended or errored — mark disconnected.
-    cmd_handler
-        .update_connection_status(node_id, NodeStatus::NotConnected)
-        .await;
+    // Stream ended or errored — mark disconnected and clean up.
     let _ = cmd_handler.remove_stream(node_id).await;
+    // Clean up the per-node lock entry so node_locks does not grow without
+    // bound for crash-disconnected nodes that never re-register.
+    route_service.remove_node_lock(node_id).await;
 }
 
 /// Parse proto `ConnectionDetails` into the DB model.

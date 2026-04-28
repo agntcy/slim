@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::time::Duration;
 use uuid::Uuid;
+
+use parking_lot::Mutex;
 
 use crate::error::{Error, Result};
 
@@ -15,14 +19,18 @@ use crate::node_control::{DefaultNodeCommandHandler, NodeStatus, ResponseKind};
 use crate::services::routes::ReconcilerConfig;
 use crate::workqueue::WorkQueue;
 
+use super::is_connection_not_found;
+
+#[derive(Clone)]
 pub struct LinkReconciler {
     db: SharedDb,
     cmd_handler: DefaultNodeCommandHandler,
     queue: WorkQueue<String>,
     route_queue: WorkQueue<String>,
     max_requeues: usize,
-    base_retry_delay_ms: u64,
+    base_retry_delay: Duration,
     enable_orphan_detection: bool,
+    requeue_counts: Arc<Mutex<HashMap<String, usize>>>,
 }
 
 impl LinkReconciler {
@@ -39,15 +47,14 @@ impl LinkReconciler {
             queue,
             route_queue,
             max_requeues: config.max_requeues,
-            base_retry_delay_ms: config.base_retry_delay_ms,
+            base_retry_delay: config.base_retry_delay.into(),
             enable_orphan_detection: config.enable_orphan_detection,
+            requeue_counts: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     pub async fn run(self) {
         tracing::info!("link reconciler: starting");
-
-        let mut requeue_counts: HashMap<String, usize> = HashMap::new();
 
         while let Some(node_id) = self.queue.pop().await {
             if let Err(e) = handle_request(
@@ -62,13 +69,14 @@ impl LinkReconciler {
                 tracing::error!("link reconciler: failed for node {node_id}: {e}");
 
                 let count = {
-                    let c = requeue_counts.entry(node_id.clone()).or_insert(0);
+                    let mut counts = self.requeue_counts.lock();
+                    let c = counts.entry(node_id.clone()).or_insert(0);
                     *c += 1;
                     *c
                 };
 
                 if count <= self.max_requeues {
-                    let delay = crate::backoff::backoff_delay(count, self.base_retry_delay_ms);
+                    let delay = crate::backoff::backoff_delay(count, self.base_retry_delay);
                     tracing::debug!(
                         "link reconciler: requeuing node {node_id} in {delay:?} (attempt {count}/{})",
                         self.max_requeues
@@ -79,10 +87,10 @@ impl LinkReconciler {
                         "link reconciler: dropping node {node_id} after {} retries",
                         self.max_requeues
                     );
-                    requeue_counts.remove(&node_id);
+                    self.requeue_counts.lock().remove(&node_id);
                 }
             } else {
-                requeue_counts.remove(&node_id);
+                self.requeue_counts.lock().remove(&node_id);
             }
 
             self.queue.done(&node_id);
@@ -254,6 +262,17 @@ async fn handle_request(
         return Ok(());
     }
 
+    {
+        use super::DisplayConnection;
+        let create_list: Vec<_> = connections_to_create.iter().map(|c| DisplayConnection(c).to_string()).collect();
+        tracing::info!(
+            "link reconciler: sending config command to node {node_id}: \
+             create=[{}], delete=[{}]",
+            create_list.join(", "),
+            connections_to_delete.join(", "),
+        );
+    }
+
     let message_id = Uuid::new_v4().to_string();
     let msg = ControlMessage {
         message_id: message_id.clone(),
@@ -264,10 +283,6 @@ async fn handle_request(
             subscriptions_to_delete: vec![],
         })),
     };
-
-    tracing::info!(
-        "link reconciler: sending config command to node {node_id} (msg_id={message_id})"
-    );
 
     let response = cmd_handler
         .send_and_wait(node_id, msg, ResponseKind::ConfigCommandAck)
@@ -413,13 +428,6 @@ async fn handle_request(
     Ok(())
 }
 
-fn is_connection_not_found(msg: &str) -> bool {
-    let lower = msg.to_lowercase();
-    lower.contains("connection not found")
-        || lower.contains("no such connection")
-        || (lower.contains("connection") && lower.contains("not found"))
-}
-
 /// Inject `"link_id"` into the JSON config data string if it is not already present.
 fn inject_link_id(config_data: &str, link_id: &str) -> String {
     if let Ok(mut cfg) =
@@ -477,33 +485,5 @@ mod tests {
         let data = r#"[1,2,3]"#;
         let result = inject_link_id(data, "lid");
         assert_eq!(result, data);
-    }
-
-    // ── is_connection_not_found ────────────────────────────────────────────
-
-    #[test]
-    fn connection_not_found_exact() {
-        assert!(is_connection_not_found("connection not found"));
-        assert!(is_connection_not_found("Connection Not Found"));
-    }
-
-    #[test]
-    fn connection_not_found_no_such() {
-        assert!(is_connection_not_found("no such connection"));
-        assert!(is_connection_not_found("No Such Connection"));
-    }
-
-    #[test]
-    fn connection_not_found_split_words() {
-        assert!(is_connection_not_found("the connection was not found"));
-    }
-
-    #[test]
-    fn connection_not_found_rejects_unrelated_not_found() {
-        // "subscription not found" must NOT match as a connection error.
-        assert!(!is_connection_not_found("subscription not found"));
-        assert!(!is_connection_not_found("route not found"));
-        assert!(!is_connection_not_found("node not found"));
-        assert!(!is_connection_not_found("not found"));
     }
 }

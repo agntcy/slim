@@ -15,7 +15,8 @@ use crate::error::{Error, Result};
 use crate::workqueue::WorkQueue;
 
 use crate::api::proto::controller::proto::v1::{
-    ConnectionListResponse, ControlMessage, SubscriptionListResponse, control_message::Payload,
+    Connection, ConnectionListResponse, ControlMessage, Subscription, SubscriptionListResponse,
+    control_message::Payload,
 };
 use crate::db::{LinkStatus, RouteStatus, SharedDb, SubscriptionName};
 use crate::node_control::{DefaultNodeCommandHandler, ResponseKind};
@@ -100,8 +101,11 @@ impl RouteService {
             route_queue.clone(),
             reconciler_config.clone(),
         );
-        tokio::spawn(route_reconciler.run());
-        tokio::spawn(link_reconciler.run());
+        let workers = reconciler_config.workers.max(1);
+        for _ in 0..workers {
+            tokio::spawn(route_reconciler.clone().run());
+            tokio::spawn(link_reconciler.clone().run());
+        }
 
         let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
 
@@ -114,12 +118,14 @@ impl RouteService {
             node_locks: tokio::sync::Mutex::new(std::collections::HashMap::new()),
         }));
 
-        // Fix #8: periodic full-sweep reconciliation with clean shutdown support.
-        if reconciler_config.reconcile_period_secs > 0 {
-            let period = std::time::Duration::from_secs(reconciler_config.reconcile_period_secs);
+        // Periodic full-sweep reconciliation with clean shutdown support.
+        let reconcile_period = std::time::Duration::from(reconciler_config.reconcile_period);
+        if reconcile_period > std::time::Duration::ZERO {
+            let period = reconcile_period;
             let svc_clone = svc.clone();
             tokio::spawn(async move {
-                let mut interval = tokio::time::interval(period);
+                let mut interval =
+                    tokio::time::interval_at(tokio::time::Instant::now() + period, period);
                 interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 loop {
                     tokio::select! {
@@ -196,7 +202,9 @@ impl RouteService {
                     status: RouteStatus::Pending,
                     ..crate::db::Route::from(&route)
                 };
-                let _ = self.add_single_route(per_node).await;
+                if let Err(e) = self.add_single_route(per_node).await {
+                    tracing::debug!("route expansion for node {} skipped: {e}", n.id);
+                }
             }
         }
 
@@ -444,10 +452,18 @@ impl RouteService {
             }
         }
 
-        for nid in self.ensure_links_for_node(node_id).await {
+        let all_nodes = self.0.db.list_nodes().await;
+
+        let mut node_links = self.0.db.get_links_for_node(node_id).await;
+        let (affected_nodes, new_links) = self
+            .ensure_links_for_node(node_id, &node_links, &all_nodes)
+            .await;
+        for nid in affected_nodes {
             link_reconcile_nodes.insert(nid);
         }
-        self.ensure_routes_for_node(node_id).await;
+        node_links.extend(new_links);
+        self.ensure_routes_for_node(node_id, &node_links, &all_nodes)
+            .await;
         // Always enqueue the reconnecting node for route reconciliation so that
         // any pending deletes (deleted=true routes) and pending applies are
         // pushed to the data plane immediately, rather than waiting for the link
@@ -475,8 +491,19 @@ impl RouteService {
 
         tracing::info!("route service: cleaning up state for deregistered node {node_id}");
 
-        // Delete all routes where this node is the source (they are gone).
-        for route in self.0.db.get_routes_for_node_id(node_id).await {
+        // Fetch both route sets concurrently.
+        let (src_routes, dest_routes) = tokio::join!(
+            self.0.db.get_routes_for_node_id(node_id),
+            self.0.db.get_routes_for_dest_node_id(node_id),
+        );
+
+        // Hard-delete all routes where this node is the source.  This includes
+        // both wildcard expansions (auto-created) and operator-added concrete
+        // routes.  Operator-added routes are permanently lost and must be
+        // re-added after the node re-registers; wildcard *template* routes
+        // (source=ALL_NODES_ID) are preserved below and re-expanded on
+        // re-registration.
+        for route in src_routes {
             if let Err(e) = self.0.db.delete_route(route.id).await {
                 tracing::warn!(
                     "node_deregistered: failed to delete route {}: {e}",
@@ -487,7 +514,6 @@ impl RouteService {
 
         // For routes where this node is the destination: mark deleted and
         // re-trigger source nodes so the subscription is cleaned up on them.
-        let dest_routes = self.0.db.get_routes_for_dest_node_id(node_id).await;
         for route in &dest_routes {
             if route.source_node_id == ALL_NODES_ID {
                 // Wildcard template routes are intentionally preserved: they represent
@@ -510,7 +536,7 @@ impl RouteService {
                 continue;
             }
             if link.source_node_id == node_id {
-                // Fix #6: outgoing links from the deregistering node can be deleted
+                // Outgoing links from the deregistering node can be deleted
                 // immediately — the node is gone so the link reconciler can never
                 // reach it to send a delete command.  Calling update_link(deleted=true)
                 // would leave a DB record that the reconciler waits on forever.
@@ -555,24 +581,34 @@ impl RouteService {
     }
 
     /// Ensure direct or group links exist between `node_id` and every other node.
-    async fn ensure_links_for_node(&self, node_id: &str) -> Vec<String> {
-        let all_nodes = self.0.db.list_nodes().await;
+    /// Returns (affected_node_ids, newly_created_links).
+    async fn ensure_links_for_node(
+        &self,
+        node_id: &str,
+        existing_links: &[crate::db::Link],
+        all_nodes: &[crate::db::Node],
+    ) -> (Vec<String>, Vec<crate::db::Link>) {
         let src_node = match all_nodes.iter().find(|n| n.id == node_id) {
             Some(n) => n.clone(),
             None => {
                 tracing::error!("ensure_links: node {node_id} not found");
-                return vec![node_id.to_string()];
+                return (vec![node_id.to_string()], vec![]);
             }
         };
         let mut affected: std::collections::HashSet<String> =
             [node_id.to_string()].into_iter().collect();
+        let mut new_links: Vec<crate::db::Link> = Vec::new();
 
-        // Pre-fetch once so we avoid an O(N) `find_link_between_nodes` call per peer.
-        let existing_links = self.0.db.get_links_for_node(node_id).await;
         let connected_peers: std::collections::HashSet<String> = existing_links
             .iter()
-            .filter(|l| !l.deleted && l.source_node_id == node_id)
-            .map(|l| l.dest_node_id.clone())
+            .filter(|l| !l.deleted)
+            .map(|l| {
+                if l.source_node_id == node_id {
+                    l.dest_node_id.clone()
+                } else {
+                    l.source_node_id.clone()
+                }
+            })
             .collect();
 
         let has_src_external = src_node.conn_details.iter().any(|d| {
@@ -582,7 +618,7 @@ impl RouteService {
                 .unwrap_or(false)
         });
 
-        for other in &all_nodes {
+        for other in all_nodes {
             if other.id == node_id {
                 continue;
             }
@@ -591,8 +627,9 @@ impl RouteService {
             }
             let same_group = src_node.group_name == other.group_name;
             if same_group {
-                if let Some(src) = self.ensure_direct_link(&src_node, other).await {
+                if let Some((src, link)) = self.ensure_direct_link(&src_node, other).await {
                     affected.insert(src);
+                    new_links.extend(link);
                 }
                 continue;
             }
@@ -603,14 +640,16 @@ impl RouteService {
                     .unwrap_or(false)
             });
             if has_dst_external {
-                if let Some(src) = self.ensure_group_link(&src_node, other).await {
+                if let Some((src, link)) = self.ensure_group_link(&src_node, other).await {
                     affected.insert(src);
+                    new_links.extend(link);
                 }
                 continue;
             }
             if has_src_external {
-                if let Some(src) = self.ensure_group_link(other, &src_node).await {
+                if let Some((src, link)) = self.ensure_group_link(other, &src_node).await {
                     affected.insert(src);
+                    new_links.extend(link);
                 }
                 continue;
             }
@@ -619,33 +658,38 @@ impl RouteService {
                 other.id
             );
         }
-        affected.into_iter().collect()
+        (affected.into_iter().collect(), new_links)
     }
 
     async fn ensure_direct_link(
         &self,
         src_node: &crate::db::Node,
         dst_node: &crate::db::Node,
-    ) -> Option<String> {
+    ) -> Option<(String, Option<crate::db::Link>)> {
+        if self
+            .0
+            .db
+            .find_link_between_nodes(&src_node.id, &dst_node.id)
+            .await
+            .is_some_and(|l| !l.deleted)
+        {
+            return Some((src_node.id.clone(), None));
+        }
+
         match compute_connection_details(src_node, dst_node) {
             Ok((endpoint, config_data)) => {
-                let link_id = Uuid::new_v4().to_string();
-                if let Err(e) = self
-                    .0
-                    .db
-                    .add_link(crate::db::Link {
-                        link_id,
-                        source_node_id: src_node.id.clone(),
-                        dest_node_id: dst_node.id.clone(),
-                        dest_endpoint: endpoint,
-                        conn_config_data: config_data,
-                        status: LinkStatus::Pending,
-                        status_msg: String::new(),
-                        deleted: false,
-                        last_updated: SystemTime::now(),
-                    })
-                    .await
-                {
+                let link = crate::db::Link {
+                    link_id: Uuid::new_v4().to_string(),
+                    source_node_id: src_node.id.clone(),
+                    dest_node_id: dst_node.id.clone(),
+                    dest_endpoint: endpoint,
+                    conn_config_data: config_data,
+                    status: LinkStatus::Pending,
+                    status_msg: String::new(),
+                    deleted: false,
+                    last_updated: SystemTime::now(),
+                };
+                if let Err(e) = self.0.db.add_link(link.clone()).await {
                     tracing::error!(
                         "ensure_direct_link: failed to add link {}->{}:  {e}",
                         src_node.id,
@@ -653,7 +697,7 @@ impl RouteService {
                     );
                     return None;
                 }
-                Some(src_node.id.clone())
+                Some((src_node.id.clone(), Some(link)))
             }
             Err(e) => {
                 tracing::error!("ensure_direct_link: failed to get connection details: {e}");
@@ -666,7 +710,17 @@ impl RouteService {
         &self,
         src_node: &crate::db::Node,
         dst_node: &crate::db::Node,
-    ) -> Option<String> {
+    ) -> Option<(String, Option<crate::db::Link>)> {
+        if self
+            .0
+            .db
+            .find_link_between_nodes(&src_node.id, &dst_node.id)
+            .await
+            .is_some_and(|l| !l.deleted)
+        {
+            return Some((src_node.id.clone(), None));
+        }
+
         let (endpoint, config_data) = match compute_connection_details(src_node, dst_node) {
             Ok(cd) => cd,
             Err(e) => {
@@ -688,22 +742,18 @@ impl RouteService {
             .map(|l| l.link_id)
             .unwrap_or_else(|| Uuid::new_v4().to_string());
 
-        if let Err(e) = self
-            .0
-            .db
-            .add_link(crate::db::Link {
-                link_id,
-                source_node_id: src_node.id.clone(),
-                dest_node_id: dst_node.id.clone(),
-                dest_endpoint: endpoint,
-                conn_config_data: config_data,
-                status: LinkStatus::Pending,
-                status_msg: String::new(),
-                deleted: false,
-                last_updated: SystemTime::now(),
-            })
-            .await
-        {
+        let link = crate::db::Link {
+            link_id,
+            source_node_id: src_node.id.clone(),
+            dest_node_id: dst_node.id.clone(),
+            dest_endpoint: endpoint,
+            conn_config_data: config_data,
+            status: LinkStatus::Pending,
+            status_msg: String::new(),
+            deleted: false,
+            last_updated: SystemTime::now(),
+        };
+        if let Err(e) = self.0.db.add_link(link.clone()).await {
             tracing::error!(
                 "ensure_group_link: failed to add link {}->{}:  {e}",
                 src_node.id,
@@ -711,56 +761,94 @@ impl RouteService {
             );
             return None;
         }
-        Some(src_node.id.clone())
+        Some((src_node.id.clone(), Some(link)))
     }
 
     /// For each wildcard route, create a per-node route for `node_id` if one
     /// does not exist yet.
-    async fn ensure_routes_for_node(&self, node_id: &str) {
-        // Fix #9: pre-fetch the node's links once (O(1) per route instead of
-        // one `find_link_between_nodes` DB round-trip per wildcard route).
-        let node_links = self.0.db.get_links_for_node(node_id).await;
-        let link_by_dest: std::collections::HashMap<&str, &str> = node_links
+    ///
+    /// Two passes are made:
+    /// 1. `node_id` as SOURCE — expand each wildcard `(*, dest_X)` into a
+    ///    concrete route `node_id → dest_X`.
+    /// 2. `node_id` as DEST — for each wildcard `(*, dest=node_id)`, expand
+    ///    into a route `peer → node_id` for every currently-registered peer.
+    ///    This handles the case where `node_id` registers *after* the wildcard
+    ///    was added and after some peer nodes were already registered.
+    async fn ensure_routes_for_node(
+        &self,
+        node_id: &str,
+        node_links: &[crate::db::Link],
+        all_nodes: &[crate::db::Node],
+    ) {
+        // Map peer_node_id → link_id covering BOTH outgoing (source=node_id)
+        // and incoming (dest=node_id) links.  With the one-link-per-pair design,
+        // a node can subscribe via an incoming connection, so both directions must
+        // be included here.
+        let link_by_peer: std::collections::HashMap<&str, &str> = node_links
             .iter()
-            .filter(|l| !l.deleted && l.source_node_id == node_id)
-            .map(|l| (l.dest_node_id.as_str(), l.link_id.as_str()))
+            .filter(|l| !l.deleted)
+            .map(|l| {
+                let peer = if l.source_node_id == node_id {
+                    l.dest_node_id.as_str()
+                } else {
+                    l.source_node_id.as_str()
+                };
+                (peer, l.link_id.as_str())
+            })
             .collect();
 
-        for r in self.0.db.get_routes_for_node_id(ALL_NODES_ID).await {
+        let wildcard_routes = self.0.db.get_routes_for_node_id(ALL_NODES_ID).await;
+
+        // Pre-fetch all existing routes where node_id is source or destination
+        // to avoid O(W×N) individual DB lookups in the loops below.
+        let (routes_as_src, routes_as_dest) = tokio::join!(
+            self.0.db.get_routes_for_node_id(node_id),
+            self.0.db.get_routes_for_dest_node_id(node_id),
+        );
+
+        type RouteKey = (String, String, String, String, String, Option<i64>, String);
+        let existing_routes: std::collections::HashSet<RouteKey> = routes_as_src
+            .iter()
+            .chain(routes_as_dest.iter())
+            .filter(|r| !r.deleted)
+            .map(|r| {
+                (
+                    r.source_node_id.clone(),
+                    r.dest_node_id.clone(),
+                    r.component0.clone(),
+                    r.component1.clone(),
+                    r.component2.clone(),
+                    r.component_id,
+                    r.link_id.clone(),
+                )
+            })
+            .collect();
+
+        // Pass 1: node_id as source.
+        for r in &wildcard_routes {
             if r.dest_node_id == node_id {
                 continue;
             }
-            // Resolve the link_id *before* the existence check so we look up the
-            // route by its actual key.  Using "" here would never match a stored
-            // per-node route (whose key includes the real link_id) and would cause
-            // a redundant add_route attempt on every call.
-            let link_id = match link_by_dest.get(r.dest_node_id.as_str()) {
+            let link_id = match link_by_peer.get(r.dest_node_id.as_str()) {
                 Some(id) => id.to_string(),
                 None => {
-                    tracing::error!(
-                        "ensure_routes: no link found for {node_id}->{}",
+                    tracing::debug!(
+                        "ensure_routes: no link found for {node_id}->{}, skipping",
                         r.dest_node_id
                     );
                     continue;
                 }
             };
-            if self
-                .0
-                .db
-                .get_route_for_src_dest_name(
-                    node_id,
-                    &SubscriptionName {
-                        component0: &r.component0,
-                        component1: &r.component1,
-                        component2: &r.component2,
-                        component_id: r.component_id,
-                    },
-                    &r.dest_node_id,
-                    &link_id,
-                )
-                .await
-                .is_some_and(|existing| !existing.deleted)
-            {
+            let key: RouteKey = (
+                node_id.to_string(),
+                r.dest_node_id.clone(),
+                r.component0.clone(),
+                r.component1.clone(),
+                r.component2.clone(),
+                r.component_id,
+                link_id.clone(),
+            );
+            if existing_routes.contains(&key) {
                 continue;
             }
             let new_route = crate::db::Route {
@@ -782,6 +870,77 @@ impl RouteService {
                 Err(e) => tracing::debug!("generic route already exists or cannot be added: {e}"),
             }
         }
+
+        // Pass 2: node_id as destination — expand wildcards targeting node_id for
+        // every peer that doesn't already have a route pointing here.
+        let wildcard_for_self: Vec<&crate::db::Route> = wildcard_routes
+            .iter()
+            .filter(|r| r.dest_node_id == node_id)
+            .collect();
+
+        if wildcard_for_self.is_empty() {
+            return;
+        }
+
+        for r in wildcard_for_self {
+            for other in all_nodes {
+                if other.id == node_id {
+                    continue;
+                }
+                let link_id = match link_by_peer.get(other.id.as_str()) {
+                    Some(id) => id.to_string(),
+                    None => {
+                        tracing::debug!(
+                            "ensure_routes: no link found for {}→{node_id}, skipping",
+                            other.id
+                        );
+                        continue;
+                    }
+                };
+                let key: RouteKey = (
+                    other.id.clone(),
+                    node_id.to_string(),
+                    r.component0.clone(),
+                    r.component1.clone(),
+                    r.component2.clone(),
+                    r.component_id,
+                    link_id.clone(),
+                );
+                if existing_routes.contains(&key) {
+                    continue;
+                }
+                let new_route = crate::db::Route {
+                    id: 0,
+                    source_node_id: other.id.clone(),
+                    dest_node_id: node_id.to_string(),
+                    link_id,
+                    component0: r.component0.clone(),
+                    component1: r.component1.clone(),
+                    component2: r.component2.clone(),
+                    component_id: r.component_id,
+                    status: RouteStatus::Pending,
+                    status_msg: String::new(),
+                    deleted: false,
+                    last_updated: SystemTime::now(),
+                };
+                match self.0.db.add_route(new_route).await {
+                    Ok(added) => {
+                        tracing::info!("generic route created: {added}");
+                        self.0.route_queue.add(other.id.clone());
+                    }
+                    Err(e) => {
+                        tracing::debug!("generic route already exists or cannot be added: {e}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// Remove the per-node lock entry to prevent `node_locks` from growing
+    /// without bound for crash-disconnected nodes.  For graceful deregisters
+    /// `node_deregistered` already removes the entry; this covers the crash path.
+    pub async fn remove_node_lock(&self, node_id: &str) {
+        self.0.node_locks.lock().await.remove(node_id);
     }
 
     async fn find_matching_link(&self, source: &str, dest: &str) -> Result<String> {
@@ -1051,6 +1210,39 @@ fn generate_config_data(
         .to_string();
 
     Ok((effective_endpoint, config_data))
+}
+
+pub(super) struct DisplaySubscription<'a>(pub &'a Subscription);
+
+impl std::fmt::Display for DisplaySubscription<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = &self.0;
+        write!(
+            f,
+            "({}/{}/{}, id={:?}, link={}, node={:?})",
+            s.component_0,
+            s.component_1,
+            s.component_2,
+            s.id,
+            s.connection_id,
+            s.node_id,
+        )
+    }
+}
+
+pub(super) struct DisplayConnection<'a>(pub &'a Connection);
+
+impl std::fmt::Display for DisplayConnection<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0.connection_id)
+    }
+}
+
+pub(super) fn is_connection_not_found(msg: &str) -> bool {
+    let lower = msg.to_lowercase();
+    lower.contains("connection not found")
+        || lower.contains("no such connection")
+        || (lower.contains("connection") && lower.contains("not found"))
 }
 
 #[cfg(test)]
@@ -1372,5 +1564,32 @@ mod tests {
         let svc = make_route_service(db);
         let (ep, _) = svc.get_connection_details("src", "dst").await.unwrap();
         assert!(ep.starts_with("http://dst:8080"));
+    }
+
+    // ── is_connection_not_found ───────────────────────────────────────────
+
+    #[test]
+    fn connection_not_found_exact() {
+        assert!(is_connection_not_found("connection not found"));
+        assert!(is_connection_not_found("Connection Not Found"));
+    }
+
+    #[test]
+    fn connection_not_found_no_such() {
+        assert!(is_connection_not_found("no such connection"));
+        assert!(is_connection_not_found("No Such Connection"));
+    }
+
+    #[test]
+    fn connection_not_found_split_words() {
+        assert!(is_connection_not_found("the connection was not found"));
+    }
+
+    #[test]
+    fn connection_not_found_rejects_unrelated() {
+        assert!(!is_connection_not_found("subscription not found"));
+        assert!(!is_connection_not_found("route not found"));
+        assert!(!is_connection_not_found("node not found"));
+        assert!(!is_connection_not_found("not found"));
     }
 }

@@ -1,7 +1,9 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use duration_string::DurationString;
 use serde::Deserialize;
+use std::time::Duration;
 
 use slim_config::grpc::server::ServerConfig;
 use slim_config::tls::server::TlsServerConfig;
@@ -63,12 +65,14 @@ pub enum DatabaseConfig {
 pub struct ReconcilerConfig {
     /// Maximum number of times a failed reconcile request is requeued.
     pub max_requeues: usize,
-    /// Base delay in milliseconds for the first retry. Subsequent retries use
-    /// exponential backoff (base * 2^(attempt-1)) capped at 30 s.
-    pub base_retry_delay_ms: u64,
-    /// How often (in seconds) all connected nodes are re-enqueued for full
-    /// reconciliation as a background health-check sweep. Set to 0 to disable.
-    pub reconcile_period_secs: u64,
+    /// Base delay for the first retry. Subsequent retries use exponential
+    /// backoff (base × 2^(attempt-1)) capped at 30 s.
+    /// Accepts any duration string understood by the `duration-string` crate
+    /// (e.g. `"200ms"`, `"1s"`, `"1m30s"`).
+    pub base_retry_delay: DurationString,
+    /// How often all connected nodes are re-enqueued for a full reconciliation
+    /// sweep. Set to `"0s"` to disable.
+    pub reconcile_period: DurationString,
     /// When true, the link reconciler will delete outgoing connections found on
     /// a data-plane node whose link_id is not present in the control-plane DB.
     ///
@@ -78,15 +82,21 @@ pub struct ReconcilerConfig {
     /// it is useful in greenfield deployments where the CP is the sole source of
     /// truth for all data-plane connections.
     pub enable_orphan_detection: bool,
+    /// Number of concurrent worker tasks spawned for each reconciler (link and
+    /// route). All workers consume from the same work queue; the queue ensures
+    /// a given node is never processed by more than one worker at a time.
+    /// Must be at least 1; values below 1 are clamped to 1 at runtime.
+    pub workers: usize,
 }
 
 impl Default for ReconcilerConfig {
     fn default() -> Self {
         Self {
             max_requeues: 15,
-            base_retry_delay_ms: 200,
-            reconcile_period_secs: 60,
+            base_retry_delay: Duration::from_millis(200).into(),
+            reconcile_period: Duration::from_secs(60).into(),
             enable_orphan_detection: false,
+            workers: 4,
         }
     }
 }
@@ -99,7 +109,12 @@ mod tests {
     fn reconciler_config_defaults() {
         let c = ReconcilerConfig::default();
         assert_eq!(c.max_requeues, 15);
-        assert_eq!(c.base_retry_delay_ms, 200);
+        assert_eq!(
+            Duration::from(c.base_retry_delay),
+            Duration::from_millis(200)
+        );
+        assert_eq!(Duration::from(c.reconcile_period), Duration::from_secs(60));
+        assert_eq!(c.workers, 4);
     }
 
     #[test]

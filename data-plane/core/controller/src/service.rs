@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -57,7 +57,10 @@ type TxChannels = HashMap<String, TxChannel>;
 // Controller component
 const CONTROLLER_COMPONENT: &str = "controller";
 /// Maximum number of queued subscription notifications
-const MAX_QUEUED_NOTIFICATIONS: usize = 1000; // Prevent unbounded growth
+const MAX_QUEUED_NOTIFICATIONS: usize = 1000;
+
+/// Timeout for waiting on a subscription ack from the datapath.
+const SUBSCRIPTION_ACK_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Settings struct for creating a ControlPlane instance
 #[derive(Clone)]
@@ -98,9 +101,6 @@ struct ControllerServiceInternal {
     /// underlying message processor
     message_processor: Arc<MessageProcessor>,
 
-    /// map of connection IDs to their configuration
-    connections: Arc<parking_lot::RwLock<HashMap<String, u64>>>,
-
     /// channel to send messages into the datapath
     tx_slim: mpsc::Sender<Result<DataPlaneMessage, Status>>,
 
@@ -120,12 +120,14 @@ struct ControllerServiceInternal {
     _auth_verifier: Option<AuthVerifier>,
 
     /// queue for pending subscription notifications when connections are down
-    pending_notifications: Arc<parking_lot::Mutex<Vec<ControlMessage>>>,
+    pending_notifications: Arc<parking_lot::Mutex<VecDeque<ControlMessage>>>,
 
     /// Manages pending subscription ack tracking (id generation, registration, resolution).
     subscription_manager: SubscriptionManager,
 
-    /// map of generated u32 keys to original string message IDs and their associated timers
+    /// Maps generated u32 keys to original string message IDs and their associated timers.
+    /// u32 keys have a ~0.01% collision probability at ~650 concurrent entries (birthday bound).
+    /// Entries are short-lived (removed on ack or timeout), so practical risk is negligible.
     message_id_map: Arc<parking_lot::RwLock<HashMap<u32, (String, Option<Timer>)>>>,
 
     /// timer factory for controller messages
@@ -139,6 +141,10 @@ struct ControllerServiceInternal {
 
     /// Maps (subscription_name, connection_id) → subscription_id for route tracking
     route_subscription_ids: parking_lot::Mutex<HashMap<(Name, u64), u64>>,
+
+    /// Reverse index: link_id → connection_id for O(1) lookup.
+    /// Populated lazily on first resolve and eagerly on connection create/delete.
+    link_id_to_conn_id: parking_lot::RwLock<HashMap<String, u64>>,
 }
 
 #[derive(Clone)]
@@ -242,7 +248,6 @@ impl ControlPlane {
                     controller_name,
                     group_name: config.group_name,
                     message_processor: config.message_processor,
-                    connections: Arc::new(parking_lot::RwLock::new(HashMap::new())),
                     subscription_manager: SubscriptionManager::new(tx_slim.clone()),
                     tx_slim,
                     tx_channels: parking_lot::RwLock::new(HashMap::new()),
@@ -250,11 +255,12 @@ impl ControlPlane {
                     drain_watch: parking_lot::RwLock::new(Some(watch)),
                     auth_provider: config.auth_provider,
                     _auth_verifier: config.auth_verifier,
-                    pending_notifications: Arc::new(parking_lot::Mutex::new(Vec::new())),
+                    pending_notifications: Arc::new(parking_lot::Mutex::new(VecDeque::new())),
                     message_id_map: Arc::new(parking_lot::RwLock::new(HashMap::new())),
                     timer_factory: parking_lot::RwLock::new(None),
                     connection_details: config.connection_details,
                     route_subscription_ids: parking_lot::Mutex::new(HashMap::new()),
+                    link_id_to_conn_id: parking_lot::RwLock::new(HashMap::new()),
                 }),
             },
             drain_signal: parking_lot::RwLock::new(Some(signal)),
@@ -694,10 +700,31 @@ fn remove_participant_message(
     Ok(msg)
 }
 
+fn generate_unique_msg_id(map: &parking_lot::RwLock<HashMap<u32, (String, Option<Timer>)>>) -> u32 {
+    loop {
+        let id = rand::random::<u32>();
+        if !map.read().contains_key(&id) {
+            return id;
+        }
+    }
+}
+
 impl ControllerService {
     fn resolve_connection_by_link_id(&self, link_id: &str) -> Result<Option<u64>, String> {
-        let mut resolved: Option<u64> = None;
+        if let Some(&conn_id) = self.inner.link_id_to_conn_id.read().get(link_id) {
+            if self
+                .inner
+                .message_processor
+                .connection_table()
+                .get(conn_id as usize)
+                .is_some_and(|conn| conn.link_id().as_deref() == Some(link_id))
+            {
+                return Ok(Some(conn_id));
+            }
+            self.inner.link_id_to_conn_id.write().remove(link_id);
+        }
 
+        let mut resolved: Option<u64> = None;
         self.inner
             .message_processor
             .connection_table()
@@ -706,6 +733,13 @@ impl ControllerService {
                     resolved = Some(id as u64);
                 }
             });
+
+        if let Some(conn_id) = resolved {
+            self.inner
+                .link_id_to_conn_id
+                .write()
+                .insert(link_id.to_string(), conn_id);
+        }
 
         Ok(resolved)
     }
@@ -732,11 +766,11 @@ impl ControllerService {
             );
         }
 
-        // Remove endpoint->conn mapping for this connection id.
+        self.inner.link_id_to_conn_id.write().remove(link_id);
         self.inner
-            .connections
-            .write()
-            .retain(|_, mapped| *mapped != conn_id);
+            .route_subscription_ids
+            .lock()
+            .retain(|(_name, cid), _| *cid != conn_id);
 
         info!(link_id = %link_id, conn_id, "Successfully deleted connection by link_id");
         Ok(())
@@ -753,12 +787,7 @@ impl ControllerService {
             }
         }
 
-        Ok(self
-            .inner
-            .connections
-            .read()
-            .get(&subscription.connection_id)
-            .cloned())
+        Ok(None)
     }
 
     /// Handle new control messages.
@@ -823,11 +852,10 @@ impl ControllerService {
                                             Ok(Some(conn_id)) => {
                                                 existing_conn_for_link_id = true;
                                                 self.inner
-                                                    .connections
+                                                    .link_id_to_conn_id
                                                     .write()
-                                                    .insert(client_endpoint.clone(), conn_id);
+                                                    .insert(requested_link_id.clone(), conn_id);
                                                 info!(
-                                                    endpoint = %client_endpoint,
                                                     link_id = %requested_link_id,
                                                     conn_id,
                                                     "Connection already exists for link_id"
@@ -838,37 +866,31 @@ impl ControllerService {
                                     }
 
                                     if connection_success && !existing_conn_for_link_id {
-                                        // connect to an endpoint if it's not already connected
-                                        if !self
+                                        match self
                                             .inner
-                                            .connections
-                                            .read()
-                                            .contains_key(client_endpoint)
+                                            .message_processor
+                                            .connect(client_config.clone(), None, None)
+                                            .await
                                         {
-                                            match self
-                                                .inner
-                                                .message_processor
-                                                .connect(client_config.clone(), None, None)
-                                                .await
-                                            {
-                                                Err(e) => {
-                                                    connection_success = false;
-                                                    connection_error_msg =
-                                                        format!("Connection failed: {}", e);
-                                                }
-                                                Ok(conn_id) => {
-                                                    self.inner
-                                                        .connections
-                                                        .write()
-                                                        .insert(client_endpoint.clone(), conn_id.1);
-                                                    info!(
-                                                        endpoint = %client_endpoint, "Successfully created connection",
-
-                                                    );
-                                                }
+                                            Err(e) => {
+                                                connection_success = false;
+                                                connection_error_msg =
+                                                    format!("Connection failed: {}", e);
                                             }
-                                        } else {
-                                            info!(endpoint = %client_endpoint, "Connection already exists");
+                                            Ok(conn_id) => {
+                                                if !requested_link_id.is_empty() {
+                                                    self.inner
+                                                        .link_id_to_conn_id
+                                                        .write()
+                                                        .insert(
+                                                            requested_link_id.clone(),
+                                                            conn_id.1,
+                                                        );
+                                                }
+                                                info!(
+                                                    endpoint = %client_endpoint, "Successfully created connection",
+                                                );
+                                            }
                                         }
                                     }
                                 }
@@ -1011,12 +1033,23 @@ impl ControllerService {
                                             self.inner.subscription_manager.cancel_ack(ack_id);
                                             Err(format!("datapath send error: {}", e.chain()))
                                         } else {
-                                            match ack_rx.await {
-                                                Ok(Ok(())) => Ok(()),
-                                                Ok(Err(err)) => Err(err.to_string()),
-                                                Err(_) => {
+                                            match tokio::time::timeout(
+                                                SUBSCRIPTION_ACK_TIMEOUT,
+                                                ack_rx,
+                                            )
+                                            .await
+                                            {
+                                                Ok(Ok(Ok(()))) => Ok(()),
+                                                Ok(Ok(Err(err))) => Err(err.to_string()),
+                                                Ok(Err(_)) => {
                                                     Err("subscription ack channel closed"
                                                         .to_string())
+                                                }
+                                                Err(_) => {
+                                                    self.inner
+                                                        .subscription_manager
+                                                        .cancel_ack(ack_id);
+                                                    Err("subscription ack timed out".to_string())
                                                 }
                                             }
                                         }
@@ -1142,7 +1175,7 @@ impl ControllerService {
                                     },
                                 )),
                             };
-                            if let Err(e) = tx.try_send(Ok(resp)) {
+                            if let Err(e) = tx.send(Ok(resp)).await {
                                 error!(error = %e.chain(), "failed to send subscription list response");
                             }
                         } else {
@@ -1158,8 +1191,9 @@ impl ControllerService {
                                         },
                                     )),
                                 };
-                                if let Err(e) = tx.try_send(Ok(resp)) {
+                                if let Err(e) = tx.send(Ok(resp)).await {
                                     error!(error = %e.chain(), "failed to send subscription batch");
+                                    break;
                                 }
                             }
                         }
@@ -1170,7 +1204,7 @@ impl ControllerService {
                             .message_processor
                             .connection_table()
                             .for_each(|id, conn| {
-                                info!(
+                                debug!(
                                     conn_id = id,
                                     local_addr = ?conn.local_addr(),
                                     remote_addr = ?conn.remote_addr(),
@@ -1208,7 +1242,7 @@ impl ControllerService {
                                     },
                                 )),
                             };
-                            if let Err(e) = tx.try_send(Ok(resp)) {
+                            if let Err(e) = tx.send(Ok(resp)).await {
                                 error!(error = %e.chain(), "failed to send connection list response");
                             }
                         } else {
@@ -1224,8 +1258,9 @@ impl ControllerService {
                                         },
                                     )),
                                 };
-                                if let Err(e) = tx.try_send(Ok(resp)) {
+                                if let Err(e) = tx.send(Ok(resp)).await {
                                     error!(error = %e.chain(), "failed to send connection list batch");
+                                    break;
                                 }
                             }
                         }
@@ -1266,7 +1301,7 @@ impl ControllerService {
                                 success = false;
                             } else {
                                 let channel_name = get_name_from_string(&req.channel_name)?;
-                                let new_msg_id = rand::random::<u32>();
+                                let new_msg_id = generate_unique_msg_id(&self.inner.message_id_map);
                                 let controller_name = self.inner.controller_name.clone();
                                 let creation_msg = new_channel_message(
                                     &controller_name,
@@ -1335,7 +1370,7 @@ impl ControllerService {
                                 success = false;
                             } else {
                                 let channel_name = get_name_from_string(&req.channel_name)?;
-                                let new_msg_id = rand::random::<u32>();
+                                let new_msg_id = generate_unique_msg_id(&self.inner.message_id_map);
                                 let controller_name = self.inner.controller_name.clone();
                                 let delete_msg = delete_channel_message(
                                     &controller_name,
@@ -1410,7 +1445,7 @@ impl ControllerService {
                             } else {
                                 let channel_name = get_name_from_string(&req.channel_name)?;
                                 let participant_name = get_name_from_string(&req.participant_name)?;
-                                let new_msg_id = rand::random::<u32>();
+                                let new_msg_id = generate_unique_msg_id(&self.inner.message_id_map);
                                 let controller_name = self.inner.controller_name.clone();
                                 let invite_msg = invite_participant_message(
                                     &controller_name,
@@ -1481,7 +1516,7 @@ impl ControllerService {
                             } else {
                                 let channel_name = get_name_from_string(&req.channel_name)?;
                                 let participant_name = get_name_from_string(&req.participant_name)?;
-                                let new_msg_id = rand::random::<u32>();
+                                let new_msg_id = generate_unique_msg_id(&self.inner.message_id_map);
                                 let controller_name = self.inner.controller_name.clone();
                                 let remove_msg = remove_participant_message(
                                     &controller_name,
@@ -1628,10 +1663,14 @@ impl ControllerService {
             return Err(format!("datapath send error: {}", e.chain()));
         }
 
-        match ack_rx.await {
-            Ok(Ok(())) => Ok(ack_id),
-            Ok(Err(err)) => Err(err.to_string()),
-            Err(_) => Err("subscription ack channel closed".to_string()),
+        match tokio::time::timeout(SUBSCRIPTION_ACK_TIMEOUT, ack_rx).await {
+            Ok(Ok(Ok(()))) => Ok(ack_id),
+            Ok(Ok(Err(err))) => Err(err.to_string()),
+            Ok(Err(_)) => Err("subscription ack channel closed".to_string()),
+            Err(_) => {
+                self.inner.subscription_manager.cancel_ack(ack_id);
+                Err("subscription ack timed out".to_string())
+            }
         }
     }
 
@@ -1652,10 +1691,14 @@ impl ControllerService {
             return Err(format!("datapath send error: {}", e.chain()));
         }
 
-        match ack_rx.await {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(err)) => Err(err.to_string()),
-            Err(_) => Err("subscription ack channel closed".to_string()),
+        match tokio::time::timeout(SUBSCRIPTION_ACK_TIMEOUT, ack_rx).await {
+            Ok(Ok(Ok(()))) => Ok(()),
+            Ok(Ok(Err(err))) => Err(err.to_string()),
+            Ok(Err(_)) => Err("subscription ack channel closed".to_string()),
+            Err(_) => {
+                self.inner.subscription_manager.cancel_ack(subscription_id);
+                Err("subscription ack timed out".to_string())
+            }
         }
     }
 
@@ -1725,11 +1768,10 @@ impl ControllerService {
 
             let mut queue = self.inner.pending_notifications.lock();
             if queue.len() >= MAX_QUEUED_NOTIFICATIONS {
-                // Remove oldest notification to make room for new one
-                queue.remove(0);
+                queue.pop_front();
                 debug!("queue full, removed oldest notification");
             }
-            queue.push(ctrl_msg);
+            queue.push_back(ctrl_msg);
         }
     }
 
@@ -1958,11 +2000,47 @@ impl ControllerService {
     ) -> Result<mpsc::Sender<Result<ControlMessage, Status>>, ControllerError> {
         info!(%config.endpoint, "connecting to control plane");
 
+        // On reconnect, drain message_id_map entries from the previous session.
+        // Their timers reference the old channel, so stop each one and send a
+        // failure ack to unblock waiters.
+        {
+            let prev_entries: Vec<(u32, (String, Option<Timer>))> =
+                self.inner.message_id_map.write().drain().collect();
+            for (msg_id, (original_id, timer)) in prev_entries {
+                if let Some(mut t) = timer {
+                    t.stop();
+                }
+                let ack = Ack {
+                    original_message_id: original_id,
+                    success: false,
+                    messages: vec![msg_id.to_string()],
+                };
+                let reply = ControlMessage {
+                    message_id: uuid::Uuid::new_v4().to_string(),
+                    payload: Some(Payload::Ack(ack)),
+                };
+                self.send_or_queue_notification(reply, std::slice::from_ref(&config))
+                    .await;
+            }
+        }
+
+        // Reset connection state before establishing a new session. The CP
+        // will send fresh ConfigCommands after re-registration to rebuild
+        // these maps.
+        self.inner.route_subscription_ids.lock().clear();
+        self.inner.link_id_to_conn_id.write().clear();
+
         let channel = config.to_channel().await?;
 
         let mut client = ControllerServiceClient::new(channel.clone());
         let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(128);
-        let out_stream = ReceiverStream::new(rx).map(|res| res.expect("mapping error"));
+        let out_stream = ReceiverStream::new(rx).filter_map(|res| match res {
+            Ok(msg) => Some(msg),
+            Err(e) => {
+                error!(error = %e, "dropping outbound control message due to error");
+                None
+            }
+        });
         let stream = client
             .open_control_channel(Request::new(out_stream))
             .await?;
@@ -2046,17 +2124,19 @@ impl GrpcControllerService for ControllerService {
             Status::unavailable("failed to process control message stream")
         })?;
 
-        // store the sender in the tx_channels map
         self.inner
             .tx_channels
             .write()
             .insert(remote_endpoint.clone(), tx);
 
-        // store the cancellation token in the controller service
-        self.inner
+        if let Some(old_token) = self
+            .inner
             .cancellation_tokens
             .write()
-            .insert(remote_endpoint.clone(), cancellation_token);
+            .insert(remote_endpoint.clone(), cancellation_token)
+        {
+            old_token.cancel();
+        }
 
         let out_stream = ReceiverStream::new(rx);
         Ok(Response::new(
@@ -2418,8 +2498,8 @@ mod tests {
         assert!(ack.connections_status[0].success);
 
         assert!(
-            controller.inner.connections.read().contains_key(endpoint),
-            "expected endpoint to be mapped to reused connection id"
+            controller.inner.link_id_to_conn_id.read().contains_key(&link_id),
+            "expected link_id to be mapped to reused connection id"
         );
     }
 

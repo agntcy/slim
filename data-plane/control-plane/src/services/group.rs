@@ -153,7 +153,7 @@ impl GroupService {
                 id: req.channel_name.clone(),
             })?;
 
-        // Fix #5: check for duplicate BEFORE sending to the data plane to avoid
+        // Check for duplicate BEFORE sending to the data plane to avoid
         // CP/DP state divergence (the DP would add the participant but the CP would
         // then return an error without recording it).
         if channel.participants.contains(&req.participant_name) {
