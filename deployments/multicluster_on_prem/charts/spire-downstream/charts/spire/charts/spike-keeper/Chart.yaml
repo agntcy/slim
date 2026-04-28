@@ -1,0 +1,13 @@
+apiVersion: v2
+appVersion: 0.5.0
+description: A Helm chart to deploy SPIKE Keeper
+home: https://github.com/spiffe/helm-charts-hardened/tree/main/charts/spire
+icon: https://spike.ist/assets/spike-banner.png
+maintainers:
+- email: Kevin.Fox@pnnl.gov
+  name: kfox1111
+name: spike-keeper
+sources:
+- https://github.com/spiffe/spike
+type: application
+version: 0.1.0

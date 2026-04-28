@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "spike-pilot.fullname" . }}
+  namespace: {{ include "spike-pilot.namespace" . }}
+  labels:
+    {{- include "spike-pilot.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "spike-pilot.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "spike-pilot.selectorLabels" . | nindent 8 }}
+        release: {{ .Release.Name }}
+        release-namespace: {{ .Release.Namespace }}
+        component: spike-pilot
+    spec:
+      {{- with (coalesce .Values.imagePullSecrets .Values.global.imagePullSecrets) }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "spike-pilot.serviceAccountName" . }}
+      securityContext:
+        {{- include "spire-lib.podsecuritycontext" . | nindent 8 }}
+      initContainers:
+        - name:  init
+          image: {{ template "spire-lib.image" (dict "appVersion" $.Chart.AppVersion "image" .Values.tools.busybox.image "global" .Values.global "ubi" true) }}
+          imagePullPolicy: {{ .Values.tools.busybox.image.pullPolicy }}
+          command: ["/bin/sh", "-c", "cp -a /bin/busybox /data"]
+          securityContext:
+            {{- include "spire-lib.securitycontext" . | nindent 12 }}
+          volumeMounts:
+            - name: pilot
+              mountPath: /data
+        - name:  init2
+          image: {{ template "spire-lib.image" (dict "appVersion" $.Chart.AppVersion "image" .Values.image "global" .Values.global "ubi" true) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/data/busybox", "sh", "-c", "/data/busybox cp -a /usr/local/bin/spike /data && /data/busybox rm -f /data/busybox"]
+          securityContext:
+            {{- include "spire-lib.securitycontext" . | nindent 12 }}
+          volumeMounts:
+            - name: pilot
+              mountPath: /data
+      containers:
+        - name:  {{ include "spike-pilot.fullname" . }}
+          image: {{ template "spire-lib.image" (dict "appVersion" $.Chart.AppVersion "image" .Values.shell.image "global" .Values.global "ubi" true) }}
+          imagePullPolicy: {{ .Values.shell.image.pullPolicy }}
+          command: ["/bin/sh", "-c", "echo I live; while true; do sleep 1000; done"]
+          securityContext:
+            {{- include "spire-lib.securitycontext" . | nindent 12 }}
+          env:
+            #FIXME make this configurable
+            - name: SPIKE_NEXUS_API_URL
+              value: https://{{ .Release.Name }}-spike-nexus:443
+            - name: SPIFFE_ENDPOINT_SOCKET
+              value: unix://{{ include "spike-pilot.workload-api-socket-path" . }}
+            - name: SPIKE_SYSTEM_LOG_LEVEL
+              value: {{ .Values.logLevel | upper }}
+            - name: SPIKE_TRUST_ROOT
+              value: {{ include "spire-lib.trust-domain" . }}
+            - name: SPIKE_TRUST_ROOT_NEXUS
+              value: {{ if gt (len .Values.trustRoot.nexus) 0 }}{{ .Values.trustRoot.nexus | join "," | quote }}{{ else }}{{ include "spire-lib.trust-domain" . }}{{ end }}
+            - name: SPIKE_TRUST_ROOT_PILOT
+              value: {{ if gt (len .Values.trustRoot.pilot) 0 }}{{ .Values.trustRoot.pilot | join "," | quote }}{{ else }}{{ include "spire-lib.trust-domain" . }}{{ end }}
+          volumeMounts:
+            - name: spiffe-workload-api
+              mountPath: {{ include "spike-pilot.workload-api-socket-path" . | dir }}
+              readOnly: true
+            - name: pilot
+              mountPath: /bin/spike
+              subPath: spike
+              readOnly: true
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: pilot
+          emptyDir: {}
+        - name: spiffe-workload-api
+          csi:
+            driver: "{{ .Values.csiDriverName }}"
+            readOnly: true
