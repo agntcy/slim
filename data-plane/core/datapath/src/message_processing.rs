@@ -215,6 +215,24 @@ impl MessageProcessor {
         *tx_guard = Some(tx);
     }
 
+    /// Test/benchmark hook: installs the sender returned by [`Self::get_tx_control_plane`] so remote
+    /// `process_stream` loops mirror traffic without a real control-plane registration.
+    #[doc(hidden)]
+    pub fn bench_set_control_plane_tx(&self, tx: Sender<Result<Message, Status>>) {
+        self.set_tx_control_plane(tx);
+    }
+
+    /// Test/benchmark hook: inserts a remote connection (server channel) suitable for driving
+    /// [`Self::process_stream`] with `is_local = false`.
+    #[doc(hidden)]
+    pub fn bench_register_remote_connection(&self) -> u64 {
+        let (tx, _rx) = mpsc::channel(16);
+        let connection = Connection::new(ConnectionType::Remote, Channel::Server(tx));
+        self.forwarder()
+            .on_connection_established(connection, None)
+            .expect("bench remote connection")
+    }
+
     fn get_tx_control_plane(&self) -> Option<Sender<Result<Message, Status>>> {
         let tx_guard = self.internal.tx_control_plane.read();
         tx_guard.clone()
@@ -1065,9 +1083,11 @@ impl MessageProcessor {
                                             match msg.get_type() {
                                                 PublishType(_) | LinkType(_) | SubscriptionAckType(_) => {/* do nothing */}
                                                 _ => {
-                                                    // send subscriptions and unsubscriptions
-                                                    // to the control plane
-                                                    let _ = txcp.send(Ok(msg.clone())).await;
+                                                    // Control plane only needs SLIM header + subscription id for
+                                                    // subscribe/unsubscribe; avoid cloning metadata / full wire message.
+                                                    let cp_msg = msg
+                                                        .rebuild_header_for_control_plane();
+                                                    let _ = txcp.send(Ok(cp_msg.unwrap())).await;
                                                 }
                                             }
                                         }
@@ -1159,6 +1179,27 @@ impl MessageProcessor {
         }.instrument(stream_span));
 
         Ok(handle)
+    }
+
+    /// Benchmark/test wrapper around [`Self::process_stream`]; production code keeps using the private method.
+    #[doc(hidden)]
+    pub fn bench_process_stream(
+        &self,
+        stream: impl Stream<Item = Result<Message, Status>> + Unpin + Send + 'static,
+        conn_index: u64,
+        client_config: Option<ClientConfig>,
+        cancellation_token: CancellationToken,
+        is_local: bool,
+        from_control_plane: bool,
+    ) -> Result<JoinHandle<()>, DataPathError> {
+        self.process_stream(
+            stream,
+            conn_index,
+            client_config,
+            cancellation_token,
+            is_local,
+            from_control_plane,
+        )
     }
 
     fn match_for_io_error(err_status: &Status) -> Option<&std::io::Error> {

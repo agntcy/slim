@@ -220,9 +220,22 @@ impl SlimHeader {
     ) -> Self {
         let flags = flags.unwrap_or_default();
 
+        // When source and destination are the same `&Name` (same pointer), build one ProtoName
+        // and clone it. Avoids a second `ProtoName::from` that would re-clone all string fields.
+        let (source, destination) =
+            if std::ptr::eq(source as *const Name, destination as *const Name) {
+                let endpoint = ProtoName::from(source);
+                (Some(endpoint.clone()), Some(endpoint))
+            } else {
+                (
+                    Some(ProtoName::from(source)),
+                    Some(ProtoName::from(destination)),
+                )
+            };
+
         Self {
-            source: Some(ProtoName::from(source)),
-            destination: Some(ProtoName::from(destination)),
+            source,
+            destination,
             identity: identity.to_string(),
             fanout: flags.fanout,
             recv_from: flags.recv_from,
@@ -870,6 +883,30 @@ impl ProtoMessage {
             Some(ProtoSubscribeType(s)) => s.subscription_id = subscription_id,
             Some(ProtoUnsubscribeType(u)) => u.subscription_id = subscription_id,
             _ => {}
+        }
+    }
+
+    /// Compact subscribe/unsubscribe for forwarding remote dataplane traffic to the control plane.
+    ///
+    /// Copies destination, subscription id, and sets SLIM header `recv_from` to
+    /// `remote_connection_id` (the dataplane connection index the message arrived on). Omits other
+    /// header fields and the metadata map where possible.
+    ///
+    /// Returns [`None`] for non-subscribe/unsubscribe types or if the header or destination is missing.
+    pub fn rebuild_header_for_control_plane(&self) -> Option<ProtoMessage> {
+        let dst = Name::from(self.try_get_slim_header()?.destination.as_ref()?);
+        match &self.message_type {
+            Some(ProtoSubscribeType(s)) => {
+                let mut sub = ProtoSubscribe::new(&dst, &dst, None, None);
+                sub.subscription_id = s.subscription_id;
+                Some(ProtoMessage::new(HashMap::new(), ProtoSubscribeType(sub)))
+            }
+            Some(ProtoUnsubscribeType(u)) => {
+                let mut unsub = ProtoUnsubscribe::new(&dst, &dst, None, None);
+                unsub.subscription_id = u.subscription_id;
+                Some(ProtoMessage::new(HashMap::new(), ProtoUnsubscribeType(unsub)))
+            }
+            _ => None,
         }
     }
 

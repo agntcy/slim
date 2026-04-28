@@ -40,9 +40,18 @@ tonic-prost-build = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+stats_alloc = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-test = { workspace = true, features = ["no-env-filter"] }
 
 [[bench]]
 name = "pool_benchmark"
+harness = false
+
+[[bench]]
+name = "process_stream_benchmark"
+harness = false
+
+[[bench]]
+name = "process_stream_alloc"
 harness = false
