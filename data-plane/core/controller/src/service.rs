@@ -145,6 +145,9 @@ struct ControllerServiceInternal {
     /// Reverse index: link_id → connection_id for O(1) lookup.
     /// Populated lazily on first resolve and eagerly on connection create/delete.
     link_id_to_conn_id: parking_lot::RwLock<HashMap<String, u64>>,
+
+    /// JoinHandles for control-plane stream processing tasks, keyed by endpoint.
+    stream_handles: parking_lot::Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
 }
 
 #[derive(Clone)]
@@ -261,6 +264,7 @@ impl ControlPlane {
                     connection_details: config.connection_details,
                     route_subscription_ids: parking_lot::Mutex::new(HashMap::new()),
                     link_id_to_conn_id: parking_lot::RwLock::new(HashMap::new()),
+                    stream_handles: parking_lot::Mutex::new(HashMap::new()),
                 }),
             },
             drain_signal: parking_lot::RwLock::new(Some(signal)),
@@ -1739,30 +1743,40 @@ impl ControllerService {
     }
 
     /// Send notification to control plane or queue it if no connection is available.
+    ///
+    /// Uses `try_send` to avoid blocking the caller when the bounded channel is
+    /// full (e.g. due to HTTP/2 back-pressure).  Blocking here would stall the
+    /// data-plane listener task, preventing it from resolving subscription acks
+    /// that the control-message handler is waiting on — a deadlock.
     async fn send_or_queue_notification(&self, ctrl_msg: ControlMessage, clients: &[ClientConfig]) {
-        let mut has_active_connection = false;
+        let mut sent = false;
 
-        // Try to send to all active connections
         for c in clients {
             let tx = match self.inner.tx_channels.read().get(&c.endpoint) {
                 Some(tx) => tx.clone(),
                 None => continue,
             };
 
-            if tx.send(Ok(ctrl_msg.clone())).await.is_ok() {
-                has_active_connection = true;
-            } else {
-                debug!(
-                    endpoint = %c.endpoint,
-                    "failed to send notification to control plane"
-                );
+            match tx.try_send(Ok(ctrl_msg.clone())) {
+                Ok(()) => {
+                    sent = true;
+                }
+                Err(mpsc::error::TrySendError::Full(_)) => {
+                    debug!(
+                        endpoint = %c.endpoint,
+                        "channel full, queuing notification instead of blocking"
+                    );
+                }
+                Err(mpsc::error::TrySendError::Closed(_)) => {
+                    debug!(
+                        endpoint = %c.endpoint,
+                        "channel closed, queuing notification"
+                    );
+                }
             }
         }
 
-        // If no active connections, queue the notification
-        if !has_active_connection {
-            debug!("no active control plane connections, queuing subscription notification");
-
+        if !sent {
             let mut queue = self.inner.pending_notifications.lock();
             if queue.len() >= MAX_QUEUED_NOTIFICATIONS {
                 queue.pop_front();
@@ -2055,13 +2069,18 @@ impl ControllerService {
         self.inner.timer_factory.write().replace(timer_factory);
 
         // start processing the incoming stream
-        self.process_control_message_stream(
+        let endpoint_key = config.endpoint.clone();
+        let handle = self.process_control_message_stream(
             Some(config),
             stream.into_inner(),
             Some(timer_rx),
             tx.clone(),
             cancellation_token.clone(),
         )?;
+        self.inner
+            .stream_handles
+            .lock()
+            .insert(endpoint_key, handle);
 
         // return the sender
         Ok(tx)
@@ -2109,17 +2128,22 @@ impl GrpcControllerService for ControllerService {
         let cancellation_token = CancellationToken::new();
 
         // Server-side connections don't initiate operations requiring acks, so no timer channel needed
-        self.process_control_message_stream(
-            None,
-            stream,
-            None,
-            tx.clone(),
-            cancellation_token.clone(),
-        )
-        .map_err(|e| {
-            error!(error = %e.chain(), "error processing control message stream");
-            Status::unavailable("failed to process control message stream")
-        })?;
+        let handle = self
+            .process_control_message_stream(
+                None,
+                stream,
+                None,
+                tx.clone(),
+                cancellation_token.clone(),
+            )
+            .map_err(|e| {
+                error!(error = %e.chain(), "error processing control message stream");
+                Status::unavailable("failed to process control message stream")
+            })?;
+        self.inner
+            .stream_handles
+            .lock()
+            .insert(remote_endpoint.clone(), handle);
 
         self.inner
             .tx_channels
