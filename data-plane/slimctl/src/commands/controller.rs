@@ -26,10 +26,10 @@ pub struct ControllerArgs {
 #[derive(Subcommand)]
 pub enum ControllerCommand {
     /// Access node information through the control plane
-    #[command(aliases = ["n", "nodes", "instance"])]
+    #[command(visible_aliases = ["n", "nodes", "instance"])]
     Node(ControllerNodeArgs),
     /// Manage SLIM connections via the control plane
-    #[command(alias = "conn")]
+    #[command(visible_alias = "conn")]
     Connection(ControllerConnectionArgs),
     /// Manage SLIM routes via the control plane
     Route(ControllerRouteArgs),
@@ -52,7 +52,7 @@ pub struct ControllerNodeArgs {
 #[derive(Subcommand)]
 pub enum ControllerNodeCommand {
     /// List nodes connected to the control plane
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List,
 }
 
@@ -67,7 +67,7 @@ pub struct ControllerConnectionArgs {
 #[derive(Subcommand)]
 pub enum ControllerConnectionCommand {
     /// List active connections on a node
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List {
         /// ID of the node
         #[arg(short = 'n', long, required = true)]
@@ -86,7 +86,7 @@ pub struct ControllerRouteArgs {
 #[derive(Subcommand)]
 pub enum ControllerRouteCommand {
     /// List subscriptions on a node
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List {
         /// ID of the node to manage routes for
         #[arg(short = 'n', long, required = true)]
@@ -169,7 +169,7 @@ pub enum ControllerChannelCommand {
         channel_name: String,
     },
     /// List channels
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List,
 }
 
@@ -198,7 +198,7 @@ pub enum ControllerParticipantCommand {
         channel_id: String,
     },
     /// List participants in a channel
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List {
         /// ID of the channel
         #[arg(short = 'c', long, required = true)]

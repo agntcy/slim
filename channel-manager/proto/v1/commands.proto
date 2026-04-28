@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 syntax = "proto3";
-package channel_manager.v1;
+package channel_manager.proto.v1;
 
 service ChannelManagerService {
   rpc Command(ControlRequest) returns (ControlResponse) {}

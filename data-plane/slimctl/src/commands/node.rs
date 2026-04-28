@@ -24,7 +24,7 @@ pub enum NodeCommand {
     /// Manage routes directly on a SLIM node
     Route(NodeRouteArgs),
     /// Manage connections directly on a SLIM node
-    #[command(alias = "conn")]
+    #[command(visible_alias = "conn")]
     Connection(NodeConnectionArgs),
 }
 
@@ -39,7 +39,7 @@ pub struct NodeRouteArgs {
 #[derive(Subcommand)]
 pub enum NodeRouteCommand {
     /// List routes on a node
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List,
     /// Add a route to a node
     ///
@@ -76,7 +76,7 @@ pub struct NodeConnectionArgs {
 #[derive(Subcommand)]
 pub enum NodeConnectionCommand {
     /// List active connections on a node
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List,
 }
 

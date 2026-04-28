@@ -11,6 +11,7 @@ use slim_config::tls::client::TlsClientConfig;
 use crate::config::ResolvedOpts;
 use crate::proto::controller::proto::v1::controller_service_client::ControllerServiceClient;
 use crate::proto::controlplane::proto::v1::control_plane_service_client::ControlPlaneServiceClient;
+use crate::proto::channel_manager::proto::v1::channel_manager_service_client::ChannelManagerServiceClient;
 
 /// Build a `ClientConfig` from the resolved connection options.
 ///
@@ -115,6 +116,28 @@ pub async fn get_controller_client(
         .await
         .context("failed to connect to server")?;
     Ok(ControllerServiceClient::new(channel))
+}
+
+/// Create a `ChannelManagerServiceClient` with TLS and auth configured from `opts`.
+pub async fn get_channel_manager_client(
+    opts: &ResolvedOpts,
+) -> Result<
+    ChannelManagerServiceClient<
+        impl tonic::client::GrpcService<
+            tonic::body::Body,
+            Error: Into<StdError> + Send,
+            ResponseBody: Body<Data = Bytes, Error: Into<StdError> + Send> + Send + 'static,
+            Future: Send,
+        > + Clone
+        + Send
+        + 'static,
+    >,
+> {
+    let channel = build_client_config(opts)?
+        .to_channel()
+        .await
+        .context("failed to connect to channel manager")?;
+    Ok(ChannelManagerServiceClient::new(channel))
 }
 
 /// Apply a request timeout to a tonic Request.

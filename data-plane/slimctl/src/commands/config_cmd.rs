@@ -15,7 +15,7 @@ pub struct ConfigArgs {
 #[derive(Subcommand)]
 pub enum ConfigCommand {
     /// List current configuration values
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List,
     /// Set a configuration value
     Set(SetArgs),

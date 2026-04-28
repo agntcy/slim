@@ -6,6 +6,7 @@ use clap::builder::styling::{AnsiColor, Effects, Styles};
 use clap::{Args, Parser, Subcommand};
 
 use crate::commands::{
+    channel_manager::{self, ChannelManagerArgs},
     config_cmd::{self, ConfigArgs},
     controller::{self, ControllerArgs},
     node::{self, NodeArgs},
@@ -111,16 +112,20 @@ enum Commands {
     Config(ConfigArgs),
 
     /// Commands to interact with SLIM nodes directly
-    #[command(aliases = ["n", "instance", "i"])]
+    #[command(visible_aliases = ["n", "instance", "i"])]
     Node(NodeArgs),
 
     /// Commands to interact with the SLIM Control Plane
-    #[command(aliases = ["c", "ctrl"])]
+    #[command(visible_aliases = ["c", "ctrl"])]
     Controller(ControllerArgs),
 
     /// Commands for managing a local SLIM instance
-    #[command(alias = "s")]
+    #[command(visible_alias = "s")]
     Slim(SlimArgs),
+
+    /// Commands to interact with the Channel Manager service
+    #[command(visible_alias = "cm")]
+    ChannelManager(ChannelManagerArgs),
 }
 
 pub(crate) async fn run(cli: Cli) -> Result<()> {
@@ -158,6 +163,9 @@ pub(crate) async fn run(cli: Cli) -> Result<()> {
         }
         Commands::Slim(args) => {
             slim_cmd::run(&args).await?;
+        }
+        Commands::ChannelManager(args) => {
+            channel_manager::run(&args, &opts).await?;
         }
     }
 

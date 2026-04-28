@@ -3,6 +3,7 @@
 
 pub mod config_cmd;
 pub mod controller;
+pub mod channel_manager;
 pub mod node;
 pub mod slim_cmd;
 pub mod version;

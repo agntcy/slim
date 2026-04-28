@@ -43,6 +43,7 @@ clap = { workspace = true }
 duration-string = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }
+rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }

@@ -207,13 +207,13 @@ pub mod channel_manager_service_client {
                 })?;
             let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/channel_manager.v1.ChannelManagerService/Command",
+                "/channel_manager.proto.v1.ChannelManagerService/Command",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
-                        "channel_manager.v1.ChannelManagerService",
+                        "channel_manager.proto.v1.ChannelManagerService",
                         "Command",
                     ),
                 );
@@ -316,7 +316,7 @@ pub mod channel_manager_service_server {
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             match req.uri().path() {
-                "/channel_manager.v1.ChannelManagerService/Command" => {
+                "/channel_manager.proto.v1.ChannelManagerService/Command" => {
                     #[allow(non_camel_case_types)]
                     struct CommandSvc<T: ChannelManagerService>(pub Arc<T>);
                     impl<
@@ -396,7 +396,7 @@ pub mod channel_manager_service_server {
         }
     }
     /// Generated gRPC service name
-    pub const SERVICE_NAME: &str = "channel_manager.v1.ChannelManagerService";
+    pub const SERVICE_NAME: &str = "channel_manager.proto.v1.ChannelManagerService";
     impl<T> tonic::server::NamedService for ChannelManagerServiceServer<T> {
         const NAME: &'static str = SERVICE_NAME;
     }

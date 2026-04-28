@@ -12,5 +12,5 @@ pub mod service;
 pub mod sessions;
 
 pub mod proto {
-    include!("gen/channel_manager.v1.rs");
+    include!("gen/channel_manager.proto.v1.rs");
 }

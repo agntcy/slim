@@ -16,15 +16,21 @@ fn main() {
 
     let controlplane_proto = proto_dir.join("controlplane/v1/controlplane.proto");
     let controller_proto = proto_dir.join("controller/v1/controller.proto");
+    let channel_manager_proto = proto_dir.join("channel_manager/v1/commands.proto");
 
     println!("cargo:rerun-if-changed={}", controlplane_proto.display());
     println!("cargo:rerun-if-changed={}", controller_proto.display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        channel_manager_proto.display()
+    );
 
     tonic_prost_build::configure()
         .compile_protos(
             &[
                 controlplane_proto.to_str().unwrap(),
                 controller_proto.to_str().unwrap(),
+                channel_manager_proto.to_str().unwrap(),
             ],
             &[proto_dir.to_str().unwrap()],
         )

@@ -377,6 +377,7 @@ dependencies = [
  "prost",
  "prost-types",
  "protoc-bin-vendored",
+ "rand 0.9.4",
  "serde",
  "serde_json",
  "serde_yaml",
