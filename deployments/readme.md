@@ -10,6 +10,7 @@ The following deployment strategies are described:
 - [Statefulset Deployment Strategy](statefulset/statefulset_strategy.md)
 - [Daemonset Deployment Strategy](daemonset/daemonset_strategy.md)
 - [Multi-cluster Deployment Strategy](multicluster/multi_cluster_strategy.md)
+- [Multi-cluster Private Kind Strategy](multicluster_private/multi_cluster_private_strategy.md) — cluster-a exposes SLIM and SPIRE through ingress; cluster-b is private (no public slim/spire endpoints), downstream SPIRE joins cluster-a
 
 For each identified deployment strategy we provide the following:
 

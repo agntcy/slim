@@ -1,0 +1,86 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+slim:
+  # Deploy as DaemonSet instead of StatefulSet
+  daemonset: false
+  # This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
+  replicaCount: 2
+
+  # This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
+  image:
+    repository: ghcr.io/agntcy/slim
+    # This sets the pull policy for images.
+    pullPolicy: IfNotPresent
+    # Overrides the image tag whose default is the chart appVersion.
+    tag: ""
+
+  # This is for overriding the default config below
+  overrideConfig:
+
+  config:
+    tracing:
+      log_level: debug
+      display_thread_names: true
+      display_thread_ids: true
+
+    runtime:
+      n_cores: 0
+      thread_name: "slim-data-plane"
+      drain_timeout: 10s
+
+    services:
+      slim/0:
+        node_id: ${env:SLIM_SVC_ID}
+        group_name: "cluster-b.example"
+        dataplane:
+          servers:
+            - endpoint: "0.0.0.0:{{ (index .Values.slim.service.data 0).port }}"
+              metadata:
+                local_endpoint: ${env:MY_POD_IP}
+              tls:
+                insecure: true
+                # insecure_skip_verify: false   
+                # source:
+                #   type: spire
+                #   socket_path: unix:/tmp/spire-agent/public/api.sock              
+                # ca_source:
+                #   type: spire
+                #   socket_path: unix:/tmp/spire-agent/public/api.sock  
+                # trust_domains:
+                #   - cluster-b.example
+          clients: []
+        controller:
+          clients:
+            - endpoint: "https://slim-control.cluster-a.example:443"
+              # Client→ingress: HTTP/2 PINGs while the control stream is quiet (see data-plane/core/config/src/grpc/client.rs).
+              # Use http2_keepalive well under common L7 idle limits (~60s); timeout is max wait for a PING ack, not stream length.
+              keepalive:
+                tcp_keepalive: 20s
+                http2_keepalive: 20s
+                timeout: 10s
+                keep_alive_while_idle: true
+              tls:
+                insecure: false
+                # because we are using self-signed certificate
+                insecure_skip_verify: true
+                include_system_ca_certs_pool: true
+              auth:
+                type: spire
+                jwt_audiences:
+                  - "slim"
+                socket_path: /tmp/spire-agent/public/spire-agent.sock                
+
+  # This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
+  service:
+    data:
+      - port: 46357
+
+  # This block is for setting up the ingress for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/
+  ingress:
+    enabled: false
+
+spire:
+  enabled: true
+  # trustedDomains:
+  # - spiffe://cluster-a.example 
