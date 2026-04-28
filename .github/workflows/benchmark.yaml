@@ -42,13 +42,17 @@ jobs:
   benchmark:
     name: Data plane benchmark
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         shell: bash
 
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
@@ -57,16 +61,21 @@ jobs:
 
       - name: Run benchmark
         working-directory: .
+        env:
+          BENCH_SENDERS: ${{ inputs.senders || '1,2,4,8' }}
+          BENCH_MESSAGES: ${{ inputs.messages || '500000' }}
+          BENCH_PAYLOAD_SIZES: ${{ inputs.payload-sizes || '8,16,64,1024' }}
+          BENCH_RUNS: ${{ inputs.runs || '1' }}
         run: |
           ./scripts/run-benchmark.sh \
-            --senders "${{ inputs.senders || '1,2,4,8' }}" \
-            --messages "${{ inputs.messages || '500000' }}" \
-            --payload-sizes "${{ inputs.payload-sizes || '8,16,64,1024' }}" \
-            --runs "${{ inputs.runs || '1' }}" \
+            --senders "$BENCH_SENDERS" \
+            --messages "$BENCH_MESSAGES" \
+            --payload-sizes "$BENCH_PAYLOAD_SIZES" \
+            --runs "$BENCH_RUNS" \
             --output benchmark-results.csv
 
       - name: Upload results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: benchmark-results-${{ github.sha }}
           path: benchmark-results.csv

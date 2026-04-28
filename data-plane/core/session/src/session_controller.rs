@@ -67,12 +67,12 @@ impl SessionController {
 
     /// Internal constructor for the builder to use
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn from_parts<I, P, V>(
+    pub(crate) fn from_parts<I, P, V, M>(
         id: u32,
         source: Name,
         destination: Name,
         config: SessionConfig,
-        settings: SessionSettings<P, V>,
+        settings: SessionSettings<P, V, M>,
         tx: sync::mpsc::Sender<SessionMessage>,
         rx: sync::mpsc::Receiver<SessionMessage>,
         inner: I,
@@ -81,14 +81,17 @@ impl SessionController {
         I: MessageHandler + Send + Sync + 'static,
         P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
         V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
+        M: crate::subscription_manager::SubscriptionOps,
     {
         // Spawn the processing loop
         let cancellation_token = CancellationToken::new();
 
         // setup tracing context
         let span = tracing::debug_span!(
+            parent: None,
             "session_controller_processing_loop",
             session_id = id,
+            service_id = %settings.service_id,
             source = %source,
             destination = %destination,
             session_type = ?config.session_type
@@ -110,12 +113,13 @@ impl SessionController {
     }
 
     /// Internal processing loop that handles messages with mutable access
-    fn enter_draining_state<P, V>(
+    fn enter_draining_state<P, V, M>(
         shutdown_deadline: &mut std::pin::Pin<&mut tokio::time::Sleep>,
-        settings: &SessionSettings<P, V>,
+        settings: &SessionSettings<P, V, M>,
     ) where
         P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
         V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
+        M: crate::subscription_manager::SubscriptionOps,
     {
         let shutdown_timeout = settings
             .graceful_shutdown_timeout
@@ -125,14 +129,15 @@ impl SessionController {
             .reset(tokio::time::Instant::now() + shutdown_timeout);
     }
 
-    async fn processing_loop<P, V>(
+    async fn processing_loop<P, V, M>(
         mut inner: impl MessageHandler + 'static,
         mut rx: sync::mpsc::Receiver<SessionMessage>,
         cancellation_token: CancellationToken,
-        settings: SessionSettings<P, V>,
+        settings: SessionSettings<P, V, M>,
     ) where
         P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
         V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
+        M: crate::subscription_manager::SubscriptionOps,
     {
         // Start with an infinite timeout (will be updated on graceful shutdown)
         let mut shutdown_deadline = std::pin::pin!(tokio::time::sleep(Duration::MAX));
@@ -511,8 +516,6 @@ pub fn handle_channel_discovery_message(
         Some(SlimHeaderFlags::default().with_forward_to(message.get_incoming_conn())),
     );
 
-    debug!("Received discovery request, reply to the msg source");
-
     let msg = Message::builder()
         .with_slim_header(slim_header)
         .session_type(session_type)
@@ -525,27 +528,45 @@ pub fn handle_channel_discovery_message(
     Ok(msg)
 }
 
-pub(crate) struct SessionControllerCommon<P, V>
-where
+pub(crate) struct SessionControllerCommon<
+    P,
+    V,
+    M = crate::subscription_manager::SubscriptionManager,
+> where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    M: crate::subscription_manager::SubscriptionOps,
 {
     /// common session fields
-    pub(crate) settings: SessionSettings<P, V>,
+    pub(crate) settings: SessionSettings<P, V, M>,
 
     /// sender for command messages
     pub(crate) sender: ControllerSender,
 
     /// processing state
     pub(crate) processing_state: ProcessingState,
+
+    /// Maps (kind, name, conn) → subscription_id for route/subscription tracking.
+    subscription_ids: HashMap<(SubscriptionKind, Name, u64), u64>,
 }
 
-impl<P, V> SessionControllerCommon<P, V>
+/// Distinguishes route entries from subscription entries in the subscription_ids map.
+/// Both can share the same `(Name, conn)` pair, so this enum prevents key collisions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum SubscriptionKind {
+    /// A recv_from route (`set_route` / `remove_route`).
+    Route,
+    /// A forward_to subscription (`subscribe` / `unsubscribe`).
+    Subscription,
+}
+
+impl<P, V, M> SessionControllerCommon<P, V, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    M: crate::subscription_manager::SubscriptionOps,
 {
-    pub(crate) fn new(settings: SessionSettings<P, V>) -> Self {
+    pub(crate) fn new(settings: SessionSettings<P, V, M>) -> Self {
         // Create the controller sender.
         let controller_sender = ControllerSender::new(
             settings.config.get_timer_settings(),
@@ -564,6 +585,7 @@ where
             settings,
             sender: controller_sender,
             processing_state: ProcessingState::Active,
+            subscription_ids: HashMap::new(),
         }
     }
 
@@ -582,56 +604,123 @@ where
         self.sender.on_message(&message).await
     }
 
-    pub(crate) async fn add_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
-        let route = Message::builder()
-            .source(self.settings.source.clone())
-            .destination(name.clone())
-            .flags(SlimHeaderFlags::default().with_recv_from(conn))
-            .build_subscribe()
-            .unwrap();
-
-        self.send_to_slim(route).await
+    async fn await_subscription_ack(
+        rx: tokio::sync::oneshot::Receiver<
+            Result<(), crate::subscription_manager::SubscriptionAckError>,
+        >,
+    ) -> Result<(), SessionError> {
+        crate::subscription_manager::SubscriptionManager::await_ack(rx)
+            .await
+            .map_err(SessionError::SubscriptionAckFailed)
     }
 
-    pub(crate) async fn delete_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
-        let route = Message::builder()
-            .source(self.settings.source.clone())
-            .destination(name.clone())
-            .flags(SlimHeaderFlags::default().with_recv_from(conn))
-            .build_unsubscribe()
-            .unwrap();
+    pub(crate) async fn add_route(&mut self, name: Name, conn: u64) -> Result<(), SessionError> {
+        if name == self.settings.source {
+            // We never add a route for ourselves
+            return Ok(());
+        }
 
-        self.send_to_slim(route).await
+        let (subscription_id, rx) = self
+            .settings
+            .subscription_manager
+            .set_route(&self.settings.source, &name, conn)
+            .await
+            .map_err(SessionError::SubscriptionAckFailed)?;
+        Self::await_subscription_ack(rx).await?;
+
+        debug!(%name, %conn, %subscription_id, source = %self.settings.source, "route added");
+
+        self.subscription_ids
+            .insert((SubscriptionKind::Route, name, conn), subscription_id);
+
+        Ok(())
+    }
+
+    pub(crate) async fn delete_route(&mut self, name: Name, conn: u64) -> Result<(), SessionError> {
+        if name == self.settings.source {
+            // We never remove a route for ourselves
+            return Ok(());
+        }
+
+        let key = (SubscriptionKind::Route, name, conn);
+        let subscription_id = self.subscription_ids.remove(&key);
+        let (_, name, conn) = key;
+        match subscription_id {
+            Some(subscription_id) => {
+                let rx = self
+                    .settings
+                    .subscription_manager
+                    .remove_route(&self.settings.source, &name, subscription_id, conn)
+                    .await
+                    .map_err(SessionError::SubscriptionAckFailed)?;
+
+                Self::await_subscription_ack(rx).await?;
+                tracing::debug!(%name, %conn, %subscription_id, "route deleted");
+            }
+            None => {
+                tracing::warn!(
+                    %name, %conn, io = %self.settings.source,
+                    "no subscription_id found for route, skipping delete"
+                );
+            }
+        }
+
+        Ok(())
     }
 
     pub(crate) async fn add_subscription(
-        &self,
-        name: &Name,
+        &mut self,
+        name: Name,
         conn: u64,
     ) -> Result<(), SessionError> {
-        let subscription = Message::builder()
-            .source(self.settings.source.clone())
-            .destination(name.clone())
-            .flags(SlimHeaderFlags::default().with_forward_to(conn))
-            .build_subscribe()
-            .unwrap();
+        let (subscription_id, rx) = self
+            .settings
+            .subscription_manager
+            .subscribe(&self.settings.source, &name, Some(conn))
+            .await
+            .map_err(SessionError::SubscriptionAckFailed)?;
 
-        self.send_to_slim(subscription).await
+        Self::await_subscription_ack(rx).await?;
+
+        debug!(%name, %conn, %subscription_id, "subscription added");
+
+        self.subscription_ids.insert(
+            (SubscriptionKind::Subscription, name, conn),
+            subscription_id,
+        );
+
+        Ok(())
     }
 
     pub(crate) async fn delete_subscription(
-        &self,
-        name: &Name,
+        &mut self,
+        name: Name,
         conn: u64,
     ) -> Result<(), SessionError> {
-        let subscription = Message::builder()
-            .source(self.settings.source.clone())
-            .destination(name.clone())
-            .flags(SlimHeaderFlags::default().with_forward_to(conn))
-            .build_unsubscribe()
-            .unwrap();
+        let key = (SubscriptionKind::Subscription, name, conn);
+        let subscription_id = self.subscription_ids.remove(&key);
+        let (_, name, conn) = key;
+        match subscription_id {
+            Some(subscription_id) => {
+                let rx = self
+                    .settings
+                    .subscription_manager
+                    .unsubscribe(&self.settings.source, &name, subscription_id, Some(conn))
+                    .await
+                    .map_err(SessionError::SubscriptionAckFailed)?;
 
-        self.send_to_slim(subscription).await
+                Self::await_subscription_ack(rx).await?;
+                debug!(%name, %conn, %subscription_id, "subscription deleted");
+            }
+            None => {
+                tracing::warn!(
+                    %name, %conn,
+                    "no subscription_id found for subscription, skipping delete"
+                );
+            }
+        }
+
+        Ok(())
     }
 
     pub(crate) fn create_control_message(
@@ -690,6 +779,7 @@ mod tests {
     // session is transitioning, indicating that graceful draining has begun.
     // Removed broken test_internal_draining_via_leave_request (incompatible mock trait implementation)
 
+    use crate::subscription_manager::{SpySubscriptionManager, SubscriptionCall};
     use crate::transmitter::SessionTransmitter;
     use slim_auth::shared_secret::SharedSecret;
 
@@ -1189,6 +1279,7 @@ mod tests {
             metadata: std::collections::HashMap::new(),
         };
 
+        let (spy_moderator_mgr, mut rx_spy_moderator) = SpySubscriptionManager::new();
         let moderator = SessionController::builder()
             .with_id(session_id)
             .with_source(moderator_name.clone())
@@ -1198,6 +1289,7 @@ mod tests {
             .with_identity_verifier(SharedSecret::new("moderator", SHARED_SECRET).unwrap())
             .with_tx(tx_moderator.clone())
             .with_tx_to_session_layer(tx_session_layer_moderator)
+            .with_subscription_manager(spy_moderator_mgr)
             .ready()
             .expect("failed to validate builder")
             .build()
@@ -1221,6 +1313,7 @@ mod tests {
             metadata: std::collections::HashMap::new(),
         };
 
+        let (spy_participant_mgr, mut rx_spy_participant) = SpySubscriptionManager::new();
         let participant = SessionController::builder()
             .with_id(session_id)
             .with_source(participant_name_id.clone())
@@ -1230,6 +1323,7 @@ mod tests {
             .with_identity_verifier(SharedSecret::new("participant", SHARED_SECRET).unwrap())
             .with_tx(tx_participant.clone())
             .with_tx_to_session_layer(tx_session_layer_participant)
+            .with_subscription_manager(spy_participant_mgr)
             .ready()
             .expect("failed to validate builder")
             .build()
@@ -1276,24 +1370,19 @@ mod tests {
             .await
             .expect("error processing discovery reply on moderator");
 
-        // check that we get a route for the remote endpoint on slim
-        let route = timeout(Duration::from_millis(100), rx_slim_moderator.recv())
-            .await
-            .expect("timeout waiting for route on moderator slim channel")
-            .expect("channel closed")
-            .expect("error in route");
-
-        // check that the route message type is a subscription, the destination name is remote and the flag recv_from is set to 1
-        assert!(route.is_subscribe(), "route should be a subscribe message");
-        assert_eq!(route.get_dst(), participant_name_id);
-        assert_eq!(route.get_slim_header().get_recv_from(), Some(1));
+        // moderator sets route for participant after discovery reply
+        assert_eq!(
+            rx_spy_moderator.recv().await,
+            Some(SubscriptionCall::SetRoute),
+            "moderator should set route after discovery reply"
+        );
 
         // check that a join request is received by slim
         let join_request = timeout(Duration::from_millis(100), rx_slim_moderator.recv())
             .await
-            .expect("timeout waiting for route on moderator slim channel")
+            .expect("timeout waiting for join request on moderator slim channel")
             .expect("channel closed")
-            .expect("error in route");
+            .expect("error in join request");
 
         assert_eq!(
             join_request.get_session_message_type(),
@@ -1312,16 +1401,12 @@ mod tests {
             .await
             .expect("error processing join request on participant");
 
-        // check that a route for the moderator is generated
-        let route = timeout(Duration::from_millis(100), rx_slim_participant.recv())
-            .await
-            .expect("timeout waiting for route on moderator slim channel")
-            .expect("channel closed")
-            .expect("error in route");
-
-        assert!(route.is_subscribe(), "route should be a subscribe message");
-        assert_eq!(route.get_dst(), moderator_name);
-        assert_eq!(route.get_slim_header().get_recv_from(), Some(1));
+        // participant sets route for moderator after join request
+        assert_eq!(
+            rx_spy_participant.recv().await,
+            Some(SubscriptionCall::SetRoute),
+            "participant should set route after join request"
+        );
 
         // check that a join reply is received by slim on the participant
         let join_reply = timeout(Duration::from_millis(100), rx_slim_participant.recv())
@@ -1580,18 +1665,12 @@ mod tests {
         );
         assert_eq!(leave_reply.get_dst(), moderator_name);
 
-        // get the delete route on the participant slim
-        let delete_route = timeout(Duration::from_millis(600), rx_slim_participant.recv())
-            .await
-            .expect("timeout waiting for delete route on participant slim channel")
-            .expect("channel closed")
-            .expect("error in delete route");
-
-        assert!(
-            delete_route.is_unsubscribe(),
-            "delete route should be an unsubscribe message"
+        // participant removes route after processing leave request
+        assert_eq!(
+            rx_spy_participant.recv().await,
+            Some(SubscriptionCall::RemoveRoute),
+            "participant should remove route after leave request"
         );
-        assert_eq!(delete_route.get_dst(), moderator_name);
 
         // send the leave reply to the moderator on message (direction north)
         let mut leave_reply_to_moderator = leave_reply.clone();
@@ -1604,18 +1683,12 @@ mod tests {
             .await
             .expect("error processing leave reply on moderator");
 
-        // expect a remove route for the participant name
-        let delete_route = timeout(Duration::from_millis(600), rx_slim_moderator.recv())
-            .await
-            .expect("timeout waiting for delete route on participant slim channel")
-            .expect("channel closed")
-            .expect("error in delete route");
-
-        assert!(
-            delete_route.is_unsubscribe(),
-            "delete route should be an unsubscribe message"
+        // moderator removes route after processing leave reply
+        assert_eq!(
+            rx_spy_moderator.recv().await,
+            Some(SubscriptionCall::RemoveRoute),
+            "moderator should remove route after leave reply"
         );
-        assert_eq!(delete_route.get_dst(), participant_name_id);
 
         // check that no other messages are generated by the moderator
         let no_more_moderator_final =
@@ -1699,6 +1772,8 @@ mod tests {
         let (tx_session, rx_session) = mpsc::channel(32);
         let (tx_session_layer, _rx_session_layer) = mpsc::channel(8);
 
+        let subscription_manager =
+            crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
         let settings = SessionSettings {
             id: 999,
             source: Name::from_strings(["org", "ns", "source"]).with_id(1),
@@ -1717,6 +1792,8 @@ mod tests {
             identity_provider: SharedSecret::new("src", SHARED_SECRET).unwrap(),
             identity_verifier: SharedSecret::new("src", SHARED_SECRET).unwrap(),
             graceful_shutdown_timeout: Some(Duration::from_secs(10)),
+            subscription_manager,
+            service_id: String::new(),
         };
 
         let needs_drain = Arc::new(AtomicBool::new(true));
@@ -1866,6 +1943,8 @@ mod tests {
         let (tx_session, _rx_session) = tokio::sync::mpsc::channel(10);
         let (tx_session_layer, _rx_session_layer) = tokio::sync::mpsc::channel(10);
 
+        let subscription_manager =
+            crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
         SessionSettings {
             id: 1,
             source: Name::from_strings(["org", "ns", "test"]).with_id(1),
@@ -1884,6 +1963,8 @@ mod tests {
             identity_provider: SharedSecret::new("test", SHARED_SECRET).unwrap(),
             identity_verifier: SharedSecret::new("test", SHARED_SECRET).unwrap(),
             graceful_shutdown_timeout,
+            subscription_manager,
+            service_id: String::new(),
         }
     }
 

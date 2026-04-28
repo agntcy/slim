@@ -336,6 +336,296 @@ async fn test_spiffe_verifier_config() {
     tracing::info!("Verifier configuration works correctly");
 }
 
+/// Tests the `Ok(svid)` arm of `CachedJwtSvid::background_refresh`.
+///
+/// A 45-second JWT TTL means the 30-second initial delay is short enough to wait
+/// for in a test.  After the delay the background task fetches a new SVID, updates
+/// the cache, and logs `"jwt_source: SVID refreshed"`.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_jwt_svid_background_refresh_success() {
+    require_docker!();
+
+    let mut env = SpireTestEnvironment::new()
+        .await
+        .expect("Failed to create test environment")
+        .with_jwt_svid_ttl("45s");
+    env.start().await.expect("Failed to start SPIRE containers");
+
+    let config = env.get_spiffe_config();
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+    let mut provider = build_manager_from(&config);
+    let mut should_panic = false;
+
+    'test_block: {
+        if let Err(e) = provider.initialize().await {
+            tracing::error!(error = %e, "Provider initialization failed");
+            should_panic = true;
+            break 'test_block;
+        }
+
+        let initial_token = match provider.get_token() {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to get initial token");
+                should_panic = true;
+                break 'test_block;
+            }
+        };
+
+        // Wait for background_refresh initial delay (30 s) + small margin.
+        tracing::info!("Waiting 32 s for background SVID refresh...");
+        tokio::time::sleep(std::time::Duration::from_secs(32)).await;
+
+        let refreshed_token = match provider.get_token() {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to get token after refresh");
+                should_panic = true;
+                break 'test_block;
+            }
+        };
+
+        assert_ne!(
+            initial_token, refreshed_token,
+            "background_refresh should have replaced the cached SVID"
+        );
+        assert!(
+            logs_contain("jwt_source: SVID refreshed"),
+            "expected success log from the Ok arm of background_refresh"
+        );
+
+        break 'test_block;
+    }
+
+    env.cleanup().await.expect("Failed to cleanup");
+    if should_panic {
+        panic!("test_jwt_svid_background_refresh_success failed");
+    }
+}
+
+/// Tests the `Err(err)` arm of `CachedJwtSvid::background_refresh`, including
+/// the `calculate_backoff_with_token_expiry` call.
+///
+/// After a successful initialisation the SPIRE agent is stopped.  When the 30-second
+/// initial delay elapses the background task attempts a refresh, fails, and logs the
+/// backing-off warning.  The previously-cached SVID must remain accessible.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_jwt_svid_background_refresh_error() {
+    require_docker!();
+
+    let mut env = SpireTestEnvironment::new()
+        .await
+        .expect("Failed to create test environment");
+    env.start().await.expect("Failed to start SPIRE containers");
+
+    let config = env.get_spiffe_config();
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+    let mut provider = build_manager_from(&config);
+    let mut should_panic = false;
+
+    'test_block: {
+        if let Err(e) = provider.initialize().await {
+            tracing::error!(error = %e, "Provider initialization failed");
+            should_panic = true;
+            break 'test_block;
+        }
+
+        let initial_token = match provider.get_token() {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to get initial token");
+                should_panic = true;
+                break 'test_block;
+            }
+        };
+
+        // Bring down the agent so the next refresh attempt fails.
+        if let Err(e) = env.stop_agent().await {
+            tracing::error!(error = %e, "Failed to stop SPIRE agent");
+            should_panic = true;
+            break 'test_block;
+        }
+
+        // Wait for the background_refresh initial delay (30 s) + small margin.
+        tracing::info!("Waiting 32 s for background SVID refresh attempt...");
+        tokio::time::sleep(std::time::Duration::from_secs(32)).await;
+
+        assert!(
+            logs_contain("jwt_source: SVID refresh failed; backing off"),
+            "expected backoff warning from the Err arm of background_refresh"
+        );
+
+        // The cached token must be unchanged — the Err arm must not clear the cache.
+        let token_after_failure = match provider.get_token() {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to get token after refresh failure");
+                should_panic = true;
+                break 'test_block;
+            }
+        };
+        assert_eq!(
+            initial_token, token_after_failure,
+            "cached SVID should be unchanged after a failed refresh"
+        );
+
+        break 'test_block;
+    }
+
+    env.cleanup().await.expect("Failed to cleanup");
+    if should_panic {
+        panic!("test_jwt_svid_background_refresh_error failed");
+    }
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_spiffe_grpc_jwt_auth() {
+    require_docker!();
+
+    tracing::info!("Testing SPIFFE JWT authentication with a real gRPC client and server");
+
+    let mut env = SpireTestEnvironment::new()
+        .await
+        .expect("Failed to create test environment");
+
+    env.start().await.expect("Failed to start SPIRE containers");
+
+    // Wait for SPIRE to be ready and SVIDs to be registered
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    let spire_cfg = env.get_spiffe_config();
+
+    // Reserve an available TCP port for the test gRPC server
+    let tcp_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind failed");
+    let port = tcp_listener.local_addr().expect("local addr").port();
+    drop(tcp_listener);
+
+    let mut server_task: Option<tokio::task::JoinHandle<()>> = None;
+    let mut should_panic = false;
+
+    'test_block: {
+        // Build a ServerConfig with SPIRE JWT auth
+        let mut server_cfg =
+            slim_config::grpc::server::ServerConfig::with_endpoint(&format!("127.0.0.1:{port}"));
+        server_cfg.tls_setting.insecure = true;
+        server_cfg.auth = slim_config::grpc::server::AuthenticationConfig::Spire(spire_cfg.clone());
+
+        let greeter_svc =
+            slim_config::testutils::helloworld::greeter_server::GreeterServer::from_arc(
+                std::sync::Arc::new(slim_config::testutils::Empty::new()),
+            );
+
+        let server_future = match server_cfg.to_server_future(&[greeter_svc]).await {
+            Ok(f) => f,
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to create server future");
+                should_panic = true;
+                break 'test_block;
+            }
+        };
+
+        server_task = Some(tokio::spawn(async move {
+            if let Err(e) = server_future.await {
+                tracing::error!(error = %e, "Server error");
+            }
+        }));
+
+        // Give the server a moment to start accepting connections
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        // Build a ClientConfig with SPIRE JWT auth
+        let mut client_cfg = slim_config::grpc::client::ClientConfig::with_endpoint(&format!(
+            "http://127.0.0.1:{port}"
+        ));
+        client_cfg.tls_setting.insecure = true;
+        client_cfg.auth = slim_config::grpc::client::AuthenticationConfig::Spire(spire_cfg.clone());
+
+        let channel = match client_cfg.to_channel().await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to create authenticated channel");
+                should_panic = true;
+                break 'test_block;
+            }
+        };
+
+        let mut greeter_client =
+            slim_config::testutils::helloworld::greeter_client::GreeterClient::new(channel);
+
+        match greeter_client
+            .say_hello(slim_config::testutils::helloworld::HelloRequest {
+                name: "SPIFFE".to_string(),
+            })
+            .await
+        {
+            Ok(reply) => {
+                tracing::info!(
+                    message = %reply.into_inner().message,
+                    "Authenticated gRPC call succeeded"
+                );
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "Authenticated gRPC call failed");
+                should_panic = true;
+                break 'test_block;
+            }
+        }
+
+        // Verify that a request without auth is rejected by the server
+        let mut unauthenticated_cfg = slim_config::grpc::client::ClientConfig::with_endpoint(
+            &format!("http://127.0.0.1:{port}"),
+        );
+        unauthenticated_cfg.tls_setting.insecure = true;
+
+        let unauth_channel = match unauthenticated_cfg.to_channel().await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to create unauthenticated channel");
+                should_panic = true;
+                break 'test_block;
+            }
+        };
+
+        let mut unauth_client =
+            slim_config::testutils::helloworld::greeter_client::GreeterClient::new(unauth_channel);
+
+        let unauth_result = unauth_client
+            .say_hello(slim_config::testutils::helloworld::HelloRequest {
+                name: "NoAuth".to_string(),
+            })
+            .await;
+
+        if let Err(e) = unauth_result {
+            tracing::info!(
+                error = %e,
+                "Unauthenticated request correctly rejected"
+            );
+        } else {
+            tracing::error!("Unauthenticated request should have been rejected");
+            should_panic = true;
+        }
+
+        break 'test_block;
+    }
+
+    if let Some(task) = server_task {
+        task.abort();
+    }
+
+    env.cleanup()
+        .await
+        .expect("Failed to cleanup test environment");
+
+    if should_panic {
+        panic!("SPIFFE gRPC JWT auth test failed");
+    }
+}
+
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_spiffe_try_methods() {

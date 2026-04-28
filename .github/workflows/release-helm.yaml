@@ -9,6 +9,9 @@ on:
     tags:
       - 'helm-*'
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -16,19 +19,33 @@ concurrency:
 jobs:
   prepare-build:
     name: Prepare Build
+    permissions:
+      contents: read
     outputs:
       release_tag: ${{ steps.resolve.outputs.release_tag }}
+      lint_with_subcharts: ${{ steps.resolve.outputs.lint_with_subcharts }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Resolve release tag
         id: resolve
         run: |
-          echo "release_tag=$(echo ${GITHUB_REF#refs/*/} | sed 's/^helm-//')" >> $GITHUB_OUTPUT
+          tag="${GITHUB_REF#refs/*/}"
+          chart_tag="${tag#helm-}"
+          echo "release_tag=${chart_tag}" >> "$GITHUB_OUTPUT"
+          chart_name="${chart_tag%-v*}"
+          # slim-spire vendors spire-lib into each subchart; linting subcharts
+          # independently fails because the library is only available via the parent.
+          if [[ "$chart_name" == "slim-spire" ]]; then
+            echo "lint_with_subcharts=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "lint_with_subcharts=true" >> "$GITHUB_OUTPUT"
+          fi
 
   release:
     name: Release Helm charts
@@ -42,17 +59,21 @@ jobs:
     with:
       registry: ghcr.io/agntcy/slim
       release_tag: ${{ needs.prepare-build.outputs.release_tag }}
+      lint-with-subcharts: ${{ needs.prepare-build.outputs.lint_with_subcharts == 'true' }}
     secrets:
       github-token: ${{ secrets.GITHUB_TOKEN }}
 
   test-integration:
     name: Run integration tests
+    permissions:
+      contents: read
     needs: [ release ]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          persist-credentials: false
           fetch-depth: 0
       - name: Trigger CSIT integration CI
         uses: ./.github/actions/trigger-integrations

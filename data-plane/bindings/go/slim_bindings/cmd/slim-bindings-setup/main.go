@@ -116,14 +116,17 @@ func GetTarget(goos, arch, abi string) string {
 	return fmt.Sprintf("%s-unknown-%s", arch, goos)
 }
 
-// GetCacheDir returns the cache directory for SLIM bindings libraries.
+// GetCacheDir returns the versioned cache directory for SLIM bindings libraries.
+// Libraries are stored under $GOPATH/.cgo-cache/slim-bindings/<version> to support
+// side-by-side installations and reliable cache invalidation when upgrading.
 func GetCacheDir() (string, error) {
 	gopath := build.Default.GOPATH
 	if gopath == "" {
 		return "", fmt.Errorf("failed to determine GOPATH")
 	}
 
-	return filepath.Join(gopath, ".cgo-cache", cacheDirName), nil
+	version := Version()
+	return filepath.Join(gopath, ".cgo-cache", cacheDirName, version), nil
 }
 
 // TargetToLibraryName converts a Rust target triple to the library name format.
