@@ -44,27 +44,20 @@ desired state.
 
 ```mermaid
 graph TD
-    subgraph CP["Control Plane"]
-        NB["Northbound API"]
-        RS["Route Service"]
-        SB["Southbound API"]
-        WQ["WorkQueues"]
-        LR["Link Reconciler"]
-        RR["Route Reconciler"]
-        DB[("Database\n(nodes, links, routes)")]
-
-        RS --> WQ
-        WQ --> LR
-        WQ --> RR
-        NB --> DB
-        SB --> DB
-        LR --> DB
-        RR --> DB
-    end
-
     slimctl["slimctl / API"] -- "gRPC (mgmt)" --> NB
     DPA["DP Node A"] -- "gRPC (bidir stream)" --> SB
     DPB["DP Node B"] -- "gRPC (bidir stream)" --> SB
+
+    subgraph CP["Control Plane"]
+        NB["Northbound API"] --> RS["Route Service"]
+        SB["Southbound API"] --> RS
+        RS --> WQ["WorkQueues"]
+        WQ --> LR["Link Reconciler"]
+        WQ --> RR["Route Reconciler"]
+        RS --> DB[("Database\n(nodes, links, routes)")]
+        LR --> DB
+        RR --> DB
+    end
 ```
 
 Communication between the CP and DP nodes uses a bidirectional gRPC stream
