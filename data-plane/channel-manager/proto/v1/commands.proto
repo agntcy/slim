@@ -9,63 +9,63 @@ service ChannelManagerService {
 }
 
 message ControlRequest {
-    uint64 msg_id = 1;
-    oneof payload {
-        CreateChannel create_channel = 2;
-        DeleteChannel delete_channel = 3;
-        AddParticipant add_participant = 4;
-        DeleteParticipant delete_participant = 5;
-        ListChannels list_channels = 6;
-        ListParticipants list_participants = 7;
-    }
+  uint64 msg_id = 1;
+  oneof payload {
+    CreateChannel create_channel = 2;
+    DeleteChannel delete_channel = 3;
+    AddParticipant add_participant = 4;
+    DeleteParticipant delete_participant = 5;
+    ListChannels list_channels = 6;
+    ListParticipants list_participants = 7;
+  }
 }
 
 message ControlResponse {
-    uint64 msg_id = 1;
-    oneof payload {
-        CommandResponse command_response = 2;
-        ChannelsList channels_list = 3;
-        ParticipantsList participants_list = 4;
-    }
+  uint64 msg_id = 1;
+  oneof payload {
+    CommandResponse command_response = 2;
+    ChannelsList channels_list = 3;
+    ParticipantsList participants_list = 4;
+  }
 }
 
 message CreateChannel {
-    string channel_name = 1;
-    bool mls_enabled = 2;
+  string channel_name = 1;
+  bool mls_enabled = 2;
 }
 
 message DeleteChannel {
-    string channel_name = 1;
+  string channel_name = 1;
 }
 
 message AddParticipant {
-    string channel_name = 1;
-    string participant_name = 2;
+  string channel_name = 1;
+  string participant_name = 2;
 }
 
 message DeleteParticipant {
-    string channel_name = 1;
-    string participant_name = 2;
+  string channel_name = 1;
+  string participant_name = 2;
 }
 
 message ListChannels {}
 
 message ChannelsList {
-    uint64 msg_id = 1;
-    repeated string channel_name = 2;
+  uint64 msg_id = 1;
+  repeated string channel_name = 2;
 }
 
 message ListParticipants {
-    string channel_name = 1;
+  string channel_name = 1;
 }
 
 message ParticipantsList {
-    uint64 msg_id = 1;
-    repeated string participant_name = 2;
+  uint64 msg_id = 1;
+  repeated string participant_name = 2;
 }
 
 message CommandResponse {
-    uint64 msg_id = 1;
-    bool success = 2;
-    optional string error_msg = 3;
+  uint64 msg_id = 1;
+  bool success = 2;
+  optional string error_msg = 3;
 }
