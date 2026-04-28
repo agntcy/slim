@@ -127,6 +127,7 @@ dependencies = [
  "anyhow",
  "clap",
  "prost",
+ "protoc-bin-vendored",
  "rand 0.9.4",
  "serde",
  "serde_yaml",
