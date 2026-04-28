@@ -1,0 +1,314 @@
+
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: "3"
+
+# Multicluster private: Kind clusters cluster-a + cluster-b; ingress/cert-manager and
+# slim control plane on cluster-a; slim data plane per cluster. Prerequisite: multi-cluster:up
+# before ingress/cert/slim deploys. LoadBalancer /etc/hosts is manual (no wait-for-lb).
+#
+# SPIRE (optional): cluster-a = root (public ingress), cluster-b = downstream (join token).
+#   After cluster-a:deploy-all, add cluster-a ingress LB IP to your machine /etc/hosts (task prints lines).
+#   Cluster-b pods must resolve spire.<trust-domain> and spire-bundle.<trust-domain> (CoreDNS or equivalent).
+#   Join token SPIFFE ID: spiffe://<SPIRE_TRUST_DOMAIN>/bootstrap/upstream-agent/<SPIRE_CLUSTER_B_BOOTSTRAP_SLUG>
+#   Must match spire-cluster-a-values.yaml clusterStaticEntries.parentID. Override with SPIRE_JOIN_TOKEN to skip exec.
+
+includes:
+  templates: 
+    taskfile: ../Taskfile.yaml
+    internal: true
+
+  apps: 
+    taskfile: ../client_apps/Taskfile.yaml
+    dir: ../client_apps
+    internal: true
+
+vars:
+
+  STRATEGY: "multi-cluster"
+
+  CLUSTER_A_TRUST_DOMAIN: '{{ .CLUSTER_A_TRUST_DOMAIN | default "cluster-a.example" }}'
+  CLUSTER_B_TRUST_DOMAIN: '{{ .CLUSTER_B_TRUST_DOMAIN | default "cluster-b.example" }}'
+  CERT_MANAGER_CHART_VERSION: '{{ .CERT_MANAGER_CHART_VERSION | default "v1.20.1" }}'
+  # Helm chart for ingress-nginx; appVersion is the controller (need >=1.11 for gRPC proxy-*-timeout -> grpc_* mapping, PR #11258).
+  INGRESS_NGINX_CHART_VERSION: '{{ .INGRESS_NGINX_CHART_VERSION | default "4.15.1" }}'
+  SPIRE_CHART_VERSION: '{{ .SPIRE_CHART_VERSION | default "0.28.3" }}'
+  SPIRE_CRDS_CHART_VERSION: '{{ .SPIRE_CRDS_CHART_VERSION | default "0.5.0" }}'
+  SPIRE_TRUST_DOMAIN: '{{ .SPIRE_TRUST_DOMAIN | default "cluster-a.example" }}'
+  SPIRE_CLUSTER_B_BOOTSTRAP_SLUG: '{{ .SPIRE_CLUSTER_B_BOOTSTRAP_SLUG | default "cluster-b" }}'
+  
+#  Suppress task name and command output by default
+silent: true
+
+tasks:
+  default:
+    cmds:
+      - task: templates:default
+
+  multi-cluster:up:
+    desc: Start local Kind clusters (cluster-a, cluster-b) and cloud-provider-kind for LoadBalancers
+    cmds: 
+      - task: multi-cluster:lb:up
+
+      - kind create cluster --name {{ .CLUSTER_A_TRUST_DOMAIN }}
+      - kind create cluster --name {{ .CLUSTER_B_TRUST_DOMAIN }}
+
+  multi-cluster:down:
+    desc: Delete the local Kind clusters and cleanup generated files
+    cmds: 
+      - kind delete cluster --name {{ .CLUSTER_A_TRUST_DOMAIN }}
+      - kind delete cluster --name {{ .CLUSTER_B_TRUST_DOMAIN }}
+      - rm -f ./*.spiffe
+      - rm -f ./*.example.yaml
+
+  ingress:deploy:
+    desc: |
+      Install ingress-nginx on cluster-a (pinned INGRESS_NGINX_CHART_VERSION; LoadBalancer; snippet values).
+      Controller appVersion must be >=1.11 for gRPC proxy timeout annotations to map into grpc_* in nginx.
+      Requires Kind cluster-a and kube context kind-<CLUSTER_A_TRUST_DOMAIN>.
+      Run before cert-manager for HTTP-01 when using ACME issuers.
+    dir: "{{.TASKFILE_DIR}}"
+    deps:
+      - cert-manager:deploy
+    cmds:
+      - kubectl config use-context kind-{{ .CLUSTER_A_TRUST_DOMAIN }}
+      - helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx 2>/dev/null || true
+      - helm repo update
+      - |
+        helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+          --namespace ingress-nginx \
+          --create-namespace \
+          --version "{{.INGRESS_NGINX_CHART_VERSION}}" \
+          --values ingress-nginx-values.yaml \
+          --wait \
+          --timeout 10m
+
+  cert-manager:deploy:
+    desc: |
+      Install cert-manager on cluster-a (runs ingress:deploy first for challenge routing).
+      Requires Kind cluster-a.
+    dir: "{{.TASKFILE_DIR}}"
+    cmds:
+      - kubectl config use-context kind-{{ .CLUSTER_A_TRUST_DOMAIN }}
+      - helm repo add jetstack https://charts.jetstack.io 2>/dev/null || true
+      - helm repo update
+      - |
+        helm upgrade --install cert-manager jetstack/cert-manager \
+          --namespace cert-manager \
+          --create-namespace \
+          --version "{{.CERT_MANAGER_CHART_VERSION}}" \
+          --set crds.enabled=true \
+          --wait \
+          --timeout 10m
+      - kubectl apply -f cluster-issuer.yaml
+
+  spire:deploy:cluster-a:
+    desc: |
+      Root SPIRE on cluster-a (spire-crds + spire, namespace spire-system). Requires cert-manager + ingress for TLS.
+    dir: "{{.TASKFILE_DIR}}"
+    deps:
+      - ingress:deploy
+    cmds:
+      - kubectl config use-context kind-{{ .CLUSTER_A_TRUST_DOMAIN }}
+      - helm repo add spiffe https://spiffe.github.io/helm-charts-hardened/ 2>/dev/null || true
+      - helm repo update
+      - |
+        helm upgrade --install spire-crds spiffe/spire-crds \
+          --namespace spire-system \
+          --create-namespace \
+          --version "{{.SPIRE_CRDS_CHART_VERSION}}" \
+          --wait \
+          --wait-for-jobs \
+          --timeout 15m
+      - |
+        helm upgrade --install spire-root spiffe/spire \
+          --namespace spire-system \
+          --create-namespace \
+          --version "{{.SPIRE_CHART_VERSION}}" \
+          --values spire-cluster-a-values.yaml \
+          --wait \
+          --wait-for-jobs \
+          --timeout 20m
+
+  spire:deploy:cluster-b:
+    desc: |
+      Downstream SPIRE on cluster-b (spire-crds, join token Secret, ../../charts/slim-spire). Runs after cluster-a root SPIRE.
+      Join token: pre-created Secret spire-upstream-bootstrap-token (see charts/slim-spire/README.md existingSecret option).
+      Set SPIRE_JOIN_TOKEN to skip minting via kubectl exec on cluster-a. Defaults match spire-cluster-a-values.yaml.
+    dir: "{{.TASKFILE_DIR}}"
+    deps:
+      - spire:deploy:cluster-a
+    cmds:
+      - kubectl config use-context kind-{{ .CLUSTER_B_TRUST_DOMAIN }}
+      - |
+        helm repo add spiffe https://spiffe.github.io/helm-charts-hardened/ 2>/dev/null || true
+        helm repo update
+        helm upgrade --install spire-crds spiffe/spire-crds \
+          --namespace spire-system \
+          --create-namespace \
+          --version "{{.SPIRE_CRDS_CHART_VERSION}}" \
+          --wait \
+          --wait-for-jobs \
+          --timeout 15m
+      - |
+        set -e
+        CTX_A="kind-{{.CLUSTER_A_TRUST_DOMAIN}}"
+        CTX_B="kind-{{.CLUSTER_B_TRUST_DOMAIN}}"
+        kubectl config use-context "$CTX_B"
+        helm dependency build --skip-refresh ../../charts/slim-spire
+        SPIFFE_ID="spiffe://{{.SPIRE_TRUST_DOMAIN}}/bootstrap/upstream-agent/{{.SPIRE_CLUSTER_B_BOOTSTRAP_SLUG}}"
+        MANUAL_TOKEN='{{.SPIRE_JOIN_TOKEN | default ""}}'
+        if [ -n "$MANUAL_TOKEN" ]; then
+          TOKEN="$MANUAL_TOKEN"
+        else
+          POD=$(kubectl --context "$CTX_A" get pod -n spire-system -l app.kubernetes.io/component=server -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+          if [ -z "$POD" ]; then
+            echo "No spire-server pod on cluster-a; set SPIRE_JOIN_TOKEN or wait for spire:deploy:cluster-a" >&2
+            exit 1
+          fi
+          TOKEN=$(kubectl --context "$CTX_A" exec -n spire-system "$POD" -c spire-server -- \
+            spire-server token generate -spiffeID "$SPIFFE_ID" | sed 's/^Token:[[:space:]]*//' | tr -d '\r\n ')
+        fi
+        kubectl --context "$CTX_B" create namespace spire-system --dry-run=client -o yaml | kubectl --context "$CTX_B" apply -f -
+        kubectl --context "$CTX_B" delete secret spire-upstream-bootstrap-token -n spire-system --ignore-not-found=true
+        kubectl --context "$CTX_B" create secret generic spire-upstream-bootstrap-token -n spire-system --from-literal=token="$TOKEN"
+        helm upgrade --install spire-downstream ../../charts/slim-spire \
+          --namespace spire-system \
+          --create-namespace \
+          --values ./spire-cluster-b-values.yaml \
+          --wait \
+          --wait-for-jobs \
+          --timeout 25m
+
+  cluster-a:deploy-all:
+    desc: |
+      On cluster-a cert-manager (runs ingress:deploy first), slim control plane, then slim data plane.
+      Set SLIM_IMAGE_TAG and SLIM_CONTROLLER_IMAGE_TAG. Requires multi-cluster:up first.
+      Prints /etc/hosts lines for ingress hostnames (use cluster-a ingress LB IP).
+    requires:
+      vars: [SLIM_IMAGE_TAG, SLIM_CONTROLLER_IMAGE_TAG]
+    cmds:
+      - task: spire:deploy:cluster-a
+      - task: slim:controller:deploy
+      - task: slim:deploy:cluster-a
+      - |
+        set -e
+        CTX_A="kind-{{.CLUSTER_A_TRUST_DOMAIN}}"
+        D="{{.CLUSTER_A_TRUST_DOMAIN}}"
+        LB=$(kubectl --context "$CTX_A" get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+        echo ""
+        echo "--------------------------------------------------------------------"
+        echo "Add cluster-a ingress LoadBalancer IP to this machine's /etc/hosts"
+        echo "(needed for kubectl, browsers, and TLS clients to reach ingress hostnames)."
+        echo "Example lines (use the IP shown, or re-fetch with kubectl if empty):"
+        if [ -n "$LB" ]; then
+          echo "$LB  slim.$D slim-control.$D spire.$D spire-bundle.$D"
+        else
+          echo "<CLUSTER_A_INGRESS_LB_IP>  slim.$D slim-control.$D spire.$D spire-bundle.$D"
+          echo "(LoadBalancer IP not assigned yet; wait for ingress-nginx-controller EXTERNAL-IP, then re-run or edit manually.)"
+        fi
+        echo "--------------------------------------------------------------------"
+
+  cluster-b:deploy-all:
+    desc: |
+      On cluster-b downstream SPIRE (join token + slim-spire) then Slim data plane.
+      Requires root SPIRE on cluster-a and cluster-b pods able to resolve spire.<CLUSTER_A_TRUST_DOMAIN> (DNS or hosts).
+      Set SLIM_IMAGE_TAG.
+    requires:
+      vars: [SLIM_IMAGE_TAG]
+    cmds:
+      - task: spire:deploy:cluster-b
+      - task: slim:deploy:cluster-b
+
+  slim:controller:deploy:
+    desc: Deploy Slim control plane on cluster-a (namespace slim)
+    requires:
+      vars: [SLIM_CONTROLLER_IMAGE_TAG]
+    cmds:
+      - kubectl config use-context kind-{{ .CLUSTER_A_TRUST_DOMAIN }}
+      - |
+        helm upgrade --install slim-control ../../charts/slim-control-plane \
+          --namespace slim \
+          --create-namespace \
+          --set image.tag="{{ .SLIM_CONTROLLER_IMAGE_TAG }}" \
+          --values controller-values.yaml
+
+  slim:deploy:cluster-a:
+    desc: Deploy Slim data plane on cluster-a
+    requires:
+      vars: [SLIM_IMAGE_TAG]
+    cmds:
+      - kubectl config use-context kind-{{ .CLUSTER_A_TRUST_DOMAIN }}
+      - |
+        helm upgrade --install slim ../../charts/slim \
+          --namespace slim \
+          --create-namespace \
+          --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" \
+          --values cluster-a-values.yaml
+
+  slim:deploy:cluster-b:
+    desc: Deploy Slim data plane on cluster-b
+    requires:
+      vars: [SLIM_IMAGE_TAG]
+    cmds:
+      - kubectl config use-context kind-{{ .CLUSTER_B_TRUST_DOMAIN }}
+      - |
+        helm upgrade --install slim ../../charts/slim \
+          --namespace slim \
+          --create-namespace \
+          --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" \
+          --values cluster-b-values.yaml
+
+  multi-cluster:lb:up:
+    desc: Start cloud provider for LoadBalancer support
+    status:
+    # Only start the processes if they are not running
+      - ps aux | grep '[c]loud-provider-kind' >/dev/null;
+
+    cmds:
+      - |
+        echo "Starting Kind cloud provider for LoadBalancer support..."
+        bash -c "go run sigs.k8s.io/cloud-provider-kind@latest >/dev/null 2>&1 &"
+
+  multi-cluster:lb:down:
+    desc: Stop cloud provider for LoadBalancer support
+    status:
+    # Only kill the processes if they are running
+      - test -z $(ps aux | grep '[c]loud-provider-kind') >/dev/null;
+
+    cmds:
+      - |
+        echo "Stopping Kind cloud provider for LoadBalancer support..."
+        kill -9 $(ps aux | grep [c]loud-provider-kind | awk '{print $2}')
+  
+  test.sender:deploy:
+    desc: Deploy sender application (example pod)
+    deps:
+      - task: apps:bindings-examples:prepare
+        vars:
+          KIND_CLUSTER_NAMES: '{{ .CLUSTER_A_TRUST_DOMAIN }},{{ .CLUSTER_B_TRUST_DOMAIN }}'
+    vars:
+      TEMPLATE: '{{ .TEMPLATE | default "./sender-pod.yaml" }}'  
+      NAMESPACE: '{{ .NAMESPACE | default "default" }}'
+    cmds:
+      - task: apps:k8s:apply
+        vars:
+          TEMPLATE: '{{ .TEMPLATE }}'
+          NAMESPACE: '{{ .NAMESPACE }}'
+
+  test.receiver:deploy:
+    desc: Deploy receiver application (example pod)
+    deps:
+      - task: apps:bindings-examples:prepare
+        vars:
+          KIND_CLUSTER_NAMES: '{{ .CLUSTER_A_TRUST_DOMAIN }},{{ .CLUSTER_B_TRUST_DOMAIN }}'
+    vars:
+      TEMPLATE: '{{ .TEMPLATE | default "./receiver-pod.yaml" }}'  
+      NAMESPACE: '{{ .NAMESPACE | default "default" }}'
+    cmds:
+      - task: apps:k8s:apply
+        vars:
+          TEMPLATE: '{{ .TEMPLATE }}'
+          NAMESPACE: '{{ .NAMESPACE }}'
+  
