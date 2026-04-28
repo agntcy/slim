@@ -87,7 +87,9 @@ where
 {
     fn from_sql(bytes: DB::RawValue<'_>) -> deserialize::Result<Self> {
         let s = String::from_sql(bytes)?;
-        Ok(ConnDetailsJson(serde_json::from_str(&s).unwrap_or_default()))
+        Ok(ConnDetailsJson(
+            serde_json::from_str(&s).unwrap_or_default(),
+        ))
     }
 }
 
@@ -523,7 +525,10 @@ mod tests {
     #[test]
     fn connection_details_unchanged_when_identical() {
         let cd = make_cd("ep:8080", None, false);
-        assert!(!has_connection_details_changed(std::slice::from_ref(&cd), std::slice::from_ref(&cd)));
+        assert!(!has_connection_details_changed(
+            std::slice::from_ref(&cd),
+            std::slice::from_ref(&cd)
+        ));
     }
 
     #[test]

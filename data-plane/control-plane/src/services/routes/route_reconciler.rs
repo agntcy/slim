@@ -460,17 +460,19 @@ async fn handle_request(
         let link_id = sub.link_id.clone().unwrap_or_default();
         let component_id = sub.id.map(|v| v as i64);
 
-        let route = db.get_route_for_src_dest_name(
-            node_id,
-            &crate::db::SubscriptionName {
-                component0: &sub.component_0,
-                component1: &sub.component_1,
-                component2: &sub.component_2,
-                component_id,
-            },
-            &dest_node_id,
-            &link_id,
-        ).await;
+        let route = db
+            .get_route_for_src_dest_name(
+                node_id,
+                &crate::db::SubscriptionName {
+                    component0: &sub.component_0,
+                    component1: &sub.component_1,
+                    component2: &sub.component_2,
+                    component_id,
+                },
+                &dest_node_id,
+                &link_id,
+            )
+            .await;
 
         let route = match route {
             Some(r) => r,

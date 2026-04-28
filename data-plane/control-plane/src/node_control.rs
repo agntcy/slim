@@ -489,7 +489,10 @@ mod tests {
         let h = make_handler();
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         h.add_stream("node1", tx).await;
-        assert_eq!(h.get_connection_status("node1").await, NodeStatus::Connected);
+        assert_eq!(
+            h.get_connection_status("node1").await,
+            NodeStatus::Connected
+        );
     }
 
     #[tokio::test]
@@ -540,10 +543,11 @@ mod tests {
     #[tokio::test]
     async fn send_message_not_connected_fails() {
         let h = make_handler();
-        assert!(h
-            .send_message("disconnected", ack_message("x", true))
-            .await
-            .is_err());
+        assert!(
+            h.send_message("disconnected", ack_message("x", true))
+                .await
+                .is_err()
+        );
     }
 
     // ── wait_for_response / response_received ──────────────────────────────
@@ -645,12 +649,7 @@ mod tests {
     async fn wait_for_response_empty_msg_id_fails() {
         let h = make_handler();
         let result = h
-            .wait_for_response_with_timeout(
-                "n1",
-                ResponseKind::Ack,
-                "",
-                Duration::from_millis(10),
-            )
+            .wait_for_response_with_timeout("n1", ResponseKind::Ack, "", Duration::from_millis(10))
             .await;
         assert!(result.is_err());
     }

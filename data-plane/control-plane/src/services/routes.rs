@@ -295,7 +295,8 @@ impl RouteService {
         }
 
         let link_id = if route.link_id.is_empty() {
-            self.find_matching_link(&route.source_node_id, &route.dest_node_id).await?
+            self.find_matching_link(&route.source_node_id, &route.dest_node_id)
+                .await?
         } else {
             route.link_id.clone()
         };
@@ -1055,8 +1056,8 @@ fn generate_config_data(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::inmemory::InMemoryDb;
     use crate::db::ConnectionDetails;
+    use crate::db::inmemory::InMemoryDb;
     use crate::node_control::DefaultNodeCommandHandler;
     use std::time::SystemTime;
 
@@ -1070,7 +1071,11 @@ mod tests {
         }
     }
 
-    fn make_node(id: &str, group: Option<&str>, details: Vec<ConnectionDetails>) -> crate::db::Node {
+    fn make_node(
+        id: &str,
+        group: Option<&str>,
+        details: Vec<ConnectionDetails>,
+    ) -> crate::db::Node {
         crate::db::Node {
             id: id.to_string(),
             group_name: group.map(|s| s.to_string()),

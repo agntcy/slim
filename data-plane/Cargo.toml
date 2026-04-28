@@ -68,6 +68,9 @@ chrono = "0.4"
 clap = { version = "4.5.23", features = ["derive", "env"] }
 
 criterion = { version = "0.5", features = ["html_reports"] }
+diesel = { version = "2", features = ["sqlite"] }
+diesel-async = { version = "0.8", features = ["sqlite", "deadpool", "migrations"] }
+diesel_migrations = { version = "2" }
 display-error-chain = { version = "0.2" }
 drain = { version = "0.2", features = ["retain"] }
 duration-string = { version = "0.5.3", features = ["serde"] }
@@ -82,7 +85,7 @@ hyper-util = "0.1.10"
 indexmap = "2"
 indicatif = "0.17.11"
 jemallocator = { version = "0.5" }
-jsonwebtoken = { version = "10.3.0", features = ["aws_lc_rs"]}
+jsonwebtoken = { version = "10.3.0", features = ["aws_lc_rs"] }
 
 lazy_static = "1.5.0"
 libsqlite3-sys = { version = ">=0.17.2, <0.38.0", features = ["bundled"] }
@@ -114,10 +117,6 @@ regex = "1.11.1"
 reqwest = { version = "0.12", features = ["json", "rustls-tls-no-provider", "charset", "http2", "system-proxy", "blocking"], default-features = false }
 rustls = { version = "0.23.31" }
 rustls-native-certs = "0.8"
-diesel = { version = "2", features = ["sqlite"] }
-diesel-async = { version = "0.8", features = ["sqlite", "deadpool", "migrations"] }
-diesel_migrations = { version = "2" }
-libsqlite3-sys = { version = "0.30", features = ["bundled"] }
 rustls-pki-types = "1.10.0"
 schemars = "1.0.3"
 semver = "1"

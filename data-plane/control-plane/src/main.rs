@@ -73,10 +73,7 @@ async fn main() -> Result<()> {
     let (drain_tx, drain_rx) = drain::channel();
 
     cfg.northbound
-        .run_server(
-            &[ControlPlaneServiceServer::new(nb_svc)],
-            drain_rx.clone(),
-        )
+        .run_server(&[ControlPlaneServiceServer::new(nb_svc)], drain_rx.clone())
         .await
         .context("failed to start northbound server")?;
 

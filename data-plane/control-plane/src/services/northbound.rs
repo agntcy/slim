@@ -151,12 +151,9 @@ impl ControlPlaneService for NorthboundApiService {
         if req.dest_node_id.is_empty() {
             return Err(Status::invalid_argument("destNodeId must be provided"));
         }
-        self.db
-            .get_node(&req.dest_node_id)
-            .await
-            .ok_or_else(|| {
-                Status::not_found(format!("invalid destination nodeID: {}", req.dest_node_id))
-            })?;
+        self.db.get_node(&req.dest_node_id).await.ok_or_else(|| {
+            Status::not_found(format!("invalid destination nodeID: {}", req.dest_node_id))
+        })?;
 
         let sub = req.subscription.unwrap_or_default();
         let route = crate::services::routes::Route {

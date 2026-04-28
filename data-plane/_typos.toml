@@ -1,3 +1,7 @@
+[default.extend-words]
+# "doub" is an intentional partial match for "double" used in SQLite type checks
+doub = "doub"
+
 [default]
 extend-ignore-re = [
     "(?Rm)^.*(#|//)\\s*spellchecker:disable-line$",

@@ -45,6 +45,7 @@ struct TableName {
 }
 
 #[derive(diesel::QueryableByName)]
+#[allow(dead_code)]
 struct ColumnInfo {
     #[diesel(sql_type = diesel::sql_types::Integer)]
     cid: i32,
@@ -71,7 +72,9 @@ fn sqlite_type_to_diesel(type_name: &str) -> &'static str {
     } else if t.contains("int") {
         // bigint, int8, unsigned big int, …
         "BigInt"
+        // spellchecker:off
     } else if t.contains("real") || t.contains("floa") || t.contains("doub") {
+        // spellchecker:on
         "Double"
     } else if t.contains("blob") || t == "binary" {
         "Binary"
@@ -111,8 +114,16 @@ fn generate_schema(manifest_dir: &str) {
     .expect("failed to list tables");
 
     let mut out = String::new();
-    writeln!(out, "// @generated — do not edit manually; regenerated from migrations/ on every build").unwrap();
-    writeln!(out, "// Copyright AGNTCY Contributors (https://github.com/agntcy)").unwrap();
+    writeln!(
+        out,
+        "// @generated — do not edit manually; regenerated from migrations/ on every build"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "// Copyright AGNTCY Contributors (https://github.com/agntcy)"
+    )
+    .unwrap();
     writeln!(out, "// SPDX-License-Identifier: Apache-2.0").unwrap();
     writeln!(out).unwrap();
 

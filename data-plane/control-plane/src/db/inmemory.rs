@@ -837,7 +837,9 @@ mod tests {
     async fn get_routes_for_node_id() {
         let db = db();
         db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
-        db.add_route(make_route("other", "dst", "lnk2")).await.unwrap();
+        db.add_route(make_route("other", "dst", "lnk2"))
+            .await
+            .unwrap();
         let routes = db.get_routes_for_node_id("src").await;
         assert_eq!(routes.len(), 1);
         assert_eq!(routes[0].source_node_id, "src");
@@ -880,7 +882,9 @@ mod tests {
             component2: "svc",
             component_id: Some(1),
         };
-        let found = db.get_route_for_src_dest_name("src", &name, "dst", "lnk").await;
+        let found = db
+            .get_route_for_src_dest_name("src", &name, "dst", "lnk")
+            .await;
         assert!(found.is_some());
         assert_eq!(found.unwrap().id, r.id);
     }
@@ -929,7 +933,9 @@ mod tests {
     #[tokio::test]
     async fn get_routes_by_link_id() {
         let db = db();
-        db.add_route(make_route("src", "dst", "link-abc")).await.unwrap();
+        db.add_route(make_route("src", "dst", "link-abc"))
+            .await
+            .unwrap();
         let routes = db.get_routes_by_link_id("link-abc").await;
         assert_eq!(routes.len(), 1);
         let none = db.get_routes_by_link_id("link-xyz").await;
@@ -1090,14 +1096,16 @@ mod tests {
         db.add_link(make_link("src", "dst", "ep:8080", "lid"))
             .await
             .unwrap();
-        assert!(db
-            .get_link_for_source_and_endpoint("src", "ep:8080")
-            .await
-            .is_some());
-        assert!(db
-            .get_link_for_source_and_endpoint("src", "other")
-            .await
-            .is_none());
+        assert!(
+            db.get_link_for_source_and_endpoint("src", "ep:8080")
+                .await
+                .is_some()
+        );
+        assert!(
+            db.get_link_for_source_and_endpoint("src", "other")
+                .await
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -1207,27 +1215,29 @@ mod tests {
     #[tokio::test]
     async fn update_channel_empty_id_returns_error() {
         let db = db();
-        assert!(db
-            .update_channel(Channel {
+        assert!(
+            db.update_channel(Channel {
                 id: String::new(),
                 moderators: vec![],
                 participants: vec![],
             })
             .await
-            .is_err());
+            .is_err()
+        );
     }
 
     #[tokio::test]
     async fn update_channel_not_found_returns_error() {
         let db = db();
-        assert!(db
-            .update_channel(Channel {
+        assert!(
+            db.update_channel(Channel {
                 id: "missing".to_string(),
                 moderators: vec![],
                 participants: vec![],
             })
             .await
-            .is_err());
+            .is_err()
+        );
     }
 
     #[tokio::test]
