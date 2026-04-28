@@ -9,6 +9,12 @@ The Channel Manager:
 - Invites participants to channels automatically on startup
 - Exposes a gRPC API for dynamic channel and participant management
 
+## Building
+
+```bash
+cargo build --release
+```
+
 ## Configuration
 
 Create a YAML configuration file (see [example-channel-manager-config.yaml](example-channel-manager-config.yaml)):
@@ -59,6 +65,7 @@ cmctl [OPTIONS] <COMMAND>
 
 - `--server <ADDRESS>`: Simple gRPC server address (default: `http://localhost:10356`)
 - `--client-config <FILE>`: Path to a YAML file with full gRPC client configuration (TLS, auth, keepalive, proxy, etc.). Uses the same `ClientConfig` format as the SLIM data-plane. When provided, `--server` is ignored.
+- `--disable-mls`: Disable MLS for channel creation (MLS is enabled by default)
 
 ### Available Commands
 

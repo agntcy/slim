@@ -11,17 +11,17 @@ pub mod control_request {
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
     pub enum Payload {
         #[prost(message, tag = "2")]
-        CreateChannelRequest(super::CreateChannelRequest),
+        CreateChannel(super::CreateChannel),
         #[prost(message, tag = "3")]
-        DeleteChannelRequest(super::DeleteChannelRequest),
+        DeleteChannel(super::DeleteChannel),
         #[prost(message, tag = "4")]
-        AddParticipantRequest(super::AddParticipantRequest),
+        AddParticipant(super::AddParticipant),
         #[prost(message, tag = "5")]
-        DeleteParticipantRequest(super::DeleteParticipantRequest),
+        DeleteParticipant(super::DeleteParticipant),
         #[prost(message, tag = "6")]
-        ListChannelsRequest(super::ListChannelsRequest),
+        ListChannels(super::ListChannels),
         #[prost(message, tag = "7")]
-        ListParticipantsRequest(super::ListParticipantsRequest),
+        ListParticipants(super::ListParticipants),
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -38,53 +38,53 @@ pub mod control_response {
         #[prost(message, tag = "2")]
         CommandResponse(super::CommandResponse),
         #[prost(message, tag = "3")]
-        ListChannelsResponse(super::ListChannelsResponse),
+        ChannelsList(super::ChannelsList),
         #[prost(message, tag = "4")]
-        ListParticipantsResponse(super::ListParticipantsResponse),
+        ParticipantsList(super::ParticipantsList),
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct CreateChannelRequest {
+pub struct CreateChannel {
     #[prost(string, tag = "1")]
     pub channel_name: ::prost::alloc::string::String,
     #[prost(bool, tag = "2")]
     pub mls_enabled: bool,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct DeleteChannelRequest {
+pub struct DeleteChannel {
     #[prost(string, tag = "1")]
     pub channel_name: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct AddParticipantRequest {
+pub struct AddParticipant {
     #[prost(string, tag = "1")]
     pub channel_name: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub participant_name: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct DeleteParticipantRequest {
+pub struct DeleteParticipant {
     #[prost(string, tag = "1")]
     pub channel_name: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub participant_name: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ListChannelsRequest {}
+pub struct ListChannels {}
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ListChannelsResponse {
+pub struct ChannelsList {
     #[prost(uint64, tag = "1")]
     pub msg_id: u64,
     #[prost(string, repeated, tag = "2")]
     pub channel_name: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ListParticipantsRequest {
+pub struct ListParticipants {
     #[prost(string, tag = "1")]
     pub channel_name: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ListParticipantsResponse {
+pub struct ParticipantsList {
     #[prost(uint64, tag = "1")]
     pub msg_id: u64,
     #[prost(string, repeated, tag = "2")]
@@ -207,13 +207,13 @@ pub mod channel_manager_service_client {
                 })?;
             let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/channel_manager.v1.ChannelManagerService/Command",
+                "/channel_manager.proto.v1.ChannelManagerService/Command",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
-                        "channel_manager.v1.ChannelManagerService",
+                        "channel_manager.proto.v1.ChannelManagerService",
                         "Command",
                     ),
                 );
@@ -316,7 +316,7 @@ pub mod channel_manager_service_server {
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             match req.uri().path() {
-                "/channel_manager.v1.ChannelManagerService/Command" => {
+                "/channel_manager.proto.v1.ChannelManagerService/Command" => {
                     #[allow(non_camel_case_types)]
                     struct CommandSvc<T: ChannelManagerService>(pub Arc<T>);
                     impl<
@@ -396,7 +396,7 @@ pub mod channel_manager_service_server {
         }
     }
     /// Generated gRPC service name
-    pub const SERVICE_NAME: &str = "channel_manager.v1.ChannelManagerService";
+    pub const SERVICE_NAME: &str = "channel_manager.proto.v1.ChannelManagerService";
     impl<T> tonic::server::NamedService for ChannelManagerServiceServer<T> {
         const NAME: &'static str = SERVICE_NAME;
     }

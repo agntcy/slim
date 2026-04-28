@@ -10,7 +10,7 @@ use slim_bindings::{App, Session};
 use slim_session::SessionError;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
-use tracing::{debug, info, warn, error};
+use tracing::{debug, error, info, warn};
 
 /// Per-channel state: the SLIM session and its event monitor task.
 struct Channel {
@@ -35,11 +35,7 @@ impl SessionsList {
     /// Try to insert a session atomically: checks existence and inserts under a single write lock.
     /// Spawns a background event monitor for the session.
     /// Returns `true` if inserted, `false` if the channel already exists.
-    pub async fn try_insert_session(
-        &self,
-        channel_name: String,
-        session: Arc<Session>,
-    ) -> bool {
+    pub async fn try_insert_session(&self, channel_name: String, session: Arc<Session>) -> bool {
         let mut channels = self.channels.write().await;
         if channels.contains_key(&channel_name) {
             return false;
@@ -189,7 +185,10 @@ mod tests {
 
     #[test]
     fn test_receive_timeout_continues() {
-        assert!(handle_session_error("test/channel/1", &SessionError::ReceiveTimeout));
+        assert!(handle_session_error(
+            "test/channel/1",
+            &SessionError::ReceiveTimeout
+        ));
     }
 
     // ── Helper: create a dummy Session for testing ─────────────────────
@@ -214,8 +213,16 @@ mod tests {
     #[tokio::test]
     async fn test_try_insert_session_duplicate_returns_false() {
         let sessions = SessionsList::new();
-        assert!(sessions.try_insert_session("a/b/c".into(), dummy_session()).await);
-        assert!(!sessions.try_insert_session("a/b/c".into(), dummy_session()).await);
+        assert!(
+            sessions
+                .try_insert_session("a/b/c".into(), dummy_session())
+                .await
+        );
+        assert!(
+            !sessions
+                .try_insert_session("a/b/c".into(), dummy_session())
+                .await
+        );
         // Only one channel should exist
         assert_eq!(sessions.list_channel_names().await.len(), 1);
     }
@@ -223,14 +230,22 @@ mod tests {
     #[tokio::test]
     async fn test_add_session_success() {
         let sessions = SessionsList::new();
-        assert!(sessions.add_session("a/b/c".into(), dummy_session()).await.is_ok());
+        assert!(
+            sessions
+                .add_session("a/b/c".into(), dummy_session())
+                .await
+                .is_ok()
+        );
         assert!(sessions.get_session("a/b/c").await.is_some());
     }
 
     #[tokio::test]
     async fn test_add_session_duplicate_returns_error() {
         let sessions = SessionsList::new();
-        sessions.add_session("a/b/c".into(), dummy_session()).await.unwrap();
+        sessions
+            .add_session("a/b/c".into(), dummy_session())
+            .await
+            .unwrap();
         let err = sessions.add_session("a/b/c".into(), dummy_session()).await;
         assert!(err.is_err());
         assert!(err.unwrap_err().to_string().contains("already exists"));
@@ -239,9 +254,15 @@ mod tests {
     #[tokio::test]
     async fn test_insert_multiple_channels() {
         let sessions = SessionsList::new();
-        sessions.try_insert_session("ch/1/a".into(), dummy_session()).await;
-        sessions.try_insert_session("ch/2/b".into(), dummy_session()).await;
-        sessions.try_insert_session("ch/3/c".into(), dummy_session()).await;
+        sessions
+            .try_insert_session("ch/1/a".into(), dummy_session())
+            .await;
+        sessions
+            .try_insert_session("ch/2/b".into(), dummy_session())
+            .await;
+        sessions
+            .try_insert_session("ch/3/c".into(), dummy_session())
+            .await;
         assert_eq!(sessions.list_channel_names().await.len(), 3);
     }
 

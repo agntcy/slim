@@ -24,10 +24,8 @@ use std::process;
 
 use agntcy_slim_channel_manager::proto::channel_manager_service_client::ChannelManagerServiceClient;
 use agntcy_slim_channel_manager::proto::{
-    AddParticipantRequest, ControlRequest, CreateChannelRequest, DeleteChannelRequest,
-    DeleteParticipantRequest, ListChannelsRequest, ListParticipantsRequest,
-    control_request::Payload,
-    control_response::Payload as ResponsePayload,
+    AddParticipant, ControlRequest, CreateChannel, DeleteChannel, DeleteParticipant, ListChannels,
+    ListParticipants, control_request::Payload, control_response::Payload as ResponsePayload,
 };
 
 use clap::Parser;
@@ -121,17 +119,17 @@ async fn create_client(
 ) -> Result<
     ChannelManagerServiceClient<
         impl tonic::client::GrpcService<
-                tonic::body::Body,
+            tonic::body::Body,
+            Error: Into<tonic::codegen::StdError> + Send,
+            ResponseBody: tonic::codegen::Body<
+                Data = tonic::codegen::Bytes,
                 Error: Into<tonic::codegen::StdError> + Send,
-                ResponseBody: tonic::codegen::Body<
-                        Data = tonic::codegen::Bytes,
-                        Error: Into<tonic::codegen::StdError> + Send,
-                    > + Send
-                    + 'static,
-                Future: Send,
             > + Send
-            + Clone
-            + 'static,
+                              + 'static,
+            Future: Send,
+        > + Send
+        + Clone
+        + 'static,
     >,
     Box<dyn std::error::Error>,
 > {
@@ -164,19 +162,23 @@ async fn main() {
     };
 
     let result = match args.command {
-        Command::CreateChannel { channel, disable_mls } => {
+        Command::CreateChannel {
+            channel,
+            disable_mls,
+        } => {
             let msg_id = generate_msg_id();
             let request = ControlRequest {
                 msg_id,
-                payload: Some(Payload::CreateChannelRequest(CreateChannelRequest {
+                payload: Some(Payload::CreateChannel(CreateChannel {
                     channel_name: channel.clone(),
                     mls_enabled: !disable_mls,
                 })),
             };
             match client.command(request).await {
-                Ok(response) => {
-                    handle_command_response(response.into_inner(), &format!("Channel {channel} created successfully"))
-                }
+                Ok(response) => handle_command_response(
+                    response.into_inner(),
+                    &format!("Channel {channel} created successfully"),
+                ),
                 Err(e) => {
                     eprintln!("Failed to create channel: {e}");
                     process::exit(1);
@@ -188,14 +190,15 @@ async fn main() {
             let msg_id = generate_msg_id();
             let request = ControlRequest {
                 msg_id,
-                payload: Some(Payload::DeleteChannelRequest(DeleteChannelRequest {
+                payload: Some(Payload::DeleteChannel(DeleteChannel {
                     channel_name: channel.clone(),
                 })),
             };
             match client.command(request).await {
-                Ok(response) => {
-                    handle_command_response(response.into_inner(), &format!("Channel {channel} deleted successfully"))
-                }
+                Ok(response) => handle_command_response(
+                    response.into_inner(),
+                    &format!("Channel {channel} deleted successfully"),
+                ),
                 Err(e) => {
                     eprintln!("Failed to delete channel: {e}");
                     process::exit(1);
@@ -210,7 +213,7 @@ async fn main() {
             let msg_id = generate_msg_id();
             let request = ControlRequest {
                 msg_id,
-                payload: Some(Payload::AddParticipantRequest(AddParticipantRequest {
+                payload: Some(Payload::AddParticipant(AddParticipant {
                     channel_name: channel.clone(),
                     participant_name: participant.clone(),
                 })),
@@ -234,12 +237,10 @@ async fn main() {
             let msg_id = generate_msg_id();
             let request = ControlRequest {
                 msg_id,
-                payload: Some(Payload::DeleteParticipantRequest(
-                    DeleteParticipantRequest {
-                        channel_name: channel.clone(),
-                        participant_name: participant.clone(),
-                    },
-                )),
+                payload: Some(Payload::DeleteParticipant(DeleteParticipant {
+                    channel_name: channel.clone(),
+                    participant_name: participant.clone(),
+                })),
             };
             match client.command(request).await {
                 Ok(response) => handle_command_response(
@@ -257,13 +258,13 @@ async fn main() {
             let msg_id = generate_msg_id();
             let request = ControlRequest {
                 msg_id,
-                payload: Some(Payload::ListChannelsRequest(ListChannelsRequest {})),
+                payload: Some(Payload::ListChannels(ListChannels {})),
             };
             match client.command(request).await {
                 Ok(response) => {
                     let resp = response.into_inner();
                     match resp.payload {
-                        Some(ResponsePayload::ListChannelsResponse(list)) => {
+                        Some(ResponsePayload::ChannelsList(list)) => {
                             println!("Channels ({}):", list.channel_name.len());
                             for name in &list.channel_name {
                                 println!("  - {name}");
@@ -271,7 +272,9 @@ async fn main() {
                             Ok(())
                         }
                         Some(ResponsePayload::CommandResponse(cmd_resp)) if !cmd_resp.success => {
-                            let err = cmd_resp.error_msg.unwrap_or_else(|| "unknown error".to_string());
+                            let err = cmd_resp
+                                .error_msg
+                                .unwrap_or_else(|| "unknown error".to_string());
                             Err(format!("Command failed: {err}"))
                         }
                         _ => Err("Unexpected response type".to_string()),
@@ -288,17 +291,15 @@ async fn main() {
             let msg_id = generate_msg_id();
             let request = ControlRequest {
                 msg_id,
-                payload: Some(Payload::ListParticipantsRequest(
-                    ListParticipantsRequest {
-                        channel_name: channel.clone(),
-                    },
-                )),
+                payload: Some(Payload::ListParticipants(ListParticipants {
+                    channel_name: channel.clone(),
+                })),
             };
             match client.command(request).await {
                 Ok(response) => {
                     let resp = response.into_inner();
                     match resp.payload {
-                        Some(ResponsePayload::ListParticipantsResponse(list)) => {
+                        Some(ResponsePayload::ParticipantsList(list)) => {
                             println!(
                                 "Participants in channel {channel} ({}):",
                                 list.participant_name.len()
@@ -309,7 +310,9 @@ async fn main() {
                             Ok(())
                         }
                         Some(ResponsePayload::CommandResponse(cmd_resp)) if !cmd_resp.success => {
-                            let err = cmd_resp.error_msg.unwrap_or_else(|| "unknown error".to_string());
+                            let err = cmd_resp
+                                .error_msg
+                                .unwrap_or_else(|| "unknown error".to_string());
                             Err(format!("Command failed: {err}"))
                         }
                         _ => Err("Unexpected response type".to_string()),
@@ -340,7 +343,9 @@ fn handle_command_response(
                 println!("{success_msg}");
                 Ok(())
             } else {
-                let err = cmd_resp.error_msg.unwrap_or_else(|| "unknown error".to_string());
+                let err = cmd_resp
+                    .error_msg
+                    .unwrap_or_else(|| "unknown error".to_string());
                 Err(format!("Command failed: {err}"))
             }
         }
