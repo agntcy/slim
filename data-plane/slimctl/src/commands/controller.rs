@@ -5,7 +5,6 @@ use anyhow::{Result, bail};
 use clap::{Args, Subcommand};
 
 use crate::client::get_control_plane_client;
-use slim_config::grpc::client::ClientConfig;
 use crate::proto::controller::proto::v1::{
     AddParticipantRequest, Connection, DeleteChannelRequest, DeleteParticipantRequest,
     ListChannelsRequest, ListParticipantsRequest, Subscription,
@@ -16,6 +15,7 @@ use crate::proto::controlplane::proto::v1::{
 };
 use crate::rpc;
 use crate::utils::{VIA_KEYWORD, is_endpoint, parse_config_file, parse_endpoint, parse_route};
+use slim_config::grpc::client::ClientConfig;
 
 #[derive(Args)]
 pub struct ControllerArgs {
@@ -686,11 +686,7 @@ async fn run_channel(args: &ControllerChannelArgs, opts: &ClientConfig) -> Resul
 async fn channel_create(moderators_param: &str, opts: &ClientConfig) -> Result<()> {
     let moderators = parse_moderators(moderators_param)?;
     let mut client = get_control_plane_client(opts).await?;
-    let resp = rpc!(
-        client,
-        create_channel,
-        CreateChannelRequest { moderators }
-    );
+    let resp = rpc!(client, create_channel, CreateChannelRequest { moderators });
     if resp.channel_name.is_empty() {
         bail!("failed to create channel: empty channel name in response");
     }
@@ -845,11 +841,9 @@ mod tests {
     use super::*;
 
     fn make_opts(addr: &str) -> ClientConfig {
-        slim_config::grpc::client::ClientConfig::with_endpoint(
-            &format!("http://{}", addr),
-        )
-        .with_tls_setting(slim_config::tls::client::TlsClientConfig::insecure())
-        .with_request_timeout(std::time::Duration::from_secs(5))
+        slim_config::grpc::client::ClientConfig::with_endpoint(&format!("http://{}", addr))
+            .with_tls_setting(slim_config::tls::client::TlsClientConfig::insecure())
+            .with_request_timeout(std::time::Duration::from_secs(5))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1129,7 +1123,6 @@ mod tests {
 
         use tokio_stream::wrappers::TcpListenerStream;
 
-        use slim_config::grpc::client::ClientConfig;
         use crate::proto::controller::proto::v1::{
             Ack, AddParticipantRequest, ConnectionListResponse, DeleteChannelRequest,
             DeleteParticipantRequest, ListChannelsRequest, ListChannelsResponse,
@@ -1141,6 +1134,7 @@ mod tests {
             Node as CpNode, NodeListRequest, NodeListResponse, RouteListRequest, RouteListResponse,
             control_plane_service_server::{ControlPlaneService, ControlPlaneServiceServer},
         };
+        use slim_config::grpc::client::ClientConfig;
 
         use super::super::*;
 
@@ -1285,11 +1279,9 @@ mod tests {
         }
 
         fn make_opts(addr: &str) -> ClientConfig {
-            slim_config::grpc::client::ClientConfig::with_endpoint(
-                &format!("http://{}", addr),
-            )
-            .with_tls_setting(slim_config::tls::client::TlsClientConfig::insecure())
-            .with_request_timeout(Duration::from_secs(5))
+            slim_config::grpc::client::ClientConfig::with_endpoint(&format!("http://{}", addr))
+                .with_tls_setting(slim_config::tls::client::TlsClientConfig::insecure())
+                .with_request_timeout(Duration::from_secs(5))
         }
 
         #[tokio::test]

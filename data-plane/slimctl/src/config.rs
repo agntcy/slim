@@ -55,8 +55,7 @@ pub fn resolve_config(
         bail!("both tls-cert-file and tls-key-file must be specified together");
     }
 
-    let any_tls_flag =
-        tls_insecure_skip_verify || tls_ca_file.is_some() || tls_cert_file.is_some();
+    let any_tls_flag = tls_insecure_skip_verify || tls_ca_file.is_some() || tls_cert_file.is_some();
 
     let mut tls = config.tls_setting.clone();
 
@@ -285,18 +284,20 @@ mod tests {
     #[test]
     fn resolve_invalid_timeout_returns_error() {
         let file_config = ClientConfig::default();
-        assert!(resolve_config(
-            &file_config,
-            DEFAULT_NODE_ENDPOINT,
-            None,
-            Some("not-a-duration"),
-            false,
-            None,
-            None,
-            None,
-            None,
-        )
-        .is_err());
+        assert!(
+            resolve_config(
+                &file_config,
+                DEFAULT_NODE_ENDPOINT,
+                None,
+                Some("not-a-duration"),
+                false,
+                None,
+                None,
+                None,
+                None,
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -405,58 +406,64 @@ mod tests {
     #[test]
     fn resolve_cert_without_key_fails() {
         let file_config = ClientConfig::default();
-        assert!(resolve_config(
-            &file_config,
-            DEFAULT_NODE_ENDPOINT,
-            None,
-            None,
-            false,
-            None,
-            Some("/cert.pem"),
-            None,
-            None,
-        )
-        .is_err());
+        assert!(
+            resolve_config(
+                &file_config,
+                DEFAULT_NODE_ENDPOINT,
+                None,
+                None,
+                false,
+                None,
+                Some("/cert.pem"),
+                None,
+                None,
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn resolve_key_without_cert_fails() {
         let file_config = ClientConfig::default();
-        assert!(resolve_config(
-            &file_config,
-            DEFAULT_NODE_ENDPOINT,
-            None,
-            None,
-            false,
-            None,
-            None,
-            Some("/key.pem"),
-            None,
-        )
-        .is_err());
+        assert!(
+            resolve_config(
+                &file_config,
+                DEFAULT_NODE_ENDPOINT,
+                None,
+                None,
+                false,
+                None,
+                None,
+                Some("/key.pem"),
+                None,
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn resolve_basic_auth_without_colon_fails() {
         let file_config = ClientConfig::default();
-        assert!(resolve_config(
-            &file_config,
-            DEFAULT_NODE_ENDPOINT,
-            None,
-            None,
-            false,
-            None,
-            None,
-            None,
-            Some("usernameonly"),
-        )
-        .is_err());
+        assert!(
+            resolve_config(
+                &file_config,
+                DEFAULT_NODE_ENDPOINT,
+                None,
+                None,
+                false,
+                None,
+                None,
+                None,
+                Some("usernameonly"),
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn resolve_insecure_config_gets_http_scheme() {
-        let file_config =
-            ClientConfig::with_endpoint("myhost:1234").with_tls_setting(TlsClientConfig::insecure());
+        let file_config = ClientConfig::with_endpoint("myhost:1234")
+            .with_tls_setting(TlsClientConfig::insecure());
         let opts = resolve_config(
             &file_config,
             DEFAULT_NODE_ENDPOINT,

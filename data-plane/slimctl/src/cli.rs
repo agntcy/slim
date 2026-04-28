@@ -14,8 +14,8 @@ use crate::commands::{
     version,
 };
 use crate::config::{
-    resolve_config, load_config, DEFAULT_CHANNEL_MANAGER_ENDPOINT, DEFAULT_CONTROLLER_ENDPOINT,
-    DEFAULT_NODE_ENDPOINT,
+    DEFAULT_CHANNEL_MANAGER_ENDPOINT, DEFAULT_CONTROLLER_ENDPOINT, DEFAULT_NODE_ENDPOINT,
+    load_config, resolve_config,
 };
 
 fn styles() -> Styles {
@@ -738,7 +738,11 @@ mod tests {
         let Commands::ChannelManager(args) = cli.command else {
             panic!()
         };
-        let ChannelManagerCommand::CreateChannel { channel, disable_mls } = args.command else {
+        let ChannelManagerCommand::CreateChannel {
+            channel,
+            disable_mls,
+        } = args.command
+        else {
             panic!()
         };
         assert_eq!(channel, "my/ns/chan");
@@ -748,12 +752,20 @@ mod tests {
     #[test]
     fn parse_channel_manager_create_channel_disable_mls() {
         let cli = parse_ok(&[
-            "slimctl", "channel-manager", "create-channel", "my/ns/chan", "--disable-mls",
+            "slimctl",
+            "channel-manager",
+            "create-channel",
+            "my/ns/chan",
+            "--disable-mls",
         ]);
         let Commands::ChannelManager(args) = cli.command else {
             panic!()
         };
-        let ChannelManagerCommand::CreateChannel { channel, disable_mls } = args.command else {
+        let ChannelManagerCommand::CreateChannel {
+            channel,
+            disable_mls,
+        } = args.command
+        else {
             panic!()
         };
         assert_eq!(channel, "my/ns/chan");
@@ -775,12 +787,20 @@ mod tests {
     #[test]
     fn parse_channel_manager_add_participant() {
         let cli = parse_ok(&[
-            "slimctl", "channel-manager", "add-participant", "my/ns/chan", "org/ns/app",
+            "slimctl",
+            "channel-manager",
+            "add-participant",
+            "my/ns/chan",
+            "org/ns/app",
         ]);
         let Commands::ChannelManager(args) = cli.command else {
             panic!()
         };
-        let ChannelManagerCommand::AddParticipant { channel, participant } = args.command else {
+        let ChannelManagerCommand::AddParticipant {
+            channel,
+            participant,
+        } = args.command
+        else {
             panic!()
         };
         assert_eq!(channel, "my/ns/chan");
@@ -790,12 +810,20 @@ mod tests {
     #[test]
     fn parse_channel_manager_delete_participant() {
         let cli = parse_ok(&[
-            "slimctl", "channel-manager", "delete-participant", "my/ns/chan", "org/ns/app",
+            "slimctl",
+            "channel-manager",
+            "delete-participant",
+            "my/ns/chan",
+            "org/ns/app",
         ]);
         let Commands::ChannelManager(args) = cli.command else {
             panic!()
         };
-        let ChannelManagerCommand::DeleteParticipant { channel, participant } = args.command else {
+        let ChannelManagerCommand::DeleteParticipant {
+            channel,
+            participant,
+        } = args.command
+        else {
             panic!()
         };
         assert_eq!(channel, "my/ns/chan");
@@ -813,7 +841,12 @@ mod tests {
 
     #[test]
     fn parse_channel_manager_list_participants() {
-        let cli = parse_ok(&["slimctl", "channel-manager", "list-participants", "my/ns/chan"]);
+        let cli = parse_ok(&[
+            "slimctl",
+            "channel-manager",
+            "list-participants",
+            "my/ns/chan",
+        ]);
         let Commands::ChannelManager(args) = cli.command else {
             panic!()
         };
@@ -831,7 +864,12 @@ mod tests {
 
     #[test]
     fn parse_channel_manager_add_participant_missing_participant_fails() {
-        let err = parse_err(&["slimctl", "channel-manager", "add-participant", "my/ns/chan"]);
+        let err = parse_err(&[
+            "slimctl",
+            "channel-manager",
+            "add-participant",
+            "my/ns/chan",
+        ]);
         assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
     }
 
@@ -849,7 +887,10 @@ mod tests {
         let Commands::ChannelManager(args) = cli.command else {
             panic!()
         };
-        assert!(matches!(args.command, ChannelManagerCommand::CreateChannel { .. }));
+        assert!(matches!(
+            args.command,
+            ChannelManagerCommand::CreateChannel { .. }
+        ));
     }
 
     #[test]
@@ -858,7 +899,10 @@ mod tests {
         let Commands::ChannelManager(args) = cli.command else {
             panic!()
         };
-        assert!(matches!(args.command, ChannelManagerCommand::DeleteChannel { .. }));
+        assert!(matches!(
+            args.command,
+            ChannelManagerCommand::DeleteChannel { .. }
+        ));
     }
 
     #[test]
@@ -867,7 +911,10 @@ mod tests {
         let Commands::ChannelManager(args) = cli.command else {
             panic!()
         };
-        assert!(matches!(args.command, ChannelManagerCommand::AddParticipant { .. }));
+        assert!(matches!(
+            args.command,
+            ChannelManagerCommand::AddParticipant { .. }
+        ));
     }
 
     #[test]
@@ -876,7 +923,10 @@ mod tests {
         let Commands::ChannelManager(args) = cli.command else {
             panic!()
         };
-        assert!(matches!(args.command, ChannelManagerCommand::DeleteParticipant { .. }));
+        assert!(matches!(
+            args.command,
+            ChannelManagerCommand::DeleteParticipant { .. }
+        ));
     }
 
     #[test]
@@ -894,7 +944,10 @@ mod tests {
         let Commands::ChannelManager(args) = cli.command else {
             panic!()
         };
-        assert!(matches!(args.command, ChannelManagerCommand::ListParticipants { .. }));
+        assert!(matches!(
+            args.command,
+            ChannelManagerCommand::ListParticipants { .. }
+        ));
     }
 
     // ── command aliases ───────────────────────────────────────────────────────

@@ -4,10 +4,10 @@
 use anyhow::{Context, Result};
 use tonic::codegen::{Body, Bytes, StdError};
 
-use slim_config::grpc::client::ClientConfig;
+use crate::proto::channel_manager::proto::v1::channel_manager_service_client::ChannelManagerServiceClient;
 use crate::proto::controller::proto::v1::controller_service_client::ControllerServiceClient;
 use crate::proto::controlplane::proto::v1::control_plane_service_client::ControlPlaneServiceClient;
-use crate::proto::channel_manager::proto::v1::channel_manager_service_client::ChannelManagerServiceClient;
+use slim_config::grpc::client::ClientConfig;
 
 /// Create a `ControlPlaneServiceClient` with TLS and auth configured from `opts`.
 pub async fn get_control_plane_client(

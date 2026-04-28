@@ -6,14 +6,13 @@ use clap::{Args, Subcommand};
 use rand::Rng;
 
 use crate::client::get_channel_manager_client;
-use slim_config::grpc::client::ClientConfig;
 use crate::proto::channel_manager::proto::v1::{
     AddParticipantRequest, ControlRequest, ControlResponse, CreateChannelRequest,
     DeleteChannelRequest, DeleteParticipantRequest, ListChannelsRequest, ListParticipantsRequest,
-    control_request::Payload,
-    control_response::Payload as ResponsePayload,
+    control_request::Payload, control_response::Payload as ResponsePayload,
 };
 use crate::rpc;
+use slim_config::grpc::client::ClientConfig;
 
 #[derive(Args)]
 pub struct ChannelManagerArgs {
@@ -186,11 +185,9 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ClientConfig) -> Result<()> {
         ChannelManagerCommand::ListParticipants { channel } => {
             let request = ControlRequest {
                 msg_id: generate_msg_id(),
-                payload: Some(Payload::ListParticipantsRequest(
-                    ListParticipantsRequest {
-                        channel_name: channel.clone(),
-                    },
-                )),
+                payload: Some(Payload::ListParticipantsRequest(ListParticipantsRequest {
+                    channel_name: channel.clone(),
+                })),
             };
             let response = rpc!(client, command, request);
             match response.payload {
@@ -222,7 +219,6 @@ mod tests {
 
     use tokio_stream::wrappers::TcpListenerStream;
 
-    use slim_config::grpc::client::ClientConfig;
     use crate::proto::channel_manager::proto::v1::{
         CommandResponse, ControlRequest, ControlResponse, ListChannelsResponse,
         ListParticipantsResponse,
@@ -230,6 +226,7 @@ mod tests {
         control_request::Payload as RequestPayload,
         control_response::Payload as RespPayload,
     };
+    use slim_config::grpc::client::ClientConfig;
 
     use super::*;
 
@@ -330,10 +327,7 @@ mod tests {
                 Some(RequestPayload::ListChannelsRequest(_)) => {
                     RespPayload::ListChannelsResponse(ListChannelsResponse {
                         msg_id: req.msg_id,
-                        channel_name: vec![
-                            "org/ns/chan1".to_string(),
-                            "org/ns/chan2".to_string(),
-                        ],
+                        channel_name: vec!["org/ns/chan1".to_string(), "org/ns/chan2".to_string()],
                     })
                 }
                 Some(RequestPayload::ListParticipantsRequest(_)) => {

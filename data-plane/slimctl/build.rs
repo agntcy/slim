@@ -20,12 +20,17 @@ fn main() {
 
     println!("cargo:rerun-if-changed={}", controlplane_proto.display());
     println!("cargo:rerun-if-changed={}", controller_proto.display());
-    println!(
-        "cargo:rerun-if-changed={}",
-        channel_manager_proto.display()
-    );
+    println!("cargo:rerun-if-changed={}", channel_manager_proto.display());
 
     tonic_prost_build::configure()
+        .type_attribute(
+            "channel_manager.proto.v1.ControlRequest.payload",
+            "#[allow(clippy::enum_variant_names)]",
+        )
+        .type_attribute(
+            "channel_manager.proto.v1.ControlResponse.payload",
+            "#[allow(clippy::enum_variant_names)]",
+        )
         .compile_protos(
             &[
                 controlplane_proto.to_str().unwrap(),

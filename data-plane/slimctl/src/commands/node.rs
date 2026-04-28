@@ -7,11 +7,11 @@ use tokio::time::timeout as stream_timeout;
 use tokio_stream::StreamExt;
 
 use crate::client::get_controller_client;
-use slim_config::grpc::client::ClientConfig;
 use crate::proto::controller::proto::v1::{
     ConfigurationCommand, ControlMessage, Subscription, control_message::Payload,
 };
 use crate::utils::{VIA_KEYWORD, parse_config_file, parse_endpoint, parse_route};
+use slim_config::grpc::client::ClientConfig;
 
 #[derive(Args)]
 pub struct NodeArgs {
@@ -333,12 +333,12 @@ mod tests {
     use tokio_stream::StreamExt;
     use tokio_stream::wrappers::TcpListenerStream;
 
-    use slim_config::grpc::client::ClientConfig;
     use crate::proto::controller::proto::v1::{
         ConfigurationCommandAck, ConnectionListResponse, ControlMessage, SubscriptionListResponse,
         control_message::Payload,
         controller_service_server::{ControllerService, ControllerServiceServer},
     };
+    use slim_config::grpc::client::ClientConfig;
 
     use super::*;
 
@@ -416,11 +416,9 @@ mod tests {
     }
 
     fn make_opts(addr: &str) -> ClientConfig {
-        slim_config::grpc::client::ClientConfig::with_endpoint(
-            &format!("http://{}", addr),
-        )
-        .with_tls_setting(slim_config::tls::client::TlsClientConfig::insecure())
-        .with_request_timeout(Duration::from_secs(5))
+        slim_config::grpc::client::ClientConfig::with_endpoint(&format!("http://{}", addr))
+            .with_tls_setting(slim_config::tls::client::TlsClientConfig::insecure())
+            .with_request_timeout(Duration::from_secs(5))
     }
 
     #[test]
