@@ -1039,12 +1039,12 @@ impl MessageProcessor {
         let client_conf_clone = client_config.clone();
         let tx_cp: Option<Sender<Result<Message, Status>>> = self.get_tx_control_plane();
         let watch = self.get_drain_watch()?;
-        let stream_span = tracing::info_span!(
+        let span = tracing::info_span!(
             "process_stream",
             service_id = %self.internal.service_id,
-            conn_index
+            %conn_index,
+            is_local,
         );
-
         let handle = tokio::spawn(async move {
             let mut try_to_reconnect = true;
 
@@ -1120,7 +1120,12 @@ impl MessageProcessor {
             let mut connected = false;
 
             if try_to_reconnect && let Some(config) = client_conf_clone {
-                connected = self_clone.reconnect(config, conn_index, &token_clone).await;
+                // Break the span chain: reconnect → try_to_connect → process_stream
+                // would otherwise nest under the current process_stream span on every
+                // reconnection, growing the span hierarchy unboundedly.
+                connected = self_clone.reconnect(config, conn_index, &token_clone)
+                    .instrument(tracing::Span::none())
+                    .await;
             } else {
                 debug!(%conn_index, "close connection")
             }
@@ -1156,7 +1161,7 @@ impl MessageProcessor {
 
                 info!(telemetry = true, counter.num_active_connections = -1);
             }
-        }.instrument(stream_span));
+        }.instrument(span));
 
         Ok(handle)
     }
