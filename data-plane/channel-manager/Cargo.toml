@@ -1,0 +1,38 @@
+[package]
+name = "agntcy-slim-channel-manager"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Channel Manager for SLIM - manages channels and participants via gRPC"
+repository = "https://github.com/agntcy/slim"
+
+[[bin]]
+name = "channel-manager"
+path = "src/bin/channel_manager.rs"
+
+[[bin]]
+name = "cmctl"
+path = "src/bin/cmctl.rs"
+
+[dependencies]
+agntcy-slim-bindings = { workspace = true }
+agntcy-slim-config = { workspace = true }
+agntcy-slim-session = { workspace = true }
+agntcy-slim-tracing = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+prost = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_yaml = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tonic = { workspace = true }
+tonic-prost = { workspace = true }
+tracing = { workspace = true }
+
+[build-dependencies]
+tonic-prost-build = { workspace = true }
+
+[dev-dependencies]
+agntcy-slim-datapath = { workspace = true }
+tempfile = { workspace = true }

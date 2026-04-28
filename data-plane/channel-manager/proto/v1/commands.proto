@@ -11,12 +11,12 @@ service ChannelManagerService {
 message ControlRequest {
     uint64 msg_id = 1;
     oneof payload {
-        CreateChannelRequest create_channel_request = 2;
-        DeleteChannelRequest delete_channel_request = 3;
-        AddParticipantRequest add_participant_request = 4;
-        DeleteParticipantRequest delete_participant_request = 5;
-        ListChannelsRequest list_channels_request = 6;
-        ListParticipantsRequest list_participants_request = 7;
+        CreateChannel create_channel = 2;
+        DeleteChannel delete_channel = 3;
+        AddParticipant add_participant = 4;
+        DeleteParticipant delete_participant = 5;
+        ListChannels list_channels = 6;
+        ListParticipants list_participants = 7;
     }
 }
 
@@ -24,42 +24,42 @@ message ControlResponse {
     uint64 msg_id = 1;
     oneof payload {
         CommandResponse command_response = 2;
-        ListChannelsResponse list_channels_response = 3;
-        ListParticipantsResponse list_participants_response = 4;
+        ChannelsList channels_list = 3;
+        ParticipantsList participants_list = 4;
     }
 }
 
-message CreateChannelRequest {
+message CreateChannel {
     string channel_name = 1;
     bool mls_enabled = 2;
 }
 
-message DeleteChannelRequest {
+message DeleteChannel {
     string channel_name = 1;
 }
 
-message AddParticipantRequest {
-    string channel_name = 1;
-    string participant_name = 2;
-}
-
-message DeleteParticipantRequest {
+message AddParticipant {
     string channel_name = 1;
     string participant_name = 2;
 }
 
-message ListChannelsRequest {}
+message DeleteParticipant {
+    string channel_name = 1;
+    string participant_name = 2;
+}
 
-message ListChannelsResponse {
+message ListChannels {}
+
+message ChannelsList {
     uint64 msg_id = 1;
     repeated string channel_name = 2;
 }
 
-message ListParticipantsRequest {
+message ListParticipants {
     string channel_name = 1;
 }
 
-message ListParticipantsResponse {
+message ParticipantsList {
     uint64 msg_id = 1;
     repeated string participant_name = 2;
 }

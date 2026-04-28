@@ -16,11 +16,11 @@ use agntcy_slim_channel_manager::service::ChannelManagerServer;
 use agntcy_slim_channel_manager::sessions::SessionsList;
 
 use clap::Parser;
-use slim_bindings::{
-    Name, SessionConfig, SessionType, get_global_service, initialize_with_defaults,
-    shutdown, IdentityProviderConfig, IdentityVerifierConfig,
-};
 use slim_bindings::ClientConfig as BindingsClientConfig;
+use slim_bindings::{
+    IdentityProviderConfig, IdentityVerifierConfig, Name, SessionConfig, SessionType,
+    get_global_service, initialize_with_defaults, shutdown,
+};
 use slim_tracing::TracingConfiguration;
 use tokio::signal;
 use tracing::{error, info, warn};
@@ -57,7 +57,9 @@ async fn create_channels_from_config(
         let session = app
             .create_session_and_wait_async(session_config, Arc::new(channel_name))
             .await
-            .map_err(|e| anyhow::anyhow!("failed to create session for {}: {e}", channel_cfg.name))?;
+            .map_err(|e| {
+                anyhow::anyhow!("failed to create session for {}: {e}", channel_cfg.name)
+            })?;
 
         for participant in &channel_cfg.participants {
             let participant_name =
@@ -121,9 +123,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Connect to the SLIM node using the full ClientConfig
     let client_config: BindingsClientConfig = config.manager.slim_connection.clone().into();
-    let conn_id = service.connect_async(client_config).await.map_err(|e| {
-        anyhow::anyhow!("failed to connect to SLIM node: {e}")
-    })?;
+    let conn_id = service
+        .connect_async(client_config)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to connect to SLIM node: {e}"))?;
     info!(
         endpoint = %config.manager.slim_connection.endpoint,
         conn_id,
@@ -199,16 +202,13 @@ async fn main() -> anyhow::Result<()> {
 
     // Cleanup with timeout to avoid hanging on shutdown
     info!("Shutting down...");
-    match tokio::time::timeout(
-        Duration::from_secs(5),
-        sessions.delete_all(&app),
-    )
-    .await
-    {
+    match tokio::time::timeout(Duration::from_secs(5), sessions.delete_all(&app)).await {
         Ok(()) => info!("All sessions cleaned up"),
         Err(_) => warn!("Session cleanup timed out, forcing shutdown"),
     }
-    shutdown().await.map_err(|e| anyhow::anyhow!("shutdown failed: {e}"))?;
+    shutdown()
+        .await
+        .map_err(|e| anyhow::anyhow!("shutdown failed: {e}"))?;
     info!("Shutdown complete");
 
     Ok(())

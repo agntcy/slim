@@ -32,9 +32,7 @@ use std::path::Path;
 
 use anyhow::{Context, bail};
 use serde::Deserialize;
-use slim_config::auth::identity::{
-    IdentityProviderConfig, IdentityVerifierConfig,
-};
+use slim_config::auth::identity::{IdentityProviderConfig, IdentityVerifierConfig};
 #[cfg(not(target_family = "windows"))]
 use slim_config::auth::spire::SpireConfig;
 use slim_config::grpc::client::ClientConfig;
@@ -163,10 +161,9 @@ fn default_mls_enabled() -> bool {
 impl Config {
     /// Load configuration from a YAML file
     pub fn load(path: &Path) -> anyhow::Result<Self> {
-        let data =
-            std::fs::read_to_string(path).with_context(|| format!("reading config file {:?}", path))?;
-        let cfg: Config =
-            serde_yaml::from_str(&data).with_context(|| "parsing config YAML")?;
+        let data = std::fs::read_to_string(path)
+            .with_context(|| format!("reading config file {:?}", path))?;
+        let cfg: Config = serde_yaml::from_str(&data).with_context(|| "parsing config YAML")?;
         cfg.validate()?;
         Ok(cfg)
     }
@@ -516,10 +513,7 @@ channel-manager:
         );
         let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
         let err = cfg.validate().unwrap_err().to_string();
-        assert!(
-            err.contains("participants[0]"),
-            "got: {err}"
-        );
+        assert!(err.contains("participants[0]"), "got: {err}");
     }
 
     #[test]
@@ -568,7 +562,11 @@ channel-manager:
         };
         let err = auth.validate();
         assert!(err.is_err());
-        assert!(err.unwrap_err().to_string().contains("auth.secret cannot be empty"));
+        assert!(
+            err.unwrap_err()
+                .to_string()
+                .contains("auth.secret cannot be empty")
+        );
     }
 
     #[test]
@@ -651,7 +649,12 @@ channel-manager:
     fn test_load_nonexistent_file() {
         let result = Config::load(Path::new("/nonexistent/path.yaml"));
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("reading config file"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("reading config file")
+        );
     }
 
     #[test]

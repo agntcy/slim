@@ -7,9 +7,8 @@ use rand::Rng;
 
 use crate::client::get_channel_manager_client;
 use crate::proto::channel_manager::proto::v1::{
-    AddParticipantRequest, ControlRequest, ControlResponse, CreateChannelRequest,
-    DeleteChannelRequest, DeleteParticipantRequest, ListChannelsRequest, ListParticipantsRequest,
-    control_request::Payload, control_response::Payload as ResponsePayload,
+    self as cm_proto, ControlRequest, ControlResponse, control_request::Payload,
+    control_response::Payload as ResponsePayload,
 };
 use crate::rpc;
 use slim_config::grpc::client::ClientConfig;
@@ -100,7 +99,7 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ClientConfig) -> Result<()> {
         } => {
             let request = ControlRequest {
                 msg_id: generate_msg_id(),
-                payload: Some(Payload::CreateChannelRequest(CreateChannelRequest {
+                payload: Some(Payload::CreateChannel(cm_proto::CreateChannel {
                     channel_name: channel.clone(),
                     mls_enabled: !disable_mls,
                 })),
@@ -112,7 +111,7 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ClientConfig) -> Result<()> {
         ChannelManagerCommand::DeleteChannel { channel } => {
             let request = ControlRequest {
                 msg_id: generate_msg_id(),
-                payload: Some(Payload::DeleteChannelRequest(DeleteChannelRequest {
+                payload: Some(Payload::DeleteChannel(cm_proto::DeleteChannel {
                     channel_name: channel.clone(),
                 })),
             };
@@ -126,7 +125,7 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ClientConfig) -> Result<()> {
         } => {
             let request = ControlRequest {
                 msg_id: generate_msg_id(),
-                payload: Some(Payload::AddParticipantRequest(AddParticipantRequest {
+                payload: Some(Payload::AddParticipant(cm_proto::AddParticipant {
                     channel_name: channel.clone(),
                     participant_name: participant.clone(),
                 })),
@@ -144,12 +143,10 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ClientConfig) -> Result<()> {
         } => {
             let request = ControlRequest {
                 msg_id: generate_msg_id(),
-                payload: Some(Payload::DeleteParticipantRequest(
-                    DeleteParticipantRequest {
-                        channel_name: channel.clone(),
-                        participant_name: participant.clone(),
-                    },
-                )),
+                payload: Some(Payload::DeleteParticipant(cm_proto::DeleteParticipant {
+                    channel_name: channel.clone(),
+                    participant_name: participant.clone(),
+                })),
             };
             let response = rpc!(client, command, request);
             handle_command_response(
@@ -161,11 +158,11 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ClientConfig) -> Result<()> {
         ChannelManagerCommand::ListChannels => {
             let request = ControlRequest {
                 msg_id: generate_msg_id(),
-                payload: Some(Payload::ListChannelsRequest(ListChannelsRequest {})),
+                payload: Some(Payload::ListChannels(cm_proto::ListChannels {})),
             };
             let response = rpc!(client, command, request);
             match response.payload {
-                Some(ResponsePayload::ListChannelsResponse(list)) => {
+                Some(ResponsePayload::ChannelsList(list)) => {
                     println!("Channels ({}):", list.channel_name.len());
                     for name in &list.channel_name {
                         println!("  - {name}");
@@ -185,13 +182,13 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ClientConfig) -> Result<()> {
         ChannelManagerCommand::ListParticipants { channel } => {
             let request = ControlRequest {
                 msg_id: generate_msg_id(),
-                payload: Some(Payload::ListParticipantsRequest(ListParticipantsRequest {
+                payload: Some(Payload::ListParticipants(cm_proto::ListParticipants {
                     channel_name: channel.clone(),
                 })),
             };
             let response = rpc!(client, command, request);
             match response.payload {
-                Some(ResponsePayload::ListParticipantsResponse(list)) => {
+                Some(ResponsePayload::ParticipantsList(list)) => {
                     println!(
                         "Participants in channel {channel} ({}):",
                         list.participant_name.len()
@@ -220,8 +217,7 @@ mod tests {
     use tokio_stream::wrappers::TcpListenerStream;
 
     use crate::proto::channel_manager::proto::v1::{
-        CommandResponse, ControlRequest, ControlResponse, ListChannelsResponse,
-        ListParticipantsResponse,
+        ChannelsList, CommandResponse, ControlRequest, ControlResponse, ParticipantsList,
         channel_manager_service_server::{ChannelManagerService, ChannelManagerServiceServer},
         control_request::Payload as RequestPayload,
         control_response::Payload as RespPayload,
@@ -277,7 +273,7 @@ mod tests {
     fn handle_command_response_unexpected_payload() {
         let resp = ControlResponse {
             msg_id: 1,
-            payload: Some(RespPayload::ListChannelsResponse(ListChannelsResponse {
+            payload: Some(RespPayload::ChannelsList(ChannelsList {
                 msg_id: 1,
                 channel_name: vec![],
             })),
@@ -314,24 +310,22 @@ mod tests {
         ) -> Result<tonic::Response<ControlResponse>, tonic::Status> {
             let req = request.into_inner();
             let resp_payload = match req.payload {
-                Some(RequestPayload::CreateChannelRequest(_))
-                | Some(RequestPayload::DeleteChannelRequest(_))
-                | Some(RequestPayload::AddParticipantRequest(_))
-                | Some(RequestPayload::DeleteParticipantRequest(_)) => {
+                Some(RequestPayload::CreateChannel(_))
+                | Some(RequestPayload::DeleteChannel(_))
+                | Some(RequestPayload::AddParticipant(_))
+                | Some(RequestPayload::DeleteParticipant(_)) => {
                     RespPayload::CommandResponse(CommandResponse {
                         msg_id: req.msg_id,
                         success: true,
                         error_msg: None,
                     })
                 }
-                Some(RequestPayload::ListChannelsRequest(_)) => {
-                    RespPayload::ListChannelsResponse(ListChannelsResponse {
-                        msg_id: req.msg_id,
-                        channel_name: vec!["org/ns/chan1".to_string(), "org/ns/chan2".to_string()],
-                    })
-                }
-                Some(RequestPayload::ListParticipantsRequest(_)) => {
-                    RespPayload::ListParticipantsResponse(ListParticipantsResponse {
+                Some(RequestPayload::ListChannels(_)) => RespPayload::ChannelsList(ChannelsList {
+                    msg_id: req.msg_id,
+                    channel_name: vec!["org/ns/chan1".to_string(), "org/ns/chan2".to_string()],
+                }),
+                Some(RequestPayload::ListParticipants(_)) => {
+                    RespPayload::ParticipantsList(ParticipantsList {
                         msg_id: req.msg_id,
                         participant_name: vec!["org/ns/app1".to_string()],
                     })
@@ -369,8 +363,8 @@ mod tests {
         ) -> Result<tonic::Response<ControlResponse>, tonic::Status> {
             let req = request.into_inner();
             let err_msg = match req.payload {
-                Some(RequestPayload::ListChannelsRequest(_))
-                | Some(RequestPayload::ListParticipantsRequest(_)) => "list denied",
+                Some(RequestPayload::ListChannels(_))
+                | Some(RequestPayload::ListParticipants(_)) => "list denied",
                 _ => "nack",
             };
             Ok(tonic::Response::new(ControlResponse {
@@ -395,7 +389,7 @@ mod tests {
             let req = request.into_inner();
             Ok(tonic::Response::new(ControlResponse {
                 msg_id: req.msg_id,
-                payload: Some(RespPayload::ListChannelsResponse(ListChannelsResponse {
+                payload: Some(RespPayload::ChannelsList(ChannelsList {
                     msg_id: req.msg_id,
                     channel_name: vec![],
                 })),

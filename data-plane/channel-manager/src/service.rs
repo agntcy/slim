@@ -12,12 +12,9 @@ use tracing::{error, info};
 
 use crate::proto::channel_manager_service_server::ChannelManagerService;
 use crate::proto::{
-    AddParticipantRequest, CommandResponse, ControlRequest, ControlResponse,
-    CreateChannelRequest, DeleteChannelRequest, DeleteParticipantRequest,
-    ListChannelsRequest, ListChannelsResponse, ListParticipantsRequest,
-    ListParticipantsResponse,
-    control_request::Payload as RequestPayload,
-    control_response::Payload as ResponsePayload,
+    AddParticipant, ChannelsList, CommandResponse, ControlRequest, ControlResponse, CreateChannel,
+    DeleteChannel, DeleteParticipant, ListChannels, ListParticipants, ParticipantsList,
+    control_request::Payload as RequestPayload, control_response::Payload as ResponsePayload,
 };
 use crate::sessions::SessionsList;
 
@@ -60,11 +57,7 @@ impl ChannelManagerServer {
         }
     }
 
-    async fn handle_create_channel(
-        &self,
-        msg_id: u64,
-        req: CreateChannelRequest,
-    ) -> ControlResponse {
+    async fn handle_create_channel(&self, msg_id: u64, req: CreateChannel) -> ControlResponse {
         let channel_name = &req.channel_name;
 
         // Check if the channel already exists before doing expensive SLIM work
@@ -119,46 +112,33 @@ impl ChannelManagerServer {
         self.success_response(msg_id)
     }
 
-    async fn handle_delete_channel(
-        &self,
-        msg_id: u64,
-        req: DeleteChannelRequest,
-    ) -> ControlResponse {
+    async fn handle_delete_channel(&self, msg_id: u64, req: DeleteChannel) -> ControlResponse {
         let channel_name = &req.channel_name;
 
         if let Err(e) = self.sessions.remove_session(channel_name, &self.app).await {
             error!("Failed to delete channel {channel_name}: {e}");
-            return self
-                .error_response(msg_id, format!("{e}"));
+            return self.error_response(msg_id, format!("{e}"));
         }
 
         info!("Deleted channel {channel_name}");
         self.success_response(msg_id)
     }
 
-    async fn handle_add_participant(
-        &self,
-        msg_id: u64,
-        req: AddParticipantRequest,
-    ) -> ControlResponse {
+    async fn handle_add_participant(&self, msg_id: u64, req: AddParticipant) -> ControlResponse {
         let channel_name = &req.channel_name;
         let participant_name_str = &req.participant_name;
 
         let session = match self.sessions.get_session(channel_name).await {
             Some(s) => s,
             None => {
-                return self
-                    .error_response(msg_id, format!("channel {channel_name} not found"));
+                return self.error_response(msg_id, format!("channel {channel_name} not found"));
             }
         };
 
         let participant_name = match Name::from_string(participant_name_str.clone()) {
             Ok(n) => n,
             Err(e) => {
-                return self.error_response(
-                    msg_id,
-                    format!("invalid participant name: {e}"),
-                );
+                return self.error_response(msg_id, format!("invalid participant name: {e}"));
             }
         };
 
@@ -187,16 +167,14 @@ impl ChannelManagerServer {
             );
         }
 
-        info!(
-            "Added participant {participant_name_str} to channel {channel_name}"
-        );
+        info!("Added participant {participant_name_str} to channel {channel_name}");
         self.success_response(msg_id)
     }
 
     async fn handle_delete_participant(
         &self,
         msg_id: u64,
-        req: DeleteParticipantRequest,
+        req: DeleteParticipant,
     ) -> ControlResponse {
         let channel_name = &req.channel_name;
         let participant_name_str = &req.participant_name;
@@ -204,18 +182,14 @@ impl ChannelManagerServer {
         let session = match self.sessions.get_session(channel_name).await {
             Some(s) => s,
             None => {
-                return self
-                    .error_response(msg_id, format!("channel {channel_name} not found"));
+                return self.error_response(msg_id, format!("channel {channel_name} not found"));
             }
         };
 
         let participant_name = match Name::from_string(participant_name_str.clone()) {
             Ok(n) => n,
             Err(e) => {
-                return self.error_response(
-                    msg_id,
-                    format!("invalid participant name: {e}"),
-                );
+                return self.error_response(msg_id, format!("invalid participant name: {e}"));
             }
         };
 
@@ -231,39 +205,34 @@ impl ChannelManagerServer {
             );
         }
 
-        info!(
-            "Removed participant {participant_name_str} from channel {channel_name}"
-        );
+        info!("Removed participant {participant_name_str} from channel {channel_name}");
         self.success_response(msg_id)
     }
 
-    async fn handle_list_channels(&self, msg_id: u64, _req: ListChannelsRequest) -> ControlResponse {
+    async fn handle_list_channels(&self, msg_id: u64, _req: ListChannels) -> ControlResponse {
         let channels = self.sessions.list_channel_names().await;
         info!("Listing channels, count: {}", channels.len());
 
         ControlResponse {
             msg_id,
-            payload: Some(ResponsePayload::ListChannelsResponse(
-                ListChannelsResponse {
-                    msg_id,
-                    channel_name: channels,
-                },
-            )),
+            payload: Some(ResponsePayload::ChannelsList(ChannelsList {
+                msg_id,
+                channel_name: channels,
+            })),
         }
     }
 
     async fn handle_list_participants(
         &self,
         msg_id: u64,
-        req: ListParticipantsRequest,
+        req: ListParticipants,
     ) -> ControlResponse {
         let channel_name = &req.channel_name;
 
         let session = match self.sessions.get_session(channel_name).await {
             Some(s) => s,
             None => {
-                return self
-                    .error_response(msg_id, format!("channel {channel_name} not found"));
+                return self.error_response(msg_id, format!("channel {channel_name} not found"));
             }
         };
 
@@ -286,12 +255,10 @@ impl ChannelManagerServer {
 
         ControlResponse {
             msg_id,
-            payload: Some(ResponsePayload::ListParticipantsResponse(
-                ListParticipantsResponse {
-                    msg_id,
-                    participant_name: participant_names,
-                },
-            )),
+            payload: Some(ResponsePayload::ParticipantsList(ParticipantsList {
+                msg_id,
+                participant_name: participant_names,
+            })),
         }
     }
 }
@@ -308,22 +275,14 @@ impl ChannelManagerService for ChannelManagerServer {
         info!("Received command, msg_id: {msg_id}");
 
         let response = match req.payload {
-            Some(RequestPayload::CreateChannelRequest(r)) => {
-                self.handle_create_channel(msg_id, r).await
-            }
-            Some(RequestPayload::DeleteChannelRequest(r)) => {
-                self.handle_delete_channel(msg_id, r).await
-            }
-            Some(RequestPayload::AddParticipantRequest(r)) => {
-                self.handle_add_participant(msg_id, r).await
-            }
-            Some(RequestPayload::DeleteParticipantRequest(r)) => {
+            Some(RequestPayload::CreateChannel(r)) => self.handle_create_channel(msg_id, r).await,
+            Some(RequestPayload::DeleteChannel(r)) => self.handle_delete_channel(msg_id, r).await,
+            Some(RequestPayload::AddParticipant(r)) => self.handle_add_participant(msg_id, r).await,
+            Some(RequestPayload::DeleteParticipant(r)) => {
                 self.handle_delete_participant(msg_id, r).await
             }
-            Some(RequestPayload::ListChannelsRequest(r)) => {
-                self.handle_list_channels(msg_id, r).await
-            }
-            Some(RequestPayload::ListParticipantsRequest(r)) => {
+            Some(RequestPayload::ListChannels(r)) => self.handle_list_channels(msg_id, r).await,
+            Some(RequestPayload::ListParticipants(r)) => {
                 self.handle_list_participants(msg_id, r).await
             }
             None => {

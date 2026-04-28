@@ -11,17 +11,17 @@ pub mod control_request {
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
     pub enum Payload {
         #[prost(message, tag = "2")]
-        CreateChannelRequest(super::CreateChannelRequest),
+        CreateChannel(super::CreateChannel),
         #[prost(message, tag = "3")]
-        DeleteChannelRequest(super::DeleteChannelRequest),
+        DeleteChannel(super::DeleteChannel),
         #[prost(message, tag = "4")]
-        AddParticipantRequest(super::AddParticipantRequest),
+        AddParticipant(super::AddParticipant),
         #[prost(message, tag = "5")]
-        DeleteParticipantRequest(super::DeleteParticipantRequest),
+        DeleteParticipant(super::DeleteParticipant),
         #[prost(message, tag = "6")]
-        ListChannelsRequest(super::ListChannelsRequest),
+        ListChannels(super::ListChannels),
         #[prost(message, tag = "7")]
-        ListParticipantsRequest(super::ListParticipantsRequest),
+        ListParticipants(super::ListParticipants),
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -38,53 +38,53 @@ pub mod control_response {
         #[prost(message, tag = "2")]
         CommandResponse(super::CommandResponse),
         #[prost(message, tag = "3")]
-        ListChannelsResponse(super::ListChannelsResponse),
+        ChannelsList(super::ChannelsList),
         #[prost(message, tag = "4")]
-        ListParticipantsResponse(super::ListParticipantsResponse),
+        ParticipantsList(super::ParticipantsList),
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct CreateChannelRequest {
+pub struct CreateChannel {
     #[prost(string, tag = "1")]
     pub channel_name: ::prost::alloc::string::String,
     #[prost(bool, tag = "2")]
     pub mls_enabled: bool,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct DeleteChannelRequest {
+pub struct DeleteChannel {
     #[prost(string, tag = "1")]
     pub channel_name: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct AddParticipantRequest {
+pub struct AddParticipant {
     #[prost(string, tag = "1")]
     pub channel_name: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub participant_name: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct DeleteParticipantRequest {
+pub struct DeleteParticipant {
     #[prost(string, tag = "1")]
     pub channel_name: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub participant_name: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ListChannelsRequest {}
+pub struct ListChannels {}
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ListChannelsResponse {
+pub struct ChannelsList {
     #[prost(uint64, tag = "1")]
     pub msg_id: u64,
     #[prost(string, repeated, tag = "2")]
     pub channel_name: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ListParticipantsRequest {
+pub struct ListParticipants {
     #[prost(string, tag = "1")]
     pub channel_name: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ListParticipantsResponse {
+pub struct ParticipantsList {
     #[prost(uint64, tag = "1")]
     pub msg_id: u64,
     #[prost(string, repeated, tag = "2")]
