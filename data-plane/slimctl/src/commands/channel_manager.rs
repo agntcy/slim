@@ -6,7 +6,7 @@ use clap::{Args, Subcommand};
 use rand::Rng;
 
 use crate::client::get_channel_manager_client;
-use crate::config::ResolvedOpts;
+use slim_config::grpc::client::ClientConfig;
 use crate::proto::channel_manager::proto::v1::{
     AddParticipantRequest, ControlRequest, ControlResponse, CreateChannelRequest,
     DeleteChannelRequest, DeleteParticipantRequest, ListChannelsRequest, ListParticipantsRequest,
@@ -91,7 +91,7 @@ fn handle_command_response(response: ControlResponse, success_msg: &str) -> Resu
     }
 }
 
-pub async fn run(args: &ChannelManagerArgs, opts: &ResolvedOpts) -> Result<()> {
+pub async fn run(args: &ChannelManagerArgs, opts: &ClientConfig) -> Result<()> {
     let mut client = get_channel_manager_client(opts).await?;
 
     match &args.command {
@@ -106,7 +106,7 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ResolvedOpts) -> Result<()> {
                     mls_enabled: !disable_mls,
                 })),
             };
-            let response = rpc!(client, command, request, opts);
+            let response = rpc!(client, command, request);
             handle_command_response(response, &format!("Channel {channel} created successfully"))
         }
 
@@ -117,7 +117,7 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ResolvedOpts) -> Result<()> {
                     channel_name: channel.clone(),
                 })),
             };
-            let response = rpc!(client, command, request, opts);
+            let response = rpc!(client, command, request);
             handle_command_response(response, &format!("Channel {channel} deleted successfully"))
         }
 
@@ -132,7 +132,7 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ResolvedOpts) -> Result<()> {
                     participant_name: participant.clone(),
                 })),
             };
-            let response = rpc!(client, command, request, opts);
+            let response = rpc!(client, command, request);
             handle_command_response(
                 response,
                 &format!("Participant {participant} added to channel {channel}"),
@@ -152,7 +152,7 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ResolvedOpts) -> Result<()> {
                     },
                 )),
             };
-            let response = rpc!(client, command, request, opts);
+            let response = rpc!(client, command, request);
             handle_command_response(
                 response,
                 &format!("Participant {participant} removed from channel {channel}"),
@@ -164,7 +164,7 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ResolvedOpts) -> Result<()> {
                 msg_id: generate_msg_id(),
                 payload: Some(Payload::ListChannelsRequest(ListChannelsRequest {})),
             };
-            let response = rpc!(client, command, request, opts);
+            let response = rpc!(client, command, request);
             match response.payload {
                 Some(ResponsePayload::ListChannelsResponse(list)) => {
                     println!("Channels ({}):", list.channel_name.len());
@@ -192,7 +192,7 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ResolvedOpts) -> Result<()> {
                     },
                 )),
             };
-            let response = rpc!(client, command, request, opts);
+            let response = rpc!(client, command, request);
             match response.payload {
                 Some(ResponsePayload::ListParticipantsResponse(list)) => {
                     println!(

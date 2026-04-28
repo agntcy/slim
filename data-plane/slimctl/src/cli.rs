@@ -13,7 +13,10 @@ use crate::commands::{
     slim_cmd::{self, SlimArgs},
     version,
 };
-use crate::config::{ResolvedOpts, load_config};
+use crate::config::{
+    resolve_config, load_config, DEFAULT_CHANNEL_MANAGER_ENDPOINT, DEFAULT_CONTROLLER_ENDPOINT,
+    DEFAULT_NODE_ENDPOINT,
+};
 
 fn styles() -> Styles {
     Styles::styled()
@@ -61,14 +64,6 @@ struct GlobalOpts {
     /// gRPC request timeout (e.g. 15s, 1m)
     #[arg(long, env = "SLIMCTL_COMMON_OPTS_TIMEOUT", global = true)]
     timeout: Option<String>,
-
-    /// Disable TLS (plain HTTP/2)
-    #[arg(
-        long = "tls.insecure",
-        env = "SLIMCTL_COMMON_OPTS_TLS_INSECURE",
-        global = true
-    )]
-    tls_insecure: bool,
 
     /// Use TLS but skip server certificate verification
     #[arg(
@@ -134,13 +129,23 @@ pub(crate) async fn run(cli: Cli) -> Result<()> {
     // precede any rustls call.
     slim_config::tls::provider::initialize_crypto_provider();
 
-    // Load config file, then overlay with CLI/env opts
+    // Load config file
     let file_config = load_config(cli.global.config.as_deref())?;
-    let opts = ResolvedOpts::resolve(
+
+    // Determine per-subcommand default endpoint
+    let default_endpoint = match &cli.command {
+        Commands::Node(_) => DEFAULT_NODE_ENDPOINT,
+        Commands::Controller(_) => DEFAULT_CONTROLLER_ENDPOINT,
+        Commands::ChannelManager(_) => DEFAULT_CHANNEL_MANAGER_ENDPOINT,
+        _ => DEFAULT_NODE_ENDPOINT,
+    };
+
+    // Overlay CLI flags on top of file config
+    let opts = resolve_config(
         &file_config,
+        default_endpoint,
         cli.global.server.as_deref(),
         cli.global.timeout.as_deref(),
-        cli.global.tls_insecure,
         cli.global.tls_insecure_skip_verify,
         cli.global.tls_ca_file.as_deref(),
         cli.global.tls_cert_file.as_deref(),
@@ -278,21 +283,6 @@ mod tests {
             panic!()
         };
         assert_eq!(value, "30s");
-    }
-
-    #[test]
-    fn parse_config_set_tls_insecure() {
-        let cli = parse_ok(&["slimctl", "config", "set", "tls-insecure", "false"]);
-        let Commands::Config(args) = cli.command else {
-            panic!()
-        };
-        let ConfigCommand::Set(s) = args.command else {
-            panic!()
-        };
-        let SetCommand::TlsInsecure { value } = s.command else {
-            panic!()
-        };
-        assert_eq!(value, "false");
     }
 
     #[test]
@@ -831,12 +821,6 @@ mod tests {
     }
 
     #[test]
-    fn global_flag_tls_insecure() {
-        let cli = parse_ok(&["slimctl", "--tls.insecure", "version"]);
-        assert!(cli.global.tls_insecure);
-    }
-
-    #[test]
     fn global_flag_tls_insecure_skip_verify() {
         let cli = parse_ok(&["slimctl", "--tls.insecure_skip_verify", "version"]);
         assert!(cli.global.tls_insecure_skip_verify);
@@ -874,7 +858,6 @@ mod tests {
         assert!(cli.global.config.is_none());
         assert!(cli.global.server.is_none());
         assert!(cli.global.timeout.is_none());
-        assert!(!cli.global.tls_insecure);
         assert!(!cli.global.tls_insecure_skip_verify);
         assert!(cli.global.tls_ca_file.is_none());
         assert!(cli.global.tls_cert_file.is_none());
@@ -960,7 +943,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(
-            crate::config::load_config(None).unwrap().common_opts.server,
+            crate::config::load_config(None).unwrap().endpoint,
             "myhost:9090"
         );
     }
@@ -973,13 +956,9 @@ mod tests {
         run(parse_ok(&["slimctl", "config", "set", "timeout", "2m"]))
             .await
             .unwrap();
-        assert_eq!(
-            crate::config::load_config(None)
-                .unwrap()
-                .common_opts
-                .timeout,
-            "2m"
-        );
+        let config = crate::config::load_config(None).unwrap();
+        let dur: std::time::Duration = config.connect_timeout.into();
+        assert_eq!(dur, std::time::Duration::from_secs(120));
     }
 
     #[tokio::test]
@@ -994,46 +973,6 @@ mod tests {
                 "set",
                 "timeout",
                 "notaduration"
-            ]))
-            .await
-            .is_err()
-        );
-    }
-
-    #[tokio::test]
-    #[allow(clippy::await_holding_lock)]
-    async fn cmd_config_set_tls_insecure_true_persists() {
-        let _guard = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let _dir = setup_home();
-        run(parse_ok(&[
-            "slimctl",
-            "config",
-            "set",
-            "tls-insecure",
-            "true",
-        ]))
-        .await
-        .unwrap();
-        assert!(
-            crate::config::load_config(None)
-                .unwrap()
-                .common_opts
-                .tls_insecure
-        );
-    }
-
-    #[tokio::test]
-    #[allow(clippy::await_holding_lock)]
-    async fn cmd_config_set_tls_insecure_invalid_value_fails() {
-        let _guard = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let _dir = setup_home();
-        assert!(
-            run(parse_ok(&[
-                "slimctl",
-                "config",
-                "set",
-                "tls-insecure",
-                "maybe"
             ]))
             .await
             .is_err()
@@ -1057,8 +996,8 @@ mod tests {
         assert!(
             crate::config::load_config(None)
                 .unwrap()
-                .common_opts
-                .tls_insecure_skip_verify
+                .tls_setting
+                .insecure_skip_verify
         );
     }
 
