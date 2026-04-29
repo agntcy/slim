@@ -904,7 +904,10 @@ impl ProtoMessage {
             Some(ProtoUnsubscribeType(u)) => {
                 let mut unsub = ProtoUnsubscribe::new(&dst, &dst, None, None);
                 unsub.subscription_id = u.subscription_id;
-                Some(ProtoMessage::new(HashMap::new(), ProtoUnsubscribeType(unsub)))
+                Some(ProtoMessage::new(
+                    HashMap::new(),
+                    ProtoUnsubscribeType(unsub),
+                ))
             }
             _ => None,
         }
