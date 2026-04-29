@@ -52,7 +52,7 @@ jobs:
       - name: Setup Java
         uses: ./.github/actions/setup-java
         with:
-          java-version: '22'
+          java-version: '21'
 
       - name: Setup .NET
         uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0

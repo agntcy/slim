@@ -11,8 +11,8 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.source>22</maven.compiler.source>
-        <maven.compiler.target>22</maven.compiler.target>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
         <protobuf.version>4.29.3</protobuf.version>
         <jna.version>5.14.0</jna.version>
         <slim.bindings.version>1.2.0</slim.bindings.version>

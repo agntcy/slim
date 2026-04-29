@@ -20,26 +20,34 @@ env:
   SHARED_SECRET: "my_shared_secret_for_testing_purposes_only"
 
 vars:
+  # ROOT_DIR: directory of the invoked Taskfile (java/). TASKFILE_DIR can point at an included taskfile during var eval.
+  MVNW: '{{.ROOT_DIR}}/mvnw'
   BINDINGS_VERSION:
-    sh: "mvn -f pom.xml help:evaluate -Dexpression=project.version -q -DforceStdout"
-  BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
+    sh: '{{.MVNW}} -f "{{.ROOT_DIR}}/pom.xml" help:evaluate -Dexpression=project.version -q -DforceStdout'
+  BINDINGS_DIR: "{{.ROOT_DIR}}/../rust"
   PROFILE: '{{.PROFILE | default "debug"}}'
   CURRENT_TARGET:
     sh: 'rustc -vV | sed -n "s|host: ||p"'
   TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
-  TARGET_DIR: "{{.TASKFILE_DIR}}/../../target"
+  TARGET_DIR: "{{.ROOT_DIR}}/../../target"
   SERVICE_TARGET: "{{.TARGET_DIR}}/{{.TARGET}}/{{.PROFILE}}"
   LIB_NAME: slim_bindings
   _DEFAULT_LIB_PATH:
     sh: |
-      # Detect OS to determine static library extension
+      # UniFFI bindgen reads the cdylib (.dylib / .so / .dll), not staticlib (.a / .lib).
       OS=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
       case "$OS" in
+        darwin*)
+          echo "{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.dylib"
+          ;;
         mingw*|msys*|cygwin*)
-          echo "{{.SERVICE_TARGET}}/{{.LIB_NAME}}.lib"
+          echo "{{.SERVICE_TARGET}}/{{.LIB_NAME}}.dll"
+          ;;
+        linux*)
+          echo "{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.so"
           ;;
         *)
-          echo "{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.a"
+          echo "{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.so"
           ;;
       esac
   LIB_PATH: "{{.LIB_PATH | default ._DEFAULT_LIB_PATH}}"
@@ -81,8 +89,7 @@ tasks:
       - echo "Checking library file exists:"
       - ls -lah '{{.LIB_PATH}}'
       - |
-        uniffi-bindgen-java generate \
-          --library '{{.LIB_PATH}}' \
+        uniffi-bindgen-java generate '{{.LIB_PATH}}' \
           --out-dir generated/uniffi \
           --config uniffi.toml
       - task: patch-bindings
@@ -160,12 +167,12 @@ tasks:
       - generate
     cmds:
       - echo "Building Java bindings..."
-      - mvn clean package -DskipTests
+      - '{{.MVNW}} clean package -DskipTests'
       - echo "Installing bindings to local Maven repository..."
-      - mvn install -DskipTests -q
+      - '{{.MVNW}} install -DskipTests -q'
       - echo "Compiling examples..."
-      - cd examples && mvn clean compile -q && mvn install -DskipTests -q
-      - cd examples/slimrpc/simple && mvn clean compile -q
+      - 'cd examples && {{.MVNW}} clean compile -q && {{.MVNW}} install -DskipTests -q'
+      - 'cd examples/slimrpc/simple && {{.MVNW}} clean compile -q'
       - echo "Build complete"
 
   test:
@@ -175,11 +182,13 @@ tasks:
     cmds:
       - echo "Running Java bindings tests..."
       - |
-        if [[ -n "{{.LIB_PATH}}" && "{{.LIB_PATH}}" == generated/native/* ]]; then
-          mvn test -Duniffi.component.slim_bindings.libraryOverride="$(pwd)/{{.LIB_PATH}}"
-        else
-          mvn test
-        fi
+        # Default LIB_PATH points at the cdylib under ../../target/...; UniFFI needs an explicit override or java.library.path.
+        LIB='{{.LIB_PATH}}'
+        case "$LIB" in
+          /*) ABS_LIB="$LIB" ;;
+          *) ABS_LIB="$(pwd)/$LIB" ;;
+        esac
+        {{.MVNW}} test -Duniffi.component.slim_bindings.libraryOverride="$ABS_LIB"
       - echo "Tests complete"
 
   install:
@@ -188,7 +197,7 @@ tasks:
       - build
     cmds:
       - echo "Installing Java bindings to local Maven repository..."
-      - mvn install -DskipTests
+      - '{{.MVNW}} install -DskipTests'
       - echo "Installed to local Maven repository"
 
   publish:maven-central:
@@ -200,7 +209,7 @@ tasks:
     cmds:
       - '[ -n "$MVN_TOKEN_NAME" ] && [ -n "$MVN_TOKEN_PASSWORD" ] && [ -n "$GPG_SIGNING_KEY" ] && [ -n "$GPG_PASSPHRASE" ] || (echo "Error: MVN_TOKEN_NAME, MVN_TOKEN_PASSWORD, GPG_SIGNING_KEY, GPG_PASSPHRASE must be set"; exit 1)'
       - echo "Publishing Java bindings to Maven Central (OSSRH Staging API)..."
-      - mvn deploy -Drevision="{{.PUBLISH_VERSION}}" -DskipTests -DaltDeploymentRepository=central::default::https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/
+      - '{{.MVNW}} deploy -Drevision="{{.PUBLISH_VERSION}}" -DskipTests -DaltDeploymentRepository=central::default::https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/'
       - echo "Transferring deployment to Central Portal..."
       - |
         AUTH=$(echo -n "$MVN_TOKEN_NAME:$MVN_TOKEN_PASSWORD" | base64 | tr -d '\n')
@@ -214,14 +223,14 @@ tasks:
       - echo "Cleaning build artifacts..."
       - rm -rf generated/
       - rm -rf target/
-      - mvn clean 2>/dev/null || true
-      - cd examples && mvn clean 2>/dev/null || true
+      - '{{.MVNW}} clean 2>/dev/null || true'
+      - 'cd examples && {{.MVNW}} clean 2>/dev/null || true'
       - echo "Clean complete"
 
   lint:
     desc: Run Maven PMD static analysis
     cmds:
-      - mvn pmd:check
+      - '{{.MVNW}} pmd:check'
 
   # ==========================================================================
   # Examples Tasks
@@ -237,7 +246,7 @@ tasks:
           task build
         fi
       - |
-        mvn install:install-file \
+        {{.MVNW}} install:install-file \
           -Dfile=target/slim-bindings-java-{{.BINDINGS_VERSION}}.jar \
           -DgroupId=io.agntcy.slim \
           -DartifactId=slim-bindings-java \
@@ -252,7 +261,7 @@ tasks:
       - examples:install:bindings
     cmds:
       - echo "Compiling Java examples..."
-      - cd examples && mvn clean compile
+      - 'cd examples && {{.MVNW}} clean compile'
       - echo "Java compilation complete"
 
   examples:server:
@@ -261,7 +270,7 @@ tasks:
       - build
     cmds:
       - echo "Starting SLIM server..."
-      - cd examples && mvn exec:java@server -Dexec.args="{{.CLI_ARGS}}"
+      - 'cd examples && {{.MVNW}} exec:java@server -Dexec.args="{{.CLI_ARGS}}"'
     vars:
       CLI_ARGS: '{{.CLI_ARGS | default ""}}'
 
@@ -271,7 +280,7 @@ tasks:
       - build
     cmds:
       - |
-        cd examples && mvn exec:java@p2p \
+        cd examples && {{.MVNW}} exec:java@p2p \
           -Dexec.args="--local agntcy/ns/alice --shared-secret $SHARED_SECRET {{.EXTRA_ARGS}}"
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
@@ -282,7 +291,7 @@ tasks:
       - build
     cmds:
       - |
-        cd examples && mvn exec:java@p2p \
+        cd examples && {{.MVNW}} exec:java@p2p \
           -Dexec.args="--local agntcy/ns/bob --shared-secret $SHARED_SECRET --remote agntcy/ns/alice --message 'hello from Java' --iterations 5 {{.EXTRA_ARGS}}"
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
@@ -293,7 +302,7 @@ tasks:
       - build
     cmds:
       - |
-        cd examples && mvn exec:java@p2p \
+        cd examples && {{.MVNW}} exec:java@p2p \
           -Dexec.args="--local agntcy/ns/bob --shared-secret $SHARED_SECRET --remote agntcy/ns/alice --message 'hello from Java (MLS)' --iterations 5 --enable-mls {{.EXTRA_ARGS}}"
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
@@ -304,7 +313,7 @@ tasks:
       - build
     cmds:
       - |
-        cd examples && mvn exec:java@group \
+        cd examples && {{.MVNW}} exec:java@group \
           -Dexec.args="--local agntcy/ns/moderator --shared-secret $SHARED_SECRET --remote agntcy/ns/chat --invites agntcy/ns/client-1 --invites agntcy/ns/client-2 {{.EXTRA_ARGS}}"
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
@@ -315,7 +324,7 @@ tasks:
       - build
     cmds:
       - |
-        cd examples && mvn exec:java@group \
+        cd examples && {{.MVNW}} exec:java@group \
           -Dexec.args="--local agntcy/ns/client-1 --shared-secret $SHARED_SECRET {{.EXTRA_ARGS}}"
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
@@ -326,7 +335,7 @@ tasks:
       - build
     cmds:
       - |
-        cd examples && mvn exec:java@group \
+        cd examples && {{.MVNW}} exec:java@group \
           -Dexec.args="--local agntcy/ns/client-2 --shared-secret $SHARED_SECRET {{.EXTRA_ARGS}}"
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
@@ -337,9 +346,9 @@ tasks:
       - examples:compile
     cmds:
       - echo "Installing examples project to local Maven repo..."
-      - cd examples && mvn install -DskipTests -q
+      - 'cd examples && {{.MVNW}} install -DskipTests -q'
       - echo "Compiling SlimRPC Java examples..."
-      - cd examples/slimrpc/simple && mvn clean compile
+      - 'cd examples/slimrpc/simple && {{.MVNW}} clean compile'
       - echo "SlimRPC compilation complete"
 
   examples:rpc:server:
@@ -348,7 +357,7 @@ tasks:
       - build
     cmds:
       - echo "Starting SlimRPC server (instance={{.INSTANCE}})..."
-      - cd examples/slimrpc/simple && mvn exec:java@server -Dexec.args="--instance {{.INSTANCE}}"
+      - 'cd examples/slimrpc/simple && {{.MVNW}} exec:java@server -Dexec.args="--instance {{.INSTANCE}}"'
     vars:
       INSTANCE: '{{.INSTANCE | default "server"}}'
       CLI_ARGS: '{{.CLI_ARGS | default ""}}'
@@ -359,7 +368,7 @@ tasks:
       - build
     cmds:
       - echo "Starting SlimRPC client..."
-      - cd examples/slimrpc/simple && mvn exec:java@client
+      - 'cd examples/slimrpc/simple && {{.MVNW}} exec:java@client'
     vars:
       CLI_ARGS: '{{.CLI_ARGS | default ""}}'
 
@@ -369,7 +378,7 @@ tasks:
       - build
     cmds:
       - echo "Starting SlimRPC group client..."
-      - cd examples/slimrpc/simple && mvn exec:java@group-client
+      - 'cd examples/slimrpc/simple && {{.MVNW}} exec:java@group-client'
     vars:
       CLI_ARGS: '{{.CLI_ARGS | default ""}}'
 
@@ -377,5 +386,5 @@ tasks:
     desc: Clean Maven build artifacts for examples
     cmds:
       - echo "Cleaning Java example build artifacts..."
-      - cd examples && mvn clean
+      - 'cd examples && {{.MVNW}} clean'
       - echo "Clean complete"

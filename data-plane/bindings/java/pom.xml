@@ -49,8 +49,8 @@
     <properties>
         <revision>1.2.0</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.source>22</maven.compiler.source>
-        <maven.compiler.target>22</maven.compiler.target>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
         <jna.version>5.14.0</jna.version>
         <maven-pmd-plugin.version>3.28.0</maven-pmd-plugin.version>
         <pmd.version>7.23.0</pmd.version>
@@ -116,9 +116,13 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.11.0</version>
                 <configuration>
-                    <source>22</source>
-                    <target>22</target>
+                    <source>21</source>
+                    <target>21</target>
                     <encoding>UTF-8</encoding>
+                    <!-- UniFFI Java 0.4.x uses java.lang.foreign (preview on JDK 21). -->
+                    <compilerArgs>
+                        <arg>--enable-preview</arg>
+                    </compilerArgs>
                 </configuration>
             </plugin>
 
@@ -127,7 +131,8 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.2</version>
                 <configuration>
-                    <argLine>--enable-native-access=ALL-UNNAMED</argLine>
+                    <!-- Preview FFM at runtime; JNA add-opens for JDK 21. -->
+                    <argLine>--enable-preview --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED</argLine>
                 </configuration>
             </plugin>
 
@@ -170,7 +175,7 @@
                     </dependency>
                 </dependencies>
                 <configuration>
-                    <targetJdk>22</targetJdk>
+                    <targetJdk>21</targetJdk>
                     <includeTests>true</includeTests>
                     <failOnViolation>true</failOnViolation>
                     <printFailingErrors>true</printFailingErrors>
