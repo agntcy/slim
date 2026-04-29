@@ -4,68 +4,53 @@
 syntax = "proto3";
 package channel_manager.proto.v1;
 
-service ChannelManagerService {
-  rpc Command(ControlRequest) returns (ControlResponse) {}
+message CreateChannelRequest {
+  string channel_name = 1;
+  bool mls_enabled = 2;
 }
 
-message ControlRequest {
-    uint64 msg_id = 1;
-    oneof payload {
-        CreateChannel create_channel = 2;
-        DeleteChannel delete_channel = 3;
-        AddParticipant add_participant = 4;
-        DeleteParticipant delete_participant = 5;
-        ListChannels list_channels = 6;
-        ListParticipants list_participants = 7;
-    }
+message DeleteChannelRequest {
+  string channel_name = 1;
 }
 
-message ControlResponse {
-    uint64 msg_id = 1;
-    oneof payload {
-        CommandResponse command_response = 2;
-        ChannelsList channels_list = 3;
-        ParticipantsList participants_list = 4;
-    }
+message AddParticipantRequest {
+  string channel_name = 1;
+  string participant_name = 2;
 }
 
-message CreateChannel {
-    string channel_name = 1;
-    bool mls_enabled = 2;
+message DeleteParticipantRequest {
+  string channel_name = 1;
+  string participant_name = 2;
 }
 
-message DeleteChannel {
-    string channel_name = 1;
-}
+message ListChannelsRequest {}
 
-message AddParticipant {
-    string channel_name = 1;
-    string participant_name = 2;
-}
-
-message DeleteParticipant {
-    string channel_name = 1;
-    string participant_name = 2;
-}
-
-message ListChannels {}
-
-message ChannelsList {
-    uint64 msg_id = 1;
-    repeated string channel_name = 2;
-}
-
-message ListParticipants {
-    string channel_name = 1;
-}
-
-message ParticipantsList {
-    uint64 msg_id = 1;
-    repeated string participant_name = 2;
+message ListParticipantsRequest {
+  string channel_name = 1;
 }
 
 message CommandResponse {
-    uint64 msg_id = 1;
-    bool success = 2;
-    optional string error_msg = 3;
+  bool success = 2;
+  optional string error_msg = 3;
+}
+
+message ListChannelsResponse {
+  bool success = 1;
+  optional string error_msg = 2;
+  repeated string channel_name = 3;
+}
+
+message ListParticipantsResponse {
+  bool success = 1;
+  optional string error_msg = 2;
+  repeated string participant_name = 3;
+}
+
+service ChannelManagerService {
+  rpc CreateChannel(CreateChannelRequest) returns (CommandResponse) {}
+  rpc DeleteChannel(DeleteChannelRequest) returns (CommandResponse) {}
+  rpc AddParticipant(AddParticipantRequest) returns (CommandResponse) {}
+  rpc DeleteParticipant(DeleteParticipantRequest) returns (CommandResponse) {}
+  rpc ListChannels(ListChannelsRequest) returns (ListChannelsResponse) {}
+  rpc ListParticipants(ListParticipantsRequest) returns (ListParticipantsResponse) {}
 }
