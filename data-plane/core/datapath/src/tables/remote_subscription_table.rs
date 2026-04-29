@@ -6,15 +6,15 @@ use std::collections::{HashMap, HashSet};
 use parking_lot::RwLock;
 use tracing::error;
 
-use crate::messages::Name;
+use crate::api::ProtoName;
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone)]
 pub struct SubscriptionInfo {
     /// source name of subscription
-    source: Name,
+    source: ProtoName,
 
     /// subscription name
-    name: Name,
+    name: ProtoName,
 
     /// identity of the original sender of the subscription
     source_identity: String,
@@ -26,8 +26,8 @@ pub struct SubscriptionInfo {
 impl SubscriptionInfo {
     #[cfg(test)]
     pub(crate) fn new(
-        source: Name,
-        name: Name,
+        source: ProtoName,
+        name: ProtoName,
         source_identity: String,
         _conn: u64,
         subscription_id: u64,
@@ -40,7 +40,7 @@ impl SubscriptionInfo {
         }
     }
 
-    pub fn source(&self) -> &Name {
+    pub fn source(&self) -> &ProtoName {
         &self.source
     }
 
@@ -48,7 +48,7 @@ impl SubscriptionInfo {
         &self.source_identity
     }
 
-    pub fn name(&self) -> &Name {
+    pub fn name(&self) -> &ProtoName {
         &self.name
     }
 
@@ -67,8 +67,8 @@ pub struct RemoteSubscriptions {
 impl RemoteSubscriptions {
     pub fn add_subscription(
         &self,
-        source: Name,
-        name: Name,
+        source: ProtoName,
+        name: ProtoName,
         source_identity: String,
         conn: u64,
         subscription_id: u64,
@@ -95,8 +95,8 @@ impl RemoteSubscriptions {
 
     pub fn remove_subscription(
         &self,
-        source: Name,
-        name: Name,
+        source: ProtoName,
+        name: ProtoName,
         source_identity: String,
         conn: u64,
         subscription_id: u64,

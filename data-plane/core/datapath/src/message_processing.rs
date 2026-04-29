@@ -1412,9 +1412,8 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::api::ProtoSubscriptionAck;
-    use crate::messages::Name;
     use crate::tables::remote_subscription_table::SubscriptionInfo;
+    use crate::api::{ProtoName, ProtoSubscriptionAck};
     use tonic::Status;
 
     async fn assert_failed_subscription_ack_is_sent(add: bool) {
@@ -1423,8 +1422,8 @@ mod tests {
             .register_local_connection(false)
             .expect("failed to create local connection");
 
-        let source = Name::from_strings(["org", "ns", "source"]).with_id(1);
-        let destination = Name::from_strings(["org", "ns", "destination"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "source"]).with_id(1);
+        let destination = ProtoName::from_strings(["org", "ns", "destination"]).with_id(2);
         let ack_id: u64 = if add { 1 } else { 2 };
         let invalid_connection = u64::MAX - 1;
 

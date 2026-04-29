@@ -15,7 +15,7 @@ use crate::api::{
         ApplicationPayload, CommandPayload, DiscoveryReplyPayload, DiscoveryRequestPayload,
         EncodedName, GroupAckPayload, GroupAddPayload, GroupProposalPayload, GroupRemovePayload,
         GroupWelcomePayload, JoinReplyPayload, JoinRequestPayload, LeaveReplyPayload,
-        LeaveRequestPayload, MlsPayload, SessionMessageType, StringName, TimerSettings,
+        LeaveRequestPayload, MlsPayload, SessionMessageType, TimerSettings,
         command_payload::CommandPayloadType, content::ContentType,
     },
 };
@@ -92,25 +92,6 @@ pub enum MessageError {
     BuilderErrorSourceRequired,
     #[error("builder error: destination is required")]
     BuilderErrorDestinationRequired,
-}
-
-/// ProtoName from Name
-impl From<&Name> for ProtoName {
-    fn from(name: &Name) -> Self {
-        Self {
-            name: Some(EncodedName {
-                component_0: name.components()[0],
-                component_1: name.components()[1],
-                component_2: name.components()[2],
-                component_3: name.components()[3],
-            }),
-            str_name: Some(StringName {
-                str_component_0: name.components_strings()[0].clone(),
-                str_component_1: name.components_strings()[1].clone(),
-                str_component_2: name.components_strings()[2].clone(),
-            }),
-        }
-    }
 }
 
 /// Print message type
@@ -270,22 +251,16 @@ impl SlimHeader {
         self.error
     }
 
-    pub fn get_source(&self) -> Name {
-        match &self.source {
-            Some(source) => Name::from(source),
-            None => panic!("source not found"),
-        }
+    pub fn get_source(&self) -> ProtoName {
+        self.source.clone().expect("source not found")
     }
 
     pub fn get_encoded_source(&self) -> EncodedName {
         self.source.as_ref().unwrap().name.unwrap()
     }
 
-    pub fn get_dst(&self) -> Name {
-        match &self.destination {
-            Some(destination) => Name::from(destination),
-            None => panic!("destination not found"),
-        }
+    pub fn get_dst(&self) -> ProtoName {
+        self.destination.clone().expect("destination not found")
     }
 
     pub fn get_encoded_dst(&self) -> EncodedName {
@@ -296,12 +271,12 @@ impl SlimHeader {
         self.identity.clone()
     }
 
-    pub fn set_source(&mut self, source: &Name) {
-        self.source = Some(ProtoName::from(source));
+    pub fn set_source(&mut self, source: ProtoName) {
+        self.source = Some(source);
     }
 
-    pub fn set_destination(&mut self, dst: &Name) {
-        self.destination = Some(ProtoName::from(dst));
+    pub fn set_destination(&mut self, dst: ProtoName) {
+        self.destination = Some(dst);
     }
 
     pub fn set_identity(&mut self, identity: String) {
@@ -412,13 +387,13 @@ impl SessionMessageType {
 /// This message is used to subscribe to a topic
 impl ProtoSubscribe {
     fn new(
-        source: &Name,
-        dst: &Name,
+        source: ProtoName,
+        dst: ProtoName,
         identity: Option<&str>,
         flags: Option<SlimHeaderFlags>,
     ) -> Self {
         let id = identity.unwrap_or("");
-        let header = Some(SlimHeader::new(source, dst, id, flags));
+        let header = Some(SlimHeader::new_from_protos(source, dst, id, flags));
 
         ProtoSubscribe {
             header,
@@ -441,13 +416,13 @@ impl From<ProtoMessage> for ProtoSubscribe {
 /// This message is used to unsubscribe from a topic
 impl ProtoUnsubscribe {
     fn new(
-        source: &Name,
-        dst: &Name,
+        source: ProtoName,
+        dst: ProtoName,
         identity: Option<&str>,
         flags: Option<SlimHeaderFlags>,
     ) -> Self {
         let id = identity.unwrap_or("");
-        let header = Some(SlimHeader::new(source, dst, id, flags));
+        let header = Some(SlimHeader::new_from_protos(source, dst, id, flags));
 
         ProtoUnsubscribe {
             header,
@@ -715,7 +690,7 @@ impl ProtoMessage {
         self.get_session_header().get_message_id()
     }
 
-    pub fn get_source(&self) -> Name {
+    pub fn get_source(&self) -> ProtoName {
         self.get_slim_header().get_source()
     }
 
@@ -723,7 +698,7 @@ impl ProtoMessage {
         self.get_slim_header().get_encoded_source()
     }
 
-    pub fn get_dst(&self) -> Name {
+    pub fn get_dst(&self) -> ProtoName {
         self.get_slim_header().get_dst()
     }
 
@@ -1079,10 +1054,9 @@ impl CommandPayloadBuilder {
     }
 
     /// Creates a discovery request payload
-    pub fn discovery_request(self, destination: Option<Name>) -> CommandPayload {
-        let proto_destination = destination.as_ref().map(ProtoName::from);
+    pub fn discovery_request(self, destination: Option<ProtoName>) -> CommandPayload {
         let payload = DiscoveryRequestPayload {
-            destination: proto_destination,
+            destination,
         };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::DiscoveryRequest(payload)),
@@ -1103,9 +1077,9 @@ impl CommandPayloadBuilder {
         enable_mls: bool,
         max_retries: Option<u32>,
         timer_duration: Option<Duration>,
-        channel: Option<Name>,
+        channel: Option<ProtoName>,
     ) -> CommandPayload {
-        let proto_channel = channel.as_ref().map(ProtoName::from);
+        let proto_channel = channel;
 
         let timer_settings = if let Some(t) = timer_duration
             && let Some(m) = max_retries
@@ -1137,10 +1111,9 @@ impl CommandPayloadBuilder {
     }
 
     /// Creates a leave request payload
-    pub fn leave_request(self, destination: Option<Name>) -> CommandPayload {
-        let proto_destination = destination.as_ref().map(ProtoName::from);
+    pub fn leave_request(self, destination: Option<ProtoName>) -> CommandPayload {
         let payload = LeaveRequestPayload {
-            destination: proto_destination,
+            destination,
         };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::LeaveRequest(payload)),
@@ -1158,16 +1131,13 @@ impl CommandPayloadBuilder {
     /// Creates a group add payload
     pub fn group_add(
         self,
-        new_participant: Name,
-        participants: Vec<Name>,
+        new_participant: ProtoName,
+        participants: Vec<ProtoName>,
         mls: Option<MlsPayload>,
     ) -> CommandPayload {
-        let proto_new_participant = Some(ProtoName::from(&new_participant));
-        let proto_participants = participants.iter().map(ProtoName::from).collect();
-
         let payload = GroupAddPayload {
-            new_participant: proto_new_participant,
-            participants: proto_participants,
+            new_participant: Some(new_participant),
+            participants,
             mls,
         };
         CommandPayload {
@@ -1178,16 +1148,13 @@ impl CommandPayloadBuilder {
     /// Creates a group remove payload
     pub fn group_remove(
         self,
-        removed_participant: Name,
-        participants: Vec<Name>,
+        removed_participant: ProtoName,
+        participants: Vec<ProtoName>,
         mls: Option<MlsPayload>,
     ) -> CommandPayload {
-        let proto_removed_participant = Some(ProtoName::from(&removed_participant));
-        let proto_participants = participants.iter().map(ProtoName::from).collect();
-
         let payload = GroupRemovePayload {
-            removed_participant: proto_removed_participant,
-            participants: proto_participants,
+            removed_participant: Some(removed_participant),
+            participants,
             mls,
         };
         CommandPayload {
@@ -1196,11 +1163,9 @@ impl CommandPayloadBuilder {
     }
 
     /// Creates a group welcome payload
-    pub fn group_welcome(self, participants: Vec<Name>, mls: Option<MlsPayload>) -> CommandPayload {
-        let proto_participants = participants.iter().map(ProtoName::from).collect();
-
+    pub fn group_welcome(self, participants: Vec<ProtoName>, mls: Option<MlsPayload>) -> CommandPayload {
         let payload = GroupWelcomePayload {
-            participants: proto_participants,
+            participants,
             mls,
         };
         CommandPayload {
@@ -1209,11 +1174,9 @@ impl CommandPayloadBuilder {
     }
 
     /// Creates a group close payload
-    pub fn group_close(self, participants: Vec<Name>) -> CommandPayload {
-        let proto_participants = participants.iter().map(ProtoName::from).collect();
-
+    pub fn group_close(self, participants: Vec<ProtoName>) -> CommandPayload {
         let payload = GroupClosePayload {
-            participants: proto_participants,
+            participants,
         };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::GroupClose(payload)),
@@ -1221,10 +1184,9 @@ impl CommandPayloadBuilder {
     }
 
     /// Creates a group proposal payload
-    pub fn group_proposal(self, source: Option<Name>, mls_proposal: Vec<u8>) -> CommandPayload {
-        let proto_source = source.as_ref().map(ProtoName::from);
+    pub fn group_proposal(self, source: Option<ProtoName>, mls_proposal: Vec<u8>) -> CommandPayload {
         let payload = GroupProposalPayload {
-            source: proto_source,
+            source,
             mls_proposal,
         };
         CommandPayload {
@@ -1356,10 +1318,8 @@ impl CommandPayload {
 ///     .unwrap();
 /// ```
 pub struct ProtoMessageBuilder {
-    source: Option<Name>,
-    source_proto: Option<ProtoName>,
-    destination: Option<Name>,
-    destination_proto: Option<ProtoName>,
+    source: Option<ProtoName>,
+    destination: Option<ProtoName>,
     identity: Option<String>,
     flags: Option<SlimHeaderFlags>,
     session_type: Option<ProtoSessionType>,
@@ -1376,9 +1336,7 @@ impl ProtoMessageBuilder {
     pub fn new() -> Self {
         Self {
             source: None,
-            source_proto: None,
             destination: None,
-            destination_proto: None,
             identity: None,
             flags: None,
             session_type: None,
@@ -1392,26 +1350,14 @@ impl ProtoMessageBuilder {
     }
 
     /// Sets the source name
-    pub fn source(mut self, source: Name) -> Self {
+    pub fn source(mut self, source: ProtoName) -> Self {
         self.source = Some(source);
         self
     }
 
     /// Sets the destination name
-    pub fn destination(mut self, destination: Name) -> Self {
+    pub fn destination(mut self, destination: ProtoName) -> Self {
         self.destination = Some(destination);
-        self
-    }
-
-    /// Sets the source directly from an already-encoded ProtoName, avoiding Name conversion.
-    pub fn source_proto(mut self, source: ProtoName) -> Self {
-        self.source_proto = Some(source);
-        self
-    }
-
-    /// Sets the destination directly from an already-encoded ProtoName, avoiding Name conversion.
-    pub fn destination_proto(mut self, destination: ProtoName) -> Self {
-        self.destination_proto = Some(destination);
         self
     }
 
@@ -1511,11 +1457,11 @@ impl ProtoMessageBuilder {
     /// For most cases, prefer using the individual builder methods like `source()`, `destination()`, etc.
     pub fn with_slim_header(mut self, header: SlimHeader) -> Self {
         // Extract fields from the header
-        if let Some(src) = &header.source {
-            self.source = Some(Name::from(src));
+        if let Some(src) = header.source.clone() {
+            self.source = Some(src);
         }
-        if let Some(dst) = &header.destination {
-            self.destination = Some(Name::from(dst));
+        if let Some(dst) = header.destination.clone() {
+            self.destination = Some(dst);
         }
         if !header.identity.is_empty() {
             self.identity = Some(header.identity.clone());
@@ -1571,27 +1517,16 @@ impl ProtoMessageBuilder {
 
     /// Builds a publish message
     pub fn build_publish(self) -> Result<ProtoMessage, MessageError> {
-        let source_proto = if let Some(p) = self.source_proto {
-            p
-        } else {
-            let src = self
-                .source
-                .ok_or(MessageError::BuilderErrorSourceRequired)?;
-            ProtoName::from(&src)
-        };
-
-        let dst_proto = if let Some(p) = self.destination_proto {
-            p
-        } else {
-            let dst = self
-                .destination
-                .ok_or(MessageError::BuilderErrorDestinationRequired)?;
-            ProtoName::from(&dst)
-        };
+        let source = self
+            .source
+            .ok_or(MessageError::BuilderErrorSourceRequired)?;
+        let destination = self
+            .destination
+            .ok_or(MessageError::BuilderErrorDestinationRequired)?;
 
         let slim_header = Some(SlimHeader::new_from_protos(
-            source_proto,
-            dst_proto,
+            source,
+            destination,
             self.identity.as_deref().unwrap_or(""),
             self.flags,
         ));
@@ -1626,7 +1561,7 @@ impl ProtoMessageBuilder {
             .ok_or(MessageError::BuilderErrorDestinationRequired)?;
 
         let mut subscribe =
-            ProtoSubscribe::new(&source, &destination, self.identity.as_deref(), self.flags);
+            ProtoSubscribe::new(source, destination, self.identity.as_deref(), self.flags);
         subscribe.subscription_id = self.subscription_id.unwrap_or_default();
 
         Ok(ProtoMessage::new(
@@ -1645,7 +1580,7 @@ impl ProtoMessageBuilder {
             .ok_or(MessageError::BuilderErrorDestinationRequired)?;
 
         let mut unsubscribe =
-            ProtoUnsubscribe::new(&source, &destination, self.identity.as_deref(), self.flags);
+            ProtoUnsubscribe::new(source, destination, self.identity.as_deref(), self.flags);
         unsubscribe.subscription_id = self.subscription_id.unwrap_or_default();
 
         Ok(ProtoMessage::new(

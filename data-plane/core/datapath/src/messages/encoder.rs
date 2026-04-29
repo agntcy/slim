@@ -94,6 +94,26 @@ impl From<&Name> for EncodedName {
     }
 }
 
+impl From<&Name> for crate::api::ProtoName {
+    fn from(name: &Name) -> Self {
+        let c = name.components();
+        let s = name.components_strings();
+        crate::api::ProtoName {
+            name: Some(EncodedName {
+                component_0: c[0],
+                component_1: c[1],
+                component_2: c[2],
+                component_3: c[3],
+            }),
+            str_name: Some(crate::api::StringName {
+                str_component_0: s[0].clone(),
+                str_component_1: s[1].clone(),
+                str_component_2: s[2].clone(),
+            }),
+        }
+    }
+}
+
 impl Name {
     // NULL_COMPONENT is used to represent a component that is not set
     pub const NULL_COMPONENT: u64 = u64::MAX;
@@ -158,7 +178,7 @@ impl Name {
     }
 }
 
-pub fn calculate_hash<T: Hash + ?Sized>(t: &T) -> u64 {
+pub(crate) fn calculate_hash<T: Hash + ?Sized>(t: &T) -> u64 {
     let mut hasher = XxHash64::default();
     t.hash(&mut hasher);
     hasher.finish()
