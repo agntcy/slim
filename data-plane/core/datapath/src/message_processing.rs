@@ -1262,7 +1262,10 @@ impl MessageProcessor {
                     .forwarder()
                     .on_connection_drop(conn_index, is_local);
 
-                if let Some(lid) = link_id {
+                let recovery_enabled =
+                    !self_clone.internal.recovery_table.ttl().is_zero();
+
+                if let Some(lid) = link_id.filter(|_| recovery_enabled) {
                     // Server connection with a known link_id: preserve routing state and
                     // suppress the control-plane notification for the duration of the TTL
                     // to give the peer a chance to reconnect.
