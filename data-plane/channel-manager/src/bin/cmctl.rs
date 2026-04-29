@@ -20,16 +20,15 @@
 //!   delete-participant     Remove participant from channel
 
 use std::path::PathBuf;
-use std::process;
 
 use agntcy_slim_channel_manager::proto::channel_manager_service_client::ChannelManagerServiceClient;
 use agntcy_slim_channel_manager::proto::{
-    AddParticipant, ControlRequest, CreateChannel, DeleteChannel, DeleteParticipant, ListChannels,
-    ListParticipants, control_request::Payload, control_response::Payload as ResponsePayload,
+    AddParticipantRequest, CommandResponse, CreateChannelRequest, DeleteChannelRequest,
+    DeleteParticipantRequest, ListChannelsRequest, ListParticipantsRequest,
 };
 
+use anyhow::{Context, Result, bail};
 use clap::Parser;
-use rand::Rng;
 use slim_config::grpc::client::ClientConfig;
 
 /// Channel Manager Control Tool
@@ -101,15 +100,12 @@ enum Command {
     },
 }
 
-/// Generate a random message ID
-fn generate_msg_id() -> u64 {
-    rand::rng().random()
-}
-
 /// Load a ClientConfig from a YAML file
-fn load_client_config(path: &PathBuf) -> Result<ClientConfig, Box<dyn std::error::Error>> {
-    let data = std::fs::read_to_string(path)?;
-    let config: ClientConfig = serde_yaml::from_str(&data)?;
+fn load_client_config(path: &PathBuf) -> Result<ClientConfig> {
+    let data = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read config file: {}", path.display()))?;
+    let config: ClientConfig = serde_yaml::from_str(&data)
+        .with_context(|| format!("failed to parse config file: {}", path.display()))?;
     Ok(config)
 }
 
@@ -131,7 +127,6 @@ async fn create_client(
         + Clone
         + 'static,
     >,
-    Box<dyn std::error::Error>,
 > {
     // Initialize the crypto provider — needed by ClientConfig::to_channel() for TLS support
     slim_config::tls::provider::initialize_crypto_provider();
@@ -145,210 +140,143 @@ async fn create_client(
     let channel = client_config
         .to_channel()
         .await
-        .map_err(|e| format!("failed to create gRPC channel: {e}"))?;
+        .context("failed to create gRPC channel")?;
     Ok(ChannelManagerServiceClient::new(channel))
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
     let args = Args::parse();
+    let mut client = create_client(&args).await?;
 
-    let mut client = match create_client(&args).await {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("Failed to create client: {e}");
-            process::exit(1);
-        }
-    };
-
-    let result = match args.command {
+    match args.command {
         Command::CreateChannel {
             channel,
             disable_mls,
         } => {
-            let msg_id = generate_msg_id();
-            let request = ControlRequest {
-                msg_id,
-                payload: Some(Payload::CreateChannel(CreateChannel {
-                    channel_name: channel.clone(),
-                    mls_enabled: !disable_mls,
-                })),
+            let request = CreateChannelRequest {
+                channel_name: channel.clone(),
+                mls_enabled: !disable_mls,
             };
-            match client.command(request).await {
-                Ok(response) => handle_command_response(
-                    response.into_inner(),
-                    &format!("Channel {channel} created successfully"),
-                ),
-                Err(e) => {
-                    eprintln!("Failed to create channel: {e}");
-                    process::exit(1);
-                }
-            }
+            let response = client
+                .create_channel(request)
+                .await
+                .context("failed to create channel")?;
+            check_command_response(
+                response.into_inner(),
+                &format!("Channel {channel} created successfully"),
+            )
         }
 
         Command::DeleteChannel { channel } => {
-            let msg_id = generate_msg_id();
-            let request = ControlRequest {
-                msg_id,
-                payload: Some(Payload::DeleteChannel(DeleteChannel {
-                    channel_name: channel.clone(),
-                })),
+            let request = DeleteChannelRequest {
+                channel_name: channel.clone(),
             };
-            match client.command(request).await {
-                Ok(response) => handle_command_response(
-                    response.into_inner(),
-                    &format!("Channel {channel} deleted successfully"),
-                ),
-                Err(e) => {
-                    eprintln!("Failed to delete channel: {e}");
-                    process::exit(1);
-                }
-            }
+            let response = client
+                .delete_channel(request)
+                .await
+                .context("failed to delete channel")?;
+            check_command_response(
+                response.into_inner(),
+                &format!("Channel {channel} deleted successfully"),
+            )
         }
 
         Command::AddParticipant {
             channel,
             participant,
         } => {
-            let msg_id = generate_msg_id();
-            let request = ControlRequest {
-                msg_id,
-                payload: Some(Payload::AddParticipant(AddParticipant {
-                    channel_name: channel.clone(),
-                    participant_name: participant.clone(),
-                })),
+            let request = AddParticipantRequest {
+                channel_name: channel.clone(),
+                participant_name: participant.clone(),
             };
-            match client.command(request).await {
-                Ok(response) => handle_command_response(
-                    response.into_inner(),
-                    &format!("Participant {participant} added to channel {channel}"),
-                ),
-                Err(e) => {
-                    eprintln!("Failed to add participant: {e}");
-                    process::exit(1);
-                }
-            }
+            let response = client
+                .add_participant(request)
+                .await
+                .context("failed to add participant")?;
+            check_command_response(
+                response.into_inner(),
+                &format!("Participant {participant} added to channel {channel}"),
+            )
         }
 
         Command::DeleteParticipant {
             channel,
             participant,
         } => {
-            let msg_id = generate_msg_id();
-            let request = ControlRequest {
-                msg_id,
-                payload: Some(Payload::DeleteParticipant(DeleteParticipant {
-                    channel_name: channel.clone(),
-                    participant_name: participant.clone(),
-                })),
+            let request = DeleteParticipantRequest {
+                channel_name: channel.clone(),
+                participant_name: participant.clone(),
             };
-            match client.command(request).await {
-                Ok(response) => handle_command_response(
-                    response.into_inner(),
-                    &format!("Participant {participant} removed from channel {channel}"),
-                ),
-                Err(e) => {
-                    eprintln!("Failed to delete participant: {e}");
-                    process::exit(1);
-                }
-            }
+            let response = client
+                .delete_participant(request)
+                .await
+                .context("failed to delete participant")?;
+            check_command_response(
+                response.into_inner(),
+                &format!("Participant {participant} removed from channel {channel}"),
+            )
         }
 
         Command::ListChannels => {
-            let msg_id = generate_msg_id();
-            let request = ControlRequest {
-                msg_id,
-                payload: Some(Payload::ListChannels(ListChannels {})),
-            };
-            match client.command(request).await {
-                Ok(response) => {
-                    let resp = response.into_inner();
-                    match resp.payload {
-                        Some(ResponsePayload::ChannelsList(list)) => {
-                            println!("Channels ({}):", list.channel_name.len());
-                            for name in &list.channel_name {
-                                println!("  - {name}");
-                            }
-                            Ok(())
-                        }
-                        Some(ResponsePayload::CommandResponse(cmd_resp)) if !cmd_resp.success => {
-                            let err = cmd_resp
-                                .error_msg
-                                .unwrap_or_else(|| "unknown error".to_string());
-                            Err(format!("Command failed: {err}"))
-                        }
-                        _ => Err("Unexpected response type".to_string()),
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Failed to list channels: {e}");
-                    process::exit(1);
-                }
+            let response = client
+                .list_channels(ListChannelsRequest {})
+                .await
+                .context("failed to list channels")?;
+            let resp = response.into_inner();
+            if !resp.success {
+                bail!(
+                    "{}",
+                    resp.error_msg
+                        .unwrap_or_else(|| "unknown error".to_string())
+                );
             }
+            println!("Channels ({}):", resp.channel_name.len());
+            for name in &resp.channel_name {
+                println!("  - {name}");
+            }
+            Ok(())
         }
 
         Command::ListParticipants { channel } => {
-            let msg_id = generate_msg_id();
-            let request = ControlRequest {
-                msg_id,
-                payload: Some(Payload::ListParticipants(ListParticipants {
-                    channel_name: channel.clone(),
-                })),
+            let request = ListParticipantsRequest {
+                channel_name: channel.clone(),
             };
-            match client.command(request).await {
-                Ok(response) => {
-                    let resp = response.into_inner();
-                    match resp.payload {
-                        Some(ResponsePayload::ParticipantsList(list)) => {
-                            println!(
-                                "Participants in channel {channel} ({}):",
-                                list.participant_name.len()
-                            );
-                            for name in &list.participant_name {
-                                println!("  - {name}");
-                            }
-                            Ok(())
-                        }
-                        Some(ResponsePayload::CommandResponse(cmd_resp)) if !cmd_resp.success => {
-                            let err = cmd_resp
-                                .error_msg
-                                .unwrap_or_else(|| "unknown error".to_string());
-                            Err(format!("Command failed: {err}"))
-                        }
-                        _ => Err("Unexpected response type".to_string()),
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Failed to list participants: {e}");
-                    process::exit(1);
-                }
+            let response = client
+                .list_participants(request)
+                .await
+                .context("failed to list participants")?;
+            let resp = response.into_inner();
+            if !resp.success {
+                bail!(
+                    "{}",
+                    resp.error_msg
+                        .unwrap_or_else(|| "unknown error".to_string())
+                );
             }
+            println!(
+                "Participants in channel {channel} ({}):",
+                resp.participant_name.len()
+            );
+            for name in &resp.participant_name {
+                println!("  - {name}");
+            }
+            Ok(())
         }
-    };
-
-    if let Err(e) = result {
-        eprintln!("Error: {e}");
-        process::exit(1);
     }
 }
 
-/// Handle a command response, printing success or error message
-fn handle_command_response(
-    response: agntcy_slim_channel_manager::proto::ControlResponse,
-    success_msg: &str,
-) -> Result<(), String> {
-    match response.payload {
-        Some(ResponsePayload::CommandResponse(cmd_resp)) => {
-            if cmd_resp.success {
-                println!("{success_msg}");
-                Ok(())
-            } else {
-                let err = cmd_resp
-                    .error_msg
-                    .unwrap_or_else(|| "unknown error".to_string());
-                Err(format!("Command failed: {err}"))
-            }
-        }
-        _ => Err("Unexpected response type".to_string()),
+/// Check a command response, printing success message or returning an error
+fn check_command_response(response: CommandResponse, success_msg: &str) -> Result<()> {
+    if response.success {
+        println!("{success_msg}");
+        Ok(())
+    } else {
+        bail!(
+            "{}",
+            response
+                .error_msg
+                .unwrap_or_else(|| "unknown error".to_string())
+        );
     }
 }

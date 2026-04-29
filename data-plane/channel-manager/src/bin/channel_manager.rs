@@ -22,7 +22,6 @@ use slim_bindings::{
     get_global_service, initialize_with_defaults, shutdown,
 };
 use slim_tracing::TracingConfiguration;
-use tokio::signal;
 use tracing::{error, info, warn};
 
 /// Channel Manager - manages SLIM channels and participants
@@ -190,12 +189,12 @@ async fn main() -> anyhow::Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("failed to create gRPC server: {e}"))?;
 
-    // Run the server with graceful shutdown on Ctrl+C
+    // Run the server with graceful shutdown on SIGINT/SIGTERM
     tokio::select! {
         result = server_future => {
             result.map_err(|e| anyhow::anyhow!("gRPC server error: {e}"))?;
         }
-        _ = signal::ctrl_c() => {
+        _ = slim_signal::shutdown() => {
             info!("Shutdown signal received");
         }
     }

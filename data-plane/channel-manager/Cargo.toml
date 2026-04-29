@@ -18,11 +18,11 @@ path = "src/bin/cmctl.rs"
 agntcy-slim-bindings = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-session = { workspace = true }
+agntcy-slim-signal = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 prost = { workspace = true }
-rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_yaml = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
