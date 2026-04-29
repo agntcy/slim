@@ -1271,14 +1271,29 @@ impl MessageProcessor {
                     // Spawn a TTL task that fires the CP notification if recovery never happens.
                     if let Ok(drain) = self_clone.get_drain_watch() {
                         let tx_cp_ttl = tx_cp;
+                        let mp = self_clone.clone();
                         self_clone.internal.recovery_table.spawn_ttl_task(
                             lid,
                             drain,
                             move |entry| async move {
                                 info!("recovery window expired, notifying control plane");
+                                // Only unsubscribe names that are no longer reachable.
+                                // If the peer reconnected with a different link_id, the
+                                // CP will have already pushed the same subscriptions on
+                                // the new connection — those names are still in the
+                                // subscription table and must not be torn down.
+                                let unreachable = entry
+                                    .local_subs
+                                    .into_iter()
+                                    .filter(|(name, _)| {
+                                        mp.forwarder()
+                                            .on_publish_msg_match(name.clone(), u64::MAX, u32::MAX)
+                                            .is_err()
+                                    })
+                                    .collect();
                                 MessageProcessor::notify_control_plane_subscriptions_lost(
                                     tx_cp_ttl,
-                                    entry.local_subs,
+                                    unreachable,
                                     conn_index,
                                 )
                                 .await;
