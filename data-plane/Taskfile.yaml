@@ -86,6 +86,13 @@ tasks:
       - mkdir -p ../.dist/bin
       - cp target/debug/slimctl ../.dist/bin/slimctl
 
+  data-plane:control-plane:build:
+    desc: "Build Rust control-plane binary and stage it in .dist/bin"
+    cmds:
+      - cargo build --package agntcy-slim-control-plane
+      - mkdir -p ../.dist/bin
+      - cp target/debug/slim-control-plane ../.dist/bin/control-plane
+
   data-plane:telemetry:start:
     desc: "Start telemetry stack"
     cmds:

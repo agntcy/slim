@@ -1,0 +1,6 @@
+tracing:
+  log_level: debug
+
+database:
+  type: sqlite
+  path: /tmp/slim.db

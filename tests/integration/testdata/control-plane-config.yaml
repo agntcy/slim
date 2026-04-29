@@ -1,19 +1,16 @@
 northbound:
-  httpHost: localhost
-  httpPort: 50051
+  endpoint: "0.0.0.0:50051"
+  tls:
+    insecure: true
 
 southbound:
-  httpHost: localhost
-  httpPort: 50052
+  endpoint: "0.0.0.0:50052"
+  tls:
+    insecure: true
 
 reconciler:
-  maxRequeues: 15
-  maxNumOfParallelReconciles: 1000
+  max_requeues: 15
+  max_parallel_reconciles: 1000
 
-logging:
-  level: DEBUG
-
-# database:
-#   filePath: controlplane.db
-
-
+tracing:
+  log_level: debug

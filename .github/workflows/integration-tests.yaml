@@ -8,14 +8,12 @@ on:
   push:
     paths:
       - 'tests/**'
-      - 'control-plane/**'
       - 'data-plane/**'
     branches:
       - main
   pull_request:
     paths:
       - 'tests/**'
-      - 'control-plane/**'
       - 'data-plane/**'
 
 concurrency:
