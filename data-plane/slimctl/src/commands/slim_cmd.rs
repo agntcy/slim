@@ -4,7 +4,7 @@
 use anyhow::{Context, Result};
 use clap::{ArgGroup, Args, Subcommand};
 
-use crate::config::DEFAULT_NODE_ENDPOINT;
+use crate::config::DEFAULT_SLIM_ADDRESS;
 
 #[derive(Args)]
 pub struct SlimArgs {
@@ -40,7 +40,7 @@ async fn run_start(args: &SlimStartArgs) -> Result<()> {
     let effective_endpoint = args
         .endpoint
         .as_deref()
-        .or_else(|| args.config.is_none().then_some(DEFAULT_NODE_ENDPOINT));
+        .or_else(|| args.config.is_none().then_some(DEFAULT_SLIM_ADDRESS));
 
     let config_file = args.config.as_deref().unwrap_or("");
 
@@ -63,7 +63,7 @@ async fn run_start(args: &SlimStartArgs) -> Result<()> {
 
 fn create_temp_config(endpoint: Option<&str>) -> Result<tempfile::NamedTempFile> {
     use std::io::Write;
-    let endpoint_str = endpoint.unwrap_or(DEFAULT_NODE_ENDPOINT);
+    let endpoint_str = endpoint.unwrap_or(DEFAULT_SLIM_ADDRESS);
     let config_yaml = format!(
         r#"runtime:
   n_cores: 0
@@ -135,7 +135,7 @@ mod tests {
     fn create_temp_config_with_none_uses_default() {
         let tmp = create_temp_config(None).unwrap();
         let content = std::fs::read_to_string(tmp.path()).unwrap();
-        assert!(content.contains(DEFAULT_NODE_ENDPOINT));
+        assert!(content.contains(DEFAULT_SLIM_ADDRESS));
     }
 
     #[test]

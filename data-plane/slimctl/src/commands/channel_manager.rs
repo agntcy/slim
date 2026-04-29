@@ -3,12 +3,11 @@
 
 use anyhow::{Result, bail};
 use clap::{Args, Subcommand};
-use rand::Rng;
 
 use crate::client::get_channel_manager_client;
 use crate::proto::channel_manager::proto::v1::{
-    self as cm_proto, ControlRequest, ControlResponse, control_request::Payload,
-    control_response::Payload as ResponsePayload,
+    AddParticipantRequest, CommandResponse, CreateChannelRequest, DeleteChannelRequest,
+    DeleteParticipantRequest, ListChannelsRequest, ListParticipantsRequest,
 };
 use crate::rpc;
 use slim_config::grpc::client::ClientConfig;
@@ -68,24 +67,15 @@ pub enum ChannelManagerCommand {
     },
 }
 
-fn generate_msg_id() -> u64 {
-    rand::rng().random()
-}
-
-fn handle_command_response(response: ControlResponse, success_msg: &str) -> Result<()> {
-    match response.payload {
-        Some(ResponsePayload::CommandResponse(cmd_resp)) => {
-            if cmd_resp.success {
-                println!("{success_msg}");
-                Ok(())
-            } else {
-                let err = cmd_resp
-                    .error_msg
-                    .unwrap_or_else(|| "unknown error".to_string());
-                bail!("Command failed: {err}")
-            }
-        }
-        _ => bail!("Unexpected response type"),
+fn check_command_response(response: CommandResponse, success_msg: &str) -> Result<()> {
+    if response.success {
+        println!("{success_msg}");
+        Ok(())
+    } else {
+        let err = response
+            .error_msg
+            .unwrap_or_else(|| "unknown error".to_string());
+        bail!("Command failed: {err}")
     }
 }
 
@@ -97,41 +87,32 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ClientConfig) -> Result<()> {
             channel,
             disable_mls,
         } => {
-            let request = ControlRequest {
-                msg_id: generate_msg_id(),
-                payload: Some(Payload::CreateChannel(cm_proto::CreateChannel {
-                    channel_name: channel.clone(),
-                    mls_enabled: !disable_mls,
-                })),
+            let request = CreateChannelRequest {
+                channel_name: channel.clone(),
+                mls_enabled: !disable_mls,
             };
-            let response = rpc!(client, command, request);
-            handle_command_response(response, &format!("Channel {channel} created successfully"))
+            let response = rpc!(client, create_channel, request);
+            check_command_response(response, &format!("Channel {channel} created successfully"))
         }
 
         ChannelManagerCommand::DeleteChannel { channel } => {
-            let request = ControlRequest {
-                msg_id: generate_msg_id(),
-                payload: Some(Payload::DeleteChannel(cm_proto::DeleteChannel {
-                    channel_name: channel.clone(),
-                })),
+            let request = DeleteChannelRequest {
+                channel_name: channel.clone(),
             };
-            let response = rpc!(client, command, request);
-            handle_command_response(response, &format!("Channel {channel} deleted successfully"))
+            let response = rpc!(client, delete_channel, request);
+            check_command_response(response, &format!("Channel {channel} deleted successfully"))
         }
 
         ChannelManagerCommand::AddParticipant {
             channel,
             participant,
         } => {
-            let request = ControlRequest {
-                msg_id: generate_msg_id(),
-                payload: Some(Payload::AddParticipant(cm_proto::AddParticipant {
-                    channel_name: channel.clone(),
-                    participant_name: participant.clone(),
-                })),
+            let request = AddParticipantRequest {
+                channel_name: channel.clone(),
+                participant_name: participant.clone(),
             };
-            let response = rpc!(client, command, request);
-            handle_command_response(
+            let response = rpc!(client, add_participant, request);
+            check_command_response(
                 response,
                 &format!("Participant {participant} added to channel {channel}"),
             )
@@ -141,71 +122,55 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ClientConfig) -> Result<()> {
             channel,
             participant,
         } => {
-            let request = ControlRequest {
-                msg_id: generate_msg_id(),
-                payload: Some(Payload::DeleteParticipant(cm_proto::DeleteParticipant {
-                    channel_name: channel.clone(),
-                    participant_name: participant.clone(),
-                })),
+            let request = DeleteParticipantRequest {
+                channel_name: channel.clone(),
+                participant_name: participant.clone(),
             };
-            let response = rpc!(client, command, request);
-            handle_command_response(
+            let response = rpc!(client, delete_participant, request);
+            check_command_response(
                 response,
                 &format!("Participant {participant} removed from channel {channel}"),
             )
         }
 
         ChannelManagerCommand::ListChannels => {
-            let request = ControlRequest {
-                msg_id: generate_msg_id(),
-                payload: Some(Payload::ListChannels(cm_proto::ListChannels {})),
-            };
-            let response = rpc!(client, command, request);
-            match response.payload {
-                Some(ResponsePayload::ChannelsList(list)) => {
-                    println!("Channels ({}):", list.channel_name.len());
-                    for name in &list.channel_name {
-                        println!("  - {name}");
-                    }
-                    Ok(())
-                }
-                Some(ResponsePayload::CommandResponse(cmd_resp)) if !cmd_resp.success => {
-                    let err = cmd_resp
+            let response = rpc!(client, list_channels, ListChannelsRequest {});
+            if !response.success {
+                bail!(
+                    "{}",
+                    response
                         .error_msg
-                        .unwrap_or_else(|| "unknown error".to_string());
-                    bail!("Command failed: {err}")
-                }
-                _ => bail!("Unexpected response type"),
+                        .unwrap_or_else(|| "unknown error".to_string())
+                );
             }
+            println!("Channels ({}):", response.channel_name.len());
+            for name in &response.channel_name {
+                println!("  - {name}");
+            }
+            Ok(())
         }
 
         ChannelManagerCommand::ListParticipants { channel } => {
-            let request = ControlRequest {
-                msg_id: generate_msg_id(),
-                payload: Some(Payload::ListParticipants(cm_proto::ListParticipants {
-                    channel_name: channel.clone(),
-                })),
+            let request = ListParticipantsRequest {
+                channel_name: channel.clone(),
             };
-            let response = rpc!(client, command, request);
-            match response.payload {
-                Some(ResponsePayload::ParticipantsList(list)) => {
-                    println!(
-                        "Participants in channel {channel} ({}):",
-                        list.participant_name.len()
-                    );
-                    for name in &list.participant_name {
-                        println!("  - {name}");
-                    }
-                    Ok(())
-                }
-                Some(ResponsePayload::CommandResponse(cmd_resp)) if !cmd_resp.success => {
-                    let err = cmd_resp
+            let response = rpc!(client, list_participants, request);
+            if !response.success {
+                bail!(
+                    "{}",
+                    response
                         .error_msg
-                        .unwrap_or_else(|| "unknown error".to_string());
-                    bail!("Command failed: {err}")
-                }
-                _ => bail!("Unexpected response type"),
+                        .unwrap_or_else(|| "unknown error".to_string())
+                );
             }
+            println!(
+                "Participants in channel {channel} ({}):",
+                response.participant_name.len()
+            );
+            for name in &response.participant_name {
+                println!("  - {name}");
+            }
+            Ok(())
         }
     }
 }
@@ -217,85 +182,44 @@ mod tests {
     use tokio_stream::wrappers::TcpListenerStream;
 
     use crate::proto::channel_manager::proto::v1::{
-        ChannelsList, CommandResponse, ControlRequest, ControlResponse, ParticipantsList,
+        AddParticipantRequest, CommandResponse, CreateChannelRequest, DeleteChannelRequest,
+        DeleteParticipantRequest, ListChannelsRequest, ListChannelsResponse,
+        ListParticipantsRequest, ListParticipantsResponse,
         channel_manager_service_server::{ChannelManagerService, ChannelManagerServiceServer},
-        control_request::Payload as RequestPayload,
-        control_response::Payload as RespPayload,
     };
     use slim_config::grpc::client::ClientConfig;
 
     use super::*;
 
-    // ── handle_command_response unit tests ───────────────────────────────────
+    // ── check_command_response unit tests ────────────────────────────────────
 
     #[test]
-    fn handle_command_response_success() {
-        let resp = ControlResponse {
-            msg_id: 1,
-            payload: Some(RespPayload::CommandResponse(CommandResponse {
-                msg_id: 1,
-                success: true,
-                error_msg: None,
-            })),
+    fn check_command_response_success() {
+        let resp = CommandResponse {
+            success: true,
+            error_msg: None,
         };
-        assert!(handle_command_response(resp, "ok").is_ok());
+        assert!(check_command_response(resp, "ok").is_ok());
     }
 
     #[test]
-    fn handle_command_response_failure_with_message() {
-        let resp = ControlResponse {
-            msg_id: 1,
-            payload: Some(RespPayload::CommandResponse(CommandResponse {
-                msg_id: 1,
-                success: false,
-                error_msg: Some("bad channel".to_string()),
-            })),
+    fn check_command_response_failure_with_message() {
+        let resp = CommandResponse {
+            success: false,
+            error_msg: Some("bad channel".to_string()),
         };
-        let err = handle_command_response(resp, "ok").unwrap_err();
+        let err = check_command_response(resp, "ok").unwrap_err();
         assert!(err.to_string().contains("bad channel"));
     }
 
     #[test]
-    fn handle_command_response_failure_without_message() {
-        let resp = ControlResponse {
-            msg_id: 1,
-            payload: Some(RespPayload::CommandResponse(CommandResponse {
-                msg_id: 1,
-                success: false,
-                error_msg: None,
-            })),
+    fn check_command_response_failure_without_message() {
+        let resp = CommandResponse {
+            success: false,
+            error_msg: None,
         };
-        let err = handle_command_response(resp, "ok").unwrap_err();
+        let err = check_command_response(resp, "ok").unwrap_err();
         assert!(err.to_string().contains("unknown error"));
-    }
-
-    #[test]
-    fn handle_command_response_unexpected_payload() {
-        let resp = ControlResponse {
-            msg_id: 1,
-            payload: Some(RespPayload::ChannelsList(ChannelsList {
-                msg_id: 1,
-                channel_name: vec![],
-            })),
-        };
-        let err = handle_command_response(resp, "ok").unwrap_err();
-        assert!(err.to_string().contains("Unexpected response type"));
-    }
-
-    #[test]
-    fn handle_command_response_no_payload() {
-        let resp = ControlResponse {
-            msg_id: 1,
-            payload: None,
-        };
-        let err = handle_command_response(resp, "ok").unwrap_err();
-        assert!(err.to_string().contains("Unexpected response type"));
-    }
-
-    #[test]
-    fn generate_msg_id_returns_nonzero_most_of_the_time() {
-        let ids: Vec<u64> = (0..10).map(|_| generate_msg_id()).collect();
-        assert!(ids.iter().any(|&id| id != 0));
     }
 
     // ── mock gRPC servers ───────────────────────────────────────────────────
@@ -304,39 +228,65 @@ mod tests {
 
     #[tonic::async_trait]
     impl ChannelManagerService for MockChannelManagerSvc {
-        async fn command(
+        async fn create_channel(
             &self,
-            request: tonic::Request<ControlRequest>,
-        ) -> Result<tonic::Response<ControlResponse>, tonic::Status> {
-            let req = request.into_inner();
-            let resp_payload = match req.payload {
-                Some(RequestPayload::CreateChannel(_))
-                | Some(RequestPayload::DeleteChannel(_))
-                | Some(RequestPayload::AddParticipant(_))
-                | Some(RequestPayload::DeleteParticipant(_)) => {
-                    RespPayload::CommandResponse(CommandResponse {
-                        msg_id: req.msg_id,
-                        success: true,
-                        error_msg: None,
-                    })
-                }
-                Some(RequestPayload::ListChannels(_)) => RespPayload::ChannelsList(ChannelsList {
-                    msg_id: req.msg_id,
-                    channel_name: vec!["org/ns/chan1".to_string(), "org/ns/chan2".to_string()],
-                }),
-                Some(RequestPayload::ListParticipants(_)) => {
-                    RespPayload::ParticipantsList(ParticipantsList {
-                        msg_id: req.msg_id,
-                        participant_name: vec!["org/ns/app1".to_string()],
-                    })
-                }
-                None => {
-                    return Err(tonic::Status::invalid_argument("missing payload"));
-                }
-            };
-            Ok(tonic::Response::new(ControlResponse {
-                msg_id: req.msg_id,
-                payload: Some(resp_payload),
+            _request: tonic::Request<CreateChannelRequest>,
+        ) -> Result<tonic::Response<CommandResponse>, tonic::Status> {
+            Ok(tonic::Response::new(CommandResponse {
+                success: true,
+                error_msg: None,
+            }))
+        }
+
+        async fn delete_channel(
+            &self,
+            _request: tonic::Request<DeleteChannelRequest>,
+        ) -> Result<tonic::Response<CommandResponse>, tonic::Status> {
+            Ok(tonic::Response::new(CommandResponse {
+                success: true,
+                error_msg: None,
+            }))
+        }
+
+        async fn add_participant(
+            &self,
+            _request: tonic::Request<AddParticipantRequest>,
+        ) -> Result<tonic::Response<CommandResponse>, tonic::Status> {
+            Ok(tonic::Response::new(CommandResponse {
+                success: true,
+                error_msg: None,
+            }))
+        }
+
+        async fn delete_participant(
+            &self,
+            _request: tonic::Request<DeleteParticipantRequest>,
+        ) -> Result<tonic::Response<CommandResponse>, tonic::Status> {
+            Ok(tonic::Response::new(CommandResponse {
+                success: true,
+                error_msg: None,
+            }))
+        }
+
+        async fn list_channels(
+            &self,
+            _request: tonic::Request<ListChannelsRequest>,
+        ) -> Result<tonic::Response<ListChannelsResponse>, tonic::Status> {
+            Ok(tonic::Response::new(ListChannelsResponse {
+                success: true,
+                error_msg: None,
+                channel_name: vec!["org/ns/chan1".to_string(), "org/ns/chan2".to_string()],
+            }))
+        }
+
+        async fn list_participants(
+            &self,
+            _request: tonic::Request<ListParticipantsRequest>,
+        ) -> Result<tonic::Response<ListParticipantsResponse>, tonic::Status> {
+            Ok(tonic::Response::new(ListParticipantsResponse {
+                success: true,
+                error_msg: None,
+                participant_name: vec!["org/ns/app1".to_string()],
             }))
         }
     }
@@ -345,10 +295,45 @@ mod tests {
 
     #[tonic::async_trait]
     impl ChannelManagerService for ErrorChannelManagerSvc {
-        async fn command(
+        async fn create_channel(
             &self,
-            _request: tonic::Request<ControlRequest>,
-        ) -> Result<tonic::Response<ControlResponse>, tonic::Status> {
+            _request: tonic::Request<CreateChannelRequest>,
+        ) -> Result<tonic::Response<CommandResponse>, tonic::Status> {
+            Err(tonic::Status::internal("forced server error"))
+        }
+
+        async fn delete_channel(
+            &self,
+            _request: tonic::Request<DeleteChannelRequest>,
+        ) -> Result<tonic::Response<CommandResponse>, tonic::Status> {
+            Err(tonic::Status::internal("forced server error"))
+        }
+
+        async fn add_participant(
+            &self,
+            _request: tonic::Request<AddParticipantRequest>,
+        ) -> Result<tonic::Response<CommandResponse>, tonic::Status> {
+            Err(tonic::Status::internal("forced server error"))
+        }
+
+        async fn delete_participant(
+            &self,
+            _request: tonic::Request<DeleteParticipantRequest>,
+        ) -> Result<tonic::Response<CommandResponse>, tonic::Status> {
+            Err(tonic::Status::internal("forced server error"))
+        }
+
+        async fn list_channels(
+            &self,
+            _request: tonic::Request<ListChannelsRequest>,
+        ) -> Result<tonic::Response<ListChannelsResponse>, tonic::Status> {
+            Err(tonic::Status::internal("forced server error"))
+        }
+
+        async fn list_participants(
+            &self,
+            _request: tonic::Request<ListParticipantsRequest>,
+        ) -> Result<tonic::Response<ListParticipantsResponse>, tonic::Status> {
             Err(tonic::Status::internal("forced server error"))
         }
     }
@@ -357,42 +342,65 @@ mod tests {
 
     #[tonic::async_trait]
     impl ChannelManagerService for NackChannelManagerSvc {
-        async fn command(
+        async fn create_channel(
             &self,
-            request: tonic::Request<ControlRequest>,
-        ) -> Result<tonic::Response<ControlResponse>, tonic::Status> {
-            let req = request.into_inner();
-            let err_msg = match req.payload {
-                Some(RequestPayload::ListChannels(_))
-                | Some(RequestPayload::ListParticipants(_)) => "list denied",
-                _ => "nack",
-            };
-            Ok(tonic::Response::new(ControlResponse {
-                msg_id: req.msg_id,
-                payload: Some(RespPayload::CommandResponse(CommandResponse {
-                    msg_id: req.msg_id,
-                    success: false,
-                    error_msg: Some(err_msg.to_string()),
-                })),
+            _request: tonic::Request<CreateChannelRequest>,
+        ) -> Result<tonic::Response<CommandResponse>, tonic::Status> {
+            Ok(tonic::Response::new(CommandResponse {
+                success: false,
+                error_msg: Some("nack".to_string()),
             }))
         }
-    }
 
-    struct UnexpectedPayloadSvc;
-
-    #[tonic::async_trait]
-    impl ChannelManagerService for UnexpectedPayloadSvc {
-        async fn command(
+        async fn delete_channel(
             &self,
-            request: tonic::Request<ControlRequest>,
-        ) -> Result<tonic::Response<ControlResponse>, tonic::Status> {
-            let req = request.into_inner();
-            Ok(tonic::Response::new(ControlResponse {
-                msg_id: req.msg_id,
-                payload: Some(RespPayload::ChannelsList(ChannelsList {
-                    msg_id: req.msg_id,
-                    channel_name: vec![],
-                })),
+            _request: tonic::Request<DeleteChannelRequest>,
+        ) -> Result<tonic::Response<CommandResponse>, tonic::Status> {
+            Ok(tonic::Response::new(CommandResponse {
+                success: false,
+                error_msg: Some("nack".to_string()),
+            }))
+        }
+
+        async fn add_participant(
+            &self,
+            _request: tonic::Request<AddParticipantRequest>,
+        ) -> Result<tonic::Response<CommandResponse>, tonic::Status> {
+            Ok(tonic::Response::new(CommandResponse {
+                success: false,
+                error_msg: Some("nack".to_string()),
+            }))
+        }
+
+        async fn delete_participant(
+            &self,
+            _request: tonic::Request<DeleteParticipantRequest>,
+        ) -> Result<tonic::Response<CommandResponse>, tonic::Status> {
+            Ok(tonic::Response::new(CommandResponse {
+                success: false,
+                error_msg: Some("nack".to_string()),
+            }))
+        }
+
+        async fn list_channels(
+            &self,
+            _request: tonic::Request<ListChannelsRequest>,
+        ) -> Result<tonic::Response<ListChannelsResponse>, tonic::Status> {
+            Ok(tonic::Response::new(ListChannelsResponse {
+                success: false,
+                error_msg: Some("list denied".to_string()),
+                channel_name: vec![],
+            }))
+        }
+
+        async fn list_participants(
+            &self,
+            _request: tonic::Request<ListParticipantsRequest>,
+        ) -> Result<tonic::Response<ListParticipantsResponse>, tonic::Status> {
+            Ok(tonic::Response::new(ListParticipantsResponse {
+                success: false,
+                error_msg: Some("list denied".to_string()),
+                participant_name: vec![],
             }))
         }
     }
@@ -644,32 +652,5 @@ mod tests {
         };
         let err = run(&args, &make_opts(&addr)).await.unwrap_err();
         assert!(err.to_string().contains("list denied"));
-    }
-
-    // ── unexpected-payload tests ────────────────────────────────────────────
-
-    #[tokio::test]
-    async fn create_channel_unexpected_payload_fails() {
-        let addr = spawn_svc(UnexpectedPayloadSvc).await;
-        let args = ChannelManagerArgs {
-            command: ChannelManagerCommand::CreateChannel {
-                channel: "c".to_string(),
-                disable_mls: false,
-            },
-        };
-        let err = run(&args, &make_opts(&addr)).await.unwrap_err();
-        assert!(err.to_string().contains("Unexpected response type"));
-    }
-
-    #[tokio::test]
-    async fn delete_channel_unexpected_payload_fails() {
-        let addr = spawn_svc(UnexpectedPayloadSvc).await;
-        let args = ChannelManagerArgs {
-            command: ChannelManagerCommand::DeleteChannel {
-                channel: "c".to_string(),
-            },
-        };
-        let err = run(&args, &make_opts(&addr)).await.unwrap_err();
-        assert!(err.to_string().contains("Unexpected response type"));
     }
 }
