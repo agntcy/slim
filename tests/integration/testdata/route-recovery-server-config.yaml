@@ -8,25 +8,14 @@ tracing:
 
 runtime:
   n_cores: 0
-  thread_name: "slim-data-plane-b"
+  thread_name: "slim-route-recovery-server"
   drain_timeout: 10s
 
 services:
-  slim/b:
+  slim/0:
     dataplane:
-      recovery_ttl: "0s"
       servers:
-        - endpoint: "0.0.0.0:46367"
+        - endpoint: "0.0.0.0:46490"
           tls:
             insecure: true
-
       clients: []
-    controller:
-      clients:
-        - endpoint: "http://127.0.0.1:50052"
-          tls:
-            insecure: true
-      servers:
-        - endpoint: "0.0.0.0:46368"
-          tls:
-            insecure: true

@@ -20,6 +20,7 @@ agntcy-slim-tracing = { workspace = true }
 agntcy-slim-version = { workspace = true }
 display-error-chain = { workspace = true }
 drain = { workspace = true }
+duration-string = { workspace = true }
 h2 = { workspace = true }
 parking_lot = { workspace = true }
 prost = { workspace = true }
