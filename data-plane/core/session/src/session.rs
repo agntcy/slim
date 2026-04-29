@@ -3,7 +3,7 @@
 
 use async_trait::async_trait;
 use slim_datapath::{
-    api::{ProtoMessage as Message, ProtoSessionMessageType},
+    api::{EncodedName, ProtoMessage as Message, ProtoSessionMessageType},
     messages::Name,
 };
 
@@ -177,7 +177,7 @@ impl Session {
         &mut self,
         id: u32,
         message_type: ProtoSessionMessageType,
-        name: Option<Name>,
+        name: Option<EncodedName>,
     ) -> Result<(), SessionError> {
         match message_type {
             ProtoSessionMessageType::Msg => self.sender.on_timer_timeout(id).await,
@@ -192,7 +192,7 @@ impl Session {
         &mut self,
         id: u32,
         message_type: ProtoSessionMessageType,
-        name: Option<Name>,
+        name: Option<EncodedName>,
     ) -> Result<(), SessionError> {
         match message_type {
             ProtoSessionMessageType::Msg => self.sender.on_timer_failure(id),

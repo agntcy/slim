@@ -498,20 +498,19 @@ pub fn handle_channel_discovery_message(
     session_id: u32,
     session_type: ProtoSessionType,
 ) -> Result<Message, SessionError> {
-    let destination = message.get_source();
+    let destination = message.get_slim_header().source.clone().unwrap();
 
     // the destination of the discovery message may be different from the name of
     // application itself. This can happen if the application subscribes to multiple
     // service names. So we can reply using as a source the destination name of
     // the discovery message but setting the application id
-
-    let mut source = message.get_dst();
-    source.set_id(app_name.id());
+    let source = message.get_slim_header().destination.clone().unwrap();
+    source.name.unwrap().component_3 = app_name.id();
     let msg_id = message.get_id();
 
-    let slim_header = SlimHeader::new(
-        &source,
-        &destination,
+    let slim_header = SlimHeader::new_from_protos(
+        source,
+        destination,
         "", // the identity will be added by the identity interceptor
         Some(SlimHeaderFlags::default().with_forward_to(message.get_incoming_conn())),
     );

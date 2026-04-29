@@ -212,17 +212,16 @@ impl SlimHeaderFlags {
 /// This header is used to identify the source and destination of the message
 /// and to manage the connections used to send and receive the message
 impl SlimHeader {
-    pub fn new(
-        source: &Name,
-        destination: &Name,
+    pub fn new_from_protos(
+        source: ProtoName,
+        destination: ProtoName,
         identity: &str,
         flags: Option<SlimHeaderFlags>,
     ) -> Self {
         let flags = flags.unwrap_or_default();
-
         Self {
-            source: Some(ProtoName::from(source)),
-            destination: Some(ProtoName::from(destination)),
+            source: Some(source),
+            destination: Some(destination),
             identity: identity.to_string(),
             fanout: flags.fanout,
             recv_from: flags.recv_from,
@@ -230,6 +229,20 @@ impl SlimHeader {
             incoming_conn: flags.incoming_conn,
             error: flags.error,
         }
+    }
+
+    pub fn new(
+        source: &Name,
+        destination: &Name,
+        identity: &str,
+        flags: Option<SlimHeaderFlags>,
+    ) -> Self {
+        Self::new_from_protos(
+            ProtoName::from(source),
+            ProtoName::from(destination),
+            identity,
+            flags,
+        )
     }
 
     pub fn clear_flags(&mut self) {
@@ -706,8 +719,16 @@ impl ProtoMessage {
         self.get_slim_header().get_source()
     }
 
+    pub fn get_encoded_source(&self) -> EncodedName {
+        self.get_slim_header().get_encoded_source()
+    }
+
     pub fn get_dst(&self) -> Name {
         self.get_slim_header().get_dst()
+    }
+
+    pub fn get_encoded_dst(&self) -> EncodedName {
+        self.get_slim_header().get_encoded_dst()
     }
 
     pub fn get_identity(&self) -> String {
@@ -1336,7 +1357,9 @@ impl CommandPayload {
 /// ```
 pub struct ProtoMessageBuilder {
     source: Option<Name>,
+    source_proto: Option<ProtoName>,
     destination: Option<Name>,
+    destination_proto: Option<ProtoName>,
     identity: Option<String>,
     flags: Option<SlimHeaderFlags>,
     session_type: Option<ProtoSessionType>,
@@ -1353,7 +1376,9 @@ impl ProtoMessageBuilder {
     pub fn new() -> Self {
         Self {
             source: None,
+            source_proto: None,
             destination: None,
+            destination_proto: None,
             identity: None,
             flags: None,
             session_type: None,
@@ -1375,6 +1400,18 @@ impl ProtoMessageBuilder {
     /// Sets the destination name
     pub fn destination(mut self, destination: Name) -> Self {
         self.destination = Some(destination);
+        self
+    }
+
+    /// Sets the source directly from an already-encoded ProtoName, avoiding Name conversion.
+    pub fn source_proto(mut self, source: ProtoName) -> Self {
+        self.source_proto = Some(source);
+        self
+    }
+
+    /// Sets the destination directly from an already-encoded ProtoName, avoiding Name conversion.
+    pub fn destination_proto(mut self, destination: ProtoName) -> Self {
+        self.destination_proto = Some(destination);
         self
     }
 
@@ -1534,16 +1571,27 @@ impl ProtoMessageBuilder {
 
     /// Builds a publish message
     pub fn build_publish(self) -> Result<ProtoMessage, MessageError> {
-        let source = self
-            .source
-            .ok_or(MessageError::BuilderErrorSourceRequired)?;
-        let destination = self
-            .destination
-            .ok_or(MessageError::BuilderErrorDestinationRequired)?;
+        let source_proto = if let Some(p) = self.source_proto {
+            p
+        } else {
+            let src = self
+                .source
+                .ok_or(MessageError::BuilderErrorSourceRequired)?;
+            ProtoName::from(&src)
+        };
 
-        let slim_header = Some(SlimHeader::new(
-            &source,
-            &destination,
+        let dst_proto = if let Some(p) = self.destination_proto {
+            p
+        } else {
+            let dst = self
+                .destination
+                .ok_or(MessageError::BuilderErrorDestinationRequired)?;
+            ProtoName::from(&dst)
+        };
+
+        let slim_header = Some(SlimHeader::new_from_protos(
+            source_proto,
+            dst_proto,
             self.identity.as_deref().unwrap_or(""),
             self.flags,
         ));

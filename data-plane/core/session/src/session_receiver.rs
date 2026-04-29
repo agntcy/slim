@@ -4,13 +4,12 @@
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
-use slim_datapath::api::ProtoSessionType;
+use slim_datapath::api::{EncodedName, ProtoName, ProtoSessionType};
 use slim_datapath::messages::utils::{PUBLISH_TO, TRUE_VAL};
 use slim_datapath::{api::ProtoMessage as Message, messages::Name};
 use tokio::sync::mpsc::Sender;
 use tracing::debug;
 
-use crate::common::new_message_from_session_fields;
 use crate::transmitter::SessionTransmitter;
 use crate::{
     SessionError, Transmitter,
@@ -27,7 +26,7 @@ struct PendingRtxVal {
 }
 
 struct PendingRtxKey {
-    name: Name,
+    name: EncodedName,
     id: u32,
 }
 
@@ -56,8 +55,9 @@ enum ReceiverDrainStatus {
 
 #[allow(dead_code)]
 pub struct SessionReceiver {
-    /// buffer with received packets one per endpoint
-    buffer: HashMap<Name, ReceiverBuffer>,
+    /// buffer with received packets one per endpoint, keyed by EncodedName
+    /// for zero-alloc hot-path lookups
+    buffer: HashMap<EncodedName, ReceiverBuffer>,
 
     /// list of pending RTX requests per name/id
     pending_rtxs: HashMap<PendingRtxKey, PendingRtxVal>,
@@ -181,12 +181,12 @@ impl SessionReceiver {
             return self.tx.send_to_app(Ok(message)).await;
         }
 
-        let source = message.get_source();
+        let source_proto = message.get_slim_header().source.clone().unwrap();
         let in_conn = message.get_incoming_conn();
-        let buffer = self.buffer.entry(source.clone()).or_default();
+        let buffer = self.buffer.entry(source_proto.name.unwrap()).or_default();
 
         let (recv_vec, rtx_vec) = buffer.on_received_message(message);
-        self.handle_recv_and_rtx_vectors(source, in_conn, recv_vec, rtx_vec)
+        self.handle_recv_and_rtx_vectors(&source_proto, in_conn, recv_vec, rtx_vec)
             .await
     }
 
@@ -202,34 +202,40 @@ impl SessionReceiver {
                 .collect::<std::collections::HashMap<_, _>>()
         });
 
-        let ack = new_message_from_session_fields(
-            &self.local_name,
-            &message.get_source(),
-            message.get_incoming_conn(),
-            false,
-            self.session_type,
-            slim_datapath::api::ProtoSessionMessageType::MsgAck,
-            message.get_session_header().session_id,
-            message.get_id(),
-            publish_meta,
-        )?;
+        // Pass the source ProtoName directly as ACK destination — avoids ProtoName → Name → ProtoName roundtrip.
+        let source_proto = message.get_slim_header().source.clone().unwrap();
+        let mut builder = Message::builder()
+            .source(self.local_name.clone())
+            .destination_proto(source_proto)
+            .identity("")
+            .forward_to(message.get_incoming_conn())
+            .session_type(self.session_type)
+            .session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck)
+            .session_id(message.get_session_header().session_id)
+            .message_id(message.get_id())
+            .application_payload("", vec![]);
 
-        self.tx.send_to_slim(Ok(ack)).await
+        if let Some(meta) = publish_meta {
+            builder = builder.metadata_map(meta);
+        }
+
+        self.tx.send_to_slim(Ok(builder.build_publish()?)).await
     }
 
     pub async fn on_rtx_message(&mut self, message: Message) -> Result<(), SessionError> {
         // in case we get the and RTX reply the session must be reliable
-        let source = message.get_source();
+        let source_proto = message.get_slim_header().source.as_ref().unwrap();
+        let encoded_source = source_proto.name.unwrap();
         let id = message.get_id();
         let in_conn = message.get_incoming_conn();
 
         debug!(
-            %id, %source,
+            %id, source = %source_proto,
             "received RTX reply");
 
-        // remote the timer
+        // remove the timer
         let key = PendingRtxKey {
-            name: source.clone(),
+            name: encoded_source,
             id,
         };
         if let Some(mut pending) = self.pending_rtxs.remove(&key) {
@@ -242,20 +248,20 @@ impl SessionReceiver {
             return self.on_publish_message(message).await;
         }
 
-        let buffer = self
-            .buffer
-            .get_mut(&source)
-            .ok_or_else(|| SessionError::MissingPayload {
-                context: "receiver_buffer_rtx_reply",
-            })?;
+        let buffer =
+            self.buffer
+                .get_mut(&encoded_source)
+                .ok_or_else(|| SessionError::MissingPayload {
+                    context: "receiver_buffer_rtx_reply",
+                })?;
         let recv_vec = buffer.on_lost_message(id);
-        self.handle_recv_and_rtx_vectors(source, in_conn, recv_vec, vec![])
+        self.handle_recv_and_rtx_vectors(source_proto, in_conn, recv_vec, vec![])
             .await
     }
 
     async fn handle_recv_and_rtx_vectors(
         &mut self,
-        source: Name,
+        source: &ProtoName,
         in_conn: u64,
         recv_vec: Vec<Option<Message>>,
         rtx_vec: Vec<u32>,
@@ -283,55 +289,63 @@ impl SessionReceiver {
             }
         }
 
-        for rtx_id in rtx_vec {
-            debug!(
-                id = %rtx_id,
-                source = %source,
-                "send rtx");
+        if !rtx_vec.is_empty() {
+            let encoded = source.name.unwrap();
 
-            let rtx = new_message_from_session_fields(
-                &self.local_name,
-                &source,
-                in_conn,
-                false,
-                self.session_type,
-                slim_datapath::api::ProtoSessionMessageType::RtxRequest,
-                self.session_id,
-                rtx_id,
-                None,
-            )?;
+            for rtx_id in rtx_vec {
+                debug!(
+                    id = %rtx_id,
+                    source = %source,
+                    "send rtx");
 
-            // for each RTX start a timer
-            debug!(id = %rtx_id,
-            source = %source,"create rtx timer");
+                let rtx = Message::builder()
+                    .source(self.local_name.clone())
+                    .destination_proto(source.clone())
+                    .identity("")
+                    .forward_to(in_conn)
+                    .session_type(self.session_type)
+                    .session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxRequest)
+                    .session_id(self.session_id)
+                    .message_id(rtx_id)
+                    .application_payload("", vec![])
+                    .build_publish()?;
 
-            let timer = self.timer_factory.as_ref().unwrap().create_and_start_timer(
-                rtx_id,
-                slim_datapath::api::ProtoSessionMessageType::RtxRequest,
-                Some(source.clone()),
-            );
+                // for each RTX start a timer
+                debug!(id = %rtx_id,
+                source = %source,"create rtx timer");
 
-            let key = PendingRtxKey {
-                name: source.clone(),
-                id: rtx_id,
-            };
-            let val = PendingRtxVal {
-                timer,
-                message: rtx.clone(),
-            };
-            self.pending_rtxs.insert(key, val);
+                let timer = self.timer_factory.as_ref().unwrap().create_and_start_timer(
+                    rtx_id,
+                    slim_datapath::api::ProtoSessionMessageType::RtxRequest,
+                    Some(encoded),
+                );
 
-            // send message
-            debug!(id = %rtx_id,
-            source = %source, "send rtx request for message");
-            self.tx.send_to_slim(Ok(rtx)).await?;
+                let key = PendingRtxKey {
+                    name: encoded,
+                    id: rtx_id,
+                };
+                let val = PendingRtxVal {
+                    timer,
+                    message: rtx.clone(),
+                };
+                self.pending_rtxs.insert(key, val);
+
+                // send message
+                debug!(id = %rtx_id,
+                source = %source, "send rtx request for message");
+                self.tx.send_to_slim(Ok(rtx)).await?;
+            }
         }
 
         Ok(())
     }
 
-    pub async fn on_timer_timeout(&mut self, id: u32, name: Name) -> Result<(), SessionError> {
-        debug!(%id, %name, "timeout for message");
+    pub async fn on_timer_timeout(
+        &mut self,
+        id: u32,
+        name: EncodedName,
+    ) -> Result<(), SessionError> {
+        debug!(%id, "timeout for message");
         let key = PendingRtxKey { name, id };
         let pending = self
             .pending_rtxs
@@ -344,9 +358,13 @@ impl SessionReceiver {
         self.tx.send_to_slim(Ok(pending.message.clone())).await
     }
 
-    pub async fn on_timer_failure(&mut self, id: u32, name: Name) -> Result<(), SessionError> {
+    pub async fn on_timer_failure(
+        &mut self,
+        id: u32,
+        name: EncodedName,
+    ) -> Result<(), SessionError> {
         debug!(
-            %id, %name,
+            %id,
             "timer failure for message, clear state",
         );
         let key = PendingRtxKey { name, id };
@@ -370,7 +388,7 @@ impl SessionReceiver {
         // remove the buffer related to an endpoint so that if it is added again
         // the messages will not be dropped as duplicated
         tracing::debug!(%endpoint, "remove endpoint on the receiver");
-        self.buffer.remove(endpoint);
+        self.buffer.remove(&EncodedName::from(endpoint));
     }
 
     pub fn start_drain(&mut self) {
