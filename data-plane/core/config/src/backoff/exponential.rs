@@ -2,10 +2,10 @@ use crate::backoff::default_max_attempts;
 
 use super::Strategy;
 use duration_string::DurationString;
+use rand::Rng;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use tokio_retry::strategy::{ExponentialBackoff, jitter};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(default)]
@@ -50,14 +50,29 @@ impl Default for Config {
     }
 }
 
+fn jitter(duration: Duration) -> Duration {
+    let nanos = duration.as_nanos();
+    if nanos == 0 {
+        return duration;
+    }
+    let jittered = rand::rng().random_range(0..=nanos);
+    Duration::from_nanos(jittered as u64)
+}
+
 impl Strategy for Config {
     fn get_strategy(&self) -> Box<dyn Iterator<Item = Duration> + Send> {
-        let ret = ExponentialBackoff::from_millis(self.base)
-            .factor(self.factor)
-            .max_delay(self.max_delay.into())
-            .take(self.max_attempts);
+        let base = self.base;
+        let factor = self.factor;
+        let max_delay: Duration = self.max_delay.into();
         let jitter_flag = self.jitter;
 
-        Box::new(ret.map(move |d| if jitter_flag { jitter(d) } else { d }))
+        let iter = (0..self.max_attempts).map(move |attempt| {
+            let delay =
+                Duration::from_millis(base.saturating_mul(factor.saturating_pow(attempt as u32)));
+            let capped = delay.min(max_delay);
+            if jitter_flag { jitter(capped) } else { capped }
+        });
+
+        Box::new(iter)
     }
 }

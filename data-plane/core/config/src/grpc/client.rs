@@ -3,7 +3,8 @@
 
 use duration_string::DurationString;
 use rustls_pki_types::ServerName;
-use tokio_retry::RetryIf;
+
+use crate::backoff::retry_if;
 
 use display_error_chain::ErrorChainExt;
 use std::{collections::HashMap, str::FromStr, time::Duration};
@@ -837,7 +838,7 @@ impl ClientConfig {
             Ok(builder.connect_with_connector_lazy(make_connector()))
         } else {
             let backoff_strategy = self.backoff.get_strategy();
-            RetryIf::spawn(
+            retry_if(
                 backoff_strategy,
                 || {
                     let builder = builder.clone();
@@ -889,7 +890,7 @@ impl ClientConfig {
                 .await
         } else {
             let backoff_strategy = self.backoff.get_strategy();
-            RetryIf::spawn(
+            retry_if(
                 backoff_strategy,
                 || {
                     let uri = uri.clone();
