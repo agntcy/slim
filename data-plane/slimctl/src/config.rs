@@ -12,7 +12,7 @@ use slim_config::grpc::client::{AuthenticationConfig, BackoffConfig, ClientConfi
 use slim_config::tls::client::TlsClientConfig;
 
 pub(crate) const DEFAULT_TIMEOUT: &str = "15s";
-pub(crate) const DEFAULT_NODE_ENDPOINT: &str = "127.0.0.1:46357";
+pub(crate) const DEFAULT_NODE_ENDPOINT: &str = "127.0.0.1:46358";
 pub(crate) const DEFAULT_CONTROLLER_ENDPOINT: &str = "127.0.0.1:50051";
 pub(crate) const DEFAULT_CHANNEL_MANAGER_ENDPOINT: &str = "127.0.0.1:10356";
 
