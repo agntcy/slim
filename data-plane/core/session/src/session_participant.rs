@@ -184,7 +184,7 @@ where
                 debug!("received drain signal");
                 // create a leave request message for the participant that
                 // got disconnected and add the metadata to the message
-                let p = CommandPayload::builder().leave_request(None).as_content();
+                let p = CommandPayload::builder().leave_request().as_content();
                 if let Some(moderator) = &self.moderator_name {
                     let mut msg = self.common.create_control_message(
                         moderator,
@@ -1016,7 +1016,7 @@ mod tests {
             .session_message_type(ProtoSessionMessageType::LeaveRequest)
             .session_id(1)
             .message_id(500)
-            .payload(CommandPayload::builder().leave_request(None).as_content())
+            .payload(CommandPayload::builder().leave_request().as_content())
             .build_publish()
             .unwrap();
 
@@ -1311,11 +1311,7 @@ mod tests {
             .session_message_type(ProtoSessionMessageType::DiscoveryRequest)
             .session_id(1)
             .message_id(100)
-            .payload(
-                CommandPayload::builder()
-                    .discovery_request(None)
-                    .as_content(),
-            )
+            .payload(CommandPayload::builder().discovery_request().as_content())
             .build_publish()
             .unwrap();
 

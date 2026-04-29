@@ -417,9 +417,7 @@ impl SessionController {
 
     /// Creates a discovery request message with minimum required information
     fn create_discovery_request(&self, destination: &Name) -> Result<Message, SessionError> {
-        let payload = CommandPayload::builder()
-            .discovery_request(None)
-            .as_content();
+        let payload = CommandPayload::builder().discovery_request().as_content();
 
         let msg = Message::builder()
             .source(self.source().clone())
@@ -477,7 +475,7 @@ impl SessionController {
                     .session_message_type(ProtoSessionMessageType::LeaveRequest)
                     .session_id(self.id())
                     .message_id(rand::random::<u32>())
-                    .payload(CommandPayload::builder().leave_request(None).as_content())
+                    .payload(CommandPayload::builder().leave_request().as_content())
                     .build_publish()?;
                 self.publish_message(msg).await
             }
@@ -1104,11 +1102,7 @@ mod tests {
             .session_message_type(ProtoSessionMessageType::DiscoveryRequest)
             .session_id(session_id)
             .message_id(123)
-            .payload(
-                CommandPayload::builder()
-                    .discovery_request(None)
-                    .as_content(),
-            )
+            .payload(CommandPayload::builder().discovery_request().as_content())
             .build_publish()
             .unwrap();
 
@@ -1621,7 +1615,7 @@ mod tests {
             .session_message_type(slim_datapath::api::ProtoSessionMessageType::LeaveRequest)
             .session_id(session_id)
             .message_id(rand::random::<u32>())
-            .payload(CommandPayload::builder().leave_request(None).as_content())
+            .payload(CommandPayload::builder().leave_request().as_content())
             .build_publish()
             .unwrap();
 
