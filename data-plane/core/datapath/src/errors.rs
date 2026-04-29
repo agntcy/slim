@@ -3,7 +3,8 @@
 
 use crate::api::ProtoSessionMessageType;
 use crate::api::proto::dataplane::v1::Message;
-use crate::messages::{Name, utils::MessageError};
+use crate::api::ProtoName;
+use crate::messages::utils::MessageError;
 use slim_config::grpc::errors::ConfigError;
 use thiserror::Error;
 
@@ -25,12 +26,10 @@ pub enum DataPathError {
     InvalidMessage(MessageError),
 
     // Subscription / matching
-    #[error("no matching found for {0}")]
-    NoMatch(Name),
     #[error("no matching found for [{:x}, {:x}, {:x}, {:x}]", .0[0], .0[1], .0[2], .0[3])]
     NoMatchEncoded([u64; 4]),
     #[error("subscription not found")]
-    SubscriptionNotFound(Name),
+    SubscriptionNotFound(ProtoName),
     #[error("subscription id not found: {0}")]
     SubscriptionIdNotFound(u64),
     #[error("id not found: {0}")]

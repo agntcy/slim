@@ -11,9 +11,8 @@ use tracing::{debug, error, warn};
 
 use super::SubscriptionTable;
 use super::pool::Pool;
-use crate::api::EncodedName;
+use crate::api::{EncodedName, ProtoName};
 use crate::errors::DataPathError;
-use crate::messages::Name;
 
 #[derive(Debug, Clone)]
 struct SubscriptionName([u64; 3]);
@@ -242,12 +241,12 @@ struct NameState {
 }
 
 impl NameState {
-    fn new(id: u64, conn: u64, is_local: bool, subscription_id: u64, name: Name) -> Self {
-        let s = name.components_strings();
+    fn new(id: u64, conn: u64, is_local: bool, subscription_id: u64, name: ProtoName) -> Self {
+        let (s0, s1, s2) = name.str_components();
         let mut type_state = NameState {
             ids: HashMap::new(),
             connections: [Connections::default(), Connections::default()],
-            representative_strings: [s[0].clone(), s[1].clone(), s[2].clone()],
+            representative_strings: [s0.to_string(), s1.to_string(), s2.to_string()],
         };
         let refs = SubscriptionRefs::new(conn, subscription_id);
         if is_local {
@@ -351,7 +350,7 @@ impl NameState {
             index = 1;
         }
 
-        if id == Name::NULL_COMPONENT {
+        if id == ProtoName::NULL_COMPONENT {
             return self.connections[index].get_one(incoming_conn);
         }
 
@@ -411,7 +410,7 @@ impl NameState {
             index = 1;
         }
 
-        if id == Name::NULL_COMPONENT {
+        if id == ProtoName::NULL_COMPONENT {
             return self.connections[index].get_all(incoming_conn);
         }
 
@@ -458,11 +457,11 @@ pub struct SubscriptionTableImpl {
     // name -> name state
     // if a subscription comes for a specific id, it is added
     // to that specific id, otherwise the connection is added
-    // to the Name::NULL_COMPONENT id
+    // to the ProtoName::NULL_COMPONENT id
     table: RwLock<HashMap<SubscriptionName, NameState>>,
     // connections tables
     // conn_index -> set(name)
-    connections: RwLock<HashMap<u64, HashSet<Name>>>,
+    connections: RwLock<HashMap<u64, HashSet<ProtoName>>>,
 }
 
 impl Display for SubscriptionTableImpl {
@@ -502,15 +501,15 @@ impl Display for SubscriptionTableImpl {
 }
 
 fn add_subscription_to_sub_table(
-    name: Name,
+    name: ProtoName,
     conn: u64,
     is_local: bool,
     subscription_id: u64,
     mut table: RwLockWriteGuard<'_, RawRwLock, HashMap<SubscriptionName, NameState>>,
 ) {
     let uid = name.id();
-    let c = name.components();
-    let key = SubscriptionName([c[0], c[1], c[2]]);
+    let enc = name.name.as_ref().unwrap();
+    let key = SubscriptionName([enc.component_0, enc.component_1, enc.component_2]);
 
     match table.get_mut(&key) {
         None => {
@@ -528,9 +527,9 @@ fn add_subscription_to_sub_table(
 }
 
 fn add_subscription_to_connection(
-    name: Name,
+    name: ProtoName,
     conn_index: u64,
-    mut map: RwLockWriteGuard<'_, RawRwLock, HashMap<u64, HashSet<Name>>>,
+    mut map: RwLockWriteGuard<'_, RawRwLock, HashMap<u64, HashSet<ProtoName>>>,
 ) -> Result<(), DataPathError> {
     let name_str = name.to_string();
 
@@ -569,14 +568,14 @@ fn add_subscription_to_connection(
 }
 
 fn remove_subscription_from_sub_table(
-    name: &Name,
+    name: &ProtoName,
     conn_index: u64,
     is_local: bool,
     subscription_id: u64,
     table: &mut RwLockWriteGuard<'_, RawRwLock, HashMap<SubscriptionName, NameState>>,
 ) -> Result<bool, DataPathError> {
-    let c = name.components();
-    let key = SubscriptionName([c[0], c[1], c[2]]);
+    let enc = name.name.as_ref().unwrap();
+    let key = SubscriptionName([enc.component_0, enc.component_1, enc.component_2]);
 
     if let Some(state) = table.get_mut(&key) {
         let conn_fully_removed = state.remove(&name.id(), conn_index, is_local, subscription_id)?;
@@ -592,13 +591,13 @@ fn remove_subscription_from_sub_table(
 }
 
 fn force_remove_subscription_from_sub_table(
-    name: &Name,
+    name: &ProtoName,
     conn_index: u64,
     is_local: bool,
     table: &mut RwLockWriteGuard<'_, RawRwLock, HashMap<SubscriptionName, NameState>>,
 ) -> Result<(), DataPathError> {
-    let c = name.components();
-    let key = SubscriptionName([c[0], c[1], c[2]]);
+    let enc = name.name.as_ref().unwrap();
+    let key = SubscriptionName([enc.component_0, enc.component_1, enc.component_2]);
 
     if let Some(state) = table.get_mut(&key) {
         state.force_remove(&name.id(), conn_index, is_local)?;
@@ -613,9 +612,9 @@ fn force_remove_subscription_from_sub_table(
 }
 
 fn remove_subscription_from_connection(
-    name: &Name,
+    name: &ProtoName,
     conn_index: u64,
-    mut map: RwLockWriteGuard<'_, RawRwLock, HashMap<u64, HashSet<Name>>>,
+    mut map: RwLockWriteGuard<'_, RawRwLock, HashMap<u64, HashSet<ProtoName>>>,
 ) -> Result<(), DataPathError> {
     let set = map.get_mut(&conn_index);
     match set {
@@ -648,13 +647,13 @@ impl SubscriptionTable for SubscriptionTableImpl {
 
     fn for_each<F>(&self, mut f: F)
     where
-        F: FnMut(&Name, u64, &[u64], &[u64]),
+        F: FnMut(&ProtoName, u64, &[u64], &[u64]),
     {
         let table = self.table.read();
 
         for (_, v) in table.iter() {
             let s = &v.representative_strings;
-            let name = Name::from_strings([s[0].as_str(), s[1].as_str(), s[2].as_str()]);
+            let name = ProtoName::from_strings([s[0].as_str(), s[1].as_str(), s[2].as_str()]);
             for (id, conn_refs) in v.ids.iter() {
                 // Convert SubscriptionRefs keys to Vec for the callback
                 let local: Vec<u64> = conn_refs[0].keys().copied().collect();
@@ -666,7 +665,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
 
     fn add_subscription(
         &self,
-        name: Name,
+        name: ProtoName,
         conn: u64,
         is_local: bool,
         subscription_id: u64,
@@ -684,7 +683,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
 
     fn remove_subscription(
         &self,
-        name: &Name,
+        name: &ProtoName,
         conn: u64,
         is_local: bool,
         subscription_id: u64,
@@ -704,7 +703,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         &self,
         conn: u64,
         is_local: bool,
-    ) -> Result<HashMap<Name, HashSet<u64>>, Self::Error> {
+    ) -> Result<HashMap<ProtoName, HashSet<u64>>, Self::Error> {
         let removed_subscriptions = self
             .connections
             .write()
@@ -850,16 +849,16 @@ mod tests {
 
     use tracing_test::traced_test;
 
-    fn enc(name: &Name) -> EncodedName {
-        EncodedName::from(name)
+    fn enc(name: &ProtoName) -> EncodedName {
+        name.name.clone().unwrap()
     }
 
     #[test]
     #[traced_test]
     fn test_table() {
-        let name1 = Name::from_strings(["agntcy", "default", "one"]);
-        let name2 = Name::from_strings(["agntcy", "default", "two"]);
-        let name3 = Name::from_strings(["agntcy", "default", "three"]);
+        let name1 = ProtoName::from_strings(["agntcy", "default", "one"]);
+        let name2 = ProtoName::from_strings(["agntcy", "default", "two"]);
+        let name3 = ProtoName::from_strings(["agntcy", "default", "three"]);
 
         let name1_1 = name1.clone().with_id(1);
         let name2_2 = name2.clone().with_id(2);
@@ -1003,8 +1002,8 @@ mod tests {
 
     #[test]
     fn test_iter() {
-        let name1 = Name::from_strings(["agntcy", "default", "one"]);
-        let name2 = Name::from_strings(["agntcy", "default", "two"]);
+        let name1 = ProtoName::from_strings(["agntcy", "default", "one"]);
+        let name2 = ProtoName::from_strings(["agntcy", "default", "two"]);
 
         let t = SubscriptionTableImpl::default();
 
@@ -1037,7 +1036,7 @@ mod tests {
 
     #[test]
     fn test_match_all_with_mixed_local_and_remote_connections() {
-        let name = Name::from_strings(["agntcy", "default", "service"]);
+        let name = ProtoName::from_strings(["agntcy", "default", "service"]);
         let t = SubscriptionTableImpl::default();
 
         // Add local connections
@@ -1122,7 +1121,7 @@ mod tests {
     #[test]
     #[traced_test]
     fn test_subscription_refcounting() {
-        let name1 = Name::from_strings(["agntcy", "default", "service"]);
+        let name1 = ProtoName::from_strings(["agntcy", "default", "service"]);
         let t = SubscriptionTableImpl::default();
 
         // Adding the same subscription_id multiple times is idempotent (dedup)
@@ -1142,7 +1141,7 @@ mod tests {
         );
 
         // Test with multiple connections and subscription_ids
-        let name2 = Name::from_strings(["agntcy", "default", "multi"]);
+        let name2 = ProtoName::from_strings(["agntcy", "default", "multi"]);
 
         // Connection 1: 3 different subscription_ids = 3 refs
         assert!(t.add_subscription(name2.clone(), 1, false, 201).is_ok());
@@ -1200,7 +1199,7 @@ mod tests {
     #[test]
     #[traced_test]
     fn test_connection_death_with_refcounting() {
-        let name1 = Name::from_strings(["agntcy", "default", "cleanup"]);
+        let name1 = ProtoName::from_strings(["agntcy", "default", "cleanup"]);
         let t = SubscriptionTableImpl::default();
 
         // Add subscription with different subscription_ids
@@ -1237,7 +1236,7 @@ mod tests {
     #[test]
     #[traced_test]
     fn test_mixed_local_remote_refcounting() {
-        let name1 = Name::from_strings(["agntcy", "default", "mixed"]);
+        let name1 = ProtoName::from_strings(["agntcy", "default", "mixed"]);
         let t = SubscriptionTableImpl::default();
 
         // Add local connection with different subscription_ids
@@ -1289,7 +1288,7 @@ mod tests {
         // 1. Messages with NULL_COMPONENT match ANY subscription (NULL_COMPONENT or specific ID)
         // 2. Messages with specific ID match ONLY subscriptions with that exact ID
 
-        let name = Name::from_strings(["agntcy", "default", "service"]);
+        let name = ProtoName::from_strings(["agntcy", "default", "service"]);
         let name_id1 = name.clone().with_id(1);
         let name_id2 = name.clone().with_id(2);
 
