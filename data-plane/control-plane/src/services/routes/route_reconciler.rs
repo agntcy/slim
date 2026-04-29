@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use parking_lot::Mutex;
 
+use crate::backoff;
 use crate::config::ReconcilerConfig;
 use crate::error::{Error, Result};
 
@@ -74,7 +75,7 @@ impl RouteReconciler {
                 };
 
                 if count <= self.max_requeues {
-                    let delay = crate::backoff::backoff_delay(count, self.base_retry_delay);
+                    let delay = backoff::backoff_delay(count, self.base_retry_delay);
                     tracing::debug!(
                         "route reconciler: requeuing node {node_id} in {delay:?} (attempt {count}/{})",
                         self.max_requeues
