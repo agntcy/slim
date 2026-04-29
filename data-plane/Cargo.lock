@@ -176,6 +176,7 @@ dependencies = [
  "agntcy-slim-version",
  "display-error-chain",
  "drain",
+ "duration-string",
  "h2",
  "parking_lot",
  "prost",
