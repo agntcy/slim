@@ -43,3 +43,23 @@ pub use proto::dataplane::v1::message::MessageType::Publish as ProtoPublishType;
 pub use proto::dataplane::v1::message::MessageType::Subscribe as ProtoSubscribeType;
 pub use proto::dataplane::v1::message::MessageType::SubscriptionAck as ProtoSubscriptionAckType;
 pub use proto::dataplane::v1::message::MessageType::Unsubscribe as ProtoUnsubscribeType;
+
+impl std::fmt::Display for ProtoName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(s) = &self.str_name {
+            write!(
+                f,
+                "{}/{}/{}",
+                s.str_component_0, s.str_component_1, s.str_component_2
+            )
+        } else if let Some(enc) = &self.name {
+            write!(
+                f,
+                "{}/{}/{}/{}",
+                enc.component_0, enc.component_1, enc.component_2, enc.component_3
+            )
+        } else {
+            write!(f, "<empty>")
+        }
+    }
+}
