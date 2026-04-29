@@ -1851,7 +1851,9 @@ mod tests {
             .build_subscribe()
             .unwrap();
 
-        let rebuilt = msg.rebuild_header_for_control_plane().expect("rebuilt message");
+        let rebuilt = msg
+            .rebuild_header_for_control_plane()
+            .expect("rebuilt message");
         assert!(rebuilt.get_metadata_map().is_empty());
         assert!(rebuilt.is_subscribe());
         assert!(!rebuilt.is_unsubscribe());
@@ -1875,7 +1877,9 @@ mod tests {
             .build_unsubscribe()
             .unwrap();
 
-        let rebuilt = msg.rebuild_header_for_control_plane().expect("rebuilt message");
+        let rebuilt = msg
+            .rebuild_header_for_control_plane()
+            .expect("rebuilt message");
         assert!(rebuilt.get_metadata_map().is_empty());
         assert!(rebuilt.is_unsubscribe());
         assert!(!rebuilt.is_subscribe());
