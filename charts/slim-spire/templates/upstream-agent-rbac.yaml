@@ -1,0 +1,47 @@
+{{- $upstreamAgent := index .Values "upstream-spire-agent" }}
+{{- $joinToken := $upstreamAgent.joinToken | default dict }}
+{{- if $joinToken.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $upstreamAgent.serviceAccount.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: default
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/name: agent-upstream
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s-agent-upstream" .Release.Name }}
+  labels:
+    app.kubernetes.io/component: default
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/name: agent-upstream
+rules:
+  - apiGroups: [""]
+    resources:
+      - pods
+      - nodes
+      - nodes/proxy
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s-agent-upstream" .Release.Name }}
+  labels:
+    app.kubernetes.io/component: default
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/name: agent-upstream
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ printf "%s-agent-upstream" .Release.Name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $upstreamAgent.serviceAccount.name }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
