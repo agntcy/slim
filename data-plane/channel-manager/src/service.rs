@@ -8,13 +8,13 @@ use std::time::Duration;
 
 use slim_bindings::{App, Name, SessionConfig, SessionType};
 use tonic::{Request, Response, Status};
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use crate::proto::channel_manager_service_server::ChannelManagerService;
 use crate::proto::{
-    AddParticipant, ChannelsList, CommandResponse, ControlRequest, ControlResponse, CreateChannel,
-    DeleteChannel, DeleteParticipant, ListChannels, ListParticipants, ParticipantsList,
-    control_request::Payload as RequestPayload, control_response::Payload as ResponsePayload,
+    AddParticipantRequest, CommandResponse, CreateChannelRequest, DeleteChannelRequest,
+    DeleteParticipantRequest, ListChannelsRequest, ListChannelsResponse, ListParticipantsRequest,
+    ListParticipantsResponse,
 };
 use crate::sessions::SessionsList;
 
@@ -35,41 +35,33 @@ impl ChannelManagerServer {
         }
     }
 
-    fn success_response(&self, msg_id: u64) -> ControlResponse {
-        ControlResponse {
-            msg_id,
-            payload: Some(ResponsePayload::CommandResponse(CommandResponse {
-                msg_id,
-                success: true,
-                error_msg: None,
-            })),
+    fn success_response(&self) -> CommandResponse {
+        CommandResponse {
+            success: true,
+            error_msg: None,
         }
     }
 
-    fn error_response(&self, msg_id: u64, error_msg: String) -> ControlResponse {
-        ControlResponse {
-            msg_id,
-            payload: Some(ResponsePayload::CommandResponse(CommandResponse {
-                msg_id,
-                success: false,
-                error_msg: Some(error_msg),
-            })),
+    fn error_response(&self, error_msg: String) -> CommandResponse {
+        CommandResponse {
+            success: false,
+            error_msg: Some(error_msg),
         }
     }
 
-    async fn handle_create_channel(&self, msg_id: u64, req: CreateChannel) -> ControlResponse {
+    async fn handle_create_channel(&self, req: CreateChannelRequest) -> CommandResponse {
         let channel_name = &req.channel_name;
 
         // Check if the channel already exists before doing expensive SLIM work
         if self.sessions.get_session(channel_name).await.is_some() {
-            return self.error_response(msg_id, format!("channel {channel_name} already exists"));
+            return self.error_response(format!("channel {channel_name} already exists"));
         }
 
         // Parse the channel name
         let name = match Name::from_string(channel_name.clone()) {
             Ok(n) => n,
             Err(e) => {
-                return self.error_response(msg_id, format!("invalid channel name: {e}"));
+                return self.error_response(format!("invalid channel name: {e}"));
             }
         };
 
@@ -90,8 +82,7 @@ impl ChannelManagerServer {
             Ok(s) => s,
             Err(e) => {
                 error!("Failed to create channel {channel_name}: {e}");
-                return self
-                    .error_response(msg_id, format!("failed to create channel {channel_name}"));
+                return self.error_response(format!("failed to create channel {channel_name}"));
             }
         };
 
@@ -105,40 +96,40 @@ impl ChannelManagerServer {
             if let Err(e) = self.app.delete_session_and_wait_async(session).await {
                 error!("Failed to clean up duplicate session for {channel_name}: {e}");
             }
-            return self.error_response(msg_id, format!("channel {channel_name} already exists"));
+            return self.error_response(format!("channel {channel_name} already exists"));
         }
 
         info!("Created channel {channel_name}");
-        self.success_response(msg_id)
+        self.success_response()
     }
 
-    async fn handle_delete_channel(&self, msg_id: u64, req: DeleteChannel) -> ControlResponse {
+    async fn handle_delete_channel(&self, req: DeleteChannelRequest) -> CommandResponse {
         let channel_name = &req.channel_name;
 
         if let Err(e) = self.sessions.remove_session(channel_name, &self.app).await {
             error!("Failed to delete channel {channel_name}: {e}");
-            return self.error_response(msg_id, format!("{e}"));
+            return self.error_response(format!("{e}"));
         }
 
         info!("Deleted channel {channel_name}");
-        self.success_response(msg_id)
+        self.success_response()
     }
 
-    async fn handle_add_participant(&self, msg_id: u64, req: AddParticipant) -> ControlResponse {
+    async fn handle_add_participant(&self, req: AddParticipantRequest) -> CommandResponse {
         let channel_name = &req.channel_name;
         let participant_name_str = &req.participant_name;
 
         let session = match self.sessions.get_session(channel_name).await {
             Some(s) => s,
             None => {
-                return self.error_response(msg_id, format!("channel {channel_name} not found"));
+                return self.error_response(format!("channel {channel_name} not found"));
             }
         };
 
         let participant_name = match Name::from_string(participant_name_str.clone()) {
             Ok(n) => n,
             Err(e) => {
-                return self.error_response(msg_id, format!("invalid participant name: {e}"));
+                return self.error_response(format!("invalid participant name: {e}"));
             }
         };
 
@@ -148,10 +139,9 @@ impl ChannelManagerServer {
             .set_route_async(Arc::new(participant_name.clone()), self.conn_id)
             .await
         {
-            return self.error_response(
-                msg_id,
-                format!("failed to set route for participant {participant_name_str}: {e}"),
-            );
+            return self.error_response(format!(
+                "failed to set route for participant {participant_name_str}: {e}"
+            ));
         }
 
         // Invite the participant
@@ -159,37 +149,30 @@ impl ChannelManagerServer {
             .invite_and_wait_async(Arc::new(participant_name))
             .await
         {
-            return self.error_response(
-                msg_id,
-                format!(
-                    "failed to invite participant {participant_name_str} to channel {channel_name}: {e}"
-                ),
-            );
+            return self.error_response(format!(
+                "failed to invite participant {participant_name_str} to channel {channel_name}: {e}"
+            ));
         }
 
         info!("Added participant {participant_name_str} to channel {channel_name}");
-        self.success_response(msg_id)
+        self.success_response()
     }
 
-    async fn handle_delete_participant(
-        &self,
-        msg_id: u64,
-        req: DeleteParticipant,
-    ) -> ControlResponse {
+    async fn handle_delete_participant(&self, req: DeleteParticipantRequest) -> CommandResponse {
         let channel_name = &req.channel_name;
         let participant_name_str = &req.participant_name;
 
         let session = match self.sessions.get_session(channel_name).await {
             Some(s) => s,
             None => {
-                return self.error_response(msg_id, format!("channel {channel_name} not found"));
+                return self.error_response(format!("channel {channel_name} not found"));
             }
         };
 
         let participant_name = match Name::from_string(participant_name_str.clone()) {
             Ok(n) => n,
             Err(e) => {
-                return self.error_response(msg_id, format!("invalid participant name: {e}"));
+                return self.error_response(format!("invalid participant name: {e}"));
             }
         };
 
@@ -198,7 +181,6 @@ impl ChannelManagerServer {
             .await
         {
             return self.error_response(
-                msg_id,
                 format!(
                     "failed to remove participant {participant_name_str} from channel {channel_name}: {e}"
                 ),
@@ -206,43 +188,47 @@ impl ChannelManagerServer {
         }
 
         info!("Removed participant {participant_name_str} from channel {channel_name}");
-        self.success_response(msg_id)
+        self.success_response()
     }
 
-    async fn handle_list_channels(&self, msg_id: u64, _req: ListChannels) -> ControlResponse {
+    async fn handle_list_channels(&self) -> ListChannelsResponse {
         let channels = self.sessions.list_channel_names().await;
         info!("Listing channels, count: {}", channels.len());
 
-        ControlResponse {
-            msg_id,
-            payload: Some(ResponsePayload::ChannelsList(ChannelsList {
-                msg_id,
-                channel_name: channels,
-            })),
+        ListChannelsResponse {
+            success: true,
+            error_msg: None,
+            channel_name: channels,
         }
     }
 
     async fn handle_list_participants(
         &self,
-        msg_id: u64,
-        req: ListParticipants,
-    ) -> ControlResponse {
+        req: ListParticipantsRequest,
+    ) -> ListParticipantsResponse {
         let channel_name = &req.channel_name;
 
         let session = match self.sessions.get_session(channel_name).await {
             Some(s) => s,
             None => {
-                return self.error_response(msg_id, format!("channel {channel_name} not found"));
+                return ListParticipantsResponse {
+                    success: false,
+                    error_msg: Some(format!("channel {channel_name} not found")),
+                    participant_name: vec![],
+                };
             }
         };
 
         let participants = match session.participants_list_async().await {
             Ok(p) => p,
             Err(e) => {
-                return self.error_response(
-                    msg_id,
-                    format!("failed to list participants for channel {channel_name}: {e}"),
-                );
+                return ListParticipantsResponse {
+                    success: false,
+                    error_msg: Some(format!(
+                        "failed to list participants for channel {channel_name}: {e}"
+                    )),
+                    participant_name: vec![],
+                };
             }
         };
 
@@ -253,43 +239,66 @@ impl ChannelManagerServer {
             participant_names.len()
         );
 
-        ControlResponse {
-            msg_id,
-            payload: Some(ResponsePayload::ParticipantsList(ParticipantsList {
-                msg_id,
-                participant_name: participant_names,
-            })),
+        ListParticipantsResponse {
+            success: true,
+            error_msg: None,
+            participant_name: participant_names,
         }
     }
 }
 
 #[tonic::async_trait]
 impl ChannelManagerService for ChannelManagerServer {
-    async fn command(
+    async fn create_channel(
         &self,
-        request: Request<ControlRequest>,
-    ) -> Result<Response<ControlResponse>, Status> {
+        request: Request<CreateChannelRequest>,
+    ) -> Result<Response<CommandResponse>, Status> {
         let req = request.into_inner();
-        let msg_id = req.msg_id;
+        debug!("Received create_channel request");
+        Ok(Response::new(self.handle_create_channel(req).await))
+    }
 
-        info!("Received command, msg_id: {msg_id}");
+    async fn delete_channel(
+        &self,
+        request: Request<DeleteChannelRequest>,
+    ) -> Result<Response<CommandResponse>, Status> {
+        let req = request.into_inner();
+        debug!("Received delete_channel request");
+        Ok(Response::new(self.handle_delete_channel(req).await))
+    }
 
-        let response = match req.payload {
-            Some(RequestPayload::CreateChannel(r)) => self.handle_create_channel(msg_id, r).await,
-            Some(RequestPayload::DeleteChannel(r)) => self.handle_delete_channel(msg_id, r).await,
-            Some(RequestPayload::AddParticipant(r)) => self.handle_add_participant(msg_id, r).await,
-            Some(RequestPayload::DeleteParticipant(r)) => {
-                self.handle_delete_participant(msg_id, r).await
-            }
-            Some(RequestPayload::ListChannels(r)) => self.handle_list_channels(msg_id, r).await,
-            Some(RequestPayload::ListParticipants(r)) => {
-                self.handle_list_participants(msg_id, r).await
-            }
-            None => {
-                return Err(Status::invalid_argument("missing payload"));
-            }
-        };
+    async fn add_participant(
+        &self,
+        request: Request<AddParticipantRequest>,
+    ) -> Result<Response<CommandResponse>, Status> {
+        let req = request.into_inner();
+        debug!("Received add_participant request");
+        Ok(Response::new(self.handle_add_participant(req).await))
+    }
 
-        Ok(Response::new(response))
+    async fn delete_participant(
+        &self,
+        request: Request<DeleteParticipantRequest>,
+    ) -> Result<Response<CommandResponse>, Status> {
+        let req = request.into_inner();
+        debug!("Received delete_participant request");
+        Ok(Response::new(self.handle_delete_participant(req).await))
+    }
+
+    async fn list_channels(
+        &self,
+        _request: Request<ListChannelsRequest>,
+    ) -> Result<Response<ListChannelsResponse>, Status> {
+        debug!("Received list_channels request");
+        Ok(Response::new(self.handle_list_channels().await))
+    }
+
+    async fn list_participants(
+        &self,
+        request: Request<ListParticipantsRequest>,
+    ) -> Result<Response<ListParticipantsResponse>, Status> {
+        let req = request.into_inner();
+        debug!("Received list_participants request");
+        Ok(Response::new(self.handle_list_participants(req).await))
     }
 }

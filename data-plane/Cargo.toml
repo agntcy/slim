@@ -22,6 +22,7 @@ members = [
 
 default-members = [
     "bindings/rust",
+    "channel-manager",
     "core/config",
     "core/datapath",
     "core/service",
