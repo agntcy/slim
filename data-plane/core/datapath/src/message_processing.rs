@@ -163,13 +163,21 @@ impl Default for MessageProcessor {
 
 impl MessageProcessor {
     pub fn new_with_service_id(service_id: String) -> Self {
+        Self::new_with_options(service_id, None)
+    }
+
+    pub fn new_with_options(service_id: String, recovery_ttl: Option<std::time::Duration>) -> Self {
         let (signal, watch) = drain::channel();
+        let recovery_table = match recovery_ttl {
+            Some(ttl) => RecoveryTable::new(ttl),
+            None => RecoveryTable::default(),
+        };
         let internal = MessageProcessorInternal {
             forwarder: Forwarder::new(),
             drain_signal: RwLock::new(Some(signal)),
             drain_watch: RwLock::new(Some(watch)),
             tx_control_plane: RwLock::new(None),
-            recovery_table: RecoveryTable::default(),
+            recovery_table,
             sub_ack_manager: crate::subscription_ack::RemoteSubAckManager::new(),
             service_id,
         };
@@ -641,6 +649,9 @@ impl MessageProcessor {
             if let Some(entry) = self.internal.recovery_table.take(link_id) {
                 info!(%in_connection, %link_id, "recovering routes for reconnected peer");
 
+                // Re-add local routing entries.  A new conn_index was allocated for this
+                // connection, so we must re-register each name under the current index,
+                // preserving the original subscription IDs so UNSUBSCRIBE messages work.
                 for (name, sub_ids) in &entry.local_subs {
                     for &subscription_id in sub_ids {
                         if let Err(e) = self.forwarder().on_subscription_msg(
@@ -658,6 +669,7 @@ impl MessageProcessor {
                     }
                 }
 
+                // Re-send subscriptions to the remote peer and re-register tracking.
                 // restore_tracking = true: on_connection_drop already wiped the
                 // forwarded-subscription table, so we must rebuild it here.
                 self.restore_remote_subscriptions(&entry.remote_subs, in_connection, true)
@@ -1098,6 +1110,10 @@ impl MessageProcessor {
     }
 
     /// Send an UNSUBSCRIBE message to the control plane for each subscription in `local_subs`.
+    ///
+    /// This is the single authoritative place that constructs and delivers CP unsubscribe
+    /// notifications on connection loss, used by both the immediate cleanup path and the deferred
+    /// TTL-expiry path.
     async fn notify_control_plane_subscriptions_lost(
         tx_cp: Option<Sender<Result<Message, Status>>>,
         local_subs: HashMap<Name, HashSet<u64>>,
@@ -1140,12 +1156,12 @@ impl MessageProcessor {
         let client_conf_clone = client_config.clone();
         let tx_cp: Option<Sender<Result<Message, Status>>> = self.get_tx_control_plane();
         let watch = self.get_drain_watch()?;
-        let stream_span = tracing::info_span!(
+        let span = tracing::info_span!(
             "process_stream",
             service_id = %self.internal.service_id,
-            conn_index
+            %conn_index,
+            is_local,
         );
-
         let handle = tokio::spawn(async move {
             let mut try_to_reconnect = true;
 
@@ -1224,7 +1240,12 @@ impl MessageProcessor {
             let mut connected = false;
 
             if try_to_reconnect && let Some(config) = client_conf_clone {
-                connected = self_clone.reconnect(config, conn_index, &token_clone).await;
+                // Break the span chain: reconnect → try_to_connect → process_stream
+                // would otherwise nest under the current process_stream span on every
+                // reconnection, growing the span hierarchy unboundedly.
+                connected = self_clone.reconnect(config, conn_index, &token_clone)
+                    .instrument(tracing::Span::none())
+                    .await;
             } else {
                 debug!(%conn_index, "close connection")
             }
@@ -1246,7 +1267,10 @@ impl MessageProcessor {
                     .forwarder()
                     .on_connection_drop(conn_index, is_local);
 
-                if let Some(lid) = link_id {
+                let recovery_enabled =
+                    !self_clone.internal.recovery_table.ttl().is_zero();
+
+                if let Some(lid) = link_id.filter(|_| recovery_enabled) {
                     // Server connection with a known link_id: preserve routing state and
                     // suppress the control-plane notification for the duration of the TTL
                     // to give the peer a chance to reconnect.
@@ -1305,7 +1329,7 @@ impl MessageProcessor {
 
                 info!(telemetry = true, counter.num_active_connections = -1);
             }
-        }.instrument(stream_span));
+        }.instrument(span));
 
         Ok(handle)
     }
@@ -1397,6 +1421,7 @@ mod tests {
 
     use super::*;
     use crate::api::ProtoSubscriptionAck;
+    use crate::tables::remote_subscription_table::SubscriptionInfo;
     use tonic::Status;
 
     async fn assert_failed_subscription_ack_is_sent(add: bool) {
@@ -2255,5 +2280,215 @@ mod tests {
             .expect("upstream ack should have been sent")
             .unwrap();
         assert!(!ack.get_subscription_ack().success);
+    }
+
+    // ── new_with_options ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_new_with_options_custom_ttl() {
+        let processor =
+            MessageProcessor::new_with_options("svc".into(), Some(Duration::from_secs(5)));
+        assert_eq!(
+            processor.internal.recovery_table.ttl(),
+            Duration::from_secs(5)
+        );
+    }
+
+    #[test]
+    fn test_new_with_options_none_uses_default() {
+        let processor = MessageProcessor::new_with_options("svc".into(), None);
+        assert_eq!(
+            processor.internal.recovery_table.ttl(),
+            Duration::from_secs(30)
+        );
+    }
+
+    #[test]
+    fn test_new_with_options_zero_ttl() {
+        let processor = MessageProcessor::new_with_options("svc".into(), Some(Duration::ZERO));
+        assert!(processor.internal.recovery_table.ttl().is_zero());
+    }
+
+    // ── notify_control_plane_subscriptions_lost ───────────────────────────────
+
+    #[tokio::test]
+    async fn test_notify_cp_subs_lost_sends_unsubscribes() {
+        let (tx, mut rx) = mpsc::channel::<Result<Message, Status>>(16);
+        let mut subs = HashMap::new();
+        let name = Name::from_strings(["org", "default", "svc"]);
+        subs.insert(name.clone(), HashSet::from([1u64, 2u64]));
+
+        MessageProcessor::notify_control_plane_subscriptions_lost(Some(tx), subs, 42).await;
+
+        let msg = rx.recv().await.unwrap().unwrap();
+        assert!(matches!(msg.get_type(), UnsubscribeType(_)));
+        assert_eq!(msg.get_source(), name.clone());
+    }
+
+    #[tokio::test]
+    async fn test_notify_cp_subs_lost_no_tx_is_noop() {
+        let subs = HashMap::from([(
+            Name::from_strings(["org", "default", "svc"]),
+            HashSet::from([1u64]),
+        )]);
+        // Should not panic or hang.
+        MessageProcessor::notify_control_plane_subscriptions_lost(None, subs, 1).await;
+    }
+
+    #[tokio::test]
+    async fn test_notify_cp_subs_lost_empty_subs() {
+        let (tx, mut rx) = mpsc::channel::<Result<Message, Status>>(16);
+        MessageProcessor::notify_control_plane_subscriptions_lost(Some(tx), HashMap::new(), 1)
+            .await;
+        // No messages should be sent.
+        assert!(rx.try_recv().is_err());
+    }
+
+    // ── route recovery on link negotiation ────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_link_negotiation_server_triggers_route_recovery() {
+        let processor = MessageProcessor::new();
+        let (conn_id, _rx) = make_server_conn(&processor);
+
+        let link_id = uuid::Uuid::new_v4().to_string();
+        let sub_name = Name::from_strings(["org", "default", "recovered"]);
+
+        // Pre-populate the recovery table as if a prior connection dropped.
+        let mut local_subs = HashMap::new();
+        local_subs.insert(sub_name.clone(), HashSet::from([99u64]));
+        processor
+            .internal
+            .recovery_table
+            .store(link_id.clone(), local_subs, HashSet::new());
+
+        // Simulate the peer reconnecting with the same link_id.
+        let payload = LinkNegotiationPayload {
+            link_id: link_id.clone(),
+            slim_version: "1.0.0".into(),
+            is_reply: false,
+        };
+        processor
+            .handle_link_negotiation(&payload, conn_id)
+            .await
+            .unwrap();
+
+        // The subscription should have been restored in the routing table.
+        let result = processor
+            .forwarder()
+            .on_publish_msg_match(sub_name, u64::MAX, 1);
+        assert!(result.is_ok(), "recovered subscription should be routable");
+        assert_eq!(result.unwrap(), vec![conn_id]);
+    }
+
+    #[tokio::test]
+    async fn test_link_negotiation_server_recovery_restores_remote_subs() {
+        let processor = MessageProcessor::new();
+        let (conn_id, mut rx) = make_server_conn(&processor);
+
+        let link_id = uuid::Uuid::new_v4().to_string();
+        let source = Name::from_strings(["org", "default", "src"]);
+        let dest = Name::from_strings(["org", "default", "dst"]);
+
+        let remote_sub =
+            SubscriptionInfo::new(source.clone(), dest.clone(), "identity".into(), conn_id, 42);
+
+        // Store recovery entry with remote subscriptions.
+        processor.internal.recovery_table.store(
+            link_id.clone(),
+            HashMap::new(),
+            HashSet::from([remote_sub]),
+        );
+
+        let payload = LinkNegotiationPayload {
+            link_id: link_id.clone(),
+            slim_version: "1.0.0".into(),
+            is_reply: false,
+        };
+        processor
+            .handle_link_negotiation(&payload, conn_id)
+            .await
+            .unwrap();
+
+        // The restored subscribe is sent before the link negotiation reply.
+        let sub_msg = rx.recv().await.unwrap().unwrap();
+        assert!(matches!(sub_msg.get_type(), SubscribeType(_)));
+        let reply = rx.recv().await.unwrap().unwrap();
+        assert!(reply.is_link());
+    }
+
+    #[tokio::test]
+    async fn test_link_negotiation_server_no_recovery_entry() {
+        let processor = MessageProcessor::new();
+        let (conn_id, mut rx) = make_server_conn(&processor);
+
+        let link_id = uuid::Uuid::new_v4().to_string();
+        // No recovery entry stored — normal negotiation, no restoration.
+        let payload = LinkNegotiationPayload {
+            link_id: link_id.clone(),
+            slim_version: "1.0.0".into(),
+            is_reply: false,
+        };
+        processor
+            .handle_link_negotiation(&payload, conn_id)
+            .await
+            .unwrap();
+
+        // Only the reply should have been sent.
+        let reply = rx.try_recv().unwrap().unwrap();
+        assert!(reply.is_link());
+        assert!(rx.try_recv().is_err());
+    }
+
+    // ── restore_remote_subscriptions ──────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_restore_remote_subscriptions_with_tracking() {
+        let processor = MessageProcessor::new();
+        let (conn_id, mut rx) = make_server_conn(&processor);
+
+        let source = Name::from_strings(["org", "default", "src"]);
+        let dest = Name::from_strings(["org", "default", "dst"]);
+        let sub = SubscriptionInfo::new(source.clone(), dest.clone(), "id1".into(), conn_id, 7);
+        let subs = HashSet::from([sub]);
+
+        processor
+            .restore_remote_subscriptions(&subs, conn_id, true)
+            .await;
+
+        // The subscribe message should have been sent.
+        let msg = rx.recv().await.unwrap().unwrap();
+        assert!(matches!(msg.get_type(), SubscribeType(_)));
+
+        // With restore_tracking=true, the forwarded subscription should be tracked.
+        let tracked = processor
+            .forwarder()
+            .get_subscriptions_forwarded_on_connection(conn_id);
+        assert_eq!(tracked.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_restore_remote_subscriptions_without_tracking() {
+        let processor = MessageProcessor::new();
+        let (conn_id, mut rx) = make_server_conn(&processor);
+
+        let source = Name::from_strings(["org", "default", "src"]);
+        let dest = Name::from_strings(["org", "default", "dst"]);
+        let sub = SubscriptionInfo::new(source.clone(), dest.clone(), "id1".into(), conn_id, 7);
+        let subs = HashSet::from([sub]);
+
+        processor
+            .restore_remote_subscriptions(&subs, conn_id, false)
+            .await;
+
+        // Message sent.
+        let msg = rx.recv().await.unwrap().unwrap();
+        assert!(matches!(msg.get_type(), SubscribeType(_)));
+
+        // With restore_tracking=false, forwarded subscription table should NOT be updated.
+        let tracked = processor
+            .forwarder()
+            .get_subscriptions_forwarded_on_connection(conn_id);
+        assert!(tracked.is_empty());
     }
 }
