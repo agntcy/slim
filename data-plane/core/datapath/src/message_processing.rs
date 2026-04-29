@@ -163,13 +163,21 @@ impl Default for MessageProcessor {
 
 impl MessageProcessor {
     pub fn new_with_service_id(service_id: String) -> Self {
+        Self::new_with_options(service_id, None)
+    }
+
+    pub fn new_with_options(service_id: String, recovery_ttl: Option<std::time::Duration>) -> Self {
         let (signal, watch) = drain::channel();
+        let recovery_table = match recovery_ttl {
+            Some(ttl) => RecoveryTable::new(ttl),
+            None => RecoveryTable::default(),
+        };
         let internal = MessageProcessorInternal {
             forwarder: Forwarder::new(),
             drain_signal: RwLock::new(Some(signal)),
             drain_watch: RwLock::new(Some(watch)),
             tx_control_plane: RwLock::new(None),
-            recovery_table: RecoveryTable::default(),
+            recovery_table,
             sub_ack_manager: crate::subscription_ack::RemoteSubAckManager::new(),
             service_id,
         };

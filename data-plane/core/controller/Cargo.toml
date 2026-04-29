@@ -19,6 +19,7 @@ agntcy-slim-signal = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
 agntcy-slim-version = { workspace = true }
 display-error-chain = { workspace = true }
+duration-string = { workspace = true }
 drain = { workspace = true }
 h2 = { workspace = true }
 parking_lot = { workspace = true }
