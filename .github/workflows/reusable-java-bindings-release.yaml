@@ -16,7 +16,7 @@ on:
         description: Java version to use
         required: false
         type: string
-        default: '21'
+        default: '22'
       java-bindings-working-directory:
         description: Working directory for Java bindings
         required: false

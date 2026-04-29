@@ -20,7 +20,7 @@ on:
         description: Java version to use
         required: false
         type: string
-        default: '21'
+        default: '22'
       working-directory:
         description: The working directory to run the task
         required: false

@@ -220,13 +220,10 @@ pub struct TlsServerConfig {
     /// CA certificate source for verifying client certificates
     pub client_ca: CaSource,
     /// Include system CA certificates pool (default: true)
-    #[uniffi(default = None)]
     pub include_system_ca_certs_pool: Option<bool>,
     /// TLS version to use: "tls1.2" or "tls1.3" (default: "tls1.3")
-    #[uniffi(default = None)]
     pub tls_version: Option<String>,
     /// Reload client CA file when modified
-    #[uniffi(default = None)]
     pub reload_client_ca_file: Option<bool>,
 }
 

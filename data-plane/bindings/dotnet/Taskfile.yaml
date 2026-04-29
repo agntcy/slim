@@ -100,9 +100,8 @@ tasks:
     status:
       - which uniffi-bindgen-cs
     cmds:
-      # PR #163: uniffi v0.30/v0.31 support - https://github.com/NordSecurity/uniffi-bindgen-cs/pull/163
-      # Revert to released tag when merged: --tag v0.10.0+v0.29.4 (or v0.11.0+v0.31 when released)
-      - cargo install uniffi-bindgen-cs --git https://github.com/jmbryan4/uniffi-bindgen-cs.git --branch upgrade/uniffi-rs-0.31.0-clean --config net.git-fetch-with-cli=true
+      # UniFFI 0.31: fork aligned with uniffi_bindgen 0.31.x (pin full SHA for reproducibility).
+      - cargo install uniffi-bindgen-cs --git https://github.com/janosSarusiKis/uniffi-bindgen-cs.git --rev d788b3ab74f079608515bf24b0bc7fe735f2ea6b --config net.git-fetch-with-cli=true
     silent: true
 
 
