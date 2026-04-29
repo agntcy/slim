@@ -1416,6 +1416,7 @@ mod tests {
 
     use super::*;
     use crate::api::ProtoSubscriptionAck;
+    use crate::tables::remote_subscription_table::SubscriptionInfo;
     use tonic::Status;
 
     async fn assert_failed_subscription_ack_is_sent(add: bool) {
@@ -2274,5 +2275,215 @@ mod tests {
             .expect("upstream ack should have been sent")
             .unwrap();
         assert!(!ack.get_subscription_ack().success);
+    }
+
+    // ── new_with_options ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_new_with_options_custom_ttl() {
+        let processor =
+            MessageProcessor::new_with_options("svc".into(), Some(Duration::from_secs(5)));
+        assert_eq!(
+            processor.internal.recovery_table.ttl(),
+            Duration::from_secs(5)
+        );
+    }
+
+    #[test]
+    fn test_new_with_options_none_uses_default() {
+        let processor = MessageProcessor::new_with_options("svc".into(), None);
+        assert_eq!(
+            processor.internal.recovery_table.ttl(),
+            Duration::from_secs(30)
+        );
+    }
+
+    #[test]
+    fn test_new_with_options_zero_ttl() {
+        let processor = MessageProcessor::new_with_options("svc".into(), Some(Duration::ZERO));
+        assert!(processor.internal.recovery_table.ttl().is_zero());
+    }
+
+    // ── notify_control_plane_subscriptions_lost ───────────────────────────────
+
+    #[tokio::test]
+    async fn test_notify_cp_subs_lost_sends_unsubscribes() {
+        let (tx, mut rx) = mpsc::channel::<Result<Message, Status>>(16);
+        let mut subs = HashMap::new();
+        let name = Name::from_strings(["org", "default", "svc"]);
+        subs.insert(name.clone(), HashSet::from([1u64, 2u64]));
+
+        MessageProcessor::notify_control_plane_subscriptions_lost(Some(tx), subs, 42).await;
+
+        let msg = rx.recv().await.unwrap().unwrap();
+        assert!(matches!(msg.get_type(), UnsubscribeType(_)));
+        assert_eq!(msg.get_source(), name.clone());
+    }
+
+    #[tokio::test]
+    async fn test_notify_cp_subs_lost_no_tx_is_noop() {
+        let subs = HashMap::from([(
+            Name::from_strings(["org", "default", "svc"]),
+            HashSet::from([1u64]),
+        )]);
+        // Should not panic or hang.
+        MessageProcessor::notify_control_plane_subscriptions_lost(None, subs, 1).await;
+    }
+
+    #[tokio::test]
+    async fn test_notify_cp_subs_lost_empty_subs() {
+        let (tx, mut rx) = mpsc::channel::<Result<Message, Status>>(16);
+        MessageProcessor::notify_control_plane_subscriptions_lost(Some(tx), HashMap::new(), 1)
+            .await;
+        // No messages should be sent.
+        assert!(rx.try_recv().is_err());
+    }
+
+    // ── route recovery on link negotiation ────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_link_negotiation_server_triggers_route_recovery() {
+        let processor = MessageProcessor::new();
+        let (conn_id, _rx) = make_server_conn(&processor);
+
+        let link_id = uuid::Uuid::new_v4().to_string();
+        let sub_name = Name::from_strings(["org", "default", "recovered"]);
+
+        // Pre-populate the recovery table as if a prior connection dropped.
+        let mut local_subs = HashMap::new();
+        local_subs.insert(sub_name.clone(), HashSet::from([99u64]));
+        processor
+            .internal
+            .recovery_table
+            .store(link_id.clone(), local_subs, HashSet::new());
+
+        // Simulate the peer reconnecting with the same link_id.
+        let payload = LinkNegotiationPayload {
+            link_id: link_id.clone(),
+            slim_version: "1.0.0".into(),
+            is_reply: false,
+        };
+        processor
+            .handle_link_negotiation(&payload, conn_id)
+            .await
+            .unwrap();
+
+        // The subscription should have been restored in the routing table.
+        let result = processor
+            .forwarder()
+            .on_publish_msg_match(sub_name, u64::MAX, 1);
+        assert!(result.is_ok(), "recovered subscription should be routable");
+        assert_eq!(result.unwrap(), vec![conn_id]);
+    }
+
+    #[tokio::test]
+    async fn test_link_negotiation_server_recovery_restores_remote_subs() {
+        let processor = MessageProcessor::new();
+        let (conn_id, mut rx) = make_server_conn(&processor);
+
+        let link_id = uuid::Uuid::new_v4().to_string();
+        let source = Name::from_strings(["org", "default", "src"]);
+        let dest = Name::from_strings(["org", "default", "dst"]);
+
+        let remote_sub =
+            SubscriptionInfo::new(source.clone(), dest.clone(), "identity".into(), conn_id, 42);
+
+        // Store recovery entry with remote subscriptions.
+        processor.internal.recovery_table.store(
+            link_id.clone(),
+            HashMap::new(),
+            HashSet::from([remote_sub]),
+        );
+
+        let payload = LinkNegotiationPayload {
+            link_id: link_id.clone(),
+            slim_version: "1.0.0".into(),
+            is_reply: false,
+        };
+        processor
+            .handle_link_negotiation(&payload, conn_id)
+            .await
+            .unwrap();
+
+        // The restored subscribe is sent before the link negotiation reply.
+        let sub_msg = rx.recv().await.unwrap().unwrap();
+        assert!(matches!(sub_msg.get_type(), SubscribeType(_)));
+        let reply = rx.recv().await.unwrap().unwrap();
+        assert!(reply.is_link());
+    }
+
+    #[tokio::test]
+    async fn test_link_negotiation_server_no_recovery_entry() {
+        let processor = MessageProcessor::new();
+        let (conn_id, mut rx) = make_server_conn(&processor);
+
+        let link_id = uuid::Uuid::new_v4().to_string();
+        // No recovery entry stored — normal negotiation, no restoration.
+        let payload = LinkNegotiationPayload {
+            link_id: link_id.clone(),
+            slim_version: "1.0.0".into(),
+            is_reply: false,
+        };
+        processor
+            .handle_link_negotiation(&payload, conn_id)
+            .await
+            .unwrap();
+
+        // Only the reply should have been sent.
+        let reply = rx.try_recv().unwrap().unwrap();
+        assert!(reply.is_link());
+        assert!(rx.try_recv().is_err());
+    }
+
+    // ── restore_remote_subscriptions ──────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_restore_remote_subscriptions_with_tracking() {
+        let processor = MessageProcessor::new();
+        let (conn_id, mut rx) = make_server_conn(&processor);
+
+        let source = Name::from_strings(["org", "default", "src"]);
+        let dest = Name::from_strings(["org", "default", "dst"]);
+        let sub = SubscriptionInfo::new(source.clone(), dest.clone(), "id1".into(), conn_id, 7);
+        let subs = HashSet::from([sub]);
+
+        processor
+            .restore_remote_subscriptions(&subs, conn_id, true)
+            .await;
+
+        // The subscribe message should have been sent.
+        let msg = rx.recv().await.unwrap().unwrap();
+        assert!(matches!(msg.get_type(), SubscribeType(_)));
+
+        // With restore_tracking=true, the forwarded subscription should be tracked.
+        let tracked = processor
+            .forwarder()
+            .get_subscriptions_forwarded_on_connection(conn_id);
+        assert_eq!(tracked.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_restore_remote_subscriptions_without_tracking() {
+        let processor = MessageProcessor::new();
+        let (conn_id, mut rx) = make_server_conn(&processor);
+
+        let source = Name::from_strings(["org", "default", "src"]);
+        let dest = Name::from_strings(["org", "default", "dst"]);
+        let sub = SubscriptionInfo::new(source.clone(), dest.clone(), "id1".into(), conn_id, 7);
+        let subs = HashSet::from([sub]);
+
+        processor
+            .restore_remote_subscriptions(&subs, conn_id, false)
+            .await;
+
+        // Message sent.
+        let msg = rx.recv().await.unwrap().unwrap();
+        assert!(matches!(msg.get_type(), SubscribeType(_)));
+
+        // With restore_tracking=false, forwarded subscription table should NOT be updated.
+        let tracked = processor
+            .forwarder()
+            .get_subscriptions_forwarded_on_connection(conn_id);
+        assert!(tracked.is_empty());
     }
 }
