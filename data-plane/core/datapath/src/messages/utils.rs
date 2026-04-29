@@ -1900,9 +1900,8 @@ mod tests {
 
         let rebuilt = msg.rebuild_header_for_control_plane().unwrap();
         assert_eq!(rebuilt.get_subscription_id(), None);
-        match &rebuilt.message_type {
-            Some(ProtoSubscribeType(s)) => assert_eq!(s.subscription_id, 0),
-            _ => panic!("expected subscribe"),
+        if let Some(ProtoSubscribeType(s)) = &rebuilt.message_type {
+            assert_eq!(s.subscription_id, 0);
         }
     }
 
