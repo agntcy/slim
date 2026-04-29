@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::{pin::Pin, sync::Arc};
 
@@ -41,7 +42,9 @@ use crate::errors::{DataPathError, MessageContext};
 use crate::forwarder::Forwarder;
 use crate::messages::Name;
 use crate::messages::utils::SlimHeaderFlags;
+use crate::recovery::RecoveryTable;
 use crate::tables::connection_table::ConnectionTable;
+use crate::tables::remote_subscription_table::SubscriptionInfo;
 use crate::tables::subscription_table::SubscriptionTableImpl;
 
 // Implementation based on: https://docs.rs/opentelemetry-tonic/latest/src/opentelemetry_tonic/lib.rs.html#1-134
@@ -137,6 +140,9 @@ struct MessageProcessorInternal {
     /// Tx channel towards control plane
     tx_control_plane: RwLock<Option<Sender<Result<Message, Status>>>>,
 
+    /// Pending route-recovery state for server-side connections (see [`RecoveryTable`]).
+    recovery_table: RecoveryTable,
+
     /// Remote subscription ACK manager
     sub_ack_manager: crate::subscription_ack::RemoteSubAckManager,
 
@@ -163,6 +169,7 @@ impl MessageProcessor {
             drain_signal: RwLock::new(Some(signal)),
             drain_watch: RwLock::new(Some(watch)),
             tx_control_plane: RwLock::new(None),
+            recovery_table: RecoveryTable::default(),
             sub_ack_manager: crate::subscription_ack::RemoteSubAckManager::new(),
             service_id,
         };
@@ -236,6 +243,46 @@ impl MessageProcessor {
             .ok_or(DataPathError::AlreadyClosedError)
     }
 
+    /// Re-send `remote_subs` as subscribe messages to `conn_index`.
+    ///
+    /// When `restore_tracking` is `true` (server-side recovery), also re-registers each
+    /// subscription in the local forwarded-subscription table.  This is necessary because
+    /// [`Forwarder::on_connection_drop`] already wiped that state.
+    ///
+    /// When `restore_tracking` is `false` (client-side reconnect), the forwarded-subscription
+    /// table was never cleaned up (reconnect reuses the same slot), so no re-registration is
+    /// needed and double-counting must be avoided.
+    async fn restore_remote_subscriptions(
+        &self,
+        remote_subs: &HashSet<SubscriptionInfo>,
+        conn_index: u64,
+        restore_tracking: bool,
+    ) {
+        for r in remote_subs {
+            let sub_msg = Message::builder()
+                .source(r.source().clone())
+                .destination(r.name().clone())
+                .identity(r.source_identity())
+                .build_subscribe()
+                .unwrap();
+            if let Err(e) = self.send_msg(sub_msg, conn_index).await {
+                error!(
+                    error = %e.chain(), %conn_index,
+                    "error restoring subscription on remote node",
+                );
+            } else if restore_tracking {
+                self.forwarder().on_forwarded_subscription(
+                    r.source().clone(),
+                    r.name().clone(),
+                    r.source_identity().clone(),
+                    conn_index,
+                    true,
+                    r.subscription_id(),
+                );
+            }
+        }
+    }
+
     async fn try_to_connect(
         &self,
         client_config: ClientConfig,
@@ -262,12 +309,18 @@ impl MessageProcessor {
             .open_channel(Request::new(ReceiverStream::new(rx)))
             .await?;
 
+        // The link_id is embedded in the Connection before it enters the table so that
+        // it is never None during the connection's lifetime — including reconnects where
+        // the old Connection object is replaced by a fresh one.
+        let link_id = client_config.link_id.clone();
+
         let cancellation_token = CancellationToken::new();
         let connection = Connection::new(ConnectionType::Remote, Channel::Client(tx))
             .with_local_addr(local)
             .with_remote_addr(remote)
             .with_config_data(Some(client_config.clone()))
-            .with_cancellation_token(Some(cancellation_token.clone()));
+            .with_cancellation_token(Some(cancellation_token.clone()))
+            .with_link_id(link_id.clone());
 
         debug!(
             remote = ?connection.remote_addr(),
@@ -297,15 +350,8 @@ impl MessageProcessor {
             false,
         )?;
 
-        // Perform link negotiation: generate or use the configured link_id, store it
-        // in the connection, and send a negotiation message to the remote peer.
+        // Send the link negotiation message to the remote peer.
         // Old SLIM instances that do not understand this message will silently drop it.
-        let link_id = client_config.link_id.clone();
-
-        if let Some(conn) = self.forwarder().get_connection(conn_index) {
-            conn.set_link_id(link_id.clone());
-        }
-
         let negotiation_msg =
             ProtoMessage::builder().build_link_negotiation(&link_id, local_version(), false);
         if let Err(e) = self.send_msg(negotiation_msg, conn_index).await {
@@ -589,6 +635,35 @@ impl MessageProcessor {
                 debug!(%in_connection, %link_id, "ignoring link negotiation request");
                 return Ok(());
             }
+
+            // Route recovery: if the peer reconnected with a known link_id, restore all
+            // routing state that was preserved during the recovery window.
+            if let Some(entry) = self.internal.recovery_table.take(link_id) {
+                info!(%in_connection, %link_id, "recovering routes for reconnected peer");
+
+                for (name, sub_ids) in &entry.local_subs {
+                    for &subscription_id in sub_ids {
+                        if let Err(e) = self.forwarder().on_subscription_msg(
+                            name.clone(),
+                            in_connection,
+                            false,
+                            true,
+                            subscription_id,
+                        ) {
+                            error!(
+                                error = %e.chain(), %in_connection,
+                                "error re-adding local subscription during recovery",
+                            );
+                        }
+                    }
+                }
+
+                // restore_tracking = true: on_connection_drop already wiped the
+                // forwarded-subscription table, so we must rebuild it here.
+                self.restore_remote_subscriptions(&entry.remote_subs, in_connection, true)
+                    .await;
+            }
+
             // Send reply only after state is committed.
             let reply =
                 ProtoMessage::builder().build_link_negotiation(link_id, local_version(), true);
@@ -1001,18 +1076,16 @@ impl MessageProcessor {
                 match res {
                     Ok(_) => {
                         info!("connection re-established successfully");
-                        // Restore subscriptions on the remote node
-                        for r in remote_subscriptions.iter() {
-                            let sub_msg = Message::builder()
-                                .source(r.source().clone())
-                                .destination(r.name().clone())
-                                .identity(r.source_identity())
-                                .build_subscribe()
-                                .unwrap();
-                            if let Err(e) = self.send_msg(sub_msg, conn_index).await {
-                                error!(error = %e.chain(), "error restoring subscription on remote node");
-                            }
-                        }
+                        // Restore subscriptions on the remote node.
+                        // restore_tracking = false: the forwarded-subscription table was not
+                        // cleaned up (same conn_index is reused), so we only replay the
+                        // messages without re-registering local tracking state.
+                        self.restore_remote_subscriptions(
+                            &remote_subscriptions,
+                            conn_index,
+                            false,
+                        )
+                        .await;
                         true
                     }
                     Err(e) => {
@@ -1020,6 +1093,34 @@ impl MessageProcessor {
                         false
                     }
                 }
+            }
+        }
+    }
+
+    /// Send an UNSUBSCRIBE message to the control plane for each subscription in `local_subs`.
+    async fn notify_control_plane_subscriptions_lost(
+        tx_cp: Option<Sender<Result<Message, Status>>>,
+        local_subs: HashMap<Name, HashSet<u64>>,
+        conn_index: u64,
+    ) {
+        let Some(tx) = tx_cp else { return };
+        for local_sub in local_subs.into_keys() {
+            debug!(
+                %local_sub,
+                "notify control plane about lost subscription",
+            );
+            let msg = Message::builder()
+                .source(local_sub.clone())
+                .destination(local_sub.clone())
+                .flags(SlimHeaderFlags::default().with_recv_from(conn_index))
+                .build_unsubscribe()
+                .unwrap();
+            if let Err(e) = tx.send(Ok(msg)).await {
+                debug!(
+                    %local_sub,
+                    error = %e.chain(),
+                    "failed to send unsubscribe to control plane",
+                );
             }
         }
     }
@@ -1117,6 +1218,9 @@ impl MessageProcessor {
             // stream is closed as soon as possible
             drop(stream);
 
+            // Save whether this is a client-initiated connection before client_conf_clone
+            // is consumed by the if-let below.
+            let is_client_connection = client_conf_clone.is_some();
             let mut connected = false;
 
             if try_to_reconnect && let Some(config) = client_conf_clone {
@@ -1126,31 +1230,76 @@ impl MessageProcessor {
             }
 
             if !connected {
-                //delete connection state
-                let (local_subs, _remote_subs) = self_clone
+                // For incoming (server) connections capture the link_id before
+                // on_connection_drop removes the connection from the table.
+                let link_id = if !is_local && !is_client_connection {
+                    self_clone
+                        .forwarder()
+                        .get_connection(conn_index)
+                        .and_then(|c| c.link_id())
+                } else {
+                    None
+                };
+
+                // Delete connection state from all tables.
+                let (local_subs, remote_subs) = self_clone
                     .forwarder()
                     .on_connection_drop(conn_index, is_local);
 
-                // if connection is not local and controller exists, notify about lost subscriptions on the connection
-                if let (false, Some(tx)) = (is_local, tx_cp) {
-                    for local_sub in local_subs {
-                        debug!(
-                            %local_sub,
-                            "notify control plane about lost subscription",
+                if let Some(lid) = link_id {
+                    // Server connection with a known link_id: preserve routing state and
+                    // suppress the control-plane notification for the duration of the TTL
+                    // to give the peer a chance to reconnect.
+                    info!(
+                        %conn_index, %lid,
+                        "connection lost, storing recovery state (TTL: {:?})",
+                        self_clone.internal.recovery_table.ttl(),
+                    );
+                    self_clone
+                        .internal
+                        .recovery_table
+                        .store(lid.clone(), local_subs, remote_subs);
+
+                    // Spawn a TTL task that fires the CP notification if recovery never happens.
+                    if let Ok(drain) = self_clone.get_drain_watch() {
+                        let tx_cp_ttl = tx_cp;
+                        let mp = self_clone.clone();
+                        self_clone.internal.recovery_table.spawn_ttl_task(
+                            lid,
+                            drain,
+                            move |entry| async move {
+                                info!("recovery window expired, notifying control plane");
+                                // Only unsubscribe names that are no longer reachable.
+                                // If the peer reconnected with a different link_id, the
+                                // CP will have already pushed the same subscriptions on
+                                // the new connection — those names are still in the
+                                // subscription table and must not be torn down.
+                                let unreachable = entry
+                                    .local_subs
+                                    .into_iter()
+                                    .filter(|(name, _)| {
+                                        mp.forwarder()
+                                            .on_publish_msg_match(name.clone(), u64::MAX, u32::MAX)
+                                            .is_err()
+                                    })
+                                    .collect();
+                                MessageProcessor::notify_control_plane_subscriptions_lost(
+                                    tx_cp_ttl,
+                                    unreachable,
+                                    conn_index,
+                                )
+                                .await;
+                            },
                         );
-                        let msg = Message::builder()
-                            .source(local_sub.clone())
-                            .destination(local_sub.clone())
-                            .flags(SlimHeaderFlags::default().with_recv_from(conn_index))
-                            .build_unsubscribe()
-                            .unwrap();
-                        if let Err(e) = tx.send(Ok(msg)).await {
-                            debug!(
-                                %local_sub,
-                                error = %e.chain(),
-                                "failed to send unsubscribe message to control plane for subscription",
-                            );
-                        }
+                    }
+                } else {
+                    // No link_id (local connection, client that failed to reconnect, or a peer
+                    // that does not support link negotiation): notify the control plane now.
+                    if !is_local {
+                        MessageProcessor::notify_control_plane_subscriptions_lost(
+                            tx_cp, local_subs, conn_index,
+                        )
+                        .await;
                     }
                 }
 

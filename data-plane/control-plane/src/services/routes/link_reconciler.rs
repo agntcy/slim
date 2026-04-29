@@ -14,7 +14,7 @@ use crate::api::proto::controller::proto::v1::{
     ConfigurationCommand, Connection, ConnectionDirection, ConnectionEntry, ConnectionListRequest,
     ControlMessage, control_message::Payload,
 };
-use crate::db::SharedDb;
+use crate::db::{LinkStatus, SharedDb};
 use crate::node_control::{DefaultNodeCommandHandler, NodeStatus, ResponseKind};
 use crate::services::routes::ReconcilerConfig;
 use crate::workqueue::WorkQueue;
@@ -135,15 +135,28 @@ async fn handle_request(
 
     let links = db.get_links_for_node(node_id).await;
 
-    // Pre-fetch all routes for this node once and group by link_id.
-    // This avoids O(L) individual get_routes_by_link_id calls inside the loops.
+    // Collect all unique non-deleted outgoing link IDs for this node, then
+    // fetch routes by link_id.  Using get_routes_by_link_id (rather than
+    // get_routes_for_node_id) ensures we discover routes from BOTH ends of
+    // the link — e.g. routes whose source is the link *destination* node.
+    // Without this, route reconciliation was never enqueued for the far-end
+    // source nodes after a link was (re)applied, leaving their subscriptions
+    // permanently missing.
     let mut routes_by_link: HashMap<String, Vec<String>> = HashMap::new();
-    for r in db.get_routes_for_node_id(node_id).await {
-        if !r.link_id.is_empty() {
-            routes_by_link
-                .entry(r.link_id.clone())
-                .or_default()
-                .push(r.source_node_id.clone());
+    {
+        let mut link_ids: HashSet<String> = HashSet::new();
+        for link in &links {
+            if link.source_node_id == node_id && !link.deleted && !link.link_id.is_empty() {
+                link_ids.insert(link.link_id.clone());
+            }
+        }
+        for lid in &link_ids {
+            for r in db.get_routes_by_link_id(lid).await {
+                routes_by_link
+                    .entry(r.link_id.clone())
+                    .or_default()
+                    .push(r.source_node_id.clone());
+            }
         }
     }
 
@@ -205,7 +218,7 @@ async fn handle_request(
         // confirmed live on the node — no need to resend a create command.
         // Trigger route reconciliation so that any pending subscriptions on
         // this link are applied, but skip the connection create itself.
-        if link.status == crate::db::LinkStatus::Applied && live_link_ids.contains(&link.link_id) {
+        if link.status == LinkStatus::Applied && live_link_ids.contains(&link.link_id) {
             if let Some(src_ids) = routes_by_link.get(&link.link_id) {
                 for src_id in src_ids {
                     reconcile_routes_for.insert(src_id.clone());
@@ -320,7 +333,7 @@ async fn handle_request(
         if let Some((success, err_msg)) = ack_status_by_id.get(&link.link_id) {
             let mut updated = link.clone();
             if *success {
-                updated.status = crate::db::LinkStatus::Applied;
+                updated.status = LinkStatus::Applied;
                 updated.status_msg = String::new();
                 tracing::info!(
                     "link reconciler: link {} ({}→{}) applied",
@@ -335,7 +348,7 @@ async fn handle_request(
                     }
                 }
             } else {
-                updated.status = crate::db::LinkStatus::Failed;
+                updated.status = LinkStatus::Failed;
                 updated.status_msg = err_msg.clone();
                 tracing::warn!(
                     "link reconciler: link {} ({}→{}) failed: {err_msg}",
@@ -378,7 +391,7 @@ async fn handle_request(
                 }
                 for link in deleted_links {
                     let mut updated = link.clone();
-                    updated.status = crate::db::LinkStatus::Failed;
+                    updated.status = LinkStatus::Failed;
                     updated.status_msg = reason.clone();
                     db.update_link(updated).await?;
                 }

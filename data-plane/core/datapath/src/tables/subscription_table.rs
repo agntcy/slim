@@ -693,19 +693,33 @@ impl SubscriptionTable for SubscriptionTableImpl {
         Ok(())
     }
 
-    fn remove_connection(&self, conn: u64, is_local: bool) -> Result<HashSet<Name>, Self::Error> {
+    fn remove_connection(
+        &self,
+        conn: u64,
+        is_local: bool,
+    ) -> Result<HashMap<Name, HashSet<u64>>, Self::Error> {
         let removed_subscriptions = self
             .connections
             .write()
             .remove(&conn)
             .ok_or(DataPathError::ConnectionIdNotFound(conn))?;
         let mut table = self.table.write();
-        for name in &removed_subscriptions {
+        let idx = if is_local { 0 } else { 1 };
+        let mut result: HashMap<Name, HashSet<u64>> =
+            HashMap::with_capacity(removed_subscriptions.len());
+        for name in removed_subscriptions {
             debug!(%name, %conn, "remove subscription");
-            // Use force_remove since the connection is dead
-            force_remove_subscription_from_sub_table(name, conn, is_local, &mut table)?;
+            // Extract subscription IDs before removing so callers can restore exact state.
+            let query_name = unsafe { std::mem::transmute::<&Name, &InternalName>(&name) };
+            if let Some(state) = table.get(query_name)
+                && let Some(refs) = state.ids.get(&name.id())
+                && let Some(sub_ids) = refs[idx].refs.get(&conn)
+            {
+                result.insert(name.clone(), sub_ids.clone());
+            }
+            force_remove_subscription_from_sub_table(&name, conn, is_local, &mut table)?;
         }
-        Ok(removed_subscriptions)
+        Ok(result)
     }
 
     fn match_one(&self, name: &Name, incoming_conn: u64) -> Result<u64, Self::Error> {
@@ -855,7 +869,7 @@ mod tests {
         assert_eq!(out, 3);
         let removed_subs = t.remove_connection(2, false).unwrap();
         assert_eq!(removed_subs.len(), 1);
-        assert!(removed_subs.contains(&name1_1));
+        assert!(removed_subs.contains_key(&name1_1));
 
         // returns one match on connection 1
         let out = t.match_all(&name1, 100).unwrap();
@@ -1143,7 +1157,9 @@ mod tests {
         // Connection 1 dies - should be force-removed regardless of ref count
         let removed = t.remove_connection(1, false).unwrap();
         assert_eq!(removed.len(), 1, "Should have removed 1 subscription");
-        assert!(removed.contains(&name1));
+        assert!(removed.contains_key(&name1));
+        // All three subscription IDs should have been preserved
+        assert_eq!(removed[&name1], HashSet::from([301u64, 302, 303]));
 
         // Now only connection 2 should be available
         let result = t.match_one(&name1, 100).unwrap();

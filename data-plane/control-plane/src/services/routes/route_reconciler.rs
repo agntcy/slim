@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 use uuid::Uuid;
 
 use parking_lot::Mutex;
@@ -55,8 +55,14 @@ impl RouteReconciler {
         tracing::info!("route reconciler: starting");
 
         while let Some(node_id) = self.queue.pop().await {
-            if let Err(e) =
-                handle_request(&self.db, &self.cmd_handler, &self.link_queue, &node_id).await
+            if let Err(e) = handle_request(
+                &self.db,
+                &self.cmd_handler,
+                &self.link_queue,
+                &self.queue,
+                &node_id,
+            )
+            .await
             {
                 tracing::error!("route reconciler: failed for node {node_id}: {e}");
 
@@ -149,14 +155,16 @@ async fn query_node_subscriptions(
     Ok(entries)
 }
 
-/// Reset a link to Pending and poke the link reconciler to re-apply it.
+/// Poke the link reconciler to verify and (if necessary) re-apply a link.
 ///
-/// Used in two places:
-/// - **Pre-flight** (proactive): the node's connection table doesn't contain
-///   the link_id yet, so we defer rather than sending a doomed subscription.
-/// - **Ack safety-net** (reactive): the node returned "connection not found"
-///   despite passing the pre-flight check (TOCTOU race).
-async fn defer_link(
+/// Does NOT reset the link status — the link reconciler verifies the
+/// connection on the outgoing (source) side and decides whether re-creation
+/// is needed.  Resetting the link to Pending here caused cascading failures:
+/// a temporary incoming connection drop on the route-source node would block
+/// ALL routes using the link until the link reconciler round-tripped a
+/// re-create, which in turn tore down the old TCP connection and removed
+/// every subscription on it.
+async fn poke_link_reconciler(
     db: &SharedDb,
     link_queue: &WorkQueue<String>,
     link_id: &str,
@@ -168,15 +176,6 @@ async fn defer_link(
         .await
         .filter(|l| !l.deleted)
     {
-        if link.status == crate::db::LinkStatus::Applied {
-            let mut updated = link.clone();
-            updated.status = crate::db::LinkStatus::Pending;
-            updated.status_msg = "reset: connection not registered on node".to_string();
-            updated.last_updated = SystemTime::now();
-            if let Err(e) = db.update_link(updated).await {
-                tracing::error!("route reconciler: failed to reset link {link_id} to pending: {e}");
-            }
-        }
         link_queue.add(link.source_node_id.clone());
     }
 }
@@ -185,6 +184,7 @@ async fn handle_request(
     db: &SharedDb,
     cmd_handler: &DefaultNodeCommandHandler,
     link_queue: &WorkQueue<String>,
+    route_queue: &WorkQueue<String>,
     node_id: &str,
 ) -> Result<()> {
     if cmd_handler.get_connection_status(node_id).await != NodeStatus::Connected {
@@ -335,6 +335,11 @@ async fn handle_request(
 
         if route.deleted {
             // If the subscription is already gone from the node, just clean up the DB.
+            // However, if the link is not registered on the node (connection is
+            // down), the subscription is absent simply because the connection is
+            // gone — not because it was successfully removed.  In that case we
+            // must defer deletion until the link is restored so the delete
+            // command can be sent to the DP.
             let key: SubKey = (
                 route.component0.clone(),
                 route.component1.clone(),
@@ -343,6 +348,14 @@ async fn handle_request(
                 link_id.clone(),
             );
             if !applied_sub_keys.contains(&key) {
+                if !link_id.is_empty() && !node_link_ids.contains(&link_id) {
+                    tracing::debug!(
+                        "route reconciler: route {} marked deleted but link {link_id} not \
+                         registered on node — deferring DB deletion until link is restored",
+                        route.id
+                    );
+                    continue;
+                }
                 db.delete_route(route.id).await?;
                 tracing::debug!(
                     "route reconciler: subscription already absent on node, deleted route {} from DB",
@@ -388,18 +401,14 @@ async fn handle_request(
 
         // Pre-flight connection check: the link is Applied in the DB, but verify
         // the underlying connection is actually present on the node right now.
+        // If missing, skip the route and re-enqueue for a later attempt rather
+        // than resetting the link status — a temporary incoming connection drop
+        // should not cascade into tearing down and re-creating the link.
         if !link_id.is_empty() && !node_link_ids.contains(&link_id) {
             tracing::debug!(
-                "route reconciler: link {link_id} not yet registered on {node_id}, deferring route"
+                "route reconciler: link {link_id} not yet registered on {node_id}, skipping route"
             );
-            defer_link(
-                db,
-                link_queue,
-                &link_id,
-                &route.source_node_id,
-                &route.dest_node_id,
-            )
-            .await;
+            route_queue.add_after(node_id.to_string(), Duration::from_secs(5));
             continue;
         }
 
@@ -559,16 +568,15 @@ async fn handle_request(
 
             // Safety net for the TOCTOU race: the pre-flight check passed but
             // the connection disappeared between the query and the subscribe
-            // send (extremely unlikely in practice).  Treat identically to the
-            // pre-flight deferral path — reset and hand back to the link
-            // reconciler without consuming a retry slot.
+            // send.  Poke the link reconciler to verify health on the outgoing
+            // side and re-enqueue this node for route reconciliation.
             if !route.link_id.is_empty() && is_connection_not_found(&err_msg) {
                 tracing::warn!(
-                    "route reconciler: connection not found for route {} (link {}) — resetting link for re-reconciliation",
+                    "route reconciler: connection not found for route {} (link {}) — requeing",
                     route.id,
                     route.link_id
                 );
-                defer_link(
+                poke_link_reconciler(
                     db,
                     link_queue,
                     &route.link_id,
@@ -576,6 +584,7 @@ async fn handle_request(
                     &route.dest_node_id,
                 )
                 .await;
+                route_queue.add_after(node_id.to_string(), Duration::from_secs(5));
                 continue;
             }
 
