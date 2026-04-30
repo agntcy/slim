@@ -15,8 +15,7 @@ use tokio::sync::mpsc::Sender;
 use tracing::{Instrument, debug, error, warn};
 
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType};
-use slim_datapath::messages::Name;
+use slim_datapath::api::{EncodedName, ProtoMessage as Message, ProtoName, ProtoSessionMessageType, ProtoSessionType};
 
 use crate::common::SessionMessage;
 use crate::completion_handle::CompletionHandle;
@@ -70,8 +69,8 @@ where
     /// Default name of the local app
     app_id: u64,
 
-    /// Names registered by local app, keyed by name → subscription_id
-    app_names: SyncRwLock<HashMap<Name, u64>>,
+    /// Names registered by local app, keyed by encoded name (null id) → subscription_id
+    app_names: SyncRwLock<HashMap<EncodedName, u64>>,
 
     /// Identity provider for the local app
     identity_provider: P,
@@ -116,7 +115,7 @@ where
     /// Create a new SessionLayer
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        app_name: Name,
+        app_name: ProtoName,
         identity_provider: P,
         identity_verifier: V,
         conn_id: u64,
@@ -130,13 +129,11 @@ where
 
         let subscription_manager = SubscriptionManager::new(tx_slim.clone());
 
+        let initial_key = Self::name_to_key(&app_name);
         let sl = SessionLayer {
             pool: Arc::new(SyncRwLock::new(HashMap::new())),
             app_id: app_name.id(),
-            app_names: SyncRwLock::new(HashMap::from([(
-                app_name.with_id(Name::NULL_COMPONENT),
-                0,
-            )])),
+            app_names: SyncRwLock::new(HashMap::from([(initial_key, 0)])),
             identity_provider,
             identity_verifier,
             conn_id,
@@ -176,18 +173,24 @@ where
         self.app_id
     }
 
-    pub fn add_app_name(&self, name: Name, subscription_id: u64) {
-        // unset last component for fast lookups
-        self.app_names
-            .write()
-            .insert(name.with_id(Name::NULL_COMPONENT), subscription_id);
+    /// Build the HashMap key (EncodedName with null component_3) from a ProtoName.
+    fn name_to_key(name: &ProtoName) -> EncodedName {
+        let enc = name.name.as_ref().unwrap();
+        EncodedName {
+            component_0: enc.component_0,
+            component_1: enc.component_1,
+            component_2: enc.component_2,
+            component_3: ProtoName::NULL_COMPONENT,
+        }
     }
 
-    pub fn remove_app_name(&self, name: &Name) -> Option<u64> {
-        let key = match name.id() {
-            Name::NULL_COMPONENT => name.clone(),
-            _ => name.clone().with_id(Name::NULL_COMPONENT),
-        };
+    pub fn add_app_name(&self, name: ProtoName, subscription_id: u64) {
+        let key = Self::name_to_key(&name);
+        self.app_names.write().insert(key, subscription_id);
+    }
+
+    pub fn remove_app_name(&self, name: &ProtoName) -> Option<u64> {
+        let key = Self::name_to_key(name);
         let removed = self.app_names.write().remove(&key);
         if removed.is_none() {
             warn!(%name, "tried to remove unknown app name");
@@ -195,12 +198,12 @@ where
         removed
     }
 
-    fn get_local_name_for_session(&self, dst: Name) -> Result<Name, SessionError> {
-        let name = dst.with_id(Name::NULL_COMPONENT);
-        if self.app_names.read().contains_key(&name) {
-            Ok(name.with_id(self.app_id))
+    fn get_local_name_for_session(&self, dst: ProtoName) -> Result<ProtoName, SessionError> {
+        let key = Self::name_to_key(&dst);
+        if self.app_names.read().contains_key(&key) {
+            Ok(dst.with_id(self.app_id))
         } else {
-            Err(SessionError::SubscriptionNotFound(name))
+            Err(SessionError::SubscriptionNotFound(dst))
         }
     }
 
@@ -215,8 +218,8 @@ where
     pub async fn create_session(
         &self,
         mut session_config: SessionConfig,
-        local_name: Name,
-        destination: Name,
+        local_name: ProtoName,
+        destination: ProtoName,
         id: Option<u32>,
     ) -> Result<(SessionContext, CompletionHandle), SessionError> {
         // Sanity check
@@ -224,7 +227,7 @@ where
 
         // Store values before they are moved
         let is_p2p = session_config.session_type == ProtoSessionType::PointToPoint;
-        let destination_clone = destination.clone();
+        let destination_proto = destination.clone();
 
         let session = self.create_session_internal(session_config, local_name, destination, id)?;
 
@@ -235,7 +238,7 @@ where
                 .session()
                 .upgrade()
                 .ok_or(SessionError::SessionNotFound(u32::MAX))?
-                .invite_participant_internal(&destination_clone)
+                .invite_participant_internal(&destination_proto)
                 .await
                 .inspect_err(|_| {
                     // If invite_participant_internal fails, remove the session from the pool
@@ -256,8 +259,8 @@ where
     fn create_session_internal(
         &self,
         session_config: SessionConfig,
-        local_name: Name,
-        destination: Name,
+        local_name: ProtoName,
+        destination: ProtoName,
         id: Option<u32>,
     ) -> Result<SessionContext, SessionError> {
         // Retry loop to handle race conditions when generating random IDs
@@ -423,7 +426,7 @@ where
     /// other action is needed, false otherwise
     pub(crate) async fn handle_message_from_slim_without_session(
         &self,
-        local_name: &Name,
+        local_name: &ProtoName,
         message: &slim_datapath::api::ProtoMessage,
         session_type: ProtoSessionType,
         session_message_type: ProtoSessionMessageType,
@@ -574,7 +577,7 @@ where
                         }
 
                         let channel = if let Some(c) = &payload.channel {
-                            Name::from(c)
+                            c.clone()
                         } else {
                             return Err(SessionError::MissingChannelName);
                         };
@@ -716,14 +719,13 @@ mod tests {
     use super::*;
     use crate::test_utils::{MockTokenProvider, MockTransmitter, MockVerifier};
     use slim_datapath::Status;
-    use slim_datapath::api::ProtoSessionType;
-    use slim_datapath::messages::Name;
+    use slim_datapath::api::{ProtoName, ProtoSessionType};
     use tokio::sync::mpsc;
 
     // --- Test Mocks -----------------------------------------------------------------------
 
-    fn make_name(parts: &[&str; 3]) -> Name {
-        Name::from_strings([parts[0], parts[1], parts[2]]).with_id(0)
+    fn make_name(parts: &[&str; 3]) -> ProtoName {
+        ProtoName::from_strings([parts[0], parts[1], parts[2]]).with_id(0)
     }
 
     type TestSessionLayer = SessionLayer<MockTokenProvider, MockVerifier, MockTransmitter>;
@@ -1011,7 +1013,7 @@ mod tests {
 
         let source = make_name(&["remote", "app", "v1"]);
         let message = Message::builder()
-            .source(source)
+            .source(source.clone())
             .destination(local_name.clone().with_id(session_layer.app_id()))
             .identity("")
             .forward_to(0)
@@ -1056,7 +1058,7 @@ mod tests {
         let local_name = make_name(&["local", "app", "v1"]);
         let source = make_name(&["remote", "app", "v1"]);
         let message = Message::builder()
-            .source(source)
+            .source(source.clone())
             .destination(local_name.clone().with_id(session_layer.app_id()))
             .application_payload("application/octet-stream", vec![])
             .build_publish()
@@ -1118,7 +1120,7 @@ mod tests {
         session_layer.remove_app_name(&name);
 
         // The name with NULL_COMPONENT should be removed
-        let name_null = name.with_id(Name::NULL_COMPONENT);
-        assert!(!session_layer.app_names.read().contains_key(&name_null));
+        let name_null = name.with_id(ProtoName::NULL_COMPONENT);
+        assert!(!session_layer.app_names.read().contains_key(&TestSessionLayer::name_to_key(&name_null)));
     }
 }

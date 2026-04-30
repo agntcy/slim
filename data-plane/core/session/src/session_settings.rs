@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_datapath::messages::Name;
+use slim_datapath::api::ProtoName;
 
 use crate::{
     SessionError,
@@ -34,10 +34,10 @@ where
     pub(crate) id: u32,
 
     /// Local endpoint name
-    pub(crate) source: Name,
+    pub(crate) source: ProtoName,
 
     /// Remote endpoint or group name
-    pub(crate) destination: Name,
+    pub(crate) destination: ProtoName,
 
     /// Session configuration
     pub(crate) config: SessionConfig,

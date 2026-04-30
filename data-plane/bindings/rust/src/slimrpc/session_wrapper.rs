@@ -13,7 +13,7 @@ use display_error_chain::ErrorChainExt;
 
 use futures_timer::Delay;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
-use slim_datapath::messages::Name;
+use slim_datapath::api::ProtoName as Name;
 use slim_service::app::App as SlimApp;
 use slim_session::context::SessionContext;
 use slim_session::errors::SessionError;

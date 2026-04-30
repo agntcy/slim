@@ -14,7 +14,7 @@ use slim_datapath::api::{
 
 // Local crate
 use crate::{SessionError, common::MessageDirection};
-use slim_datapath::messages::Name;
+use slim_datapath::api::ProtoName;
 use slim_mls::{
     errors::MlsError,
     mls::{CommitMsg, KeyPackageMsg, Mls, MlsIdentity, ProposalMsg, WelcomeMsg},
@@ -85,7 +85,7 @@ where
     pub(crate) fn process_control_message(
         &mut self,
         msg: Message,
-        local_name: &Name,
+        local_name: &ProtoName,
     ) -> Result<bool, SessionError> {
         if !self.is_valid_msg_id(msg)? {
             // message already processed, drop it
@@ -142,17 +142,17 @@ where
     fn process_proposal_message(
         &mut self,
         proposal: Message,
-        local_name: &Name,
+        local_name: &ProtoName,
     ) -> Result<(), SessionError> {
         trace!(id = proposal.get_id(), "processing stored proposal");
 
         let payload = proposal.extract_group_proposal()?;
 
-        let original_source = Name::from(payload.source.as_ref().ok_or(
+        let original_source = payload.source.as_ref().ok_or(
             SessionError::MissingPayload {
                 context: "proposal source",
             },
-        )?);
+        )?.clone();
         if original_source == *local_name {
             // drop the message as we are the original source
             debug!("Known proposal, drop the message");
@@ -331,7 +331,7 @@ where
 
     /// map of the participants (with real ids) with package keys
     /// used to remove participants from the channel
-    pub(crate) participants: HashMap<Name, MlsIdentity>,
+    pub(crate) participants: HashMap<ProtoName, MlsIdentity>,
 
     /// message id of the next msl message to send
     pub(crate) next_msg_id: u32,
@@ -436,9 +436,9 @@ mod tests {
 
         let mut msg = Message::builder()
             .source(
-                slim_datapath::messages::Name::from_strings(["org", "default", "test"]).with_id(0),
+                slim_datapath::api::ProtoName::from_strings(["org", "default", "test"]).with_id(0),
             )
-            .destination(slim_datapath::messages::Name::from_strings([
+            .destination(slim_datapath::api::ProtoName::from_strings([
                 "org", "default", "target",
             ]))
             .session_id(1)
@@ -490,9 +490,9 @@ mod tests {
 
         let mut alice_msg = Message::builder()
             .source(
-                slim_datapath::messages::Name::from_strings(["org", "default", "alice"]).with_id(0),
+                slim_datapath::api::ProtoName::from_strings(["org", "default", "alice"]).with_id(0),
             )
-            .destination(slim_datapath::messages::Name::from_strings([
+            .destination(slim_datapath::api::ProtoName::from_strings([
                 "org", "default", "bob",
             ]))
             .session_id(1)
@@ -548,9 +548,9 @@ mod tests {
         // Create a message with a control message type (not Msg)
         let mut msg = Message::builder()
             .source(
-                slim_datapath::messages::Name::from_strings(["org", "default", "test"]).with_id(0),
+                slim_datapath::api::ProtoName::from_strings(["org", "default", "test"]).with_id(0),
             )
-            .destination(slim_datapath::messages::Name::from_strings([
+            .destination(slim_datapath::api::ProtoName::from_strings([
                 "org", "default", "target",
             ]))
             .session_id(1)

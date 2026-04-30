@@ -42,8 +42,8 @@ use slim_datapath::api::{
     MessageType::Unsubscribe, ProtoMessage as DataPlaneMessage,
 };
 use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType};
+use slim_datapath::api::ProtoName;
 use slim_datapath::message_processing::MessageProcessor;
-use slim_datapath::messages::Name;
 use slim_datapath::messages::encoder::calculate_hash;
 use slim_datapath::messages::utils::{DELETE_GROUP, IS_MODERATOR, SlimHeaderFlags, TRUE_VAL};
 use slim_datapath::tables::SubscriptionTable;
@@ -90,7 +90,7 @@ struct ControllerServiceInternal {
     id: ID,
 
     /// controller name
-    controller_name: slim_datapath::messages::Name,
+    controller_name: ProtoName,
 
     /// optional group name
     group_name: Option<String>,
@@ -138,7 +138,7 @@ struct ControllerServiceInternal {
     connection_details: Vec<ConnectionDetails>,
 
     /// Maps (subscription_name, connection_id) → subscription_id for route tracking
-    route_subscription_ids: parking_lot::Mutex<HashMap<(Name, u64), u64>>,
+    route_subscription_ids: parking_lot::Mutex<HashMap<(ProtoName, u64), u64>>,
 }
 
 #[derive(Clone)]
@@ -225,7 +225,7 @@ impl ControlPlane {
             .unwrap();
 
         let (signal, watch) = drain::channel();
-        let controller_name = Name::from_strings([
+        let controller_name = ProtoName::from_strings([
             CONTROLLER_COMPONENT,
             CONTROLLER_COMPONENT,
             CONTROLLER_COMPONENT,
@@ -518,20 +518,26 @@ impl ControlPlane {
     }
 }
 
-fn generate_session_id(moderator: &Name, channel: &Name) -> u32 {
+fn generate_session_id(moderator: &ProtoName, channel: &ProtoName) -> u32 {
     // get all the components of the two names
     // and hash them together to get the session id
     let mut all: [u64; 8] = [0; 8];
-    let m = moderator.components();
-    let c = channel.components();
-    all[..4].copy_from_slice(m);
-    all[4..].copy_from_slice(c);
+    let m = moderator.name.as_ref().unwrap();
+    let c = channel.name.as_ref().unwrap();
+    all[0] = m.component_0;
+    all[1] = m.component_1;
+    all[2] = m.component_2;
+    all[3] = m.component_3;
+    all[4] = c.component_0;
+    all[5] = c.component_1;
+    all[6] = c.component_2;
+    all[7] = c.component_3;
 
     let hash = calculate_hash(&all);
     (hash ^ (hash >> 32)) as u32
 }
 
-fn get_name_from_string(string_name: &str) -> Result<Name, ControllerError> {
+fn get_name_from_string(string_name: &str) -> Result<ProtoName, ControllerError> {
     let parts: Vec<&str> = string_name.split('/').collect();
     if parts.len() < 3 {
         return Err(ControllerError::MalformedName(string_name.to_owned()));
@@ -541,16 +547,16 @@ fn get_name_from_string(string_name: &str) -> Result<Name, ControllerError> {
         let id = parts[3]
             .parse::<u64>()
             .map_err(|_e| ControllerError::MalformedName(string_name.to_owned()))?;
-        return Ok(Name::from_strings([parts[0], parts[1], parts[2]]).with_id(id));
+        return Ok(ProtoName::from_strings([parts[0], parts[1], parts[2]]).with_id(id));
     }
 
-    Ok(Name::from_strings([parts[0], parts[1], parts[2]]))
+    Ok(ProtoName::from_strings([parts[0], parts[1], parts[2]]))
 }
 
 #[allow(clippy::too_many_arguments)]
 fn create_channel_message(
-    source: &Name,
-    destination: &Name,
+    source: &ProtoName,
+    destination: &ProtoName,
     request_type: ProtoSessionMessageType,
     session_id: u32,
     message_id: u32,
@@ -578,9 +584,9 @@ fn create_channel_message(
 }
 
 fn new_channel_message(
-    controller: &Name,
-    moderator: &Name,
-    channel: &Name,
+    controller: &ProtoName,
+    moderator: &ProtoName,
+    channel: &ProtoName,
     message_id: u32,
     auth_provider: &Option<AuthProvider>,
 ) -> Result<DataPlaneMessage, ControllerError> {
@@ -612,9 +618,9 @@ fn new_channel_message(
 }
 
 fn delete_channel_message(
-    controller: &Name,
-    moderator: &Name,
-    channel_name: &Name,
+    controller: &ProtoName,
+    moderator: &ProtoName,
+    channel_name: &ProtoName,
     msg_id: u32,
     auth_provider: &Option<AuthProvider>,
 ) -> Result<DataPlaneMessage, ControllerError> {
@@ -637,10 +643,10 @@ fn delete_channel_message(
 }
 
 fn invite_participant_message(
-    controller: &Name,
-    moderator: &Name,
-    participant: &Name,
-    channel_name: &Name,
+    controller: &ProtoName,
+    moderator: &ProtoName,
+    participant: &ProtoName,
+    channel_name: &ProtoName,
     msg_id: u32,
     auth_provider: &Option<AuthProvider>,
 ) -> Result<DataPlaneMessage, ControllerError> {
@@ -666,10 +672,10 @@ fn invite_participant_message(
 }
 
 fn remove_participant_message(
-    controller: &Name,
-    moderator: &Name,
-    participant: &Name,
-    channel_name: &Name,
+    controller: &ProtoName,
+    moderator: &ProtoName,
+    participant: &ProtoName,
+    channel_name: &ProtoName,
     msg_id: u32,
     auth_provider: &Option<AuthProvider>,
 ) -> Result<DataPlaneMessage, ControllerError> {
@@ -896,18 +902,18 @@ impl ControllerService {
                             let conn = self.resolve_subscription_connection(subscription);
 
                             if let Ok(Some(conn)) = conn {
-                                let source = Name::from_strings([
+                                let source = ProtoName::from_strings([
                                     subscription.component_0.as_str(),
                                     subscription.component_1.as_str(),
                                     subscription.component_2.as_str(),
                                 ])
                                 .with_id(0);
-                                let name = Name::from_strings([
+                                let name = ProtoName::from_strings([
                                     subscription.component_0.as_str(),
                                     subscription.component_1.as_str(),
                                     subscription.component_2.as_str(),
                                 ])
-                                .with_id(subscription.id.unwrap_or(Name::NULL_COMPONENT));
+                                .with_id(subscription.id.unwrap_or(ProtoName::NULL_COMPONENT));
 
                                 let msg = DataPlaneMessage::builder()
                                     .source(source.clone())
@@ -966,18 +972,18 @@ impl ControllerService {
                             let conn = self.resolve_subscription_connection(subscription);
 
                             if let Ok(Some(conn)) = conn {
-                                let source = Name::from_strings([
+                                let source = ProtoName::from_strings([
                                     subscription.component_0.as_str(),
                                     subscription.component_1.as_str(),
                                     subscription.component_2.as_str(),
                                 ])
                                 .with_id(0);
-                                let name = Name::from_strings([
+                                let name = ProtoName::from_strings([
                                     subscription.component_0.as_str(),
                                     subscription.component_1.as_str(),
                                     subscription.component_2.as_str(),
                                 ])
-                                .with_id(subscription.id.unwrap_or(Name::NULL_COMPONENT));
+                                .with_id(subscription.id.unwrap_or(ProtoName::NULL_COMPONENT));
 
                                 let msg = DataPlaneMessage::builder()
                                     .source(source.clone())
@@ -1507,14 +1513,14 @@ impl ControllerService {
         Ok(())
     }
 
-    async fn handle_subscribe_message(&self, dst: Name, clients: &[ClientConfig]) {
+    async fn handle_subscribe_message(&self, dst: ProtoName, clients: &[ClientConfig]) {
         let mut sub_vec = vec![];
 
-        let components = dst.components_strings();
+        let (c0, c1, c2) = dst.str_components();
         let cmd = v1::Subscription {
-            component_0: components[0].to_string(),
-            component_1: components[1].to_string(),
-            component_2: components[2].to_string(),
+            component_0: c0.to_string(),
+            component_1: c1.to_string(),
+            component_2: c2.to_string(),
             id: Some(dst.id()),
             connection_id: "n/a".to_string(),
             node_id: None,
@@ -1537,14 +1543,14 @@ impl ControllerService {
         return self.send_or_queue_notification(ctrl, clients).await;
     }
 
-    async fn handle_unsubscribe_message(&self, dst: Name, clients: &[ClientConfig]) {
+    async fn handle_unsubscribe_message(&self, dst: ProtoName, clients: &[ClientConfig]) {
         let mut unsub_vec = vec![];
 
-        let components = dst.components_strings();
+        let (c0, c1, c2) = dst.str_components();
         let cmd = v1::Subscription {
-            component_0: components[0].to_string(),
-            component_1: components[1].to_string(),
-            component_2: components[2].to_string(),
+            component_0: c0.to_string(),
+            component_1: c1.to_string(),
+            component_2: c2.to_string(),
             id: Some(dst.id()),
             connection_id: "n/a".to_string(),
             node_id: None,
@@ -2072,10 +2078,10 @@ mod tests {
 
     #[test]
     fn test_generate_session_id() {
-        let moderator_a = Name::from_strings(["Org", "Ns", "Moderator"]).with_id(42);
-        let moderator_b = Name::from_strings(["Org", "Ns", "Moderator"]).with_id(43); // different id
-        let channel_x = Name::from_strings(["Org", "Ns", "ChannelX"]).with_id(7);
-        let channel_y = Name::from_strings(["Org", "Ns", "ChannelY"]).with_id(7); // different last component
+        let moderator_a = ProtoName::from_strings(["Org", "Ns", "Moderator"]).with_id(42);
+        let moderator_b = ProtoName::from_strings(["Org", "Ns", "Moderator"]).with_id(43); // different id
+        let channel_x = ProtoName::from_strings(["Org", "Ns", "ChannelX"]).with_id(7);
+        let channel_y = ProtoName::from_strings(["Org", "Ns", "ChannelY"]).with_id(7); // different last component
 
         let id1 = generate_session_id(&moderator_a, &channel_x);
         let id2 = generate_session_id(&moderator_a, &channel_x);

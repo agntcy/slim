@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use rand::Rng;
 use slim_datapath::api::{EncodedName, ProtoSessionType};
 use slim_datapath::messages::utils::{MAX_PUBLISH_ID, PUBLISH_TO};
-use slim_datapath::{api::ProtoMessage as Message, messages::Name};
+use slim_datapath::{api::ProtoMessage as Message, api::ProtoName};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
 use tracing::debug;
@@ -56,9 +56,9 @@ pub struct SessionSender {
     pending_acks_per_endpoint: HashMap<EncodedName, HashSet<u32>>,
 
     /// list of the endpoints in the conversation, keyed by encoded name for
-    /// zero-alloc hot-path lookups; Name value retained for retransmit
+    /// zero-alloc hot-path lookups; ProtoName value retained for retransmit
     /// set_destination calls (group retransmit must rewrite the destination).
-    endpoints_list: HashMap<EncodedName, Name>,
+    endpoints_list: HashMap<EncodedName, ProtoName>,
 
     /// message id, used to send sequential messages
     /// it goes from 0 to 2^16. higher ids are used for messages
@@ -403,8 +403,8 @@ impl SessionSender {
             debug!("the message does not exists anymore, send and error");
             let dest_proto = message.get_slim_header().destination.clone().unwrap();
             let msg = Message::builder()
-                .source_proto(dest_proto)
-                .destination_proto(source_proto.unwrap())
+                .source(dest_proto)
+                .destination(source_proto.unwrap())
                 .identity("")
                 .forward_to(incoming_conn)
                 .session_type(message.get_session_type())
@@ -443,7 +443,7 @@ impl SessionSender {
                     if let Some(name) = self.endpoints_list.get(enc) {
                         debug!(%id, dst = %name, "resend message");
                         let mut m = message.clone();
-                        m.get_slim_header_mut().set_destination(name);
+                        m.get_slim_header_mut().set_destination(name.clone());
                         self.tx.send_to_slim(Ok(m)).await?;
                     }
                     // else: endpoint removed since original send — skip retransmit
@@ -498,10 +498,10 @@ impl SessionSender {
         self.on_failure(message_id, error)
     }
 
-    pub async fn add_endpoint(&mut self, endpoint: &Name) -> Result<(), SessionError> {
+    pub async fn add_endpoint(&mut self, endpoint: &ProtoName) -> Result<(), SessionError> {
         // add endpoint to the list
         self.endpoints_list
-            .insert(EncodedName::from(endpoint), endpoint.clone());
+            .insert(endpoint.name.unwrap(), endpoint.clone());
 
         debug!(
             %endpoint,
@@ -521,13 +521,13 @@ impl SessionSender {
         Ok(())
     }
 
-    pub fn remove_endpoint(&mut self, endpoint: &Name) {
+    pub fn remove_endpoint(&mut self, endpoint: &ProtoName) {
         debug!(
             %endpoint,
             list_len = %self.endpoints_list.len(),
             "remove endpoint",
         );
-        let key = EncodedName::from(endpoint);
+        let key = endpoint.name.unwrap();
         // remove endpoint from the list and remove all the ack state
         // notice that no ack state may be associated to the endpoint
         // (e.g. endpoint added but no message sent)
@@ -622,7 +622,7 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
 
         sender
             .add_endpoint(&remote)
@@ -630,7 +630,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a test message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(remote.clone())
@@ -702,7 +702,7 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
 
         sender
             .add_endpoint(&remote)
@@ -710,7 +710,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a test message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(remote.clone())
@@ -841,7 +841,7 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
 
         sender
             .add_endpoint(&remote)
@@ -849,7 +849,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a test message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(remote.clone())
@@ -922,10 +922,10 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let group = Name::from_strings(["org", "ns", "group"]);
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
-        let remote3 = Name::from_strings(["org", "ns", "remote3"]);
+        let group = ProtoName::from_strings(["org", "ns", "group"]);
+        let remote1 = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2 = ProtoName::from_strings(["org", "ns", "remote2"]);
+        let remote3 = ProtoName::from_strings(["org", "ns", "remote3"]);
 
         sender
             .add_endpoint(&remote1)
@@ -941,7 +941,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a test message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(group.clone())
@@ -1042,10 +1042,10 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let group = Name::from_strings(["org", "ns", "group"]);
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
-        let remote3 = Name::from_strings(["org", "ns", "remote3"]);
+        let group = ProtoName::from_strings(["org", "ns", "group"]);
+        let remote1 = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2 = ProtoName::from_strings(["org", "ns", "remote2"]);
+        let remote3 = ProtoName::from_strings(["org", "ns", "remote3"]);
 
         sender
             .add_endpoint(&remote1)
@@ -1061,7 +1061,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a test message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(group.clone())
@@ -1225,10 +1225,10 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let group = Name::from_strings(["org", "ns", "group"]);
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
-        let remote3 = Name::from_strings(["org", "ns", "remote3"]);
+        let group = ProtoName::from_strings(["org", "ns", "group"]);
+        let remote1 = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2 = ProtoName::from_strings(["org", "ns", "remote2"]);
+        let remote3 = ProtoName::from_strings(["org", "ns", "remote3"]);
 
         sender
             .add_endpoint(&remote1)
@@ -1244,7 +1244,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a test message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(group.clone())
@@ -1335,10 +1335,10 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let group = Name::from_strings(["org", "ns", "group"]);
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
-        let remote3 = Name::from_strings(["org", "ns", "remote3"]);
+        let group = ProtoName::from_strings(["org", "ns", "group"]);
+        let remote1 = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2 = ProtoName::from_strings(["org", "ns", "remote2"]);
+        let remote3 = ProtoName::from_strings(["org", "ns", "remote3"]);
 
         sender
             .add_endpoint(&remote1)
@@ -1354,7 +1354,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a test message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(group.clone())
@@ -1473,7 +1473,7 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
 
         sender
             .add_endpoint(&remote)
@@ -1481,7 +1481,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a test message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(remote.clone())
@@ -1620,12 +1620,12 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
 
         // DO NOT add any endpoints - this is the key part of the test
 
         // Create a test message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(remote.clone())
@@ -1691,9 +1691,9 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
-        let remote3 = Name::from_strings(["org", "ns", "remote3"]);
+        let remote1 = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2 = ProtoName::from_strings(["org", "ns", "remote2"]);
+        let remote3 = ProtoName::from_strings(["org", "ns", "remote3"]);
 
         sender
             .add_endpoint(&remote1)
@@ -1709,7 +1709,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a test message with PUBLISH_TO targeting remote2
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(remote2.clone())
@@ -1768,8 +1768,8 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let unknown_remote = Name::from_strings(["org", "ns", "unknown"]);
+        let remote1 = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let unknown_remote = ProtoName::from_strings(["org", "ns", "unknown"]);
 
         sender
             .add_endpoint(&remote1)
@@ -1777,7 +1777,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a message with PUBLISH_TO targeting an unknown endpoint
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(unknown_remote.clone())
@@ -1819,7 +1819,7 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
 
         sender
             .add_endpoint(&remote)
@@ -1827,7 +1827,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a message with PUBLISH_TO metadata
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(remote.clone())
@@ -1878,8 +1878,8 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
+        let remote1 = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2 = ProtoName::from_strings(["org", "ns", "remote2"]);
 
         sender
             .add_endpoint(&remote1)
@@ -1891,7 +1891,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a PUBLISH_TO message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(remote2.clone())
@@ -1962,8 +1962,8 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
+        let remote1 = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2 = ProtoName::from_strings(["org", "ns", "remote2"]);
 
         sender
             .add_endpoint(&remote1)
@@ -1975,7 +1975,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a PUBLISH_TO message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(remote2.clone())
@@ -2052,8 +2052,8 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
+        let remote1 = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2 = ProtoName::from_strings(["org", "ns", "remote2"]);
 
         sender
             .add_endpoint(&remote1)
@@ -2065,7 +2065,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a PUBLISH_TO message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(remote2.clone())
@@ -2125,7 +2125,7 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
 
         sender
             .add_endpoint(&remote)
@@ -2133,7 +2133,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a PUBLISH_TO message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(remote.clone())
@@ -2208,9 +2208,9 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let group = Name::from_strings(["org", "ns", "group"]);
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
+        let group = ProtoName::from_strings(["org", "ns", "group"]);
+        let remote1 = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2 = ProtoName::from_strings(["org", "ns", "remote2"]);
 
         sender
             .add_endpoint(&remote1)
@@ -2221,7 +2221,7 @@ mod tests {
             .await
             .expect("error adding participant");
 
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
 
         // Send a normal multicast message
         let mut normal_msg = Message::builder()
@@ -2308,14 +2308,14 @@ mod tests {
             Some(tx_signal),
             true, // shutdown_send enabled
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
 
         sender
             .add_endpoint(&remote)
             .await
             .expect("error adding participant");
 
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
 
         // Send messages 1, 2, 3 sequentially with ack notifiers
         for msg_id in 1..=3 {
@@ -2396,10 +2396,10 @@ mod tests {
             Some(tx_signal),
             true, // shutdown_send enabled
         );
-        let group = Name::from_strings(["org", "ns", "group"]);
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
-        let remote3 = Name::from_strings(["org", "ns", "remote3"]);
+        let group = ProtoName::from_strings(["org", "ns", "group"]);
+        let remote1 = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2 = ProtoName::from_strings(["org", "ns", "remote2"]);
+        let remote3 = ProtoName::from_strings(["org", "ns", "remote3"]);
 
         sender
             .add_endpoint(&remote1)
@@ -2414,7 +2414,7 @@ mod tests {
             .await
             .expect("error adding remote3");
 
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
 
         // Send 3 messages to the group with ack notifiers
         for msg_num in 1..=3 {
@@ -2498,8 +2498,8 @@ mod tests {
             Some(tx_signal),
             true, // shutdown_send enabled
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
 
         sender
             .add_endpoint(&remote)
@@ -2595,8 +2595,8 @@ mod tests {
             Some(tx_signal),
             true, // shutdown_send enabled
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
 
         // Send 3 messages WITHOUT adding endpoint first (normally would be buffered for flush)
         for msg_id in 1..=3 {

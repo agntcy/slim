@@ -3,7 +3,7 @@
 
 use std::fmt::Display;
 
-use slim_datapath::messages::Name as SlimName;
+use slim_datapath::api::ProtoName;
 
 use crate::errors::SlimError;
 
@@ -11,29 +11,29 @@ use crate::errors::SlimError;
 #[derive(Debug, Clone, PartialEq, uniffi::Object)]
 #[uniffi::export(Display, Debug, Eq)]
 pub struct Name {
-    inner: SlimName,
+    inner: ProtoName,
 }
 
-impl From<Name> for SlimName {
+impl From<Name> for ProtoName {
     fn from(name: Name) -> Self {
         name.inner.clone()
     }
 }
 
-impl From<&Name> for SlimName {
+impl From<&Name> for ProtoName {
     fn from(name: &Name) -> Self {
         name.inner.clone()
     }
 }
 
-impl From<SlimName> for Name {
-    fn from(name: SlimName) -> Self {
+impl From<ProtoName> for Name {
+    fn from(name: ProtoName) -> Self {
         Name { inner: name }
     }
 }
 
-impl From<&SlimName> for Name {
-    fn from(name: &SlimName) -> Self {
+impl From<&ProtoName> for Name {
+    fn from(name: &ProtoName) -> Self {
         Name {
             inner: name.clone(),
         }
@@ -42,7 +42,8 @@ impl From<&SlimName> for Name {
 
 impl Display for Name {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.inner)
+        let (c0, c1, c2) = self.inner.str_components();
+        write!(f, "{}/{}/{}", c0, c1, c2)
     }
 }
 
@@ -51,7 +52,7 @@ impl Name {
     /// Create a new Name from components without an ID
     #[uniffi::constructor]
     pub fn new(component0: String, component1: String, component2: String) -> Self {
-        let inner = SlimName::from_strings([component0, component1, component2]);
+        let inner = ProtoName::from_strings([component0, component1, component2]);
         Name { inner }
     }
 
@@ -68,7 +69,7 @@ impl Name {
             });
         }
         Ok(Name {
-            inner: SlimName::from_strings([parts[0], parts[1], parts[2]]),
+            inner: ProtoName::from_strings([parts[0], parts[1], parts[2]]),
         })
     }
 
@@ -80,16 +81,17 @@ impl Name {
         component2: String,
         id: u64,
     ) -> Self {
-        if SlimName::is_reserved_id(id) {
+        if ProtoName::is_reserved_id(id) {
             panic!("id {id:#x} is a reserved sentinel value and cannot be used as a name id");
         }
-        let inner = SlimName::from_strings([component0, component1, component2]).with_id(id);
+        let inner = ProtoName::from_strings([component0, component1, component2]).with_id(id);
         Name { inner }
     }
 
     /// Get the name components as a vector of strings
     pub fn components(&self) -> Vec<String> {
-        self.inner.components_strings().to_vec()
+        let (c0, c1, c2) = self.inner.str_components();
+        vec![c0.to_string(), c1.to_string(), c2.to_string()]
     }
 
     /// Get the name ID
@@ -99,21 +101,14 @@ impl Name {
 }
 
 impl Name {
-    /// Get the name components as a reference (for internal Rust use only, not exposed to FFI)
-    ///
-    /// This avoids copying when used internally in Rust code.
-    pub fn components_ref(&self) -> &[String; 3] {
-        self.inner.components_strings()
-    }
-
-    /// Convert to SlimName (for internal Rust use only, not exposed to FFI)
-    pub fn as_slim_name(&self) -> SlimName {
+    /// Get the inner ProtoName (for internal Rust use only)
+    pub fn as_slim_name(&self) -> ProtoName {
         self.inner.clone()
     }
 
-    /// Create from SlimName (for internal Rust use only, not exposed to FFI)
-    pub fn from_slim_name(slim_name: SlimName) -> Self {
-        Name { inner: slim_name }
+    /// Create from ProtoName (for internal Rust use only)
+    pub fn from_slim_name(proto_name: ProtoName) -> Self {
+        Name { inner: proto_name }
     }
 }
 
@@ -125,7 +120,7 @@ mod tests {
     // Name Conversion Tests
     // ========================================================================
 
-    /// Test Name to SlimName conversion with full components
+    /// Test Name to ProtoName conversion with full components
     #[test]
     fn test_name_to_slim_name_full() {
         let name = Name::new_with_id(
@@ -135,47 +130,47 @@ mod tests {
             12345,
         );
 
-        let slim_name: SlimName = name.into();
-        let components = slim_name.components_strings();
+        let proto_name: ProtoName = name.into();
+        let (c0, c1, c2) = proto_name.str_components();
 
-        assert_eq!(components[0], "org");
-        assert_eq!(components[1], "namespace");
-        assert_eq!(components[2], "app");
-        assert_eq!(slim_name.id(), 12345);
+        assert_eq!(c0, "org");
+        assert_eq!(c1, "namespace");
+        assert_eq!(c2, "app");
+        assert_eq!(proto_name.id(), 12345);
     }
 
-    /// Test Name to SlimName conversion with partial components
+    /// Test Name to ProtoName conversion with partial components
     #[test]
     fn test_name_to_slim_name_partial() {
         let name = Name::new("org".to_string(), "".to_string(), "".to_string());
 
-        let slim_name: SlimName = name.into();
-        let components = slim_name.components_strings();
+        let proto_name: ProtoName = name.into();
+        let (c0, c1, c2) = proto_name.str_components();
 
-        assert_eq!(components[0], "org");
-        assert_eq!(components[1], "");
-        assert_eq!(components[2], "");
+        assert_eq!(c0, "org");
+        assert_eq!(c1, "");
+        assert_eq!(c2, "");
     }
 
-    /// Test Name to SlimName conversion with empty components
+    /// Test Name to ProtoName conversion with empty components
     #[test]
     fn test_name_to_slim_name_empty() {
         let name = Name::new("".to_string(), "".to_string(), "".to_string());
 
-        let slim_name: SlimName = name.into();
-        let components = slim_name.components_strings();
+        let proto_name: ProtoName = name.into();
+        let (c0, c1, c2) = proto_name.str_components();
 
-        assert_eq!(components[0], "");
-        assert_eq!(components[1], "");
-        assert_eq!(components[2], "");
+        assert_eq!(c0, "");
+        assert_eq!(c1, "");
+        assert_eq!(c2, "");
     }
 
-    /// Test SlimName to Name conversion
+    /// Test ProtoName to Name conversion
     #[test]
     fn test_slim_name_to_name() {
-        let slim_name = SlimName::from_strings(["org", "namespace", "app"]).with_id(54321);
+        let proto_name = ProtoName::from_strings(["org", "namespace", "app"]).with_id(54321);
 
-        let name = Name::from(&slim_name);
+        let name = Name::from(&proto_name);
 
         assert_eq!(name.components(), vec!["org", "namespace", "app"]);
         assert_eq!(name.id(), 54321);
@@ -191,8 +186,8 @@ mod tests {
             99999,
         );
 
-        let slim_name: SlimName = original.clone().into();
-        let converted = Name::from(&slim_name);
+        let proto_name: ProtoName = original.clone().into();
+        let converted = Name::from(&proto_name);
 
         assert_eq!(original.components(), converted.components());
         assert_eq!(original.id(), converted.id());
@@ -232,7 +227,7 @@ mod tests {
         );
         let display_str = format!("{}", name);
 
-        // Should display the SlimName format
+        // Should display the ProtoName format
         assert!(!display_str.is_empty());
     }
 
@@ -244,8 +239,8 @@ mod tests {
         assert_eq!(name_with_id.id(), 42);
 
         let name_without_id = Name::new("org".to_string(), "ns".to_string(), "app".to_string());
-        // SlimName generates a default ID, so it should be non-zero
-        assert!(name_without_id.id() > 0);
+        // ProtoName without with_id sets component_3 to NULL_COMPONENT
+        assert_eq!(name_without_id.id(), ProtoName::NULL_COMPONENT);
     }
 
     /// Test Name::from_string with a valid input

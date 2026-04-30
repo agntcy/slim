@@ -6,10 +6,7 @@ use std::time::Duration;
 // Third-party crates
 use tonic::Status;
 
-use slim_datapath::{
-    api::{EncodedName, ProtoMessage as Message, ProtoSessionMessageType},
-    messages::Name,
-};
+use slim_datapath::api::{EncodedName, ProtoMessage as Message, ProtoName, ProtoSessionMessageType};
 
 // Local crate
 use crate::SessionError;
@@ -72,7 +69,7 @@ pub enum SessionMessage {
         timeouts: u32,
     },
     /// sent by the controller sender when a disconnection is detected
-    ParticipantDisconnected { name: Option<Name> },
+    ParticipantDisconnected { name: Option<ProtoName> },
     /// message from session layer to the session controller
     /// to start to the close procedures of the session
     StartDrain { grace_period: Duration },
@@ -81,6 +78,6 @@ pub enum SessionMessage {
     DeleteSession { session_id: u32 },
     /// Query the participants list from the handler
     GetParticipantsList {
-        tx: tokio::sync::oneshot::Sender<Vec<Name>>,
+        tx: tokio::sync::oneshot::Sender<Vec<ProtoName>>,
     },
 }

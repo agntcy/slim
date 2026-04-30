@@ -14,8 +14,7 @@ use parking_lot::Mutex;
 use thiserror::Error;
 use tokio::sync::oneshot;
 
-use slim_datapath::api::{ProtoMessage as Message, ProtoSubscriptionAck};
-use slim_datapath::messages::Name;
+use slim_datapath::api::{ProtoMessage as Message, ProtoName, ProtoSubscriptionAck};
 use slim_datapath::messages::utils::SlimHeaderFlags;
 
 use crate::common::SlimChannelSender;
@@ -51,16 +50,16 @@ pub trait SubscriptionOps: Clone + Send + Sync + 'static {
     /// through a specific connection.
     async fn subscribe(
         &self,
-        source: &Name,
-        name: &Name,
+        source: &ProtoName,
+        name: &ProtoName,
         forward_to: Option<u64>,
     ) -> Result<(u64, oneshot::Receiver<Result<(), SubscriptionAckError>>), SubscriptionAckError>;
 
     /// Unsubscribe (forward_to): de-register interest in `name`.
     async fn unsubscribe(
         &self,
-        source: &Name,
-        name: &Name,
+        source: &ProtoName,
+        name: &ProtoName,
         subscription_id: u64,
         forward_to: Option<u64>,
     ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError>;
@@ -68,16 +67,16 @@ pub trait SubscriptionOps: Clone + Send + Sync + 'static {
     /// Set a recv_from route for `name` on connection `conn`.
     async fn set_route(
         &self,
-        source: &Name,
-        name: &Name,
+        source: &ProtoName,
+        name: &ProtoName,
         conn: u64,
     ) -> Result<(u64, oneshot::Receiver<Result<(), SubscriptionAckError>>), SubscriptionAckError>;
 
     /// Remove a recv_from route for `name` on connection `conn`.
     async fn remove_route(
         &self,
-        source: &Name,
-        name: &Name,
+        source: &ProtoName,
+        name: &ProtoName,
         subscription_id: u64,
         conn: u64,
     ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError>;
@@ -106,8 +105,8 @@ pub struct AutoAckManager {
 impl SubscriptionOps for AutoAckManager {
     async fn subscribe(
         &self,
-        _source: &Name,
-        _name: &Name,
+        _source: &ProtoName,
+        _name: &ProtoName,
         _forward_to: Option<u64>,
     ) -> Result<(u64, oneshot::Receiver<Result<(), SubscriptionAckError>>), SubscriptionAckError>
     {
@@ -119,8 +118,8 @@ impl SubscriptionOps for AutoAckManager {
 
     async fn unsubscribe(
         &self,
-        _source: &Name,
-        _name: &Name,
+        _source: &ProtoName,
+        _name: &ProtoName,
         _subscription_id: u64,
         _forward_to: Option<u64>,
     ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError> {
@@ -131,8 +130,8 @@ impl SubscriptionOps for AutoAckManager {
 
     async fn set_route(
         &self,
-        _source: &Name,
-        _name: &Name,
+        _source: &ProtoName,
+        _name: &ProtoName,
         _conn: u64,
     ) -> Result<(u64, oneshot::Receiver<Result<(), SubscriptionAckError>>), SubscriptionAckError>
     {
@@ -144,8 +143,8 @@ impl SubscriptionOps for AutoAckManager {
 
     async fn remove_route(
         &self,
-        _source: &Name,
-        _name: &Name,
+        _source: &ProtoName,
+        _name: &ProtoName,
         _subscription_id: u64,
         _conn: u64,
     ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError> {
@@ -172,8 +171,8 @@ pub struct SubscriptionManager {
 impl SubscriptionOps for SubscriptionManager {
     async fn subscribe(
         &self,
-        source: &Name,
-        name: &Name,
+        source: &ProtoName,
+        name: &ProtoName,
         forward_to: Option<u64>,
     ) -> Result<(u64, oneshot::Receiver<Result<(), SubscriptionAckError>>), SubscriptionAckError>
     {
@@ -198,8 +197,8 @@ impl SubscriptionOps for SubscriptionManager {
 
     async fn unsubscribe(
         &self,
-        source: &Name,
-        name: &Name,
+        source: &ProtoName,
+        name: &ProtoName,
         subscription_id: u64,
         forward_to: Option<u64>,
     ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError> {
@@ -224,8 +223,8 @@ impl SubscriptionOps for SubscriptionManager {
 
     async fn set_route(
         &self,
-        source: &Name,
-        name: &Name,
+        source: &ProtoName,
+        name: &ProtoName,
         conn: u64,
     ) -> Result<(u64, oneshot::Receiver<Result<(), SubscriptionAckError>>), SubscriptionAckError>
     {
@@ -245,8 +244,8 @@ impl SubscriptionOps for SubscriptionManager {
 
     async fn remove_route(
         &self,
-        source: &Name,
-        name: &Name,
+        source: &ProtoName,
+        name: &ProtoName,
         subscription_id: u64,
         conn: u64,
     ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError> {
@@ -300,8 +299,8 @@ impl SpySubscriptionManager {
 impl SubscriptionOps for SpySubscriptionManager {
     async fn subscribe(
         &self,
-        _source: &Name,
-        _name: &Name,
+        _source: &ProtoName,
+        _name: &ProtoName,
         _forward_to: Option<u64>,
     ) -> Result<(u64, oneshot::Receiver<Result<(), SubscriptionAckError>>), SubscriptionAckError>
     {
@@ -313,8 +312,8 @@ impl SubscriptionOps for SpySubscriptionManager {
 
     async fn unsubscribe(
         &self,
-        _source: &Name,
-        _name: &Name,
+        _source: &ProtoName,
+        _name: &ProtoName,
         _subscription_id: u64,
         _forward_to: Option<u64>,
     ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError> {
@@ -326,8 +325,8 @@ impl SubscriptionOps for SpySubscriptionManager {
 
     async fn set_route(
         &self,
-        _source: &Name,
-        _name: &Name,
+        _source: &ProtoName,
+        _name: &ProtoName,
         _conn: u64,
     ) -> Result<(u64, oneshot::Receiver<Result<(), SubscriptionAckError>>), SubscriptionAckError>
     {
@@ -339,8 +338,8 @@ impl SubscriptionOps for SpySubscriptionManager {
 
     async fn remove_route(
         &self,
-        _source: &Name,
-        _name: &Name,
+        _source: &ProtoName,
+        _name: &ProtoName,
         _subscription_id: u64,
         _conn: u64,
     ) -> Result<oneshot::Receiver<Result<(), SubscriptionAckError>>, SubscriptionAckError> {

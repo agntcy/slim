@@ -178,7 +178,7 @@ impl Name {
     }
 }
 
-pub(crate) fn calculate_hash<T: Hash + ?Sized>(t: &T) -> u64 {
+pub fn calculate_hash<T: Hash + ?Sized>(t: &T) -> u64 {
     let mut hasher = XxHash64::default();
     t.hash(&mut hasher);
     hasher.finish()

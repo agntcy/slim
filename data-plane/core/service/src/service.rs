@@ -30,7 +30,7 @@ use crate::errors::ServiceError;
 use {
     crate::app::App,
     slim_auth::traits::{TokenProvider, Verifier},
-    slim_datapath::messages::Name,
+    slim_datapath::api::ProtoName,
     slim_session::notification::Notification,
     slim_session::{Direction, SessionError},
     std::collections::hash_map::DefaultHasher,
@@ -309,7 +309,7 @@ impl Service {
     #[cfg(feature = "session")]
     pub fn create_app<P, V>(
         &self,
-        app_name: &Name,
+        app_name: &ProtoName,
         identity_provider: P,
         identity_verifier: V,
     ) -> Result<
@@ -335,7 +335,7 @@ impl Service {
     #[tracing::instrument(skip_all, fields(service_id = %self.id))]
     pub fn create_app_with_direction<P, V>(
         &self,
-        app_name: &Name,
+        app_name: &ProtoName,
         identity_provider: P,
         identity_verifier: V,
         direction: Direction,
@@ -566,7 +566,7 @@ mod tests {
     use slim_config::grpc::server::ServerConfig;
     use slim_config::tls::server::TlsServerConfig;
     use slim_datapath::api::MessageType;
-    use slim_datapath::messages::Name;
+    use slim_datapath::api::ProtoName;
     use slim_session::SessionConfig;
     use slim_testing::utils::TEST_VALID_SECRET;
     use std::time::Duration;
@@ -776,7 +776,7 @@ mod tests {
             .unwrap();
 
         // create a subscriber
-        let subscriber_name = Name::from_strings(["cisco", "default", "subscriber"]).with_id(0);
+        let subscriber_name = ProtoName::from_strings(["cisco", "default", "subscriber"]).with_id(0);
         let (sub_app, mut sub_rx) = service
             .create_app(
                 &subscriber_name,
@@ -786,7 +786,7 @@ mod tests {
             .expect("failed to create app");
 
         // create a publisher
-        let publisher_name = Name::from_strings(["cisco", "default", "publisher"]).with_id(0);
+        let publisher_name = ProtoName::from_strings(["cisco", "default", "publisher"]).with_id(0);
         let (pub_app, _rx) = service
             .create_app(
                 &publisher_name,
@@ -891,7 +891,7 @@ mod tests {
             .unwrap();
 
         // register local app
-        let name = Name::from_strings(["cisco", "default", "session"]).with_id(0);
+        let name = ProtoName::from_strings(["cisco", "default", "session"]).with_id(0);
         let (app, _) = service
             .create_app(
                 &name,
@@ -909,7 +909,7 @@ mod tests {
             initiator: true,
             metadata: HashMap::new(),
         };
-        let dst = Name::from_strings(["org", "ns", "dst"]);
+        let dst = ProtoName::from_strings(["org", "ns", "dst"]);
         let (session_info, _completion_handle) = app
             .create_session(session_config.clone(), dst, None)
             .await
@@ -922,7 +922,7 @@ mod tests {
 
         ////////////// multicast session //////////////////////////////////////////////////////////////////////////////////
 
-        let stream = Name::from_strings(["agntcy", "ns", "stream"]);
+        let stream = ProtoName::from_strings(["agntcy", "ns", "stream"]);
 
         let session_config = SessionConfig {
             session_type: slim_datapath::api::ProtoSessionType::Multicast,
@@ -961,7 +961,7 @@ mod tests {
         );
 
         // Create an app
-        let app_name = Name::from_strings(["cisco", "default", "testapp"]).with_id(0);
+        let app_name = ProtoName::from_strings(["cisco", "default", "testapp"]).with_id(0);
         let (app, _app_rx) = service
             .create_app(
                 &app_name,
@@ -972,7 +972,7 @@ mod tests {
 
         // Create a point to point session to a non-existent destination
         // This will trigger an error from the datapath
-        let non_existent_dst = Name::from_strings(["cisco", "default", "nonexistent"]).with_id(999);
+        let non_existent_dst = ProtoName::from_strings(["cisco", "default", "nonexistent"]).with_id(999);
         let mut session_config =
             SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         session_config.initiator = true;

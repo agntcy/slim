@@ -12,7 +12,7 @@ use futures::StreamExt;
 use slim_session::CompletionHandle;
 use tokio::sync::mpsc;
 
-use slim_datapath::messages::Name;
+use slim_datapath::api::ProtoName as Name;
 
 use super::{
     Context, RPC_ID_KEY, ReceivedMessage, RpcCode, RpcError, RpcHandler, STATUS_CODE_KEY,

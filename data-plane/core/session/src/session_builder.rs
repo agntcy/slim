@@ -4,7 +4,7 @@
 use std::marker::PhantomData;
 
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_datapath::messages::Name;
+use slim_datapath::api::ProtoName;
 
 use crate::{
     Direction,
@@ -117,8 +117,8 @@ where
     M: SubscriptionOps,
 {
     id: Option<u32>,
-    source: Option<Name>,
-    destination: Option<Name>,
+    source: Option<ProtoName>,
+    destination: Option<ProtoName>,
     config: Option<SessionConfig>,
     identity_provider: Option<P>,
     identity_verifier: Option<V>,
@@ -163,12 +163,12 @@ where
         self
     }
 
-    pub fn with_source(mut self, source: Name) -> Self {
+    pub fn with_source(mut self, source: ProtoName) -> Self {
         self.source = Some(source);
         self
     }
 
-    pub fn with_destination(mut self, destination: Name) -> Self {
+    pub fn with_destination(mut self, destination: ProtoName) -> Self {
         self.destination = Some(destination);
         self
     }
@@ -418,7 +418,7 @@ mod tests {
         test_utils::{MockTokenProvider, MockVerifier},
         transmitter::SessionTransmitter,
     };
-    use slim_datapath::{api::ProtoSessionType, messages::Name};
+    use slim_datapath::api::ProtoSessionType;
     use std::collections::HashMap;
     use tokio::sync::mpsc;
 
@@ -433,8 +433,8 @@ mod tests {
         }
     }
 
-    fn create_test_name(prefix: &str) -> Name {
-        Name::from_strings([prefix, "test", "name"]).with_id(1)
+    fn create_test_name(prefix: &str) -> ProtoName {
+        ProtoName::from_strings([prefix, "test", "name"]).with_id(1)
     }
 
     fn create_test_transmitter() -> SessionTransmitter {
