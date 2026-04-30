@@ -1,0 +1,223 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+#
+# Echo A2A agent server (slimrpc) for cluster-a. Connects to the in-cluster Slim
+# dataplane Service. Logic matches agntcy/slim-a2a-python examples/echo_agent.
+# https://github.com/agntcy/slim-a2a-python/tree/main/examples/echo_agent
+#
+# PyPI package name is slima2a (see upstream pyproject.toml). Install at runtime
+# via container command; pin with SLIMA2A_VERSION (default 0.4.0).
+# Deploy: task -d deployments/multicluster_private echo-agent:server:deploy
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: echo-agent-server-script
+  labels:
+    app.kubernetes.io/name: echo-agent-server
+data:
+  echo_server.py: |
+    # Copyright AGNTCY Contributors (https://github.com/agntcy)
+    # SPDX-License-Identifier: Apache-2.0
+    """Echo A2A server over slimrpc (in-cluster Slim dataplane)."""
+    from __future__ import annotations
+
+    import asyncio
+    import logging
+    import os
+
+    import slim_bindings
+    from a2a.server.agent_execution import AgentExecutor, RequestContext
+    from a2a.server.events import EventQueue
+    from a2a.server.request_handlers import DefaultRequestHandler
+    from a2a.server.tasks import InMemoryTaskStore
+    from a2a.server.tasks.task_updater import TaskUpdater
+    from a2a.types import Message, Part, Role
+    from a2a.types.a2a_pb2 import (
+        AgentCapabilities,
+        AgentCard,
+        AgentInterface,
+        AgentSkill,
+    )
+
+    from slima2a import setup_slim_client
+    from slima2a.handler import SRPCHandler
+    from slima2a.types.v1.a2a_pb2_slimrpc import add_A2AServiceServicer_to_server as add_v1
+
+    logger = logging.getLogger("echo_agent_server")
+
+
+    def _env(name: str, default: str) -> str:
+        v = os.environ.get(name)
+        return v if v is not None and v != "" else default
+
+
+    class EchoAgent:
+        async def invoke(self, prompt: str) -> str:
+            return prompt
+
+
+    class EchoAgentExecutor(AgentExecutor):
+        def __init__(self) -> None:
+            self.agent = EchoAgent()
+
+        async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
+            if not context.message or not context.message.task_id or not context.message.context_id:
+                raise RuntimeError("invalid message")
+            task_id = context.message.task_id
+            context_id = context.message.context_id
+            msg_id = context.message.message_id
+            task_updater = TaskUpdater(
+                event_queue=event_queue,
+                task_id=task_id,
+                context_id=context_id,
+            )
+            await task_updater.submit(message=context.message)
+            if context.message.parts[0].WhichOneof("content") != "text":
+                raise RuntimeError("only text parts are supported")
+            inbound = context.message.parts[0].text
+            preview = inbound if len(inbound) <= 500 else inbound[:500] + "..."
+            logger.info(
+                "received client message task_id=%s context_id=%s message_id=%s text_len=%d text=%r",
+                task_id,
+                context_id,
+                msg_id,
+                len(inbound),
+                preview,
+            )
+            result = await self.agent.invoke(inbound)
+            out_preview = result if len(result) <= 500 else result[:500] + "..."
+            logger.info(
+                "sending echo reply task_id=%s context_id=%s reply_len=%d reply=%r",
+                task_id,
+                context_id,
+                len(result),
+                out_preview,
+            )
+            response = Message(
+                role=Role.ROLE_AGENT,
+                message_id=context.message.message_id,
+                parts=[Part(text=result)],
+            )
+            await task_updater.add_artifact(parts=list(response.parts), name="result")
+            await task_updater.complete(message=response)
+
+        async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
+            raise NotImplementedError("cancel not supported")
+
+
+    async def main() -> None:
+        log_level = getattr(logging, _env("SLIM_LOG_LEVEL", "INFO").upper(), logging.INFO)
+        logging.basicConfig(level=log_level)
+
+        slim_url = _env("SLIM_URL", "http://slim.slim.svc.cluster.local:46357")
+        ns = _env("SLIM_NAME_NAMESPACE", "agntcy")
+        group = _env("SLIM_NAME_GROUP", "demo")
+        name = _env("SLIM_SERVER_LOCAL_NAME", "echo_agent")
+        secret = _env("SLIM_APP_SECRET", "my_shared_secret_for_testing_purposes_only")
+
+        skill = AgentSkill(
+            id="echo",
+            name="echo",
+            description="returns the received prompt",
+            tags=["echo"],
+            examples=["hi", "hello", "how are you"],
+        )
+        agent_card = AgentCard(
+            name="Echo Agent",
+            description="Just a simple echo agent that returns the received prompt",
+            supported_interfaces=[
+                AgentInterface(url="http://localhost:9999/", protocol_binding="JSONRPC")
+            ],
+            version="1.0.0",
+            default_input_modes=["text"],
+            default_output_modes=["text"],
+            capabilities=AgentCapabilities(streaming=True),
+            skills=[skill],
+        )
+
+        service, local_app, local_name, conn_id = await setup_slim_client(
+            namespace=ns,
+            group=group,
+            name=name,
+            slim_url=slim_url,
+            secret=secret,
+            log_level="debug" if log_level <= logging.DEBUG else "info",
+        )
+
+        agent_executor = EchoAgentExecutor()
+        task_store = InMemoryTaskStore()
+        default_request_handler = DefaultRequestHandler(
+            agent_executor=agent_executor,
+            task_store=task_store,
+        )
+
+        server = slim_bindings.Server.new_with_connection(local_app, local_name, conn_id)
+        handler = SRPCHandler(agent_card, default_request_handler)
+        add_v1(handler, server)
+        logger.info(
+            "echo_agent_server ready slim_url=%s name=%s/%s/%s (waiting for A2A messages)",
+            slim_url,
+            ns,
+            group,
+            name,
+        )
+        await server.serve_async()
+
+
+    if __name__ == "__main__":
+        asyncio.run(main())
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-agent-server
+  labels:
+    app.kubernetes.io/name: echo-agent-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: echo-agent-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: echo-agent-server
+      annotations:
+        # Bump when echo_server.py ConfigMap changes so apply triggers a rollout.
+        echo-agent.redeploy: "2026-04-30-logging"
+    spec:
+      containers:
+        - name: echo-agent-server
+          image: docker.io/library/python:3.12-slim-bookworm
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SLIMA2A_VERSION
+              value: "0.4.0"
+            - name: SLIM_URL
+              value: "http://slim.slim.svc.cluster.local:46357"
+            - name: SLIM_LOG_LEVEL
+              value: "INFO"
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              # a2a-sdk imports packaging but does not always pull it on minimal images
+              python -m pip install --no-cache-dir --upgrade packaging "slima2a==${SLIMA2A_VERSION}"
+              exec python -u /scripts/echo_server.py
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: scripts
+          configMap:
+            name: echo-agent-server-script
+            defaultMode: 0444

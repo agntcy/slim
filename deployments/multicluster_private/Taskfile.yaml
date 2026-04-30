@@ -311,4 +311,29 @@ tasks:
         vars:
           TEMPLATE: '{{ .TEMPLATE }}'
           NAMESPACE: '{{ .NAMESPACE }}'
-  
+
+  echo-agent:server:deploy:
+    desc: |
+      Deploy echo A2A server on cluster-a (slima2a from PyPI on container start; see client_apps/a2a/echo-agent-server.yaml).
+      Requires Slim dataplane Service slim.slim (run cluster-a:deploy-all first). Optional NAMESPACE (default default).
+    dir: "{{.TASKFILE_DIR}}"
+    vars:
+      TEMPLATE: '{{ .TEMPLATE | default "../client_apps/a2a/echo-agent-server.yaml" }}'
+      NAMESPACE: '{{ .NAMESPACE | default "default" }}'
+    cmds:
+      - kubectl config use-context kind-{{ .CLUSTER_A_TRUST_DOMAIN }}
+      - kubectl apply -n {{ .NAMESPACE }} -f {{ .TEMPLATE }}
+
+  echo-agent:client:deploy:
+    desc: |
+      Deploy echo A2A client on cluster-b (slima2a from PyPI on container start; see client_apps/a2a/echo-agent-client.yaml).
+      Requires Slim dataplane on cluster-b and federation path to the echo server on cluster-a.
+      Optional NAMESPACE (default default).
+    dir: "{{.TASKFILE_DIR}}"
+    vars:
+      TEMPLATE: '{{ .TEMPLATE | default "../client_apps/a2a/echo-agent-client.yaml" }}'
+      NAMESPACE: '{{ .NAMESPACE | default "default" }}'
+    cmds:
+      - kubectl config use-context kind-{{ .CLUSTER_B_TRUST_DOMAIN }}
+      - kubectl apply -n {{ .NAMESPACE }} -f {{ .TEMPLATE }}
+
