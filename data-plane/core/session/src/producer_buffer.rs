@@ -104,7 +104,7 @@ mod tests {
     use slim_datapath::api::{
         ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader,
     };
-    use slim_datapath::messages::encoder::Name;
+    use slim_datapath::api::ProtoName as Name;
 
     #[test]
     fn test_producer_buffer() {

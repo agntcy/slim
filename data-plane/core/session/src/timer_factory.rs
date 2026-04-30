@@ -170,7 +170,7 @@ impl TimerFactory {
 
 #[cfg(test)]
 mod tests {
-    use slim_datapath::messages::Name;
+    use slim_datapath::api::ProtoName;
 
     use super::*;
     use std::time::Duration;
@@ -179,7 +179,7 @@ mod tests {
 
     // Helper function to create a test EncodedName
     fn test_encoded_name() -> EncodedName {
-        EncodedName::from(&Name::from_strings(["test", "org", "app"]).with_id(1))
+        ProtoName::from_strings(["test", "org", "app"]).with_id(1).name.unwrap()
     }
 
     #[tokio::test]
@@ -466,8 +466,8 @@ mod tests {
             TimerType::Constant,
         );
         let factory = TimerFactory::new(settings, tx);
-        let name1 = EncodedName::from(&Name::from_strings(["test", "org", "app1"]).with_id(1));
-        let name2 = EncodedName::from(&Name::from_strings(["test", "org", "app2"]).with_id(2));
+        let name1 = ProtoName::from_strings(["test", "org", "app1"]).with_id(1).name.unwrap();
+        let name2 = ProtoName::from_strings(["test", "org", "app2"]).with_id(2).name.unwrap();
 
         // Act - create and start multiple timers
         let timer1 = factory.create_and_start_timer(

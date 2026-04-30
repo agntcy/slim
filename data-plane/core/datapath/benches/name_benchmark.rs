@@ -3,7 +3,6 @@
 
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use slim_datapath::api::{EncodedName, ProtoName, SlimHeader, StringName};
-use slim_datapath::messages::encoder::Name;
 use slim_datapath::tables::SubscriptionTable;
 use slim_datapath::tables::subscription_table::SubscriptionTableImpl;
 
@@ -24,24 +23,9 @@ fn make_proto_name() -> ProtoName {
 }
 
 /// Build a SlimHeader whose destination matches the subscription used in routing benchmarks
-/// (org/namespace/agent, id=42). Hashes are derived from Name::from_strings to ensure they
-/// match whatever SubscriptionTableImpl stores.
+/// (org/namespace/agent, id=42).
 fn make_slim_header() -> SlimHeader {
-    let name = Name::from_strings(["org", "namespace", "agent"]).with_id(42);
-    let c = name.components();
-    let proto_name = ProtoName {
-        name: Some(EncodedName {
-            component_0: c[0],
-            component_1: c[1],
-            component_2: c[2],
-            component_3: c[3],
-        }),
-        str_name: Some(StringName {
-            str_component_0: "org".to_string(),
-            str_component_1: "namespace".to_string(),
-            str_component_2: "agent".to_string(),
-        }),
-    };
+    let proto_name = ProtoName::from_strings(["org", "namespace", "agent"]).with_id(42);
     SlimHeader {
         source: Some(proto_name.clone()),
         destination: Some(proto_name),
@@ -54,38 +38,40 @@ fn make_slim_header() -> SlimHeader {
     }
 }
 
-fn bench_name_from_strings(c: &mut Criterion) {
-    c.bench_function("name_from_strings", |b| {
-        b.iter(|| black_box(Name::from_strings(black_box(["org", "namespace", "agent"]))))
+fn bench_proto_name_from_strings(c: &mut Criterion) {
+    c.bench_function("proto_name_from_strings", |b| {
+        b.iter(|| {
+            black_box(ProtoName::from_strings(black_box(["org", "namespace", "agent"])))
+        })
     });
 }
 
-fn bench_name_from_proto(c: &mut Criterion) {
-    let proto_name = make_proto_name();
-    c.bench_function("name_from_proto", |b| {
-        b.iter(|| black_box(Name::from(black_box(&proto_name))))
-    });
-}
-
-fn bench_name_clone_with_strings(c: &mut Criterion) {
-    let name = Name::from_strings(["org", "namespace", "agent"]);
-    c.bench_function("name_clone_with_strings", |b| {
+fn bench_proto_name_clone(c: &mut Criterion) {
+    let name = ProtoName::from_strings(["org", "namespace", "agent"]);
+    c.bench_function("proto_name_clone", |b| {
         b.iter(|| black_box(name.clone()))
     });
 }
 
-/// Baseline: full routing flow via the Name-based path.
-/// get_dst() allocates Arc<[String; 3]> + clones 3 Strings.
-fn bench_routing_via_name(c: &mut Criterion) {
+fn bench_proto_name_from_other(c: &mut Criterion) {
+    let proto_name = make_proto_name();
+    c.bench_function("proto_name_clone_from_ref", |b| {
+        b.iter(|| black_box(proto_name.clone()))
+    });
+}
+
+/// Routing flow via the EncodedName extracted from get_dst().
+fn bench_routing_via_proto_name(c: &mut Criterion) {
     let table = SubscriptionTableImpl::default();
-    let sub = Name::from_strings(["org", "namespace", "agent"]).with_id(42);
+    let sub = ProtoName::from_strings(["org", "namespace", "agent"]).with_id(42);
     table.add_subscription(sub, 1, true, 1).unwrap();
     let slim_header = make_slim_header();
 
-    c.bench_function("routing_via_name", |b| {
+    c.bench_function("routing_via_proto_name", |b| {
         b.iter(|| {
             let dst = black_box(slim_header.get_dst());
-            black_box(table.match_one(black_box(&EncodedName::from(&dst)), 0))
+            let enc = dst.name.as_ref().unwrap();
+            black_box(table.match_one(black_box(enc), 0))
         })
     });
 }
@@ -94,7 +80,7 @@ fn bench_routing_via_name(c: &mut Criterion) {
 /// get_encoded_dst() is a Copy of 4 u64s — zero heap allocation.
 fn bench_routing_via_encoded_name(c: &mut Criterion) {
     let table = SubscriptionTableImpl::default();
-    let sub = Name::from_strings(["org", "namespace", "agent"]).with_id(42);
+    let sub = ProtoName::from_strings(["org", "namespace", "agent"]).with_id(42);
     table.add_subscription(sub, 1, true, 1).unwrap();
     let slim_header = make_slim_header();
 
@@ -108,10 +94,10 @@ fn bench_routing_via_encoded_name(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    bench_name_from_strings,
-    bench_name_from_proto,
-    bench_name_clone_with_strings,
-    bench_routing_via_name,
+    bench_proto_name_from_strings,
+    bench_proto_name_clone,
+    bench_proto_name_from_other,
+    bench_routing_via_proto_name,
     bench_routing_via_encoded_name,
 );
 
