@@ -21,13 +21,14 @@ var (
 
 	suiteName = "Run integration tests"
 
-	slimPath          string
-	legacySlimPath    string
-	sdkMockPath       string
-	legacySDKMockPath string
-	clientPath        string
-	slimctlPath       string
-	controlPlanePath  string
+	slimPath             string
+	legacySlimPath       string
+	sdkMockPath          string
+	legacySDKMockPath    string
+	clientPath           string
+	slimctlPath          string
+	controlPlanePath     string
+	channelManagerPath   string
 
 	// Backward compatibility test apps
 	receiverPath       string
@@ -66,6 +67,7 @@ func setBinaryPaths(target string) {
 	sdkMockPath = mustAbs(filepath.Join(dataPlaneTarget, "sdk-mock"))
 	clientPath = mustAbs(filepath.Join(dataPlaneTarget, "client"))
 	slimctlPath = mustAbs(filepath.Join(dataPlaneTarget, "slimctl"))
+	channelManagerPath = mustAbs(filepath.Join(dataPlaneTarget, "channel-manager"))
 	examplesTarget := filepath.Join(dataPlaneTarget, "examples")
 	receiverPath = mustAbs(filepath.Join(examplesTarget, "receiver"))
 	senderPath = mustAbs(filepath.Join(examplesTarget, "sender"))
