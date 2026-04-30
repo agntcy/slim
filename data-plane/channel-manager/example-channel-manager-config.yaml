@@ -1,0 +1,63 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+channel-manager:
+  # gRPC client configuration for connecting to the SLIM node.
+  # Supports the same options as the SLIM data-plane ClientConfig:
+  # TLS, authentication, keepalive, proxy, backoff, headers, etc.
+  slim-connection:
+    endpoint: "http://127.0.0.1:46357"
+    tls:
+      insecure: true
+    # Uncomment below for TLS-secured connections:
+    # tls:
+    #   insecure: false
+    #   ca_file: "/path/to/ca.pem"
+    # auth:
+    #   type: static_jwt
+    #   token_file: "/path/to/token"
+    # keepalive:
+    #   tcp_keepalive: "60s"
+    #   http2_keepalive: "60s"
+    #   timeout: "10s"
+
+  # gRPC server configuration for the channel manager service.
+  # Supports the same options as the SLIM data-plane ServerConfig:
+  # TLS, authentication, keepalive, unix sockets, etc.
+  api-server:
+    endpoint: "127.0.0.1:10356"
+    tls:
+      insecure: true
+    # Uncomment below for TLS-secured server:
+    # tls:
+    #   insecure: false
+    #   cert_file: "/path/to/server.pem"
+    #   key_file: "/path/to/server-key.pem"
+    # auth:
+    #   type: jwt
+    #   jwks_url: "https://auth.example.com/.well-known/jwks.json"
+
+  # name of the channel manager to be used in SLIM channels
+  local-name: "agntcy/otel/channel-manager"
+
+  # Authentication for the SLIM app identity.
+  # Options: shared_secret or spire.
+  auth:
+    type: shared_secret
+    # id: "custom/identity/id"  # optional, defaults to local-name
+    secret: "a-very-long-shared-secret-abcdef1234567890"
+  # For SPIRE authentication:
+  # auth:
+  #   type: spire
+  #   socket_path: "unix:/tmp/spire-agent/public/api.sock"
+  #   target_spiffe_id: ""
+  #   jwt_audiences:
+  #     - "slim"
+
+  # channels to create on startup
+  channels:
+    - name: "agntcy/otel/channel"
+      participants:
+        - "agntcy/otel/exporter-traces"
+        - "agntcy/otel/receiver"
+      mls-enabled: true

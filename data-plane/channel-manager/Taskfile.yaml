@@ -1,0 +1,55 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+version: "3"
+
+vars:
+  PACKAGE: agntcy-slim-channel-manager
+  PROFILE: '{{.PROFILE | default "debug"}}'
+  CONFIG_FILE: '{{.CONFIG_FILE | default "base-config.yaml"}}'
+
+tasks:
+  default:
+    cmds:
+      - task -l
+
+  build:
+    desc: Build both channel-manager and cmctl binaries
+    dir: "{{.TASKFILE_DIR}}"
+    cmds:
+      - cargo build -p {{.PACKAGE}} --bins
+
+  build:release:
+    desc: Build both binaries in release mode
+    dir: "{{.TASKFILE_DIR}}"
+    cmds:
+      - cargo build -p {{.PACKAGE}} --bins --release
+
+  build:channel-manager:
+    desc: Build only the channel-manager binary
+    dir: "{{.TASKFILE_DIR}}"
+    cmds:
+      - cargo build -p {{.PACKAGE}} --bin channel-manager
+
+  build:cmctl:
+    desc: Build only the cmctl binary
+    dir: "{{.TASKFILE_DIR}}"
+    cmds:
+      - cargo build -p {{.PACKAGE}} --bin cmctl
+
+  run:channel-manager:
+    desc: Run the channel-manager with the base config
+    dir: "{{.TASKFILE_DIR}}"
+    cmds:
+      - cargo run -p {{.PACKAGE}} --bin channel-manager -- --config-file {{.CONFIG_FILE}}
+
+  test:
+    desc: Run tests
+    dir: "{{.TASKFILE_DIR}}"
+    cmds:
+      - cargo test -p {{.PACKAGE}} --all-targets
+
+  clean:
+    desc: Remove build artifacts
+    dir: "{{.TASKFILE_DIR}}"
+    cmds:
+      - cargo clean -p {{.PACKAGE}}
