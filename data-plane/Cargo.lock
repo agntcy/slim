@@ -206,7 +206,6 @@ dependencies = [
  "prost",
  "prost-types",
  "protoc-bin-vendored",
- "rand 0.9.4",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
