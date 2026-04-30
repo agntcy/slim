@@ -5,13 +5,10 @@ use anyhow::{Result, bail};
 use clap::{Args, Subcommand};
 
 use crate::client::get_control_plane_client;
-use crate::proto::controller::proto::v1::{
-    AddParticipantRequest, Connection, DeleteChannelRequest, DeleteParticipantRequest,
-    ListChannelsRequest, ListParticipantsRequest, Subscription,
-};
+use crate::proto::controller::proto::v1::{Connection, Subscription};
 use crate::proto::controlplane::proto::v1::{
-    AddRouteRequest, CreateChannelRequest, DeleteRouteRequest, LinkEntry, LinkListRequest,
-    LinkStatus, Node, NodeListRequest, RouteEntry, RouteListRequest, RouteStatus,
+    AddRouteRequest, DeleteRouteRequest, LinkEntry, LinkListRequest, LinkStatus, Node,
+    NodeListRequest, RouteEntry, RouteListRequest, RouteStatus,
 };
 use crate::rpc;
 use crate::utils::{VIA_KEYWORD, is_endpoint, parse_config_file, parse_endpoint, parse_route};
@@ -35,10 +32,6 @@ pub enum ControllerCommand {
     Route(ControllerRouteArgs),
     /// List links from the controller DB
     Link(ControllerLinkArgs),
-    /// Manage SLIM channels (MLS groups)
-    Channel(ControllerChannelArgs),
-    /// Manage channel participants
-    Participant(ControllerParticipantArgs),
 }
 
 // ── Node ──────────────────────────────────────────────────────────────────────
@@ -148,64 +141,6 @@ pub enum ControllerLinkCommand {
     },
 }
 
-// ── Channel ───────────────────────────────────────────────────────────────────
-
-#[derive(Args)]
-pub struct ControllerChannelArgs {
-    #[command(subcommand)]
-    pub command: ControllerChannelCommand,
-}
-
-#[derive(Subcommand)]
-pub enum ControllerChannelCommand {
-    /// Create a new channel (usage: create moderators=mod1,mod2)
-    Create {
-        /// Moderators specification: moderators=mod1,mod2
-        moderators_param: String,
-    },
-    /// Delete a channel
-    Delete {
-        /// Channel name/ID
-        channel_name: String,
-    },
-    /// List channels
-    #[command(visible_alias = "ls")]
-    List,
-}
-
-// ── Participant ───────────────────────────────────────────────────────────────
-
-#[derive(Args)]
-pub struct ControllerParticipantArgs {
-    #[command(subcommand)]
-    pub command: ControllerParticipantCommand,
-}
-
-#[derive(Subcommand)]
-pub enum ControllerParticipantCommand {
-    /// Add a participant to a channel
-    Add {
-        participant_name: String,
-        /// ID of the channel
-        #[arg(short = 'c', long, required = true)]
-        channel_id: String,
-    },
-    /// Delete a participant from a channel
-    Delete {
-        participant_name: String,
-        /// ID of the channel
-        #[arg(short = 'c', long, required = true)]
-        channel_id: String,
-    },
-    /// List participants in a channel
-    #[command(visible_alias = "ls")]
-    List {
-        /// ID of the channel
-        #[arg(short = 'c', long, required = true)]
-        channel_id: String,
-    },
-}
-
 // ── Dispatch ──────────────────────────────────────────────────────────────────
 
 pub async fn run(args: &ControllerArgs, opts: &ClientConfig) -> Result<()> {
@@ -214,8 +149,6 @@ pub async fn run(args: &ControllerArgs, opts: &ClientConfig) -> Result<()> {
         ControllerCommand::Connection(a) => run_connection(a, opts).await,
         ControllerCommand::Route(a) => run_route(a, opts).await,
         ControllerCommand::Link(a) => run_link(a, opts).await,
-        ControllerCommand::Channel(a) => run_channel(a, opts).await,
-        ControllerCommand::Participant(a) => run_participant(a, opts).await,
     }
 }
 
@@ -669,173 +602,6 @@ fn format_unix_timestamp(ts: i64) -> String {
         .unwrap_or_else(|| ts.to_string())
 }
 
-async fn run_channel(args: &ControllerChannelArgs, opts: &ClientConfig) -> Result<()> {
-    match &args.command {
-        ControllerChannelCommand::Create { moderators_param } => {
-            channel_create(moderators_param, opts).await
-        }
-        ControllerChannelCommand::Delete { channel_name } => {
-            channel_delete(channel_name, opts).await
-        }
-        ControllerChannelCommand::List => channel_list(opts).await,
-    }
-}
-
-// ── Channel commands ───────────────────────────────────────────────────────────
-
-async fn channel_create(moderators_param: &str, opts: &ClientConfig) -> Result<()> {
-    let moderators = parse_moderators(moderators_param)?;
-    let mut client = get_control_plane_client(opts).await?;
-    let resp = rpc!(client, create_channel, CreateChannelRequest { moderators });
-    if resp.channel_name.is_empty() {
-        bail!("failed to create channel: empty channel name in response");
-    }
-    println!("Channel created successfully: {}", resp.channel_name);
-    Ok(())
-}
-
-async fn channel_delete(channel_name: &str, opts: &ClientConfig) -> Result<()> {
-    let mut client = get_control_plane_client(opts).await?;
-    let resp = rpc!(
-        client,
-        delete_channel,
-        DeleteChannelRequest {
-            channel_name: channel_name.to_string(),
-            moderators: vec![],
-        }
-    );
-    if !resp.success {
-        bail!("failed to delete channel: unsuccessful response");
-    }
-    println!("Channel deleted successfully: {}", channel_name);
-    Ok(())
-}
-
-async fn channel_list(opts: &ClientConfig) -> Result<()> {
-    let mut client = get_control_plane_client(opts).await?;
-    let resp = rpc!(client, list_channels, ListChannelsRequest {});
-    println!("Following channels found: {:?}", resp.channel_name);
-    Ok(())
-}
-
-fn parse_moderators(param: &str) -> Result<Vec<String>> {
-    let parts: Vec<&str> = param.splitn(2, '=').collect();
-    if parts.len() != 2 {
-        bail!(
-            "invalid syntax: expected 'moderators=mod1,mod2', got '{}'",
-            param
-        );
-    }
-    if parts[0] != "moderators" {
-        bail!(
-            "invalid syntax: expected keyword 'moderators', got '{}'",
-            parts[0]
-        );
-    }
-    let mods: Vec<String> = parts[1]
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
-    if mods.is_empty() {
-        bail!("no moderators specified");
-    }
-    Ok(mods)
-}
-
-async fn run_participant(args: &ControllerParticipantArgs, opts: &ClientConfig) -> Result<()> {
-    match &args.command {
-        ControllerParticipantCommand::Add {
-            participant_name,
-            channel_id,
-        } => participant_add(participant_name, channel_id, opts).await,
-        ControllerParticipantCommand::Delete {
-            participant_name,
-            channel_id,
-        } => participant_delete(participant_name, channel_id, opts).await,
-        ControllerParticipantCommand::List { channel_id } => {
-            participant_list(channel_id, opts).await
-        }
-    }
-}
-
-// ── Participant commands ───────────────────────────────────────────────────────
-
-async fn participant_add(
-    participant_name: &str,
-    channel_id: &str,
-    opts: &ClientConfig,
-) -> Result<()> {
-    println!(
-        "Adding participant to channel {}: {}",
-        channel_id, participant_name
-    );
-    let mut client = get_control_plane_client(opts).await?;
-    let resp = rpc!(
-        client,
-        add_participant,
-        AddParticipantRequest {
-            channel_name: channel_id.to_string(),
-            participant_name: participant_name.to_string(),
-            moderators: vec![],
-        }
-    );
-    if !resp.success {
-        bail!("failed to add participants: unsuccessful response");
-    }
-    println!(
-        "Participant added successfully to channel {}: {}",
-        channel_id, participant_name
-    );
-    Ok(())
-}
-
-async fn participant_delete(
-    participant_name: &str,
-    channel_id: &str,
-    opts: &ClientConfig,
-) -> Result<()> {
-    println!(
-        "Deleting participant from channel {}: {}",
-        channel_id, participant_name
-    );
-    let mut client = get_control_plane_client(opts).await?;
-    let resp = rpc!(
-        client,
-        delete_participant,
-        DeleteParticipantRequest {
-            channel_name: channel_id.to_string(),
-            participant_name: participant_name.to_string(),
-            moderators: vec![],
-        }
-    );
-    if !resp.success {
-        bail!("failed to delete participant: unsuccessful response");
-    }
-    println!(
-        "Participant deleted successfully from channel {}: {}",
-        channel_id, participant_name
-    );
-    Ok(())
-}
-
-async fn participant_list(channel_id: &str, opts: &ClientConfig) -> Result<()> {
-    println!("Listing participants for channel ID: {}", channel_id);
-    let mut client = get_control_plane_client(opts).await?;
-    let resp = rpc!(
-        client,
-        list_participants,
-        ListParticipantsRequest {
-            channel_name: channel_id.to_string(),
-        }
-    );
-    println!(
-        "Following participants found for channel {}: {:?}",
-        channel_id, resp.participant_name
-    );
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -941,49 +707,6 @@ mod tests {
     fn build_subscription_str_zero_component_id() {
         let r = make_route("", "", "a", "b", "c", Some(0), 0, false, 0);
         assert_eq!(build_subscription_str(&r), "a/b/c/0");
-    }
-
-    // ── parse_moderators ────────────────────────────────────────────────────
-
-    #[test]
-    fn parse_moderators_single() {
-        assert_eq!(parse_moderators("moderators=alice").unwrap(), vec!["alice"]);
-    }
-
-    #[test]
-    fn parse_moderators_multiple() {
-        assert_eq!(
-            parse_moderators("moderators=alice,bob,carol").unwrap(),
-            vec!["alice", "bob", "carol"]
-        );
-    }
-
-    #[test]
-    fn parse_moderators_trims_spaces() {
-        assert_eq!(
-            parse_moderators("moderators=alice, bob").unwrap(),
-            vec!["alice", "bob"]
-        );
-    }
-
-    #[test]
-    fn parse_moderators_wrong_key() {
-        assert!(parse_moderators("owners=alice").is_err());
-    }
-
-    #[test]
-    fn parse_moderators_no_equals() {
-        assert!(parse_moderators("moderatorsalice").is_err());
-    }
-
-    #[test]
-    fn parse_moderators_empty_value() {
-        assert!(parse_moderators("moderators=").is_err());
-    }
-
-    #[test]
-    fn parse_moderators_only_commas() {
-        assert!(parse_moderators("moderators=,,,").is_err());
     }
 
     // ── route_cells ─────────────────────────────────────────────────────────
@@ -1186,68 +909,6 @@ mod tests {
                 Ok(tonic::Response::new(NodeListResponse { entries: vec![] }))
             }
 
-            async fn create_channel(
-                &self,
-                _req: tonic::Request<CreateChannelRequest>,
-            ) -> Result<tonic::Response<CreateChannelResponse>, tonic::Status> {
-                Ok(tonic::Response::new(CreateChannelResponse {
-                    channel_name: "test-channel".to_string(),
-                }))
-            }
-
-            async fn delete_channel(
-                &self,
-                _req: tonic::Request<DeleteChannelRequest>,
-            ) -> Result<tonic::Response<Ack>, tonic::Status> {
-                Ok(tonic::Response::new(Ack {
-                    original_message_id: String::new(),
-                    success: true,
-                    messages: vec![],
-                }))
-            }
-
-            async fn add_participant(
-                &self,
-                _req: tonic::Request<AddParticipantRequest>,
-            ) -> Result<tonic::Response<Ack>, tonic::Status> {
-                Ok(tonic::Response::new(Ack {
-                    original_message_id: String::new(),
-                    success: true,
-                    messages: vec![],
-                }))
-            }
-
-            async fn delete_participant(
-                &self,
-                _req: tonic::Request<DeleteParticipantRequest>,
-            ) -> Result<tonic::Response<Ack>, tonic::Status> {
-                Ok(tonic::Response::new(Ack {
-                    original_message_id: String::new(),
-                    success: true,
-                    messages: vec![],
-                }))
-            }
-
-            async fn list_channels(
-                &self,
-                _req: tonic::Request<ListChannelsRequest>,
-            ) -> Result<tonic::Response<ListChannelsResponse>, tonic::Status> {
-                Ok(tonic::Response::new(ListChannelsResponse {
-                    original_message_id: String::new(),
-                    channel_name: vec![],
-                }))
-            }
-
-            async fn list_participants(
-                &self,
-                _req: tonic::Request<ListParticipantsRequest>,
-            ) -> Result<tonic::Response<ListParticipantsResponse>, tonic::Status> {
-                Ok(tonic::Response::new(ListParticipantsResponse {
-                    original_message_id: String::new(),
-                    participant_name: vec![],
-                }))
-            }
-
             async fn list_routes(
                 &self,
                 _req: tonic::Request<RouteListRequest>,
@@ -1260,6 +921,44 @@ mod tests {
                 _req: tonic::Request<LinkListRequest>,
             ) -> Result<tonic::Response<LinkListResponse>, tonic::Status> {
                 Ok(tonic::Response::new(LinkListResponse { links: vec![] }))
+            }
+
+            // Stubs required by the proto trait but not used by the CLI commands, so they just return unimplemented.
+            async fn create_channel(
+                &self,
+                _: tonic::Request<CreateChannelRequest>,
+            ) -> Result<tonic::Response<CreateChannelResponse>, tonic::Status> {
+                unimplemented!()
+            }
+            async fn delete_channel(
+                &self,
+                _: tonic::Request<DeleteChannelRequest>,
+            ) -> Result<tonic::Response<Ack>, tonic::Status> {
+                unimplemented!()
+            }
+            async fn add_participant(
+                &self,
+                _: tonic::Request<AddParticipantRequest>,
+            ) -> Result<tonic::Response<Ack>, tonic::Status> {
+                unimplemented!()
+            }
+            async fn delete_participant(
+                &self,
+                _: tonic::Request<DeleteParticipantRequest>,
+            ) -> Result<tonic::Response<Ack>, tonic::Status> {
+                unimplemented!()
+            }
+            async fn list_channels(
+                &self,
+                _: tonic::Request<ListChannelsRequest>,
+            ) -> Result<tonic::Response<ListChannelsResponse>, tonic::Status> {
+                unimplemented!()
+            }
+            async fn list_participants(
+                &self,
+                _: tonic::Request<ListParticipantsRequest>,
+            ) -> Result<tonic::Response<ListParticipantsResponse>, tonic::Status> {
+                unimplemented!()
             }
         }
 
@@ -1344,50 +1043,6 @@ mod tests {
             link_outline("", "", &make_opts(&addr)).await.unwrap();
         }
 
-        #[tokio::test]
-        async fn channel_create_succeeds() {
-            let addr = spawn_mock_cp_server().await;
-            channel_create("moderators=alice", &make_opts(&addr))
-                .await
-                .unwrap();
-        }
-
-        #[tokio::test]
-        async fn channel_delete_succeeds() {
-            let addr = spawn_mock_cp_server().await;
-            channel_delete("my-channel", &make_opts(&addr))
-                .await
-                .unwrap();
-        }
-
-        #[tokio::test]
-        async fn channel_list_succeeds() {
-            let addr = spawn_mock_cp_server().await;
-            channel_list(&make_opts(&addr)).await.unwrap();
-        }
-
-        #[tokio::test]
-        async fn participant_add_succeeds() {
-            let addr = spawn_mock_cp_server().await;
-            participant_add("alice", "chan1", &make_opts(&addr))
-                .await
-                .unwrap();
-        }
-
-        #[tokio::test]
-        async fn participant_delete_succeeds() {
-            let addr = spawn_mock_cp_server().await;
-            participant_delete("alice", "chan1", &make_opts(&addr))
-                .await
-                .unwrap();
-        }
-
-        #[tokio::test]
-        async fn participant_list_succeeds() {
-            let addr = spawn_mock_cp_server().await;
-            participant_list("chan1", &make_opts(&addr)).await.unwrap();
-        }
-
         // ── error server ─────────────────────────────────────────────────────
 
         /// All methods return a gRPC status error.
@@ -1425,30 +1080,6 @@ mod tests {
             ) -> Result<tonic::Response<NodeListResponse>, tonic::Status> {
                 Err(tonic::Status::internal("error"))
             }
-            async fn create_channel(
-                &self,
-                _: tonic::Request<CreateChannelRequest>,
-            ) -> Result<tonic::Response<CreateChannelResponse>, tonic::Status> {
-                Err(tonic::Status::internal("error"))
-            }
-            async fn delete_channel(
-                &self,
-                _: tonic::Request<DeleteChannelRequest>,
-            ) -> Result<tonic::Response<Ack>, tonic::Status> {
-                Err(tonic::Status::internal("error"))
-            }
-            async fn add_participant(
-                &self,
-                _: tonic::Request<AddParticipantRequest>,
-            ) -> Result<tonic::Response<Ack>, tonic::Status> {
-                Err(tonic::Status::internal("error"))
-            }
-            async fn delete_participant(
-                &self,
-                _: tonic::Request<DeleteParticipantRequest>,
-            ) -> Result<tonic::Response<Ack>, tonic::Status> {
-                Err(tonic::Status::internal("error"))
-            }
             async fn list_channels(
                 &self,
                 _: tonic::Request<ListChannelsRequest>,
@@ -1473,6 +1104,32 @@ mod tests {
                 _: tonic::Request<LinkListRequest>,
             ) -> Result<tonic::Response<LinkListResponse>, tonic::Status> {
                 Err(tonic::Status::internal("error"))
+            }
+
+            // Stubs required by the proto trait but not used by the CLI commands, so they just return unimplemented.
+            async fn create_channel(
+                &self,
+                _: tonic::Request<CreateChannelRequest>,
+            ) -> Result<tonic::Response<CreateChannelResponse>, tonic::Status> {
+                unimplemented!()
+            }
+            async fn delete_channel(
+                &self,
+                _: tonic::Request<DeleteChannelRequest>,
+            ) -> Result<tonic::Response<Ack>, tonic::Status> {
+                unimplemented!()
+            }
+            async fn add_participant(
+                &self,
+                _: tonic::Request<AddParticipantRequest>,
+            ) -> Result<tonic::Response<Ack>, tonic::Status> {
+                unimplemented!()
+            }
+            async fn delete_participant(
+                &self,
+                _: tonic::Request<DeleteParticipantRequest>,
+            ) -> Result<tonic::Response<Ack>, tonic::Status> {
+                unimplemented!()
             }
         }
 
@@ -1524,62 +1181,6 @@ mod tests {
             ) -> Result<tonic::Response<NodeListResponse>, tonic::Status> {
                 Ok(tonic::Response::new(NodeListResponse { entries: vec![] }))
             }
-            async fn create_channel(
-                &self,
-                _: tonic::Request<CreateChannelRequest>,
-            ) -> Result<tonic::Response<CreateChannelResponse>, tonic::Status> {
-                Ok(tonic::Response::new(CreateChannelResponse {
-                    channel_name: "ch".to_string(),
-                }))
-            }
-            async fn delete_channel(
-                &self,
-                _: tonic::Request<DeleteChannelRequest>,
-            ) -> Result<tonic::Response<Ack>, tonic::Status> {
-                Ok(tonic::Response::new(Ack {
-                    success: false,
-                    original_message_id: String::new(),
-                    messages: vec![],
-                }))
-            }
-            async fn add_participant(
-                &self,
-                _: tonic::Request<AddParticipantRequest>,
-            ) -> Result<tonic::Response<Ack>, tonic::Status> {
-                Ok(tonic::Response::new(Ack {
-                    success: false,
-                    original_message_id: String::new(),
-                    messages: vec![],
-                }))
-            }
-            async fn delete_participant(
-                &self,
-                _: tonic::Request<DeleteParticipantRequest>,
-            ) -> Result<tonic::Response<Ack>, tonic::Status> {
-                Ok(tonic::Response::new(Ack {
-                    success: false,
-                    original_message_id: String::new(),
-                    messages: vec![],
-                }))
-            }
-            async fn list_channels(
-                &self,
-                _: tonic::Request<ListChannelsRequest>,
-            ) -> Result<tonic::Response<ListChannelsResponse>, tonic::Status> {
-                Ok(tonic::Response::new(ListChannelsResponse {
-                    original_message_id: String::new(),
-                    channel_name: vec![],
-                }))
-            }
-            async fn list_participants(
-                &self,
-                _: tonic::Request<ListParticipantsRequest>,
-            ) -> Result<tonic::Response<ListParticipantsResponse>, tonic::Status> {
-                Ok(tonic::Response::new(ListParticipantsResponse {
-                    original_message_id: String::new(),
-                    participant_name: vec![],
-                }))
-            }
             async fn list_routes(
                 &self,
                 _: tonic::Request<RouteListRequest>,
@@ -1592,6 +1193,43 @@ mod tests {
                 _: tonic::Request<LinkListRequest>,
             ) -> Result<tonic::Response<LinkListResponse>, tonic::Status> {
                 Ok(tonic::Response::new(LinkListResponse { links: vec![] }))
+            }
+
+            async fn create_channel(
+                &self,
+                _: tonic::Request<CreateChannelRequest>,
+            ) -> Result<tonic::Response<CreateChannelResponse>, tonic::Status> {
+                unimplemented!()
+            }
+            async fn delete_channel(
+                &self,
+                _: tonic::Request<DeleteChannelRequest>,
+            ) -> Result<tonic::Response<Ack>, tonic::Status> {
+                unimplemented!()
+            }
+            async fn add_participant(
+                &self,
+                _: tonic::Request<AddParticipantRequest>,
+            ) -> Result<tonic::Response<Ack>, tonic::Status> {
+                unimplemented!()
+            }
+            async fn delete_participant(
+                &self,
+                _: tonic::Request<DeleteParticipantRequest>,
+            ) -> Result<tonic::Response<Ack>, tonic::Status> {
+                unimplemented!()
+            }
+            async fn list_channels(
+                &self,
+                _: tonic::Request<ListChannelsRequest>,
+            ) -> Result<tonic::Response<ListChannelsResponse>, tonic::Status> {
+                unimplemented!()
+            }
+            async fn list_participants(
+                &self,
+                _: tonic::Request<ListParticipantsRequest>,
+            ) -> Result<tonic::Response<ListParticipantsResponse>, tonic::Status> {
+                unimplemented!()
             }
         }
 
@@ -1665,54 +1303,6 @@ mod tests {
             assert!(link_outline("", "", &make_opts(&addr)).await.is_err());
         }
 
-        #[tokio::test]
-        async fn channel_create_grpc_error_propagates() {
-            let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
-            assert!(
-                channel_create("moderators=alice", &make_opts(&addr))
-                    .await
-                    .is_err()
-            );
-        }
-
-        #[tokio::test]
-        async fn channel_delete_grpc_error_propagates() {
-            let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
-            assert!(channel_delete("ch1", &make_opts(&addr)).await.is_err());
-        }
-
-        #[tokio::test]
-        async fn channel_list_grpc_error_propagates() {
-            let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
-            assert!(channel_list(&make_opts(&addr)).await.is_err());
-        }
-
-        #[tokio::test]
-        async fn participant_add_grpc_error_propagates() {
-            let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
-            assert!(
-                participant_add("alice", "ch1", &make_opts(&addr))
-                    .await
-                    .is_err()
-            );
-        }
-
-        #[tokio::test]
-        async fn participant_delete_grpc_error_propagates() {
-            let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
-            assert!(
-                participant_delete("alice", "ch1", &make_opts(&addr))
-                    .await
-                    .is_err()
-            );
-        }
-
-        #[tokio::test]
-        async fn participant_list_grpc_error_propagates() {
-            let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
-            assert!(participant_list("ch1", &make_opts(&addr)).await.is_err());
-        }
-
         // ── negative-ACK (success = false) tests ─────────────────────────────
 
         #[tokio::test]
@@ -1722,31 +1312,6 @@ mod tests {
                 .await
                 .unwrap_err();
             assert!(err.to_string().contains("failed to create route"));
-        }
-
-        #[tokio::test]
-        async fn channel_delete_negative_ack_fails() {
-            let addr = spawn_cp_svc(FailureControlPlaneSvc).await;
-            let err = channel_delete("ch1", &make_opts(&addr)).await.unwrap_err();
-            assert!(err.to_string().contains("failed to delete channel"));
-        }
-
-        #[tokio::test]
-        async fn participant_add_negative_ack_fails() {
-            let addr = spawn_cp_svc(FailureControlPlaneSvc).await;
-            let err = participant_add("alice", "ch1", &make_opts(&addr))
-                .await
-                .unwrap_err();
-            assert!(err.to_string().contains("failed to add participants"));
-        }
-
-        #[tokio::test]
-        async fn participant_delete_negative_ack_fails() {
-            let addr = spawn_cp_svc(FailureControlPlaneSvc).await;
-            let err = participant_delete("alice", "ch1", &make_opts(&addr))
-                .await
-                .unwrap_err();
-            assert!(err.to_string().contains("failed to delete participant"));
         }
     }
 }
