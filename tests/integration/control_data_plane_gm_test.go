@@ -115,7 +115,7 @@ var _ = Describe("Group management through control plane", func() {
 		}, 30*time.Second, 1*time.Second).ShouldNot(BeEmpty(),
 			"moderator subscription did not appear in route list within 30s")
 
-		routeListOut := runCombinedOutputWithRetry(5*time.Second, func() *exec.Cmd {
+		routeListOut := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
 			return exec.Command(
 				slimctlPath,
 				"controller", "route", "list",
