@@ -14,6 +14,7 @@ runtime:
 services:
   slim/b:
     dataplane:
+      recovery_ttl: "0s"
       servers:
         - endpoint: "0.0.0.0:46367"
           tls:
