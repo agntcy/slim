@@ -43,7 +43,7 @@ pub trait SubscriptionTable {
         &self,
         conn: u64,
         is_local: bool,
-    ) -> Result<HashSet<ProtoName, HashSet<u64>>, Self::Error>;
+    ) -> Result<HashMap<ProtoName, HashSet<u64>>, Self::Error>;
 
     fn match_one(&self, encoded: &EncodedName, incoming_conn: u64) -> Result<u64, Self::Error>;
 
