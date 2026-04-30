@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use super::tables::SubscriptionTable;
@@ -56,7 +56,7 @@ where
         &self,
         conn_index: u64,
         is_local: bool,
-    ) -> (HashSet<Name>, HashSet<SubscriptionInfo>) {
+    ) -> (HashMap<Name, HashSet<u64>>, HashSet<SubscriptionInfo>) {
         self.connection_table.remove(conn_index as usize);
         let local_subs = self
             .subscription_table
@@ -65,10 +65,9 @@ where
                 debug!(
                     %conn_index, %is_local, %e, "failed to remove local subscriptions for connection",
                 );
-                HashSet::new()
+                HashMap::new()
             });
         let remote_subs = self.remote_subscription_table.remove_connection(conn_index);
-
         (local_subs, remote_subs)
     }
 
