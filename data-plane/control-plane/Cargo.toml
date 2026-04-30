@@ -57,5 +57,13 @@ protoc-bin-vendored = { workspace = true }
 tonic-prost-build = { workspace = true }
 
 [dev-dependencies]
+agntcy-slim-config = { workspace = true }
+agntcy-slim-service = { workspace = true, features = ["session"] }
+agntcy-slim-testing = { workspace = true }
+agntcy-slim-tracing = { workspace = true }
+drain = { workspace = true }
 tempfile = { workspace = true }
 tokio-test = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+tracing-test = { workspace = true }

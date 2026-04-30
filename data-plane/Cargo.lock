@@ -167,7 +167,9 @@ name = "agntcy-slim-control-plane"
 version = "0.1.0"
 dependencies = [
  "agntcy-slim-config",
+ "agntcy-slim-service",
  "agntcy-slim-signal",
+ "agntcy-slim-testing",
  "agntcy-slim-tracing",
  "anyhow",
  "async-trait",
@@ -195,6 +197,7 @@ dependencies = [
  "tonic-prost",
  "tonic-prost-build",
  "tracing",
+ "tracing-test",
  "twox-hash",
  "uuid",
 ]
