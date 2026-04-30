@@ -5,7 +5,6 @@ use anyhow::{Result, bail};
 use clap::{Args, Subcommand};
 
 use crate::client::get_control_plane_client;
-use crate::config::ResolvedOpts;
 use crate::proto::controller::proto::v1::{
     AddParticipantRequest, Connection, DeleteChannelRequest, DeleteParticipantRequest,
     ListChannelsRequest, ListParticipantsRequest, Subscription,
@@ -16,6 +15,7 @@ use crate::proto::controlplane::proto::v1::{
 };
 use crate::rpc;
 use crate::utils::{VIA_KEYWORD, is_endpoint, parse_config_file, parse_endpoint, parse_route};
+use slim_config::grpc::client::ClientConfig;
 
 #[derive(Args)]
 pub struct ControllerArgs {
@@ -26,10 +26,10 @@ pub struct ControllerArgs {
 #[derive(Subcommand)]
 pub enum ControllerCommand {
     /// Access node information through the control plane
-    #[command(aliases = ["n", "nodes", "instance"])]
+    #[command(visible_aliases = ["n", "nodes", "instance"])]
     Node(ControllerNodeArgs),
     /// Manage SLIM connections via the control plane
-    #[command(alias = "conn")]
+    #[command(visible_alias = "conn")]
     Connection(ControllerConnectionArgs),
     /// Manage SLIM routes via the control plane
     Route(ControllerRouteArgs),
@@ -52,7 +52,7 @@ pub struct ControllerNodeArgs {
 #[derive(Subcommand)]
 pub enum ControllerNodeCommand {
     /// List nodes connected to the control plane
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List,
 }
 
@@ -67,7 +67,7 @@ pub struct ControllerConnectionArgs {
 #[derive(Subcommand)]
 pub enum ControllerConnectionCommand {
     /// List active connections on a node
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List {
         /// ID of the node
         #[arg(short = 'n', long, required = true)]
@@ -86,7 +86,7 @@ pub struct ControllerRouteArgs {
 #[derive(Subcommand)]
 pub enum ControllerRouteCommand {
     /// List subscriptions on a node
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List {
         /// ID of the node to manage routes for
         #[arg(short = 'n', long, required = true)]
@@ -169,7 +169,7 @@ pub enum ControllerChannelCommand {
         channel_name: String,
     },
     /// List channels
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List,
 }
 
@@ -198,7 +198,7 @@ pub enum ControllerParticipantCommand {
         channel_id: String,
     },
     /// List participants in a channel
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List {
         /// ID of the channel
         #[arg(short = 'c', long, required = true)]
@@ -208,7 +208,7 @@ pub enum ControllerParticipantCommand {
 
 // ── Dispatch ──────────────────────────────────────────────────────────────────
 
-pub async fn run(args: &ControllerArgs, opts: &ResolvedOpts) -> Result<()> {
+pub async fn run(args: &ControllerArgs, opts: &ClientConfig) -> Result<()> {
     match &args.command {
         ControllerCommand::Node(a) => run_node(a, opts).await,
         ControllerCommand::Connection(a) => run_connection(a, opts).await,
@@ -219,19 +219,19 @@ pub async fn run(args: &ControllerArgs, opts: &ResolvedOpts) -> Result<()> {
     }
 }
 
-async fn run_node(args: &ControllerNodeArgs, opts: &ResolvedOpts) -> Result<()> {
+async fn run_node(args: &ControllerNodeArgs, opts: &ClientConfig) -> Result<()> {
     match &args.command {
         ControllerNodeCommand::List => node_list(opts).await,
     }
 }
 
-async fn run_connection(args: &ControllerConnectionArgs, opts: &ResolvedOpts) -> Result<()> {
+async fn run_connection(args: &ControllerConnectionArgs, opts: &ClientConfig) -> Result<()> {
     match &args.command {
         ControllerConnectionCommand::List { node_id } => connection_list(node_id, opts).await,
     }
 }
 
-async fn run_route(args: &ControllerRouteArgs, opts: &ResolvedOpts) -> Result<()> {
+async fn run_route(args: &ControllerRouteArgs, opts: &ClientConfig) -> Result<()> {
     match &args.command {
         ControllerRouteCommand::List { node_id } => route_list(node_id, opts).await,
         ControllerRouteCommand::Add {
@@ -253,7 +253,7 @@ async fn run_route(args: &ControllerRouteArgs, opts: &ResolvedOpts) -> Result<()
     }
 }
 
-async fn run_link(args: &ControllerLinkArgs, opts: &ResolvedOpts) -> Result<()> {
+async fn run_link(args: &ControllerLinkArgs, opts: &ClientConfig) -> Result<()> {
     match &args.command {
         ControllerLinkCommand::Outline {
             origin_node_id,
@@ -264,9 +264,9 @@ async fn run_link(args: &ControllerLinkArgs, opts: &ResolvedOpts) -> Result<()> 
 
 // ── Node commands ──────────────────────────────────────────────────────────────
 
-async fn node_list(opts: &ResolvedOpts) -> Result<()> {
+async fn node_list(opts: &ClientConfig) -> Result<()> {
     let mut client = get_control_plane_client(opts).await?;
-    let resp = rpc!(client, list_nodes, NodeListRequest {}, opts);
+    let resp = rpc!(client, list_nodes, NodeListRequest {});
     println!("{} node(s) found", resp.entries.len());
     for node in &resp.entries {
         println!("Node ID: {} status: {:?}", node.id, node.status);
@@ -292,7 +292,7 @@ async fn node_list(opts: &ResolvedOpts) -> Result<()> {
 
 // ── Connection commands ────────────────────────────────────────────────────────
 
-async fn connection_list(node_id: &str, opts: &ResolvedOpts) -> Result<()> {
+async fn connection_list(node_id: &str, opts: &ClientConfig) -> Result<()> {
     let mut client = get_control_plane_client(opts).await?;
     println!("Listing connections for node ID: {}", node_id);
     let resp = rpc!(
@@ -300,8 +300,7 @@ async fn connection_list(node_id: &str, opts: &ResolvedOpts) -> Result<()> {
         list_connections,
         Node {
             id: node_id.to_string()
-        },
-        opts
+        }
     );
     println!("Received connection list response: {}", resp.entries.len());
     for entry in &resp.entries {
@@ -319,7 +318,7 @@ async fn connection_list(node_id: &str, opts: &ResolvedOpts) -> Result<()> {
 
 // ── Route commands ─────────────────────────────────────────────────────────────
 
-async fn route_list(node_id: &str, opts: &ResolvedOpts) -> Result<()> {
+async fn route_list(node_id: &str, opts: &ClientConfig) -> Result<()> {
     let mut client = get_control_plane_client(opts).await?;
     println!("Listing routes for node ID: {}", node_id);
     let resp = rpc!(
@@ -327,8 +326,7 @@ async fn route_list(node_id: &str, opts: &ResolvedOpts) -> Result<()> {
         list_subscriptions,
         Node {
             id: node_id.to_string()
-        },
-        opts
+        }
     );
     println!(
         "Received subscription list response: {}",
@@ -363,7 +361,7 @@ async fn route_add(
     route: &str,
     via: &str,
     destination: &str,
-    opts: &ResolvedOpts,
+    opts: &ClientConfig,
 ) -> Result<()> {
     if via.to_lowercase() != VIA_KEYWORD {
         bail!("invalid syntax: expected 'via' keyword, got '{}'", via);
@@ -403,8 +401,7 @@ async fn route_add(
             subscription: Some(subscription),
             connection: cp_connection,
             dest_node_id: final_dest_node,
-        },
-        opts
+        }
     );
     if !resp.success {
         bail!("failed to create route");
@@ -418,7 +415,7 @@ async fn route_del(
     route: &str,
     via: &str,
     destination: &str,
-    opts: &ResolvedOpts,
+    opts: &ClientConfig,
 ) -> Result<()> {
     if via.to_lowercase() != VIA_KEYWORD {
         bail!("invalid syntax: expected 'via' keyword, got '{}'", via);
@@ -453,7 +450,7 @@ async fn route_del(
     }
 
     let mut client = get_control_plane_client(opts).await?;
-    let resp = rpc!(client, delete_route, req, opts);
+    let resp = rpc!(client, delete_route, req);
     if resp.success {
         println!("route removed successfully");
     } else {
@@ -465,7 +462,7 @@ async fn route_del(
 async fn route_outline(
     origin_node_id: &str,
     target_node_id: &str,
-    opts: &ResolvedOpts,
+    opts: &ClientConfig,
 ) -> Result<()> {
     println!(
         "Outline routes (origin:[{}] target:[{}])",
@@ -478,8 +475,7 @@ async fn route_outline(
         RouteListRequest {
             src_node_id: origin_node_id.to_string(),
             dest_node_id: target_node_id.to_string(),
-        },
-        opts
+        }
     );
     let routes = &resp.routes;
     println!("Number of routes: {}\n", routes.len());
@@ -496,7 +492,7 @@ async fn route_outline(
 async fn link_outline(
     origin_node_id: &str,
     target_node_id: &str,
-    opts: &ResolvedOpts,
+    opts: &ClientConfig,
 ) -> Result<()> {
     println!(
         "Outline links (origin:[{}] target:[{}])",
@@ -509,8 +505,7 @@ async fn link_outline(
         LinkListRequest {
             src_node_id: origin_node_id.to_string(),
             dest_node_id: target_node_id.to_string(),
-        },
-        opts
+        }
     );
     let links = &resp.links;
     println!("Number of links: {}\n", links.len());
@@ -674,7 +669,7 @@ fn format_unix_timestamp(ts: i64) -> String {
         .unwrap_or_else(|| ts.to_string())
 }
 
-async fn run_channel(args: &ControllerChannelArgs, opts: &ResolvedOpts) -> Result<()> {
+async fn run_channel(args: &ControllerChannelArgs, opts: &ClientConfig) -> Result<()> {
     match &args.command {
         ControllerChannelCommand::Create { moderators_param } => {
             channel_create(moderators_param, opts).await
@@ -688,15 +683,10 @@ async fn run_channel(args: &ControllerChannelArgs, opts: &ResolvedOpts) -> Resul
 
 // ── Channel commands ───────────────────────────────────────────────────────────
 
-async fn channel_create(moderators_param: &str, opts: &ResolvedOpts) -> Result<()> {
+async fn channel_create(moderators_param: &str, opts: &ClientConfig) -> Result<()> {
     let moderators = parse_moderators(moderators_param)?;
     let mut client = get_control_plane_client(opts).await?;
-    let resp = rpc!(
-        client,
-        create_channel,
-        CreateChannelRequest { moderators },
-        opts
-    );
+    let resp = rpc!(client, create_channel, CreateChannelRequest { moderators });
     if resp.channel_name.is_empty() {
         bail!("failed to create channel: empty channel name in response");
     }
@@ -704,7 +694,7 @@ async fn channel_create(moderators_param: &str, opts: &ResolvedOpts) -> Result<(
     Ok(())
 }
 
-async fn channel_delete(channel_name: &str, opts: &ResolvedOpts) -> Result<()> {
+async fn channel_delete(channel_name: &str, opts: &ClientConfig) -> Result<()> {
     let mut client = get_control_plane_client(opts).await?;
     let resp = rpc!(
         client,
@@ -712,8 +702,7 @@ async fn channel_delete(channel_name: &str, opts: &ResolvedOpts) -> Result<()> {
         DeleteChannelRequest {
             channel_name: channel_name.to_string(),
             moderators: vec![],
-        },
-        opts
+        }
     );
     if !resp.success {
         bail!("failed to delete channel: unsuccessful response");
@@ -722,9 +711,9 @@ async fn channel_delete(channel_name: &str, opts: &ResolvedOpts) -> Result<()> {
     Ok(())
 }
 
-async fn channel_list(opts: &ResolvedOpts) -> Result<()> {
+async fn channel_list(opts: &ClientConfig) -> Result<()> {
     let mut client = get_control_plane_client(opts).await?;
-    let resp = rpc!(client, list_channels, ListChannelsRequest {}, opts);
+    let resp = rpc!(client, list_channels, ListChannelsRequest {});
     println!("Following channels found: {:?}", resp.channel_name);
     Ok(())
 }
@@ -754,7 +743,7 @@ fn parse_moderators(param: &str) -> Result<Vec<String>> {
     Ok(mods)
 }
 
-async fn run_participant(args: &ControllerParticipantArgs, opts: &ResolvedOpts) -> Result<()> {
+async fn run_participant(args: &ControllerParticipantArgs, opts: &ClientConfig) -> Result<()> {
     match &args.command {
         ControllerParticipantCommand::Add {
             participant_name,
@@ -775,7 +764,7 @@ async fn run_participant(args: &ControllerParticipantArgs, opts: &ResolvedOpts) 
 async fn participant_add(
     participant_name: &str,
     channel_id: &str,
-    opts: &ResolvedOpts,
+    opts: &ClientConfig,
 ) -> Result<()> {
     println!(
         "Adding participant to channel {}: {}",
@@ -789,8 +778,7 @@ async fn participant_add(
             channel_name: channel_id.to_string(),
             participant_name: participant_name.to_string(),
             moderators: vec![],
-        },
-        opts
+        }
     );
     if !resp.success {
         bail!("failed to add participants: unsuccessful response");
@@ -805,7 +793,7 @@ async fn participant_add(
 async fn participant_delete(
     participant_name: &str,
     channel_id: &str,
-    opts: &ResolvedOpts,
+    opts: &ClientConfig,
 ) -> Result<()> {
     println!(
         "Deleting participant from channel {}: {}",
@@ -819,8 +807,7 @@ async fn participant_delete(
             channel_name: channel_id.to_string(),
             participant_name: participant_name.to_string(),
             moderators: vec![],
-        },
-        opts
+        }
     );
     if !resp.success {
         bail!("failed to delete participant: unsuccessful response");
@@ -832,7 +819,7 @@ async fn participant_delete(
     Ok(())
 }
 
-async fn participant_list(channel_id: &str, opts: &ResolvedOpts) -> Result<()> {
+async fn participant_list(channel_id: &str, opts: &ClientConfig) -> Result<()> {
     println!("Listing participants for channel ID: {}", channel_id);
     let mut client = get_control_plane_client(opts).await?;
     let resp = rpc!(
@@ -840,8 +827,7 @@ async fn participant_list(channel_id: &str, opts: &ResolvedOpts) -> Result<()> {
         list_participants,
         ListParticipantsRequest {
             channel_name: channel_id.to_string(),
-        },
-        opts
+        }
     );
     println!(
         "Following participants found for channel {}: {:?}",
@@ -853,6 +839,12 @@ async fn participant_list(channel_id: &str, opts: &ResolvedOpts) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn make_opts(addr: &str) -> ClientConfig {
+        slim_config::grpc::client::ClientConfig::with_endpoint(&format!("http://{}", addr))
+            .with_tls_setting(slim_config::tls::client::TlsClientConfig::insecure())
+            .with_request_timeout(std::time::Duration::from_secs(5))
+    }
 
     #[allow(clippy::too_many_arguments)]
     fn make_route(
@@ -1108,16 +1100,7 @@ mod tests {
 
     #[tokio::test]
     async fn route_add_invalid_via_fails() {
-        let opts = crate::config::ResolvedOpts {
-            server: "127.0.0.1:1".to_string(),
-            timeout: std::time::Duration::from_secs(1),
-            tls_insecure: true,
-            tls_insecure_skip_verify: false,
-            tls_ca_file: String::new(),
-            tls_cert_file: String::new(),
-            tls_key_file: String::new(),
-            basic_auth_creds: String::new(),
-        };
+        let opts = make_opts("127.0.0.1:1");
         let err = route_add("node1", "a/b/c/0", "not_via", "dest", &opts)
             .await
             .unwrap_err();
@@ -1126,16 +1109,7 @@ mod tests {
 
     #[tokio::test]
     async fn route_del_invalid_via_fails() {
-        let opts = crate::config::ResolvedOpts {
-            server: "127.0.0.1:1".to_string(),
-            timeout: std::time::Duration::from_secs(1),
-            tls_insecure: true,
-            tls_insecure_skip_verify: false,
-            tls_ca_file: String::new(),
-            tls_cert_file: String::new(),
-            tls_key_file: String::new(),
-            basic_auth_creds: String::new(),
-        };
+        let opts = make_opts("127.0.0.1:1");
         let err = route_del("node1", "a/b/c/0", "bad", "dest", &opts)
             .await
             .unwrap_err();
@@ -1149,7 +1123,6 @@ mod tests {
 
         use tokio_stream::wrappers::TcpListenerStream;
 
-        use crate::config::ResolvedOpts;
         use crate::proto::controller::proto::v1::{
             Ack, AddParticipantRequest, ConnectionListResponse, DeleteChannelRequest,
             DeleteParticipantRequest, ListChannelsRequest, ListChannelsResponse,
@@ -1161,6 +1134,7 @@ mod tests {
             Node as CpNode, NodeListRequest, NodeListResponse, RouteListRequest, RouteListResponse,
             control_plane_service_server::{ControlPlaneService, ControlPlaneServiceServer},
         };
+        use slim_config::grpc::client::ClientConfig;
 
         use super::super::*;
 
@@ -1304,17 +1278,10 @@ mod tests {
             format!("{}:{}", addr.ip(), addr.port())
         }
 
-        fn make_opts(addr: &str) -> ResolvedOpts {
-            ResolvedOpts {
-                server: addr.to_string(),
-                timeout: Duration::from_secs(5),
-                tls_insecure: true,
-                tls_insecure_skip_verify: false,
-                tls_ca_file: String::new(),
-                tls_cert_file: String::new(),
-                tls_key_file: String::new(),
-                basic_auth_creds: String::new(),
-            }
+        fn make_opts(addr: &str) -> ClientConfig {
+            slim_config::grpc::client::ClientConfig::with_endpoint(&format!("http://{}", addr))
+                .with_tls_setting(slim_config::tls::client::TlsClientConfig::insecure())
+                .with_request_timeout(Duration::from_secs(5))
         }
 
         #[tokio::test]

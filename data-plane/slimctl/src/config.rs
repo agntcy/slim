@@ -4,128 +4,125 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use duration_string::DurationString;
-use serde::{Deserialize, Serialize};
 
-use crate::defaults::{
-    DEFAULT_EMPTY_CONFIG, DEFAULT_SERVER, DEFAULT_TIMEOUT, DEFAULT_TLS_INSECURE,
-};
+use slim_config::auth::basic::Config as BasicAuthConfig;
+use slim_config::grpc::client::{AuthenticationConfig, BackoffConfig, ClientConfig};
+use slim_config::tls::client::TlsClientConfig;
 
-/// Persistent configuration stored in ~/.config/slimctl/config.yaml
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct SlimctlConfig {
-    #[serde(default)]
-    pub common_opts: CommonOptsConfig,
-}
+/// Default timeout for gRPC requests when not specified in config or CLI.
+pub(crate) const DEFAULT_TIMEOUT: &str = "15s";
+/// Default endpoint for the `node` subcommand (SLIM node control API).
+pub(crate) const DEFAULT_NODE_ENDPOINT: &str = "127.0.0.1:46358";
+/// Default endpoint for the `controller` subcommand (controller north bound API).
+pub(crate) const DEFAULT_CONTROLLER_ENDPOINT: &str = "127.0.0.1:50051";
+/// Default endpoint for the `channel-manager` subcommand (channel manager gRPC API).
+pub(crate) const DEFAULT_CHANNEL_MANAGER_ENDPOINT: &str = "127.0.0.1:10356";
+/// Default listen address for starting a local SLIM node via the `slim` subcommand.
+pub(crate) const DEFAULT_SLIM_ADDRESS: &str = "127.0.0.1:46357";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CommonOptsConfig {
-    #[serde(default)]
-    pub basic_auth_creds: String,
-    #[serde(default = "default_server")]
-    pub server: String,
-    #[serde(default = "default_timeout")]
-    pub timeout: String,
-    #[serde(default = "default_tls_insecure")]
-    pub tls_insecure: bool,
-    #[serde(default)]
-    pub tls_insecure_skip_verify: bool,
-    #[serde(default)]
-    pub tls_ca_file: String,
-    #[serde(default)]
-    pub tls_cert_file: String,
-    #[serde(default)]
-    pub tls_key_file: String,
-}
+/// Merge a file-level `ClientConfig` with CLI overrides.
+/// `default_endpoint` is the per-subcommand fallback when neither the file
+/// nor the CLI specifies an endpoint.
+#[allow(clippy::too_many_arguments)]
+pub fn resolve_config(
+    file_config: &ClientConfig,
+    default_endpoint: &str,
+    server: Option<&str>,
+    timeout: Option<&str>,
+    tls_insecure_skip_verify: bool,
+    tls_ca_file: Option<&str>,
+    tls_cert_file: Option<&str>,
+    tls_key_file: Option<&str>,
+    basic_auth_creds: Option<&str>,
+) -> Result<ClientConfig> {
+    let mut config = file_config.clone();
 
-fn default_server() -> String {
-    DEFAULT_SERVER.to_string()
-}
-fn default_timeout() -> String {
-    DEFAULT_TIMEOUT.to_string()
-}
-fn default_tls_insecure() -> bool {
-    DEFAULT_TLS_INSECURE
-}
-
-impl Default for CommonOptsConfig {
-    fn default() -> Self {
-        Self {
-            basic_auth_creds: DEFAULT_EMPTY_CONFIG.to_string(),
-            server: DEFAULT_SERVER.to_string(),
-            timeout: DEFAULT_TIMEOUT.to_string(),
-            tls_insecure: DEFAULT_TLS_INSECURE,
-            tls_insecure_skip_verify: false,
-            tls_ca_file: DEFAULT_EMPTY_CONFIG.to_string(),
-            tls_cert_file: DEFAULT_EMPTY_CONFIG.to_string(),
-            tls_key_file: DEFAULT_EMPTY_CONFIG.to_string(),
-        }
+    // ── endpoint ────────────────────────────────────────────────────
+    if let Some(s) = server {
+        config.endpoint = s.to_string();
     }
-}
-
-/// Resolved options merged from config file + env vars + CLI flags
-#[derive(Debug, Clone)]
-pub struct ResolvedOpts {
-    pub server: String,
-    pub timeout: Duration,
-    pub tls_insecure: bool,
-    pub tls_insecure_skip_verify: bool,
-    pub tls_ca_file: String,
-    pub tls_cert_file: String,
-    pub tls_key_file: String,
-    pub basic_auth_creds: String,
-}
-
-impl ResolvedOpts {
-    /// Merge config file values with CLI overrides.
-    /// CLI values (Some) override config file values.
-    #[allow(clippy::too_many_arguments)]
-    pub fn resolve(
-        config: &SlimctlConfig,
-        server: Option<&str>,
-        timeout: Option<&str>,
-        tls_insecure: bool,
-        tls_insecure_skip_verify: bool,
-        tls_ca_file: Option<&str>,
-        tls_cert_file: Option<&str>,
-        tls_key_file: Option<&str>,
-        basic_auth_creds: Option<&str>,
-    ) -> Result<Self> {
-        let server = server
-            .map(str::to_string)
-            .unwrap_or_else(|| config.common_opts.server.clone());
-        let timeout_str = timeout.unwrap_or(&config.common_opts.timeout);
-        let timeout = parse_duration(timeout_str)
-            .with_context(|| format!("invalid timeout value: '{}'", timeout_str))?;
-        let tls_ca_file = tls_ca_file
-            .map(str::to_string)
-            .unwrap_or_else(|| config.common_opts.tls_ca_file.clone());
-        let tls_cert_file = tls_cert_file
-            .map(str::to_string)
-            .unwrap_or_else(|| config.common_opts.tls_cert_file.clone());
-        let tls_key_file = tls_key_file
-            .map(str::to_string)
-            .unwrap_or_else(|| config.common_opts.tls_key_file.clone());
-        let basic_auth_creds = basic_auth_creds
-            .map(str::to_string)
-            .unwrap_or_else(|| config.common_opts.basic_auth_creds.clone());
-        // Bool flags: CLI `true` wins; otherwise fall back to the config file value.
-        let tls_insecure = tls_insecure || config.common_opts.tls_insecure;
-        let tls_insecure_skip_verify =
-            tls_insecure_skip_verify || config.common_opts.tls_insecure_skip_verify;
-
-        Ok(Self {
-            server,
-            timeout,
-            tls_insecure,
-            tls_insecure_skip_verify,
-            tls_ca_file,
-            tls_cert_file,
-            tls_key_file,
-            basic_auth_creds,
-        })
+    if config.endpoint.is_empty() {
+        config.endpoint = default_endpoint.to_string();
     }
+
+    // ── timeout ─────────────────────────────────────────────────────
+    let timeout_str = timeout.unwrap_or(DEFAULT_TIMEOUT);
+    let timeout_dur = parse_duration(timeout_str)
+        .with_context(|| format!("invalid timeout value: '{}'", timeout_str))?;
+    if timeout.is_some() || config.request_timeout.as_secs() == 0 {
+        config.connect_timeout = DurationString::from(timeout_dur);
+        config.request_timeout = DurationString::from(timeout_dur);
+    }
+
+    // ── TLS overlay ─────────────────────────────────────────────────
+    // Validate cert/key pairing
+    if tls_cert_file.is_some() ^ tls_key_file.is_some() {
+        bail!("both tls-cert-file and tls-key-file must be specified together");
+    }
+
+    let any_tls_flag = tls_insecure_skip_verify || tls_ca_file.is_some() || tls_cert_file.is_some();
+
+    // Track whether the endpoint came from the file config or from CLI/default
+    let endpoint_from_file = !file_config.endpoint.is_empty() && server.is_none();
+
+    let mut tls = config.tls_setting.clone();
+
+    // When no TLS flags are given and the config still has the bare default
+    // (insecure=false but no certs/CA configured), and the endpoint did NOT
+    // come from a file config (which may have intentionally set secure TLS),
+    // treat it as insecure so that a plain `host:port` endpoint defaults to http://.
+    if !any_tls_flag && !endpoint_from_file && tls == TlsClientConfig::default() {
+        tls = TlsClientConfig::insecure();
+    }
+
+    // If any TLS flag is provided and the file config was insecure,
+    // switch to secure mode.
+    if any_tls_flag && tls.insecure {
+        tls = tls.with_insecure(false);
+    }
+
+    if tls_insecure_skip_verify {
+        tls = tls.with_insecure_skip_verify(true);
+    }
+    if let Some(ca) = tls_ca_file {
+        tls = tls.with_ca_file(ca);
+    }
+    if let (Some(cert), Some(key)) = (tls_cert_file, tls_key_file) {
+        tls = tls.with_cert_and_key_file(cert, key);
+    }
+
+    config.tls_setting = tls;
+
+    // ── endpoint scheme ─────────────────────────────────────────────
+    // if the endpoint already has a scheme, respect it and do not override based on TLS settings, since the user explicitly specified it.
+    if config.endpoint.starts_with("http://") {
+        config.tls_setting = config.tls_setting.with_insecure(true);
+    } else if config.endpoint.starts_with("https://") {
+        config.tls_setting = config.tls_setting.with_insecure(false);
+    } else {
+        // if the endpoint has no scheme, prepend one based on the TLS settings (http for insecure, https for secure)
+        let scheme = if config.tls_setting.insecure {
+            "http"
+        } else {
+            "https"
+        };
+        config.endpoint = format!("{}://{}", scheme, config.endpoint);
+    }
+
+    // ── auth ────────────────────────────────────────────────────────
+    if let Some(creds) = basic_auth_creds {
+        let (user, pass) = creds
+            .split_once(':')
+            .ok_or_else(|| anyhow::anyhow!("basic-auth-creds must be 'username:password'"))?;
+        config.auth = AuthenticationConfig::Basic(BasicAuthConfig::new(user, pass));
+    }
+
+    // ── backoff (no retries by default for CLI) ─────────────────────
+    config.backoff = BackoffConfig::new_fixed_interval(Duration::from_millis(0), 0);
+
+    Ok(config)
 }
 
 /// Load configuration from the first existing candidate path:
@@ -134,7 +131,7 @@ impl ResolvedOpts {
 /// 3. `./config.yaml` (current directory)
 ///
 /// Returns defaults if no file is found.
-pub fn load_config(config_file: Option<&str>) -> Result<SlimctlConfig> {
+pub fn load_config(config_file: Option<&str>) -> Result<ClientConfig> {
     if let Some(path_str) = config_file {
         let path = PathBuf::from(path_str);
         let data = std::fs::read_to_string(&path)
@@ -150,7 +147,7 @@ pub fn load_config(config_file: Option<&str>) -> Result<SlimctlConfig> {
                 .with_context(|| format!("failed to parse config file: {}", path.display()));
         }
     }
-    Ok(SlimctlConfig::default())
+    Ok(ClientConfig::default())
 }
 
 /// Return candidate config file paths in priority order:
@@ -166,7 +163,7 @@ fn config_search_paths() -> Vec<PathBuf> {
 }
 
 /// Save configuration to `config_file` if provided, otherwise to `$HOME/.slimctl/config.yaml`.
-pub fn save_config(config: &SlimctlConfig, config_file: Option<&str>) -> Result<()> {
+pub fn save_config(config: &ClientConfig, config_file: Option<&str>) -> Result<()> {
     let path = match config_file {
         Some(p) => PathBuf::from(p),
         None => config_file_path()?,
@@ -204,9 +201,7 @@ pub(crate) static HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::defaults::{
-        DEFAULT_EMPTY_CONFIG, DEFAULT_SERVER, DEFAULT_TIMEOUT, DEFAULT_TLS_INSECURE,
-    };
+    use slim_config::tls::client::TlsClientConfig;
 
     // ── parse_duration ──────────────────────────────────────────────────────
 
@@ -248,52 +243,16 @@ mod tests {
         assert!(parse_duration("").is_err());
     }
 
-    // ── CommonOptsConfig::default ───────────────────────────────────────────
+    // ── resolve_config ───────────────────────────────────────────────
 
     #[test]
-    fn common_opts_config_defaults() {
-        let c = CommonOptsConfig::default();
-        assert_eq!(c.server, DEFAULT_SERVER);
-        assert_eq!(c.timeout, DEFAULT_TIMEOUT);
-        assert_eq!(c.tls_insecure, DEFAULT_TLS_INSECURE);
-        assert!(!c.tls_insecure_skip_verify);
-        assert_eq!(c.basic_auth_creds, DEFAULT_EMPTY_CONFIG);
-        assert_eq!(c.tls_ca_file, DEFAULT_EMPTY_CONFIG);
-        assert_eq!(c.tls_cert_file, DEFAULT_EMPTY_CONFIG);
-        assert_eq!(c.tls_key_file, DEFAULT_EMPTY_CONFIG);
-    }
-
-    #[test]
-    fn slimctl_config_default_delegates_to_common_opts() {
-        let c = SlimctlConfig::default();
-        assert_eq!(c.common_opts.server, DEFAULT_SERVER);
-    }
-
-    // ── ResolvedOpts::resolve ───────────────────────────────────────────────
-
-    #[test]
-    fn resolve_uses_config_defaults_when_no_cli() {
-        let config = SlimctlConfig::default();
-        let opts = ResolvedOpts::resolve(&config, None, None, false, false, None, None, None, None)
-            .unwrap();
-        assert_eq!(opts.server, DEFAULT_SERVER);
-        assert_eq!(opts.timeout, Duration::from_secs(15));
-        assert!(opts.tls_insecure);
-        assert!(!opts.tls_insecure_skip_verify);
-        assert!(opts.basic_auth_creds.is_empty());
-        assert!(opts.tls_ca_file.is_empty());
-        assert!(opts.tls_cert_file.is_empty());
-        assert!(opts.tls_key_file.is_empty());
-    }
-
-    #[test]
-    fn resolve_cli_server_overrides_config() {
-        let config = SlimctlConfig::default();
-        let opts = ResolvedOpts::resolve(
-            &config,
-            Some("custom:9999"),
+    fn resolve_uses_defaults_when_no_cli_and_empty_file_config() {
+        let file_config = ClientConfig::default();
+        let opts = resolve_config(
+            &file_config,
+            DEFAULT_NODE_ENDPOINT,
             None,
-            false,
+            None,
             false,
             None,
             None,
@@ -301,27 +260,60 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(opts.server, "custom:9999");
+        // endpoint should be the default with scheme prepended
+        assert!(opts.endpoint.contains(DEFAULT_NODE_ENDPOINT));
+        assert_eq!(
+            Duration::from(opts.request_timeout),
+            Duration::from_secs(15)
+        );
     }
 
     #[test]
-    fn resolve_inherits_server_from_config() {
-        let mut config = SlimctlConfig::default();
-        config.common_opts.server = "from-config:1234".to_string();
-        let opts = ResolvedOpts::resolve(&config, None, None, false, false, None, None, None, None)
-            .unwrap();
-        assert_eq!(opts.server, "from-config:1234");
+    fn resolve_cli_server_overrides_config() {
+        let file_config = ClientConfig::default();
+        let opts = resolve_config(
+            &file_config,
+            DEFAULT_NODE_ENDPOINT,
+            Some("custom:9999"),
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(opts.endpoint.contains("custom:9999"));
+    }
+
+    #[test]
+    fn resolve_inherits_endpoint_from_file_config() {
+        let file_config = ClientConfig::with_endpoint("from-config:1234")
+            .with_tls_setting(TlsClientConfig::insecure());
+        let opts = resolve_config(
+            &file_config,
+            DEFAULT_NODE_ENDPOINT,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(opts.endpoint.contains("from-config:1234"));
     }
 
     #[test]
     fn resolve_invalid_timeout_returns_error() {
-        let config = SlimctlConfig::default();
+        let file_config = ClientConfig::default();
         assert!(
-            ResolvedOpts::resolve(
-                &config,
+            resolve_config(
+                &file_config,
+                DEFAULT_NODE_ENDPOINT,
                 None,
                 Some("not-a-duration"),
-                false,
                 false,
                 None,
                 None,
@@ -334,12 +326,12 @@ mod tests {
 
     #[test]
     fn resolve_cli_timeout_overrides_config() {
-        let config = SlimctlConfig::default();
-        let opts = ResolvedOpts::resolve(
-            &config,
+        let file_config = ClientConfig::default();
+        let opts = resolve_config(
+            &file_config,
+            DEFAULT_NODE_ENDPOINT,
             None,
             Some("30s"),
-            false,
             false,
             None,
             None,
@@ -347,36 +339,65 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(opts.timeout, Duration::from_secs(30));
+        assert_eq!(
+            Duration::from(opts.request_timeout),
+            Duration::from_secs(30)
+        );
     }
 
     #[test]
-    fn resolve_inherits_timeout_from_config() {
-        let mut config = SlimctlConfig::default();
-        config.common_opts.timeout = "5m".to_string();
-        let opts = ResolvedOpts::resolve(&config, None, None, false, false, None, None, None, None)
-            .unwrap();
-        assert_eq!(opts.timeout, Duration::from_secs(300));
+    fn resolve_file_timeout_preserved_when_no_cli_flag() {
+        let file_config = ClientConfig::default()
+            .with_request_timeout(Duration::from_secs(10))
+            .with_connect_timeout(Duration::from_secs(10));
+        let opts = resolve_config(
+            &file_config,
+            DEFAULT_NODE_ENDPOINT,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            Duration::from(opts.request_timeout),
+            Duration::from_secs(10)
+        );
+        assert_eq!(
+            Duration::from(opts.connect_timeout),
+            Duration::from_secs(10)
+        );
     }
 
     #[test]
-    fn resolve_tls_flags_passed_through() {
-        let config = SlimctlConfig::default();
-        let opts =
-            ResolvedOpts::resolve(&config, None, None, true, true, None, None, None, None).unwrap();
-        assert!(opts.tls_insecure);
-        assert!(opts.tls_insecure_skip_verify);
+    fn resolve_tls_skip_verify_passed_through() {
+        let file_config = ClientConfig::default();
+        let opts = resolve_config(
+            &file_config,
+            DEFAULT_NODE_ENDPOINT,
+            None,
+            None,
+            true,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(opts.tls_setting.insecure_skip_verify);
     }
 
     #[test]
     fn resolve_cli_basic_auth_overrides_config() {
-        let mut config = SlimctlConfig::default();
-        config.common_opts.basic_auth_creds = "config:pass".to_string();
-        let opts = ResolvedOpts::resolve(
-            &config,
+        let file_config = ClientConfig::default();
+        let opts = resolve_config(
+            &file_config,
+            DEFAULT_NODE_ENDPOINT,
             None,
             None,
-            false,
             false,
             None,
             None,
@@ -384,26 +405,17 @@ mod tests {
             Some("cli:pass"),
         )
         .unwrap();
-        assert_eq!(opts.basic_auth_creds, "cli:pass");
+        assert!(matches!(opts.auth, AuthenticationConfig::Basic(_)));
     }
 
     #[test]
-    fn resolve_inherits_basic_auth_from_config() {
-        let mut config = SlimctlConfig::default();
-        config.common_opts.basic_auth_creds = "user:pass".to_string();
-        let opts = ResolvedOpts::resolve(&config, None, None, false, false, None, None, None, None)
-            .unwrap();
-        assert_eq!(opts.basic_auth_creds, "user:pass");
-    }
-
-    #[test]
-    fn resolve_cli_tls_files_override_config() {
-        let config = SlimctlConfig::default();
-        let opts = ResolvedOpts::resolve(
-            &config,
+    fn resolve_cli_tls_files_applied() {
+        let file_config = ClientConfig::default();
+        let opts = resolve_config(
+            &file_config,
+            DEFAULT_NODE_ENDPOINT,
             None,
             None,
-            false,
             false,
             Some("/ca.pem"),
             Some("/cert.pem"),
@@ -411,18 +423,139 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(opts.tls_ca_file, "/ca.pem");
-        assert_eq!(opts.tls_cert_file, "/cert.pem");
-        assert_eq!(opts.tls_key_file, "/key.pem");
+        // TLS should no longer be insecure since TLS flags were provided
+        assert!(!opts.tls_setting.insecure);
     }
 
     #[test]
-    fn resolve_inherits_tls_files_from_config() {
-        let mut config = SlimctlConfig::default();
-        config.common_opts.tls_ca_file = "/etc/ca.pem".to_string();
-        let opts = ResolvedOpts::resolve(&config, None, None, false, false, None, None, None, None)
-            .unwrap();
-        assert_eq!(opts.tls_ca_file, "/etc/ca.pem");
+    fn resolve_cert_without_key_fails() {
+        let file_config = ClientConfig::default();
+        assert!(
+            resolve_config(
+                &file_config,
+                DEFAULT_NODE_ENDPOINT,
+                None,
+                None,
+                false,
+                None,
+                Some("/cert.pem"),
+                None,
+                None,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn resolve_key_without_cert_fails() {
+        let file_config = ClientConfig::default();
+        assert!(
+            resolve_config(
+                &file_config,
+                DEFAULT_NODE_ENDPOINT,
+                None,
+                None,
+                false,
+                None,
+                None,
+                Some("/key.pem"),
+                None,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn resolve_basic_auth_without_colon_fails() {
+        let file_config = ClientConfig::default();
+        assert!(
+            resolve_config(
+                &file_config,
+                DEFAULT_NODE_ENDPOINT,
+                None,
+                None,
+                false,
+                None,
+                None,
+                None,
+                Some("usernameonly"),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn resolve_insecure_config_gets_http_scheme() {
+        let file_config = ClientConfig::with_endpoint("myhost:1234")
+            .with_tls_setting(TlsClientConfig::insecure());
+        let opts = resolve_config(
+            &file_config,
+            DEFAULT_NODE_ENDPOINT,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(opts.endpoint.starts_with("http://"));
+    }
+
+    #[test]
+    fn resolve_secure_config_gets_https_scheme() {
+        let file_config =
+            ClientConfig::with_endpoint("myhost:1234").with_tls_setting(TlsClientConfig::new());
+        let opts = resolve_config(
+            &file_config,
+            DEFAULT_NODE_ENDPOINT,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(opts.endpoint.starts_with("https://"));
+    }
+
+    #[test]
+    fn resolve_explicit_http_scheme_preserved() {
+        let file_config = ClientConfig::with_endpoint("http://myhost:1234");
+        let opts = resolve_config(
+            &file_config,
+            DEFAULT_NODE_ENDPOINT,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(opts.endpoint, "http://myhost:1234");
+    }
+
+    #[test]
+    fn resolve_explicit_https_scheme_preserved() {
+        let file_config = ClientConfig::with_endpoint("https://myhost:1234");
+        let opts = resolve_config(
+            &file_config,
+            DEFAULT_NODE_ENDPOINT,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(opts.endpoint, "https://myhost:1234");
     }
 
     // ── config_file_path ────────────────────────────────────────────────────
@@ -450,8 +583,7 @@ mod tests {
         // SAFETY: serialized by HOME_LOCK; no other threads read HOME concurrently.
         unsafe { std::env::set_var("HOME", dir.path()) };
         let config = load_config(None).unwrap();
-        assert_eq!(config.common_opts.server, DEFAULT_SERVER);
-        assert_eq!(config.common_opts.timeout, DEFAULT_TIMEOUT);
+        assert!(config.endpoint.is_empty());
     }
 
     #[test]
@@ -462,16 +594,13 @@ mod tests {
         // SAFETY: serialized by HOME_LOCK; no other threads read HOME concurrently.
         unsafe { std::env::set_var("HOME", dir.path()) };
 
-        let mut config = SlimctlConfig::default();
-        config.common_opts.server = "testhost:9999".to_string();
-        config.common_opts.timeout = "30s".to_string();
-        config.common_opts.tls_insecure = false;
+        let config = ClientConfig::with_endpoint("testhost:9999")
+            .with_tls_setting(TlsClientConfig::insecure());
         save_config(&config, None).unwrap();
 
         let loaded = load_config(None).unwrap();
-        assert_eq!(loaded.common_opts.server, "testhost:9999");
-        assert_eq!(loaded.common_opts.timeout, "30s");
-        assert!(!loaded.common_opts.tls_insecure);
+        assert_eq!(loaded.endpoint, "testhost:9999");
+        assert!(loaded.tls_setting.insecure);
     }
 
     #[test]
@@ -481,7 +610,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         // SAFETY: serialized by HOME_LOCK; no other threads read HOME concurrently.
         unsafe { std::env::set_var("HOME", dir.path()) };
-        let config = SlimctlConfig::default();
+        let config = ClientConfig::default();
         save_config(&config, None).unwrap();
         assert!(config_file_path().unwrap().exists());
     }
@@ -489,9 +618,9 @@ mod tests {
     #[test]
     fn load_config_explicit_path_reads_that_file() {
         let mut f = tempfile::Builder::new().suffix(".yaml").tempfile().unwrap();
-        std::io::Write::write_all(&mut f, b"common_opts:\n  server: explicit-host:1234\n").unwrap();
+        std::io::Write::write_all(&mut f, b"endpoint: explicit-host:1234\n").unwrap();
         let config = load_config(Some(f.path().to_str().unwrap())).unwrap();
-        assert_eq!(config.common_opts.server, "explicit-host:1234");
+        assert_eq!(config.endpoint, "explicit-host:1234");
     }
 
     #[test]
@@ -503,10 +632,10 @@ mod tests {
     fn save_config_explicit_path_writes_there() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("custom.yaml");
-        let config = SlimctlConfig::default();
+        let config = ClientConfig::with_endpoint("myhost:1234");
         save_config(&config, Some(path.to_str().unwrap())).unwrap();
         assert!(path.exists());
         let loaded = load_config(Some(path.to_str().unwrap())).unwrap();
-        assert_eq!(loaded.common_opts.server, DEFAULT_SERVER);
+        assert_eq!(loaded.endpoint, "myhost:1234");
     }
 }
