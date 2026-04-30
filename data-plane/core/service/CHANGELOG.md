@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.13](https://github.com/agntcy/slim/compare/slim-service-v0.8.12...slim-service-v0.8.13) - 2026-04-30
+
+### Added
+
+- recover subscriptions sent from slim server ([#1566](https://github.com/agntcy/slim/pull/1566))
+
+### Fixed
+
+- implement correct matching behavior ([#1438](https://github.com/agntcy/slim/pull/1438))
+
+### Other
+
+- *(datapath)* replace Pool bitmap/vec with three-vec design ([#1496](https://github.com/agntcy/slim/pull/1496))
+
 ## [0.8.12](https://github.com/agntcy/slim/compare/slim-service-v0.8.11...slim-service-v0.8.12) - 2026-04-21
 
 ### Other

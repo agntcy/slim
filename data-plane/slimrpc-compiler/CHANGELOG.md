@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0-rc.1](https://github.com/agntcy/slim/compare/protoc-slimrpc-plugin-v1.4.0-rc.0...protoc-slimrpc-plugin-v1.4.0-rc.1) - 2026-04-30
+
+### Added
+
+- kotlin slimrpc compiler plugin ([#1497](https://github.com/agntcy/slim/pull/1497))
+
 ## [1.4.0-rc.0](https://github.com/agntcy/slim/compare/protoc-slimrpc-plugin-v1.3.0...protoc-slimrpc-plugin-v1.4.0-rc.0) - 2026-04-21
 
 ### Fixed
