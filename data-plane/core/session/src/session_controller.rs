@@ -613,7 +613,11 @@ where
             .map_err(SessionError::SubscriptionAckFailed)
     }
 
-    pub(crate) async fn add_route(&mut self, name: ProtoName, conn: u64) -> Result<(), SessionError> {
+    pub(crate) async fn add_route(
+        &mut self,
+        name: ProtoName,
+        conn: u64,
+    ) -> Result<(), SessionError> {
         if name == self.settings.source.clone() {
             // We never add a route for ourselves
             return Ok(());
@@ -636,7 +640,11 @@ where
         Ok(())
     }
 
-    pub(crate) async fn delete_route(&mut self, name: ProtoName, conn: u64) -> Result<(), SessionError> {
+    pub(crate) async fn delete_route(
+        &mut self,
+        name: ProtoName,
+        conn: u64,
+    ) -> Result<(), SessionError> {
         if name == self.settings.source.clone() {
             // We never remove a route for ourselves
             return Ok(());

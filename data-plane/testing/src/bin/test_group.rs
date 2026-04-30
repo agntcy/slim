@@ -296,8 +296,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "Expected {} participants in the moderator session",
                 tot_participants - 1
             );
-            assert!(list.iter().all(|n| n.str_components() != participants[to_remove].str_components()),
-                "Participants to remove is still present in the session");
+            assert!(
+                list.iter()
+                    .all(|n| n.str_components() != participants[to_remove].str_components()),
+                "Participants to remove is still present in the session"
+            );
 
             let handler = session_arc
                 .invite_participant(&participants[to_add])

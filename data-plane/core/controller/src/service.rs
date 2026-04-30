@@ -36,13 +36,13 @@ use prost_types::Struct;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::traits::TokenProvider;
 use slim_config::grpc::client::ClientConfig;
+use slim_datapath::api::ProtoName;
 use slim_datapath::api::{
     CommandPayload, Content, MessageType::Link as LinkType, MessageType::Publish,
     MessageType::Subscribe, MessageType::SubscriptionAck as SubscriptionAckType,
     MessageType::Unsubscribe, ProtoMessage as DataPlaneMessage,
 };
 use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType};
-use slim_datapath::api::ProtoName;
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::encoder::calculate_hash;
 use slim_datapath::messages::utils::{DELETE_GROUP, IS_MODERATOR, SlimHeaderFlags, TRUE_VAL};

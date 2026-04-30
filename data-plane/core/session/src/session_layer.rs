@@ -15,7 +15,9 @@ use tokio::sync::mpsc::Sender;
 use tracing::{Instrument, debug, error, warn};
 
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_datapath::api::{EncodedName, ProtoMessage as Message, ProtoName, ProtoSessionMessageType, ProtoSessionType};
+use slim_datapath::api::{
+    EncodedName, ProtoMessage as Message, ProtoName, ProtoSessionMessageType, ProtoSessionType,
+};
 
 use crate::common::SessionMessage;
 use crate::completion_handle::CompletionHandle;
@@ -1121,6 +1123,11 @@ mod tests {
 
         // The name with NULL_COMPONENT should be removed
         let name_null = name.with_id(ProtoName::NULL_COMPONENT);
-        assert!(!session_layer.app_names.read().contains_key(&TestSessionLayer::name_to_key(&name_null)));
+        assert!(
+            !session_layer
+                .app_names
+                .read()
+                .contains_key(&TestSessionLayer::name_to_key(&name_null))
+        );
     }
 }

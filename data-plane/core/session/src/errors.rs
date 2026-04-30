@@ -1,8 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use slim_datapath::errors::{ErrorPayload, MessageContext};
 use slim_datapath::api::ProtoName;
+use slim_datapath::errors::{ErrorPayload, MessageContext};
 // Third-party crates
 use thiserror::Error;
 

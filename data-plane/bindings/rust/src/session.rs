@@ -8,8 +8,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use futures_timer::Delay;
-use slim_datapath::api::ProtoSessionType;
 use slim_datapath::api::ProtoName as SlimName;
+use slim_datapath::api::ProtoSessionType;
 use slim_datapath::messages::utils::{PUBLISH_TO, SlimHeaderFlags, TRUE_VAL};
 use slim_session::SessionConfig as SlimSessionConfig;
 use slim_session::SessionError;

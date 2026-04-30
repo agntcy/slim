@@ -4,8 +4,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use slim_datapath::api::{ProtoMessage, ProtoPublishType};
 use slim_datapath::api::ProtoName as SlimName;
+use slim_datapath::api::{ProtoMessage, ProtoPublishType};
 
 use slim_session::SessionError;
 

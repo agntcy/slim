@@ -217,12 +217,7 @@ impl SlimHeader {
         identity: &str,
         flags: Option<SlimHeaderFlags>,
     ) -> Self {
-        Self::new_from_protos(
-            source.clone(),
-            destination.clone(),
-            identity,
-            flags,
-        )
+        Self::new_from_protos(source.clone(), destination.clone(), identity, flags)
     }
 
     pub fn clear_flags(&mut self) {
@@ -1054,9 +1049,7 @@ impl CommandPayloadBuilder {
 
     /// Creates a discovery request payload
     pub fn discovery_request(self, destination: Option<ProtoName>) -> CommandPayload {
-        let payload = DiscoveryRequestPayload {
-            destination,
-        };
+        let payload = DiscoveryRequestPayload { destination };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::DiscoveryRequest(payload)),
         }
@@ -1111,9 +1104,7 @@ impl CommandPayloadBuilder {
 
     /// Creates a leave request payload
     pub fn leave_request(self, destination: Option<ProtoName>) -> CommandPayload {
-        let payload = LeaveRequestPayload {
-            destination,
-        };
+        let payload = LeaveRequestPayload { destination };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::LeaveRequest(payload)),
         }
@@ -1162,11 +1153,12 @@ impl CommandPayloadBuilder {
     }
 
     /// Creates a group welcome payload
-    pub fn group_welcome(self, participants: Vec<ProtoName>, mls: Option<MlsPayload>) -> CommandPayload {
-        let payload = GroupWelcomePayload {
-            participants,
-            mls,
-        };
+    pub fn group_welcome(
+        self,
+        participants: Vec<ProtoName>,
+        mls: Option<MlsPayload>,
+    ) -> CommandPayload {
+        let payload = GroupWelcomePayload { participants, mls };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::GroupWelcome(payload)),
         }
@@ -1174,16 +1166,18 @@ impl CommandPayloadBuilder {
 
     /// Creates a group close payload
     pub fn group_close(self, participants: Vec<ProtoName>) -> CommandPayload {
-        let payload = GroupClosePayload {
-            participants,
-        };
+        let payload = GroupClosePayload { participants };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::GroupClose(payload)),
         }
     }
 
     /// Creates a group proposal payload
-    pub fn group_proposal(self, source: Option<ProtoName>, mls_proposal: Vec<u8>) -> CommandPayload {
+    pub fn group_proposal(
+        self,
+        source: Option<ProtoName>,
+        mls_proposal: Vec<u8>,
+    ) -> CommandPayload {
         let payload = GroupProposalPayload {
             source,
             mls_proposal,

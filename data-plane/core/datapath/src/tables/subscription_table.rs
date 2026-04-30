@@ -850,7 +850,7 @@ mod tests {
     use tracing_test::traced_test;
 
     fn enc(name: &ProtoName) -> EncodedName {
-        name.name.clone().unwrap()
+        name.name.unwrap()
     }
 
     #[test]

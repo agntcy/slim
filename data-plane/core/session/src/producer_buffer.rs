@@ -101,10 +101,10 @@ impl ProducerBuffer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use slim_datapath::api::ProtoName as Name;
     use slim_datapath::api::{
         ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader,
     };
-    use slim_datapath::api::ProtoName as Name;
 
     #[test]
     fn test_producer_buffer() {

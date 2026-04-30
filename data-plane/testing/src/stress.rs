@@ -13,8 +13,8 @@ use std::time::{Duration, Instant};
 
 use slim_datapath::api::ApplicationPayload;
 use slim_datapath::api::ProtoMessage as Message;
-use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::api::ProtoName as Name;
+use slim_datapath::message_processing::MessageProcessor;
 use tracing::info;
 
 /// Configuration for a single in-process benchmark run.
