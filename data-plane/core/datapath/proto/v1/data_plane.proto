@@ -164,11 +164,7 @@ message ParticipantSettings {
 // Payloads for Command messages
 
 // Discovery Request
-// The destination is Optional. If present the message should be forwarded
-// to the destination in the payload.
-message DiscoveryRequestPayload {
-  optional Name destination = 1;
-}
+message DiscoveryRequestPayload {}
 
 // Discovery Reply
 message DiscoveryReplyPayload {}
@@ -198,11 +194,7 @@ message JoinReplyPayload {
 }
 
 // Leave Request
-// The destination is Optional. If present the message should be forwarded
-// to the destination in the payload.
-message LeaveRequestPayload {
-  optional Name destination = 1;
-}
+message LeaveRequestPayload {}
 
 // Leave Reply
 message LeaveReplyPayload {}

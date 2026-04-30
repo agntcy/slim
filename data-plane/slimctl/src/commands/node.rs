@@ -130,42 +130,46 @@ async fn route_list(opts: &ClientConfig) -> Result<()> {
             Ok(Some(Err(e))) => bail!("stream error: {}", e),
             Ok(Some(Ok(msg))) => {
                 if let Some(Payload::SubscriptionListResponse(list_resp)) = msg.payload {
-                    for e in &list_resp.entries {
-                        let local_names: Vec<String> = e
-                            .local_connections
-                            .iter()
-                            .map(|c| {
-                                format!(
-                                    "local:{}:{}:{:?}:{:?}",
-                                    c.id,
-                                    c.config_data,
-                                    c.link_id,
-                                    c.direction()
-                                )
-                            })
-                            .collect();
-                        let remote_names: Vec<String> = e
-                            .remote_connections
-                            .iter()
-                            .map(|c| {
-                                format!(
-                                    "remote:{}:{}:{:?}:{:?}",
-                                    c.id,
-                                    c.config_data,
-                                    c.link_id,
-                                    c.direction()
-                                )
-                            })
-                            .collect();
-                        println!(
-                            "{}/{}/{} id={} local={:?} remote={:?}",
-                            e.component_0,
-                            e.component_1,
-                            e.component_2,
-                            e.id.map_or_else(|| "None".to_string(), |id| id.to_string()),
-                            local_names,
-                            remote_names
-                        );
+                    if list_resp.entries.is_empty() {
+                        println!("No routes configured");
+                    } else {
+                        for e in &list_resp.entries {
+                            let local_names: Vec<String> = e
+                                .local_connections
+                                .iter()
+                                .map(|c| {
+                                    format!(
+                                        "local:{}:{}:{:?}:{:?}",
+                                        c.id,
+                                        c.config_data,
+                                        c.link_id,
+                                        c.direction()
+                                    )
+                                })
+                                .collect();
+                            let remote_names: Vec<String> = e
+                                .remote_connections
+                                .iter()
+                                .map(|c| {
+                                    format!(
+                                        "remote:{}:{}:{:?}:{:?}",
+                                        c.id,
+                                        c.config_data,
+                                        c.link_id,
+                                        c.direction()
+                                    )
+                                })
+                                .collect();
+                            println!(
+                                "{}/{}/{} id={} local={:?} remote={:?}",
+                                e.component_0,
+                                e.component_1,
+                                e.component_2,
+                                e.id.map_or_else(|| "None".to_string(), |id| id.to_string()),
+                                local_names,
+                                remote_names
+                            );
+                        }
                     }
                     break;
                 }
@@ -308,14 +312,18 @@ async fn connection_list(opts: &ClientConfig) -> Result<()> {
             Ok(Some(Err(e))) => bail!("stream error: {}", e),
             Ok(Some(Ok(msg))) => {
                 if let Some(Payload::ConnectionListResponse(list_resp)) = msg.payload {
-                    for e in &list_resp.entries {
-                        println!(
-                            "id={} direction={:?} link_id={:?} {}",
-                            e.id,
-                            e.direction(),
-                            e.link_id,
-                            e.config_data
-                        );
+                    if list_resp.entries.is_empty() {
+                        println!("No connections configured");
+                    } else {
+                        for e in &list_resp.entries {
+                            println!(
+                                "id={} direction={:?} link_id={:?} {}",
+                                e.id,
+                                e.direction(),
+                                e.link_id,
+                                e.config_data
+                            );
+                        }
                     }
                     break;
                 }

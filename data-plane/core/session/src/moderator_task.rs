@@ -5,8 +5,6 @@
 use tokio::sync::oneshot;
 use tracing::debug;
 
-use slim_datapath::api::ProtoMessage as Message;
-
 // Local crate
 use crate::errors::SessionError;
 
@@ -59,15 +57,6 @@ impl ModeratorTask {
         }
     }
 
-    pub(crate) fn set_ack_msg(&mut self, msg: Message) {
-        match self {
-            ModeratorTask::Add(t) => t.ack_msg = Some(msg),
-            ModeratorTask::Remove(t) => t.ack_msg = Some(msg),
-            ModeratorTask::CloseOrDisconnect(t) => t.ack_msg = Some(msg),
-            ModeratorTask::Update(t) => t.ack_msg = Some(msg),
-        }
-    }
-
     pub(crate) fn failure_message(&self, err: SessionError) -> SessionError {
         match self {
             ModeratorTask::Add(_) => SessionError::ModeratorTaskAddFailed {
@@ -82,14 +71,6 @@ impl ModeratorTask {
             ModeratorTask::CloseOrDisconnect(_) => SessionError::ModeratorTaskCloseFailed {
                 source: Box::new(err),
             },
-        }
-    }
-    pub(crate) fn ack_msg(&self) -> Option<&Message> {
-        match self {
-            ModeratorTask::Add(t) => t.ack_msg.as_ref(),
-            ModeratorTask::Remove(t) => t.ack_msg.as_ref(),
-            ModeratorTask::CloseOrDisconnect(t) => t.ack_msg.as_ref(),
-            ModeratorTask::Update(t) => t.ack_msg.as_ref(),
         }
     }
 }
@@ -185,23 +166,17 @@ pub struct AddParticipant {
     join: State,
     welcome: State,
     commit: State,
-    /// Optional ack message to send back to the control plane upon completion
-    ack_msg: Option<Message>,
     /// Optional ack notifier to signal when the invite operation completes (after welcome+commit)
     pub(crate) ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
 }
 
 impl AddParticipant {
-    pub(crate) fn new(
-        ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
-        ack_msg: Option<Message>,
-    ) -> Self {
+    pub(crate) fn new(ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>) -> Self {
         Self {
             discovery: Default::default(),
             join: Default::default(),
             welcome: Default::default(),
             commit: Default::default(),
-            ack_msg,
             ack_tx,
         }
     }
@@ -317,21 +292,15 @@ impl TaskUpdate for AddParticipant {
 pub struct RemoveParticipant {
     commit: State,
     leave: State,
-    /// Optional ack message to send back to the control plane upon completion
-    ack_msg: Option<Message>,
     /// Optional ack notifier to signal when the remove operation completes (after LeaveReply)
     pub(crate) ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
 }
 
 impl RemoveParticipant {
-    pub(crate) fn new(
-        ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
-        ack_msg: Option<Message>,
-    ) -> Self {
+    pub(crate) fn new(ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>) -> Self {
         Self {
             commit: Default::default(),
             leave: Default::default(),
-            ack_msg,
             ack_tx,
         }
     }
@@ -422,20 +391,14 @@ impl TaskUpdate for RemoveParticipant {
 #[derive(Debug, Default)]
 pub struct NotifyParticipants {
     notify: State,
-    /// Optional ack message to send back to the control plane upon completion
-    ack_msg: Option<Message>,
     /// Optional ack notifier to signal when the notify operation completes
     pub(crate) ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
 }
 
 impl NotifyParticipants {
-    pub(crate) fn new(
-        ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
-        ack_msg: Option<Message>,
-    ) -> Self {
+    pub(crate) fn new(ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>) -> Self {
         Self {
             notify: Default::default(),
-            ack_msg,
             ack_tx,
         }
     }
@@ -509,8 +472,6 @@ impl TaskUpdate for NotifyParticipants {
 pub struct UpdateParticipant {
     proposal: State,
     commit: State,
-    /// Optional ack message to send back to the control plane upon completion
-    ack_msg: Option<Message>,
     /// Optional ack notifier to signal when the update operation completes
     pub(crate) ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
 }
@@ -794,7 +755,7 @@ mod tests {
     fn test_add_participant_ack_after_welcome_and_commit() {
         let base = 10u32;
         let (tx, mut rx) = tokio::sync::oneshot::channel::<Result<(), SessionError>>();
-        let mut task = ModeratorTask::Add(AddParticipant::new(Some(tx), None));
+        let mut task = ModeratorTask::Add(AddParticipant::new(Some(tx)));
 
         task.discovery_start(base).unwrap();
         task.discovery_complete(base).unwrap();
