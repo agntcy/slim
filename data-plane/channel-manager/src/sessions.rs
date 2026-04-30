@@ -172,7 +172,7 @@ fn handle_session_error(channel_name: &str, error: &SessionError) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slim_datapath::messages::Name as DatapathName;
+    use slim_datapath::api::ProtoName as DatapathName;
 
     // ── handle_session_error ─────────────────────────────────────────────
 
