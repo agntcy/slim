@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.0-rc.0](https://github.com/agntcy/slim/compare/helm-slim-v1.4.0-rc.0...helm-slim-v1.5.0-rc.0) (2026-04-30)
+
+
+### Features
+
+* publish slim-spire chart ([#1564](https://github.com/agntcy/slim/issues/1564)) ([715082c](https://github.com/agntcy/slim/commit/715082c8535164994cf381b62a3f7e0551e5a531))
+
+
+### Bug Fixes
+
+* **helm-slim:** chart version ([#1538](https://github.com/agntcy/slim/issues/1538)) ([676f954](https://github.com/agntcy/slim/commit/676f954fc28a18208ea7f5b727a9f686f260c3a6))
+
 ## [1.4.0-rc.0](https://github.com/agntcy/slim/compare/helm-slim-v1.3.0...helm-slim-v1.4.0-rc.0) (2026-04-21)
 
 
