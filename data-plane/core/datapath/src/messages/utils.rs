@@ -25,9 +25,9 @@ use crate::api::{
 use slim_version::version;
 use thiserror::Error;
 
-/// DELETE_GROUP indicates that the entire group should be deleted.
-/// When added to a leave request message, it signals to the moderator that the group needs to be closed.
-/// The value is set to `TRUE_VAL` to trigger group deletion.
+/// DELETE_GROUP indicates that the entire group is being closed.
+/// The moderator sets this metadata on the leave message sent to all participants
+/// when a channel deletion is requested.
 pub const DELETE_GROUP: &str = "DELETE_GROUP";
 
 /// PUBLISH_TO indicates that a message should bypass normal sequencing and be delivered directly to the specified endpoint.

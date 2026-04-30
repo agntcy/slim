@@ -881,24 +881,34 @@ impl ControllerService {
                             },
                         );
 
-                        let chunks: Vec<&[SubscriptionEntry]> = if entries.is_empty() {
-                            vec![&[]]
-                        } else {
-                            entries.chunks(CHUNK_SIZE).collect()
-                        };
-                        for chunk in chunks {
+                        if entries.is_empty() {
                             let resp = ControlMessage {
                                 message_id: uuid::Uuid::new_v4().to_string(),
                                 payload: Some(Payload::SubscriptionListResponse(
                                     SubscriptionListResponse {
                                         original_message_id: msg.message_id.clone(),
-                                        entries: chunk.to_vec(),
+                                        entries: vec![],
                                     },
                                 )),
                             };
-
                             if let Err(e) = tx.try_send(Ok(resp)) {
                                 error!(error = %e.chain(), "failed to send subscription batch");
+                            }
+                        } else {
+                            for chunk in entries.chunks(CHUNK_SIZE) {
+                                let resp = ControlMessage {
+                                    message_id: uuid::Uuid::new_v4().to_string(),
+                                    payload: Some(Payload::SubscriptionListResponse(
+                                        SubscriptionListResponse {
+                                            original_message_id: msg.message_id.clone(),
+                                            entries: chunk.to_vec(),
+                                        },
+                                    )),
+                                };
+
+                                if let Err(e) = tx.try_send(Ok(resp)) {
+                                    error!(error = %e.chain(), "failed to send subscription batch");
+                                }
                             }
                         }
                     }
@@ -934,24 +944,34 @@ impl ControllerService {
                             });
 
                         const CHUNK_SIZE: usize = 100;
-                        let chunks: Vec<&[ConnectionEntry]> = if all_entries.is_empty() {
-                            vec![&[]]
-                        } else {
-                            all_entries.chunks(CHUNK_SIZE).collect()
-                        };
-                        for chunk in chunks {
+                        if all_entries.is_empty() {
                             let resp = ControlMessage {
                                 message_id: uuid::Uuid::new_v4().to_string(),
                                 payload: Some(Payload::ConnectionListResponse(
                                     ConnectionListResponse {
                                         original_message_id: msg.message_id.clone(),
-                                        entries: chunk.to_vec(),
+                                        entries: vec![],
                                     },
                                 )),
                             };
-
                             if let Err(e) = tx.try_send(Ok(resp)) {
                                 error!(error = %e.chain(), "failed to send connection list batch");
+                            }
+                        } else {
+                            for chunk in all_entries.chunks(CHUNK_SIZE) {
+                                let resp = ControlMessage {
+                                    message_id: uuid::Uuid::new_v4().to_string(),
+                                    payload: Some(Payload::ConnectionListResponse(
+                                        ConnectionListResponse {
+                                            original_message_id: msg.message_id.clone(),
+                                            entries: chunk.to_vec(),
+                                        },
+                                    )),
+                                };
+
+                                if let Err(e) = tx.try_send(Ok(resp)) {
+                                    error!(error = %e.chain(), "failed to send connection list batch");
+                                }
                             }
                         }
                     }
