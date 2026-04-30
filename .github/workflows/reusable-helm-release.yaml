@@ -20,6 +20,11 @@ on:
         default: "3.12.1"
         type: string
         description: 'Helm version'
+      lint-with-subcharts:
+        required: false
+        default: true
+        type: boolean
+        description: 'Pass --with-subcharts to helm lint'
     secrets:
       github-token:
         description: "github token"
@@ -68,9 +73,14 @@ jobs:
         shell: bash
         env:
           CHART_NAME: ${{ steps.chart-name.outputs.value }}
+          LINT_WITH_SUBCHARTS: ${{ inputs.lint-with-subcharts }}
         run: |
           ## By convention the name of the chart is the name of the folder under charts/
-          helm lint "charts/$CHART_NAME" --with-subcharts
+          args=()
+          if [[ "$LINT_WITH_SUBCHARTS" == "true" ]]; then
+            args+=("--with-subcharts")
+          fi
+          helm lint "charts/$CHART_NAME" "${args[@]}"
 
       - name: Helm package
         id: build

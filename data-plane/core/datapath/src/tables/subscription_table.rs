@@ -356,13 +356,6 @@ impl NameState {
         let val = self.ids.get(&id);
         match val {
             None => {
-                // If there is only 1 connection for the name, we can still
-                // try to use it
-                if self.connections[index].index.len() == 1 {
-                    return self.connections[index].get_one(incoming_conn);
-                }
-
-                // We cannot return any connection for this name
                 debug!(name = %id, "cannot find out connection, name does not exists");
                 None
             }
@@ -700,19 +693,33 @@ impl SubscriptionTable for SubscriptionTableImpl {
         Ok(())
     }
 
-    fn remove_connection(&self, conn: u64, is_local: bool) -> Result<HashSet<Name>, Self::Error> {
+    fn remove_connection(
+        &self,
+        conn: u64,
+        is_local: bool,
+    ) -> Result<HashMap<Name, HashSet<u64>>, Self::Error> {
         let removed_subscriptions = self
             .connections
             .write()
             .remove(&conn)
             .ok_or(DataPathError::ConnectionIdNotFound(conn))?;
         let mut table = self.table.write();
-        for name in &removed_subscriptions {
+        let idx = if is_local { 0 } else { 1 };
+        let mut result: HashMap<Name, HashSet<u64>> =
+            HashMap::with_capacity(removed_subscriptions.len());
+        for name in removed_subscriptions {
             debug!(%name, %conn, "remove subscription");
-            // Use force_remove since the connection is dead
-            force_remove_subscription_from_sub_table(name, conn, is_local, &mut table)?;
+            // Extract subscription IDs before removing so callers can restore exact state.
+            let query_name = unsafe { std::mem::transmute::<&Name, &InternalName>(&name) };
+            if let Some(state) = table.get(query_name)
+                && let Some(refs) = state.ids.get(&name.id())
+                && let Some(sub_ids) = refs[idx].refs.get(&conn)
+            {
+                result.insert(name.clone(), sub_ids.clone());
+            }
+            force_remove_subscription_from_sub_table(&name, conn, is_local, &mut table)?;
         }
-        Ok(removed_subscriptions)
+        Ok(result)
     }
 
     fn match_one(&self, name: &Name, incoming_conn: u64) -> Result<u64, Self::Error> {
@@ -862,7 +869,7 @@ mod tests {
         assert_eq!(out, 3);
         let removed_subs = t.remove_connection(2, false).unwrap();
         assert_eq!(removed_subs.len(), 1);
-        assert!(removed_subs.contains(&name1_1));
+        assert!(removed_subs.contains_key(&name1_1));
 
         // returns one match on connection 1
         let out = t.match_all(&name1, 100).unwrap();
@@ -916,7 +923,10 @@ mod tests {
         let err = t.remove_connection(4, false);
         assert!(matches!(err, Err(DataPathError::ConnectionIdNotFound(_))));
 
-        assert_eq!(t.match_one(&name1_1, 100).unwrap(), 2);
+        // Test that specific ID (name1_1) does NOT match NULL_COMPONENT subscriptions
+        // At this point only name1 (NULL_COMPONENT) subscriptions exist on conn 1 and 2
+        let err = t.match_one(&name1_1, 100);
+        assert!(matches!(err, Err(DataPathError::NoMatch(_))));
 
         assert!(
             // this generates a warning
@@ -1147,7 +1157,9 @@ mod tests {
         // Connection 1 dies - should be force-removed regardless of ref count
         let removed = t.remove_connection(1, false).unwrap();
         assert_eq!(removed.len(), 1, "Should have removed 1 subscription");
-        assert!(removed.contains(&name1));
+        assert!(removed.contains_key(&name1));
+        // All three subscription IDs should have been preserved
+        assert_eq!(removed[&name1], HashSet::from([301u64, 302, 303]));
 
         // Now only connection 2 should be available
         let result = t.match_one(&name1, 100).unwrap();
@@ -1207,5 +1219,93 @@ mod tests {
             matches!(err, Err(DataPathError::NoMatch(_))),
             "No connections should remain"
         );
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_null_component_matching_behavior() {
+        // This test validates the NULL_COMPONENT matching rules:
+        // 1. Messages with NULL_COMPONENT match ANY subscription (NULL_COMPONENT or specific ID)
+        // 2. Messages with specific ID match ONLY subscriptions with that exact ID
+
+        let name = Name::from_strings(["agntcy", "default", "service"]);
+        let name_id1 = name.clone().with_id(1);
+        let name_id2 = name.clone().with_id(2);
+
+        let t = SubscriptionTableImpl::default();
+
+        // Setup: Add subscriptions for NULL_COMPONENT and specific IDs
+        // conn 1: NULL_COMPONENT (for discovery)
+        // conn 2: NULL_COMPONENT (for discovery)
+        // conn 3: specific ID 1
+        // conn 4: specific ID 2
+        assert!(t.add_subscription(name.clone(), 1, false, 1).is_ok());
+        assert!(t.add_subscription(name.clone(), 2, false, 2).is_ok());
+        assert!(t.add_subscription(name_id1.clone(), 3, false, 3).is_ok());
+        assert!(t.add_subscription(name_id2.clone(), 4, false, 4).is_ok());
+
+        // Test 1: Message with NULL_COMPONENT should match ALL subscriptions
+        // (both NULL_COMPONENT and specific IDs)
+        let result = t.match_all(&name, 100).unwrap();
+        assert_eq!(
+            result.len(),
+            4,
+            "NULL_COMPONENT message should match all subscriptions"
+        );
+        assert!(result.contains(&1), "Should match NULL_COMPONENT conn 1");
+        assert!(result.contains(&2), "Should match NULL_COMPONENT conn 2");
+        assert!(result.contains(&3), "Should match specific ID 1 conn 3");
+        assert!(result.contains(&4), "Should match specific ID 2 conn 4");
+
+        // Test 2: Message with specific ID 1 should match ONLY ID 1 subscription
+        // (excluding NULL_COMPONENT subscriptions)
+        let result = t.match_all(&name_id1, 100).unwrap();
+        assert_eq!(
+            result.len(),
+            1,
+            "Specific ID message should match only exact ID subscription"
+        );
+        assert!(result.contains(&3), "Should match only conn 3 (ID 1)");
+
+        // Test 3: Message with specific ID 2 should match ONLY ID 2 subscription
+        let result = t.match_all(&name_id2, 100).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(result.contains(&4), "Should match only conn 4 (ID 2)");
+
+        // Test 4: match_one should also respect these rules
+        let result = t.match_one(&name_id1, 100).unwrap();
+        assert_eq!(result, 3, "Should return only the specific ID connection");
+
+        // Test 5: Remove specific ID subscription, the match for message with that ID should fail
+        assert!(t.remove_subscription(&name_id1, 3, false, 3).is_ok());
+        let err = t.match_one(&name_id1, 100);
+        assert!(
+            matches!(err, Err(DataPathError::NoMatch(_))),
+            "Specific ID message should NOT match NULL_COMPONENT subscriptions"
+        );
+
+        // Test 6: But NULL_COMPONENT message should still match remaining subscriptions
+        let result = t.match_all(&name, 100).unwrap();
+        assert_eq!(result.len(), 3, "Should match remaining subscriptions");
+        assert!(result.contains(&1));
+        assert!(result.contains(&2));
+        assert!(result.contains(&4));
+
+        // Test 7: Remove all NULL_COMPONENT subscriptions
+        assert!(t.remove_subscription(&name, 1, false, 1).is_ok());
+        assert!(t.remove_subscription(&name, 2, false, 2).is_ok());
+
+        // NULL_COMPONENT message should still match the specific ID subscription
+        let result = t.match_all(&name, 100).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(result.contains(&4), "Should match ID 2 subscription");
+
+        // Specific ID 2 message should still work
+        let result = t.match_one(&name_id2, 100).unwrap();
+        assert_eq!(result, 4);
+
+        // But specific ID 1 should still fail (was removed earlier)
+        let err = t.match_one(&name_id1, 100);
+        assert!(matches!(err, Err(DataPathError::NoMatch(_))));
     }
 }
