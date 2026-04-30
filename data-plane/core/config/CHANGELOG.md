@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1](https://github.com/agntcy/slim/compare/slim-config-v0.9.0...slim-config-v0.9.1) - 2026-04-30
+
+### Other
+
+- *(deps)* upgrade to spire 0.12 ([#1557](https://github.com/agntcy/slim/pull/1557))
+
 ## [0.9.0](https://github.com/agntcy/slim/compare/slim-config-v0.8.2...slim-config-v0.9.0) - 2026-04-21
 
 ### Added

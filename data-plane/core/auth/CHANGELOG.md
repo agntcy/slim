@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/agntcy/slim/compare/slim-auth-v0.7.0...slim-auth-v0.8.0) - 2026-04-30
+
+### Other
+
+- *(deps)* upgrade to spire 0.12 ([#1557](https://github.com/agntcy/slim/pull/1557))
+
 ## [0.7.0](https://github.com/agntcy/slim/compare/slim-auth-v0.6.2...slim-auth-v0.7.0) - 2026-04-21
 
 ### Added
