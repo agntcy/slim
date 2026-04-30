@@ -508,7 +508,7 @@ pub fn handle_channel_discovery_message(
     source.set_id(app_name.id());
     let msg_id = message.get_id();
 
-    let slim_header = SlimHeader::new_from_protos(
+    let slim_header = SlimHeader::new(
         source,
         destination,
         "", // the identity will be added by the identity interceptor

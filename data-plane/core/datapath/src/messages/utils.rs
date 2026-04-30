@@ -192,7 +192,7 @@ impl SlimHeaderFlags {
 /// This header is used to identify the source and destination of the message
 /// and to manage the connections used to send and receive the message
 impl SlimHeader {
-    pub fn new_from_protos(
+    pub fn new(
         source: ProtoName,
         destination: ProtoName,
         identity: &str,
@@ -209,15 +209,6 @@ impl SlimHeader {
             incoming_conn: flags.incoming_conn,
             error: flags.error,
         }
-    }
-
-    pub fn new(
-        source: &ProtoName,
-        destination: &ProtoName,
-        identity: &str,
-        flags: Option<SlimHeaderFlags>,
-    ) -> Self {
-        Self::new_from_protos(source.clone(), destination.clone(), identity, flags)
     }
 
     pub fn clear_flags(&mut self) {
@@ -387,7 +378,7 @@ impl ProtoSubscribe {
         flags: Option<SlimHeaderFlags>,
     ) -> Self {
         let id = identity.unwrap_or("");
-        let header = Some(SlimHeader::new_from_protos(source, dst, id, flags));
+        let header = Some(SlimHeader::new(source, dst, id, flags));
 
         ProtoSubscribe {
             header,
@@ -416,7 +407,7 @@ impl ProtoUnsubscribe {
         flags: Option<SlimHeaderFlags>,
     ) -> Self {
         let id = identity.unwrap_or("");
-        let header = Some(SlimHeader::new_from_protos(source, dst, id, flags));
+        let header = Some(SlimHeader::new(source, dst, id, flags));
 
         ProtoUnsubscribe {
             header,
@@ -1517,7 +1508,7 @@ impl ProtoMessageBuilder {
             .destination
             .ok_or(MessageError::BuilderErrorDestinationRequired)?;
 
-        let slim_header = Some(SlimHeader::new_from_protos(
+        let slim_header = Some(SlimHeader::new(
             source,
             destination,
             self.identity.as_deref().unwrap_or(""),
