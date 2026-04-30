@@ -1,0 +1,72 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+#
+# Values for charts/slim-spire (downstream SPIRE on cluster-b). See charts/slim-spire/README.md.
+# Cluster-b must reach spire.cluster-a.example (Kind: /etc/hosts on node or LB + DNS).
+#
+# Kind: leave upstream-spire-agent.trustBundleURL empty so the chart sets insecure_bootstrap
+# (avoids TLS verify against self-signed bundle ingress on cluster-a). Production: set
+# trustBundleURL or a mounted trust bundle and drop insecure bootstrap.
+
+global:
+  spire:
+    clusterName: "cluster-b"
+    trustDomain: "cluster-a.example"
+    strictMode: true
+    upstreamSpireAddress: "spire.cluster-a.example"
+    caSubject:
+      country: US
+      organization: SLIM
+      commonName: cluster-a.example
+  installAndUpgradeHooks:
+    enabled: false
+  deleteHooks:
+    enabled: false
+
+spire-server:
+  enabled: true
+  serviceAccount:
+    create: true
+    name: spire-server-downstream
+  nodeAttestor:
+    k8sPSAT:
+      enabled: true
+    externalK8sPSAT:
+      enabled: false
+  upstreamAuthority:
+    spire:
+      enabled: true
+      upstreamDriver: "upstream.csi.spiffe.io"
+      server:
+        port: 443
+  externalControllerManagers:
+    enabled: false
+  bundlePublisher:
+    externalK8sConfigMap:
+      enabled: false
+
+spire-agent:
+  enabled: true
+
+upstream-spire-agent:
+  nameOverride: agent-upstream-placeholder
+  serviceAccount:
+    name: spire-agent-upstream
+  server:
+    port: 443
+  joinToken:
+    enabled: true
+    existingSecret:
+      name: spire-upstream-bootstrap-token
+      key: token
+  persistence:
+    hostPath: /var/lib/spire/k8s/upstream-agent
+
+spiffe-csi-driver:
+  enabled: true
+  kubeletPath: /var/lib/kubelet
+
+upstream-spiffe-csi-driver:
+  kubeletPath: /var/lib/kubelet
+  validatingAdmissionPolicy:
+    enabled: false
