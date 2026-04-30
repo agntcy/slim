@@ -145,6 +145,7 @@ var _ = Describe("Group management through channel manager", func() {
 				)
 			})
 			Expect(createOutput).NotTo(BeEmpty())
+			Expect(string(createOutput)).To(ContainSubstring("created successfully"))
 			fmt.Fprintf(GinkgoWriter, "Create channel output: %s\n", string(createOutput))
 
 			participantA := "org/default/a"
@@ -160,6 +161,7 @@ var _ = Describe("Group management through channel manager", func() {
 				)
 			})
 			Expect(addClientAOutput).NotTo(BeEmpty())
+			Expect(string(addClientAOutput)).To(ContainSubstring("added to channel"))
 
 			Eventually(clientASession, 15*time.Second).Should(gbytes.Say(MsgSessionHandlerTaskStarted))
 

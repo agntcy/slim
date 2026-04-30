@@ -1195,7 +1195,6 @@ mod tests {
                 Ok(tonic::Response::new(LinkListResponse { links: vec![] }))
             }
 
-            // Stubs required by the proto trait — RPCs will be removed in a follow-up PR.
             async fn create_channel(
                 &self,
                 _: tonic::Request<CreateChannelRequest>,
