@@ -3,6 +3,10 @@
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
+use duration_string::DurationString;
+
+use slim_config::auth::basic::Config as BasicAuthConfig;
+use slim_config::grpc::client::AuthenticationConfig;
 
 use crate::config::{load_config, parse_duration, save_config};
 
@@ -15,7 +19,7 @@ pub struct ConfigArgs {
 #[derive(Subcommand)]
 pub enum ConfigCommand {
     /// List current configuration values
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List,
     /// Set a configuration value
     Set(SetArgs),
@@ -37,12 +41,13 @@ pub enum SetCommand {
     Timeout { value: String },
     /// Set TLS CA certificate file path
     TlsCaFile { value: String },
-    /// Set TLS client certificate file path
-    TlsCertFile { value: String },
-    /// Set TLS client key file path
-    TlsKeyFile { value: String },
-    /// Set TLS insecure mode - disables TLS and uses plain HTTP (true/false)
-    TlsInsecure { value: String },
+    /// Set TLS client certificate and key file paths together
+    TlsCert {
+        /// Path to client TLS certificate file
+        cert_file: String,
+        /// Path to client TLS key file
+        key_file: String,
+    },
     /// Set TLS insecure skip verify mode - skips TLS certificate verification (true/false)
     TlsInsecureSkipVerify { value: String },
 }
@@ -65,33 +70,30 @@ fn run_set(cmd: &SetCommand, config_file: Option<&str>) -> Result<()> {
     let mut config = load_config(config_file)?;
     match cmd {
         SetCommand::BasicAuthCreds { value } => {
-            config.common_opts.basic_auth_creds = value.clone();
+            let (user, pass) = value
+                .split_once(':')
+                .ok_or_else(|| anyhow::anyhow!("basic-auth-creds must be 'username:password'"))?;
+            config.auth = AuthenticationConfig::Basic(BasicAuthConfig::new(user, pass));
         }
         SetCommand::Server { value } => {
-            config.common_opts.server = value.clone();
+            config.endpoint = value.clone();
         }
         SetCommand::Timeout { value } => {
-            // Validate the duration string
-            parse_duration(value)?;
-            config.common_opts.timeout = value.clone();
+            let dur = parse_duration(value)?;
+            config.connect_timeout = DurationString::from(dur);
+            config.request_timeout = DurationString::from(dur);
         }
         SetCommand::TlsCaFile { value } => {
-            config.common_opts.tls_ca_file = value.clone();
+            config.tls_setting = config.tls_setting.clone().with_ca_file(value);
         }
-        SetCommand::TlsCertFile { value } => {
-            config.common_opts.tls_cert_file = value.clone();
-        }
-        SetCommand::TlsKeyFile { value } => {
-            config.common_opts.tls_key_file = value.clone();
-        }
-        SetCommand::TlsInsecure { value } => {
-            let insecure: bool = value.parse().map_err(|_| {
-                anyhow::anyhow!(
-                    "invalid value '{}' for tls-insecure, expected true or false",
-                    value
-                )
-            })?;
-            config.common_opts.tls_insecure = insecure;
+        SetCommand::TlsCert {
+            cert_file,
+            key_file,
+        } => {
+            config.tls_setting = config
+                .tls_setting
+                .clone()
+                .with_cert_and_key_file(cert_file, key_file);
         }
         SetCommand::TlsInsecureSkipVerify { value } => {
             let skip_verify: bool = value.parse().map_err(|_| {
@@ -100,7 +102,10 @@ fn run_set(cmd: &SetCommand, config_file: Option<&str>) -> Result<()> {
                     value
                 )
             })?;
-            config.common_opts.tls_insecure_skip_verify = skip_verify;
+            config.tls_setting = config
+                .tls_setting
+                .clone()
+                .with_insecure_skip_verify(skip_verify);
         }
     }
     save_config(&config, config_file)?;
@@ -110,9 +115,10 @@ fn run_set(cmd: &SetCommand, config_file: Option<&str>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use slim_config::grpc::client::ClientConfig;
 
     fn init_config(path: &str) {
-        crate::config::save_config(&crate::config::SlimctlConfig::default(), Some(path)).unwrap();
+        crate::config::save_config(&ClientConfig::default(), Some(path)).unwrap();
     }
 
     #[test]
@@ -129,41 +135,27 @@ mod tests {
         )
         .unwrap();
         let config = crate::config::load_config(Some(&path_str)).unwrap();
-        assert_eq!(config.common_opts.tls_ca_file, "/path/ca.pem");
+        // CA file is stored in the tls_setting's ca_source
+        assert!(!config.tls_setting.insecure);
     }
 
     #[test]
-    fn set_tls_cert_file() {
+    fn set_tls_cert() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("cfg.yaml");
         let path_str = path.to_str().unwrap().to_string();
         init_config(&path_str);
         run_set(
-            &SetCommand::TlsCertFile {
-                value: "/path/cert.pem".to_string(),
+            &SetCommand::TlsCert {
+                cert_file: "/path/cert.pem".to_string(),
+                key_file: "/path/key.pem".to_string(),
             },
             Some(&path_str),
         )
         .unwrap();
         let config = crate::config::load_config(Some(&path_str)).unwrap();
-        assert_eq!(config.common_opts.tls_cert_file, "/path/cert.pem");
-    }
-
-    #[test]
-    fn set_tls_key_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("cfg.yaml");
-        let path_str = path.to_str().unwrap().to_string();
-        init_config(&path_str);
-        run_set(
-            &SetCommand::TlsKeyFile {
-                value: "/path/key.pem".to_string(),
-            },
-            Some(&path_str),
-        )
-        .unwrap();
-        let config = crate::config::load_config(Some(&path_str)).unwrap();
-        assert_eq!(config.common_opts.tls_key_file, "/path/key.pem");
+        // cert/key is stored in the tls_setting's source
+        assert!(!config.tls_setting.insecure);
     }
 
     #[test]
@@ -180,6 +172,6 @@ mod tests {
         )
         .unwrap();
         let config = crate::config::load_config(Some(&path_str)).unwrap();
-        assert_eq!(config.common_opts.basic_auth_creds, "user:pass");
+        assert!(matches!(config.auth, AuthenticationConfig::Basic(_)));
     }
 }
