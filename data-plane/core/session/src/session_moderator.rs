@@ -220,7 +220,7 @@ where
                 self.common.processing_state = ProcessingState::Draining;
                 // We need to close the session for all the participants
                 // Create the leave message
-                let p = CommandPayload::builder().leave_request(None).as_content();
+                let p = CommandPayload::builder().leave_request().as_content();
                 let destination = self.common.settings.control.clone();
                 let mut leave_msg = self.common.create_control_message(
                     &destination,
@@ -232,7 +232,7 @@ where
                 leave_msg.insert_metadata(DELETE_GROUP.to_string(), TRUE_VAL.to_string());
 
                 // send it to all the participants
-                self.delete_all(leave_msg, None, false).await
+                self.delete_all(None).await
             }
             SessionMessage::ParticipantDisconnected {
                 name: opt_participant,
@@ -250,7 +250,7 @@ where
                     &participant.clone(),
                     ProtoSessionMessageType::LeaveRequest,
                     rand::random::<u32>(),
-                    CommandPayload::builder().leave_request(None).as_content(),
+                    CommandPayload::builder().leave_request().as_content(),
                     false,
                 )?;
                 msg.insert_metadata(DISCONNECTION_DETECTED.to_string(), TRUE_VAL.to_string());
@@ -504,33 +504,8 @@ where
                 self.on_discovery_request(message, ack_tx).await
             }
             ProtoSessionMessageType::DiscoveryReply => self.on_discovery_reply(message).await,
-            ProtoSessionMessageType::JoinRequest => {
-                // this message should arrive only from the control plane
-                // the effect of it is to create the session itself with
-                // the right settings. We need to set a route to the controller and send back the ack
-                self.common
-                    .add_route(message.get_source(), message.get_incoming_conn())
-                    .await
-                    .map_err(|e| self.handle_task_error(e))?;
-
-                let ack = self.common.create_control_message(
-                    &message.get_source(),
-                    ProtoSessionMessageType::GroupAck,
-                    message.get_id(),
-                    CommandPayload::builder().group_ack().as_content(),
-                    false,
-                )?;
-                self.common.send_to_slim(ack).await?;
-                Ok(())
-            }
             ProtoSessionMessageType::JoinReply => self.on_join_reply(message).await,
             ProtoSessionMessageType::LeaveRequest => {
-                // if the metadata contains the key "DELETE_GROUP" remove all the participants
-                // and close the session when all task are completed
-                if message.contains_metadata(DELETE_GROUP) {
-                    return self.delete_all(message, ack_tx, true).await;
-                }
-
                 // the LeaveRequest message is also used to signal the disconnection of
                 // a remote participant. if the metadata contains the key "DISCONNECTION_DETECTED"
                 // or "LEAVING_SESSION" call the function on_disconnection_detected
@@ -540,22 +515,6 @@ where
                     return self.on_disconnection_detected(message, ack_tx).await;
                 }
 
-                // if the message contains a payload and the name is the same as the
-                // local one, call the delete all anyway
-                if let Some(n) = message
-                    .get_payload()
-                    .ok_or_else(|| SessionError::MissingPayload {
-                        context: "control_message",
-                    })?
-                    .as_command_payload()?
-                    .as_leave_request_payload()?
-                    .destination
-                    .as_ref()
-                    && Name::from(n) == self.common.settings.source
-                {
-                    return self.delete_all(message, ack_tx, true).await;
-                }
-
                 // otherwise start the leave process
                 self.on_leave_request(message, ack_tx).await
             }
@@ -563,7 +522,8 @@ where
             ProtoSessionMessageType::GroupAck => self.on_group_ack(message).await,
             ProtoSessionMessageType::Ping => self.common.sender.on_message(&message).await,
             ProtoSessionMessageType::GroupProposal => todo!(),
-            ProtoSessionMessageType::GroupAdd
+            ProtoSessionMessageType::JoinRequest
+            | ProtoSessionMessageType::GroupAdd
             | ProtoSessionMessageType::GroupRemove
             | ProtoSessionMessageType::GroupWelcome
             | ProtoSessionMessageType::GroupClose
@@ -596,59 +556,10 @@ where
 
         // now the moderator is busy - create the task first
         debug!("Create AddParticipant task with ack_tx");
-        self.current_task = Some(ModeratorTask::Add(AddParticipant::new(ack_tx, None)));
-
-        // check if there is a destination name in the payload. If yes recreate the message
-        // with the right destination and send it out
-        let payload = msg.extract_discovery_request().map_err(|e| {
-            let err = SessionError::extract_error("discovery_request", e);
-            self.handle_task_error(err)
-        })?;
-
-        let (mut discovery, ack) = match &payload.destination {
-            Some(dst_name) => {
-                // create the ack message to send back to the controller
-                let ack = self.common.create_control_message(
-                    &msg.get_source(),
-                    ProtoSessionMessageType::GroupAck,
-                    msg.get_id(),
-                    CommandPayload::builder().group_ack().as_content(),
-                    false,
-                )?;
-
-                // set the route to forward the messages correctly
-                // here we assume that the destination is reachable from the
-                // same connection from where we got the message from the controller
-                let dst = Name::from(dst_name);
-                self.common
-                    .add_route(dst.clone(), msg.get_incoming_conn())
-                    .await
-                    .map_err(|e| self.handle_task_error(e))?;
-
-                // create a new empty payload and change the message destination
-                let p = CommandPayload::builder()
-                    .discovery_request(None)
-                    .as_content();
-                msg.get_slim_header_mut()
-                    .set_source(&self.common.settings.source);
-                msg.get_slim_header_mut().set_destination(&dst);
-                msg.set_payload(p);
-
-                (msg, Some(ack))
-            }
-            None => {
-                // simply forward the message
-                (msg, None)
-            }
-        };
-
-        // set the ack message in the task if required
-        if let Some(ack_msg) = ack {
-            self.current_task.as_mut().unwrap().set_ack_msg(ack_msg);
-        }
+        self.current_task = Some(ModeratorTask::Add(AddParticipant::new(ack_tx)));
 
         // check if the participant is already part of the group
-        let new_participant_name = discovery.get_dst();
+        let new_participant_name = msg.get_dst();
         if self.group_list.contains_key(&new_participant_name) {
             let err = SessionError::ParticipantAlreadyInGroup(new_participant_name);
             return Err(self.handle_task_error(err));
@@ -656,7 +567,7 @@ where
 
         // start the current task
         let id = rand::random::<u32>();
-        discovery.get_session_header_mut().set_message_id(id);
+        msg.get_session_header_mut().set_message_id(id);
         self.current_task
             .as_mut()
             .unwrap()
@@ -664,12 +575,12 @@ where
             .map_err(|e| self.handle_task_error(e))?;
 
         debug!(
-            dst = %discovery.get_dst(),
-            id = discovery.get_id(),
+            dst = %msg.get_dst(),
+            id = msg.get_id(),
             "send discovery request",
         );
         self.common
-            .send_with_timer(discovery)
+            .send_with_timer(msg)
             .await
             .map_err(|e| self.handle_task_error(e))
     }
@@ -889,47 +800,9 @@ where
         }
 
         debug!("Create RemoveParticipant task");
-        self.current_task = Some(ModeratorTask::Remove(RemoveParticipant::new(ack_tx, None)));
-        // adjust the message according to the sender:
-        // - if coming from the controller (destination in the payload) we need to modify source and destination
-        // - if coming from the app (empty payload) we need to add the participant id to the destination
-        let payload_destination = msg
-            .extract_leave_request()
-            .map_err(|e| {
-                let err = SessionError::extract_error("leave_request", e);
-                self.handle_task_error(err)
-            })?
-            .destination
-            .clone();
+        self.current_task = Some(ModeratorTask::Remove(RemoveParticipant::new(ack_tx)));
 
-        // Update message based on whether destination was provided in payload
-        let (dst_without_id, ack) = match payload_destination {
-            Some(dst_name) => {
-                // create also the ack to send back to the controller
-                let ack = self.common.create_control_message(
-                    &msg.get_source(),
-                    ProtoSessionMessageType::GroupAck,
-                    msg.get_id(),
-                    CommandPayload::builder().group_ack().as_content(),
-                    false,
-                )?;
-
-                // Destination provided: update source, destination, and payload
-                let new_payload = CommandPayload::builder().leave_request(None).as_content();
-                msg.get_slim_header_mut()
-                    .set_source(&self.common.settings.source);
-                msg.set_payload(new_payload);
-
-                (Name::from(&dst_name), Some(ack))
-            }
-            None => (msg.get_dst(), None),
-        };
-
-        // set the ack message in the task if required
-        if let Some(ack_msg) = ack {
-            self.current_task.as_mut().unwrap().set_ack_msg(ack_msg);
-        }
-
+        let dst_without_id = msg.get_dst();
         // Look up participant ID in group list
         let id = match self.group_list.get(&dst_without_id) {
             Some(p) => p.get_name()?.id(),
@@ -1049,7 +922,7 @@ where
             header.set_source(&self.common.settings.source);
         }
 
-        // if the session if P2P or no one is left on the session close it
+        // if the session is P2P or no one is left on the session close it
         // if self.group_list.len() == 2 only the moderator and the participant
         // to remove are still in the list
         if self.common.settings.config.session_type == ProtoSessionType::PointToPoint
@@ -1080,7 +953,7 @@ where
         // Reuse the disconnection task here, however we don't need to send the leave message
         // so we can mark it as done immediately
         self.current_task = Some(ModeratorTask::CloseOrDisconnect(NotifyParticipants::new(
-            ack_tx, None,
+            ack_tx,
         )));
 
         // Remove the participant from the group list and compute MLS payload
@@ -1102,11 +975,7 @@ where
 
     async fn delete_all(
         &mut self,
-        msg: Message,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
-        // set to true if the delete all is requested from the control plane
-        // so that we can send back an ack message
-        from_control_plane: bool,
     ) -> Result<(), SessionError> {
         debug!("receive a close channel message, send signals to all participants");
         self.prepare_shutdown().await?;
@@ -1136,21 +1005,9 @@ where
             true,
         )?;
 
-        let ack = if from_control_plane {
-            Some(self.common.create_control_message(
-                &msg.get_source(),
-                ProtoSessionMessageType::GroupAck,
-                msg.get_id(),
-                CommandPayload::builder().group_ack().as_content(),
-                false,
-            )?)
-        } else {
-            None
-        };
-
         // create the close task
         self.current_task = Some(ModeratorTask::CloseOrDisconnect(NotifyParticipants::new(
-            ack_tx, ack,
+            ack_tx,
         )));
         self.current_task.as_mut().unwrap().commit_start(close_id)?;
 
@@ -1240,16 +1097,6 @@ where
             // and continue with the process
             debug!("Current task is NOT completed");
             return Ok(());
-        }
-
-        // check if we need to send an ack message to the controller
-        if let Some(ack_msg) = self.current_task.as_ref().unwrap().ack_msg() {
-            // Use ack_msg to notify the controller that the task is done
-            debug!("Send ack message for task {:?}", self.current_task);
-            self.common.send_to_slim(ack_msg.clone()).await?;
-        } else {
-            // NO need to send any notification here
-            debug!("No ack message for task {:?}", self.current_task);
         }
 
         // here the moderator is not busy anymore
@@ -1486,11 +1333,7 @@ mod tests {
             .session_message_type(ProtoSessionMessageType::DiscoveryRequest)
             .session_id(1)
             .message_id(100)
-            .payload(
-                CommandPayload::builder()
-                    .discovery_request(None)
-                    .as_content(),
-            )
+            .payload(CommandPayload::builder().discovery_request().as_content())
             .build_publish()
             .unwrap();
 
@@ -1520,7 +1363,7 @@ mod tests {
         moderator.init().await.unwrap();
 
         // Set a current task to make moderator busy
-        moderator.current_task = Some(ModeratorTask::Add(AddParticipant::new(None, None)));
+        moderator.current_task = Some(ModeratorTask::Add(AddParticipant::new(None)));
 
         let source = make_name(&["requester", "app", "v1"]).with_id(300);
         let destination = moderator.common.settings.source.clone();
@@ -1535,11 +1378,7 @@ mod tests {
             .session_message_type(ProtoSessionMessageType::DiscoveryRequest)
             .session_id(1)
             .message_id(100)
-            .payload(
-                CommandPayload::builder()
-                    .discovery_request(None)
-                    .as_content(),
-            )
+            .payload(CommandPayload::builder().discovery_request().as_content())
             .build_publish()
             .unwrap();
 
@@ -1552,7 +1391,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_moderator_join_request_passthrough() {
-        let (mut moderator, mut rx_slim, _rx_session_layer) = setup_moderator();
+        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
         moderator.init().await.unwrap();
 
         let source = make_name(&["requester", "app", "v1"]).with_id(300);
@@ -1580,23 +1419,10 @@ mod tests {
             )
             .build_publish()
             .unwrap();
-        let sub_mgr = moderator.common.settings.subscription_manager.clone();
-        // The JoinRequest handler calls add_route (ACK-awaiting) then sends GroupAck.
-        // run_with_acks drives the future while auto-resolving the route subscribe ACK.
-        let result = run_with_acks(
-            moderator.process_control_message(join_msg, None),
-            &mut rx_slim,
-            &sub_mgr,
-        )
-        .await;
-        assert!(result.is_ok());
-        // The route subscribe was consumed by run_with_acks; GroupAck is the next message.
-        let ack_msg = rx_slim.recv().await.unwrap().unwrap();
-        assert_eq!(
-            ack_msg.get_session_message_type(),
-            ProtoSessionMessageType::GroupAck,
-            "Should have sent a GroupAck"
-        );
+        // JoinRequest is no longer handled by the moderator (moved to channel-manager).
+        // It should return an error.
+        let result = moderator.process_control_message(join_msg, None).await;
+        assert!(result.is_err());
     }
 
     #[tokio::test]
@@ -1740,20 +1566,7 @@ mod tests {
             ),
         );
 
-        let delete_msg = Message::builder()
-            .source(moderator.common.settings.source.clone())
-            .destination(moderator.common.settings.destination.clone())
-            .identity("")
-            .forward_to(0)
-            .session_type(ProtoSessionType::Multicast)
-            .session_message_type(ProtoSessionMessageType::LeaveRequest)
-            .session_id(1)
-            .message_id(100)
-            .payload(CommandPayload::builder().leave_request(None).as_content())
-            .build_publish()
-            .unwrap();
-
-        let result = moderator.delete_all(delete_msg, None, false).await;
+        let result = moderator.delete_all(None).await;
         assert!(result.is_ok() || result.is_err()); // May error due to missing routes
 
         assert!(moderator.mls_state.is_none());
@@ -1977,7 +1790,7 @@ mod tests {
             .message_id(100)
             .payload(
                 CommandPayload::builder()
-                    .leave_request(None) // Empty payload when coming from participant
+                    .leave_request() // Empty payload when coming from participant
                     .as_content(),
             )
             .build_publish()
@@ -2126,7 +1939,7 @@ mod tests {
             .message_id(101)
             .payload(
                 CommandPayload::builder()
-                    .leave_request(None) // No destination in payload when coming from participant
+                    .leave_request() // No destination in payload when coming from participant
                     .as_content(),
             )
             .build_publish()
@@ -2149,7 +1962,7 @@ mod tests {
             .message_id(102)
             .payload(
                 CommandPayload::builder()
-                    .leave_request(None) // No destination in payload when coming from participant
+                    .leave_request() // No destination in payload when coming from participant
                     .as_content(),
             )
             .build_publish()

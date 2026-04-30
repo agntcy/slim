@@ -25,13 +25,9 @@ use crate::api::{
 use slim_version::version;
 use thiserror::Error;
 
-/// IS_MODERATOR is used in the Join request metadata to indicate whether a participant is the moderator/initiator of a session.
-/// The value is set to `TRUE_VAL` when the participant is a moderator.
-pub const IS_MODERATOR: &str = "IS_MODERATOR";
-
-/// DELETE_GROUP indicates that the entire group should be deleted.
-/// When added to a leave request message, it signals to the moderator that the group needs to be closed.
-/// The value is set to `TRUE_VAL` to trigger group deletion.
+/// DELETE_GROUP indicates that the entire group is being closed.
+/// The moderator sets this metadata on the leave message sent to all participants
+/// when a channel deletion is requested.
 pub const DELETE_GROUP: &str = "DELETE_GROUP";
 
 /// PUBLISH_TO indicates that a message should bypass normal sequencing and be delivered directly to the specified endpoint.
@@ -1122,11 +1118,8 @@ impl CommandPayloadBuilder {
     }
 
     /// Creates a discovery request payload
-    pub fn discovery_request(self, destination: Option<Name>) -> CommandPayload {
-        let proto_destination = destination.as_ref().map(ProtoName::from);
-        let payload = DiscoveryRequestPayload {
-            destination: proto_destination,
-        };
+    pub fn discovery_request(self) -> CommandPayload {
+        let payload = DiscoveryRequestPayload {};
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::DiscoveryRequest(payload)),
         }
@@ -1187,11 +1180,8 @@ impl CommandPayloadBuilder {
     }
 
     /// Creates a leave request payload
-    pub fn leave_request(self, destination: Option<Name>) -> CommandPayload {
-        let proto_destination = destination.as_ref().map(ProtoName::from);
-        let payload = LeaveRequestPayload {
-            destination: proto_destination,
-        };
+    pub fn leave_request(self) -> CommandPayload {
+        let payload = LeaveRequestPayload {};
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::LeaveRequest(payload)),
         }
@@ -2219,9 +2209,8 @@ mod tests {
         let dest = Name::from_strings(["org", "ns", "app"]);
 
         // Test discovery request
-        let payload = CommandPayload::builder().discovery_request(Some(dest.clone()));
-        let extracted = payload.as_discovery_request_payload().unwrap();
-        assert!(extracted.destination.is_some());
+        let payload = CommandPayload::builder().discovery_request();
+        assert!(payload.as_discovery_request_payload().is_ok());
 
         // Test discovery reply
         let payload = CommandPayload::builder().discovery_reply();
@@ -2247,7 +2236,7 @@ mod tests {
         assert_eq!(extracted.participant, Some(participant));
 
         // Test leave request
-        let payload = CommandPayload::builder().leave_request(Some(dest.clone()));
+        let payload = CommandPayload::builder().leave_request();
         assert!(payload.as_leave_request_payload().is_ok());
 
         // Test leave reply
@@ -2297,7 +2286,7 @@ mod tests {
         let source = Name::from_strings(["org", "ns", "type"]).with_id(1);
         let dest = Name::from_strings(["org", "ns", "app"]).with_id(2);
 
-        let cmd_payload = CommandPayload::builder().discovery_request(Some(dest.clone()));
+        let cmd_payload = CommandPayload::builder().discovery_request();
 
         let msg = ProtoMessage::builder()
             .source(source.clone())
@@ -2314,10 +2303,6 @@ mod tests {
             msg.get_session_message_type(),
             SessionMessageType::DiscoveryRequest
         );
-
-        // Verify we can extract the payload
-        let extracted = msg.extract_discovery_request().unwrap();
-        assert!(extracted.destination.is_some());
     }
 
     #[test]

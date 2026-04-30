@@ -203,8 +203,7 @@ mod tests {
     #[test]
     fn test_from_join_request_invalid_payload() {
         // Create a payload that is not a join request
-        let dest = Name::from_strings(["dest", "", ""]);
-        let payload = CommandPayload::builder().leave_request(Some(dest));
+        let payload = CommandPayload::builder().leave_request();
 
         let result = SessionConfig::from_join_request(
             ProtoSessionType::Multicast,

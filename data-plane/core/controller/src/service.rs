@@ -5,13 +5,9 @@ use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use std::time::Duration;
-use std::vec;
-
 use display_error_chain::ErrorChainExt;
 use slim_config::component::id::ID;
 use slim_config::grpc::server::ServerConfig;
-use slim_session::SessionMessage;
 use slim_session::subscription_manager::SubscriptionManager;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -27,7 +23,7 @@ use crate::api::proto::api::v1::{
     SubscriptionListResponse,
 };
 use crate::api::proto::api::v1::{
-    Ack, ConnectionEntry, ControlMessage, SubscriptionEntry,
+    ConnectionEntry, ControlMessage, SubscriptionEntry,
     controller_service_client::ControllerServiceClient,
     controller_service_server::ControllerService as GrpcControllerService,
 };
@@ -37,25 +33,17 @@ use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::traits::TokenProvider;
 use slim_config::grpc::client::ClientConfig;
 use slim_datapath::api::{
-    CommandPayload, Content, MessageType::Link as LinkType, MessageType::Publish,
     MessageType::Subscribe, MessageType::SubscriptionAck as SubscriptionAckType,
     MessageType::Unsubscribe, ProtoMessage as DataPlaneMessage,
 };
-use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::Name;
-use slim_datapath::messages::encoder::calculate_hash;
-use slim_datapath::messages::utils::{DELETE_GROUP, IS_MODERATOR, SlimHeaderFlags, TRUE_VAL};
+use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_datapath::tables::SubscriptionTable;
-
-use slim_session::timer::{Timer, TimerType};
-use slim_session::timer_factory::{TimerFactory, TimerSettings};
 
 type TxChannel = mpsc::Sender<Result<ControlMessage, Status>>;
 type TxChannels = HashMap<String, TxChannel>;
 
-// Controller component
-const CONTROLLER_COMPONENT: &str = "controller";
 /// Maximum number of queued subscription notifications
 const MAX_QUEUED_NOTIFICATIONS: usize = 1000; // Prevent unbounded growth
 
@@ -89,9 +77,6 @@ struct ControllerServiceInternal {
     /// ID of this SLIM instance
     id: ID,
 
-    /// controller name
-    controller_name: slim_datapath::messages::Name,
-
     /// optional group name
     group_name: Option<String>,
 
@@ -124,15 +109,6 @@ struct ControllerServiceInternal {
 
     /// Manages pending subscription ack tracking (id generation, registration, resolution).
     subscription_manager: SubscriptionManager,
-
-    /// map of generated u32 keys to original string message IDs and their associated timers
-    message_id_map: Arc<parking_lot::RwLock<HashMap<u32, (String, Option<Timer>)>>>,
-
-    /// timer factory for controller messages
-    /// used to create timers for messages that require timeouts
-    /// the lock is needed to set the timer factory after initialization
-    /// because it requires a channel to send session messages
-    timer_factory: parking_lot::RwLock<Option<TimerFactory>>,
 
     /// connection details used by control plane to store connection settings
     connection_details: Vec<ConnectionDetails>,
@@ -225,13 +201,6 @@ impl ControlPlane {
             .unwrap();
 
         let (signal, watch) = drain::channel();
-        let controller_name = Name::from_strings([
-            CONTROLLER_COMPONENT,
-            CONTROLLER_COMPONENT,
-            CONTROLLER_COMPONENT,
-        ])
-        .with_id(rand::random::<u64>());
-        debug!("create controller with name: {}", controller_name);
 
         ControlPlane {
             servers: config.servers,
@@ -239,7 +208,6 @@ impl ControlPlane {
             controller: ControllerService {
                 inner: Arc::new(ControllerServiceInternal {
                     id: config.id,
-                    controller_name,
                     group_name: config.group_name,
                     message_processor: config.message_processor,
                     connections: Arc::new(parking_lot::RwLock::new(HashMap::new())),
@@ -251,8 +219,6 @@ impl ControlPlane {
                     auth_provider: config.auth_provider,
                     _auth_verifier: config.auth_verifier,
                     pending_notifications: Arc::new(parking_lot::Mutex::new(Vec::new())),
-                    message_id_map: Arc::new(parking_lot::RwLock::new(HashMap::new())),
-                    timer_factory: parking_lot::RwLock::new(None),
                     connection_details: config.connection_details,
                     route_subscription_ids: parking_lot::Mutex::new(HashMap::new()),
                 }),
@@ -349,29 +315,9 @@ impl ControlPlane {
         let clients = self.clients.clone();
         let controller = self.controller.clone();
 
-        // Send subscription to data-plane to receive messages for the controller source name
-        let controller_name = self.controller.inner.controller_name.clone();
-        let subscribe_msg = DataPlaneMessage::builder()
-            .source(controller_name.clone())
-            .destination(controller_name.clone())
-            .identity(controller_name.to_string())
-            .build_subscribe()
-            .unwrap();
-
-        controller
-            .inner
-            .tx_slim
-            .send(Ok(subscribe_msg))
-            .await
-            .map_err(|e| {
-                error!(error = %e.chain(), "failed to send subscribe message to data plane");
-                ControllerError::DatapathSendError(e.to_string())
-            })?;
-
         // Get a drain watch clone
         let watch = self.controller.drain_watch()?;
 
-        debug!("Starting data plane listener: {}", controller_name);
         tokio::spawn(async move {
             let mut drain_fut = std::pin::pin!(watch.signaled());
             loop {
@@ -381,7 +327,7 @@ impl ControlPlane {
                             Some(res) => {
                                 match res {
                                     Ok(msg) => {
-                                        debug!("Send sub/unsub/ack to control plane for message: {:?}", msg);
+                                        debug!("Send sub/unsub to control plane for message: {:?}", msg);
                                         match msg.get_type() {
                                             Subscribe(_) => {
                                                 controller.handle_subscribe_message(msg.get_dst(), &clients).await;
@@ -389,18 +335,12 @@ impl ControlPlane {
                                             Unsubscribe(_) => {
                                                 controller.handle_unsubscribe_message(msg.get_dst(), &clients).await;
                                             }
-                                            Publish(_) => {
-                                                if msg.get_session_message_type() == ProtoSessionMessageType::GroupAck {
-                                                    controller.send_ack_message(msg.get_id(), true, &clients).await;
-                                                } else {
-                                                    debug!("Ignoring publish message with session type: {:?}", msg.get_session_message_type());
-                                                }
-                                            }
-                                            LinkType(_) => {
-                                                debug!("received link message from dataplane - this should not happen");
-                                            }
                                             SubscriptionAckType(_) => {
                                                 controller.inner.subscription_manager.resolve_ack(msg.get_subscription_ack());
+                                            }
+                                            _ => {
+                                                // for publish and link type messages
+                                                debug!("received unsupported message type from dataplane - ignoring");
                                             }
                                         }
                                     }
@@ -516,182 +456,6 @@ impl ControlPlane {
 
         Ok(())
     }
-}
-
-fn generate_session_id(moderator: &Name, channel: &Name) -> u32 {
-    // get all the components of the two names
-    // and hash them together to get the session id
-    let mut all: [u64; 8] = [0; 8];
-    let m = moderator.components();
-    let c = channel.components();
-    all[..4].copy_from_slice(m);
-    all[4..].copy_from_slice(c);
-
-    let hash = calculate_hash(&all);
-    (hash ^ (hash >> 32)) as u32
-}
-
-fn get_name_from_string(string_name: &str) -> Result<Name, ControllerError> {
-    let parts: Vec<&str> = string_name.split('/').collect();
-    if parts.len() < 3 {
-        return Err(ControllerError::MalformedName(string_name.to_owned()));
-    }
-
-    if parts.len() == 4 {
-        let id = parts[3]
-            .parse::<u64>()
-            .map_err(|_e| ControllerError::MalformedName(string_name.to_owned()))?;
-        return Ok(Name::from_strings([parts[0], parts[1], parts[2]]).with_id(id));
-    }
-
-    Ok(Name::from_strings([parts[0], parts[1], parts[2]]))
-}
-
-#[allow(clippy::too_many_arguments)]
-fn create_channel_message(
-    source: &Name,
-    destination: &Name,
-    request_type: ProtoSessionMessageType,
-    session_id: u32,
-    message_id: u32,
-    payload: Option<Content>,
-    auth_provider: &Option<AuthProvider>,
-) -> Result<DataPlaneMessage, ControllerError> {
-    // if the auth_provider is set try to get an identity
-    let identity_token = match auth_provider {
-        Some(auth) => auth.get_token()?,
-        None => String::new(),
-    };
-
-    let message = DataPlaneMessage::builder()
-        .source(source.clone())
-        .destination(destination.clone())
-        .identity(&identity_token)
-        .session_type(ProtoSessionType::Multicast)
-        .session_message_type(request_type)
-        .session_id(session_id)
-        .message_id(message_id)
-        .payload(payload.ok_or(ControllerError::PayloadMissing)?)
-        .build_publish()?;
-
-    Ok(message)
-}
-
-fn new_channel_message(
-    controller: &Name,
-    moderator: &Name,
-    channel: &Name,
-    message_id: u32,
-    auth_provider: &Option<AuthProvider>,
-) -> Result<DataPlaneMessage, ControllerError> {
-    let session_id = generate_session_id(moderator, channel);
-
-    let invite_payload = Some(
-        CommandPayload::builder()
-            .join_request(
-                true,
-                Some(10),
-                Some(Duration::from_secs(1)),
-                Some(channel.clone()),
-            )
-            .as_content(),
-    );
-
-    let mut msg = create_channel_message(
-        controller,
-        moderator,
-        ProtoSessionMessageType::JoinRequest,
-        session_id,
-        message_id,
-        invite_payload,
-        auth_provider,
-    )?;
-
-    msg.insert_metadata(IS_MODERATOR.to_string(), TRUE_VAL.to_string());
-    Ok(msg)
-}
-
-fn delete_channel_message(
-    controller: &Name,
-    moderator: &Name,
-    channel_name: &Name,
-    msg_id: u32,
-    auth_provider: &Option<AuthProvider>,
-) -> Result<DataPlaneMessage, ControllerError> {
-    let session_id = generate_session_id(moderator, channel_name);
-
-    let payload = Some(CommandPayload::builder().leave_request(None).as_content());
-
-    let mut msg = create_channel_message(
-        controller,
-        moderator,
-        ProtoSessionMessageType::LeaveRequest,
-        session_id,
-        msg_id,
-        payload,
-        auth_provider,
-    )?;
-
-    msg.insert_metadata(DELETE_GROUP.to_string(), TRUE_VAL.to_string());
-    Ok(msg)
-}
-
-fn invite_participant_message(
-    controller: &Name,
-    moderator: &Name,
-    participant: &Name,
-    channel_name: &Name,
-    msg_id: u32,
-    auth_provider: &Option<AuthProvider>,
-) -> Result<DataPlaneMessage, ControllerError> {
-    let session_id = generate_session_id(moderator, channel_name);
-
-    let payload = Some(
-        CommandPayload::builder()
-            .discovery_request(Some(participant.clone()))
-            .as_content(),
-    );
-
-    let msg = create_channel_message(
-        controller,
-        moderator,
-        ProtoSessionMessageType::DiscoveryRequest,
-        session_id,
-        msg_id,
-        payload,
-        auth_provider,
-    )?;
-
-    Ok(msg)
-}
-
-fn remove_participant_message(
-    controller: &Name,
-    moderator: &Name,
-    participant: &Name,
-    channel_name: &Name,
-    msg_id: u32,
-    auth_provider: &Option<AuthProvider>,
-) -> Result<DataPlaneMessage, ControllerError> {
-    let session_id = generate_session_id(moderator, channel_name);
-
-    let payload = Some(
-        CommandPayload::builder()
-            .leave_request(Some(participant.clone()))
-            .as_content(),
-    );
-
-    let msg = create_channel_message(
-        controller,
-        moderator,
-        ProtoSessionMessageType::LeaveRequest,
-        session_id,
-        msg_id,
-        payload,
-        auth_provider,
-    )?;
-
-    Ok(msg)
 }
 
 impl ControllerService {
@@ -1117,19 +881,34 @@ impl ControllerService {
                             },
                         );
 
-                        for chunk in entries.chunks(CHUNK_SIZE) {
+                        if entries.is_empty() {
                             let resp = ControlMessage {
                                 message_id: uuid::Uuid::new_v4().to_string(),
                                 payload: Some(Payload::SubscriptionListResponse(
                                     SubscriptionListResponse {
                                         original_message_id: msg.message_id.clone(),
-                                        entries: chunk.to_vec(),
+                                        entries: vec![],
                                     },
                                 )),
                             };
-
                             if let Err(e) = tx.try_send(Ok(resp)) {
                                 error!(error = %e.chain(), "failed to send subscription batch");
+                            }
+                        } else {
+                            for chunk in entries.chunks(CHUNK_SIZE) {
+                                let resp = ControlMessage {
+                                    message_id: uuid::Uuid::new_v4().to_string(),
+                                    payload: Some(Payload::SubscriptionListResponse(
+                                        SubscriptionListResponse {
+                                            original_message_id: msg.message_id.clone(),
+                                            entries: chunk.to_vec(),
+                                        },
+                                    )),
+                                };
+
+                                if let Err(e) = tx.try_send(Ok(resp)) {
+                                    error!(error = %e.chain(), "failed to send subscription batch");
+                                }
                             }
                         }
                     }
@@ -1165,334 +944,43 @@ impl ControllerService {
                             });
 
                         const CHUNK_SIZE: usize = 100;
-                        for chunk in all_entries.chunks(CHUNK_SIZE) {
+                        if all_entries.is_empty() {
                             let resp = ControlMessage {
                                 message_id: uuid::Uuid::new_v4().to_string(),
                                 payload: Some(Payload::ConnectionListResponse(
                                     ConnectionListResponse {
                                         original_message_id: msg.message_id.clone(),
-                                        entries: chunk.to_vec(),
+                                        entries: vec![],
                                     },
                                 )),
                             };
-
                             if let Err(e) = tx.try_send(Ok(resp)) {
                                 error!(error = %e.chain(), "failed to send connection list batch");
                             }
+                        } else {
+                            for chunk in all_entries.chunks(CHUNK_SIZE) {
+                                let resp = ControlMessage {
+                                    message_id: uuid::Uuid::new_v4().to_string(),
+                                    payload: Some(Payload::ConnectionListResponse(
+                                        ConnectionListResponse {
+                                            original_message_id: msg.message_id.clone(),
+                                            entries: chunk.to_vec(),
+                                        },
+                                    )),
+                                };
+
+                                if let Err(e) = tx.try_send(Ok(resp)) {
+                                    error!(error = %e.chain(), "failed to send connection list batch");
+                                }
+                            }
                         }
-                    }
-                    Payload::Ack(_ack) => {
-                        // received an ack, do nothing - this should not happen
-                    }
-                    Payload::ConfigCommandAck(_) => {
-                        // received a config command ack, do nothing - this should not happen
-                    }
-                    Payload::SubscriptionListResponse(_) => {
-                        // received a subscription list response, do nothing - this should not happen
-                    }
-                    Payload::ConnectionListResponse(_) => {
-                        // received a connection list response, do nothing - this should not happen
                     }
                     Payload::RegisterNodeRequest(_) => {
                         error!("received a register node request");
                     }
-                    Payload::RegisterNodeResponse(_) => {
-                        // received a register node response, do nothing
+                    _ => {
+                        info!("received unsupported message type from control - ignoring");
                     }
-                    Payload::DeregisterNodeRequest(_) => {
-                        error!("received a deregister node request");
-                    }
-                    Payload::DeregisterNodeResponse(_) => {
-                        // received a deregister node response, do nothing
-                    }
-                    Payload::CreateChannelRequest(req) => {
-                        info!("received a channel create request");
-
-                        let mut success = true;
-                        // Get the first moderator from the list, as we support only one for now
-                        if let Some(first_moderator) = req.moderators.first() {
-                            let moderator_name = get_name_from_string(first_moderator)?;
-                            if !moderator_name.has_id() {
-                                error!("missing moderator ID");
-                                success = false;
-                            } else {
-                                let channel_name = get_name_from_string(&req.channel_name)?;
-                                let new_msg_id = rand::random::<u32>();
-                                let controller_name = self.inner.controller_name.clone();
-                                let creation_msg = new_channel_message(
-                                    &controller_name,
-                                    &moderator_name,
-                                    &channel_name,
-                                    new_msg_id,
-                                    &self.inner.auth_provider,
-                                )?;
-
-                                debug!("send session creation message: {:?}", creation_msg);
-                                if let Err(e) = self.send_control_message(creation_msg).await {
-                                    error!(error = %e.chain(), "failed to send channel creation");
-                                    success = false;
-                                } else {
-                                    // create timer for the message
-                                    debug!(
-                                        "create timer for message id: {} with type {:?}",
-                                        new_msg_id,
-                                        ProtoSessionMessageType::JoinRequest
-                                    );
-                                    let timer =
-                                        self.inner.timer_factory.read().as_ref().map(|factory| {
-                                            factory.create_and_start_timer(
-                                                new_msg_id,
-                                                ProtoSessionMessageType::JoinRequest,
-                                                None,
-                                            )
-                                        });
-                                    self.inner
-                                        .message_id_map
-                                        .write()
-                                        .insert(new_msg_id, (msg.message_id.clone(), timer));
-                                }
-                            }
-                        } else {
-                            error!("no moderators specified in create channel request message");
-                            success = false;
-                        };
-
-                        if !success {
-                            let ack = Ack {
-                                original_message_id: msg.message_id.clone(),
-                                success,
-                                messages: vec![msg.message_id.clone()],
-                            };
-
-                            let reply = ControlMessage {
-                                message_id: uuid::Uuid::new_v4().to_string(),
-                                payload: Some(Payload::Ack(ack)),
-                            };
-
-                            if let Err(e) = tx.send(Ok(reply)).await {
-                                error!(error = %e.chain(), "failed to send ack");
-                            }
-                        }
-                    }
-                    Payload::DeleteChannelRequest(req) => {
-                        info!("received a channel delete request");
-                        let mut success = true;
-
-                        // Get the first moderator from the list, as we support only one for now
-                        if let Some(first_moderator) = req.moderators.first() {
-                            let moderator_name = get_name_from_string(first_moderator)?;
-                            if !moderator_name.has_id() {
-                                error!("missing moderator ID");
-                                success = false;
-                            } else {
-                                let channel_name = get_name_from_string(&req.channel_name)?;
-                                let new_msg_id = rand::random::<u32>();
-                                let controller_name = self.inner.controller_name.clone();
-                                let delete_msg = delete_channel_message(
-                                    &controller_name,
-                                    &moderator_name,
-                                    &channel_name,
-                                    new_msg_id,
-                                    &self.inner.auth_provider,
-                                )?;
-
-                                debug!("Send delete session message: {:?}", delete_msg);
-                                if let Err(e) = self.send_control_message(delete_msg).await {
-                                    error!(error = %e.chain(), "failed to send delete channel");
-                                    success = false;
-                                } else {
-                                    // create timer for the message
-                                    debug!(
-                                        "create timer for message id: {} with type {:?}",
-                                        new_msg_id,
-                                        ProtoSessionMessageType::LeaveRequest
-                                    );
-                                    let timer =
-                                        self.inner.timer_factory.read().as_ref().map(|factory| {
-                                            factory.create_and_start_timer(
-                                                new_msg_id,
-                                                ProtoSessionMessageType::LeaveRequest,
-                                                None,
-                                            )
-                                        });
-
-                                    self.inner
-                                        .message_id_map
-                                        .write()
-                                        .insert(new_msg_id, (msg.message_id.clone(), timer));
-                                }
-                            }
-                        } else {
-                            error!("no moderators specified in delete channel request");
-                            success = false;
-                        };
-
-                        if !success {
-                            let ack = Ack {
-                                original_message_id: msg.message_id.clone(),
-                                success,
-                                messages: vec![msg.message_id.clone()],
-                            };
-
-                            let reply = ControlMessage {
-                                message_id: uuid::Uuid::new_v4().to_string(),
-                                payload: Some(Payload::Ack(ack)),
-                            };
-
-                            if let Err(e) = tx.send(Ok(reply)).await {
-                                error!(error = %e.chain(), "failed to send ack");
-                            }
-                        }
-                    }
-                    Payload::AddParticipantRequest(req) => {
-                        info!(
-                            channel_name = %req.channel_name,
-                            participant_name = %req.participant_name,
-                            "received a participant add request",
-                        );
-
-                        let mut success = true;
-
-                        if let Some(first_moderator) = req.moderators.first() {
-                            let moderator_name = get_name_from_string(first_moderator)?;
-                            if !moderator_name.has_id() {
-                                error!("missing moderator ID");
-                                success = false;
-                            } else {
-                                let channel_name = get_name_from_string(&req.channel_name)?;
-                                let participant_name = get_name_from_string(&req.participant_name)?;
-                                let new_msg_id = rand::random::<u32>();
-                                let controller_name = self.inner.controller_name.clone();
-                                let invite_msg = invite_participant_message(
-                                    &controller_name,
-                                    &moderator_name,
-                                    &participant_name,
-                                    &channel_name,
-                                    new_msg_id,
-                                    &self.inner.auth_provider,
-                                )?;
-
-                                debug!(?invite_msg, "Send invite participant");
-
-                                if let Err(e) = self.send_control_message(invite_msg).await {
-                                    error!(error = %e.chain(), "failed to send channel creation");
-                                    success = false;
-                                } else {
-                                    // create timer for the message
-                                    debug!(
-                                        "create timer for message id: {} with type {:?}",
-                                        new_msg_id,
-                                        ProtoSessionMessageType::DiscoveryRequest
-                                    );
-                                    let timer =
-                                        self.inner.timer_factory.read().as_ref().map(|factory| {
-                                            factory.create_and_start_timer(
-                                                new_msg_id,
-                                                ProtoSessionMessageType::DiscoveryRequest,
-                                                None,
-                                            )
-                                        });
-                                    self.inner
-                                        .message_id_map
-                                        .write()
-                                        .insert(new_msg_id, (msg.message_id.clone(), timer));
-                                }
-                            }
-                        } else {
-                            error!("no moderators specified in add participant request");
-                        };
-
-                        if !success {
-                            let ack = Ack {
-                                original_message_id: msg.message_id.clone(),
-                                success,
-                                messages: vec![msg.message_id.clone()],
-                            };
-
-                            let reply = ControlMessage {
-                                message_id: uuid::Uuid::new_v4().to_string(),
-                                payload: Some(Payload::Ack(ack)),
-                            };
-
-                            if let Err(e) = tx.send(Ok(reply)).await {
-                                error!(error = %e.chain(), "failed to send ack");
-                            }
-                        }
-                    }
-                    Payload::DeleteParticipantRequest(req) => {
-                        info!("received a participant delete request");
-
-                        let mut success = true;
-
-                        if let Some(first_moderator) = req.moderators.first() {
-                            let moderator_name = get_name_from_string(first_moderator)?;
-                            if !moderator_name.has_id() {
-                                error!("missing moderator ID");
-                                success = false;
-                            } else {
-                                let channel_name = get_name_from_string(&req.channel_name)?;
-                                let participant_name = get_name_from_string(&req.participant_name)?;
-                                let new_msg_id = rand::random::<u32>();
-                                let controller_name = self.inner.controller_name.clone();
-                                let remove_msg = remove_participant_message(
-                                    &controller_name,
-                                    &moderator_name,
-                                    &participant_name,
-                                    &channel_name,
-                                    new_msg_id,
-                                    &self.inner.auth_provider,
-                                )?;
-
-                                if let Err(e) = self.send_control_message(remove_msg).await {
-                                    error!(error = %e.chain(), "failed to send delete participant request");
-                                    success = false;
-                                } else {
-                                    // create timer for the message
-                                    debug!(
-                                        "create timer for message id: {} with type {:?}",
-                                        new_msg_id,
-                                        ProtoSessionMessageType::LeaveRequest
-                                    );
-                                    let timer =
-                                        self.inner.timer_factory.read().as_ref().map(|factory| {
-                                            factory.create_and_start_timer(
-                                                new_msg_id,
-                                                ProtoSessionMessageType::LeaveRequest,
-                                                None,
-                                            )
-                                        });
-                                    self.inner
-                                        .message_id_map
-                                        .write()
-                                        .insert(new_msg_id, (msg.message_id.clone(), timer));
-                                }
-                            }
-                        } else {
-                            error!("no moderators specified in remove participant request");
-                            success = false;
-                        };
-
-                        if !success {
-                            let ack = Ack {
-                                original_message_id: msg.message_id.clone(),
-                                success,
-                                messages: vec![msg.message_id.clone()],
-                            };
-
-                            let reply = ControlMessage {
-                                message_id: uuid::Uuid::new_v4().to_string(),
-                                payload: Some(Payload::Ack(ack)),
-                            };
-
-                            if let Err(e) = tx.send(Ok(reply)).await {
-                                error!(error = %e.chain(), "failed to send ack");
-                            }
-                        }
-                    }
-                    Payload::ListChannelRequest(_) => {}
-                    Payload::ListChannelResponse(_) => {}
-                    Payload::ListParticipantsRequest(_) => {}
-                    Payload::ListParticipantsResponse(_) => {}
                 }
             }
             None => {
@@ -1610,37 +1098,6 @@ impl ControllerService {
         }
     }
 
-    // send an ack back to the control plane. the success field indicates whether the original
-    // operation was successfully delivered/processed or not.
-    async fn send_ack_message(&self, msg_id: u32, success: bool, clients: &[ClientConfig]) {
-        let original_message_id = self.inner.message_id_map.write().remove(&msg_id);
-        match original_message_id {
-            Some(entry) => {
-                debug!("Received GroupAck for message ID: {}", entry.0);
-                // stop timer and send ack
-                if let Some(mut timer) = entry.1 {
-                    timer.stop();
-                }
-
-                let ack = Ack {
-                    original_message_id: entry.0,
-                    success,
-                    messages: vec![msg_id.to_string()],
-                };
-
-                let reply = ControlMessage {
-                    message_id: uuid::Uuid::new_v4().to_string(),
-                    payload: Some(Payload::Ack(ack)),
-                };
-
-                self.send_or_queue_notification(reply, clients).await;
-            }
-            None => {
-                debug!("Received GroupAck for unknown message ID: {}", msg_id);
-            }
-        }
-    }
-
     /// Send a control message to SLIM.
     async fn send_control_message(&self, msg: DataPlaneMessage) -> Result<(), ControllerError> {
         self.inner.tx_slim.send(Ok(msg)).await.map_err(|e| {
@@ -1745,13 +1202,11 @@ impl ControllerService {
         &self,
         config: Option<ClientConfig>,
         mut stream: impl Stream<Item = Result<ControlMessage, Status>> + Unpin + Send + 'static,
-        mut timer_rx: Option<mpsc::Receiver<SessionMessage>>,
         tx: mpsc::Sender<Result<ControlMessage, Status>>,
         cancellation_token: CancellationToken,
     ) -> Result<JoinHandle<()>, ControllerError> {
         let this = self.clone();
         let watch = self.drain_watch()?;
-        let clients = config.clone();
 
         let handle = tokio::spawn(async move {
             // Send a register message to the control plane
@@ -1779,8 +1234,6 @@ impl ControllerService {
                 error!(error = %e.chain(), "failed to send register request");
                 return;
             }
-
-            // TODO; here we should wait for an ack
 
             let mut drain_fut = std::pin::pin!(watch.clone().signaled());
 
@@ -1817,25 +1270,6 @@ impl ControllerService {
                                 debug!("end of stream");
                                 retry_connect = true;
                                 break;
-                            }
-                        }
-                    }
-                    Some(session_msg) = async {
-                        match &mut timer_rx {
-                            Some(rx) => rx.recv().await,
-                            None => std::future::pending().await,
-                        }
-                    } => {
-                        match session_msg {
-                            SessionMessage::TimerFailure { message_id, message_type: _, name: _, timeouts: _} => {
-                                tracing::info!("got a failure for message id: {}", message_id);
-                                // if there's a timer the clientconfig is always set
-                                if let Some(clients) = &clients {
-                                    this.send_ack_message(message_id, false, std::slice::from_ref(clients)).await;
-                                }
-                            }
-                            _ => {
-                                error!("unexpected session message received in controller");
                             }
                         }
                     }
@@ -1896,21 +1330,10 @@ impl ControllerService {
 
         self.send_queued_notifications(&tx, &config.endpoint).await;
 
-        let timer_settings = TimerSettings::new(
-            Duration::from_millis(2000),
-            None,
-            Some(0),
-            TimerType::Constant,
-        );
-        let (timer_tx, timer_rx) = mpsc::channel::<SessionMessage>(128);
-        let timer_factory = TimerFactory::new(timer_settings, timer_tx.clone());
-        self.inner.timer_factory.write().replace(timer_factory);
-
         // start processing the incoming stream
         self.process_control_message_stream(
             Some(config),
             stream.into_inner(),
-            Some(timer_rx),
             tx.clone(),
             cancellation_token.clone(),
         )?;
@@ -1961,17 +1384,11 @@ impl GrpcControllerService for ControllerService {
         let cancellation_token = CancellationToken::new();
 
         // Server-side connections don't initiate operations requiring acks, so no timer channel needed
-        self.process_control_message_stream(
-            None,
-            stream,
-            None,
-            tx.clone(),
-            cancellation_token.clone(),
-        )
-        .map_err(|e| {
-            error!(error = %e.chain(), "error processing control message stream");
-            Status::unavailable("failed to process control message stream")
-        })?;
+        self.process_control_message_stream(None, stream, tx.clone(), cancellation_token.clone())
+            .map_err(|e| {
+                error!(error = %e.chain(), "error processing control message stream");
+                Status::unavailable("failed to process control message stream")
+            })?;
 
         // store the sender in the tx_channels map
         self.inner
@@ -2067,30 +1484,6 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         assert!(logs_contain("received a register node request"));
-    }
-
-    #[test]
-    fn test_generate_session_id() {
-        let moderator_a = Name::from_strings(["Org", "Ns", "Moderator"]).with_id(42);
-        let moderator_b = Name::from_strings(["Org", "Ns", "Moderator"]).with_id(43); // different id
-        let channel_x = Name::from_strings(["Org", "Ns", "ChannelX"]).with_id(7);
-        let channel_y = Name::from_strings(["Org", "Ns", "ChannelY"]).with_id(7); // different last component
-
-        let id1 = generate_session_id(&moderator_a, &channel_x);
-        let id2 = generate_session_id(&moderator_a, &channel_x);
-        assert_eq!(id1, id2, "hash must be deterministic for same inputs");
-
-        let id3 = generate_session_id(&moderator_b, &channel_x);
-        assert_ne!(id1, id3, "changing moderator id should change session id");
-
-        let id4 = generate_session_id(&moderator_a, &channel_y);
-        assert_ne!(id1, id4, "changing channel name should change session id");
-
-        // Ensure moderate spread (not strictly required, but sanity check that values aren't zero)
-        assert!(
-            id1 != 0 && id3 != 0 && id4 != 0,
-            "session ids should not be zero"
-        );
     }
 
     #[tokio::test]

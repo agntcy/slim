@@ -10,7 +10,6 @@ use display_error_chain::ErrorChainExt;
 use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
 
-use slim_datapath::messages::utils::IS_MODERATOR;
 use tokio::sync::mpsc::Sender;
 use tracing::{Instrument, debug, error, warn};
 
@@ -604,8 +603,7 @@ where
                             return Err(SessionError::MissingChannelName);
                         };
 
-                        // Determine initiator (moderator) before building metadata snapshot.
-                        let initiator = message.remove_metadata(IS_MODERATOR).is_some();
+                        let initiator = false;
                         let conf = crate::SessionConfig::from_join_request(
                             ProtoSessionType::Multicast,
                             message.extract_command_payload()?,
@@ -638,10 +636,12 @@ where
             | ProtoSessionMessageType::GroupRemove
             | ProtoSessionMessageType::GroupWelcome
             | ProtoSessionMessageType::GroupAck
+            | ProtoSessionMessageType::GroupClose
             | ProtoSessionMessageType::Msg
             | ProtoSessionMessageType::MsgAck
             | ProtoSessionMessageType::RtxRequest
-            | ProtoSessionMessageType::RtxReply => {
+            | ProtoSessionMessageType::RtxReply
+            | ProtoSessionMessageType::Ping => {
                 tracing::debug!(?message, "received channel message with unknown session id",);
                 // We can ignore these messages
                 return Ok(());
@@ -659,25 +659,12 @@ where
             .upgrade()
             .ok_or(SessionError::SessionClosed)?;
 
-        let message_type = message.get_session_message_type();
         session_controller.on_message_from_slim(message).await?;
 
-        // if the message received is a join request and we are the initiator
-        // this means that the message was coming from the control plane so
-        // we need to notify the application right away
-        if message_type == ProtoSessionMessageType::JoinRequest && session_controller.is_initiator()
-        {
-            return self
-                .tx_app
-                .send(Ok(Notification::NewSession(new_session)))
-                .await
-                .map_err(|_e| SessionError::NewSessionSendFailed);
-        } else {
-            // add the new session to the to_notify map
-            self.to_notify
-                .write()
-                .insert(new_session.session_id(), new_session);
-        }
+        // add the new session to the to_notify map
+        self.to_notify
+            .write()
+            .insert(new_session.session_id(), new_session);
 
         Ok(())
     }
@@ -690,34 +677,17 @@ where
         session_type: ProtoSessionType,
         session_message_type: ProtoSessionMessageType,
     ) -> Result<(), SessionError> {
-        // received a discovery message
-        let controller = self.pool.read().get(&id).cloned();
-        if let Some(controller) = controller
-            && controller.is_initiator()
-            && message
-                .extract_discovery_request()
-                .ok()
-                .and_then(|p| p.destination.as_ref())
-                .is_some()
-        {
-            // Existing session where we are the initiator and payload includes a destination name:
-            // controller is requesting to add a new participant to this session.
-            controller.on_message_from_slim(message).await?;
-            Ok(())
-        } else {
-            // Handle the discovery request without creating a local session.
-            let local_name =
-                self.get_local_name_for_session(message.get_slim_header().get_dst())?;
+        // Handle the discovery request without creating a local session.
+        let local_name = self.get_local_name_for_session(message.get_slim_header().get_dst())?;
 
-            self.handle_message_from_slim_without_session(
-                &local_name,
-                &message,
-                session_type,
-                session_message_type,
-                id,
-            )
-            .await
-        }
+        self.handle_message_from_slim_without_session(
+            &local_name,
+            &message,
+            session_type,
+            session_message_type,
+            id,
+        )
+        .await
     }
 
     /// Check if the session pool is empty (for testing purposes)
