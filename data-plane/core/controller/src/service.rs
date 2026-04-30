@@ -881,7 +881,12 @@ impl ControllerService {
                             },
                         );
 
-                        for chunk in entries.chunks(CHUNK_SIZE) {
+                        let chunks: Vec<&[SubscriptionEntry]> = if entries.is_empty() {
+                            vec![&[]]
+                        } else {
+                            entries.chunks(CHUNK_SIZE).collect()
+                        };
+                        for chunk in chunks {
                             let resp = ControlMessage {
                                 message_id: uuid::Uuid::new_v4().to_string(),
                                 payload: Some(Payload::SubscriptionListResponse(
@@ -929,7 +934,12 @@ impl ControllerService {
                             });
 
                         const CHUNK_SIZE: usize = 100;
-                        for chunk in all_entries.chunks(CHUNK_SIZE) {
+                        let chunks: Vec<&[ConnectionEntry]> = if all_entries.is_empty() {
+                            vec![&[]]
+                        } else {
+                            all_entries.chunks(CHUNK_SIZE).collect()
+                        };
+                        for chunk in chunks {
                             let resp = ControlMessage {
                                 message_id: uuid::Uuid::new_v4().to_string(),
                                 payload: Some(Payload::ConnectionListResponse(
