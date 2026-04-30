@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.1-rc.0](https://github.com/agntcy/slim/compare/control-plane-v1.4.0-rc.0...control-plane-v1.4.1-rc.0) (2026-04-30)
+
+
+### Bug Fixes
+
+* replace deprecated go-acc with integrated coverage tool ([#1526](https://github.com/agntcy/slim/issues/1526)) ([d55cc27](https://github.com/agntcy/slim/commit/d55cc27cdf2230aabc98b273befbfebf4ca39170))
+* update go-grpc dependency versions ([#1591](https://github.com/agntcy/slim/issues/1591)) ([f143f9b](https://github.com/agntcy/slim/commit/f143f9ba4b1d8559e8d57f65cf911141a123cda3))
+
 ## [1.4.0-rc.0](https://github.com/agntcy/slim/compare/control-plane-v1.4.0-rc.0...control-plane-v1.0.0) (2026-04-21)
 
 ### Features
