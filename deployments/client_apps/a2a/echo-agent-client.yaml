@@ -1,0 +1,172 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+#
+# Echo A2A agent client (slimrpc) for cluster-b. Connects to local Slim dataplane
+# and calls the remote echo agent registered as agntcy/demo/echo_agent.
+# https://github.com/agntcy/slim-a2a-python/tree/main/examples/echo_agent
+#
+# PyPI: slima2a — installed at container start; pin with SLIMA2A_VERSION.
+# Deploy: task -d deployments/multicluster_private echo-agent:client:deploy
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: echo-agent-client-script
+  labels:
+    app.kubernetes.io/name: echo-agent-client
+data:
+  echo_client.py: |
+    # Copyright AGNTCY Contributors (https://github.com/agntcy)
+    # SPDX-License-Identifier: Apache-2.0
+    """Echo A2A client over slimrpc."""
+    from __future__ import annotations
+
+    import asyncio
+    import logging
+    import os
+    import sys
+
+    import httpx
+    from a2a.client import ClientFactory, create_text_message_object, minimal_agent_card
+    from a2a.types.a2a_pb2 import SendMessageRequest
+
+    from slima2a import setup_slim_client
+    from slima2a.client_transport import ClientConfig, slimrpc_channel_factory
+    from slima2a.client_transport import SRPCTransport
+
+    logger = logging.getLogger(__name__)
+
+
+    def _env(name: str, default: str) -> str:
+        v = os.environ.get(name)
+        return v if v is not None and v != "" else default
+
+
+    async def send_message(client, text: str) -> str:
+        message = create_text_message_object(content=text)
+        request = SendMessageRequest(message=message)
+        output = ""
+        try:
+            async for stream_response, task in client.send_message(request=request):
+                which = stream_response.WhichOneof("payload")
+                if which == "message":
+                    for part in stream_response.message.parts:
+                        if part.WhichOneof("content") == "text":
+                            output += part.text
+                elif which == "task":
+                    if task:
+                        logger.info("task (%s) status: %s", task.id, task.status.state)
+                    if task and task.artifacts:
+                        for artifact in task.artifacts:
+                            for part in artifact.parts:
+                                if part.WhichOneof("content") == "text":
+                                    output += part.text
+                elif which == "artifact_update":
+                    artifact = stream_response.artifact_update.artifact
+                    for part in artifact.parts:
+                        if part.WhichOneof("content") == "text":
+                            output += part.text
+        except Exception as e:
+            logger.error("send_message failed: %s", e, exc_info=True)
+            raise RuntimeError("failed sending message or processing response") from e
+        return output
+
+
+    async def main() -> None:
+        log_level = getattr(logging, _env("SLIM_LOG_LEVEL", "INFO").upper(), logging.INFO)
+        logging.basicConfig(level=log_level)
+
+        slim_url = _env("SLIM_URL", "http://slim.slim.svc.cluster.local:46357")
+        ns = _env("SLIM_NAME_NAMESPACE", "agntcy")
+        group = _env("SLIM_NAME_GROUP", "demo")
+        client_name = _env("SLIM_CLIENT_LOCAL_NAME", "client")
+        secret = _env("SLIM_APP_SECRET", "my_shared_secret_for_testing_purposes_only")
+        remote = _env("ECHO_REMOTE_AGENT", "agntcy/demo/echo_agent")
+        text = _env("ECHO_CLIENT_TEXT", "hi from cluster-b")
+
+        stream = _env("ECHO_CLIENT_STREAM", "false").lower() in ("1", "true", "yes")
+
+        async with httpx.AsyncClient() as httpx_client:
+            _service, slim_local_app, _local_name, conn_id = await setup_slim_client(
+                namespace=ns,
+                group=group,
+                name=client_name,
+                slim_url=slim_url,
+                secret=secret,
+                log_level="debug" if log_level <= logging.DEBUG else "info",
+            )
+
+            client_config = ClientConfig(
+                supported_protocol_bindings=["slimrpc"],
+                streaming=stream,
+                httpx_client=httpx_client,
+                slimrpc_channel_factory=slimrpc_channel_factory(slim_local_app, conn_id),
+            )
+            client_factory = ClientFactory(client_config)
+            client_factory.register("slimrpc", SRPCTransport.create)  # type: ignore[arg-type]
+
+            agent_card = minimal_agent_card(remote, ["slimrpc"])
+            client = client_factory.create(card=agent_card)
+            logger.info("A2A client initialized; sending: %s", text)
+            response_text = await send_message(client, text)
+            print(f"> {text}", file=sys.stderr)
+            print(response_text, file=sys.stderr)
+
+
+    if __name__ == "__main__":
+        asyncio.run(main())
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-agent-client
+  labels:
+    app.kubernetes.io/name: echo-agent-client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: echo-agent-client
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: echo-agent-client
+    spec:
+      containers:
+        - name: echo-agent-client
+          image: docker.io/library/python:3.12-slim-bookworm
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SLIMA2A_VERSION
+              value: "0.4.0"
+            - name: SLIM_URL
+              value: "http://slim.slim.svc.cluster.local:46357"
+            - name: SLIM_LOG_LEVEL
+              value: "INFO"
+            - name: ECHO_CLIENT_TEXT
+              value: "hi, this is a text message from cluster-b"
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              python -m pip install --no-cache-dir --upgrade packaging "slima2a==${SLIMA2A_VERSION}"
+              while true; do
+                python -u /scripts/echo_client.py || true
+                sleep 30
+              done
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: scripts
+          configMap:
+            name: echo-agent-client-script
+            defaultMode: 0444

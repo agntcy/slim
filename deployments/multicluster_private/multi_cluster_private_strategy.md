@@ -182,6 +182,65 @@ task test.sender:deploy
 
 These use the included `client_apps` Taskfile to prepare bindings and apply `receiver-pod.yaml` / `sender-pod.yaml` (default namespace). They expect both cluster names in `KIND_CLUSTER_NAMES`.
 
+### 6. Deploy A2A echo agent (optional)
+
+After SLIM is running on both clusters, you can deploy the **slima2a** echo server (cluster-a) and client (cluster-b) that mirror [slim-a2a-python `examples/echo_agent`](https://github.com/agntcy/slim-a2a-python/tree/main/examples/echo_agent). Manifests live under [`deployments/client_apps/a2a/`](../client_apps/a2a/); tasks are `echo-agent:server:deploy` and `echo-agent:client:deploy` in [`Taskfile.yaml`](Taskfile.yaml). For commands, log lines, and overrides, see **[Examples → Echo agent](#echo-agent-deploy-and-watch-logs)** below.
+
+## Examples
+
+### Minimal bring-up (copy-paste)
+
+Replace image tags with the ones you build or pull. Trust domains default to `cluster-a.example` / `cluster-b.example`.
+
+```bash
+cd deployments/multicluster_private
+export SLIM_IMAGE_TAG=<your-slim-node-tag>
+export SLIM_CONTROLLER_IMAGE_TAG=<your-slim-controller-tag>
+
+task multi-cluster:up
+task cluster-a:deploy-all
+# Add printed /etc/hosts lines for cluster-a ingress LB IP, then:
+task cluster-b:deploy-all
+```
+
+### Echo agent: deploy and watch logs
+
+Assume steps 1–4 (or the minimal bring-up above) already succeeded.
+
+```bash
+cd deployments/multicluster_private
+task echo-agent:server:deploy
+task echo-agent:client:deploy
+```
+
+Follow logs (adjust context names if you set `CLUSTER_A_TRUST_DOMAIN` / `CLUSTER_B_TRUST_DOMAIN`):
+
+```bash
+kubectl --context kind-cluster-a.example logs -n default deploy/echo-agent-server -f --tail=50
+kubectl --context kind-cluster-b.example logs -n default deploy/echo-agent-client -f --tail=50
+```
+
+On the server you should see **`echo_agent_server ready`** then **`received client message`** / **`sending echo reply`** each time the client runs. On the client, stderr shows the prompt and echoed text.
+
+### Echo agent: common overrides
+
+| Variable | Where | Purpose |
+|----------|--------|---------|
+| `NAMESPACE` | task | `task echo-agent:server:deploy NAMESPACE=slim` applies manifests into another namespace. |
+| `TEMPLATE` | task | Point at a forked YAML: `TEMPLATE=/path/to/echo-agent-server.yaml`. |
+| `SLIMA2A_VERSION` | Pod env (edit manifest or `kubectl set env`) | Pin PyPI `slima2a` version (default in YAML is `0.4.0`). |
+| `ECHO_CLIENT_TEXT` | client Deployment env | Message body the client sends (default in YAML). |
+
+### Bindings example pods (receiver / sender)
+
+```bash
+cd deployments/multicluster_private
+task test.receiver:deploy
+task test.sender:deploy
+```
+
+`KIND_CLUSTER_NAMES` defaults to both trust domains so the `client_apps` image is loaded into each Kind cluster before `kubectl apply`.
+
 ## Teardown
 
 ```bash
