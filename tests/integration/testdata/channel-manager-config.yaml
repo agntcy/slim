@@ -1,0 +1,19 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+# Channel Manager configuration for integration tests.
+# Endpoints are replaced at runtime with dynamically allocated values.
+
+channel-manager:
+  slim-connection:
+    endpoint: "http://localhost:46357"
+    tls:
+      insecure: true
+  api-server:
+    endpoint: "0.0.0.0:10356"
+    tls:
+      insecure: true
+  local-name: "org/default/channel-manager"
+  auth:
+    type: shared_secret
+    secret: "group-abcdef-12345678901234567890"
