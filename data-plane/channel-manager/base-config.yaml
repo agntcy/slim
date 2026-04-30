@@ -1,0 +1,21 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+channel-manager:
+  slim-connection:
+    endpoint: "http://127.0.0.1:46357"
+    tls:
+      insecure: true
+
+  api-server:
+    endpoint: "127.0.0.1:10356"
+    tls:
+      insecure: true
+
+  local-name: "agntcy/otel/channel-manager"
+
+  auth:
+    type: shared_secret
+    secret: "a-very-long-shared-secret-abcdef1234567890"
+
+  channels: []
