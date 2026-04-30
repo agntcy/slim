@@ -711,13 +711,13 @@ impl SubscriptionTable for SubscriptionTableImpl {
             .ok_or(DataPathError::ConnectionIdNotFound(conn))?;
         let mut table = self.table.write();
         let idx = if is_local { 0 } else { 1 };
-        let mut result: HashMap<Name, HashSet<u64>> =
+        let mut result: HashMap<ProtoName, HashSet<u64>> =
             HashMap::with_capacity(removed_subscriptions.len());
         for name in removed_subscriptions {
             debug!(%name, %conn, "remove subscription");
             // Extract subscription IDs before removing so callers can restore exact state.
-            let c = name.components();
-            let query_name = SubscriptionName([c[0], c[1], c[2]]);
+            let enc = name.name.as_ref().unwrap();
+            let query_name = SubscriptionName([enc.component_0, enc.component_1, enc.component_2]);
             if let Some(state) = table.get(&query_name)
                 && let Some(refs) = state.ids.get(&name.id())
                 && let Some(sub_ids) = refs[idx].refs.get(&conn)

@@ -9,7 +9,7 @@ use std::time::Duration;
 use parking_lot::RwLock;
 use tracing::{debug, info};
 
-use crate::messages::Name;
+use crate::api::ProtoName;
 use crate::tables::remote_subscription_table::SubscriptionInfo;
 
 /// All routing state preserved while waiting for a server-side peer to reconnect within the
@@ -19,7 +19,7 @@ use crate::tables::remote_subscription_table::SubscriptionInfo;
 pub(crate) struct RecoveryEntry {
     /// Subscriptions in the local routing table that pointed through the dropped connection,
     /// together with their original subscription IDs so they can be restored exactly.
-    pub(crate) local_subs: HashMap<Name, HashSet<u64>>,
+    pub(crate) local_subs: HashMap<ProtoName, HashSet<u64>>,
     /// Subscriptions that were forwarded *to* the remote peer on the dropped connection.
     pub(crate) remote_subs: HashSet<SubscriptionInfo>,
 }
@@ -64,7 +64,7 @@ impl RecoveryTable {
     pub(crate) fn store(
         &self,
         link_id: String,
-        local_subs: HashMap<Name, HashSet<u64>>,
+        local_subs: HashMap<ProtoName, HashSet<u64>>,
         remote_subs: HashSet<SubscriptionInfo>,
     ) {
         self.inner.table.write().insert(
@@ -125,10 +125,10 @@ mod tests {
 
     use tokio::sync::oneshot;
 
-    use crate::messages::Name;
+    use crate::api::ProtoName;
     use crate::tables::remote_subscription_table::SubscriptionInfo;
 
-    fn empty_entry() -> (HashMap<Name, HashSet<u64>>, HashSet<SubscriptionInfo>) {
+    fn empty_entry() -> (HashMap<ProtoName, HashSet<u64>>, HashSet<SubscriptionInfo>) {
         (HashMap::new(), HashSet::new())
     }
 
@@ -163,9 +163,9 @@ mod tests {
         let (local, remote) = empty_entry();
         t.store("link-1".into(), local, remote);
 
-        let mut local2: HashMap<Name, HashSet<u64>> = HashMap::new();
+        let mut local2: HashMap<ProtoName, HashSet<u64>> = HashMap::new();
         local2.insert(
-            Name::from_strings(["org", "ns", "svc"]),
+            ProtoName::from_strings(["org", "ns", "svc"]),
             HashSet::from([1u64]),
         );
         t.store("link-1".into(), local2, HashSet::new());
