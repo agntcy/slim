@@ -190,7 +190,7 @@ mod tests {
     fn test_proto_name_matches_legacy_name_hashes() {
         // Verify that ProtoName::from_strings produces the same encoded components
         // as the legacy Name::from_strings (same XxHash64 algorithm).
-        use crate::messages::Name;
+        use crate::messages::encoder::Name;
         let legacy = Name::from_strings(["Org", "Default", "App"]).with_id(7);
         let proto = ProtoName::from_strings(["Org", "Default", "App"]).with_id(7);
         let enc = proto.name.unwrap();

@@ -4,7 +4,6 @@
 use std::fmt::Display;
 use std::{collections::HashMap, time::Duration};
 
-use super::encoder::Name;
 use crate::api::proto::dataplane::v1::{GroupClosePayload, GroupNackPayload, PingPayload};
 use crate::api::{
     Content, LinkNegotiationPayload, MessageType, ProtoLink, ProtoLinkMessageType, ProtoLinkType,
@@ -217,14 +216,14 @@ impl SlimHeader {
     }
 
     pub fn new(
-        source: &Name,
-        destination: &Name,
+        source: &ProtoName,
+        destination: &ProtoName,
         identity: &str,
         flags: Option<SlimHeaderFlags>,
     ) -> Self {
         Self::new_from_protos(
-            ProtoName::from(source),
-            ProtoName::from(destination),
+            source.clone(),
+            destination.clone(),
             identity,
             flags,
         )
@@ -1020,19 +1019,19 @@ impl AsRef<ProtoPublish> for ProtoMessage {
 /// ## Discovery Request
 /// ```
 /// use slim_datapath::api::CommandPayload;
-/// use slim_datapath::messages::Name;
+/// use slim_datapath::api::ProtoName;
 ///
-/// let dest = Name::from_strings(["org", "namespace", "service"]);
+/// let dest = ProtoName::from_strings(["org", "namespace", "service"]);
 /// let payload = CommandPayload::builder().discovery_request(Some(dest));
 /// ```
 ///
 /// ## Join Request with Timer Settings
 /// ```
 /// use slim_datapath::api::CommandPayload;
-/// use slim_datapath::messages::Name;
+/// use slim_datapath::api::ProtoName;
 /// use std::time::Duration;
 ///
-/// let channel = Name::from_strings(["org", "namespace", "channel"]);
+/// let channel = ProtoName::from_strings(["org", "namespace", "channel"]);
 /// let payload = CommandPayload::builder().join_request(
 ///     true,  // enable_mls
 ///     Some(5),  // max_retries
@@ -1044,12 +1043,12 @@ impl AsRef<ProtoPublish> for ProtoMessage {
 /// ## Group Operations
 /// ```
 /// use slim_datapath::api::CommandPayload;
-/// use slim_datapath::messages::Name;
+/// use slim_datapath::api::ProtoName;
 ///
-/// let participant = Name::from_strings(["org", "ns", "user1"]);
+/// let participant = ProtoName::from_strings(["org", "ns", "user1"]);
 /// let participants = vec![
-///     Name::from_strings(["org", "ns", "user2"]),
-///     Name::from_strings(["org", "ns", "user3"]),
+///     ProtoName::from_strings(["org", "ns", "user2"]),
+///     ProtoName::from_strings(["org", "ns", "user3"]),
 /// ];
 ///
 /// // Add participant
@@ -1253,10 +1252,10 @@ impl CommandPayload {
 /// ## Basic Publish Message
 /// ```
 /// use slim_datapath::api::{ProtoMessage, ProtoSessionType};
-/// use slim_datapath::messages::Name;
+/// use slim_datapath::api::ProtoName;
 ///
-/// let source = Name::from_strings(["org", "ns", "app"]).with_id(1);
-/// let dest = Name::from_strings(["org", "ns", "service"]).with_id(2);
+/// let source = ProtoName::from_strings(["org", "ns", "app"]).with_id(1);
+/// let dest = ProtoName::from_strings(["org", "ns", "service"]).with_id(2);
 ///
 /// let msg = ProtoMessage::builder()
 ///     .source(source)
@@ -1271,10 +1270,10 @@ impl CommandPayload {
 /// ## Session Control Message
 /// ```
 /// use slim_datapath::api::{CommandPayload, ProtoMessage, ProtoSessionType, ProtoSessionMessageType};
-/// use slim_datapath::messages::Name;
+/// use slim_datapath::api::ProtoName;
 ///
-/// let source = Name::from_strings(["org", "ns", "app"]);
-/// let dest = Name::from_strings(["org", "ns", "service"]);
+/// let source = ProtoName::from_strings(["org", "ns", "app"]);
+/// let dest = ProtoName::from_strings(["org", "ns", "service"]);
 ///
 /// let cmd = CommandPayload::builder().discovery_request(Some(dest.clone()));
 ///
@@ -1292,10 +1291,10 @@ impl CommandPayload {
 /// ## Multicast with Broadcast
 /// ```
 /// use slim_datapath::api::{ProtoMessage, ProtoSessionType};
-/// use slim_datapath::messages::Name;
+/// use slim_datapath::api::ProtoName;
 ///
-/// let source = Name::from_strings(["org", "ns", "app"]);
-/// let dest = Name::from_strings(["org", "ns", "channel"]);
+/// let source = ProtoName::from_strings(["org", "ns", "app"]);
+/// let dest = ProtoName::from_strings(["org", "ns", "channel"]);
 ///
 /// let msg = ProtoMessage::builder()
 ///     .source(source)
@@ -1311,10 +1310,10 @@ impl CommandPayload {
 /// ## Subscribe/Unsubscribe Messages
 /// ```
 /// use slim_datapath::api::ProtoMessage;
-/// use slim_datapath::messages::Name;
+/// use slim_datapath::api::ProtoName;
 ///
-/// let source = Name::from_strings(["org", "ns", "app"]);
-/// let dest = Name::from_strings(["org", "ns", "topic"]);
+/// let source = ProtoName::from_strings(["org", "ns", "app"]);
+/// let dest = ProtoName::from_strings(["org", "ns", "topic"]);
 ///
 /// // Subscribe
 /// let sub_msg = ProtoMessage::builder()

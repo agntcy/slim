@@ -22,7 +22,7 @@
 //! This crate works directly with core SLIM types:
 //! - `slim_service::app::App` - The SLIM application instance
 //! - `slim_session::context::SessionContext` - Session context for RPC calls
-//! - `slim_datapath::messages::Name` - SLIM names for service addressing
+//! - `slim_datapath::api::ProtoName` - SLIM names for service addressing
 //!
 //! ## Client Example
 //!
