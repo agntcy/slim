@@ -96,7 +96,13 @@ pub fn resolve_config(
     config.tls_setting = tls;
 
     // ── endpoint scheme ─────────────────────────────────────────────
-    if !config.endpoint.starts_with("http://") && !config.endpoint.starts_with("https://") {
+    // if the endpoint already has a scheme, respect it and do not override based on TLS settings, since the user explicitly specified it.
+    if config.endpoint.starts_with("http://") {
+        config.tls_setting = config.tls_setting.with_insecure(true);
+    } else if config.endpoint.starts_with("https://") {
+        config.tls_setting = config.tls_setting.with_insecure(false);
+    } else {
+        // if the endpoint has no scheme, prepend one based on the TLS settings (http for insecure, https for secure)
         let scheme = if config.tls_setting.insecure {
             "http"
         } else {
