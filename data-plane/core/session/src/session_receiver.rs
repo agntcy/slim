@@ -4,9 +4,8 @@
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
-use slim_datapath::api::{EncodedName, ProtoName, ProtoSessionType};
+use slim_datapath::api::{EncodedName, ProtoMessage as Message, ProtoName, ProtoSessionType};
 use slim_datapath::messages::utils::{PUBLISH_TO, TRUE_VAL};
-use slim_datapath::{api::ProtoMessage as Message, messages::Name};
 use tokio::sync::mpsc::Sender;
 use tracing::debug;
 
@@ -73,7 +72,7 @@ pub struct SessionReceiver {
     session_id: u32,
 
     /// local name to use as source for the rtx messages
-    local_name: Name,
+    local_name: ProtoName,
 
     /// session type
     session_type: ProtoSessionType,
@@ -97,7 +96,7 @@ impl SessionReceiver {
     pub fn new(
         timer_settings: Option<TimerSettings>,
         session_id: u32,
-        local_name: Name,
+        local_name: ProtoName,
         session_type: ProtoSessionType,
         tx: SessionTransmitter,
         tx_signals: Option<Sender<SessionMessage>>,
@@ -206,7 +205,7 @@ impl SessionReceiver {
         let source_proto = message.get_slim_header().source.clone().unwrap();
         let mut builder = Message::builder()
             .source(self.local_name.clone())
-            .destination_proto(source_proto)
+            .destination(source_proto)
             .identity("")
             .forward_to(message.get_incoming_conn())
             .session_type(self.session_type)
@@ -300,7 +299,7 @@ impl SessionReceiver {
 
                 let rtx = Message::builder()
                     .source(self.local_name.clone())
-                    .destination_proto(source.clone())
+                    .destination(source.clone())
                     .identity("")
                     .forward_to(in_conn)
                     .session_type(self.session_type)
@@ -384,11 +383,11 @@ impl SessionReceiver {
             .await
     }
 
-    pub fn remove_endpoint(&mut self, endpoint: &Name) {
+    pub fn remove_endpoint(&mut self, endpoint: &ProtoName) {
         // remove the buffer related to an endpoint so that if it is added again
         // the messages will not be dropped as duplicated
         tracing::debug!(%endpoint, "remove endpoint on the receiver");
-        self.buffer.remove(&EncodedName::from(endpoint));
+        self.buffer.remove(&endpoint.name.unwrap());
     }
 
     pub fn start_drain(&mut self) {
@@ -437,8 +436,8 @@ mod tests {
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let local_name = Name::from_strings(["org", "ns", "local"]);
-        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+        let local_name = ProtoName::from_strings(["org", "ns", "local"]);
+        let remote_name = ProtoName::from_strings(["org", "ns", "remote"]);
 
         let mut receiver = SessionReceiver::new(
             Some(settings),
@@ -550,8 +549,8 @@ mod tests {
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let local_name = Name::from_strings(["org", "ns", "local"]);
-        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+        let local_name = ProtoName::from_strings(["org", "ns", "local"]);
+        let remote_name = ProtoName::from_strings(["org", "ns", "remote"]);
 
         let mut receiver = SessionReceiver::new(
             Some(settings),
@@ -778,8 +777,8 @@ mod tests {
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let local_name = Name::from_strings(["org", "ns", "local"]);
-        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+        let local_name = ProtoName::from_strings(["org", "ns", "local"]);
+        let remote_name = ProtoName::from_strings(["org", "ns", "remote"]);
 
         let mut receiver = SessionReceiver::new(
             Some(settings),
@@ -937,8 +936,8 @@ mod tests {
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let local_name = Name::from_strings(["org", "ns", "local"]);
-        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+        let local_name = ProtoName::from_strings(["org", "ns", "local"]);
+        let remote_name = ProtoName::from_strings(["org", "ns", "remote"]);
 
         let mut receiver = SessionReceiver::new(
             Some(settings),
@@ -1105,10 +1104,10 @@ mod tests {
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let local_name = Name::from_strings(["org", "ns", "local"]);
-        let group_name = Name::from_strings(["org", "ns", "group"]);
-        let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
+        let local_name = ProtoName::from_strings(["org", "ns", "local"]);
+        let group_name = ProtoName::from_strings(["org", "ns", "group"]);
+        let remote1_name = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2_name = ProtoName::from_strings(["org", "ns", "remote2"]);
 
         let mut receiver = SessionReceiver::new(
             Some(settings),
@@ -1241,10 +1240,10 @@ mod tests {
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let local_name = Name::from_strings(["org", "ns", "local"]);
-        let group_name = Name::from_strings(["org", "ns", "group"]);
-        let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
+        let local_name = ProtoName::from_strings(["org", "ns", "local"]);
+        let group_name = ProtoName::from_strings(["org", "ns", "group"]);
+        let remote1_name = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2_name = ProtoName::from_strings(["org", "ns", "remote2"]);
 
         let mut receiver = SessionReceiver::new(
             Some(settings),
@@ -1451,8 +1450,8 @@ mod tests {
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let local_name = Name::from_strings(["org", "ns", "local"]);
-        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+        let local_name = ProtoName::from_strings(["org", "ns", "local"]);
+        let remote_name = ProtoName::from_strings(["org", "ns", "remote"]);
 
         let mut receiver = SessionReceiver::new(
             Some(settings),
@@ -1520,8 +1519,8 @@ mod tests {
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let local_name = Name::from_strings(["org", "ns", "local"]);
-        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+        let local_name = ProtoName::from_strings(["org", "ns", "local"]);
+        let remote_name = ProtoName::from_strings(["org", "ns", "remote"]);
 
         let mut receiver = SessionReceiver::new(
             Some(settings),
@@ -1584,8 +1583,8 @@ mod tests {
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let local_name = Name::from_strings(["org", "ns", "local"]);
-        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+        let local_name = ProtoName::from_strings(["org", "ns", "local"]);
+        let remote_name = ProtoName::from_strings(["org", "ns", "remote"]);
 
         let mut receiver = SessionReceiver::new(
             Some(settings),
@@ -1708,8 +1707,8 @@ mod tests {
         let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let local_name = Name::from_strings(["org", "ns", "local"]);
-        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+        let local_name = ProtoName::from_strings(["org", "ns", "local"]);
+        let remote_name = ProtoName::from_strings(["org", "ns", "remote"]);
 
         let mut receiver = SessionReceiver::new(
             None, // No timer settings = unreliable mode
@@ -1770,8 +1769,8 @@ mod tests {
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let local_name = Name::from_strings(["org", "ns", "local"]);
-        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+        let local_name = ProtoName::from_strings(["org", "ns", "local"]);
+        let remote_name = ProtoName::from_strings(["org", "ns", "remote"]);
 
         let mut receiver = SessionReceiver::new(
             Some(settings),
@@ -1910,9 +1909,9 @@ mod tests {
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let local_name = Name::from_strings(["org", "ns", "local"]);
-        let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
+        let local_name = ProtoName::from_strings(["org", "ns", "local"]);
+        let remote1_name = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2_name = ProtoName::from_strings(["org", "ns", "remote2"]);
 
         let mut receiver = SessionReceiver::new(
             Some(settings),
@@ -2001,8 +2000,8 @@ mod tests {
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let local_name = Name::from_strings(["org", "ns", "local"]);
-        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+        let local_name = ProtoName::from_strings(["org", "ns", "local"]);
+        let remote_name = ProtoName::from_strings(["org", "ns", "remote"]);
 
         let mut receiver = SessionReceiver::new(
             Some(settings),
@@ -2079,9 +2078,9 @@ mod tests {
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let local_name = Name::from_strings(["org", "ns", "local"]);
-        let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
+        let local_name = ProtoName::from_strings(["org", "ns", "local"]);
+        let remote1_name = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2_name = ProtoName::from_strings(["org", "ns", "remote2"]);
 
         let mut receiver = SessionReceiver::new(
             Some(settings),
@@ -2203,8 +2202,8 @@ mod tests {
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let local_name = Name::from_strings(["org", "ns", "local"]);
-        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+        let local_name = ProtoName::from_strings(["org", "ns", "local"]);
+        let remote_name = ProtoName::from_strings(["org", "ns", "remote"]);
 
         let mut receiver = SessionReceiver::new(
             Some(settings),
@@ -2310,8 +2309,8 @@ mod tests {
         let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let local_name = Name::from_strings(["org", "ns", "local"]);
-        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+        let local_name = ProtoName::from_strings(["org", "ns", "local"]);
+        let remote_name = ProtoName::from_strings(["org", "ns", "remote"]);
 
         let mut receiver = SessionReceiver::new(
             None, // No timer settings = unreliable mode

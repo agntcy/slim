@@ -1727,8 +1727,8 @@ mod tests {
         let (remote_conn, mut rx_remote) = make_server_conn(&processor);
         negotiate_conn(&processor, remote_conn, "1.2.0");
 
-        let source = Name::from_strings(["org", "ns", "src"]).with_id(1);
-        let destination = Name::from_strings(["org", "ns", "dst"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "src"]).with_id(1);
+        let destination = ProtoName::from_strings(["org", "ns", "dst"]).with_id(2);
         let upstream_ack_id: u64 = 100;
 
         // Build subscribe: forward_to = remote_conn, with upstream ack ID.
@@ -1804,8 +1804,8 @@ mod tests {
         let (remote_conn, mut rx_remote) = make_server_conn(&processor);
         negotiate_conn(&processor, remote_conn, "1.1.0");
 
-        let source = Name::from_strings(["org", "ns", "src"]).with_id(1);
-        let destination = Name::from_strings(["org", "ns", "dst"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "src"]).with_id(1);
+        let destination = ProtoName::from_strings(["org", "ns", "dst"]).with_id(2);
         let upstream_ack_id: u64 = 101;
 
         let sub_msg = Message::builder()
@@ -1863,8 +1863,8 @@ mod tests {
         let (remote_conn, mut rx_remote) = make_server_conn(&processor);
         negotiate_conn(&processor, remote_conn, "1.2.0");
 
-        let source = Name::from_strings(["org", "ns", "src"]).with_id(1);
-        let destination = Name::from_strings(["org", "ns", "dst"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "src"]).with_id(1);
+        let destination = ProtoName::from_strings(["org", "ns", "dst"]).with_id(2);
         let upstream_ack_id: u64 = 102;
 
         let sub_msg = Message::builder()
@@ -1926,8 +1926,8 @@ mod tests {
     // ── retry_loop tests ──────────────────────────────────────────────────────
 
     fn make_test_subscribe(sub_id: u64) -> Message {
-        let source = Name::from_strings(["org", "ns", "src"]).with_id(1);
-        let destination = Name::from_strings(["org", "ns", "dst"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "src"]).with_id(1);
+        let destination = ProtoName::from_strings(["org", "ns", "dst"]).with_id(2);
         Message::builder()
             .source(source)
             .destination(destination)

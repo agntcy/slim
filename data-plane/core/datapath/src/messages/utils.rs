@@ -1654,14 +1654,14 @@ impl ProtoMessage {
 
 #[cfg(test)]
 mod tests {
-    use crate::{api::proto::dataplane::v1::SessionMessageType, messages::encoder::Name};
+    use crate::api::proto::dataplane::v1::SessionMessageType;
 
     use super::*;
 
     fn test_subscription_template(
         subscription: bool,
-        source: Name,
-        dst: Name,
+        source: ProtoName,
+        dst: ProtoName,
         identity: Option<&str>,
         flags: Option<SlimHeaderFlags>,
     ) {
@@ -1703,8 +1703,8 @@ mod tests {
     }
 
     fn test_publish_template(
-        source: Name,
-        dst: Name,
+        source: ProtoName,
+        dst: ProtoName,
         identity: Option<&str>,
         flags: Option<SlimHeaderFlags>,
     ) {
@@ -1743,8 +1743,8 @@ mod tests {
 
     #[test]
     fn test_subscription() {
-        let source = Name::from_strings(["org", "ns", "type"]).with_id(1);
-        let dst = Name::from_strings(["org", "ns", "type"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "type"]).with_id(1);
+        let dst = ProtoName::from_strings(["org", "ns", "type"]).with_id(2);
 
         // simple
         test_subscription_template(true, source.clone(), dst.clone(), None, None);
@@ -1773,8 +1773,8 @@ mod tests {
 
     #[test]
     fn test_unsubscription() {
-        let source = Name::from_strings(["org", "ns", "type"]).with_id(1);
-        let dst = Name::from_strings(["org", "ns", "type"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "type"]).with_id(1);
+        let dst = ProtoName::from_strings(["org", "ns", "type"]).with_id(2);
 
         // simple
         test_subscription_template(false, source.clone(), dst.clone(), None, None);
@@ -1803,8 +1803,8 @@ mod tests {
 
     #[test]
     fn test_publish() {
-        let source = Name::from_strings(["org", "ns", "type"]).with_id(1);
-        let mut dst = Name::from_strings(["org", "ns", "type"]);
+        let source = ProtoName::from_strings(["org", "ns", "type"]).with_id(1);
+        let mut dst = ProtoName::from_strings(["org", "ns", "type"]);
 
         // simple
         test_publish_template(
@@ -1851,8 +1851,10 @@ mod tests {
 
     #[test]
     fn test_conversions() {
-        // Name to ProtoName
-        let name = Name::from_strings(["org", "ns", "type"]).with_id(1);
+        use crate::messages::encoder::Name as EncoderName;
+
+        // EncoderName to ProtoName
+        let name = EncoderName::from_strings(["org", "ns", "type"]).with_id(1);
         let proto_name = ProtoName::from(&name);
 
         assert_eq!(
@@ -1872,8 +1874,8 @@ mod tests {
             name.components()[3]
         );
 
-        // ProtoName to Name
-        let name_from_proto = Name::from(&proto_name);
+        // ProtoName to EncoderName
+        let name_from_proto = EncoderName::from(&proto_name);
         assert_eq!(
             name_from_proto.components()[0],
             proto_name.name.as_ref().unwrap().component_0
@@ -1892,7 +1894,8 @@ mod tests {
         );
 
         // ProtoMessage to ProtoSubscribe
-        let dst = Name::from_strings(["org", "ns", "type"]).with_id(1);
+        let name = ProtoName::from_strings(["org", "ns", "type"]).with_id(1);
+        let dst = ProtoName::from_strings(["org", "ns", "type"]).with_id(1);
         let proto_subscribe = ProtoMessage::builder()
             .source(name.clone())
             .destination(dst.clone())
@@ -1944,8 +1947,8 @@ mod tests {
 
     #[test]
     fn test_panic() {
-        let source = Name::from_strings(["org", "ns", "type"]).with_id(1);
-        let dst = Name::from_strings(["org", "ns", "type"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "type"]).with_id(1);
+        let dst = ProtoName::from_strings(["org", "ns", "type"]).with_id(2);
 
         // panic if SLIM header is not found
         let msg = ProtoMessage::builder()
@@ -2075,8 +2078,8 @@ mod tests {
 
     #[test]
     fn test_proto_message_builder() {
-        let source = Name::from_strings(["org", "ns", "type"]).with_id(1);
-        let dest = Name::from_strings(["org", "ns", "app"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "type"]).with_id(1);
+        let dest = ProtoName::from_strings(["org", "ns", "app"]).with_id(2);
 
         // Test basic publish message
         let msg = ProtoMessage::builder()
@@ -2145,7 +2148,7 @@ mod tests {
 
     #[test]
     fn test_command_payload_builder() {
-        let dest = Name::from_strings(["org", "ns", "app"]);
+        let dest = ProtoName::from_strings(["org", "ns", "app"]);
 
         // Test discovery request
         let payload = CommandPayload::builder().discovery_request(Some(dest.clone()));
@@ -2217,8 +2220,8 @@ mod tests {
 
     #[test]
     fn test_builder_with_command_payload() {
-        let source = Name::from_strings(["org", "ns", "type"]).with_id(1);
-        let dest = Name::from_strings(["org", "ns", "app"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "type"]).with_id(1);
+        let dest = ProtoName::from_strings(["org", "ns", "app"]).with_id(2);
 
         let cmd_payload = CommandPayload::builder().discovery_request(Some(dest.clone()));
 

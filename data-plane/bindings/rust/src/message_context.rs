@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use slim_datapath::api::{ProtoMessage, ProtoPublishType};
-use slim_datapath::messages::Name as SlimName;
+use slim_datapath::api::ProtoName as SlimName;
 
 use slim_session::SessionError;
 
@@ -150,8 +150,8 @@ mod tests {
         let content = ApplicationPayload::new(&content_type, payload).as_content();
 
         let mut slim_header = SlimHeader::default();
-        slim_header.set_source(&source);
-        slim_header.set_destination(&dest);
+        slim_header.set_source(source);
+        slim_header.set_destination(dest);
 
         let publish = ProtoPublish {
             header: Some(slim_header),
@@ -272,8 +272,8 @@ mod tests {
 
         // Create ProtoPublish without msg content
         let mut slim_header = SlimHeader::default();
-        slim_header.set_source(&source_slim);
-        slim_header.set_destination(&dest_slim);
+        slim_header.set_source(source_slim);
+        slim_header.set_destination(dest_slim);
 
         let publish = ProtoPublish {
             header: Some(slim_header),

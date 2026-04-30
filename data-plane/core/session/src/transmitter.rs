@@ -170,7 +170,7 @@ mod tests {
     use async_trait::async_trait;
     use slim_datapath::Status;
     use slim_datapath::api::ProtoMessage as Message;
-    use slim_datapath::messages::encoder::Name;
+    use slim_datapath::api::ProtoName as Name;
     use tokio::sync::mpsc;
 
     #[derive(Clone, Default)]

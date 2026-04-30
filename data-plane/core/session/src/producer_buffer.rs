@@ -5,14 +5,14 @@
 use std::collections::HashMap;
 
 // Third-party crates
-use slim_datapath::{api::ProtoMessage as Message, messages::Name};
+use slim_datapath::{api::ProtoMessage as Message, api::ProtoName};
 
 pub struct ProducerBuffer {
     capacity: usize,
     next: usize,
     buffer: Vec<Option<Message>>,
     map: HashMap<usize, usize>,
-    destination_name: Name,
+    destination_name: ProtoName,
     destination_id: Option<u64>,
 }
 
@@ -24,7 +24,7 @@ impl ProducerBuffer {
             next: 0,
             buffer: vec![None; capacity],
             map: HashMap::new(),
-            destination_name: Name::from_strings(["unknown", "unknown", "unknown"]),
+            destination_name: ProtoName::from_strings(["unknown", "unknown", "unknown"]),
             destination_id: None,
         }
     }
@@ -33,7 +33,7 @@ impl ProducerBuffer {
         self.capacity
     }
 
-    pub fn get_destination_name(&self) -> &Name {
+    pub fn get_destination_name(&self) -> &ProtoName {
         &self.destination_name
     }
 

@@ -87,7 +87,7 @@ mod tests {
     use slim_auth::errors::AuthError;
     use slim_auth::traits::{TokenProvider, Verifier};
     use slim_datapath::api::ProtoSessionType;
-    use slim_datapath::messages::Name;
+    use slim_datapath::api::ProtoName as Name;
     use tokio::sync::mpsc;
     use tokio::sync::oneshot;
 

@@ -14,10 +14,10 @@ use tracing::{Instrument, debug};
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, Content, ProtoMessage as Message, ProtoSessionMessageType,
+        CommandPayload, Content, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
         ProtoSessionType, SlimHeader,
     },
-    messages::{Name, utils::SlimHeaderFlags},
+    messages::utils::SlimHeaderFlags,
 };
 
 // Local crate
@@ -37,10 +37,10 @@ pub struct SessionController {
     pub(crate) id: u32,
 
     /// local name
-    pub(crate) source: Name,
+    pub(crate) source: ProtoName,
 
     /// group or remote endpoint name
-    pub(crate) destination: Name,
+    pub(crate) destination: ProtoName,
 
     /// session config
     pub(crate) config: SessionConfig,
@@ -69,8 +69,8 @@ impl SessionController {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn from_parts<I, P, V, M>(
         id: u32,
-        source: Name,
-        destination: Name,
+        source: ProtoName,
+        destination: ProtoName,
         config: SessionConfig,
         settings: SessionSettings<P, V, M>,
         tx: sync::mpsc::Sender<SessionMessage>,
@@ -245,11 +245,11 @@ impl SessionController {
         self.id
     }
 
-    pub fn source(&self) -> &Name {
+    pub fn source(&self) -> &ProtoName {
         &self.source
     }
 
-    pub fn dst(&self) -> &Name {
+    pub fn dst(&self) -> &ProtoName {
         &self.destination
     }
 
@@ -269,7 +269,7 @@ impl SessionController {
         self.config.initiator
     }
 
-    pub async fn participants_list(&self) -> Result<Vec<Name>, SessionError> {
+    pub async fn participants_list(&self) -> Result<Vec<ProtoName>, SessionError> {
         let (tx, rx) = oneshot::channel();
 
         // Send query to the processing loop
@@ -349,7 +349,7 @@ impl SessionController {
     /// Publish a message to a specific connection (forward_to)
     pub async fn publish_to(
         &self,
-        name: &Name,
+        name: &ProtoName,
         forward_to: u64,
         blob: Vec<u8>,
         payload_type: Option<String>,
@@ -368,7 +368,7 @@ impl SessionController {
     /// Publish a message to a specific app name
     pub async fn publish(
         &self,
-        name: &Name,
+        name: &ProtoName,
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
@@ -386,7 +386,7 @@ impl SessionController {
     /// Publish a message with specific flags
     pub async fn publish_with_flags(
         &self,
-        name: &Name,
+        name: &ProtoName,
         flags: SlimHeaderFlags,
         blob: Vec<u8>,
         payload_type: Option<String>,
@@ -416,7 +416,7 @@ impl SessionController {
     }
 
     /// Creates a discovery request message with minimum required information
-    fn create_discovery_request(&self, destination: &Name) -> Result<Message, SessionError> {
+    fn create_discovery_request(&self, destination: &ProtoName) -> Result<Message, SessionError> {
         let payload = CommandPayload::builder()
             .discovery_request(None)
             .as_content();
@@ -437,7 +437,7 @@ impl SessionController {
 
     pub(crate) async fn invite_participant_internal(
         &self,
-        destination: &Name,
+        destination: &ProtoName,
     ) -> Result<CompletionHandle, SessionError> {
         let msg = self.create_discovery_request(destination)?;
         self.publish_message(msg).await
@@ -445,7 +445,7 @@ impl SessionController {
 
     pub async fn invite_participant(
         &self,
-        destination: &Name,
+        destination: &ProtoName,
     ) -> Result<CompletionHandle, SessionError> {
         match self.session_type() {
             ProtoSessionType::PointToPoint => Err(SessionError::CannotInviteToP2P),
@@ -461,7 +461,7 @@ impl SessionController {
 
     pub async fn remove_participant(
         &self,
-        destination: &Name,
+        destination: &ProtoName,
     ) -> Result<CompletionHandle, SessionError> {
         match self.session_type() {
             ProtoSessionType::PointToPoint => Err(SessionError::CannotRemoveFromP2P),
@@ -471,7 +471,7 @@ impl SessionController {
                 }
                 let msg = Message::builder()
                     .source(self.source().clone())
-                    .destination(destination.clone().with_id(Name::NULL_COMPONENT))
+                    .destination(destination.clone().with_id(ProtoName::NULL_COMPONENT))
                     .identity("")
                     .session_type(ProtoSessionType::Multicast)
                     .session_message_type(ProtoSessionMessageType::LeaveRequest)
@@ -494,7 +494,7 @@ impl Drop for SessionController {
 
 pub fn handle_channel_discovery_message(
     message: &Message,
-    app_name: &Name,
+    app_name: &ProtoName,
     session_id: u32,
     session_type: ProtoSessionType,
 ) -> Result<Message, SessionError> {
@@ -504,8 +504,8 @@ pub fn handle_channel_discovery_message(
     // application itself. This can happen if the application subscribes to multiple
     // service names. So we can reply using as a source the destination name of
     // the discovery message but setting the application id
-    let source = message.get_slim_header().destination.clone().unwrap();
-    source.name.unwrap().component_3 = app_name.id();
+    let mut source = message.get_slim_header().destination.clone().unwrap();
+    source.set_id(app_name.id());
     let msg_id = message.get_id();
 
     let slim_header = SlimHeader::new_from_protos(
@@ -546,7 +546,7 @@ pub(crate) struct SessionControllerCommon<
     pub(crate) processing_state: ProcessingState,
 
     /// Maps (kind, name, conn) → subscription_id for route/subscription tracking.
-    subscription_ids: HashMap<(SubscriptionKind, Name, u64), u64>,
+    subscription_ids: HashMap<(SubscriptionKind, ProtoName, u64), u64>,
 }
 
 /// Distinguishes route entries from subscription entries in the subscription_ids map.
@@ -613,16 +613,17 @@ where
             .map_err(SessionError::SubscriptionAckFailed)
     }
 
-    pub(crate) async fn add_route(&mut self, name: Name, conn: u64) -> Result<(), SessionError> {
-        if name == self.settings.source {
+    pub(crate) async fn add_route(&mut self, name: ProtoName, conn: u64) -> Result<(), SessionError> {
+        if name == self.settings.source.clone() {
             // We never add a route for ourselves
             return Ok(());
         }
 
+        let source_proto = self.settings.source.clone();
         let (subscription_id, rx) = self
             .settings
             .subscription_manager
-            .set_route(&self.settings.source, &name, conn)
+            .set_route(&source_proto, &name, conn)
             .await
             .map_err(SessionError::SubscriptionAckFailed)?;
         Self::await_subscription_ack(rx).await?;
@@ -635,8 +636,8 @@ where
         Ok(())
     }
 
-    pub(crate) async fn delete_route(&mut self, name: Name, conn: u64) -> Result<(), SessionError> {
-        if name == self.settings.source {
+    pub(crate) async fn delete_route(&mut self, name: ProtoName, conn: u64) -> Result<(), SessionError> {
+        if name == self.settings.source.clone() {
             // We never remove a route for ourselves
             return Ok(());
         }
@@ -646,10 +647,11 @@ where
         let (_, name, conn) = key;
         match subscription_id {
             Some(subscription_id) => {
+                let source_proto = self.settings.source.clone();
                 let rx = self
                     .settings
                     .subscription_manager
-                    .remove_route(&self.settings.source, &name, subscription_id, conn)
+                    .remove_route(&source_proto, &name, subscription_id, conn)
                     .await
                     .map_err(SessionError::SubscriptionAckFailed)?;
 
@@ -669,13 +671,14 @@ where
 
     pub(crate) async fn add_subscription(
         &mut self,
-        name: Name,
+        name: ProtoName,
         conn: u64,
     ) -> Result<(), SessionError> {
+        let source_proto = self.settings.source.clone();
         let (subscription_id, rx) = self
             .settings
             .subscription_manager
-            .subscribe(&self.settings.source, &name, Some(conn))
+            .subscribe(&source_proto, &name, Some(conn))
             .await
             .map_err(SessionError::SubscriptionAckFailed)?;
 
@@ -693,7 +696,7 @@ where
 
     pub(crate) async fn delete_subscription(
         &mut self,
-        name: Name,
+        name: ProtoName,
         conn: u64,
     ) -> Result<(), SessionError> {
         let key = (SubscriptionKind::Subscription, name, conn);
@@ -701,10 +704,11 @@ where
         let (_, name, conn) = key;
         match subscription_id {
             Some(subscription_id) => {
+                let source_proto = self.settings.source.clone();
                 let rx = self
                     .settings
                     .subscription_manager
-                    .unsubscribe(&self.settings.source, &name, subscription_id, Some(conn))
+                    .unsubscribe(&source_proto, &name, subscription_id, Some(conn))
                     .await
                     .map_err(SessionError::SubscriptionAckFailed)?;
 
@@ -724,7 +728,7 @@ where
 
     pub(crate) fn create_control_message(
         &mut self,
-        dst: &Name,
+        dst: &ProtoName,
         message_type: ProtoSessionMessageType,
         message_id: u32,
         payload: Content,
@@ -752,7 +756,7 @@ where
     /// Send control message without creating ack channel (for internal use by moderator)
     pub(crate) async fn send_control_message(
         &mut self,
-        dst: &Name,
+        dst: &ProtoName,
         message_type: ProtoSessionMessageType,
         message_id: u32,
         payload: Content,
@@ -793,8 +797,8 @@ mod tests {
     /// Test helper to create a SessionController with common setup
     struct SessionControllerTestBuilder {
         session_id: u32,
-        source: Name,
-        destination: Name,
+        source: ProtoName,
+        destination: ProtoName,
         session_type: ProtoSessionType,
         mls_enabled: bool,
         initiator: bool,
@@ -809,8 +813,8 @@ mod tests {
         fn new() -> Self {
             Self {
                 session_id: 10,
-                source: Name::from_strings(["org", "ns", "source"]).with_id(1),
-                destination: Name::from_strings(["org", "ns", "dest"]).with_id(2),
+                source: ProtoName::from_strings(["org", "ns", "source"]).with_id(1),
+                destination: ProtoName::from_strings(["org", "ns", "dest"]).with_id(2),
                 session_type: ProtoSessionType::PointToPoint,
                 mls_enabled: false,
                 initiator: true,
@@ -827,13 +831,13 @@ mod tests {
         }
 
         #[allow(dead_code)]
-        fn with_source(mut self, source: Name) -> Self {
+        fn with_source(mut self, source: ProtoName) -> Self {
             self.source = source;
             self
         }
 
         #[allow(dead_code)]
-        fn with_destination(mut self, destination: Name) -> Self {
+        fn with_destination(mut self, destination: ProtoName) -> Self {
             self.destination = destination;
             self
         }
@@ -918,11 +922,11 @@ mod tests {
         assert_eq!(controller.id(), 42);
         assert_eq!(
             controller.source(),
-            &Name::from_strings(["org", "ns", "source"]).with_id(1)
+            &ProtoName::from_strings(["org", "ns", "source"]).with_id(1)
         );
         assert_eq!(
             controller.dst(),
-            &Name::from_strings(["org", "ns", "dest"]).with_id(2)
+            &ProtoName::from_strings(["org", "ns", "dest"]).with_id(2)
         );
         assert_eq!(controller.session_type(), ProtoSessionType::Multicast);
         assert!(controller.is_initiator());
@@ -940,7 +944,7 @@ mod tests {
     async fn test_publish_basic() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
 
-        let target_name = Name::from_strings(["org", "ns", "target"]);
+        let target_name = ProtoName::from_strings(["org", "ns", "target"]);
         let payload = b"Hello World".to_vec();
 
         controller
@@ -962,7 +966,7 @@ mod tests {
             .with_session_type(ProtoSessionType::Multicast)
             .build();
 
-        let target_name = Name::from_strings(["org", "ns", "target"]);
+        let target_name = ProtoName::from_strings(["org", "ns", "target"]);
         let payload = b"Hello to specific connection".to_vec();
         let connection_id = 123u64;
 
@@ -986,7 +990,7 @@ mod tests {
             .with_session_type(ProtoSessionType::Multicast)
             .build();
 
-        let target_name = Name::from_strings(["org", "ns", "target"]);
+        let target_name = ProtoName::from_strings(["org", "ns", "target"]);
         let payload = b"Hello with metadata".to_vec();
 
         let mut metadata = HashMap::new();
@@ -1011,7 +1015,7 @@ mod tests {
             .with_session_type(ProtoSessionType::Multicast)
             .build();
 
-        let participant = Name::from_strings(["org", "ns", "participant"]);
+        let participant = ProtoName::from_strings(["org", "ns", "participant"]);
 
         controller
             .invite_participant(&participant)
@@ -1028,7 +1032,7 @@ mod tests {
             .with_initiator(false)
             .build();
 
-        let participant = Name::from_strings(["org", "ns", "new_participant"]);
+        let participant = ProtoName::from_strings(["org", "ns", "new_participant"]);
 
         let result = controller.invite_participant(&participant).await;
         assert!(result.is_err_and(|e| matches!(e, SessionError::NotInitiator)));
@@ -1040,7 +1044,7 @@ mod tests {
             .with_session_type(ProtoSessionType::PointToPoint)
             .build();
 
-        let participant = Name::from_strings(["org", "ns", "participant"]);
+        let participant = ProtoName::from_strings(["org", "ns", "participant"]);
 
         let result = controller.invite_participant(&participant).await;
         assert!(result.is_err_and(|e| matches!(e, SessionError::CannotInviteToP2P)));
@@ -1052,7 +1056,7 @@ mod tests {
             .with_session_type(ProtoSessionType::Multicast)
             .build();
 
-        let participant = Name::from_strings(["org", "ns", "participant"]);
+        let participant = ProtoName::from_strings(["org", "ns", "participant"]);
 
         controller
             .remove_participant(&participant)
@@ -1069,7 +1073,7 @@ mod tests {
             .with_initiator(false)
             .build();
 
-        let participant = Name::from_strings(["org", "ns", "participant"]);
+        let participant = ProtoName::from_strings(["org", "ns", "participant"]);
 
         let result = controller.remove_participant(&participant).await;
         assert!(result.is_err_and(|e| matches!(e, SessionError::NotInitiator)));
@@ -1081,7 +1085,7 @@ mod tests {
             .with_session_type(ProtoSessionType::PointToPoint)
             .build();
 
-        let participant = Name::from_strings(["org", "ns", "participant"]);
+        let participant = ProtoName::from_strings(["org", "ns", "participant"]);
 
         let result = controller.remove_participant(&participant).await;
         assert!(result.is_err_and(|e| matches!(e, SessionError::CannotRemoveFromP2P)));
@@ -1089,12 +1093,12 @@ mod tests {
 
     #[test]
     fn test_handle_channel_discovery_message() {
-        let app_name = Name::from_strings(["org", "ns", "app"]).with_id(100);
+        let app_name = ProtoName::from_strings(["org", "ns", "app"]).with_id(100);
         let session_id = 42;
 
         let discovery_request = Message::builder()
-            .source(Name::from_strings(["org", "ns", "requester"]).with_id(1))
-            .destination(Name::from_strings(["org", "ns", "service"]))
+            .source(ProtoName::from_strings(["org", "ns", "requester"]).with_id(1))
+            .destination(ProtoName::from_strings(["org", "ns", "service"]))
             .identity("")
             .incoming_conn(999)
             .session_type(ProtoSessionType::Multicast)
@@ -1125,7 +1129,7 @@ mod tests {
         assert_eq!(response.get_id(), 123);
         assert_eq!(
             response.get_dst(),
-            Name::from_strings(["org", "ns", "requester"]).with_id(1)
+            ProtoName::from_strings(["org", "ns", "requester"]).with_id(1)
         );
         assert_eq!(response.get_slim_header().get_forward_to(), Some(999));
     }
@@ -1232,7 +1236,7 @@ mod tests {
             .with_session_type(ProtoSessionType::Multicast)
             .build();
 
-        let target = Name::from_strings(["org", "ns", "target"]);
+        let target = ProtoName::from_strings(["org", "ns", "target"]);
         let discovery_msg = controller
             .create_discovery_request(&target)
             .expect("should create discovery request");
@@ -1257,9 +1261,9 @@ mod tests {
     #[traced_test]
     async fn test_end_to_end_p2p() {
         let session_id = 10;
-        let moderator_name = Name::from_strings(["org", "ns", "moderator"]).with_id(1);
-        let participant_name = Name::from_strings(["org", "ns", "participant"]);
-        let participant_name_id = Name::from_strings(["org", "ns", "participant"]).with_id(1);
+        let moderator_name = ProtoName::from_strings(["org", "ns", "moderator"]).with_id(1);
+        let participant_name = ProtoName::from_strings(["org", "ns", "participant"]);
+        let participant_name_id = ProtoName::from_strings(["org", "ns", "participant"]).with_id(1);
         // create a SessionModerator
         let (tx_slim_moderator, mut rx_slim_moderator) = tokio::sync::mpsc::channel(10);
         let (tx_app_moderator, _rx_app_moderator) = tokio::sync::mpsc::unbounded_channel();
@@ -1775,8 +1779,8 @@ mod tests {
             crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
         let settings = SessionSettings {
             id: 999,
-            source: Name::from_strings(["org", "ns", "source"]).with_id(1),
-            destination: Name::from_strings(["org", "ns", "dest"]).with_id(2),
+            source: ProtoName::from_strings(["org", "ns", "source"]).with_id(1),
+            destination: ProtoName::from_strings(["org", "ns", "dest"]).with_id(2),
             config: SessionConfig {
                 session_type: ProtoSessionType::PointToPoint,
                 max_retries: Some(3),
@@ -1946,8 +1950,8 @@ mod tests {
             crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
         SessionSettings {
             id: 1,
-            source: Name::from_strings(["org", "ns", "test"]).with_id(1),
-            destination: Name::from_strings(["org", "ns", "test"]).with_id(2),
+            source: ProtoName::from_strings(["org", "ns", "test"]).with_id(1),
+            destination: ProtoName::from_strings(["org", "ns", "test"]).with_id(2),
             config: SessionConfig {
                 session_type: ProtoSessionType::PointToPoint,
                 max_retries: Some(5),
@@ -1971,8 +1975,8 @@ mod tests {
     fn create_test_message(message_id: u32, payload: Vec<u8>) -> SessionMessage {
         SessionMessage::OnMessage {
             message: Message::builder()
-                .source(Name::from_strings(["org", "ns", "test"]).with_id(1))
-                .destination(Name::from_strings(["org", "ns", "test"]).with_id(2))
+                .source(ProtoName::from_strings(["org", "ns", "test"]).with_id(1))
+                .destination(ProtoName::from_strings(["org", "ns", "test"]).with_id(2))
                 .identity("")
                 .forward_to(1)
                 .session_type(ProtoSessionType::PointToPoint)

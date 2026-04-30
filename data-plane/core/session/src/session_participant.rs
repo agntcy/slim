@@ -6,11 +6,11 @@ use std::{collections::HashSet, time::Duration};
 use async_trait::async_trait;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
-    api::{CommandPayload, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType},
-    messages::{
-        Name,
-        utils::{LEAVING_SESSION, TRUE_VAL},
+    api::{
+        CommandPayload, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
+        ProtoSessionType,
     },
+    messages::utils::{LEAVING_SESSION, TRUE_VAL},
 };
 
 use slim_mls::mls::Mls;
@@ -34,10 +34,10 @@ where
     M: SubscriptionOps,
 {
     /// name of the moderator, used to send mls proposal messages
-    moderator_name: Option<Name>,
+    moderator_name: Option<ProtoName>,
 
     /// list of participants
-    group_list: HashSet<Name>,
+    group_list: HashSet<ProtoName>,
 
     /// mls state
     mls_state: Option<MlsState<P, V>>,
@@ -231,11 +231,11 @@ where
         }
     }
 
-    async fn add_endpoint(&mut self, endpoint: &Name) -> Result<(), SessionError> {
+    async fn add_endpoint(&mut self, endpoint: &ProtoName) -> Result<(), SessionError> {
         self.inner.add_endpoint(endpoint).await
     }
 
-    fn remove_endpoint(&mut self, endpoint: &Name) {
+    fn remove_endpoint(&mut self, endpoint: &ProtoName) {
         self.inner.remove_endpoint(endpoint);
     }
 
@@ -247,7 +247,7 @@ where
         self.common.processing_state
     }
 
-    fn participants_list(&self) -> Vec<Name> {
+    fn participants_list(&self) -> Vec<ProtoName> {
         self.group_list.iter().cloned().collect()
     }
 
@@ -392,10 +392,10 @@ where
             .as_welcome_payload()?
             .participants;
         for n in list {
-            let name = Name::from(n);
+            let name = n.clone();
             self.group_list.insert(name.clone());
 
-            if name != self.common.settings.source {
+            if name != self.common.settings.source.clone() {
                 debug!(name = %msg.get_source(), "add endpoint to the session");
                 // add a route to the new endpoint, this is needed in case of message retransmission
                 // skip the moderator as the route is already added in on_join_request
@@ -432,8 +432,8 @@ where
 
         if let Some(mls_state) = &mut self.mls_state {
             debug!("process mls control update");
-            let ret =
-                mls_state.process_control_message(msg.clone(), &self.common.settings.source)?;
+            let source_proto = self.common.settings.source.clone();
+            let ret = mls_state.process_control_message(msg.clone(), &source_proto)?;
 
             if !ret {
                 debug!(
@@ -451,7 +451,7 @@ where
                 .as_command_payload()?
                 .as_group_add_payload()?;
             if let Some(ref new_participant) = p.new_participant {
-                let name = Name::from(new_participant);
+                let name = new_participant.clone();
                 self.group_list.insert(name.clone());
 
                 debug!(name  = %msg.get_source(), "add endpoint to session");
@@ -468,7 +468,7 @@ where
                 .as_command_payload()?
                 .as_group_remove_payload()?;
             if let Some(ref removed_participant) = p.removed_participant {
-                let name = Name::from(removed_participant);
+                let name = removed_participant.clone();
                 self.group_list.remove(&name);
 
                 debug!(name = %msg.get_source(), "remove endpoint from session");
@@ -476,7 +476,7 @@ where
                 // Skip delete_route when the removed participant is ourselves: we never
                 // set up a recv_from subscription for our own name, so the datapath
                 // would return SubscriptionNotFound and block the GroupAck.
-                if name != self.common.settings.source {
+                if name != self.common.settings.source.clone() {
                     self.common
                         .delete_route(name.clone(), msg.get_incoming_conn())
                         .await?;
@@ -557,8 +557,8 @@ where
         // reply to the ping
         let header = msg.get_slim_header_mut();
         let src = header.get_source();
-        header.set_source(&self.common.settings.source);
-        header.set_destination(&src);
+        header.set_source(self.common.settings.source.clone());
+        header.set_destination(src);
         self.common.send_to_slim(msg).await
     }
 
@@ -590,16 +590,17 @@ where
         }
 
         if let Some(conn_id) = self.conn_id {
+            let dest_proto = self.common.settings.destination.clone();
             if let Err(e) = self
                 .common
-                .delete_route(self.common.settings.destination.clone(), conn_id)
+                .delete_route(dest_proto.clone(), conn_id)
                 .await
             {
                 tracing::warn!(error = %e, name = %self.common.settings.destination, "error deleting route");
             }
             if let Err(e) = self
                 .common
-                .delete_subscription(self.common.settings.destination.clone(), conn_id)
+                .delete_subscription(dest_proto, conn_id)
                 .await
             {
                 tracing::warn!(error = %e, name = %self.common.settings.destination, "error deleting subscription");
@@ -643,7 +644,6 @@ mod tests {
     use crate::test_utils::{MockInnerHandler, MockTokenProvider, MockVerifier};
     use slim_datapath::Status;
     use slim_datapath::api::{CommandPayload, ProtoSessionType};
-    use slim_datapath::messages::Name;
     use tokio::sync::mpsc;
 
     // --- Test Helpers -----------------------------------------------------------------------
@@ -672,8 +672,12 @@ mod tests {
         }
     }
 
-    fn make_name(parts: &[&str; 3]) -> Name {
-        Name::from_strings([parts[0], parts[1], parts[2]]).with_id(0)
+    fn make_name(parts: &[&str; 3]) -> ProtoName {
+        ProtoName::from_strings([parts[0], parts[1], parts[2]]).with_id(0)
+    }
+
+    fn make_proto_name(parts: &[&str; 3]) -> ProtoName {
+        ProtoName::from_strings([parts[0], parts[1], parts[2]]).with_id(0)
     }
 
     fn setup_participant(
@@ -755,11 +759,10 @@ mod tests {
         participant.init().await.unwrap();
 
         let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
-        let destination = participant.common.settings.source.clone();
 
         let join_msg = Message::builder()
             .source(moderator.clone())
-            .destination(destination)
+            .destination(participant.common.settings.source.clone())
             .identity("")
             .forward_to(0)
             .incoming_conn(12345)
@@ -1255,7 +1258,7 @@ mod tests {
 
         // Test DiscoveryRequest (unexpected for participant)
         let discovery_msg = Message::builder()
-            .source(make_name(&["someone", "app", "v1"]).with_id(300))
+            .source(make_proto_name(&["someone", "app", "v1"]).with_id(300))
             .destination(participant.common.settings.source.clone())
             .identity("")
             .forward_to(0)
