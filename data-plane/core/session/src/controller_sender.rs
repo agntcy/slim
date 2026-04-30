@@ -722,7 +722,7 @@ mod tests {
         );
 
         // Create a discovery request message
-        let payload = CommandPayload::builder().discovery_request(None);
+        let payload = CommandPayload::builder().discovery_request();
 
         let request = Message::builder()
             .source(source.clone())
@@ -969,7 +969,7 @@ mod tests {
         );
 
         // Create a leave request message
-        let payload = CommandPayload::builder().leave_request(None);
+        let payload = CommandPayload::builder().leave_request();
 
         let request = Message::builder()
             .source(source.clone())

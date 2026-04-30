@@ -215,13 +215,8 @@ pub struct ParticipantSettings {
     pub receives_data: bool,
 }
 /// Discovery Request
-/// The destination is Optional. If present the message should be forwarded
-/// to the destination in the payload.
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct DiscoveryRequestPayload {
-    #[prost(message, optional, tag = "1")]
-    pub destination: ::core::option::Option<Name>,
-}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct DiscoveryRequestPayload {}
 /// Discovery Reply
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DiscoveryReplyPayload {}
@@ -257,13 +252,8 @@ pub struct JoinReplyPayload {
     pub participant: ::core::option::Option<Participant>,
 }
 /// Leave Request
-/// The destination is Optional. If present the message should be forwarded
-/// to the destination in the payload.
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct LeaveRequestPayload {
-    #[prost(message, optional, tag = "1")]
-    pub destination: ::core::option::Option<Name>,
-}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct LeaveRequestPayload {}
 /// Leave Reply
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct LeaveReplyPayload {}
