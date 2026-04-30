@@ -148,11 +148,13 @@ where
 
         let payload = proposal.extract_group_proposal()?;
 
-        let original_source = payload.source.as_ref().ok_or(
-            SessionError::MissingPayload {
+        let original_source = payload
+            .source
+            .as_ref()
+            .ok_or(SessionError::MissingPayload {
                 context: "proposal source",
-            },
-        )?.clone();
+            })?
+            .clone();
         if original_source == *local_name {
             // drop the message as we are the original source
             debug!("Known proposal, drop the message");

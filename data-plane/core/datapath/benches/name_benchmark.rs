@@ -41,16 +41,18 @@ fn make_slim_header() -> SlimHeader {
 fn bench_proto_name_from_strings(c: &mut Criterion) {
     c.bench_function("proto_name_from_strings", |b| {
         b.iter(|| {
-            black_box(ProtoName::from_strings(black_box(["org", "namespace", "agent"])))
+            black_box(ProtoName::from_strings(black_box([
+                "org",
+                "namespace",
+                "agent",
+            ])))
         })
     });
 }
 
 fn bench_proto_name_clone(c: &mut Criterion) {
     let name = ProtoName::from_strings(["org", "namespace", "agent"]);
-    c.bench_function("proto_name_clone", |b| {
-        b.iter(|| black_box(name.clone()))
-    });
+    c.bench_function("proto_name_clone", |b| b.iter(|| black_box(name.clone())));
 }
 
 fn bench_proto_name_from_other(c: &mut Criterion) {

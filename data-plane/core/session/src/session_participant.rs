@@ -591,18 +591,10 @@ where
 
         if let Some(conn_id) = self.conn_id {
             let dest_proto = self.common.settings.destination.clone();
-            if let Err(e) = self
-                .common
-                .delete_route(dest_proto.clone(), conn_id)
-                .await
-            {
+            if let Err(e) = self.common.delete_route(dest_proto.clone(), conn_id).await {
                 tracing::warn!(error = %e, name = %self.common.settings.destination, "error deleting route");
             }
-            if let Err(e) = self
-                .common
-                .delete_subscription(dest_proto, conn_id)
-                .await
-            {
+            if let Err(e) = self.common.delete_subscription(dest_proto, conn_id).await {
                 tracing::warn!(error = %e, name = %self.common.settings.destination, "error deleting subscription");
             }
         }

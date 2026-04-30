@@ -776,7 +776,8 @@ mod tests {
             .unwrap();
 
         // create a subscriber
-        let subscriber_name = ProtoName::from_strings(["cisco", "default", "subscriber"]).with_id(0);
+        let subscriber_name =
+            ProtoName::from_strings(["cisco", "default", "subscriber"]).with_id(0);
         let (sub_app, mut sub_rx) = service
             .create_app(
                 &subscriber_name,
@@ -972,7 +973,8 @@ mod tests {
 
         // Create a point to point session to a non-existent destination
         // This will trigger an error from the datapath
-        let non_existent_dst = ProtoName::from_strings(["cisco", "default", "nonexistent"]).with_id(999);
+        let non_existent_dst =
+            ProtoName::from_strings(["cisco", "default", "nonexistent"]).with_id(999);
         let mut session_config =
             SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         session_config.initiator = true;

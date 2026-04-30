@@ -1,9 +1,9 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::api::ProtoName;
 use crate::api::ProtoSessionMessageType;
 use crate::api::proto::dataplane::v1::Message;
-use crate::api::ProtoName;
 use crate::messages::utils::MessageError;
 use slim_config::grpc::errors::ConfigError;
 use thiserror::Error;

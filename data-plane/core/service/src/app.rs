@@ -260,7 +260,11 @@ where
     }
 
     /// Unsubscribe the app
-    pub async fn unsubscribe(&self, name: &ProtoName, conn: Option<u64>) -> Result<(), ServiceError> {
+    pub async fn unsubscribe(
+        &self,
+        name: &ProtoName,
+        conn: Option<u64>,
+    ) -> Result<(), ServiceError> {
         debug!(?name, ?conn, "unsubscribe");
 
         let subscription_id = self.session_layer.remove_app_name(name);
@@ -1132,7 +1136,8 @@ mod tests {
         let service = create_test_service(config.test_name);
 
         // Create moderator app
-        let moderator_name = ProtoName::from_strings(["org", "ns", config.moderator_suffix]).with_id(0);
+        let moderator_name =
+            ProtoName::from_strings(["org", "ns", config.moderator_suffix]).with_id(0);
         let (moderator_app, mut _moderator_notifications) =
             create_test_app(&service, &moderator_name, "a");
 

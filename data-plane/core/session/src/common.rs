@@ -6,7 +6,9 @@ use std::time::Duration;
 // Third-party crates
 use tonic::Status;
 
-use slim_datapath::api::{EncodedName, ProtoMessage as Message, ProtoName, ProtoSessionMessageType};
+use slim_datapath::api::{
+    EncodedName, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
+};
 
 // Local crate
 use crate::SessionError;

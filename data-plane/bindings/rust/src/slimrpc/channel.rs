@@ -31,8 +31,8 @@ use tokio::sync::mpsc::{self, unbounded_channel};
 use tokio::task::JoinHandle;
 
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
-use slim_datapath::api::ProtoSessionType;
 use slim_datapath::api::ProtoName as Name;
+use slim_datapath::api::ProtoSessionType;
 use slim_service::app::App as SlimApp;
 use slim_session::errors::SessionError;
 

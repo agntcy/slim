@@ -286,10 +286,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "Participants list should contain the moderator name"
             );
             assert!(
-                list.iter().any(
-                    |n| n.str_components() == client_1_name.str_components()
-                        || n.str_components() == client_2_name.str_components()
-                ),
+                list.iter()
+                    .any(|n| n.str_components() == client_1_name.str_components()
+                        || n.str_components() == client_2_name.str_components()),
                 "Participants list should contain the client name"
             );
         } else {

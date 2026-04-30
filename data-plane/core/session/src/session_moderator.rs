@@ -143,9 +143,9 @@ where
                         && self.common.settings.config.session_type
                             == ProtoSessionType::PointToPoint
                     {
-                        message.get_slim_header_mut().set_destination(
-                            self.common.settings.destination.clone(),
-                        );
+                        message
+                            .get_slim_header_mut()
+                            .set_destination(self.common.settings.destination.clone());
                     }
 
                     // Apply MLS encryption/decryption if enabled
@@ -293,12 +293,8 @@ where
             && let Some(conn) = self.conn_id
         {
             let dest_proto = self.common.settings.destination.clone();
-            self.common
-                .delete_route(dest_proto.clone(), conn)
-                .await?;
-            self.common
-                .delete_subscription(dest_proto, conn)
-                .await?;
+            self.common.delete_route(dest_proto.clone(), conn).await?;
+            self.common.delete_subscription(dest_proto, conn).await?;
         }
 
         // Shutdown inner layer

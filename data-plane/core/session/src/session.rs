@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use async_trait::async_trait;
-use slim_datapath::api::{EncodedName, ProtoMessage as Message, ProtoName, ProtoSessionMessageType};
+use slim_datapath::api::{
+    EncodedName, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
+};
 
 use tokio::sync::mpsc::{self};
 use tracing::debug;
