@@ -11,10 +11,16 @@ use slim_config::auth::basic::Config as BasicAuthConfig;
 use slim_config::grpc::client::{AuthenticationConfig, BackoffConfig, ClientConfig};
 use slim_config::tls::client::TlsClientConfig;
 
+/// Default timeout for gRPC requests when not specified in config or CLI.
 pub(crate) const DEFAULT_TIMEOUT: &str = "15s";
+/// Default endpoint for the `node` subcommand (SLIM node control API).
 pub(crate) const DEFAULT_NODE_ENDPOINT: &str = "127.0.0.1:46358";
+/// Default endpoint for the `controller` subcommand (controller north bound API).
 pub(crate) const DEFAULT_CONTROLLER_ENDPOINT: &str = "127.0.0.1:50051";
+/// Default endpoint for the `channel-manager` subcommand (channel manager gRPC API).
 pub(crate) const DEFAULT_CHANNEL_MANAGER_ENDPOINT: &str = "127.0.0.1:10356";
+/// Default listen address for starting a local SLIM node via the `slim` subcommand.
+pub(crate) const DEFAULT_SLIM_ADDRESS: &str = "127.0.0.1:46357";
 
 /// Merge a file-level `ClientConfig` with CLI overrides.
 /// `default_endpoint` is the per-subcommand fallback when neither the file
