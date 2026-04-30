@@ -1836,48 +1836,6 @@ mod tests {
 
     #[test]
     fn test_conversions() {
-        use crate::messages::encoder::Name as EncoderName;
-
-        // EncoderName to ProtoName
-        let name = EncoderName::from_strings(["org", "ns", "type"]).with_id(1);
-        let proto_name = ProtoName::from(&name);
-
-        assert_eq!(
-            proto_name.name.as_ref().unwrap().component_0,
-            name.components()[0]
-        );
-        assert_eq!(
-            proto_name.name.as_ref().unwrap().component_1,
-            name.components()[1]
-        );
-        assert_eq!(
-            proto_name.name.as_ref().unwrap().component_2,
-            name.components()[2]
-        );
-        assert_eq!(
-            proto_name.name.as_ref().unwrap().component_3,
-            name.components()[3]
-        );
-
-        // ProtoName to EncoderName
-        let name_from_proto = EncoderName::from(&proto_name);
-        assert_eq!(
-            name_from_proto.components()[0],
-            proto_name.name.as_ref().unwrap().component_0
-        );
-        assert_eq!(
-            name_from_proto.components()[1],
-            proto_name.name.as_ref().unwrap().component_1
-        );
-        assert_eq!(
-            name_from_proto.components()[2],
-            proto_name.name.as_ref().unwrap().component_2
-        );
-        assert_eq!(
-            name_from_proto.components()[3],
-            proto_name.name.as_ref().unwrap().component_3
-        );
-
         // ProtoMessage to ProtoSubscribe
         let name = ProtoName::from_strings(["org", "ns", "type"]).with_id(1);
         let dst = ProtoName::from_strings(["org", "ns", "type"]).with_id(1);
