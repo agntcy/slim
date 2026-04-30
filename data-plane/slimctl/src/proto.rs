@@ -23,3 +23,11 @@ pub mod controller {
         }
     }
 }
+
+pub mod channel_manager {
+    pub mod proto {
+        pub mod v1 {
+            tonic::include_proto!("channel_manager.proto.v1");
+        }
+    }
+}

@@ -6,13 +6,17 @@ use clap::builder::styling::{AnsiColor, Effects, Styles};
 use clap::{Args, Parser, Subcommand};
 
 use crate::commands::{
+    channel_manager::{self, ChannelManagerArgs},
     config_cmd::{self, ConfigArgs},
     controller::{self, ControllerArgs},
     node::{self, NodeArgs},
     slim_cmd::{self, SlimArgs},
     version,
 };
-use crate::config::{ResolvedOpts, load_config};
+use crate::config::{
+    DEFAULT_CHANNEL_MANAGER_ENDPOINT, DEFAULT_CONTROLLER_ENDPOINT, DEFAULT_NODE_ENDPOINT,
+    load_config, resolve_config,
+};
 
 fn styles() -> Styles {
     Styles::styled()
@@ -61,14 +65,6 @@ struct GlobalOpts {
     #[arg(long, env = "SLIMCTL_COMMON_OPTS_TIMEOUT", global = true)]
     timeout: Option<String>,
 
-    /// Disable TLS (plain HTTP/2)
-    #[arg(
-        long = "tls.insecure",
-        env = "SLIMCTL_COMMON_OPTS_TLS_INSECURE",
-        global = true
-    )]
-    tls_insecure: bool,
-
     /// Use TLS but skip server certificate verification
     #[arg(
         long = "tls.insecure_skip_verify",
@@ -111,16 +107,20 @@ enum Commands {
     Config(ConfigArgs),
 
     /// Commands to interact with SLIM nodes directly
-    #[command(aliases = ["n", "instance", "i"])]
+    #[command(visible_aliases = ["n", "instance", "i"])]
     Node(NodeArgs),
 
     /// Commands to interact with the SLIM Control Plane
-    #[command(aliases = ["c", "ctrl"])]
+    #[command(visible_aliases = ["c", "ctrl"])]
     Controller(ControllerArgs),
 
     /// Commands for managing a local SLIM instance
-    #[command(alias = "s")]
+    #[command(visible_alias = "s")]
     Slim(SlimArgs),
+
+    /// Commands to interact with the Channel Manager service
+    #[command(visible_alias = "cm")]
+    ChannelManager(ChannelManagerArgs),
 }
 
 pub(crate) async fn run(cli: Cli) -> Result<()> {
@@ -129,13 +129,23 @@ pub(crate) async fn run(cli: Cli) -> Result<()> {
     // precede any rustls call.
     slim_config::tls::provider::initialize_crypto_provider();
 
-    // Load config file, then overlay with CLI/env opts
+    // Load config file
     let file_config = load_config(cli.global.config.as_deref())?;
-    let opts = ResolvedOpts::resolve(
+
+    // Determine per-subcommand default endpoint
+    let default_endpoint = match &cli.command {
+        Commands::Node(_) => DEFAULT_NODE_ENDPOINT,
+        Commands::Controller(_) => DEFAULT_CONTROLLER_ENDPOINT,
+        Commands::ChannelManager(_) => DEFAULT_CHANNEL_MANAGER_ENDPOINT,
+        _ => DEFAULT_NODE_ENDPOINT,
+    };
+
+    // Overlay CLI flags on top of file config
+    let opts = resolve_config(
         &file_config,
+        default_endpoint,
         cli.global.server.as_deref(),
         cli.global.timeout.as_deref(),
-        cli.global.tls_insecure,
         cli.global.tls_insecure_skip_verify,
         cli.global.tls_ca_file.as_deref(),
         cli.global.tls_cert_file.as_deref(),
@@ -159,6 +169,9 @@ pub(crate) async fn run(cli: Cli) -> Result<()> {
         Commands::Slim(args) => {
             slim_cmd::run(&args).await?;
         }
+        Commands::ChannelManager(args) => {
+            channel_manager::run(&args, &opts).await?;
+        }
     }
 
     Ok(())
@@ -167,6 +180,7 @@ pub(crate) async fn run(cli: Cli) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::channel_manager::ChannelManagerCommand;
     use crate::commands::config_cmd::{ConfigCommand, SetCommand};
     use crate::commands::controller::{
         ControllerChannelCommand, ControllerCommand, ControllerConnectionCommand,
@@ -270,21 +284,6 @@ mod tests {
             panic!()
         };
         assert_eq!(value, "30s");
-    }
-
-    #[test]
-    fn parse_config_set_tls_insecure() {
-        let cli = parse_ok(&["slimctl", "config", "set", "tls-insecure", "false"]);
-        let Commands::Config(args) = cli.command else {
-            panic!()
-        };
-        let ConfigCommand::Set(s) = args.command else {
-            panic!()
-        };
-        let SetCommand::TlsInsecure { value } = s.command else {
-            panic!()
-        };
-        assert_eq!(value, "false");
     }
 
     #[test]
@@ -731,6 +730,226 @@ mod tests {
         assert_eq!(start_args.endpoint.as_deref(), Some("0.0.0.0:46357"));
     }
 
+    // ── channel-manager ──────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_channel_manager_create_channel() {
+        let cli = parse_ok(&["slimctl", "channel-manager", "create-channel", "my/ns/chan"]);
+        let Commands::ChannelManager(args) = cli.command else {
+            panic!()
+        };
+        let ChannelManagerCommand::CreateChannel {
+            channel,
+            disable_mls,
+        } = args.command
+        else {
+            panic!()
+        };
+        assert_eq!(channel, "my/ns/chan");
+        assert!(!disable_mls);
+    }
+
+    #[test]
+    fn parse_channel_manager_create_channel_disable_mls() {
+        let cli = parse_ok(&[
+            "slimctl",
+            "channel-manager",
+            "create-channel",
+            "my/ns/chan",
+            "--disable-mls",
+        ]);
+        let Commands::ChannelManager(args) = cli.command else {
+            panic!()
+        };
+        let ChannelManagerCommand::CreateChannel {
+            channel,
+            disable_mls,
+        } = args.command
+        else {
+            panic!()
+        };
+        assert_eq!(channel, "my/ns/chan");
+        assert!(disable_mls);
+    }
+
+    #[test]
+    fn parse_channel_manager_delete_channel() {
+        let cli = parse_ok(&["slimctl", "channel-manager", "delete-channel", "my/ns/chan"]);
+        let Commands::ChannelManager(args) = cli.command else {
+            panic!()
+        };
+        let ChannelManagerCommand::DeleteChannel { channel } = args.command else {
+            panic!()
+        };
+        assert_eq!(channel, "my/ns/chan");
+    }
+
+    #[test]
+    fn parse_channel_manager_add_participant() {
+        let cli = parse_ok(&[
+            "slimctl",
+            "channel-manager",
+            "add-participant",
+            "my/ns/chan",
+            "org/ns/app",
+        ]);
+        let Commands::ChannelManager(args) = cli.command else {
+            panic!()
+        };
+        let ChannelManagerCommand::AddParticipant {
+            channel,
+            participant,
+        } = args.command
+        else {
+            panic!()
+        };
+        assert_eq!(channel, "my/ns/chan");
+        assert_eq!(participant, "org/ns/app");
+    }
+
+    #[test]
+    fn parse_channel_manager_delete_participant() {
+        let cli = parse_ok(&[
+            "slimctl",
+            "channel-manager",
+            "delete-participant",
+            "my/ns/chan",
+            "org/ns/app",
+        ]);
+        let Commands::ChannelManager(args) = cli.command else {
+            panic!()
+        };
+        let ChannelManagerCommand::DeleteParticipant {
+            channel,
+            participant,
+        } = args.command
+        else {
+            panic!()
+        };
+        assert_eq!(channel, "my/ns/chan");
+        assert_eq!(participant, "org/ns/app");
+    }
+
+    #[test]
+    fn parse_channel_manager_list_channels() {
+        let cli = parse_ok(&["slimctl", "channel-manager", "list-channels"]);
+        let Commands::ChannelManager(args) = cli.command else {
+            panic!()
+        };
+        assert!(matches!(args.command, ChannelManagerCommand::ListChannels));
+    }
+
+    #[test]
+    fn parse_channel_manager_list_participants() {
+        let cli = parse_ok(&[
+            "slimctl",
+            "channel-manager",
+            "list-participants",
+            "my/ns/chan",
+        ]);
+        let Commands::ChannelManager(args) = cli.command else {
+            panic!()
+        };
+        let ChannelManagerCommand::ListParticipants { channel } = args.command else {
+            panic!()
+        };
+        assert_eq!(channel, "my/ns/chan");
+    }
+
+    #[test]
+    fn parse_channel_manager_create_channel_missing_arg_fails() {
+        let err = parse_err(&["slimctl", "channel-manager", "create-channel"]);
+        assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
+    }
+
+    #[test]
+    fn parse_channel_manager_add_participant_missing_participant_fails() {
+        let err = parse_err(&[
+            "slimctl",
+            "channel-manager",
+            "add-participant",
+            "my/ns/chan",
+        ]);
+        assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
+    }
+
+    // ── channel-manager aliases ──────────────────────────────────────────────
+
+    #[test]
+    fn alias_channel_manager_cm() {
+        let cli = parse_ok(&["slimctl", "cm", "list-channels"]);
+        assert!(matches!(cli.command, Commands::ChannelManager(_)));
+    }
+
+    #[test]
+    fn alias_channel_manager_cc() {
+        let cli = parse_ok(&["slimctl", "cm", "cc", "my/ns/chan"]);
+        let Commands::ChannelManager(args) = cli.command else {
+            panic!()
+        };
+        assert!(matches!(
+            args.command,
+            ChannelManagerCommand::CreateChannel { .. }
+        ));
+    }
+
+    #[test]
+    fn alias_channel_manager_dc() {
+        let cli = parse_ok(&["slimctl", "cm", "dc", "my/ns/chan"]);
+        let Commands::ChannelManager(args) = cli.command else {
+            panic!()
+        };
+        assert!(matches!(
+            args.command,
+            ChannelManagerCommand::DeleteChannel { .. }
+        ));
+    }
+
+    #[test]
+    fn alias_channel_manager_ap() {
+        let cli = parse_ok(&["slimctl", "cm", "ap", "my/ns/chan", "org/ns/app"]);
+        let Commands::ChannelManager(args) = cli.command else {
+            panic!()
+        };
+        assert!(matches!(
+            args.command,
+            ChannelManagerCommand::AddParticipant { .. }
+        ));
+    }
+
+    #[test]
+    fn alias_channel_manager_dp() {
+        let cli = parse_ok(&["slimctl", "cm", "dp", "my/ns/chan", "org/ns/app"]);
+        let Commands::ChannelManager(args) = cli.command else {
+            panic!()
+        };
+        assert!(matches!(
+            args.command,
+            ChannelManagerCommand::DeleteParticipant { .. }
+        ));
+    }
+
+    #[test]
+    fn alias_channel_manager_lc() {
+        let cli = parse_ok(&["slimctl", "cm", "lc"]);
+        let Commands::ChannelManager(args) = cli.command else {
+            panic!()
+        };
+        assert!(matches!(args.command, ChannelManagerCommand::ListChannels));
+    }
+
+    #[test]
+    fn alias_channel_manager_lp() {
+        let cli = parse_ok(&["slimctl", "cm", "lp", "my/ns/chan"]);
+        let Commands::ChannelManager(args) = cli.command else {
+            panic!()
+        };
+        assert!(matches!(
+            args.command,
+            ChannelManagerCommand::ListParticipants { .. }
+        ));
+    }
+
     // ── command aliases ───────────────────────────────────────────────────────
 
     #[test]
@@ -823,12 +1042,6 @@ mod tests {
     }
 
     #[test]
-    fn global_flag_tls_insecure() {
-        let cli = parse_ok(&["slimctl", "--tls.insecure", "version"]);
-        assert!(cli.global.tls_insecure);
-    }
-
-    #[test]
     fn global_flag_tls_insecure_skip_verify() {
         let cli = parse_ok(&["slimctl", "--tls.insecure_skip_verify", "version"]);
         assert!(cli.global.tls_insecure_skip_verify);
@@ -866,7 +1079,6 @@ mod tests {
         assert!(cli.global.config.is_none());
         assert!(cli.global.server.is_none());
         assert!(cli.global.timeout.is_none());
-        assert!(!cli.global.tls_insecure);
         assert!(!cli.global.tls_insecure_skip_verify);
         assert!(cli.global.tls_ca_file.is_none());
         assert!(cli.global.tls_cert_file.is_none());
@@ -952,7 +1164,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(
-            crate::config::load_config(None).unwrap().common_opts.server,
+            crate::config::load_config(None).unwrap().endpoint,
             "myhost:9090"
         );
     }
@@ -965,13 +1177,9 @@ mod tests {
         run(parse_ok(&["slimctl", "config", "set", "timeout", "2m"]))
             .await
             .unwrap();
-        assert_eq!(
-            crate::config::load_config(None)
-                .unwrap()
-                .common_opts
-                .timeout,
-            "2m"
-        );
+        let config = crate::config::load_config(None).unwrap();
+        let dur: std::time::Duration = config.connect_timeout.into();
+        assert_eq!(dur, std::time::Duration::from_secs(120));
     }
 
     #[tokio::test]
@@ -986,46 +1194,6 @@ mod tests {
                 "set",
                 "timeout",
                 "notaduration"
-            ]))
-            .await
-            .is_err()
-        );
-    }
-
-    #[tokio::test]
-    #[allow(clippy::await_holding_lock)]
-    async fn cmd_config_set_tls_insecure_true_persists() {
-        let _guard = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let _dir = setup_home();
-        run(parse_ok(&[
-            "slimctl",
-            "config",
-            "set",
-            "tls-insecure",
-            "true",
-        ]))
-        .await
-        .unwrap();
-        assert!(
-            crate::config::load_config(None)
-                .unwrap()
-                .common_opts
-                .tls_insecure
-        );
-    }
-
-    #[tokio::test]
-    #[allow(clippy::await_holding_lock)]
-    async fn cmd_config_set_tls_insecure_invalid_value_fails() {
-        let _guard = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let _dir = setup_home();
-        assert!(
-            run(parse_ok(&[
-                "slimctl",
-                "config",
-                "set",
-                "tls-insecure",
-                "maybe"
             ]))
             .await
             .is_err()
@@ -1049,8 +1217,8 @@ mod tests {
         assert!(
             crate::config::load_config(None)
                 .unwrap()
-                .common_opts
-                .tls_insecure_skip_verify
+                .tls_setting
+                .insecure_skip_verify
         );
     }
 
