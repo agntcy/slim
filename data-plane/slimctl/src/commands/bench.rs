@@ -491,17 +491,25 @@ async fn run_sub_worker(
         .await
         .context("connect to server failed")?;
 
+    println!("[sub-{i}] connected (conn_id: {conn_id})");
+
     let app = service
         .create_app_with_secret_async(own_name.clone(), secret.to_string())
         .await
         .context("create app failed")?;
 
-    app.subscribe_async(own_name, Some(conn_id))
+    app.subscribe_async(own_name.clone(), Some(conn_id))
         .await
         .context("subscribe failed")?;
 
+    println!("[sub-{i}] ready at {own_name} — waiting for publisher session...");
+
     // Wait for a session from a publisher.  Poll with a 2-second timeout so
-    // the worker can eventually be cancelled if needed.
+    // that if the channel returns any error we retry rather than giving up.
+    // Any non-session notification (e.g. NewMessage arriving out of order) is
+    // also retried: the notification is consumed from the channel and the loop
+    // calls listen_for_session_async again, which will block until the real
+    // NewSession notification arrives.
     let session = loop {
         match app
             .listen_for_session_async(Some(Duration::from_secs(2)))
@@ -509,14 +517,18 @@ async fn run_sub_worker(
         {
             Ok(s) => break s,
             Err(e) => {
+                // Log non-timeout errors so the user can see unexpected issues,
+                // but always retry — the session INIT may still be in transit.
                 let msg = e.to_string().to_lowercase();
-                if msg.contains("timeout") || msg.contains("timed out") {
-                    continue;
+                if !msg.contains("timed out") {
+                    eprintln!("[sub-{i}] listen_for_session: {e} (retrying)");
                 }
-                return Err(anyhow::Error::from(e).context("listen for session failed"));
+                continue;
             }
         }
     };
+
+    println!("[sub-{i}] session established");
 
     let recv_timeout = Duration::from_secs(30);
     let start = Instant::now();
@@ -666,13 +678,15 @@ async fn run_pub_worker(
         .await
         .context("connect to server failed")?;
 
+    println!("[pub-{i}] connected (conn_id: {conn_id})");
+
     let app = service
         .create_app_with_secret_async(own_name.clone(), secret.to_string())
         .await
         .context("create app failed")?;
 
     // Subscribe own name so replies can reach us in request-reply mode.
-    app.subscribe_async(own_name, Some(conn_id))
+    app.subscribe_async(own_name.clone(), Some(conn_id))
         .await
         .context("subscribe failed")?;
 
@@ -680,6 +694,8 @@ async fn run_pub_worker(
     app.set_route_async(target_name.clone(), conn_id)
         .await
         .context("set route to subscriber failed")?;
+
+    println!("[pub-{i}] subscribed {own_name} — creating session to {target_name}...");
 
     // Create a session to the subscriber.  Use generous retries so the
     // publisher can wait up to 30 seconds for the subscriber to come up.
@@ -691,10 +707,28 @@ async fn run_pub_worker(
         metadata: HashMap::new(),
     };
 
-    let session = app
-        .create_session_and_wait_async(session_config, target_name)
+    // Use create_session_async + wait_for_async so the wall-clock timeout is
+    // enforced independently of the session-layer retry count.  If the
+    // session is not established within 35 s we return a clear error rather
+    // than hanging forever.
+    let swc = app
+        .create_session_async(session_config, target_name.clone())
         .await
-        .context("create session to subscriber failed")?;
+        .context("failed to initiate session")?;
+
+    swc.completion
+        .wait_for_async(Duration::from_secs(35))
+        .await
+        .with_context(|| {
+            format!(
+                "[pub-{i}] session to {target_name} not established within 35 s — \
+                 is `slimctl bench sub` running with a matching --prefix and --count?"
+            )
+        })?;
+
+    let session = swc.session;
+
+    println!("[pub-{i}] session established — publishing {msg_count} messages");
 
     let start = Instant::now();
     let msg_bytes = msg_count * payload.len() as u64;
