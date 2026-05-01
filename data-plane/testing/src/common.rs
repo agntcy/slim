@@ -6,7 +6,7 @@ use slim_auth::shared_secret::SharedSecret;
 use slim_config::component::{Component, id::ID};
 use slim_config::grpc::server::ServerConfig as GrpcServerConfig;
 use slim_config::tls::server::TlsServerConfig;
-use slim_datapath::messages::Name;
+use slim_datapath::api::ProtoName as Name;
 use slim_service::ServiceError;
 use slim_service::{Service, ServiceConfiguration, app::App};
 use slim_session::{Notification, SessionError};

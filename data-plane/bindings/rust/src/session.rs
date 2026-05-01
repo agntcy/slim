@@ -8,8 +8,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use futures_timer::Delay;
+use slim_datapath::api::ProtoName as SlimName;
 use slim_datapath::api::ProtoSessionType;
-use slim_datapath::messages::Name as SlimName;
 use slim_datapath::messages::utils::{PUBLISH_TO, SlimHeaderFlags, TRUE_VAL};
 use slim_session::SessionConfig as SlimSessionConfig;
 use slim_session::SessionError;
@@ -735,8 +735,8 @@ mod tests {
         let content = ApplicationPayload::new(content_type, payload).as_content();
 
         let mut slim_header = SlimHeader::default();
-        slim_header.set_source(&source);
-        slim_header.set_destination(&dest);
+        slim_header.set_source(source);
+        slim_header.set_destination(dest);
 
         let publish = ProtoPublish {
             header: Some(slim_header),
@@ -1346,10 +1346,10 @@ mod tests {
         );
 
         let slim_name = message_ctx.source_as_slim_name();
-        let components = slim_name.components_strings();
-        assert_eq!(components[0], "org");
-        assert_eq!(components[1], "namespace");
-        assert_eq!(components[2], "app");
+        let (c0, c1, c2) = slim_name.str_components();
+        assert_eq!(c0, "org");
+        assert_eq!(c1, "namespace");
+        assert_eq!(c2, "app");
     }
 
     // ==================== Empty/Edge Case Tests ====================

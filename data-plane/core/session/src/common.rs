@@ -6,9 +6,8 @@ use std::time::Duration;
 // Third-party crates
 use tonic::Status;
 
-use slim_datapath::{
-    api::{ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType},
-    messages::{Name, utils::MessageError},
+use slim_datapath::api::{
+    EncodedName, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
 };
 
 // Local crate
@@ -42,40 +41,6 @@ pub enum MessageDirection {
     South,
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn new_message_from_session_fields(
-    local_name: &Name,
-    target_name: &Name,
-    target_conn: u64,
-    is_error: bool,
-    session_type: ProtoSessionType,
-    message_type: ProtoSessionMessageType,
-    session_id: u32,
-    message_id: u32,
-    metadata: Option<std::collections::HashMap<String, String>>,
-) -> Result<Message, MessageError> {
-    let mut builder = Message::builder()
-        .source(local_name.clone())
-        .destination(target_name.clone())
-        .identity("")
-        .forward_to(target_conn)
-        .session_type(session_type)
-        .session_message_type(message_type)
-        .session_id(session_id)
-        .message_id(message_id)
-        .application_payload("", vec![]);
-
-    if is_error {
-        builder = builder.error(true);
-    }
-
-    if let Some(meta) = metadata {
-        builder = builder.metadata_map(meta);
-    }
-
-    builder.build_publish()
-}
-
 /// Message types for communication between session components
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
@@ -94,7 +59,7 @@ pub enum SessionMessage {
     TimerTimeout {
         message_id: u32,
         message_type: ProtoSessionMessageType,
-        name: Option<Name>,
+        name: Option<EncodedName>,
         timeouts: u32,
     },
     /// timer failure, signal to the owner of the packet that
@@ -102,11 +67,11 @@ pub enum SessionMessage {
     TimerFailure {
         message_id: u32,
         message_type: ProtoSessionMessageType,
-        name: Option<Name>,
+        name: Option<EncodedName>,
         timeouts: u32,
     },
     /// sent by the controller sender when a disconnection is detected
-    ParticipantDisconnected { name: Option<Name> },
+    ParticipantDisconnected { name: Option<ProtoName> },
     /// message from session layer to the session controller
     /// to start to the close procedures of the session
     StartDrain { grace_period: Duration },
@@ -115,6 +80,6 @@ pub enum SessionMessage {
     DeleteSession { session_id: u32 },
     /// Query the participants list from the handler
     GetParticipantsList {
-        tx: tokio::sync::oneshot::Sender<Vec<Name>>,
+        tx: tokio::sync::oneshot::Sender<Vec<ProtoName>>,
     },
 }

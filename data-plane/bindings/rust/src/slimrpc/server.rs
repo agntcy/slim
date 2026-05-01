@@ -18,7 +18,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
-use slim_datapath::messages::Name;
+use slim_datapath::api::ProtoName as Name;
 use slim_service::app::App as SlimApp;
 use slim_session::errors::SessionError;
 use slim_session::notification::Notification;
@@ -1438,8 +1438,8 @@ mod tests {
     fn test_build_method_name() {
         // Test name building logic without requiring full App setup
         let base_name = Name::from_strings(["org", "namespace", "app"]);
-        let components = base_name.components_strings();
-        let expected = format!("{}-{}-{}", &components[2], "MyService", "MyMethod");
+        let (_, _, c2) = base_name.str_components();
+        let expected = format!("{}-{}-{}", c2, "MyService", "MyMethod");
 
         assert_eq!(expected, "app-MyService-MyMethod");
     }

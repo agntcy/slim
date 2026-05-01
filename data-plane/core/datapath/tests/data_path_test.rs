@@ -4,7 +4,7 @@
 mod tests {
     use std::{net::SocketAddr, sync::Arc};
 
-    use slim_datapath::messages::Name;
+    use slim_datapath::api::ProtoName as Name;
     use slim_datapath::messages::utils::SlimHeaderFlags;
     use tracing::info;
     use tracing_test::traced_test;

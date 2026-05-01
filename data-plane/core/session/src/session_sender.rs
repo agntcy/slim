@@ -4,14 +4,13 @@
 use std::collections::{HashMap, HashSet};
 
 use rand::Rng;
-use slim_datapath::api::ProtoSessionType;
+use slim_datapath::api::{EncodedName, ProtoSessionType};
 use slim_datapath::messages::utils::{MAX_PUBLISH_ID, PUBLISH_TO};
-use slim_datapath::{api::ProtoMessage as Message, messages::Name};
+use slim_datapath::{api::ProtoMessage as Message, api::ProtoName};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
 use tracing::debug;
 
-use crate::common::new_message_from_session_fields;
 use crate::transmitter::SessionTransmitter;
 use crate::{
     SessionError, Transmitter,
@@ -31,8 +30,8 @@ enum SenderDrainStatus {
 
 #[allow(dead_code)]
 struct GroupTimer {
-    /// list of names for which we did not get an ack yet
-    missing_timers: HashSet<Name>,
+    /// list of encoded names for which we did not get an ack yet
+    missing_timers: HashSet<EncodedName>,
 
     /// the timer
     timer: Timer,
@@ -54,13 +53,12 @@ pub struct SessionSender {
     pending_acks: HashMap<u32, (GroupTimer, Option<Message>)>,
 
     /// list of timer ids associated for each endpoint
-    /// this list do not ta
-    pending_acks_per_endpoint: HashMap<Name, HashSet<u32>>,
+    pending_acks_per_endpoint: HashMap<EncodedName, HashSet<u32>>,
 
-    /// list of the endpoints in the conversation
-    /// on message send, create an ack timer for each endpoint in the list
-    /// on endpoint remove, delete all the acks to the endpoint
-    endpoints_list: HashSet<Name>,
+    /// list of the endpoints in the conversation, keyed by encoded name for
+    /// zero-alloc hot-path lookups; ProtoName value retained for retransmit
+    /// set_destination calls (group retransmit must rewrite the destination).
+    endpoints_list: HashMap<EncodedName, ProtoName>,
 
     /// message id, used to send sequential messages
     /// it goes from 0 to 2^16. higher ids are used for messages
@@ -120,7 +118,7 @@ impl SessionSender {
             timer_factory: factory,
             pending_acks: HashMap::new(),
             pending_acks_per_endpoint: HashMap::new(),
-            endpoints_list: HashSet::new(),
+            endpoints_list: HashMap::new(),
             next_id: 0,
             session_id,
             session_type,
@@ -212,12 +210,13 @@ impl SessionSender {
 
         // if is_publish_to and the message destination is not
         // in the endpoint list we drop the messages
-        if is_publish_to && !self.endpoints_list.contains(&message.get_dst()) {
+        if is_publish_to && !self.endpoints_list.contains_key(&message.get_encoded_dst()) {
+            let dst = message.get_dst();
             debug!(
-                dst = %message.get_dst(),
+                %dst,
                 "cannot forward the message to the select destination",
             );
-            return Err(SessionError::UnknownDestination(message.get_dst()));
+            return Err(SessionError::UnknownDestination(dst));
         }
 
         let (message_id, fanout) = self.id_and_fanout(is_publish_to);
@@ -285,11 +284,12 @@ impl SessionSender {
 
         if let Some(timer_factory) = &self.timer_factory {
             debug!("reliable sender, set all timers");
-            // set the list of missing timers according to the destination of message
-            let missing_timers = if is_publish_to {
-                std::iter::once(message.get_dst()).collect::<HashSet<_>>()
+            // set the list of missing timers (encoded keys only — Name looked up
+            // from endpoints_list at retransmit time to avoid cloning)
+            let missing_timers: HashSet<EncodedName> = if is_publish_to {
+                HashSet::from([message.get_encoded_dst()])
             } else {
-                self.endpoints_list.clone()
+                self.endpoints_list.keys().copied().collect()
             };
 
             // create a timer for the new packet and update the state
@@ -303,23 +303,23 @@ impl SessionSender {
             };
 
             // insert in pending acks and get the endpoint_to_track
-            let endpoints_to_track = if is_publish_to {
+            let endpoints_to_track: Vec<EncodedName> = if is_publish_to {
                 self.pending_acks
                     .insert(message_id, (gt, Some(message.clone())));
-                std::iter::once(message.get_dst()).collect::<Vec<_>>()
+                vec![message.get_encoded_dst()]
             } else {
                 self.pending_acks.insert(message_id, (gt, None));
-                self.endpoints_list.iter().cloned().collect::<Vec<_>>()
+                self.endpoints_list.keys().copied().collect()
             };
 
-            for n in &endpoints_to_track {
-                debug!(%message_id, remote = %n, "add timer for message");
-                if let Some(acks) = self.pending_acks_per_endpoint.get_mut(n) {
+            for enc in &endpoints_to_track {
+                debug!(%message_id, "add timer for message");
+                if let Some(acks) = self.pending_acks_per_endpoint.get_mut(enc) {
                     acks.insert(message_id);
                 } else {
                     let mut set = HashSet::new();
                     set.insert(message_id);
-                    self.pending_acks_per_endpoint.insert(n.clone(), set);
+                    self.pending_acks_per_endpoint.insert(*enc, set);
                 }
             }
         }
@@ -330,17 +330,17 @@ impl SessionSender {
     }
 
     fn on_ack_message(&mut self, message: &Message) {
-        let source = message.get_source();
+        let encoded_source = message.get_encoded_source();
         let message_id = message.get_id();
-        debug!(%message_id, %source, "received ack message");
+        debug!(%message_id, source = %message.get_source(), "received ack message");
 
         let mut delete = false;
         // remove the source from the pending acks
         // notice that the state for this ack id may not exist if all the endpoints
         // associated to it where removed before getting the acks
         if let Some((gt, _m)) = self.pending_acks.get_mut(&message_id) {
-            debug!(%source, "try to remove from pending acks");
-            gt.missing_timers.remove(&source);
+            debug!("try to remove from pending acks");
+            gt.missing_timers.remove(&encoded_source);
             if gt.missing_timers.is_empty() {
                 debug!("all acks received, remove timer");
                 // all acks received. stop the timer and remove the entry
@@ -356,10 +356,10 @@ impl SessionSender {
 
         // remove the pending ack from the name
         // also here the endpoint may not exists anymore
-        if let Some(set) = self.pending_acks_per_endpoint.get_mut(&source) {
+        if let Some(set) = self.pending_acks_per_endpoint.get_mut(&encoded_source) {
             debug!(
-                %message_id, %source,
-                "remove message from pending acks for"
+                %message_id,
+                "remove message from pending acks for endpoint"
             );
             // here we do not remove the name even if the set is empty
             // remove it only if endpoint is deleted
@@ -377,13 +377,13 @@ impl SessionSender {
     }
 
     async fn on_rtx_message(&mut self, message: Message) -> Result<(), SessionError> {
-        let source = message.get_source();
+        let source_proto = message.get_slim_header().source.clone();
         let message_id = message.get_id();
         let incoming_conn = message.get_incoming_conn();
 
         debug!(
             id = %message_id,
-            %source,
+            source = %message.get_source(),
             "received rtx request",
         );
 
@@ -391,7 +391,7 @@ impl SessionSender {
         if let Some(mut msg) = self.buffer.get(message_id as usize) {
             // the message still exists, send it back as a reply for the RTX
             debug!("the message is still exists, send it as rtx reply");
-            msg.get_slim_header_mut().set_destination(&source);
+            msg.get_slim_header_mut().destination = source_proto;
             msg.get_slim_header_mut()
                 .set_forward_to(Some(incoming_conn));
             msg.get_session_header_mut()
@@ -401,17 +401,19 @@ impl SessionSender {
             self.tx.send_to_slim(Ok(msg)).await
         } else {
             debug!("the message does not exists anymore, send and error");
-            let msg = new_message_from_session_fields(
-                &message.get_dst(),
-                &message.get_source(),
-                incoming_conn,
-                true,
-                message.get_session_type(),
-                slim_datapath::api::ProtoSessionMessageType::RtxReply,
-                self.session_id,
-                message_id,
-                None,
-            )?;
+            let dest_proto = message.get_slim_header().destination.clone().unwrap();
+            let msg = Message::builder()
+                .source(dest_proto)
+                .destination(source_proto.unwrap())
+                .identity("")
+                .forward_to(incoming_conn)
+                .session_type(message.get_session_type())
+                .session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply)
+                .session_id(self.session_id)
+                .message_id(message_id)
+                .application_payload("", vec![])
+                .error(true)
+                .build_publish()?;
 
             // send the message
             self.tx.send_to_slim(Ok(msg)).await
@@ -433,16 +435,18 @@ impl SessionSender {
         // this is a message sent to the group
         if let Some(message) = self.buffer.get(id as usize) {
             debug!("the message is still in the buffer, try to send it again to all the remotes");
-            // get the names for which we are missing the acks
-            // send the message to those destinations
+            // get the encoded names for which we are missing the acks
+            // look up Name from endpoints_list for destination rewrite
             if let Some((gt, _)) = self.pending_acks.get(&id) {
-                for n in &gt.missing_timers {
-                    debug!(%id, dst = %n, "resend message");
-                    let mut m = message.clone();
-                    m.get_slim_header_mut().set_destination(n);
-
-                    // send the message
-                    self.tx.send_to_slim(Ok(m)).await?;
+                let missing: Vec<EncodedName> = gt.missing_timers.iter().copied().collect();
+                for enc in &missing {
+                    if let Some(name) = self.endpoints_list.get(enc) {
+                        debug!(%id, dst = %name, "resend message");
+                        let mut m = message.clone();
+                        m.get_slim_header_mut().set_destination(name.clone());
+                        self.tx.send_to_slim(Ok(m)).await?;
+                    }
+                    // else: endpoint removed since original send — skip retransmit
                 }
             }
         } else {
@@ -460,8 +464,8 @@ impl SessionSender {
     pub fn on_failure(&mut self, id: u32, error: SessionError) -> Result<(), SessionError> {
         // remove all the state related to this timer
         if let Some((gt, _)) = self.pending_acks.get_mut(&id) {
-            for n in &gt.missing_timers {
-                if let Some(set) = self.pending_acks_per_endpoint.get_mut(n) {
+            for enc in &gt.missing_timers {
+                if let Some(set) = self.pending_acks_per_endpoint.get_mut(enc) {
                     set.remove(&id);
                 }
             }
@@ -494,9 +498,10 @@ impl SessionSender {
         self.on_failure(message_id, error)
     }
 
-    pub async fn add_endpoint(&mut self, endpoint: &Name) -> Result<(), SessionError> {
+    pub async fn add_endpoint(&mut self, endpoint: &ProtoName) -> Result<(), SessionError> {
         // add endpoint to the list
-        self.endpoints_list.insert(endpoint.clone());
+        self.endpoints_list
+            .insert(endpoint.name.unwrap(), endpoint.clone());
 
         debug!(
             %endpoint,
@@ -516,16 +521,17 @@ impl SessionSender {
         Ok(())
     }
 
-    pub fn remove_endpoint(&mut self, endpoint: &Name) {
+    pub fn remove_endpoint(&mut self, endpoint: &ProtoName) {
         debug!(
             %endpoint,
             list_len = %self.endpoints_list.len(),
             "remove endpoint",
         );
+        let key = endpoint.name.unwrap();
         // remove endpoint from the list and remove all the ack state
         // notice that no ack state may be associated to the endpoint
         // (e.g. endpoint added but no message sent)
-        if let Some(set) = self.pending_acks_per_endpoint.get(endpoint) {
+        if let Some(set) = self.pending_acks_per_endpoint.get(&key) {
             for id in set {
                 let mut delete = false;
                 if let Some((gt, _)) = self.pending_acks.get_mut(id) {
@@ -533,7 +539,7 @@ impl SessionSender {
                         %id, %endpoint,
                         "try to remove timer",
                     );
-                    gt.missing_timers.remove(endpoint);
+                    gt.missing_timers.remove(&key);
                     // if no endpoint is left we remove the timer
                     if gt.missing_timers.is_empty() {
                         gt.timer.stop();
@@ -548,8 +554,8 @@ impl SessionSender {
         };
 
         debug!("remove endpoint name from everywhere");
-        self.pending_acks_per_endpoint.remove(endpoint);
-        self.endpoints_list.remove(endpoint);
+        self.pending_acks_per_endpoint.remove(&key);
+        self.endpoints_list.remove(&key);
         debug!(list_size = %self.endpoints_list.len(), "new list size");
     }
 
@@ -616,7 +622,7 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
 
         sender
             .add_endpoint(&remote)
@@ -624,7 +630,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a test message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(remote.clone())
@@ -696,7 +702,7 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
 
         sender
             .add_endpoint(&remote)
@@ -704,7 +710,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a test message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(remote.clone())
@@ -835,7 +841,7 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
 
         sender
             .add_endpoint(&remote)
@@ -843,7 +849,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a test message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(remote.clone())
@@ -916,10 +922,10 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let group = Name::from_strings(["org", "ns", "group"]);
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
-        let remote3 = Name::from_strings(["org", "ns", "remote3"]);
+        let group = ProtoName::from_strings(["org", "ns", "group"]);
+        let remote1 = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2 = ProtoName::from_strings(["org", "ns", "remote2"]);
+        let remote3 = ProtoName::from_strings(["org", "ns", "remote3"]);
 
         sender
             .add_endpoint(&remote1)
@@ -935,7 +941,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a test message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(group.clone())
@@ -1036,10 +1042,10 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let group = Name::from_strings(["org", "ns", "group"]);
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
-        let remote3 = Name::from_strings(["org", "ns", "remote3"]);
+        let group = ProtoName::from_strings(["org", "ns", "group"]);
+        let remote1 = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2 = ProtoName::from_strings(["org", "ns", "remote2"]);
+        let remote3 = ProtoName::from_strings(["org", "ns", "remote3"]);
 
         sender
             .add_endpoint(&remote1)
@@ -1055,7 +1061,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a test message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(group.clone())
@@ -1219,10 +1225,10 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let group = Name::from_strings(["org", "ns", "group"]);
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
-        let remote3 = Name::from_strings(["org", "ns", "remote3"]);
+        let group = ProtoName::from_strings(["org", "ns", "group"]);
+        let remote1 = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2 = ProtoName::from_strings(["org", "ns", "remote2"]);
+        let remote3 = ProtoName::from_strings(["org", "ns", "remote3"]);
 
         sender
             .add_endpoint(&remote1)
@@ -1238,7 +1244,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a test message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(group.clone())
@@ -1329,10 +1335,10 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let group = Name::from_strings(["org", "ns", "group"]);
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
-        let remote3 = Name::from_strings(["org", "ns", "remote3"]);
+        let group = ProtoName::from_strings(["org", "ns", "group"]);
+        let remote1 = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2 = ProtoName::from_strings(["org", "ns", "remote2"]);
+        let remote3 = ProtoName::from_strings(["org", "ns", "remote3"]);
 
         sender
             .add_endpoint(&remote1)
@@ -1348,7 +1354,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a test message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(group.clone())
@@ -1467,7 +1473,7 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
 
         sender
             .add_endpoint(&remote)
@@ -1475,7 +1481,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a test message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(remote.clone())
@@ -1614,12 +1620,12 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
 
         // DO NOT add any endpoints - this is the key part of the test
 
         // Create a test message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(remote.clone())
@@ -1685,9 +1691,9 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
-        let remote3 = Name::from_strings(["org", "ns", "remote3"]);
+        let remote1 = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2 = ProtoName::from_strings(["org", "ns", "remote2"]);
+        let remote3 = ProtoName::from_strings(["org", "ns", "remote3"]);
 
         sender
             .add_endpoint(&remote1)
@@ -1703,7 +1709,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a test message with PUBLISH_TO targeting remote2
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(remote2.clone())
@@ -1762,8 +1768,8 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let unknown_remote = Name::from_strings(["org", "ns", "unknown"]);
+        let remote1 = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let unknown_remote = ProtoName::from_strings(["org", "ns", "unknown"]);
 
         sender
             .add_endpoint(&remote1)
@@ -1771,7 +1777,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a message with PUBLISH_TO targeting an unknown endpoint
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(unknown_remote.clone())
@@ -1813,7 +1819,7 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
 
         sender
             .add_endpoint(&remote)
@@ -1821,7 +1827,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a message with PUBLISH_TO metadata
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(remote.clone())
@@ -1872,8 +1878,8 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
+        let remote1 = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2 = ProtoName::from_strings(["org", "ns", "remote2"]);
 
         sender
             .add_endpoint(&remote1)
@@ -1885,7 +1891,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a PUBLISH_TO message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(remote2.clone())
@@ -1956,8 +1962,8 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
+        let remote1 = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2 = ProtoName::from_strings(["org", "ns", "remote2"]);
 
         sender
             .add_endpoint(&remote1)
@@ -1969,7 +1975,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a PUBLISH_TO message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(remote2.clone())
@@ -2046,8 +2052,8 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
+        let remote1 = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2 = ProtoName::from_strings(["org", "ns", "remote2"]);
 
         sender
             .add_endpoint(&remote1)
@@ -2059,7 +2065,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a PUBLISH_TO message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(remote2.clone())
@@ -2119,7 +2125,7 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
 
         sender
             .add_endpoint(&remote)
@@ -2127,7 +2133,7 @@ mod tests {
             .expect("error adding participant");
 
         // Create a PUBLISH_TO message
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
         let mut message = Message::builder()
             .source(source.clone())
             .destination(remote.clone())
@@ -2202,9 +2208,9 @@ mod tests {
             Some(tx_signal),
             false,
         );
-        let group = Name::from_strings(["org", "ns", "group"]);
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
+        let group = ProtoName::from_strings(["org", "ns", "group"]);
+        let remote1 = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2 = ProtoName::from_strings(["org", "ns", "remote2"]);
 
         sender
             .add_endpoint(&remote1)
@@ -2215,7 +2221,7 @@ mod tests {
             .await
             .expect("error adding participant");
 
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
 
         // Send a normal multicast message
         let mut normal_msg = Message::builder()
@@ -2302,14 +2308,14 @@ mod tests {
             Some(tx_signal),
             true, // shutdown_send enabled
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
 
         sender
             .add_endpoint(&remote)
             .await
             .expect("error adding participant");
 
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
 
         // Send messages 1, 2, 3 sequentially with ack notifiers
         for msg_id in 1..=3 {
@@ -2390,10 +2396,10 @@ mod tests {
             Some(tx_signal),
             true, // shutdown_send enabled
         );
-        let group = Name::from_strings(["org", "ns", "group"]);
-        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
-        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
-        let remote3 = Name::from_strings(["org", "ns", "remote3"]);
+        let group = ProtoName::from_strings(["org", "ns", "group"]);
+        let remote1 = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2 = ProtoName::from_strings(["org", "ns", "remote2"]);
+        let remote3 = ProtoName::from_strings(["org", "ns", "remote3"]);
 
         sender
             .add_endpoint(&remote1)
@@ -2408,7 +2414,7 @@ mod tests {
             .await
             .expect("error adding remote3");
 
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
 
         // Send 3 messages to the group with ack notifiers
         for msg_num in 1..=3 {
@@ -2492,8 +2498,8 @@ mod tests {
             Some(tx_signal),
             true, // shutdown_send enabled
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
 
         sender
             .add_endpoint(&remote)
@@ -2589,8 +2595,8 @@ mod tests {
             Some(tx_signal),
             true, // shutdown_send enabled
         );
-        let remote = Name::from_strings(["org", "ns", "remote"]);
-        let source = Name::from_strings(["org", "ns", "source"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
 
         // Send 3 messages WITHOUT adding endpoint first (normally would be buffered for flush)
         for msg_id in 1..=3 {

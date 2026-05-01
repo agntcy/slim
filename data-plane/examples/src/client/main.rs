@@ -9,7 +9,7 @@ use tracing::{error, info};
 
 use slim::config;
 use slim_auth::shared_secret::SharedSecret;
-use slim_datapath::messages::Name;
+use slim_datapath::api::ProtoName as Name;
 use slim_session::Notification;
 
 mod args;

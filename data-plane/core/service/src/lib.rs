@@ -18,7 +18,7 @@
 //! use slim_config::component::ComponentBuilder;
 //! use slim_auth::shared_secret::SharedSecret;
 //! use slim_auth::testutils::TEST_VALID_SECRET;
-//! use slim_datapath::messages::Name;
+//! use slim_datapath::api::ProtoName;
 //!
 //! // Create service instance (handles message processing)
 //! let service = Service::builder().build("svc-0".to_string()).expect("Failed to create service");

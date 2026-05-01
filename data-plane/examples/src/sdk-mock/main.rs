@@ -9,7 +9,7 @@ use tracing::info;
 
 use slim::config;
 use slim_auth::shared_secret::SharedSecret;
-use slim_datapath::{api::ProtoSessionType, messages::Name};
+use slim_datapath::api::{ProtoName as Name, ProtoSessionType};
 use slim_session::SessionConfig;
 use slim_testing::utils::TEST_VALID_SECRET;
 

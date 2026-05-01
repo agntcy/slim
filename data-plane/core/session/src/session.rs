@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use async_trait::async_trait;
-use slim_datapath::{
-    api::{ProtoMessage as Message, ProtoSessionMessageType},
-    messages::Name,
+use slim_datapath::api::{
+    EncodedName, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
 };
 
 use tokio::sync::mpsc::{self};
@@ -22,7 +21,7 @@ use crate::{
 };
 
 pub(crate) struct Session {
-    local_name: Name,
+    local_name: ProtoName,
     sender: SessionSender,
     receiver: SessionReceiver,
     processing_state: ProcessingState,
@@ -32,7 +31,7 @@ impl Session {
     pub(crate) fn new(
         session_id: u32,
         session_config: SessionConfig,
-        local_name: &Name,
+        local_name: &ProtoName,
         tx: SessionTransmitter,
         tx_signals: mpsc::Sender<SessionMessage>,
         direction: Direction,
@@ -126,12 +125,12 @@ impl Session {
         }
     }
 
-    pub async fn add_endpoint(&mut self, endpoint: &Name) -> Result<(), SessionError> {
+    pub async fn add_endpoint(&mut self, endpoint: &ProtoName) -> Result<(), SessionError> {
         debug!(%endpoint, local_name = %self.local_name, "add participant");
         self.sender.add_endpoint(endpoint).await
     }
 
-    pub fn remove_endpoint(&mut self, endpoint: &Name) {
+    pub fn remove_endpoint(&mut self, endpoint: &ProtoName) {
         debug!(%endpoint, local_name = %self.local_name, "remove participant");
         self.sender.remove_endpoint(endpoint);
         self.receiver.remove_endpoint(endpoint);
@@ -177,7 +176,7 @@ impl Session {
         &mut self,
         id: u32,
         message_type: ProtoSessionMessageType,
-        name: Option<Name>,
+        name: Option<EncodedName>,
     ) -> Result<(), SessionError> {
         match message_type {
             ProtoSessionMessageType::Msg => self.sender.on_timer_timeout(id).await,
@@ -192,7 +191,7 @@ impl Session {
         &mut self,
         id: u32,
         message_type: ProtoSessionMessageType,
-        name: Option<Name>,
+        name: Option<EncodedName>,
     ) -> Result<(), SessionError> {
         match message_type {
             ProtoSessionMessageType::Msg => self.sender.on_timer_failure(id),
@@ -221,12 +220,12 @@ impl MessageHandler for Session {
 
     async fn add_endpoint(
         &mut self,
-        endpoint: &slim_datapath::messages::Name,
+        endpoint: &slim_datapath::api::ProtoName,
     ) -> Result<(), SessionError> {
         self.add_endpoint(endpoint).await
     }
 
-    fn remove_endpoint(&mut self, endpoint: &slim_datapath::messages::Name) {
+    fn remove_endpoint(&mut self, endpoint: &slim_datapath::api::ProtoName) {
         self.remove_endpoint(endpoint);
     }
 
@@ -264,8 +263,8 @@ mod tests {
         let tx = SessionTransmitter::new(tx_slim.clone(), tx_app.clone());
         let session_id = 10;
 
-        let local_name = Name::from_strings(["org", "ns", "local"]);
-        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+        let local_name = ProtoName::from_strings(["org", "ns", "local"]);
+        let remote_name = ProtoName::from_strings(["org", "ns", "remote"]);
 
         let session_config = SessionConfig {
             session_type: ProtoSessionType::PointToPoint,
@@ -403,8 +402,8 @@ mod tests {
         let tx = SessionTransmitter::new(tx_slim.clone(), tx_app.clone());
         let session_id = 10;
 
-        let local_name = Name::from_strings(["org", "ns", "local"]);
-        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+        let local_name = ProtoName::from_strings(["org", "ns", "local"]);
+        let remote_name = ProtoName::from_strings(["org", "ns", "remote"]);
 
         let session_config = SessionConfig {
             session_type: ProtoSessionType::PointToPoint,
@@ -615,8 +614,8 @@ mod tests {
 
         let tx_sender = SessionTransmitter::new(tx_slim_sender.clone(), tx_app_sender.clone());
 
-        let sender_name = Name::from_strings(["org", "ns", "sender"]);
-        let receiver_name = Name::from_strings(["org", "ns", "receiver"]);
+        let sender_name = ProtoName::from_strings(["org", "ns", "sender"]);
+        let receiver_name = ProtoName::from_strings(["org", "ns", "receiver"]);
 
         let sender_config = SessionConfig {
             session_type: ProtoSessionType::PointToPoint,

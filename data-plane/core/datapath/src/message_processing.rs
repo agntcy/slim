@@ -30,22 +30,20 @@ use crate::api::ProtoSubscribeType as SubscribeType;
 use crate::api::ProtoSubscriptionAckType as SubscriptionAckType;
 use crate::api::ProtoUnsubscribeType as UnsubscribeType;
 use crate::api::proto::dataplane::v1::Message;
-use crate::api::{
-    EncodedName, LinkNegotiationPayload, ProtoLink, ProtoLinkMessageType as LinkType, ProtoLinkType,
-};
-use semver;
-
 use crate::api::proto::dataplane::v1::data_plane_service_client::DataPlaneServiceClient;
 use crate::api::proto::dataplane::v1::data_plane_service_server::DataPlaneService;
+use crate::api::{
+    LinkNegotiationPayload, ProtoLink, ProtoLinkMessageType as LinkType, ProtoLinkType, ProtoName,
+};
 use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::{DataPathError, MessageContext};
 use crate::forwarder::Forwarder;
-use crate::messages::Name;
 use crate::messages::utils::SlimHeaderFlags;
 use crate::recovery::RecoveryTable;
 use crate::tables::connection_table::ConnectionTable;
 use crate::tables::remote_subscription_table::SubscriptionInfo;
 use crate::tables::subscription_table::SubscriptionTableImpl;
+use semver;
 
 // Implementation based on: https://docs.rs/opentelemetry-tonic/latest/src/opentelemetry_tonic/lib.rs.html#1-134
 struct MetadataExtractor<'a>(&'a std::collections::HashMap<String, String>);
@@ -1108,7 +1106,7 @@ impl MessageProcessor {
     /// TTL-expiry path.
     async fn notify_control_plane_subscriptions_lost(
         tx_cp: Option<Sender<Result<Message, Status>>>,
-        local_subs: HashMap<Name, HashSet<u64>>,
+        local_subs: HashMap<ProtoName, HashSet<u64>>,
         conn_index: u64,
     ) {
         let Some(tx) = tx_cp else { return };
@@ -1295,7 +1293,7 @@ impl MessageProcessor {
                                     .into_iter()
                                     .filter(|(name, _)| {
                                         mp.forwarder()
-                                            .on_publish_msg_match(EncodedName::from(name), u64::MAX, u32::MAX)
+                                            .on_publish_msg_match(name.name.unwrap(), u64::MAX, u32::MAX)
                                             .is_err()
                                     })
                                     .collect();
@@ -1412,8 +1410,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::api::ProtoSubscriptionAck;
-    use crate::messages::Name;
+    use crate::api::{ProtoName, ProtoSubscriptionAck};
     use crate::tables::remote_subscription_table::SubscriptionInfo;
     use tonic::Status;
 
@@ -1423,8 +1420,8 @@ mod tests {
             .register_local_connection(false)
             .expect("failed to create local connection");
 
-        let source = Name::from_strings(["org", "ns", "source"]).with_id(1);
-        let destination = Name::from_strings(["org", "ns", "destination"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "source"]).with_id(1);
+        let destination = ProtoName::from_strings(["org", "ns", "destination"]).with_id(2);
         let ack_id: u64 = if add { 1 } else { 2 };
         let invalid_connection = u64::MAX - 1;
 
@@ -1804,8 +1801,8 @@ mod tests {
         let (remote_conn, mut rx_remote) = make_server_conn(&processor);
         negotiate_conn(&processor, remote_conn, "1.2.0");
 
-        let source = Name::from_strings(["org", "ns", "src"]).with_id(1);
-        let destination = Name::from_strings(["org", "ns", "dst"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "src"]).with_id(1);
+        let destination = ProtoName::from_strings(["org", "ns", "dst"]).with_id(2);
         let upstream_ack_id: u64 = 100;
 
         // Build subscribe: forward_to = remote_conn, with upstream ack ID.
@@ -1881,8 +1878,8 @@ mod tests {
         let (remote_conn, mut rx_remote) = make_server_conn(&processor);
         negotiate_conn(&processor, remote_conn, "1.1.0");
 
-        let source = Name::from_strings(["org", "ns", "src"]).with_id(1);
-        let destination = Name::from_strings(["org", "ns", "dst"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "src"]).with_id(1);
+        let destination = ProtoName::from_strings(["org", "ns", "dst"]).with_id(2);
         let upstream_ack_id: u64 = 101;
 
         let sub_msg = Message::builder()
@@ -1940,8 +1937,8 @@ mod tests {
         let (remote_conn, mut rx_remote) = make_server_conn(&processor);
         negotiate_conn(&processor, remote_conn, "1.2.0");
 
-        let source = Name::from_strings(["org", "ns", "src"]).with_id(1);
-        let destination = Name::from_strings(["org", "ns", "dst"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "src"]).with_id(1);
+        let destination = ProtoName::from_strings(["org", "ns", "dst"]).with_id(2);
         let upstream_ack_id: u64 = 102;
 
         let sub_msg = Message::builder()
@@ -2003,8 +2000,8 @@ mod tests {
     // ── retry_loop tests ──────────────────────────────────────────────────────
 
     fn make_test_subscribe(sub_id: u64) -> Message {
-        let source = Name::from_strings(["org", "ns", "src"]).with_id(1);
-        let destination = Name::from_strings(["org", "ns", "dst"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "src"]).with_id(1);
+        let destination = ProtoName::from_strings(["org", "ns", "dst"]).with_id(2);
         Message::builder()
             .source(source)
             .destination(destination)
@@ -2308,7 +2305,7 @@ mod tests {
     async fn test_notify_cp_subs_lost_sends_unsubscribes() {
         let (tx, mut rx) = mpsc::channel::<Result<Message, Status>>(16);
         let mut subs = HashMap::new();
-        let name = Name::from_strings(["org", "default", "svc"]);
+        let name = ProtoName::from_strings(["org", "default", "svc"]);
         subs.insert(name.clone(), HashSet::from([1u64, 2u64]));
 
         MessageProcessor::notify_control_plane_subscriptions_lost(Some(tx), subs, 42).await;
@@ -2321,7 +2318,7 @@ mod tests {
     #[tokio::test]
     async fn test_notify_cp_subs_lost_no_tx_is_noop() {
         let subs = HashMap::from([(
-            Name::from_strings(["org", "default", "svc"]),
+            ProtoName::from_strings(["org", "default", "svc"]),
             HashSet::from([1u64]),
         )]);
         // Should not panic or hang.
@@ -2345,7 +2342,7 @@ mod tests {
         let (conn_id, _rx) = make_server_conn(&processor);
 
         let link_id = uuid::Uuid::new_v4().to_string();
-        let sub_name = Name::from_strings(["org", "default", "recovered"]);
+        let sub_name = ProtoName::from_strings(["org", "default", "recovered"]);
 
         // Pre-populate the recovery table as if a prior connection dropped.
         let mut local_subs = HashMap::new();
@@ -2370,7 +2367,7 @@ mod tests {
         let result =
             processor
                 .forwarder()
-                .on_publish_msg_match(EncodedName::from(&sub_name), u64::MAX, 1);
+                .on_publish_msg_match(sub_name.name.unwrap(), u64::MAX, 1);
         assert!(result.is_ok(), "recovered subscription should be routable");
         assert_eq!(result.unwrap(), vec![conn_id]);
     }
@@ -2381,8 +2378,8 @@ mod tests {
         let (conn_id, mut rx) = make_server_conn(&processor);
 
         let link_id = uuid::Uuid::new_v4().to_string();
-        let source = Name::from_strings(["org", "default", "src"]);
-        let dest = Name::from_strings(["org", "default", "dst"]);
+        let source = ProtoName::from_strings(["org", "default", "src"]);
+        let dest = ProtoName::from_strings(["org", "default", "dst"]);
 
         let remote_sub =
             SubscriptionInfo::new(source.clone(), dest.clone(), "identity".into(), conn_id, 42);
@@ -2441,8 +2438,8 @@ mod tests {
         let processor = MessageProcessor::new();
         let (conn_id, mut rx) = make_server_conn(&processor);
 
-        let source = Name::from_strings(["org", "default", "src"]);
-        let dest = Name::from_strings(["org", "default", "dst"]);
+        let source = ProtoName::from_strings(["org", "default", "src"]);
+        let dest = ProtoName::from_strings(["org", "default", "dst"]);
         let sub = SubscriptionInfo::new(source.clone(), dest.clone(), "id1".into(), conn_id, 7);
         let subs = HashSet::from([sub]);
 
@@ -2466,8 +2463,8 @@ mod tests {
         let processor = MessageProcessor::new();
         let (conn_id, mut rx) = make_server_conn(&processor);
 
-        let source = Name::from_strings(["org", "default", "src"]);
-        let dest = Name::from_strings(["org", "default", "dst"]);
+        let source = ProtoName::from_strings(["org", "default", "src"]);
+        let dest = ProtoName::from_strings(["org", "default", "dst"]);
         let sub = SubscriptionInfo::new(source.clone(), dest.clone(), "id1".into(), conn_id, 7);
         let subs = HashSet::from([sub]);
 

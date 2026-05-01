@@ -10,7 +10,7 @@ use std::{num::ParseIntError, str::SplitWhitespace};
 use slim_config::component::id::ID;
 use slim_config::grpc::client::ClientConfig as GrpcClientConfig;
 use slim_config::tls::client::TlsClientConfig;
-use slim_datapath::messages::Name;
+use slim_datapath::api::ProtoName as Name;
 use slim_service::{Service, ServiceConfiguration};
 use thiserror::Error;
 
@@ -24,7 +24,7 @@ pub fn build_client_service(port: u16, name: &Name) -> Service {
     let client_cfg = GrpcClientConfig::with_endpoint(&endpoint)
         .with_tls_setting(TlsClientConfig::default().with_insecure(true));
     let service_cfg = ServiceConfiguration::new().with_dataplane_client(vec![client_cfg]);
-    let svc_id_str = format!("slim/{}", name.components_strings()[2]);
+    let svc_id_str = format!("slim/{}", name.str_components().2);
     let svc_id = ID::new_with_str(&svc_id_str).expect("invalid service id");
 
     service_cfg

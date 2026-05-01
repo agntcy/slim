@@ -1,8 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use slim_datapath::api::ProtoName;
 use slim_datapath::errors::{ErrorPayload, MessageContext};
-use slim_datapath::messages::Name;
 // Third-party crates
 use thiserror::Error;
 
@@ -54,7 +54,7 @@ pub enum SessionError {
     #[error("session not found: {0}")]
     SessionNotFound(u32),
     #[error("subscription not found: {0}")]
-    SubscriptionNotFound(Name),
+    SubscriptionNotFound(ProtoName),
 
     // Session lifecycle and state
     #[error("session builder: not all required fields set")]
@@ -84,13 +84,13 @@ pub enum SessionError {
     #[error("subscription ack failed: {0}")]
     SubscriptionAckFailed(#[source] SubscriptionAckError),
     #[error("unknown destination: {0}")]
-    UnknownDestination(Name),
+    UnknownDestination(ProtoName),
 
     // Session membership and permissions
     #[error("participant not found in group: {0}")]
-    ParticipantNotFound(Name),
+    ParticipantNotFound(ProtoName),
     #[error("participant already in group: {0}")]
-    ParticipantAlreadyInGroup(Name),
+    ParticipantAlreadyInGroup(ProtoName),
     #[error("cannot invite participant to point-to-point session")]
     CannotInviteToP2P,
     #[error("cannot remove participant from point-to-point session")]
@@ -143,7 +143,7 @@ pub enum SessionError {
     #[error("invalid join request payload")]
     InvalidJoinRequestPayload,
     #[error("participant disconnected: {0}")]
-    ParticipantDisconnected(Name),
+    ParticipantDisconnected(ProtoName),
     #[error("missing participant name on disconnection event")]
     MissingParticipantNameOnDisconnection,
 
