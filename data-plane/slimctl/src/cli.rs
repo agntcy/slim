@@ -7,6 +7,7 @@ use clap::{Args, Parser, Subcommand};
 
 use crate::commands::{
     channel_manager::{self, ChannelManagerArgs},
+    bench::{self, BenchArgs},
     config_cmd::{self, ConfigArgs},
     controller::{self, ControllerArgs},
     node::{self, NodeArgs},
@@ -121,6 +122,9 @@ enum Commands {
     /// Commands to interact with the Channel Manager service
     #[command(visible_alias = "cm")]
     ChannelManager(ChannelManagerArgs),
+
+    /// Benchmark SLIM messaging performance
+    Bench(BenchArgs),
 }
 
 pub(crate) async fn run(cli: Cli) -> Result<()> {
@@ -171,6 +175,9 @@ pub(crate) async fn run(cli: Cli) -> Result<()> {
         }
         Commands::ChannelManager(args) => {
             channel_manager::run(&args, &opts).await?;
+        }
+        Commands::Bench(args) => {
+            bench::run(&args).await?;
         }
     }
 
