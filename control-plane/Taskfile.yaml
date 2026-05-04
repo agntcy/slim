@@ -66,19 +66,19 @@ tasks:
         vars:
           CMD: "echo ${PWD} && {{.TOOLS_INSTALL_DIR}}/golangci-lint run"
 
-  control-plane:gci:
-    desc: Verify import grouping with gci (stdlib, third party, then Prefix local module)
+  control-plane:fmt:
+    desc: Run golangci-lint fmt
     deps:
       - tools:all
     cmds:
-      - task: control-plane:gogen
-      - task: control-plane:foreach-module
-        vars:
-          CMD: |
-            find . \( -path './vendor' -o -path './third-party' \) -prune -o \
-              -name '*.go' -print0 | \
-              xargs -0 {{.TOOLS_INSTALL_DIR}}/gci diff --skip-generated \
-                -s standard -s default -s 'Prefix({{.MAIN_MODULE}})'
+      - "{{.TOOLS_INSTALL_DIR}}/golangci-lint fmt ./..."
+
+  control-plane:fmt:diff:
+    desc: Run golangci-lint fmt diff
+    deps:
+      - tools:all
+    cmds:
+      - "{{.TOOLS_INSTALL_DIR}}/golangci-lint fmt --diff ./..."
 
   control-plane:vuln:
     desc: Run go govulncheck
