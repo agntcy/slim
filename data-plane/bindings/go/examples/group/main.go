@@ -94,7 +94,10 @@ func runModerator(app *slim.App, connID uint64, remote string, invites []string,
 	if err != nil {
 		log.Fatalf("Failed to create session: %v", err)
 	}
-	defer app.DeleteSessionAndWaitAsync(session)
+
+	defer func() {
+		_ = app.DeleteSessionAndWaitAsync(session)
+	}()
 
 	// Give session a moment to establish
 	time.Sleep(100 * time.Millisecond)
@@ -124,7 +127,7 @@ func runModerator(app *slim.App, connID uint64, remote string, invites []string,
 	}
 
 	// Run message loops
-	runMessageLoops(app, session, channelName, instance)
+	runMessageLoops(session, channelName, instance)
 }
 
 func runParticipant(app *slim.App, instance uint64) {
@@ -136,20 +139,25 @@ func runParticipant(app *slim.App, instance uint64) {
 	if err != nil {
 		log.Fatalf("Failed to receive session: %v", err)
 	}
-	defer app.DeleteSessionAndWaitAsync(session)
 
 	channelName, err := session.Destination()
 	if err != nil {
 		log.Fatalf("Failed to get session destination: %v", err)
 	}
 
-	fmt.Printf("%s[%d]%s 🎉 Joined group session for channel: %v\n", colorCyan, instance, colorReset, channelName.Components())
+	defer func() {
+		_ = app.DeleteSessionAndWaitAsync(session)
+	}()
+
+	fmt.Printf(
+		"%s[%d]%s 🎉 Joined group session for channel: %v\n",
+		colorCyan, instance, colorReset, channelName.Components())
 
 	// Run message loops
-	runMessageLoops(app, session, channelName, instance)
+	runMessageLoops(session, channelName, instance)
 }
 
-func runMessageLoops(app *slim.App, session *slim.Session, channelName *slim.Name, instance uint64) {
+func runMessageLoops(session *slim.Session, channelName *slim.Name, instance uint64) {
 	var wg sync.WaitGroup
 	stopChan := make(chan struct{})
 
@@ -226,7 +234,9 @@ func keyboardLoop(session *slim.Session, sourceName, channelName *slim.Name, ins
 		fmt.Printf("%s[%d]%s 👤 Participant: %v\n", colorCyan, instance, colorReset, participant.Components())
 	}
 
-	fmt.Printf("%s[%d]%s Type a message and press Enter to send, or 'exit'/'quit' to leave.\n\n", colorCyan, instance, colorReset)
+	fmt.Printf(
+		"%s[%d]%s Type a message and press Enter to send, or 'exit'/'quit' to leave.\n\n",
+		colorCyan, instance, colorReset)
 	fmt.Printf("%s%v > %s", colorGreen, sourceName.Components(), colorReset)
 
 	for {
