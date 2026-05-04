@@ -15,7 +15,9 @@ name = "slim_datapath"
 default = ["native"]
 native = [
     "dep:agntcy-slim-config",
+    "agntcy-slim-config/native",
     "dep:agntcy-slim-tracing",
+    "agntcy-slim-tracing/native",
     "dep:display-error-chain",
     "dep:drain",
     "dep:fastwebsockets",
@@ -28,19 +30,27 @@ native = [
     "dep:tonic-prost",
     "dep:tracing-opentelemetry",
 ]
-wasm = ["dep:getrandom", "uuid/js"]
+wasm = [
+    "dep:agntcy-slim-config",
+    "agntcy-slim-config/wasm",
+    "dep:agntcy-slim-tracing",
+    "agntcy-slim-tracing/wasm",
+    "dep:display-error-chain",
+    "dep:getrandom",
+    "dep:tokio_with_wasm",
+    "dep:tokio-stream",
+    "dep:wasm-bindgen",
+    "dep:wasm-bindgen-futures",
+    "uuid/js",
+]
 
 [dependencies]
 
-# Native-only dependencies
-agntcy-slim-config = { workspace = true, optional = true, features = ["native"] }
-agntcy-slim-tracing = { workspace = true, optional = true, features = ["native"] }
+# Optional config/tracing — wasm and native each enable their flavor.
+agntcy-slim-config = { workspace = true, optional = true, default-features = false }
+agntcy-slim-tracing = { workspace = true, optional = true, default-features = false }
 # Always available (core types, messages, tables)
 agntcy-slim-version = { workspace = true }
-display-error-chain = { workspace = true }
-drain = { workspace = true }
-fastwebsockets = { workspace = true }
-h2 = { workspace = true }
 bit-vec = { workspace = true }
 display-error-chain = { workspace = true, optional = true }
 drain = { workspace = true, optional = true }
@@ -59,12 +69,22 @@ thiserror = { workspace = true }
 tokio = { workspace = true, optional = true }
 tokio-stream = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
+tokio_with_wasm = { version = "0.9", features = ["rt", "sync", "time", "macros"], optional = true }
 tonic = { workspace = true, optional = true }
 tonic-prost = { workspace = true, optional = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true, optional = true }
 twox-hash = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
+wasm-bindgen = { version = "0.2", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+
+# Browser-only websocket transport for the wasm build. `gloo-net` only compiles
+# for `wasm32-*` targets, so it is added unconditionally for that target and
+# omitted everywhere else; it is gated on the `wasm` feature inside `lib.rs`.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+futures = { workspace = true }
+gloo-net = { version = "0.6" }
 
 [build-dependencies]
 protoc-bin-vendored = { workspace = true }

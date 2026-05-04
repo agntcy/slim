@@ -1,22 +1,31 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+// On wasm, alias tokio_with_wasm as tokio so all data plane code can keep
+// using `tokio::*` paths uniformly across native and wasm builds (matching
+// the pattern used by `slim-session`).
+#[cfg(all(feature = "wasm", not(feature = "native")))]
+extern crate tokio_with_wasm as tokio;
+
 pub mod api;
 pub mod errors;
 pub mod messages;
 pub mod tables;
 
-#[cfg(feature = "native")]
+#[cfg(any(feature = "native", feature = "wasm"))]
 pub mod message_processing;
 
-#[cfg(feature = "native")]
+#[cfg(any(feature = "native", feature = "wasm"))]
 mod connection;
-#[cfg(feature = "native")]
+#[cfg(any(feature = "native", feature = "wasm"))]
 mod forwarder;
+#[cfg(any(feature = "native", feature = "wasm"))]
 mod recovery;
-#[cfg(feature = "native")]
+#[cfg(any(feature = "native", feature = "wasm"))]
+pub mod runtime;
+#[cfg(any(feature = "native", feature = "wasm"))]
 pub(crate) mod subscription_ack;
-#[cfg(feature = "native")]
+#[cfg(any(feature = "native", feature = "wasm"))]
 mod websocket;
 
 #[cfg(feature = "native")]
@@ -41,6 +50,14 @@ impl Status {
 
     pub fn internal(message: impl Into<String>) -> Self {
         Self::new(13, message)
+    }
+
+    pub fn unavailable(message: impl Into<String>) -> Self {
+        Self::new(14, message)
+    }
+
+    pub fn invalid_argument(message: impl Into<String>) -> Self {
+        Self::new(3, message)
     }
 
     pub fn code(&self) -> u32 {

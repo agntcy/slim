@@ -91,8 +91,12 @@ impl RecoveryTable {
     ///
     /// `on_expire` is only called when the entry is still present at expiry time, i.e. recovery
     /// has not already consumed it via [`RecoveryTable::take`].
-    pub(crate) fn spawn_ttl_task<F, Fut>(&self, link_id: String, drain: drain::Watch, on_expire: F)
-    where
+    pub(crate) fn spawn_ttl_task<F, Fut>(
+        &self,
+        link_id: String,
+        drain: crate::runtime::DrainWatch,
+        on_expire: F,
+    ) where
         F: FnOnce(RecoveryEntry) -> Fut + Send + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
@@ -226,7 +230,7 @@ mod tests {
         t.store("link-1".into(), local, remote);
 
         let (tx, rx) = oneshot::channel::<()>();
-        let (_signal, watch) = drain::channel();
+        let (_signal, watch) = crate::runtime::drain_channel();
 
         t.spawn_ttl_task("link-1".into(), watch, move |_entry| async move {
             let _ = tx.send(());
@@ -247,7 +251,7 @@ mod tests {
 
         let fired = Arc::new(AtomicBool::new(false));
         let fired_clone = fired.clone();
-        let (_signal, watch) = drain::channel();
+        let (_signal, watch) = crate::runtime::drain_channel();
 
         t.spawn_ttl_task("link-1".into(), watch, move |_entry| {
             let f = fired_clone.clone();
@@ -278,7 +282,7 @@ mod tests {
 
         let fired = Arc::new(AtomicBool::new(false));
         let fired_clone = fired.clone();
-        let (signal, watch) = drain::channel();
+        let (signal, watch) = crate::runtime::drain_channel();
 
         t.spawn_ttl_task("link-1".into(), watch, move |_entry| {
             let f = fired_clone.clone();

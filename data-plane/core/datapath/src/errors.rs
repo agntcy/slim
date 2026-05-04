@@ -55,7 +55,7 @@ pub enum DataPathError {
     },
 
     // Configuration error
-    #[cfg(feature = "native")]
+    #[cfg(any(feature = "native", feature = "wasm"))]
     #[error("configuration error")]
     ConfigurationError(#[from] slim_config::grpc::errors::ConfigError),
 

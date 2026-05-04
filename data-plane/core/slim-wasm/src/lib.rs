@@ -6,6 +6,17 @@
 //! Provides a JavaScript-callable API via `wasm-bindgen` for connecting to a
 //! SLIM data-plane instance from a web browser over WebSocket.
 //!
+//! ## Architecture
+//!
+//! Unlike the native data plane (which runs an in-process forwarder serving
+//! many local apps and many remote peers), the browser is *just an app*: it
+//! drives a single embedded `MessageProcessor` whose only purpose is to
+//! multiplex one local connection (the JS-facing app) onto one or more
+//! outgoing WebSocket connections to remote SLIM nodes. The session layer
+//! talks to the embedded data plane through the same `(tx_slim, rx_slim)`
+//! channel pair used on native, so subscription routing, link negotiation,
+//! and remote subscription acks all just work.
+//!
 //! ## Quick Start (JavaScript)
 //!
 //! ```js
@@ -31,11 +42,10 @@
 //! const sessionId = await client.createSession("org", "ns", "remote-app", "point-to-point");
 //! await client.publish(sessionId, new TextEncoder().encode("hello"), "text/plain");
 //!
-//! // Group chat (multicast)
-//! const groupId = await client.createSession("org", "ns", "channel", "multicast");
-//! await client.inviteParticipant(groupId, "org", "ns", "peer-app");
-//! await client.publish(groupId, new TextEncoder().encode("hi group!"), "text/plain");
-//! const members = await client.participantsList(groupId);
+//! // Connect to additional SLIM nodes — the browser data plane will route
+//! // messages by destination Name across all active connections.
+//! const conn2 = await client.addConnection("ws://other-slim:46357");
+//! await client.subscribe("org", "ns", "another-name", conn2);
 //! ```
 
 use wasm_bindgen::prelude::*;
@@ -58,22 +68,21 @@ mod wasm_impl {
     use std::collections::HashMap;
     use std::sync::Arc;
 
-    use futures::sink::SinkExt;
-    use futures::stream::StreamExt;
-    use prost::Message as ProstMessage;
     use wasm_bindgen::prelude::*;
 
     use slim_auth::shared_secret::SharedSecret;
     use slim_auth::traits::TokenProvider;
-    use slim_datapath::api::{ProtoMessage, ProtoSessionMessageType, ProtoSessionType};
+    use slim_datapath::api::{MessageType, ProtoMessage, ProtoSessionMessageType, ProtoSessionType};
+    use slim_datapath::message_processing::MessageProcessor;
     use slim_datapath::messages::Name;
+    use slim_datapath::messages::utils::SlimHeaderFlags;
+    use slim_datapath::runtime::CancellationToken;
     use slim_session::interceptor::{IdentityInterceptor, SessionInterceptorProvider};
     use slim_session::notification::Notification;
-    use slim_session::runtime::CancellationToken;
     use slim_session::session_controller::SessionController;
     use slim_session::subscription_manager::{SubscriptionManager, SubscriptionOps};
     use slim_session::transmitter::AppTransmitter;
-    use slim_session::{Direction, SessionConfig, SessionError, SessionLayer, SlimChannelSender};
+    use slim_session::{Direction, SessionConfig, SessionError, SessionLayer};
     use tokio_with_wasm::sync::mpsc;
 
     /// Wrapper for `js_sys::Function` that satisfies `Send + Sync` bounds.
@@ -87,15 +96,14 @@ mod wasm_impl {
     unsafe impl Send for JsCallback {}
     unsafe impl Sync for JsCallback {}
 
-    /// A SLIM client that connects to a data-plane instance over WebSocket.
-    ///
-    /// Provides subscribe/unsubscribe, session creation, message publishing,
-    /// and event listening for the browser.
+    /// A SLIM client that connects to one or more data-plane instances over
+    /// WebSocket. Provides subscribe/unsubscribe, session creation, message
+    /// publishing, and event listening for the browser.
     #[wasm_bindgen]
     pub struct SlimClient {
         app_name: Name,
+        message_processor: Arc<MessageProcessor>,
         session_layer: Arc<SessionLayer<SharedSecret, SharedSecret, AppTransmitter>>,
-        tx_slim: SlimChannelSender,
         sessions: Arc<parking_lot::Mutex<HashMap<u32, Arc<SessionController>>>>,
         #[allow(clippy::type_complexity)]
         notification_rx:
@@ -103,11 +111,20 @@ mod wasm_impl {
         subscription_manager: SubscriptionManager,
         on_message_cb: Arc<parking_lot::Mutex<Option<JsCallback>>>,
         cancel_token: CancellationToken,
+        /// Connection IDs of each remote SLIM node we've opened a websocket to.
+        /// Used as the default forward target for `subscribe` when the caller
+        /// does not specify a connection explicitly.
+        remote_conn_ids: Arc<parking_lot::Mutex<Vec<u64>>>,
+        /// JWT-style token derived from the shared secret. Reused for each
+        /// new outgoing websocket connection (sent as a `?token=` query
+        /// parameter, matching the legacy slim-wasm contract).
+        auth_token: String,
     }
 
     #[wasm_bindgen]
     impl SlimClient {
-        /// Connect to a SLIM data-plane instance via WebSocket.
+        /// Create a SLIM client and connect it to a first SLIM data-plane
+        /// instance via WebSocket.
         ///
         /// # Arguments
         /// * `endpoint` - WebSocket URL (e.g. `ws://localhost:46357`)
@@ -118,6 +135,20 @@ mod wasm_impl {
         #[wasm_bindgen]
         pub async fn connect(
             endpoint: &str,
+            shared_secret: &str,
+            org: &str,
+            ns: &str,
+            app: &str,
+        ) -> Result<SlimClient, JsError> {
+            let client = SlimClient::new_internal(shared_secret, org, ns, app)?;
+            client.add_connection(endpoint).await?;
+            Ok(client)
+        }
+
+        /// Internal constructor: builds the embedded MessageProcessor, the
+        /// local connection that backs the App, and the session layer. No
+        /// websocket has been opened yet at this point.
+        fn new_internal(
             shared_secret: &str,
             org: &str,
             ns: &str,
@@ -141,29 +172,30 @@ mod wasm_impl {
             let app_name = Name::from_strings([org, ns, app]).with_id(app_id);
             let auth_verifier = SharedSecret::new(app, shared_secret)
                 .map_err(|e| JsError::new(&format!("auth error: {e}")))?;
-            let token = auth
+            let auth_token = auth
                 .get_token()
                 .map_err(|e| JsError::new(&format!("token error: {e}")))?;
 
-            // Build WebSocket URL with auth query parameter
-            let mut url = url::Url::parse(endpoint)
-                .map_err(|e| JsError::new(&format!("invalid URL: {e}")))?;
-            url.query_pairs_mut().append_pair("token", &token);
+            // Create the embedded data plane. No recovery TTL: a browser tab
+            // doesn't outlive its connections in any meaningful way.
+            let message_processor = Arc::new(MessageProcessor::new_with_options(
+                format!("slim-wasm/{app_name}"),
+                Some(std::time::Duration::ZERO),
+            ));
 
-            let ws = gloo_net::websocket::futures::WebSocket::open(url.as_str())
-                .map_err(|e| JsError::new(&format!("websocket error: {e}")))?;
+            // Register the App's local connection on the data plane. From the
+            // forwarder's perspective, this is the same kind of "local app
+            // connection" that slim-service::App uses on native.
+            let (conn_id, tx_slim, rx_slim) = message_processor
+                .register_local_connection(false)
+                .map_err(|e| JsError::new(&format!("register_local_connection error: {e}")))?;
 
-            let (ws_sink, ws_stream) = ws.split();
-
-            // Channels
-            // tx_slim: SessionLayer + app methods → outbound to WebSocket
-            let (tx_slim, rx_slim) = mpsc::channel(64);
-            // tx_app: SessionLayer → app notifications (new sessions)
+            // Channel used by SessionLayer to deliver session notifications
+            // (NewSession, NewMessage) up to the JS callback.
             let (tx_app, notification_rx) = mpsc::channel(64);
 
-            let cancel_token = CancellationToken::new();
-
-            // Create AppTransmitter (used by SessionLayer for interceptors)
+            // Transmitter wires session interceptors (e.g. IdentityInterceptor)
+            // into outbound messages.
             let transmitter = AppTransmitter {
                 slim_tx: tx_slim.clone(),
                 app_tx: tx_app.clone(),
@@ -175,127 +207,109 @@ mod wasm_impl {
             ));
             transmitter.add_interceptor(identity_interceptor);
 
-            // Create SessionLayer (it creates its own SubscriptionManager internally)
-            let conn_id = 0u64;
             let session_layer = Arc::new(SessionLayer::new(
                 app_name.clone(),
                 auth.clone(),
                 auth_verifier,
                 conn_id,
-                tx_slim.clone(),
+                tx_slim,
                 tx_app,
                 transmitter,
                 Direction::Bidirectional,
                 String::new(),
             ));
 
-            // Use the SessionLayer's subscription manager so acks are resolved
-            // on the same pending_acks map that session controllers await on.
             let subscription_manager = session_layer.subscription_manager();
 
-            // Self-subscribe (so the gateway knows about us)
-            let self_sub = ProtoMessage::builder()
-                .source(app_name.clone())
-                .destination(app_name.clone())
-                .build_subscribe()
-                .map_err(|e| JsError::new(&format!("subscribe error: {e}")))?;
-            tx_slim
-                .send(Ok(self_sub))
-                .await
-                .map_err(|e| JsError::new(&format!("send error: {e}")))?;
+            let cancel_token = CancellationToken::new();
 
-            // ── Spawn WS write loop ──
-            // Reads from rx_slim, encodes to protobuf, sends as binary WebSocket frames
-            let cancel_write = cancel_token.child_token();
-            wasm_bindgen_futures::spawn_local(async move {
-                let mut rx = rx_slim;
-                let mut sink = ws_sink;
-                loop {
-                    let msg = tokio_with_wasm::select! {
-                        m = rx.recv() => m,
-                        _ = cancel_write.cancelled() => None,
-                    };
-                    match msg {
-                        None => break,
-                        Some(Ok(proto_msg)) => {
-                            let bytes = proto_msg.encode_to_vec();
-                            let ws_msg = gloo_net::websocket::Message::Bytes(bytes);
-                            if let Err(e) = sink.send(ws_msg).await {
-                                tracing::error!("ws send error: {e}");
-                                break;
-                            }
-                        }
-                        Some(Err(status)) => {
-                            tracing::warn!("outbound error status: {}", status.message());
-                        }
-                    }
-                }
-                tracing::info!("ws write loop ended");
-            });
-
-            // ── Spawn WS read loop ──
-            // Reads binary WebSocket frames, decodes protobuf, routes to SessionLayer
-            let sl_clone = session_layer.clone();
-            let cancel_read = cancel_token.child_token();
-            let sub_mgr_clone = subscription_manager.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                let mut stream = ws_stream;
-                loop {
-                    if cancel_read.is_cancelled() {
-                        break;
-                    }
-
-                    let next = stream.next().await;
-                    match next {
-                        None => {
-                            tracing::info!("websocket closed by server");
-                            break;
-                        }
-                        Some(Ok(gloo_net::websocket::Message::Bytes(bytes))) => {
-                            match ProtoMessage::decode(&bytes[..]) {
-                                Ok(msg) => {
-                                    route_incoming_message(msg, &sl_clone, &sub_mgr_clone);
-                                }
-                                Err(e) => {
-                                    tracing::warn!("protobuf decode error: {e}");
-                                }
-                            }
-                        }
-                        Some(Ok(gloo_net::websocket::Message::Text(_))) => {
-                            // Text frames ignored by SLIM protocol
-                        }
-                        Some(Err(e)) => {
-                            tracing::error!("websocket read error: {e}");
-                            break;
-                        }
-                    }
-                }
-                tracing::info!("ws read loop ended");
-            });
-
-            tracing::info!("connected to SLIM at {endpoint} as {app_name}");
+            // Start the local-app message loop: read from rx_slim, dispatch
+            // SubscriptionAcks to the subscription manager, and forward
+            // Publish messages into the SessionLayer. This mirrors
+            // `slim_service::App::process_messages` for the native case,
+            // including its initial *local-only* self-subscription so the
+            // embedded data plane has a route from any inbound publishes
+            // (addressed to this app's name) into the App layer.
+            spawn_app_message_loop(
+                app_name.clone(),
+                rx_slim,
+                session_layer.clone(),
+                subscription_manager.clone(),
+                cancel_token.child_token(),
+            );
 
             Ok(SlimClient {
                 app_name,
+                message_processor,
                 session_layer,
-                tx_slim,
                 sessions: Arc::new(parking_lot::Mutex::new(HashMap::new())),
                 notification_rx: Arc::new(parking_lot::Mutex::new(Some(notification_rx))),
                 subscription_manager,
                 on_message_cb: Arc::new(parking_lot::Mutex::new(None)),
                 cancel_token,
+                remote_conn_ids: Arc::new(parking_lot::Mutex::new(Vec::new())),
+                auth_token,
             })
         }
 
-        /// Subscribe to receive messages for the given name (org/ns/name).
-        /// Waits for the gateway to acknowledge the subscription.
+        /// Open a WebSocket to an additional SLIM data-plane instance and
+        /// register it with the embedded data plane. Returns the new
+        /// connection ID, which can be passed to [`subscribe`] or
+        /// [`unsubscribe`] to scope a subscription to a specific node.
+        ///
+        /// Calling `addConnection` multiple times lets a single browser tab
+        /// fan out across several SLIM nodes; the embedded data plane
+        /// forwards messages by destination Name using the subscription
+        /// table — no JS-side routing logic required.
+        #[wasm_bindgen(js_name = "addConnection")]
+        pub async fn add_connection(&self, endpoint: &str) -> Result<u32, JsError> {
+            // Build URL with shared-secret token query param. We do this
+            // ourselves rather than via slim_config's auth flow because
+            // SharedSecret/JWT auth is not yet exposed through the wasm
+            // build of slim-config.
+            let mut url = url::Url::parse(endpoint)
+                .map_err(|e| JsError::new(&format!("invalid URL: {e}")))?;
+            url.query_pairs_mut().append_pair("token", &self.auth_token);
+
+            let ws = gloo_net::websocket::futures::WebSocket::open(url.as_str())
+                .map_err(|e| JsError::new(&format!("websocket error: {e}")))?;
+
+            let (_handle, conn_id) = self
+                .message_processor
+                .register_websocket(ws, None)
+                .map_err(|e| JsError::new(&format!("register_websocket error: {e}")))?;
+
+            self.remote_conn_ids.lock().push(conn_id);
+
+            tracing::info!(
+                %endpoint, %conn_id,
+                "registered new remote SLIM websocket connection",
+            );
+
+            Ok(conn_id as u32)
+        }
+
+        /// Subscribe to receive messages for the given name (`org`/`ns`/`name`).
+        ///
+        /// If `conn_id` is provided, the subscription is forwarded to that
+        /// specific remote SLIM connection. If `conn_id` is `None`, the
+        /// most recently added remote connection is used (matching the
+        /// single-connection legacy behavior).
         #[wasm_bindgen]
-        pub async fn subscribe(&self, org: &str, ns: &str, name: &str) -> Result<(), JsError> {
+        pub async fn subscribe(
+            &self,
+            org: &str,
+            ns: &str,
+            name: &str,
+            conn_id: Option<u32>,
+        ) -> Result<(), JsError> {
             let sub_name = Name::from_strings([org, ns, name]).with_id(self.session_layer.app_id());
+
+            let target_conn = self.resolve_conn(conn_id);
 
             let (subscription_id, ack_rx) = self
                 .subscription_manager
-                .subscribe(&self.app_name, &sub_name, None)
+                .subscribe(&self.app_name, &sub_name, target_conn)
                 .await
                 .map_err(|e| JsError::new(&format!("subscribe error: {e}")))?;
 
@@ -304,21 +318,28 @@ mod wasm_impl {
                 .map_err(|e| JsError::new(&format!("subscription rejected: {e}")))?;
 
             self.session_layer.add_app_name(sub_name, subscription_id);
-            tracing::info!("subscribed to {org}/{ns}/{name}");
+            tracing::info!("subscribed to {org}/{ns}/{name} (conn={target_conn:?})");
             Ok(())
         }
 
         /// Unsubscribe from a name.
         #[wasm_bindgen]
-        pub async fn unsubscribe(&self, org: &str, ns: &str, name: &str) -> Result<(), JsError> {
+        pub async fn unsubscribe(
+            &self,
+            org: &str,
+            ns: &str,
+            name: &str,
+            conn_id: Option<u32>,
+        ) -> Result<(), JsError> {
             let unsub_name =
                 Name::from_strings([org, ns, name]).with_id(self.session_layer.app_id());
 
             let subscription_id = self.session_layer.remove_app_name(&unsub_name).unwrap_or(0);
+            let target_conn = self.resolve_conn(conn_id);
 
             let ack_rx = self
                 .subscription_manager
-                .unsubscribe(&self.app_name, &unsub_name, subscription_id, None)
+                .unsubscribe(&self.app_name, &unsub_name, subscription_id, target_conn)
                 .await
                 .map_err(|e| JsError::new(&format!("unsubscribe error: {e}")))?;
 
@@ -327,6 +348,102 @@ mod wasm_impl {
                 .map_err(|e| JsError::new(&format!("unsubscription rejected: {e}")))?;
 
             tracing::info!("unsubscribed from {org}/{ns}/{name}");
+            Ok(())
+        }
+
+        /// Pick a default forwarding target when the caller hasn't specified
+        /// one: the most recently added remote connection.
+        fn resolve_conn(&self, conn_id: Option<u32>) -> Option<u64> {
+            match conn_id {
+                Some(id) => Some(id as u64),
+                None => self.remote_conn_ids.lock().last().copied(),
+            }
+        }
+
+        /// Install a forwarding route in the embedded data plane: tells the
+        /// browser-side data plane that messages destined for `org/ns/name`
+        /// should be forwarded onto a specific remote SLIM connection.
+        ///
+        /// Without a route, the local data plane has no entry for arbitrary
+        /// remote names so a publish (e.g. an `inviteParticipant` discovery
+        /// request, or a `publish` to a peer the browser hasn't subscribed
+        /// to) returns `NoMatch` and never reaches the wire.
+        ///
+        /// Mirrors `slim_service::App::set_route` on native: emits a
+        /// `Subscribe` with `recv_from=conn_id`, which registers the
+        /// destination at that connection in the local subscription table.
+        /// If `conn_id` is omitted, the most recently added remote
+        /// connection is used.
+        #[wasm_bindgen(js_name = "setRoute")]
+        pub async fn set_route(
+            &self,
+            org: &str,
+            ns: &str,
+            name: &str,
+            conn_id: Option<u32>,
+        ) -> Result<(), JsError> {
+            let target = self
+                .resolve_conn(conn_id)
+                .ok_or_else(|| JsError::new("no remote connection available; call addConnection first"))?;
+            let dest = Name::from_strings([org, ns, name]);
+            let mut msg = ProtoMessage::builder()
+                .source(self.app_name.clone())
+                .destination(dest)
+                .flags(SlimHeaderFlags::default().with_recv_from(target))
+                .build_subscribe()
+                .map_err(|e| JsError::new(&format!("set_route build error: {e}")))?;
+
+            let identity = self
+                .session_layer
+                .get_identity_token()
+                .map_err(|e| JsError::new(&format!("identity error: {e}")))?;
+            msg.get_slim_header_mut().set_identity(identity);
+
+            self.session_layer
+                .tx_slim()
+                .send(Ok(msg))
+                .await
+                .map_err(|e| JsError::new(&format!("set_route send error: {e}")))?;
+
+            tracing::info!("set route to {org}/{ns}/{name} via conn={target}");
+            Ok(())
+        }
+
+        /// Remove a previously-installed forwarding route. Mirrors
+        /// `slim_service::App::remove_route` on native (sends an
+        /// `Unsubscribe` with `recv_from=conn_id`).
+        #[wasm_bindgen(js_name = "removeRoute")]
+        pub async fn remove_route(
+            &self,
+            org: &str,
+            ns: &str,
+            name: &str,
+            conn_id: Option<u32>,
+        ) -> Result<(), JsError> {
+            let target = self
+                .resolve_conn(conn_id)
+                .ok_or_else(|| JsError::new("no remote connection available"))?;
+            let dest = Name::from_strings([org, ns, name]);
+            let mut msg = ProtoMessage::builder()
+                .source(self.app_name.clone())
+                .destination(dest)
+                .flags(SlimHeaderFlags::default().with_recv_from(target))
+                .build_unsubscribe()
+                .map_err(|e| JsError::new(&format!("remove_route build error: {e}")))?;
+
+            let identity = self
+                .session_layer
+                .get_identity_token()
+                .map_err(|e| JsError::new(&format!("identity error: {e}")))?;
+            msg.get_slim_header_mut().set_identity(identity);
+
+            self.session_layer
+                .tx_slim()
+                .send(Ok(msg))
+                .await
+                .map_err(|e| JsError::new(&format!("remove_route send error: {e}")))?;
+
+            tracing::info!("removed route to {org}/{ns}/{name} via conn={target}");
             Ok(())
         }
 
@@ -664,11 +781,15 @@ mod wasm_impl {
             Ok(())
         }
 
-        /// Disconnect from the SLIM data-plane.
-        /// Cancels all background tasks and closes the WebSocket.
+        /// Disconnect from all SLIM data planes by cancelling background tasks.
+        /// The data plane closes each registered websocket cleanly via its
+        /// per-connection cancellation token.
         #[wasm_bindgen]
         pub fn disconnect(&self) {
             self.cancel_token.cancel();
+            for conn_id in self.remote_conn_ids.lock().drain(..) {
+                let _ = self.message_processor.disconnect(conn_id);
+            }
             tracing::info!("disconnected from SLIM");
         }
 
@@ -683,79 +804,93 @@ mod wasm_impl {
         pub fn session_ids(&self) -> Vec<u32> {
             self.sessions.lock().keys().copied().collect()
         }
+
+        /// Get the connection IDs of all currently registered remote
+        /// SLIM nodes (in the order they were added).
+        #[wasm_bindgen(js_name = "connectionIds")]
+        pub fn connection_ids(&self) -> Vec<u32> {
+            self.remote_conn_ids
+                .lock()
+                .iter()
+                .map(|&id| id as u32)
+                .collect()
+        }
     }
 
-    /// Route an incoming protobuf message from the WebSocket.
+    /// Pump messages from the data plane → local app and dispatch them to
+    /// the SessionLayer / SubscriptionManager. Equivalent to
+    /// `slim_service::App::process_messages` for the native build.
     ///
-    /// Subscription acks are resolved inline so the read loop stays responsive.
-    /// Publish messages are spawned into a separate task to avoid deadlocking
-    /// the read loop when session handling awaits subscription acks.
-    fn route_incoming_message(
-        msg: ProtoMessage,
-        session_layer: &Arc<SessionLayer<SharedSecret, SharedSecret, AppTransmitter>>,
-        subscription_manager: &SubscriptionManager,
+    /// Mirrors the native loop's startup behaviour: before entering the
+    /// dispatch loop we kick off a *local-only* self-subscription
+    /// (`subscribe(app_name, app_name, None)` — no `forward_to`) so the
+    /// embedded data plane registers a route from this name to the local
+    /// app connection. That route is what lets inbound publishes from the
+    /// gateway eventually land in `rx_slim` and surface to the App layer.
+    /// It does *not* register the name on the gateway — the user is still
+    /// expected to call `SlimClient::subscribe(...)` for that, exactly as
+    /// `sdk-mock` calls `app.subscribe(app.app_name(), Some(conn_id))`
+    /// after `Service::connect`.
+    fn spawn_app_message_loop(
+        app_name: Name,
+        mut rx: mpsc::Receiver<Result<ProtoMessage, slim_datapath::Status>>,
+        session_layer: Arc<SessionLayer<SharedSecret, SharedSecret, AppTransmitter>>,
+        subscription_manager: SubscriptionManager,
+        cancel: CancellationToken,
     ) {
-        // Handle subscription acknowledgements inline (must not be spawned)
-        if msg.is_subscription_ack() {
-            subscription_manager.resolve_ack(msg.get_subscription_ack());
-            return;
-        }
-
-        // Spawn ALL messages into a separate task to avoid deadlocking the
-        // read loop when session handling awaits subscription acks.
-        let sl = session_layer.clone();
-        let (msg_type, session_id, identity_preview) = if let Some(sh) =
-            msg.try_get_session_header()
-        {
-            let t: ProtoSessionMessageType = sh.session_message_type.try_into().unwrap_or_default();
-            let identity = msg
-                .try_get_slim_header()
-                .map(|h| {
-                    let id = h.get_identity();
-                    if id.is_empty() {
-                        "<empty>".to_string()
-                    } else if id.len() > 40 {
-                        format!("{}…(len={})", &id[..40], id.len())
-                    } else {
-                        id
-                    }
-                })
-                .unwrap_or_else(|| "<no-slim-header>".to_string());
-            (t.as_str_name().to_string(), sh.session_id, identity)
-        } else {
-            let kind = if msg.is_publish() {
-                "Publish(no-session)"
-            } else if msg.is_link() {
-                "Link"
-            } else {
-                "Unknown"
-            };
-            (kind.to_string(), 0u32, "<no-session-header>".to_string())
-        };
         wasm_bindgen_futures::spawn_local(async move {
-            tracing::info!(
-                %msg_type,
-                %session_id,
-                %identity_preview,
-                "routing message to session layer",
-            );
-            match sl.handle_message_from_slim(msg).await {
-                Ok(()) => {
-                    tracing::info!(
-                        %msg_type,
-                        %session_id,
-                        "message processed successfully",
-                    );
-                }
-                Err(e) => {
-                    if !matches!(e, SessionError::SubscriptionNotFound(_)) {
-                        tracing::warn!(
-                            %msg_type,
-                            %session_id,
-                            %identity_preview,
-                            error = ?e,
-                            "handle message error",
-                        );
+            // Initiate the local self-subscription so the ACK is tracked
+            // and resolved through the normal loop machinery below. This
+            // mirrors `slim_service::App::process_messages`'s startup.
+            let (_init_sub_id, init_ack_rx) = subscription_manager
+                .subscribe(&app_name, &app_name, None)
+                .await
+                .expect("error sending initial self-subscription");
+            let mut init_ack_future = std::pin::pin!(init_ack_rx);
+            let mut init_ack_done = false;
+
+            loop {
+                tokio_with_wasm::select! {
+                    next = rx.recv() => {
+                        match next {
+                            None => {
+                                tracing::info!("app message loop ended (slim channel closed)");
+                                break;
+                            }
+                            Some(Ok(msg)) => {
+                                match msg.message_type.as_ref() {
+                                    Some(MessageType::Publish(_)) => {
+                                        if let Err(e) =
+                                            session_layer.handle_message_from_slim(msg).await
+                                            && !matches!(e, SessionError::SubscriptionNotFound(_))
+                                        {
+                                            tracing::warn!(error = ?e, "handle_message_from_slim error");
+                                        }
+                                    }
+                                    Some(MessageType::SubscriptionAck(ack)) => {
+                                        subscription_manager.resolve_ack(ack);
+                                    }
+                                    // Subscribe / Unsubscribe / Link / None: not
+                                    // expected on the app-facing channel; the data
+                                    // plane's `process_stream` already handled them.
+                                    _ => {}
+                                }
+                            }
+                            Some(Err(e)) => {
+                                tracing::warn!(error = %e, "received error from SLIM");
+                            }
+                        }
+                    }
+                    result = &mut init_ack_future, if !init_ack_done => {
+                        init_ack_done = true;
+                        match result {
+                            Ok(Ok(())) => tracing::debug!(%app_name, "initial self-subscription confirmed"),
+                            Ok(Err(e)) => tracing::error!(%app_name, error = %e, "initial self-subscription failed"),
+                            Err(_) => tracing::error!(%app_name, "initial self-subscription ack channel closed"),
+                        }
+                    }
+                    _ = cancel.cancelled() => {
+                        break;
                     }
                 }
             }
@@ -786,6 +921,19 @@ mod wasm_impl {
                 }
             }
         }
+
+        // Session message type (Msg, JoinRequest, etc.) — useful for filtering on JS side.
+        let smt: ProtoSessionMessageType = msg
+            .get_session_header()
+            .session_message_type
+            .try_into()
+            .unwrap_or_default();
+        js_sys::Reflect::set(
+            &obj,
+            &"sessionMessageType".into(),
+            &JsValue::from_str(smt.as_str_name()),
+        )
+        .ok();
 
         obj.into()
     }
