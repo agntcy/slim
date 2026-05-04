@@ -7,7 +7,7 @@ use slim_datapath::{
     messages::Name,
 };
 
-use tokio::sync::mpsc::{self};
+use tokio::sync::mpsc;
 use tracing::debug;
 
 use crate::{
@@ -206,7 +206,8 @@ impl Session {
 
 /// Implementation of MessageHandler trait for Session
 /// This allows Session to be used as a layer in the generic layer system
-#[async_trait]
+#[cfg_attr(feature = "native", async_trait)]
+#[cfg_attr(feature = "wasm", async_trait(?Send))]
 impl MessageHandler for Session {
     async fn init(&mut self) -> Result<(), SessionError> {
         // Session is the innermost layer, no initialization needed

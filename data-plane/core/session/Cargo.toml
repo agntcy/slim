@@ -5,27 +5,54 @@ license = { workspace = true }
 version = "0.1.12"
 description = "SLIM session internal implementation."
 
+[package.metadata.cargo-machete]
+ignored = ["getrandom"]
+
 [lib]
 name = "slim_session"
 
+[features]
+default = ["native"]
+native = [
+    "agntcy-slim-auth/native",
+    "agntcy-slim-datapath/native",
+    "agntcy-slim-mls/native",
+    "dep:tokio",
+    "dep:tokio-util",
+]
+wasm = [
+    "agntcy-slim-auth/wasm",
+    "agntcy-slim-datapath/wasm",
+    "agntcy-slim-mls/wasm",
+    "dep:getrandom",
+    "dep:tokio_with_wasm",
+]
+
 [dependencies]
-agntcy-slim-auth = { workspace = true }
-agntcy-slim-datapath = { workspace = true }
-agntcy-slim-mls = { workspace = true }
+agntcy-slim-auth = { workspace = true, default-features = false }
+agntcy-slim-datapath = { workspace = true, default-features = false }
+agntcy-slim-mls = { workspace = true, default-features = false }
 agntcy-slim-version = { workspace = true }
 async-trait = { workspace = true }
 display-error-chain = { workspace = true }
 futures = { workspace = true }
 futures-timer = { workspace = true }
+getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
+maybe-async = "0.2.10"
 parking_lot = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
-tokio-util = { workspace = true }
-tonic = { workspace = true }
+tokio = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true }
+tokio_with_wasm = { version = "0.9", features = ["rt", "sync", "time", "macros"], optional = true }
 tracing = { workspace = true }
+web-time = "1"
 
 [dev-dependencies]
 agntcy-slim-testing = { workspace = true }
 tracing-test = { workspace = true }
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = ["cfg(mls_build_async)"]

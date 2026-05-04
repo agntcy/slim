@@ -4,7 +4,6 @@
 use crate::api::ProtoSessionMessageType;
 use crate::api::proto::dataplane::v1::Message;
 use crate::messages::{Name, utils::MessageError};
-use slim_config::grpc::errors::ConfigError;
 use thiserror::Error;
 
 /// DataPath and subscription table errors merged into a single enum.
@@ -15,6 +14,7 @@ pub enum DataPathError {
     ConnectionError,
     #[error("disconnection error")]
     DisconnectionError(u64),
+    #[cfg(feature = "native")]
     #[error("grpc error")]
     GrpcError(#[from] tonic::Status),
 
@@ -55,8 +55,9 @@ pub enum DataPathError {
     },
 
     // Configuration error
+    #[cfg(any(feature = "native", feature = "wasm"))]
     #[error("configuration error")]
-    ConfigurationError(#[from] ConfigError),
+    ConfigurationError(#[from] slim_config::grpc::errors::ConfigError),
 
     // Remote subscription ACK errors
     #[error("remote subscription ack timed out after {0} retries")]

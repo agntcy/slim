@@ -74,13 +74,22 @@ where
     }
 }
 
+// The `IdentityProvider` trait declared in `mls-rs-core` is wrapped by
+// `maybe_async` so it is sync on native (no `mls_build_async`) and async on
+// wasm (where `mls_build_async` is set in `data-plane/.cargo/config.toml`
+// because `mls-rs-crypto-webcrypto` is async-only). We mirror the same
+// `cfg_attr` pair on this impl so it picks up the matching shape on both
+// sides; the methods themselves are written `async fn` and `must_be_sync`
+// strips that on native.
+#[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+#[cfg_attr(mls_build_async, maybe_async::must_be_async)]
 impl<V> IdentityProvider for SlimIdentityProvider<V>
 where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     type Error = MlsError;
 
-    fn validate_member(
+    async fn validate_member(
         &self,
         signing_identity: &SigningIdentity,
         _timestamp: Option<MlsTime>,
@@ -102,7 +111,7 @@ where
         Ok(())
     }
 
-    fn validate_external_sender(
+    async fn validate_external_sender(
         &self,
         _signing_identity: &SigningIdentity,
         _timestamp: Option<MlsTime>,
@@ -112,7 +121,7 @@ where
         Err(MlsError::ExternalCommitNotSupported)
     }
 
-    fn identity(
+    async fn identity(
         &self,
         signing_identity: &SigningIdentity,
         _extensions: &ExtensionList,
@@ -122,7 +131,7 @@ where
         Ok(identity_claims.subject.into_bytes())
     }
 
-    fn valid_successor(
+    async fn valid_successor(
         &self,
         predecessor: &SigningIdentity,
         successor: &SigningIdentity,

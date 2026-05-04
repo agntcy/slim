@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<!-- Copyright AGNTCY Contributors (https://github.com/agntcy) -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SLIM Data-Plane — Browser Demo</title>
+  <style>
+    :root { --bg: #0d1117; --fg: #c9d1d9; --accent: #58a6ff; --green: #3fb950; --red: #f85149; --border: #30363d; --panel: #161b22; --yellow: #d29922; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace; background: var(--bg); color: var(--fg); display: flex; flex-direction: column; align-items: center; min-height: 100vh; padding: 2rem; }
+    h1 { color: var(--accent); margin-bottom: 0.25rem; font-size: 1.5rem; }
+    .subtitle { color: #8b949e; margin-bottom: 1.5rem; font-size: 0.9rem; }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; width: 100%; max-width: 720px; margin-bottom: 1rem; }
+    .card h2 { font-size: 1rem; color: var(--accent); margin-bottom: 1rem; }
+    label { display: block; font-size: 0.85rem; color: #8b949e; margin-bottom: 0.25rem; }
+    input, select { width: 100%; padding: 0.5rem 0.75rem; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--fg); font-family: monospace; font-size: 0.9rem; margin-bottom: 0.75rem; }
+    input:focus, select:focus { outline: none; border-color: var(--accent); }
+    button { padding: 0.5rem 1.25rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; font-weight: 600; transition: opacity 0.2s; }
+    button:hover { opacity: 0.85; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); color: var(--bg); }
+    .btn-success { background: var(--green); color: var(--bg); }
+    .btn-warning { background: var(--yellow); color: var(--bg); }
+    .btn-danger { background: var(--red); color: #fff; }
+    .btn-row { display: flex; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap; }
+    .row { display: flex; gap: 0.5rem; }
+    .row > * { flex: 1; }
+    #log { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 0.75rem; font-family: monospace; font-size: 0.8rem; max-height: 400px; overflow-y: auto; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
+    .log-info { color: var(--accent); }
+    .log-ok { color: var(--green); }
+    .log-err { color: var(--red); }
+    .log-data { color: #d2a8ff; }
+    .log-msg { color: #f0883e; }
+    .status { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 0.4rem; }
+    .status.disconnected { background: var(--red); }
+    .status.connected { background: var(--green); }
+    .status.loading { background: var(--yellow); }
+    .status-bar { display: flex; align-items: center; font-size: 0.85rem; margin-bottom: 1rem; }
+    .hidden { display: none; }
+    fieldset { border: 1px solid var(--border); border-radius: 4px; padding: 1rem; margin-bottom: 0.75rem; }
+    legend { font-size: 0.85rem; color: #8b949e; padding: 0 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>SLIM Data-Plane</h1>
+  <p class="subtitle">WebAssembly Browser Demo — Full Features</p>
+
+  <!-- ── Connection ── -->
+  <div class="card">
+    <h2>Connection</h2>
+    <div class="status-bar">
+      <span id="statusDot" class="status disconnected"></span>
+      <span id="statusText">Disconnected</span>
+    </div>
+    <label for="endpoint">WebSocket Endpoint</label>
+    <input id="endpoint" type="text" value="ws://localhost:46357" />
+    <label for="secret">Shared Secret</label>
+    <input id="secret" type="text" value="test-shared-secret-value-0123456789abcdef" />
+    <div class="row">
+      <div>
+        <label for="org">Org</label>
+        <input id="org" type="text" value="org" />
+      </div>
+      <div>
+        <label for="ns">Namespace</label>
+        <input id="ns" type="text" value="default" />
+      </div>
+      <div>
+        <label for="app">App Name</label>
+        <input id="app" type="text" value="browser-app" />
+      </div>
+    </div>
+    <div class="btn-row">
+      <button id="btnConnect" class="btn-primary">Connect</button>
+      <button id="btnDisconnect" class="btn-danger" disabled>Disconnect</button>
+    </div>
+  </div>
+
+  <!-- ── Subscribe ── -->
+  <div id="subCard" class="card hidden">
+    <h2>Subscribe / Unsubscribe</h2>
+    <div class="row">
+      <div>
+        <label for="subOrg">Org</label>
+        <input id="subOrg" type="text" value="org" />
+      </div>
+      <div>
+        <label for="subNs">Namespace</label>
+        <input id="subNs" type="text" value="default" />
+      </div>
+      <div>
+        <label for="subName">Name</label>
+        <input id="subName" type="text" value="browser-app" />
+      </div>
+    </div>
+    <div class="btn-row">
+      <button id="btnSubscribe" class="btn-success">Subscribe</button>
+      <button id="btnUnsubscribe" class="btn-warning">Unsubscribe</button>
+    </div>
+  </div>
+
+  <!-- ── Sessions ── -->
+  <div id="sessionCard" class="card hidden">
+    <h2>Sessions</h2>
+    <fieldset>
+      <legend>Create Session</legend>
+      <div class="row">
+        <div>
+          <label for="destOrg">Dest Org</label>
+          <input id="destOrg" type="text" value="org" />
+        </div>
+        <div>
+          <label for="destNs">Dest Namespace</label>
+          <input id="destNs" type="text" value="default" />
+        </div>
+        <div>
+          <label for="destApp">Dest App</label>
+          <input id="destApp" type="text" value="remote-app" />
+        </div>
+      </div>
+      <label for="sessionType">Session Type</label>
+      <select id="sessionType">
+        <option value="point-to-point">Point-to-Point</option>
+        <option value="multicast">Multicast</option>
+      </select>
+      <div style="margin-bottom: 0.75rem;">
+        <label style="display: inline; cursor: pointer;">
+          <input id="mlsEnabled" type="checkbox" style="width: auto; margin-right: 0.4rem;" />
+          Enable MLS (end-to-end encryption)
+        </label>
+      </div>
+      <div class="btn-row">
+        <button id="btnCreateSession" class="btn-primary">Create Session</button>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>Group Chat (Multicast)</legend>
+      <div class="row">
+        <div>
+          <label for="groupSessionId">Session ID</label>
+          <input id="groupSessionId" type="number" placeholder="Session ID" />
+        </div>
+        <div>
+          <label for="participantOrg">Participant Org</label>
+          <input id="participantOrg" type="text" value="org" />
+        </div>
+        <div>
+          <label for="participantNs">Participant NS</label>
+          <input id="participantNs" type="text" value="default" />
+        </div>
+        <div>
+          <label for="participantName">Participant Name</label>
+          <input id="participantName" type="text" placeholder="peer-app" />
+        </div>
+      </div>
+      <div class="btn-row">
+        <button id="btnInvite" class="btn-success">Invite</button>
+        <button id="btnRemove" class="btn-danger">Remove</button>
+        <button id="btnListParticipants" class="btn-primary">List Participants</button>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>Publish Message</legend>
+      <div class="row">
+        <div>
+          <label for="pubSessionId">Session ID</label>
+          <input id="pubSessionId" type="number" placeholder="Session ID" />
+        </div>
+        <div>
+          <label for="pubType">Payload Type</label>
+          <input id="pubType" type="text" value="text/plain" />
+        </div>
+      </div>
+      <label for="pubPayload">Payload (text)</label>
+      <input id="pubPayload" type="text" placeholder="Hello from the browser!" />
+      <div class="btn-row">
+        <button id="btnPublish" class="btn-success">Publish</button>
+      </div>
+    </fieldset>
+    <div id="activeSessions" style="font-size: 0.85rem; color: #8b949e; margin-top: 0.5rem;">Active sessions: none</div>
+  </div>
+
+  <!-- ── Log ── -->
+  <div class="card">
+    <h2>Event Log</h2>
+    <div class="btn-row" style="margin-bottom: 0.5rem;">
+      <button id="btnClearLog" class="btn-warning" style="padding: 0.3rem 0.8rem; font-size: 0.8rem;">Clear</button>
+    </div>
+    <div id="log"></div>
+  </div>
+
+  <script type="module">
+    import init, { initTracing, SlimClient } from "../../pkg/slim_wasm.js";
+
+    const $ = (id) => document.getElementById(id);
+    const logEl = $("log");
+    let client = null;
+
+    function log(msg, cls = "log-info") {
+      const ts = new Date().toLocaleTimeString();
+      const line = document.createElement("div");
+      line.className = cls;
+      line.textContent = `[${ts}] ${msg}`;
+      logEl.appendChild(line);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function setStatus(state) {
+      $("statusDot").className = `status ${state}`;
+      $("statusText").textContent = state.charAt(0).toUpperCase() + state.slice(1);
+      $("btnConnect").disabled = state === "connected" || state === "loading";
+      $("btnDisconnect").disabled = state !== "connected";
+      const show = state === "connected";
+      $("subCard").classList.toggle("hidden", !show);
+      $("sessionCard").classList.toggle("hidden", !show);
+    }
+
+    function updateSessionList() {
+      if (!client) return;
+      const ids = client.sessionIds();
+      $("activeSessions").textContent = ids.length
+        ? `Active sessions: ${ids.join(", ")}`
+        : "Active sessions: none";
+    }
+
+    // ── Load WASM ───────────────────────────────────────────────────
+    log("Loading WASM module...");
+    try {
+      await init();
+      initTracing();
+      log("WASM module loaded & tracing initialised", "log-ok");
+    } catch (e) {
+      log(`Failed to load WASM: ${e}`, "log-err");
+    }
+
+    // ── Connect ─────────────────────────────────────────────────────
+    $("btnConnect").addEventListener("click", async () => {
+      const endpoint = $("endpoint").value.trim();
+      const secret = $("secret").value.trim();
+      const org = $("org").value.trim();
+      const ns = $("ns").value.trim();
+      const app = $("app").value.trim();
+
+      if (!endpoint || !secret || !org || !ns || !app) {
+        log("All fields are required", "log-err");
+        return;
+      }
+
+      setStatus("loading");
+      log(`Connecting to ${endpoint} as ${org}/${ns}/${app}...`);
+      try {
+        client = await SlimClient.connect(endpoint, secret, org, ns, app);
+        setStatus("connected");
+        log(`Connected as ${client.appName}`, "log-ok");
+
+        // Start listening for events
+        client.listen(
+          (msg) => {
+            const payload = msg.payload
+              ? new TextDecoder().decode(msg.payload)
+              : "(no payload)";
+            log(`📨 Message [session=${msg.sessionId}] from ${msg.source}: ${payload} (${msg.payloadType || "?"})`, "log-msg");
+          },
+          (session) => {
+            log(`🔗 New session ${session.sessionId}: ${session.source} → ${session.destination}`, "log-data");
+            updateSessionList();
+          }
+        );
+        log("Listening for events", "log-info");
+
+        // Mirrors `sdk-mock`'s explicit
+        //   app.subscribe(app.app_name(), Some(conn_id))
+        // right after Service::connect: register this app's name on the
+        // gateway so DiscoveryReply / JoinReply / group fan-out messages
+        // can find a route back to us. The SLIM SDK already self-registers
+        // the same name on the *local* data plane internally (in
+        // `spawn_app_message_loop`, the wasm equivalent of native
+        // `App::process_messages`), so this call only handles the
+        // gateway-side registration.
+        try {
+          await client.subscribe(org, ns, app);
+          log(`Subscribed to ${org}/${ns}/${app} on the gateway`, "log-info");
+          // Pre-fill the Subscribe / Unsubscribe form for clarity.
+          $("subOrg").value = org;
+          $("subNs").value = ns;
+          $("subName").value = app;
+        } catch (e) {
+          log(`Subscribe failed: ${e}`, "log-err");
+        }
+      } catch (e) {
+        setStatus("disconnected");
+        log(`Connection failed: ${e}`, "log-err");
+      }
+    });
+
+    // ── Disconnect ──────────────────────────────────────────────────
+    $("btnDisconnect").addEventListener("click", () => {
+      if (client) {
+        client.disconnect();
+        client.free();
+        client = null;
+      }
+      setStatus("disconnected");
+      log("Disconnected");
+    });
+
+    // ── Subscribe ───────────────────────────────────────────────────
+    $("btnSubscribe").addEventListener("click", async () => {
+      if (!client) return;
+      const org = $("subOrg").value.trim();
+      const ns = $("subNs").value.trim();
+      const name = $("subName").value.trim();
+      log(`Subscribing to ${org}/${ns}/${name}...`);
+      try {
+        await client.subscribe(org, ns, name);
+        log(`Subscribed to ${org}/${ns}/${name}`, "log-ok");
+      } catch (e) {
+        log(`Subscribe failed: ${e}`, "log-err");
+      }
+    });
+
+    // ── Unsubscribe ─────────────────────────────────────────────────
+    $("btnUnsubscribe").addEventListener("click", async () => {
+      if (!client) return;
+      const org = $("subOrg").value.trim();
+      const ns = $("subNs").value.trim();
+      const name = $("subName").value.trim();
+      log(`Unsubscribing from ${org}/${ns}/${name}...`);
+      try {
+        await client.unsubscribe(org, ns, name);
+        log(`Unsubscribed from ${org}/${ns}/${name}`, "log-ok");
+      } catch (e) {
+        log(`Unsubscribe failed: ${e}`, "log-err");
+      }
+    });
+
+    // ── Create Session ──────────────────────────────────────────────
+    $("btnCreateSession").addEventListener("click", async () => {
+      if (!client) return;
+      const org = $("destOrg").value.trim();
+      const ns = $("destNs").value.trim();
+      const app = $("destApp").value.trim();
+      const type = $("sessionType").value;
+      const mls = $("mlsEnabled").checked;
+      // Install a route for the session destination (P2P peer or multicast
+      // channel) so that messages and discovery requests can leave the
+      // browser-side data plane and reach the SLIM gateway. Without this
+      // the local data plane has no route entry and publishes return NoMatch.
+      if (app) {
+        try {
+          await client.setRoute(org, ns, app);
+          log(`Route installed for ${org}/${ns}/${app}`, "log-info");
+        } catch (e) {
+          log(`Set route failed: ${e}`, "log-err");
+          return;
+        }
+      }
+      log(`Creating ${type} session to ${org}/${ns}/${app}${mls ? " (MLS enabled)" : ""}...`);
+      try {
+        const id = await client.createSession(org, ns, app, type, mls ? true : undefined);
+        log(`Session created: ID=${id}`, "log-ok");
+        $("pubSessionId").value = id;
+        $("groupSessionId").value = id;
+        updateSessionList();
+      } catch (e) {
+        log(`Create session failed: ${e}`, "log-err");
+      }
+    });
+
+    // ── Group Chat: Invite ──────────────────────────────────────────
+    $("btnInvite").addEventListener("click", async () => {
+      if (!client) return;
+      const sid = parseInt($("groupSessionId").value, 10);
+      const org = $("participantOrg").value.trim();
+      const ns = $("participantNs").value.trim();
+      const name = $("participantName").value.trim();
+      if (isNaN(sid) || !name) { log("Session ID and participant name required", "log-err"); return; }
+      // Install a forwarding route in the browser-side data plane so that
+      // the moderator's DiscoveryRequest publish actually reaches the
+      // remote SLIM gateway. Without this, the local data plane has no
+      // entry for this participant name and the publish returns NoMatch.
+      try {
+        await client.setRoute(org, ns, name);
+        log(`Route installed for ${org}/${ns}/${name}`, "log-info");
+      } catch (e) {
+        log(`Set route failed: ${e}`, "log-err");
+        return;
+      }
+      log(`Inviting ${org}/${ns}/${name} to session ${sid}...`);
+      try {
+        await client.inviteParticipant(sid, org, ns, name);
+        log(`Invited ${org}/${ns}/${name} to session ${sid}`, "log-ok");
+      } catch (e) {
+        log(`Invite failed: ${e}`, "log-err");
+      }
+    });
+
+    // ── Group Chat: Remove ──────────────────────────────────────────
+    $("btnRemove").addEventListener("click", async () => {
+      if (!client) return;
+      const sid = parseInt($("groupSessionId").value, 10);
+      const org = $("participantOrg").value.trim();
+      const ns = $("participantNs").value.trim();
+      const name = $("participantName").value.trim();
+      if (isNaN(sid) || !name) { log("Session ID and participant name required", "log-err"); return; }
+      log(`Removing ${org}/${ns}/${name} from session ${sid}...`);
+      try {
+        await client.removeParticipant(sid, org, ns, name);
+        log(`Removed ${org}/${ns}/${name} from session ${sid}`, "log-ok");
+      } catch (e) {
+        log(`Remove failed: ${e}`, "log-err");
+      }
+    });
+
+    // ── Group Chat: List Participants ────────────────────────────────
+    $("btnListParticipants").addEventListener("click", async () => {
+      if (!client) return;
+      const sid = parseInt($("groupSessionId").value, 10);
+      if (isNaN(sid)) { log("Enter a session ID", "log-err"); return; }
+      try {
+        const list = await client.participantsList(sid);
+        log(`Session ${sid} participants: ${list.join(", ") || "(none)"}`, "log-data");
+      } catch (e) {
+        log(`List participants failed: ${e}`, "log-err");
+      }
+    });
+
+    // ── Publish ─────────────────────────────────────────────────────
+    $("btnPublish").addEventListener("click", async () => {
+      if (!client) return;
+      const sessionId = parseInt($("pubSessionId").value, 10);
+      const payload = $("pubPayload").value;
+      const payloadType = $("pubType").value.trim() || undefined;
+
+      if (isNaN(sessionId)) { log("Enter a valid session ID", "log-err"); return; }
+      if (!payload) { log("Enter a payload", "log-err"); return; }
+
+      const bytes = new TextEncoder().encode(payload);
+      log(`Publishing to session ${sessionId}: "${payload}" (${payloadType || "msg"})...`);
+      try {
+        await client.publish(sessionId, bytes, payloadType);
+        log(`Published to session ${sessionId}`, "log-ok");
+      } catch (e) {
+        log(`Publish failed: ${e}`, "log-err");
+      }
+    });
+
+    // ── Clear Log ───────────────────────────────────────────────────
+    $("btnClearLog").addEventListener("click", () => { logEl.innerHTML = ""; });
+  </script>
+</body>
+</html>
