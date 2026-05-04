@@ -6,7 +6,10 @@ version = "0.1.15"
 description = "Messaging Layer Security for SLIM data plane."
 
 [package.metadata.cargo-machete]
-ignored = ["getrandom"]
+# `async-trait` is invoked indirectly by the `maybe_async::must_be_async`
+# macro expansion in `identity_provider.rs` when building with the
+# `mls_build_async` cfg (the wasm path), so cargo-machete cannot see it.
+ignored = ["getrandom", "async-trait"]
 
 [lib]
 name = "slim_mls"

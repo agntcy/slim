@@ -239,7 +239,6 @@ dependencies = [
  "tracing-test",
  "twox-hash",
  "uuid",
- "wasm-bindgen",
  "wasm-bindgen-futures",
 ]
 
@@ -385,11 +384,9 @@ dependencies = [
  "agntcy-slim-session",
  "agntcy-slim-tracing",
  "console_error_panic_hook",
- "futures",
  "gloo-net",
  "js-sys",
  "parking_lot",
- "prost",
  "tokio_with_wasm",
  "tracing",
  "url",
@@ -765,6 +762,12 @@ checksum = "bf95709a440f45e986983918d0e8a1f30a9b1df04918fc828670606804ac3c09"
 dependencies = [
  "virtue",
 ]
+
+[[package]]
+name = "bitflags"
+version = "1.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "bitflags"
