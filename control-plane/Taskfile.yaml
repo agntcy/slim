@@ -108,13 +108,13 @@ tasks:
 
   control-plane:coverage:
     desc: Show coverage in browser
-    dir: "{{.REPO_ROOT}}/control-plane/control-plane"
     deps:
       - control-plane:coverage-reports
     vars:
       COVERAGE_PROFILE: "{{.REPO_ROOT}}/control-plane/.coverage/profile"
     cmds:
-      - go tool cover -html={{.COVERAGE_PROFILE}}
+      - cd "{{.REPO_ROOT}}/control-plane/control-plane" && go tool cover
+        -html={{.COVERAGE_PROFILE}}
 
   control-plane:test:
     desc: Run go tests
