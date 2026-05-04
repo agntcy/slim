@@ -478,7 +478,7 @@ impl Service {
                 // Get connection details from the connection table
                 self.message_processor
                     .connection_table()
-                    .get(conn_id as usize)
+                    .get(conn_id)
                     .map(|conn| ConnectionInfo {
                         id: conn_id,
                         remote_addr: conn.remote_addr().copied(),
@@ -752,7 +752,7 @@ mod tests {
             service
                 .message_processor
                 .connection_table()
-                .get(conn_id as usize)
+                .get(conn_id)
                 .is_none(),
             "connection should be removed after disconnect"
         );
