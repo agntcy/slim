@@ -28,6 +28,9 @@ func main() {
 	if *local == "" {
 		log.Fatal("--local is required")
 	}
+	if *message != "" && *remote == "" {
+		log.Fatal("--remote required when --message specified")
+	}
 
 	// Create and connect app
 	app, connID, err := common.CreateAndConnectApp(*local, *server, *sharedSecret)
@@ -41,11 +44,10 @@ func main() {
 	fmt.Printf("[%d] 🔌 Connected to %s (conn ID: %d)\n", instance, *server, connID)
 
 	// Run sender or receiver mode
-	if *message != "" && *remote != "" {
+	switch {
+	case *message != "" && *remote != "":
 		runSender(app, connID, *remote, *message, *iterations, *enableMLS, instance)
-	} else if *message != "" {
-		log.Fatal("--remote required when --message specified")
-	} else {
+	default:
 		runReceiver(app, instance)
 	}
 }
@@ -57,7 +59,7 @@ func runSender(app *slim.App, connID uint64, remote, message string, iterations 
 	}
 
 	// Set route to remote via the server connection
-	if err := app.SetRouteAsync(remoteName, connID); err != nil {
+	if err = app.SetRouteAsync(remoteName, connID); err != nil {
 		log.Fatalf("Failed to set route: %v", err)
 	}
 	fmt.Printf("[%d] 📍 Route set to %s via connection %d\n", instance, remote, connID)
@@ -72,7 +74,10 @@ func runSender(app *slim.App, connID uint64, remote, message string, iterations 
 	if err != nil {
 		log.Fatalf("Failed to create session: %v", err)
 	}
-	defer app.DeleteSessionAndWaitAsync(session)
+
+	defer func() {
+		_ = app.DeleteSessionAndWaitAsync(session)
+	}()
 
 	// Give session a moment to establish
 	time.Sleep(100 * time.Millisecond)
