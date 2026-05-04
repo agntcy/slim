@@ -220,9 +220,22 @@ impl SlimHeader {
     ) -> Self {
         let flags = flags.unwrap_or_default();
 
+        // When source and destination are the same `&Name` (same pointer), build one ProtoName
+        // and clone it. Avoids a second `ProtoName::from` that would re-clone all string fields.
+        let (source, destination) =
+            if std::ptr::eq(source as *const Name, destination as *const Name) {
+                let endpoint = ProtoName::from(source);
+                (Some(endpoint.clone()), Some(endpoint))
+            } else {
+                (
+                    Some(ProtoName::from(source)),
+                    Some(ProtoName::from(destination)),
+                )
+            };
+
         Self {
-            source: Some(ProtoName::from(source)),
-            destination: Some(ProtoName::from(destination)),
+            source,
+            destination,
             identity: identity.to_string(),
             fanout: flags.fanout,
             recv_from: flags.recv_from,
@@ -870,6 +883,33 @@ impl ProtoMessage {
             Some(ProtoSubscribeType(s)) => s.subscription_id = subscription_id,
             Some(ProtoUnsubscribeType(u)) => u.subscription_id = subscription_id,
             _ => {}
+        }
+    }
+
+    /// Compact subscribe/unsubscribe for forwarding remote dataplane traffic to the control plane.
+    ///
+    /// Copies destination, subscription id, and sets SLIM header `recv_from` to
+    /// `remote_connection_id` (the dataplane connection index the message arrived on). Omits other
+    /// header fields and the metadata map where possible.
+    ///
+    /// Returns [`None`] for non-subscribe/unsubscribe types or if the header or destination is missing.
+    pub fn rebuild_header_for_control_plane(&self) -> Option<ProtoMessage> {
+        let dst = Name::from(self.try_get_slim_header()?.destination.as_ref()?);
+        match &self.message_type {
+            Some(ProtoSubscribeType(s)) => {
+                let mut sub = ProtoSubscribe::new(&dst, &dst, None, None);
+                sub.subscription_id = s.subscription_id;
+                Some(ProtoMessage::new(HashMap::new(), ProtoSubscribeType(sub)))
+            }
+            Some(ProtoUnsubscribeType(u)) => {
+                let mut unsub = ProtoUnsubscribe::new(&dst, &dst, None, None);
+                unsub.subscription_id = u.subscription_id;
+                Some(ProtoMessage::new(
+                    HashMap::new(),
+                    ProtoUnsubscribeType(unsub),
+                ))
+            }
+            _ => None,
         }
     }
 
@@ -1649,6 +1689,8 @@ impl ProtoMessage {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use crate::{api::proto::dataplane::v1::SessionMessageType, messages::encoder::Name};
 
     use super::*;
@@ -1794,6 +1836,132 @@ mod tests {
             None,
             Some(SlimHeaderFlags::default().with_forward_to(30)),
         );
+    }
+
+    #[test]
+    fn rebuild_header_for_control_plane_subscribe() {
+        let source = Name::from_strings(["org", "ns", "app"]).with_id(10);
+        let dst = Name::from_strings(["org", "ns", "topic"]).with_id(20);
+        let sub_id = 0xfeed_beef_u64;
+        let msg = ProtoMessage::builder()
+            .source(source.clone())
+            .destination(dst.clone())
+            .subscription_id(sub_id)
+            .metadata("cp_should_drop", "yes")
+            .build_subscribe()
+            .unwrap();
+
+        let rebuilt = msg
+            .rebuild_header_for_control_plane()
+            .expect("rebuilt message");
+        assert!(rebuilt.get_metadata_map().is_empty());
+        assert!(rebuilt.is_subscribe());
+        assert!(!rebuilt.is_unsubscribe());
+        assert_eq!(rebuilt.get_subscription_id(), Some(sub_id));
+        assert_eq!(rebuilt.get_source(), dst);
+        assert_eq!(rebuilt.get_dst(), dst);
+        assert_eq!(msg.get_source(), source);
+        assert_eq!(msg.get_dst(), dst);
+    }
+
+    #[test]
+    fn rebuild_header_for_control_plane_unsubscribe() {
+        let source = Name::from_strings(["org", "ns", "app"]).with_id(1);
+        let dst = Name::from_strings(["org", "ns", "chan"]).with_id(2);
+        let sub_id = 42_u64;
+        let msg = ProtoMessage::builder()
+            .source(source)
+            .destination(dst.clone())
+            .subscription_id(sub_id)
+            .metadata("noise", "data")
+            .build_unsubscribe()
+            .unwrap();
+
+        let rebuilt = msg
+            .rebuild_header_for_control_plane()
+            .expect("rebuilt message");
+        assert!(rebuilt.get_metadata_map().is_empty());
+        assert!(rebuilt.is_unsubscribe());
+        assert!(!rebuilt.is_subscribe());
+        assert_eq!(rebuilt.get_subscription_id(), Some(sub_id));
+        assert_eq!(rebuilt.get_source(), dst);
+        assert_eq!(rebuilt.get_dst(), dst);
+    }
+
+    #[test]
+    fn rebuild_header_for_control_plane_subscribe_zero_subscription_id() {
+        let dst = Name::from_strings(["a", "b", "c"]);
+        let msg = ProtoMessage::builder()
+            .source(dst.clone())
+            .destination(dst.clone())
+            .subscription_id(0)
+            .build_subscribe()
+            .unwrap();
+
+        let rebuilt = msg.rebuild_header_for_control_plane().unwrap();
+        assert_eq!(rebuilt.get_subscription_id(), None);
+        if let Some(ProtoSubscribeType(s)) = &rebuilt.message_type {
+            assert_eq!(s.subscription_id, 0);
+        }
+    }
+
+    #[test]
+    fn rebuild_header_for_control_plane_publish_returns_none() {
+        let msg = ProtoMessage::builder()
+            .source(Name::from_strings(["o", "n", "s"]))
+            .destination(Name::from_strings(["o", "n", "d"]))
+            .application_payload("t", vec![1, 2])
+            .build_publish()
+            .unwrap();
+
+        assert!(msg.rebuild_header_for_control_plane().is_none());
+    }
+
+    #[test]
+    fn rebuild_header_for_control_plane_link_returns_none() {
+        let msg = ProtoMessage::builder().build_link_negotiation("lid", "1.0.0", false);
+        assert!(msg.rebuild_header_for_control_plane().is_none());
+    }
+
+    #[test]
+    fn rebuild_header_for_control_plane_subscription_ack_returns_none() {
+        let msg = ProtoMessage::builder().build_subscription_ack(9, true, "");
+        assert!(msg.rebuild_header_for_control_plane().is_none());
+    }
+
+    #[test]
+    fn rebuild_header_for_control_plane_subscribe_missing_slim_header() {
+        let msg = ProtoMessage::new(
+            HashMap::new(),
+            ProtoSubscribeType(ProtoSubscribe {
+                header: None,
+                subscription_id: 1,
+            }),
+        );
+        assert!(msg.rebuild_header_for_control_plane().is_none());
+    }
+
+    #[test]
+    fn rebuild_header_for_control_plane_subscribe_missing_destination() {
+        let name = Name::from_strings(["x", "y", "z"]);
+        let hdr = SlimHeader {
+            source: Some(ProtoName::from(&name)),
+            destination: None,
+            identity: String::new(),
+            fanout: 1,
+            recv_from: None,
+            forward_to: None,
+            incoming_conn: None,
+            error: None,
+        };
+        let msg = ProtoMessage::new(
+            HashMap::new(),
+            ProtoSubscribeType(ProtoSubscribe {
+                header: Some(hdr),
+                subscription_id: 99,
+            }),
+        );
+        assert!(msg.rebuild_header_for_control_plane().is_none());
     }
 
     #[test]

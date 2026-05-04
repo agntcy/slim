@@ -121,6 +121,14 @@ tasks:
     cmds:
       - git describe --tags --match "slim-v*" | cut -d 'v' -f 2
 
+  data-plane:bench:process-stream:
+    desc: "Run process_stream Criterion bench and allocation-counter bench"
+    cmds:
+      - cargo bench -p agntcy-slim-datapath --bench process_stream_benchmark {{.ARGS}}
+      - cargo bench -p agntcy-slim-datapath --bench process_stream_alloc {{.ARGS}}
+    vars:
+      ARGS: '{{.ARGS | default ""}}'
+
   data-plane:generate:grpc-json-schema:
     desc: "Generate the gRPC schema"
     cmds:
