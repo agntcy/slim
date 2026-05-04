@@ -110,10 +110,19 @@ linters:
 # v2: gofmt and goimports are formatters, not linters
 formatters:
   enable:
+    - gci
     - gofmt
     - goimports
 
   settings:
+    gci:
+      # defines import block order
+      sections:
+        - standard
+        - default
+        - prefix(github.com/agntcy/slim)
+      custom-order: true
+
     gofmt:
       # simplify code: gofmt with `-s` option, true by default
       simplify: true
