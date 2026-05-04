@@ -1320,7 +1320,7 @@ fn generate_config_data(
 
         config.insert("endpoint".to_string(), json!(format!("https://{endpoint}")));
 
-        let trust_domain = detail
+        let trust_domain = spire
             .trust_domain
             .as_deref()
             .or(dest_node.group_name.as_deref());
@@ -1411,7 +1411,6 @@ mod tests {
         ConnectionDetails {
             endpoint: ep.to_string(),
             external_endpoint: external.map(|s| s.to_string()),
-            trust_domain: None,
             spire_mtls: None,
         }
     }

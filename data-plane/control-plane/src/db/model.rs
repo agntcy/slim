@@ -139,6 +139,7 @@ pub struct Node {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SpireMtls {
     pub socket_path: String,
+    pub trust_domain: Option<String>,
 }
 
 /// Per-node connection detail.
@@ -146,25 +147,24 @@ pub struct SpireMtls {
 pub struct ConnectionDetails {
     pub endpoint: String,
     pub external_endpoint: Option<String>,
-    pub trust_domain: Option<String>,
     pub spire_mtls: Option<SpireMtls>,
 }
 
 impl std::fmt::Display for ConnectionDetails {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut parts = vec![format!("endpoint: {}", self.endpoint)];
-        if self.spire_mtls.is_some() {
+        if let Some(ref spire) = self.spire_mtls {
             parts.push("mtls(spire)".to_string());
+            if let Some(ref td) = spire.trust_domain
+                && !td.is_empty()
+            {
+                parts.push(format!("trustDomain: {td}"));
+            }
         }
         if let Some(ref ee) = self.external_endpoint
             && !ee.is_empty()
         {
             parts.push(format!("externalEndpoint: {ee}"));
-        }
-        if let Some(ref td) = self.trust_domain
-            && !td.is_empty()
-        {
-            parts.push(format!("trustDomain: {td}"));
         }
         write!(f, "{}", parts.join(", "))
     }
@@ -190,7 +190,6 @@ pub fn has_connection_details_changed(
             None => return true,
             Some(ncd) => {
                 if ecd.external_endpoint != ncd.external_endpoint
-                    || ecd.trust_domain != ncd.trust_domain
                     || ecd.spire_mtls != ncd.spire_mtls
                 {
                     return true;
@@ -381,7 +380,6 @@ mod tests {
         ConnectionDetails {
             endpoint: endpoint.to_string(),
             external_endpoint: external.map(|s| s.to_string()),
-            trust_domain: None,
             spire_mtls: None,
         }
     }
@@ -531,8 +529,9 @@ mod tests {
     fn connection_details_changed_different_spire_mtls() {
         let a = make_cd("ep:8080", None);
         let mut b = make_cd("ep:8080", None);
-        b.spire_mtls = Some(super::SpireMtls {
+        b.spire_mtls = Some(SpireMtls {
             socket_path: "/run/spire/agent.sock".to_string(),
+            trust_domain: None,
         });
         assert!(has_connection_details_changed(&[a], &[b]));
     }
@@ -547,16 +546,25 @@ mod tests {
     #[test]
     fn connection_details_changed_different_trust_domain() {
         let mut a = make_cd("ep:8080", None);
-        a.trust_domain = Some("domain-a.example".to_string());
+        a.spire_mtls = Some(SpireMtls {
+            socket_path: "/run/spire.sock".to_string(),
+            trust_domain: Some("domain-a.example".to_string()),
+        });
         let mut b = make_cd("ep:8080", None);
-        b.trust_domain = Some("domain-b.example".to_string());
+        b.spire_mtls = Some(SpireMtls {
+            socket_path: "/run/spire.sock".to_string(),
+            trust_domain: Some("domain-b.example".to_string()),
+        });
         assert!(has_connection_details_changed(&[a], &[b]));
     }
 
     #[test]
     fn connection_details_unchanged_same_trust_domain() {
         let mut a = make_cd("ep:8080", None);
-        a.trust_domain = Some("domain.example".to_string());
+        a.spire_mtls = Some(SpireMtls {
+            socket_path: "/run/spire.sock".to_string(),
+            trust_domain: Some("domain.example".to_string()),
+        });
         let b = a.clone();
         assert!(!has_connection_details_changed(&[a], &[b]));
     }
@@ -581,8 +589,9 @@ mod tests {
     #[test]
     fn connection_details_display_with_spire_mtls_and_external() {
         let mut cd = make_cd("ep:8080", Some("ext:9090"));
-        cd.spire_mtls = Some(super::SpireMtls {
+        cd.spire_mtls = Some(SpireMtls {
             socket_path: "/run/spire/agent.sock".to_string(),
+            trust_domain: None,
         });
         let s = format!("{cd}");
         assert!(s.contains("mtls(spire)"));
@@ -599,7 +608,10 @@ mod tests {
     #[test]
     fn connection_details_display_trust_domain() {
         let mut cd = make_cd("ep:8080", None);
-        cd.trust_domain = Some("example.org".to_string());
+        cd.spire_mtls = Some(SpireMtls {
+            socket_path: "/run/spire.sock".to_string(),
+            trust_domain: Some("example.org".to_string()),
+        });
         let s = format!("{cd}");
         assert!(s.contains("example.org"));
     }

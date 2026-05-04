@@ -882,7 +882,6 @@ mod tests {
             conn_details: vec![ConnectionDetails {
                 endpoint: format!("{id}:8080"),
                 external_endpoint: None,
-                trust_domain: None,
                 spire_mtls: None,
             }],
             last_updated: SystemTime::now(),

@@ -303,9 +303,13 @@ fn parse_conn_details(
     let spire_mtls = if detail.mtls_required {
         Some(crate::db::SpireMtls {
             socket_path: spire_socket_path.unwrap_or_default(),
+            trust_domain,
         })
     } else {
-        spire_socket_path.map(|p| crate::db::SpireMtls { socket_path: p })
+        spire_socket_path.map(|p| crate::db::SpireMtls {
+            socket_path: p,
+            trust_domain,
+        })
     };
 
     // Derive the effective endpoint: prefer local_endpoint, else peer host +
@@ -320,7 +324,6 @@ fn parse_conn_details(
     ConnectionDetails {
         endpoint,
         external_endpoint,
-        trust_domain,
         spire_mtls,
     }
 }
