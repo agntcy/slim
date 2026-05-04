@@ -596,8 +596,7 @@ impl MessageProcessor {
         client_config: Option<ClientConfig>,
     ) -> Result<(JoinHandle<()>, u64), DataPathError> {
         let cancellation_token = CancellationToken::new();
-        let streams =
-            websocket::spawn_transport_tasks(websocket, cancellation_token.clone());
+        let streams = websocket::spawn_transport_tasks(websocket, cancellation_token.clone());
 
         let connection = Connection::new(ConnectionType::Remote, Channel::Client(streams.outbound))
             .with_config_data(client_config.clone())
