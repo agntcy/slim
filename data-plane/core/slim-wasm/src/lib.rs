@@ -72,7 +72,9 @@ mod wasm_impl {
 
     use slim_auth::shared_secret::SharedSecret;
     use slim_auth::traits::TokenProvider;
-    use slim_datapath::api::{MessageType, ProtoMessage, ProtoSessionMessageType, ProtoSessionType};
+    use slim_datapath::api::{
+        MessageType, ProtoMessage, ProtoSessionMessageType, ProtoSessionType,
+    };
     use slim_datapath::message_processing::MessageProcessor;
     use slim_datapath::messages::Name;
     use slim_datapath::messages::utils::SlimHeaderFlags;
@@ -382,9 +384,9 @@ mod wasm_impl {
             name: &str,
             conn_id: Option<u32>,
         ) -> Result<(), JsError> {
-            let target = self
-                .resolve_conn(conn_id)
-                .ok_or_else(|| JsError::new("no remote connection available; call addConnection first"))?;
+            let target = self.resolve_conn(conn_id).ok_or_else(|| {
+                JsError::new("no remote connection available; call addConnection first")
+            })?;
             let dest = Name::from_strings([org, ns, name]);
             let mut msg = ProtoMessage::builder()
                 .source(self.app_name.clone())
