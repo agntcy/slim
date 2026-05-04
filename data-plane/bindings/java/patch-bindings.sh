@@ -97,16 +97,19 @@ fi
 # add the required import statements. The converter file also needs ArrayList.
 # Some generated files have no existing imports, so we insert after the package line.
 echo "  → Adding missing java.util.List imports..."
-find "$BINDINGS_DIR" -name "*.java" -type f -exec grep -l 'List<' {} \; | while read -r file; do
+# Do not use `find -exec grep -l`: GNU find propagates grep's exit 1 (no match) and aborts this script under set -e on Linux.
+while IFS= read -r -d '' file; do
+  grep -q 'List<' "$file" || continue
   if ! grep -q 'import java.util.List;' "$file"; then
     awk '/^package / { print; print ""; print "import java.util.List;"; next } {print}' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
   fi
-done
-find "$BINDINGS_DIR" -name "*.java" -type f -exec grep -l 'ArrayList<' {} \; | while read -r file; do
+done < <(find "$BINDINGS_DIR" -name "*.java" -type f -print0)
+while IFS= read -r -d '' file; do
+  grep -q 'ArrayList<' "$file" || continue
   if ! grep -q 'import java.util.ArrayList;' "$file"; then
     awk '/^package / { print; print ""; print "import java.util.ArrayList;"; next } {print}' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
   fi
-done
+done < <(find "$BINDINGS_DIR" -name "*.java" -type f -print0)
 
 # Fix 9: ResponseSink close() conflict with AutoCloseable
 # ResponseSink implements both AutoCloseable.close() and ResponseSinkInterface.close()

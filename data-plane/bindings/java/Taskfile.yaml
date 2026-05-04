@@ -94,8 +94,21 @@ tasks:
           --out-dir generated/uniffi \
           --config uniffi.toml
       - task: patch-bindings
-      - test -f generated/uniffi/io/agntcy/slim/bindings/ResponseSink.java
-      - test -f generated/uniffi/io/agntcy/slim/bindings/StreamMessage.java
+      - |
+        set -eu
+        # Do not `cd "{{.TASKFILE_DIR}}"`: if TASKFILE_DIR is empty, bash `cd ""` goes to $HOME and find sees no generated files.
+        if [ ! -f uniffi.toml ]; then
+          echo "error: java bindings generate must run with cwd=data-plane/bindings/java (uniffi.toml missing); pwd=$(pwd)" >&2
+          exit 1
+        fi
+        n=$(find generated/uniffi -type f -name '*.java' 2>/dev/null | wc -l | tr -d ' ')
+        rs=$(find generated/uniffi -type f -name 'ResponseSink.java' 2>/dev/null | wc -l | tr -d ' ')
+        sm=$(find generated/uniffi -type f -name 'StreamMessage.java' 2>/dev/null | wc -l | tr -d ' ')
+        if [ "$rs" -lt 1 ] || [ "$sm" -lt 1 ]; then
+          echo "error: missing UniFFI stream types (ResponseSink.java count=$rs StreamMessage.java count=$sm total_java=$n pwd=$(pwd))" >&2
+          find generated/uniffi -type f 2>/dev/null | head -50 >&2 || true
+          exit 1
+        fi
       - echo "Bindings generated in generated/"
 
   copy-libraries:
