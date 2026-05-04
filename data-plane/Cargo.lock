@@ -213,6 +213,9 @@ dependencies = [
  "display-error-chain",
  "drain",
  "fastwebsockets",
+ "futures",
+ "getrandom 0.3.4",
+ "gloo-net",
  "h2",
  "http",
  "opentelemetry",
@@ -227,6 +230,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "tokio_with_wasm",
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
@@ -235,6 +239,8 @@ dependencies = [
  "tracing-test",
  "twox-hash",
  "uuid",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]
@@ -244,6 +250,7 @@ dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
  "agntcy-slim-version",
+ "async-trait",
  "base64 0.22.1",
  "hex",
  "mls-rs",
@@ -1525,9 +1532,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "r-efi",
  "wasip2",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -2148,12 +2157,6 @@ name = "log"
 version = "0.4.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
-
-[[package]]
-name = "lru-slab"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 
 [[package]]
 name = "matchers"

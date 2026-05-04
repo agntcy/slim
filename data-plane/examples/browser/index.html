@@ -269,6 +269,26 @@
           }
         );
         log("Listening for events", "log-info");
+
+        // Mirrors `sdk-mock`'s explicit
+        //   app.subscribe(app.app_name(), Some(conn_id))
+        // right after Service::connect: register this app's name on the
+        // gateway so DiscoveryReply / JoinReply / group fan-out messages
+        // can find a route back to us. The SLIM SDK already self-registers
+        // the same name on the *local* data plane internally (in
+        // `spawn_app_message_loop`, the wasm equivalent of native
+        // `App::process_messages`), so this call only handles the
+        // gateway-side registration.
+        try {
+          await client.subscribe(org, ns, app);
+          log(`Subscribed to ${org}/${ns}/${app} on the gateway`, "log-info");
+          // Pre-fill the Subscribe / Unsubscribe form for clarity.
+          $("subOrg").value = org;
+          $("subNs").value = ns;
+          $("subName").value = app;
+        } catch (e) {
+          log(`Subscribe failed: ${e}`, "log-err");
+        }
       } catch (e) {
         setStatus("disconnected");
         log(`Connection failed: ${e}`, "log-err");
@@ -324,6 +344,19 @@
       const app = $("destApp").value.trim();
       const type = $("sessionType").value;
       const mls = $("mlsEnabled").checked;
+      // Install a route for the session destination (P2P peer or multicast
+      // channel) so that messages and discovery requests can leave the
+      // browser-side data plane and reach the SLIM gateway. Without this
+      // the local data plane has no route entry and publishes return NoMatch.
+      if (app) {
+        try {
+          await client.setRoute(org, ns, app);
+          log(`Route installed for ${org}/${ns}/${app}`, "log-info");
+        } catch (e) {
+          log(`Set route failed: ${e}`, "log-err");
+          return;
+        }
+      }
       log(`Creating ${type} session to ${org}/${ns}/${app}${mls ? " (MLS enabled)" : ""}...`);
       try {
         const id = await client.createSession(org, ns, app, type, mls ? true : undefined);
@@ -344,6 +377,17 @@
       const ns = $("participantNs").value.trim();
       const name = $("participantName").value.trim();
       if (isNaN(sid) || !name) { log("Session ID and participant name required", "log-err"); return; }
+      // Install a forwarding route in the browser-side data plane so that
+      // the moderator's DiscoveryRequest publish actually reaches the
+      // remote SLIM gateway. Without this, the local data plane has no
+      // entry for this participant name and the publish returns NoMatch.
+      try {
+        await client.setRoute(org, ns, name);
+        log(`Route installed for ${org}/${ns}/${name}`, "log-info");
+      } catch (e) {
+        log(`Set route failed: ${e}`, "log-err");
+        return;
+      }
       log(`Inviting ${org}/${ns}/${name} to session ${sid}...`);
       try {
         await client.inviteParticipant(sid, org, ns, name);

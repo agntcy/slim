@@ -3,29 +3,45 @@
 
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
-use std::{pin::Pin, sync::Arc};
+use std::sync::Arc;
 
+#[cfg(feature = "native")]
+use std::pin::Pin;
+
+#[cfg(feature = "native")]
 use crate::api::DataPlaneServiceServer;
 use display_error_chain::ErrorChainExt;
+#[cfg(feature = "native")]
+use opentelemetry::propagation::{Extractor, Injector};
+#[cfg(feature = "native")]
+use opentelemetry::trace::TraceContextExt;
 use parking_lot::RwLock;
 use slim_config::client::ClientConfig;
 use slim_config::client::TransportChannel;
 use slim_config::component::configuration::Configuration;
+#[cfg(feature = "native")]
 use slim_config::server::ServerConfig;
 use slim_config::transport::TransportProtocol;
+#[cfg(feature = "native")]
 use slim_config::websocket::server as websocket_server;
+#[cfg(feature = "native")]
 use slim_tracing::utils::INSTANCE_ID;
 use tokio::sync::mpsc::{self, Sender};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{Stream, StreamExt};
-use tokio_util::sync::CancellationToken;
-
-use tonic::{Request, Response, Status};
-use tracing::{Instrument, debug, error, info};
 
 #[cfg(feature = "otel_tracing")]
 use crate::otel_tracing;
+use crate::Status;
+use crate::runtime::CancellationToken;
+#[cfg(feature = "native")]
+use tonic::{Request, Response};
+#[cfg(feature = "native")]
+use tracing::Span;
+use tracing::{Instrument, debug, error, info};
+#[cfg(feature = "native")]
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::api::ProtoMessage;
 use crate::api::ProtoPublishType as PublishType;
@@ -38,7 +54,9 @@ use crate::api::{
 };
 use semver;
 
+#[cfg(feature = "native")]
 use crate::api::proto::dataplane::v1::data_plane_service_client::DataPlaneServiceClient;
+#[cfg(feature = "native")]
 use crate::api::proto::dataplane::v1::data_plane_service_server::DataPlaneService;
 use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::{DataPathError, MessageContext};
@@ -51,6 +69,88 @@ use crate::tables::remote_subscription_table::SubscriptionInfo;
 use crate::tables::subscription_table::SubscriptionTableImpl;
 use crate::websocket;
 
+// Implementation based on: https://docs.rs/opentelemetry-tonic/latest/src/opentelemetry_tonic/lib.rs.html#1-134
+#[cfg(feature = "native")]
+struct MetadataExtractor<'a>(&'a std::collections::HashMap<String, String>);
+
+#[cfg(feature = "native")]
+impl Extractor for MetadataExtractor<'_> {
+    fn get(&self, key: &str) -> Option<&str> {
+        self.0.get(key).map(|s| s.as_str())
+    }
+
+    fn keys(&self) -> Vec<&str> {
+        self.0.keys().map(|s| s.as_str()).collect()
+    }
+}
+
+#[cfg(feature = "native")]
+struct MetadataInjector<'a>(&'a mut std::collections::HashMap<String, String>);
+
+#[cfg(feature = "native")]
+impl Injector for MetadataInjector<'_> {
+    fn set(&mut self, key: &str, value: String) {
+        self.0.insert(key.to_string(), value);
+    }
+}
+
+// Helper function to extract the parent OpenTelemetry context from metadata
+#[cfg(feature = "native")]
+fn extract_parent_context(msg: &Message) -> Option<opentelemetry::Context> {
+    let extractor = MetadataExtractor(&msg.metadata);
+    let parent_context =
+        opentelemetry::global::get_text_map_propagator(|propagator| propagator.extract(&extractor));
+
+    if parent_context.span().span_context().is_valid() {
+        Some(parent_context)
+    } else {
+        None
+    }
+}
+
+// Helper function to inject the current OpenTelemetry context into metadata
+#[cfg(feature = "native")]
+fn inject_current_context(msg: &mut Message) {
+    let cx = tracing::Span::current().context();
+    let mut injector = MetadataInjector(&mut msg.metadata);
+    opentelemetry::global::get_text_map_propagator(|propagator| {
+        propagator.inject_context(&cx, &mut injector)
+    });
+}
+
+#[cfg(feature = "native")]
+impl MessageProcessor {
+    // Helper to create the trace span, attached to the processor so it carries service_id
+    fn create_span(&self, function: &str, out_conn: u64, msg: &Message) -> Span {
+        let span = tracing::span!(
+            tracing::Level::INFO,
+            "slim_process_message",
+            function = function,
+            service_id = %self.internal.service_id,
+            source = format!("{}", msg.get_source()),
+            destination = format!("{}", msg.get_dst()),
+            instance_id = %INSTANCE_ID.as_str(),
+            connection_id = out_conn,
+            message_type = msg.get_type().to_string(),
+            telemetry = true
+        );
+
+        if let PublishType(_) = msg.get_type() {
+            span.set_attribute("session_type", msg.get_session_message_type().as_str_name());
+            span.set_attribute(
+                "session_id",
+                msg.get_session_header().get_session_id().to_string(),
+            );
+            span.set_attribute(
+                "message_id",
+                msg.get_session_header().get_message_id().to_string(),
+            );
+        }
+
+        span
+    }
+}
+
 fn local_version() -> &'static str {
     slim_version::version()
 }
@@ -61,10 +161,10 @@ struct MessageProcessorInternal {
     forwarder: Forwarder<Connection>,
 
     /// Drain signal to gracefully close all pending tasks
-    drain_signal: parking_lot::RwLock<Option<drain::Signal>>,
+    drain_signal: parking_lot::RwLock<Option<crate::runtime::DrainSignal>>,
 
     ///Drain watch to receive drain signal
-    drain_watch: parking_lot::RwLock<Option<drain::Watch>>,
+    drain_watch: parking_lot::RwLock<Option<crate::runtime::DrainWatch>>,
 
     /// Tx channel towards control plane
     tx_control_plane: RwLock<Option<Sender<Result<Message, Status>>>>,
@@ -96,7 +196,7 @@ impl MessageProcessor {
     }
 
     pub fn new_with_options(service_id: String, recovery_ttl: Option<std::time::Duration>) -> Self {
-        let (signal, watch) = drain::channel();
+        let (signal, watch) = crate::runtime::drain_channel();
         let recovery_table = match recovery_ttl {
             Some(ttl) => RecoveryTable::new(ttl),
             None => RecoveryTable::default(),
@@ -121,6 +221,7 @@ impl MessageProcessor {
 
     /// Run a data plane gRPC server using this message processor's drain watch.
     /// Returns a cancellation token that can be used to stop the server task.
+    #[cfg(feature = "native")]
     pub async fn run_server(
         &self,
         config: &ServerConfig,
@@ -132,6 +233,7 @@ impl MessageProcessor {
         }
     }
 
+    #[cfg(feature = "native")]
     async fn run_grpc_server(
         &self,
         config: &ServerConfig,
@@ -146,6 +248,7 @@ impl MessageProcessor {
         Ok(res)
     }
 
+    #[cfg(feature = "native")]
     async fn run_websocket_server(
         &self,
         config: &ServerConfig,
@@ -242,7 +345,7 @@ impl MessageProcessor {
         self.internal.sub_ack_manager.remove(subscription_id);
     }
 
-    fn get_drain_watch(&self) -> Result<drain::Watch, DataPathError> {
+    fn get_drain_watch(&self) -> Result<crate::runtime::DrainWatch, DataPathError> {
         self.internal
             .drain_watch
             .read()
@@ -300,10 +403,13 @@ impl MessageProcessor {
         client_config.validate()?;
 
         match client_config.transport {
+            #[cfg(feature = "native")]
             TransportProtocol::Grpc => {
                 self.try_to_connect_grpc(client_config, local, remote, existing_conn_index)
                     .await
             }
+            #[cfg(not(feature = "native"))]
+            TransportProtocol::Grpc => Err(DataPathError::ConnectionError),
             TransportProtocol::Websocket => {
                 self.try_to_connect_websocket(client_config, local, remote, existing_conn_index)
                     .await
@@ -311,6 +417,7 @@ impl MessageProcessor {
         }
     }
 
+    #[cfg(feature = "native")]
     async fn try_to_connect_grpc(
         &self,
         client_config: ClientConfig,
@@ -415,9 +522,14 @@ impl MessageProcessor {
             }
         };
 
+        #[cfg(feature = "native")]
         let connection = match channel {
             TransportChannel::Websocket(channel) => *channel,
             TransportChannel::Grpc(_) => return Err(DataPathError::ConnectionError),
+        };
+        #[cfg(not(feature = "native"))]
+        let connection = match channel {
+            TransportChannel::Websocket(channel) => *channel,
         };
 
         let cancellation_token = CancellationToken::new();
@@ -466,6 +578,52 @@ impl MessageProcessor {
     ) -> Result<(JoinHandle<()>, u64), DataPathError> {
         self.try_to_connect(client_config, local, remote, None)
             .await
+    }
+
+    /// Browser-only: register an already-opened `gloo_net` WebSocket as a
+    /// remote connection. Mirrors what `try_to_connect_websocket` does on
+    /// native, but leaves the handshake (auth, URL building) to the caller.
+    ///
+    /// This is the bridge that lets `slim-wasm` keep its existing
+    /// `SharedSecret`-based query-param token flow while still benefiting
+    /// from the data plane's forwarder, connection table, and per-connection
+    /// process_stream loop. After this call, publishing/subscribing through
+    /// the session layer goes through `MessageProcessor::send_msg`, which
+    /// fans out across all registered connections via the subscription
+    /// table — exactly like the native multi-connection case.
+    #[cfg(all(feature = "wasm", not(feature = "native")))]
+    pub fn register_websocket(
+        &self,
+        websocket: gloo_net::websocket::futures::WebSocket,
+        client_config: Option<ClientConfig>,
+    ) -> Result<(JoinHandle<()>, u64), DataPathError> {
+        let cancellation_token = CancellationToken::new();
+        let streams =
+            websocket::spawn_transport_tasks(websocket, cancellation_token.clone());
+
+        let connection = Connection::new(ConnectionType::Remote, Channel::Client(streams.outbound))
+            .with_config_data(client_config.clone())
+            .with_cancellation_token(Some(cancellation_token.clone()));
+
+        debug!("new wasm websocket connection registered");
+
+        let conn_index = self
+            .forwarder()
+            .on_connection_established(connection, None)
+            .ok_or(DataPathError::ConnectionTableAddError)?;
+
+        debug!(%conn_index, "new wasm websocket connection index");
+
+        let handle = self.process_stream(
+            streams.inbound,
+            conn_index,
+            client_config,
+            cancellation_token,
+            false,
+            false,
+        )?;
+
+        Ok((handle, conn_index))
     }
 
     pub fn disconnect(&self, conn: u64) -> Result<ClientConfig, DataPathError> {
@@ -569,6 +727,30 @@ impl MessageProcessor {
         match connection {
             Some(conn) => {
                 msg.clear_slim_header();
+                // Link and SubscriptionAck messages have no SLIM header: skip header
+                // manipulation and telemetry span creation.
+                if !msg.is_link() && !msg.is_subscription_ack() {
+                    // reset header fields
+                    msg.clear_slim_header();
+
+                    // telemetry ////////////////////////////////////////////////////////
+                    #[cfg(feature = "native")]
+                    {
+                        let parent_context = extract_parent_context(&msg);
+                        let span = self.create_span("send_message", out_conn, &msg);
+
+                        if let Some(ctx) = parent_context
+                            && let Err(e) = span.set_parent(ctx)
+                        {
+                            // log the error but don't fail the message sending
+                            error!(error = %e.chain(), "error setting parent context");
+                        }
+                        let _guard = span.enter();
+                        inject_current_context(&mut msg);
+                    }
+                    ///////////////////////////////////////////////////////////////////
+                }
+
                 match conn.channel() {
                     Channel::Server(s) => {
                         s.send(Ok(msg))
@@ -1092,6 +1274,24 @@ impl MessageProcessor {
                 conn_index,
                 is_local,
             );
+            // telemetry /////////////////////////////////////////
+            #[cfg(feature = "native")]
+            if is_local {
+                let span = self.create_span("process_local", conn_index, &msg);
+                let _guard = span.enter();
+                inject_current_context(&mut msg);
+            } else {
+                let parent_context = extract_parent_context(&msg);
+                let span = self.create_span("process_local", conn_index, &msg);
+                if let Some(ctx) = parent_context
+                    && let Err(e) = span.set_parent(ctx)
+                {
+                    error!(error = %e.chain(), "error setting parent context");
+                }
+                let _guard = span.enter();
+                inject_current_context(&mut msg);
+            }
+            //////////////////////////////////////////////////////
         }
 
         match self.process_message(msg, conn_index, is_local).await {
@@ -1131,7 +1331,10 @@ impl MessageProcessor {
                     let error_message = payload.to_json_string();
 
                     // create Status error
+                    #[cfg(feature = "native")]
                     let status = Status::new(tonic::Code::Internal, error_message);
+                    #[cfg(not(feature = "native"))]
+                    let status = Status::internal(error_message);
 
                     if tx.send(Err(status)).await.is_err() {
                         debug!(error = %err.chain(), "unable to notify the error to the local app");
@@ -1284,11 +1487,18 @@ impl MessageProcessor {
                                         }
                                     }
                                     Err(e) => {
-                                        if let Some(io_err) = MessageProcessor::match_for_io_error(&e) {
-                                            if io_err.kind() == std::io::ErrorKind::BrokenPipe {
-                                                info!(%conn_index, "connection closed by peer");
+                                        #[cfg(feature = "native")]
+                                        {
+                                            if let Some(io_err) = MessageProcessor::match_for_io_error(&e) {
+                                                if io_err.kind() == std::io::ErrorKind::BrokenPipe {
+                                                    info!(%conn_index, "connection closed by peer");
+                                                }
+                                            } else {
+                                                error!(error = %e.chain(), "error receiving messages");
                                             }
-                                        } else {
+                                        }
+                                        #[cfg(not(feature = "native"))]
+                                        {
                                             error!(error = %e.chain(), "error receiving messages");
                                         }
                                         break;
@@ -1419,6 +1629,7 @@ impl MessageProcessor {
         Ok(handle)
     }
 
+    #[cfg(feature = "native")]
     fn match_for_io_error(err_status: &Status) -> Option<&std::io::Error> {
         let mut err: &(dyn std::error::Error + 'static) = err_status;
 
@@ -1448,6 +1659,7 @@ impl MessageProcessor {
     }
 }
 
+#[cfg(feature = "native")]
 #[tonic::async_trait]
 impl DataPlaneService for MessageProcessor {
     type OpenChannelStream = Pin<Box<dyn Stream<Item = Result<Message, Status>> + Send + 'static>>;

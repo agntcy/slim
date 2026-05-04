@@ -29,6 +29,7 @@ wasm = [
 agntcy-slim-auth = { workspace = true, default-features = false }
 agntcy-slim-datapath = { workspace = true, default-features = false }
 agntcy-slim-version = { workspace = true }
+async-trait = { workspace = true }
 base64 = { workspace = true }
 getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
 hex = "0.4"

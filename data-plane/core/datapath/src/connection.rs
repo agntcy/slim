@@ -1,15 +1,15 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::Status;
 use crate::api::proto::dataplane::v1::Message;
+use crate::runtime::CancellationToken;
 use parking_lot::RwLock;
 use semver::Version;
 use slim_config::client::{ClientConfig, is_valid_uuid_v4};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tokio_util::sync::CancellationToken;
-use tonic::Status;
 
 /// Negotiation state shared between link negotiation fields.
 /// Kept under one lock so that the check-and-set is atomic.
@@ -155,6 +155,7 @@ impl Connection {
 
     /// Set the link identifier at construction time so it is available the moment the
     /// connection enters the table, before the negotiation message is sent.
+    #[cfg(feature = "native")]
     pub(crate) fn with_link_id(self, link_id: String) -> Self {
         self.negotiation.write().link_id = Some(link_id);
         self
