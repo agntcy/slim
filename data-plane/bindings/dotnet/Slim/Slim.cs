@@ -60,7 +60,7 @@ public static class Slim
         get
         {
             var info = Internal.SlimBindingsMethods.GetBuildInfo();
-            return new SlimBuildInfo(info.version, info.gitSha);
+            return new SlimBuildInfo(info.Version, info.GitSha);
         }
     }
 
@@ -178,13 +178,20 @@ public sealed class SlimName : IDisposable
     public static SlimName Parse(string id)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
-        return SlimHelper.Try(() => new SlimName(Internal.Name.FromString(id)));
+        try
+        {
+            return SlimHelper.Try(() => new SlimName(Internal.Name.FromString(id)));
+        }
+        catch (SlimException ex)
+        {
+            throw new ArgumentException(ex.Message, nameof(id), ex);
+        }
     }
 
     /// <summary>
     /// Get the string representation in "org/namespace/app" format.
     /// </summary>
-    public override string ToString() => _inner.ToString();
+    public override string ToString() => string.Join("/", _inner.Components());
 
     public void Dispose()
     {
@@ -228,13 +235,13 @@ public sealed class SlimSessionConfig
     internal Internal.SessionConfig ToInternal()
     {
         return new Internal.SessionConfig(
-            sessionType: SessionType == SlimSessionType.PointToPoint
+            SessionType: SessionType == SlimSessionType.PointToPoint
                 ? Internal.SessionType.PointToPoint
                 : Internal.SessionType.Group,
-            enableMls: EnableMls,
-            maxRetries: MaxRetries,
-            interval: RetryInterval,
-            metadata: Metadata ?? new Dictionary<string, string>()
+            EnableMls: EnableMls,
+            MaxRetries: MaxRetries,
+            Interval: RetryInterval,
+            Metadata: Metadata ?? new Dictionary<string, string>()
         );
     }
 }
@@ -261,8 +268,8 @@ public sealed class SlimMessage
 
     internal SlimMessage(Internal.ReceivedMessage msg)
     {
-        _context = msg.context;
-        Payload = msg.payload;
+        _context = msg.Context;
+        Payload = msg.Payload;
     }
 
     /// <summary>Raw payload bytes.</summary>

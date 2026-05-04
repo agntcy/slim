@@ -1,0 +1,32 @@
+#!/bin/sh
+
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+# Bootstrap Apache Maven into .tools/ (gitignored) so developers and CI do not need `mvn` on PATH.
+# Pin with MAVEN_VERSION if needed.
+
+set -e
+MAVEN_VERSION="${MAVEN_VERSION:-3.9.15}"
+
+ROOT="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
+INSTALL_BASE="${ROOT}/.tools"
+INSTALL_DIR="${INSTALL_BASE}/apache-maven-${MAVEN_VERSION}"
+MVN_BIN="${INSTALL_DIR}/bin/mvn"
+
+if [ -x "${MVN_BIN}" ]; then
+  exec "${MVN_BIN}" "$@"
+fi
+
+echo "Installing Apache Maven ${MAVEN_VERSION} under ${INSTALL_DIR} (first run only)..."
+mkdir -p "${INSTALL_BASE}"
+TGZ="${INSTALL_BASE}/apache-maven-${MAVEN_VERSION}-bin.tar.gz.$$"
+rm -rf "${INSTALL_DIR}"
+curl -fsSL "https://dlcdn.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz" -o "${TGZ}"
+tar -xzf "${TGZ}" -C "${INSTALL_BASE}"
+rm -f "${TGZ}"
+if [ ! -x "${MVN_BIN}" ]; then
+  echo "Error: expected ${MVN_BIN} after install" >&2
+  exit 1
+fi
+exec "${MVN_BIN}" "$@"

@@ -16,8 +16,10 @@ env:
   LIBRARY_NAME: slim_bindings
   GO_BINDINGS_REPO: agntcy/slim-bindings-go
   NUGET_PACKAGE_NAME: Agntcy.Slim
-  UNIFFI_BINDGEN_GO_VERSION: v0.4.0+v0.28.3
-  UNIFFI_BINDGEN_CS_VERSION: v0.9.0+v0.28.3
+  # NordSecurity tag: bindgen targets UniFFI v0.31.x (metadata matches workspace 0.31.1)
+  UNIFFI_BINDGEN_GO_VERSION: v0.7.1+v0.31.0
+  # janosSarusiKis/uniffi-bindgen-cs fork @ main (UniFFI 0.31 workspace)
+  UNIFFI_BINDGEN_CS_VERSION: d788b3ab74f079608515bf24b0bc7fe735f2ea6b
   DOTNET_VERSION: "8.0.x"
 
 jobs:
