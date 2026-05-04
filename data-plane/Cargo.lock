@@ -206,12 +206,10 @@ dependencies = [
 name = "agntcy-slim-controller"
 version = "0.5.0"
 dependencies = [
- "agntcy-slim-auth",
  "agntcy-slim-config",
  "agntcy-slim-datapath",
  "agntcy-slim-session",
  "agntcy-slim-signal",
- "agntcy-slim-testing",
  "agntcy-slim-tracing",
  "agntcy-slim-version",
  "display-error-chain",

@@ -374,14 +374,14 @@ impl RouteService {
                 let Some(link_id) = entry.link_id.as_deref().filter(|id| !id.is_empty()) else {
                     continue;
                 };
-                if let Ok(config) = serde_json::from_str::<serde_json::Value>(&entry.config_data) {
-                    if let Some(endpoint) = config.get("endpoint").and_then(|v| v.as_str()) {
-                        reported.push(ReportedConnection {
-                            endpoint: endpoint.to_string(),
-                            link_id: link_id.to_string(),
-                            config_data: entry.config_data.clone(),
-                        });
-                    }
+                if let Ok(config) = serde_json::from_str::<serde_json::Value>(&entry.config_data)
+                    && let Some(endpoint) = config.get("endpoint").and_then(|v| v.as_str())
+                {
+                    reported.push(ReportedConnection {
+                        endpoint: endpoint.to_string(),
+                        link_id: link_id.to_string(),
+                        config_data: entry.config_data.clone(),
+                    });
                 }
             }
             self.0
@@ -507,13 +507,12 @@ impl RouteService {
             }
             if link.source_node_id == node_id {
                 // Outgoing link: update endpoint if destination address changed.
-                if let Some(dest_node) = self.0.db.get_node(&link.dest_node_id).await {
-                    if let Ok((endpoint, config_data)) =
+                if let Some(dest_node) = self.0.db.get_node(&link.dest_node_id).await
+                    && let Ok((endpoint, config_data)) =
                         self.get_connection_details(node_id, &dest_node.id).await
-                    {
-                        link.dest_endpoint = endpoint;
-                        link.conn_config_data = config_data;
-                    }
+                {
+                    link.dest_endpoint = endpoint;
+                    link.conn_config_data = config_data;
                 }
                 link.deleted = false;
                 link.status = LinkStatus::Pending;
@@ -1215,10 +1214,11 @@ impl RouteService {
                 if endpoint_matches(&rc.endpoint, &detail.endpoint) {
                     return Some(rc.clone());
                 }
-                if let Some(ext) = &detail.external_endpoint {
-                    if !ext.is_empty() && endpoint_matches(&rc.endpoint, ext) {
-                        return Some(rc.clone());
-                    }
+                if let Some(ext) = &detail.external_endpoint
+                    && !ext.is_empty()
+                    && endpoint_matches(&rc.endpoint, ext)
+                {
+                    return Some(rc.clone());
                 }
             }
         }
@@ -1281,17 +1281,7 @@ fn generate_config_data(
     dest_node: &crate::db::Node,
     src_node: &crate::db::Node,
 ) -> Result<(String, String)> {
-    // Start with client_config as a mutable JSON object.
-    let mut config: serde_json::Map<String, serde_json::Value> = match &detail.client_config {
-        serde_json::Value::Object(m) => m.clone(),
-        serde_json::Value::Null => serde_json::Map::new(),
-        other => {
-            return Err(Error::InvalidInput(format!(
-                "unexpected client_config type: expected object, got {}",
-                other
-            )));
-        }
-    };
+    let mut config: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
 
     // Set a default backoff if not present.
     if !config.contains_key("backoff") {
@@ -1321,30 +1311,12 @@ fn generate_config_data(
     };
 
     // Set TLS / endpoint scheme.
-    if config.contains_key("tls") {
-        config.insert("endpoint".to_string(), json!(format!("https://{endpoint}")));
-    } else if !detail.mtls_required {
-        config.insert("endpoint".to_string(), json!(format!("http://{endpoint}")));
-        config.insert("tls".to_string(), json!({ "insecure": true }));
-    } else {
-        // MTLS via SPIRE.
+    if let Some(ref spire) = detail.spire_mtls {
         let spire_socket = src_node
             .conn_details
             .iter()
-            .find_map(|cd| {
-                cd.client_config
-                    .get("tls")
-                    .and_then(|t| t.get("source"))
-                    .and_then(|s| s.get("socket_path"))
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-            })
-            .ok_or_else(|| {
-                Error::InvalidInput(format!(
-                    "no SPIRE socket path found for source node {}",
-                    src_node.id
-                ))
-            })?;
+            .find_map(|cd| cd.spire_mtls.as_ref().map(|s| s.socket_path.clone()))
+            .unwrap_or_else(|| spire.socket_path.clone());
 
         config.insert("endpoint".to_string(), json!(format!("https://{endpoint}")));
 
@@ -1372,6 +1344,9 @@ fn generate_config_data(
                 "ca_source": ca_source
             }),
         );
+    } else {
+        config.insert("endpoint".to_string(), json!(format!("http://{endpoint}")));
+        config.insert("tls".to_string(), json!({ "insecure": true }));
     }
 
     if !config.contains_key("headers") {
@@ -1432,13 +1407,12 @@ mod tests {
     use crate::node_transport::DefaultNodeCommandHandler;
     use std::time::SystemTime;
 
-    fn make_conn_details(ep: &str, external: Option<&str>, mtls: bool) -> ConnectionDetails {
+    fn make_conn_details(ep: &str, external: Option<&str>) -> ConnectionDetails {
         ConnectionDetails {
             endpoint: ep.to_string(),
             external_endpoint: external.map(|s| s.to_string()),
             trust_domain: None,
-            mtls_required: mtls,
-            client_config: serde_json::Value::Null,
+            spire_mtls: None,
         }
     }
 
@@ -1474,7 +1448,7 @@ mod tests {
         let dst = make_node(
             "dst",
             Some("grp"),
-            vec![make_conn_details("dst:8080", Some("ext:9090"), false)],
+            vec![make_conn_details("dst:8080", Some("ext:9090"))],
         );
         let src = make_node("src", Some("grp"), vec![]);
         let (conn, local) = select_connection(&dst, &src);
@@ -1488,8 +1462,8 @@ mod tests {
             "dst",
             Some("grp1"),
             vec![
-                make_conn_details("dst:8080", None, false),
-                make_conn_details("dst:8081", Some("ext:9090"), false),
+                make_conn_details("dst:8080", None),
+                make_conn_details("dst:8081", Some("ext:9090")),
             ],
         );
         let src = make_node("src", Some("grp2"), vec![]);
@@ -1503,7 +1477,7 @@ mod tests {
         let dst = make_node(
             "dst",
             Some("grp1"),
-            vec![make_conn_details("dst:8080", None, false)],
+            vec![make_conn_details("dst:8080", None)],
         );
         let src = make_node("src", Some("grp2"), vec![]);
         let (conn, local) = select_connection(&dst, &src);
@@ -1515,7 +1489,7 @@ mod tests {
 
     #[test]
     fn generate_config_data_local_http() {
-        let cd = make_conn_details("host:8080", None, false);
+        let cd = make_conn_details("host:8080", None);
         let dest = make_node("dst", Some("g"), vec![cd.clone()]);
         let src = make_node("src", Some("g"), vec![]);
         let (ep, data) = generate_config_data(&cd, true, &dest, &src).unwrap();
@@ -1528,7 +1502,7 @@ mod tests {
 
     #[test]
     fn generate_config_data_external_no_mtls() {
-        let cd = make_conn_details("host:8080", Some("ext:9090"), false);
+        let cd = make_conn_details("host:8080", Some("ext:9090"));
         let dest = make_node("dst", Some("g1"), vec![cd.clone()]);
         let src = make_node("src", Some("g2"), vec![]);
         let (ep, data) = generate_config_data(&cd, false, &dest, &src).unwrap();
@@ -1539,41 +1513,11 @@ mod tests {
 
     #[test]
     fn generate_config_data_no_external_endpoint_remote_returns_error() {
-        let cd = make_conn_details("host:8080", None, false);
+        let cd = make_conn_details("host:8080", None);
         let dest = make_node("dst", None, vec![cd.clone()]);
         let src = make_node("src", None, vec![]);
         // local_connection=false + no external endpoint → error.
         assert!(generate_config_data(&cd, false, &dest, &src).is_err());
-    }
-
-    #[test]
-    fn generate_config_data_non_object_client_config_returns_error() {
-        let mut cd = make_conn_details("host:8080", None, false);
-        cd.client_config = serde_json::json!([1, 2, 3]);
-        let dest = make_node("dst", None, vec![cd.clone()]);
-        let src = make_node("src", None, vec![]);
-        assert!(generate_config_data(&cd, true, &dest, &src).is_err());
-    }
-
-    #[test]
-    fn generate_config_data_preserves_existing_tls() {
-        let mut cd = make_conn_details("host:8080", None, false);
-        cd.client_config = serde_json::json!({ "tls": { "insecure": false } });
-        let dest = make_node("dst", None, vec![cd.clone()]);
-        let src = make_node("src", None, vec![]);
-        let (ep, _data) = generate_config_data(&cd, true, &dest, &src).unwrap();
-        assert!(ep.starts_with("https://"));
-    }
-
-    #[test]
-    fn generate_config_data_preserves_existing_backoff() {
-        let mut cd = make_conn_details("host:8080", None, false);
-        cd.client_config = serde_json::json!({ "backoff": { "type": "exponential" } });
-        let dest = make_node("dst", None, vec![cd.clone()]);
-        let src = make_node("src", None, vec![]);
-        let (_ep, data) = generate_config_data(&cd, true, &dest, &src).unwrap();
-        let v: serde_json::Value = serde_json::from_str(&data).unwrap();
-        assert_eq!(v["backoff"]["type"], "exponential");
     }
 
     // ── add_route validation ───────────────────────────────────────────────
@@ -1691,7 +1635,7 @@ mod tests {
         let dst = crate::db::Node {
             id: "dst".to_string(),
             group_name: None,
-            conn_details: vec![make_conn_details("dst:8080", None, false)],
+            conn_details: vec![make_conn_details("dst:8080", None)],
             last_updated: SystemTime::now(),
         };
         db.save_node(dst).await.unwrap();
@@ -1729,7 +1673,7 @@ mod tests {
         let dst = crate::db::Node {
             id: "dst".to_string(),
             group_name: Some("grp".to_string()),
-            conn_details: vec![make_conn_details("dst:8080", None, false)],
+            conn_details: vec![make_conn_details("dst:8080", None)],
             last_updated: SystemTime::now(),
         };
         db.save_node(dst).await.unwrap();

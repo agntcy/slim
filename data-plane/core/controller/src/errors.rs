@@ -1,7 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use slim_auth::errors::AuthError;
 use slim_config::grpc::errors::ConfigError;
 use slim_datapath::errors::DataPathError;
 use thiserror::Error;
@@ -37,8 +36,6 @@ pub enum ControllerError {
     Datapath(#[from] DataPathError),
     #[error("error sending message to data plane: {0}")]
     DatapathSendError(String),
-    #[error("auth error")]
-    Auth(#[from] AuthError),
     #[error("message error")]
     MessageError(#[from] slim_datapath::messages::utils::MessageError),
 

@@ -33,8 +33,6 @@ use crate::api::proto::api::v1::{
 };
 use crate::errors::ControllerError;
 use prost_types::Struct;
-use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
-use slim_auth::traits::TokenProvider;
 use slim_config::grpc::client::ClientConfig;
 use slim_datapath::api::ProtoSessionMessageType;
 use slim_datapath::api::{
@@ -74,10 +72,6 @@ pub struct ControlPlaneSettings {
     pub clients: Vec<ClientConfig>,
     /// Message processor instance
     pub message_processor: Arc<MessageProcessor>,
-    /// Optional authentication provider
-    pub auth_provider: Option<AuthProvider>,
-    /// Optional authentication verifier
-    pub auth_verifier: Option<AuthVerifier>,
     /// array of connection details used by the control
     /// plane to store the connection settings (e.g., TLS settings).
     pub connection_details: Vec<ConnectionDetails>,
@@ -111,12 +105,6 @@ struct ControllerServiceInternal {
 
     /// drain watch channel
     drain_watch: parking_lot::RwLock<Option<drain::Watch>>,
-
-    /// authentication provider for adding authentication to outgoing messages to clients
-    auth_provider: Option<AuthProvider>,
-
-    /// authentication verifier for verifying incoming messages from clients
-    _auth_verifier: Option<AuthVerifier>,
 
     /// queue for pending subscription notifications when connections are down
     pending_notifications: Arc<parking_lot::Mutex<VecDeque<ControlMessage>>>,
@@ -255,8 +243,6 @@ impl ControlPlane {
                     tx_channels: parking_lot::RwLock::new(HashMap::new()),
                     cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
                     drain_watch: parking_lot::RwLock::new(Some(watch)),
-                    auth_provider: config.auth_provider,
-                    _auth_verifier: config.auth_verifier,
                     pending_notifications: Arc::new(parking_lot::Mutex::new(VecDeque::new())),
                     message_id_map: Arc::new(parking_lot::RwLock::new(HashMap::new())),
                     timer_factory: parking_lot::RwLock::new(None),
@@ -322,7 +308,15 @@ impl ControlPlane {
                 node: Some(v1::Node { id: node_id }),
             })),
         };
-        for (endpoint, tx) in self.controller.inner.tx_channels.read().iter() {
+        let channels: Vec<(String, TxChannel)> = self
+            .controller
+            .inner
+            .tx_channels
+            .read()
+            .iter()
+            .map(|(ep, tx)| (ep.clone(), tx.clone()))
+            .collect();
+        for (endpoint, tx) in channels {
             if let Err(e) = tx.send(Ok(deregister_msg.clone())).await {
                 error!(%endpoint, error = %e, "failed to send deregister request");
             }
@@ -551,7 +545,7 @@ impl ControllerService {
                 .inner
                 .message_processor
                 .connection_table()
-                .get(conn_id as usize)
+                .get(conn_id)
                 .is_some_and(|conn| conn.link_id().as_deref() == Some(link_id))
             {
                 return Ok(Some(conn_id));
@@ -639,12 +633,11 @@ impl ControllerService {
             .message_processor
             .connection_table()
             .for_each(|_id, conn| {
-                if conn.is_outgoing() {
-                    if let Some(lid) = conn.link_id() {
-                        if !lid.is_empty() {
-                            live_outgoing_link_ids.push(lid);
-                        }
-                    }
+                if conn.is_outgoing()
+                    && let Some(lid) = conn.link_id()
+                    && !lid.is_empty()
+                {
+                    live_outgoing_link_ids.push(lid);
                 }
             });
 
@@ -790,7 +783,6 @@ impl ControllerService {
     async fn delete_stale_subscriptions(
         &self,
         desired_subs: &HashMap<(Name, u64), &v1::Subscription>,
-        identity_token: &str,
     ) -> Vec<v1::SubscriptionAck> {
         let active_subs: Vec<((Name, u64), u64)> = self
             .inner
@@ -809,13 +801,12 @@ impl ControllerService {
             let name = name.clone();
             let conn_id = *conn_id;
             let sub_id = *sub_id;
-            let identity_token = identity_token.to_string();
             async move {
                 let conn_alive = self
                     .inner
                     .message_processor
                     .connection_table()
-                    .get(conn_id as usize)
+                    .get(conn_id)
                     .is_some();
 
                 let (success, error_msg) = if conn_alive {
@@ -823,7 +814,7 @@ impl ControllerService {
                     let unsub_msg = DataPlaneMessage::builder()
                         .source(source)
                         .destination(name.clone())
-                        .identity(&identity_token)
+                        .identity("")
                         .flags(SlimHeaderFlags::default().with_recv_from(conn_id))
                         .build_unsubscribe()
                         .unwrap();
@@ -877,7 +868,6 @@ impl ControllerService {
     async fn create_new_subscriptions(
         &self,
         desired_subs: &HashMap<(Name, u64), &v1::Subscription>,
-        identity_token: &str,
     ) -> Vec<v1::SubscriptionAck> {
         let mut subscriptions_status = Vec::new();
 
@@ -911,13 +901,12 @@ impl ControllerService {
             let name = name.clone();
             let conn_id = *conn_id;
             let sub = sub.clone();
-            let identity_token = identity_token.to_string();
             async move {
                 let source = name.clone().with_id(0);
                 let sub_msg = DataPlaneMessage::builder()
                     .source(source)
                     .destination(name.clone())
-                    .identity(&identity_token)
+                    .identity("")
                     .flags(SlimHeaderFlags::default().with_recv_from(conn_id))
                     .build_subscribe()
                     .unwrap();
@@ -1063,12 +1052,6 @@ impl ControllerService {
                             });
                         }
 
-                        // if the auth_provider is set try to get an identity
-                        let identity_token = match &self.inner.auth_provider {
-                            Some(auth) => auth.get_token()?,
-                            None => String::new(),
-                        };
-
                         // Process subscriptions to set
                         for subscription in &config.subscriptions_to_set {
                             let mut subscription_success = true;
@@ -1093,7 +1076,7 @@ impl ControllerService {
                                 let msg = DataPlaneMessage::builder()
                                     .source(source.clone())
                                     .destination(name.clone())
-                                    .identity(&identity_token)
+                                    .identity("")
                                     .flags(SlimHeaderFlags::default().with_recv_from(conn))
                                     .build_subscribe()
                                     .unwrap();
@@ -1163,7 +1146,7 @@ impl ControllerService {
                                 let msg = DataPlaneMessage::builder()
                                     .source(source.clone())
                                     .destination(name.clone())
-                                    .identity(&identity_token)
+                                    .identity("")
                                     .flags(SlimHeaderFlags::default().with_recv_from(conn))
                                     .build_unsubscribe()
                                     .unwrap();
@@ -1425,23 +1408,14 @@ impl ControllerService {
                         }
                     }
                     Payload::DesiredState(desired) => {
-                        let connections_status = self.diff_connections(&desired).await;
-
-                        let identity_token = match &self.inner.auth_provider {
-                            Some(auth) => auth.get_token()?,
-                            None => String::new(),
-                        };
+                        let connections_status = self.diff_connections(desired).await;
 
                         let (desired_subs, mut subscriptions_status) =
                             self.resolve_desired_subscriptions(&desired.desired_subscriptions);
-                        subscriptions_status.extend(
-                            self.delete_stale_subscriptions(&desired_subs, &identity_token)
-                                .await,
-                        );
-                        subscriptions_status.extend(
-                            self.create_new_subscriptions(&desired_subs, &identity_token)
-                                .await,
-                        );
+                        subscriptions_status
+                            .extend(self.delete_stale_subscriptions(&desired_subs).await);
+                        subscriptions_status
+                            .extend(self.create_new_subscriptions(&desired_subs).await);
 
                         let config_ack = v1::ConfigurationCommandAck {
                             original_message_id: msg.message_id.clone(),
@@ -1781,7 +1755,7 @@ impl ControllerService {
                 .connection_table()
                 .for_each(|id, conn| {
                     active_connections.push(v1::ConnectionEntry {
-                        id: id as u64,
+                        id,
                         connection_type: v1::ConnectionType::Remote as i32,
                         config_data: match conn.config_data() {
                             Some(data) => {
@@ -2079,12 +2053,9 @@ impl GrpcControllerService for ControllerService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slim_auth::shared_secret::SharedSecret;
     use slim_config::component::id::Kind;
-    use slim_testing::utils::TEST_VALID_SECRET;
     use tracing_test::traced_test;
 
-    /// Helper to build a server and client control plane pair with shared-secret auth.
     async fn setup_control_planes(
         server_endpoint: &str,
         server_name: &str,
@@ -2107,12 +2078,6 @@ mod tests {
             servers: vec![server_config.clone()],
             clients: vec![],
             message_processor: Arc::new(message_processor_server),
-            auth_provider: Some(AuthProvider::SharedSecret(
-                SharedSecret::new("server", TEST_VALID_SECRET).unwrap(),
-            )),
-            auth_verifier: Some(AuthVerifier::SharedSecret(
-                SharedSecret::new("server", TEST_VALID_SECRET).unwrap(),
-            )),
             connection_details: vec![from_server_config(&server_config)],
         });
 
@@ -2122,12 +2087,6 @@ mod tests {
             servers: vec![],
             clients: vec![client_config.clone()],
             message_processor: Arc::new(message_processor_client),
-            auth_provider: Some(AuthProvider::SharedSecret(
-                SharedSecret::new("client", TEST_VALID_SECRET).unwrap(),
-            )),
-            auth_verifier: Some(AuthVerifier::SharedSecret(
-                SharedSecret::new("client", TEST_VALID_SECRET).unwrap(),
-            )),
             connection_details: vec![],
         });
 

@@ -81,7 +81,7 @@ impl ControlPlaneService for NorthboundApiService {
                     }
                     ConnectionDetails {
                         endpoint: cd.endpoint.clone(),
-                        mtls_required: cd.mtls_required,
+                        mtls_required: cd.spire_mtls.is_some(),
                         metadata,
                         auth: None,
                         tls: None,

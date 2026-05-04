@@ -738,8 +738,7 @@ mod tests {
                 endpoint: format!("{id}:8080"),
                 external_endpoint: None,
                 trust_domain: None,
-                mtls_required: false,
-                client_config: serde_json::Value::Null,
+                spire_mtls: None,
             }],
             last_updated: SystemTime::now(),
         }

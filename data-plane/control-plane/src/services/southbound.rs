@@ -190,8 +190,8 @@ async fn handle_node_messages(
         match msg.payload {
             Some(Payload::ConfigCommand(cc)) => {
                 for sub in &cc.subscriptions_to_set {
-                    if sub.link_id.is_none() {
-                        if let Err(e) = route_service
+                    if sub.link_id.is_none()
+                        && let Err(e) = route_service
                             .add_route(Route {
                                 source_node_id: ALL_NODES_ID.to_string(),
                                 dest_node_id: node_id.to_string(),
@@ -202,9 +202,8 @@ async fn handle_node_messages(
                                 link_id: String::new(),
                             })
                             .await
-                        {
-                            tracing::debug!("southbound: error adding route: {e}");
-                        }
+                    {
+                        tracing::debug!("southbound: error adding route: {e}");
                     }
                 }
                 for sub in &cc.subscriptions_to_delete {
@@ -294,6 +293,20 @@ fn parse_conn_details(
             Some(prost_types::value::Kind::StringValue(s)) if !s.is_empty() => Some(s.clone()),
             _ => None,
         });
+    let spire_socket_path = meta
+        .and_then(|m| m.fields.get("spire_socket_path"))
+        .and_then(|v| match &v.kind {
+            Some(prost_types::value::Kind::StringValue(s)) if !s.is_empty() => Some(s.clone()),
+            _ => None,
+        });
+
+    let spire_mtls = if detail.mtls_required {
+        Some(crate::db::SpireMtls {
+            socket_path: spire_socket_path.unwrap_or_default(),
+        })
+    } else {
+        spire_socket_path.map(|p| crate::db::SpireMtls { socket_path: p })
+    };
 
     // Derive the effective endpoint: prefer local_endpoint, else peer host +
     // port from the proto endpoint field.
@@ -304,57 +317,10 @@ fn parse_conn_details(
         endpoint = format!("{endpoint}:{port}");
     }
 
-    // Extract client_config from metadata if present.
-    let client_config = meta
-        .and_then(|m| m.fields.get("client_config"))
-        .and_then(|v| match &v.kind {
-            Some(prost_types::value::Kind::StructValue(s)) => {
-                serde_json::to_value(struct_to_map(s)).ok()
-            }
-            Some(prost_types::value::Kind::StringValue(s)) => serde_json::from_str(s).ok(),
-            _ => None,
-        })
-        .unwrap_or(serde_json::Value::Object(Default::default()));
-
     ConnectionDetails {
         endpoint,
         external_endpoint,
         trust_domain,
-        mtls_required: detail.mtls_required,
-        client_config,
-    }
-}
-
-/// Convert a protobuf `Struct` to a `serde_json::Map`.
-fn struct_to_map(s: &prost_types::Struct) -> serde_json::Map<String, serde_json::Value> {
-    let mut map = serde_json::Map::new();
-    for (k, v) in &s.fields {
-        map.insert(k.clone(), proto_value_to_json(v));
-    }
-    map
-}
-
-fn proto_value_to_json(v: &prost_types::Value) -> serde_json::Value {
-    match &v.kind {
-        Some(prost_types::value::Kind::NullValue(_)) => serde_json::Value::Null,
-        Some(prost_types::value::Kind::BoolValue(b)) => serde_json::Value::Bool(*b),
-        Some(prost_types::value::Kind::NumberValue(n)) => match serde_json::Number::from_f64(*n) {
-            Some(num) => serde_json::Value::Number(num),
-            None => {
-                tracing::warn!(
-                    "proto_value_to_json: non-finite float ({n}) is not representable \
-                         in JSON; substituting 0"
-                );
-                serde_json::Value::Number(0.into())
-            }
-        },
-        Some(prost_types::value::Kind::StringValue(s)) => serde_json::Value::String(s.clone()),
-        Some(prost_types::value::Kind::StructValue(sv)) => {
-            serde_json::Value::Object(struct_to_map(sv))
-        }
-        Some(prost_types::value::Kind::ListValue(lv)) => {
-            serde_json::Value::Array(lv.values.iter().map(proto_value_to_json).collect())
-        }
-        None => serde_json::Value::Null,
+        spire_mtls,
     }
 }
