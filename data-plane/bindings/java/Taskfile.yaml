@@ -69,11 +69,12 @@ tasks:
 
   install-uniffi-bindgen-java:
     desc: Install uniffi-bindgen-java CLI tool
+    # Do not skip when ~/.cargo/bin caches an unrelated binary (CI restores ~/.cargo/bin).
     status:
-      - which uniffi-bindgen-java
+      - 'command -v uniffi-bindgen-java >/dev/null && uniffi-bindgen-java --version 2>/dev/null | grep -Fq "0.4.2"'
     cmds:
       - echo "Installing uniffi-bindgen-java..."
-      - cargo install uniffi-bindgen-java --git https://github.com/IronCoreLabs/uniffi-bindgen-java --tag 0.4.2 --config net.git-fetch-with-cli=true
+      - cargo install uniffi-bindgen-java --git https://github.com/IronCoreLabs/uniffi-bindgen-java --tag 0.4.2 --config net.git-fetch-with-cli=true --force
       - echo "uniffi-bindgen-java installed"
 
   generate:
@@ -93,6 +94,8 @@ tasks:
           --out-dir generated/uniffi \
           --config uniffi.toml
       - task: patch-bindings
+      - test -f generated/uniffi/io/agntcy/slim/bindings/ResponseSink.java
+      - test -f generated/uniffi/io/agntcy/slim/bindings/StreamMessage.java
       - echo "Bindings generated in generated/"
 
   copy-libraries:
