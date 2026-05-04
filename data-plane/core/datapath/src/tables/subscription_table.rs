@@ -121,9 +121,8 @@ impl SubscriptionRefs {
 
 #[derive(Debug)]
 struct Connections {
-    // map from connection id to the position in the connections pool
-    // this is used in the insertion/remove
-    index: HashMap<u64, usize>,
+    // map from connection id to the pool ID returned on insert
+    index: HashMap<u64, u64>,
     // pool of all connections ids that can to be used in the match
     pool: Pool<ConnId>,
 }
@@ -190,21 +189,17 @@ impl Connections {
             }
         }
 
-        // we need to iterate and find a value starting from a random point in the pool
-        let mut rng = rand::rng();
-        let index = rng.random_range(0..self.pool.max_set() + 1);
-        let mut stop = false;
-        let mut i = index;
-        while !stop {
-            let opt = self.pool.get(i);
-            if let Some(opt) = opt
-                && opt.conn_id != except_conn
-            {
-                return Some(opt.conn_id);
-            }
-            i = (i + 1) % (self.pool.max_set() + 1);
-            if i == index {
-                stop = true;
+        // Walk at most n steps from the current cursor position, looking for
+        // a connection that isn't except_conn.
+        let n = self.pool.len();
+        if n == 0 {
+            debug!("no output connection available");
+            return None;
+        }
+        for _ in 0..n {
+            let conn_id = self.pool.next_val().expect("pool is non-empty").conn_id;
+            if conn_id != except_conn {
+                return Some(conn_id);
             }
         }
         debug!("no output connection available");

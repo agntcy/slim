@@ -2135,7 +2135,7 @@ mod tests {
         let rx = processor.internal.sub_ack_manager.register(sub_id);
 
         // Drop the remote connection so send_msg fails on retry.
-        processor.connection_table().remove(remote_conn as usize);
+        processor.connection_table().remove(remote_conn);
 
         let proc_clone = processor.clone();
         let handle = tokio::spawn(crate::subscription_ack::retry_loop(

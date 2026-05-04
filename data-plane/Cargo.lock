@@ -245,7 +245,6 @@ dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-tracing",
  "agntcy-slim-version",
- "bit-vec",
  "criterion",
  "display-error-chain",
  "drain",
@@ -763,12 +762,6 @@ checksum = "bf95709a440f45e986983918d0e8a1f30a9b1df04918fc828670606804ac3c09"
 dependencies = [
  "virtue",
 ]
-
-[[package]]
-name = "bit-vec"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e764a1d40d510daf35e07be9eb06e75770908c27d411ee6c92109c9840eaaf7"
 
 [[package]]
 name = "bitflags"

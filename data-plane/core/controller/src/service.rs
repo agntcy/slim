@@ -565,7 +565,7 @@ impl ControllerService {
             .connection_table()
             .for_each(|id, conn| {
                 if conn.link_id().as_deref() == Some(link_id) && resolved.is_none() {
-                    resolved = Some(id as u64);
+                    resolved = Some(id);
                 }
             });
 
@@ -1298,7 +1298,7 @@ impl ControllerService {
                                 }
 
                                 for &cid in remote {
-                                    if let Some(conn) = conn_table.get(cid as usize) {
+                                    if let Some(conn) = conn_table.get(cid) {
                                         entry.remote_connections.push(ConnectionEntry {
                                             id: cid,
                                             connection_type: ConnectionType::Remote as i32,
@@ -1372,7 +1372,7 @@ impl ControllerService {
                                     "connection entry",
                                 );
                                 all_entries.push(ConnectionEntry {
-                                    id: id as u64,
+                                    id,
                                     connection_type: ConnectionType::Remote as i32,
                                     config_data: match conn.config_data() {
                                         Some(data) => serde_json::to_string(data)

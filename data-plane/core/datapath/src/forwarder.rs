@@ -38,16 +38,10 @@ where
 
     pub fn on_connection_established(&self, conn: T, existing_index: Option<u64>) -> Option<u64> {
         match existing_index {
-            None => {
-                let x = self.connection_table.insert(conn) as u64;
-                Some(x)
-            }
+            None => Some(self.connection_table.insert(conn)),
             Some(x) => {
-                if self.connection_table.insert_at(conn, x as usize) {
-                    existing_index
-                } else {
-                    None
-                }
+                self.connection_table.insert_at(conn, x);
+                existing_index
             }
         }
     }
@@ -57,7 +51,7 @@ where
         conn_index: u64,
         is_local: bool,
     ) -> (HashMap<Name, HashSet<u64>>, HashSet<SubscriptionInfo>) {
-        self.connection_table.remove(conn_index as usize);
+        self.connection_table.remove(conn_index);
         let local_subs = self
             .subscription_table
             .remove_connection(conn_index, is_local)
@@ -72,7 +66,7 @@ where
     }
 
     pub fn get_connection(&self, conn_index: u64) -> Option<Arc<T>> {
-        self.connection_table.get(conn_index as usize)
+        self.connection_table.get(conn_index)
     }
 
     pub fn get_subscriptions_forwarded_on_connection(
