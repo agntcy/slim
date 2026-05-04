@@ -3,8 +3,9 @@ package slimrpc
 import (
 	"fmt"
 
-	slim_bindings "github.com/agntcy/slim-bindings-go"
 	"google.golang.org/protobuf/proto"
+
+	slim_bindings "github.com/agntcy/slim-bindings-go"
 )
 
 // ResponseStream is a generic stream for receiving responses

@@ -212,7 +212,7 @@ func TestGenerateConfigData_SetsFixedIntervalBackoff(t *testing.T) {
 	require.NotNil(t, parsed.Backoff, "backoff config must be set")
 	require.Equal(t, "fixed_interval", parsed.Backoff.Type)
 	require.NotNil(t, parsed.Backoff.FixedIntervalBackoffConfig)
-	require.Equal(t, "2000ms", parsed.Backoff.FixedIntervalBackoffConfig.Interval)
+	require.Equal(t, "2000ms", parsed.Backoff.Interval)
 	require.NotNil(t, parsed.Keepalive, "default keepalive config must be set")
 	require.NotNil(t, parsed.Keepalive.KeepAliveWhileIdle)
 	require.False(t, *parsed.Keepalive.KeepAliveWhileIdle)
