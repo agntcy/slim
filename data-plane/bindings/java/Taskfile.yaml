@@ -67,6 +67,26 @@ tasks:
     cmds:
       - task -l
 
+  # Maven compiles with release 21 and --enable-preview (Panama); JDK 17 fails with "invalid target release: 21".
+  # Apache Maven uses JAVA_HOME when set (not necessarily the same java as PATH).
+  assert-jdk-21:
+    internal: true
+    cmds:
+      - |
+        if [ -n "${JAVA_HOME:-}" ] && [ -x "${JAVA_HOME}/bin/java" ]; then
+          _java="${JAVA_HOME}/bin/java"
+        else
+          _java=java
+        fi
+        if ! "$_java" -version 2>&1 | grep -qE 'version "(2[1-9]|[3-9][0-9])\.'; then
+          echo "error: Java bindings require JDK 21 or newer (pom.xml uses source/target 21 and --enable-preview)." >&2
+          echo "hint: Maven uses JAVA_HOME when set. Point it at JDK 21, e.g. export JAVA_HOME=\"\$(/usr/libexec/java_home -v 21)\" (macOS) or export JAVA_HOME=\"/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home\"." >&2
+          echo "      (PATH-only openjdk@21 is not enough if JAVA_HOME still references an older JDK.)" >&2
+          echo "Using: $_java" >&2
+          "$_java" -version >&2 || true
+          exit 1
+        fi
+
   install-uniffi-bindgen-java:
     desc: Install uniffi-bindgen-java CLI tool
     # Do not skip when ~/.cargo/bin caches an unrelated binary (CI restores ~/.cargo/bin).
@@ -79,6 +99,8 @@ tasks:
 
   generate:
     desc: Generate Java bindings from compiled Rust library
+    # Always run from this Taskfile's directory (paths and uniffi.toml are relative).
+    dir: "{{.ROOT_DIR}}"
     deps:
       - task: adapter:bindings:build:all
         vars:
@@ -90,13 +112,26 @@ tasks:
       - echo "Checking library file exists:"
       - ls -lah '{{.LIB_PATH}}'
       - |
+        set -eu
+        if [ ! -f uniffi.toml ]; then
+          echo "error: java bindings generate must run with cwd=data-plane/bindings/java (uniffi.toml missing); pwd=$(pwd)" >&2
+          exit 1
+        fi
+        # UniFFI crate_name in metadata is the lib crate name (slim_bindings), not the Cargo package name.
+        # Wrong --crate filters out all components; bindgen then exits 0 while writing no .java files.
         uniffi-bindgen-java generate '{{.LIB_PATH}}' \
           --out-dir generated/uniffi \
-          --config uniffi.toml
+          --config uniffi.toml \
+          --crate slim_bindings
+        n=$(find generated/uniffi -type f -name '*.java' 2>/dev/null | wc -l | tr -d ' ')
+        if [ "${n:-0}" -lt 1 ]; then
+          echo "error: uniffi-bindgen-java produced no Java files under generated/uniffi (count=${n:-0}). pwd=$(pwd) lib={{.LIB_PATH}}" >&2
+          ls -laR generated/uniffi 2>&1 | head -80 >&2 || true
+          exit 1
+        fi
       - task: patch-bindings
       - |
         set -eu
-        # Do not `cd "{{.TASKFILE_DIR}}"`: if TASKFILE_DIR is empty, bash `cd ""` goes to $HOME and find sees no generated files.
         if [ ! -f uniffi.toml ]; then
           echo "error: java bindings generate must run with cwd=data-plane/bindings/java (uniffi.toml missing); pwd=$(pwd)" >&2
           exit 1
@@ -114,6 +149,7 @@ tasks:
   copy-libraries:
     desc: Copy native libraries from target folder to generated/native structure
     internal: true
+    dir: "{{.ROOT_DIR}}"
     cmds:
       - rm -rf generated/native
       - mkdir -p generated/native
@@ -174,12 +210,14 @@ tasks:
   patch-bindings:
     desc: Patch generated Java bindings to fix compatibility issues
     internal: true
+    dir: "{{.ROOT_DIR}}"
     cmds:
       - ./patch-bindings.sh
 
   build:
     desc: Build Java bindings and all examples
     deps:
+      - assert-jdk-21
       - generate
     cmds:
       - echo "Building Java bindings..."
@@ -194,6 +232,7 @@ tasks:
   test:
     desc: Run Java bindings tests
     deps:
+      - assert-jdk-21
       - generate
     cmds:
       - echo "Running Java bindings tests..."
@@ -245,6 +284,8 @@ tasks:
 
   lint:
     desc: Run Maven PMD static analysis
+    deps:
+      - assert-jdk-21
     cmds:
       - '{{.MVNW}} pmd:check'
 
