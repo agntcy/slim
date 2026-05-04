@@ -20,10 +20,10 @@ use diesel_async::sync_connection_wrapper::SyncConnectionWrapper;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 
 use super::model::{
-    ALL_NODES_ID, Channel, ConnDetailsJson, DbTimestamp, JsonStrings, Link, LinkStatus, Node,
-    Route, RouteStatus, SubscriptionName, has_connection_details_changed,
+    ALL_NODES_ID, ConnDetailsJson, DbTimestamp, JsonStrings, Link, LinkStatus, Node, Route,
+    RouteStatus, SubscriptionName, has_connection_details_changed,
 };
-use super::schema::{channels, links, nodes, routes};
+use super::schema::{links, nodes, routes};
 use super::{DataAccess, SharedDb};
 use crate::error::{Error, Result};
 
@@ -470,6 +470,56 @@ impl DataAccess for SqliteDb {
         Ok(())
     }
 
+    async fn update_route_link_id(&self, route_id: i64, link_id: &str) -> Result<()> {
+        let ts = DbTimestamp::from(SystemTime::now());
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "update_route_link_id pool",
+            msg: e.to_string(),
+        })?;
+        let n = diesel::update(routes::table.find(route_id))
+            .set((
+                routes::link_id.eq(link_id),
+                routes::status.eq(RouteStatus::Pending),
+                routes::last_updated.eq(ts),
+            ))
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "update_route_link_id",
+                msg: e.to_string(),
+            })?;
+        if n == 0 {
+            return Err(Error::RouteNotFound { id: route_id });
+        }
+        Ok(())
+    }
+
+    async fn restore_route(&self, route_id: i64, link_id: &str) -> Result<()> {
+        let ts = DbTimestamp::from(SystemTime::now());
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "restore_route pool",
+            msg: e.to_string(),
+        })?;
+        let n = diesel::update(routes::table.find(route_id))
+            .set((
+                routes::deleted.eq(false),
+                routes::status.eq(RouteStatus::Pending),
+                routes::status_msg.eq(""),
+                routes::link_id.eq(link_id),
+                routes::last_updated.eq(ts),
+            ))
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "restore_route",
+                msg: e.to_string(),
+            })?;
+        if n == 0 {
+            return Err(Error::RouteNotFound { id: route_id });
+        }
+        Ok(())
+    }
+
     // ── Links ──────────────────────────────────────────────────────────────
 
     async fn add_link(&self, mut link: Link) -> Result<Link> {
@@ -638,6 +688,92 @@ impl DataAccess for SqliteDb {
             .ok()?
     }
 
+    async fn find_or_create_link(&self, mut link: Link) -> Result<(Link, bool)> {
+        if link.link_id.is_empty()
+            || link.source_node_id.is_empty()
+            || link.dest_node_id.is_empty()
+            || link.dest_endpoint.is_empty()
+        {
+            return Err(Error::LinkMissingFields);
+        }
+        link.last_updated = SystemTime::now();
+        let ts = DbTimestamp::from(link.last_updated);
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "find_or_create_link pool",
+            msg: e.to_string(),
+        })?;
+
+        // Use BEGIN IMMEDIATE to acquire a write lock before the SELECT,
+        // preventing TOCTOU races between multiple CP instances.
+        conn.batch_execute("BEGIN IMMEDIATE")
+            .await
+            .map_err(|e| Error::DbError {
+                context: "find_or_create_link begin",
+                msg: e.to_string(),
+            })?;
+
+        let existing = links::table
+            .filter(links::deleted.eq(false))
+            .filter(
+                links::source_node_id
+                    .eq(&link.source_node_id)
+                    .and(links::dest_node_id.eq(&link.dest_node_id))
+                    .or(links::source_node_id
+                        .eq(&link.dest_node_id)
+                        .and(links::dest_node_id.eq(&link.source_node_id))),
+            )
+            .order(links::last_updated.desc())
+            .first::<Link>(&mut conn)
+            .await
+            .optional()
+            .map_err(|e| Error::DbError {
+                context: "find_or_create_link select",
+                msg: e.to_string(),
+            })?;
+
+        if let Some(existing) = existing {
+            conn.batch_execute("COMMIT")
+                .await
+                .map_err(|e| Error::DbError {
+                    context: "find_or_create_link commit",
+                    msg: e.to_string(),
+                })?;
+            return Ok((existing, false));
+        }
+
+        diesel::insert_into(links::table)
+            .values(link.clone())
+            .on_conflict((
+                links::link_id,
+                links::source_node_id,
+                links::dest_node_id,
+                links::dest_endpoint,
+            ))
+            .do_update()
+            .set((
+                links::conn_config_data.eq(&link.conn_config_data),
+                links::status.eq(link.status),
+                links::status_msg.eq(&link.status_msg),
+                links::deleted.eq(link.deleted),
+                links::last_updated.eq(ts),
+            ))
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "find_or_create_link insert",
+                msg: e.to_string(),
+            })?;
+
+        conn.batch_execute("COMMIT")
+            .await
+            .map_err(|e| Error::DbError {
+                context: "find_or_create_link commit",
+                msg: e.to_string(),
+            })?;
+
+        Ok((link, true))
+    }
+
     async fn get_link_for_source_and_endpoint(
         &self,
         source_node_id: &str,
@@ -719,106 +855,6 @@ impl DataAccess for SqliteDb {
         };
         links::table
             .load::<Link>(&mut conn)
-            .await
-            .unwrap_or_default()
-    }
-
-    // ── Channels ───────────────────────────────────────────────────────────
-
-    async fn save_channel(&self, channel_id: &str, moderators: Vec<String>) -> Result<()> {
-        let channel = Channel {
-            id: channel_id.to_string(),
-            moderators,
-            participants: vec![],
-        };
-        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
-            context: "save_channel pool",
-            msg: e.to_string(),
-        })?;
-        let n = diesel::insert_into(channels::table)
-            .values(channel)
-            .on_conflict_do_nothing()
-            .execute(&mut conn)
-            .await
-            .map_err(|e| Error::DbError {
-                context: "save_channel",
-                msg: e.to_string(),
-            })?;
-        if n == 0 {
-            return Err(Error::ChannelAlreadyExists {
-                id: channel_id.to_string(),
-            });
-        }
-        Ok(())
-    }
-
-    async fn delete_channel(&self, channel_id: &str) -> Result<()> {
-        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
-            context: "delete_channel pool",
-            msg: e.to_string(),
-        })?;
-        let n = diesel::delete(channels::table.find(channel_id))
-            .execute(&mut conn)
-            .await
-            .map_err(|e| Error::DbError {
-                context: "delete_channel",
-                msg: e.to_string(),
-            })?;
-        if n == 0 {
-            return Err(Error::ChannelNotFound {
-                id: channel_id.to_string(),
-            });
-        }
-        Ok(())
-    }
-
-    async fn get_channel(&self, channel_id: &str) -> Option<Channel> {
-        let Ok(mut conn) = self.pool.get().await else {
-            return None;
-        };
-        channels::table
-            .find(channel_id)
-            .first::<Channel>(&mut conn)
-            .await
-            .optional()
-            .ok()?
-    }
-
-    async fn update_channel(&self, channel: Channel) -> Result<()> {
-        if channel.id.is_empty() {
-            return Err(Error::EmptyChannelId);
-        }
-        let mods = JsonStrings(channel.moderators.clone());
-        let parts = JsonStrings(channel.participants.clone());
-        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
-            context: "update_channel pool",
-            msg: e.to_string(),
-        })?;
-        let n = diesel::update(channels::table.find(&channel.id))
-            .set((
-                channels::moderators.eq(mods),
-                channels::participants.eq(parts),
-            ))
-            .execute(&mut conn)
-            .await
-            .map_err(|e| Error::DbError {
-                context: "update_channel",
-                msg: e.to_string(),
-            })?;
-        if n == 0 {
-            return Err(Error::ChannelNotFound {
-                id: channel.id.clone(),
-            });
-        }
-        Ok(())
-    }
-
-    async fn list_channels(&self) -> Vec<Channel> {
-        let Ok(mut conn) = self.pool.get().await else {
-            return vec![];
-        };
-        channels::table
-            .load::<Channel>(&mut conn)
             .await
             .unwrap_or_default()
     }
@@ -1143,77 +1179,5 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(db.get_links_for_node("src").await.len(), 2);
-    }
-
-    // ── Channel CRUD ───────────────────────────────────────────────────────
-
-    #[tokio::test]
-    async fn save_and_get_channel() {
-        let (_f, db) = tmp_db().await;
-        db.save_channel("c1", vec!["mod".to_string()])
-            .await
-            .unwrap();
-        let ch = db.get_channel("c1").await.unwrap();
-        assert_eq!(ch.id, "c1");
-        assert_eq!(ch.moderators, vec!["mod"]);
-    }
-
-    #[tokio::test]
-    async fn save_channel_duplicate_returns_error() {
-        let (_f, db) = tmp_db().await;
-        db.save_channel("c1", vec![]).await.unwrap();
-        assert!(db.save_channel("c1", vec![]).await.is_err());
-    }
-
-    #[tokio::test]
-    async fn delete_channel() {
-        let (_f, db) = tmp_db().await;
-        db.save_channel("c1", vec![]).await.unwrap();
-        db.delete_channel("c1").await.unwrap();
-        assert!(db.get_channel("c1").await.is_none());
-    }
-
-    #[tokio::test]
-    async fn delete_channel_not_found() {
-        let (_f, db) = tmp_db().await;
-        assert!(db.delete_channel("missing").await.is_err());
-    }
-
-    #[tokio::test]
-    async fn update_channel() {
-        let (_f, db) = tmp_db().await;
-        db.save_channel("c1", vec!["mod".to_string()])
-            .await
-            .unwrap();
-        db.update_channel(Channel {
-            id: "c1".to_string(),
-            moderators: vec!["mod".to_string()],
-            participants: vec!["p1".to_string()],
-        })
-        .await
-        .unwrap();
-        assert_eq!(db.get_channel("c1").await.unwrap().participants, vec!["p1"]);
-    }
-
-    #[tokio::test]
-    async fn update_channel_not_found_returns_error() {
-        let (_f, db) = tmp_db().await;
-        assert!(
-            db.update_channel(Channel {
-                id: "missing".to_string(),
-                moderators: vec![],
-                participants: vec![],
-            })
-            .await
-            .is_err()
-        );
-    }
-
-    #[tokio::test]
-    async fn list_channels() {
-        let (_f, db) = tmp_db().await;
-        db.save_channel("c1", vec![]).await.unwrap();
-        db.save_channel("c2", vec![]).await.unwrap();
-        assert_eq!(db.list_channels().await.len(), 2);
     }
 }

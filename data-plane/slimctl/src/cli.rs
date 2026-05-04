@@ -169,8 +169,8 @@ mod tests {
     use super::*;
     use crate::commands::config_cmd::{ConfigCommand, SetCommand};
     use crate::commands::controller::{
-        ControllerChannelCommand, ControllerCommand, ControllerConnectionCommand,
-        ControllerNodeCommand, ControllerParticipantCommand, ControllerRouteCommand,
+        ControllerCommand, ControllerConnectionCommand, ControllerNodeCommand,
+        ControllerRouteCommand,
     };
     use crate::commands::node::{NodeCommand, NodeConnectionCommand, NodeRouteCommand};
     use crate::commands::slim_cmd::SlimCommand;
@@ -497,132 +497,6 @@ mod tests {
         assert_eq!(target_node_id, "dst-node");
     }
 
-    #[test]
-    fn parse_controller_channel_create() {
-        let cli = parse_ok(&[
-            "slimctl",
-            "controller",
-            "channel",
-            "create",
-            "moderators=alice,bob",
-        ]);
-        let Commands::Controller(args) = cli.command else {
-            panic!()
-        };
-        let ControllerCommand::Channel(a) = args.command else {
-            panic!()
-        };
-        let ControllerChannelCommand::Create { moderators_param } = a.command else {
-            panic!()
-        };
-        assert_eq!(moderators_param, "moderators=alice,bob");
-    }
-
-    #[test]
-    fn parse_controller_channel_delete() {
-        let cli = parse_ok(&["slimctl", "controller", "channel", "delete", "chan1"]);
-        let Commands::Controller(args) = cli.command else {
-            panic!()
-        };
-        let ControllerCommand::Channel(a) = args.command else {
-            panic!()
-        };
-        let ControllerChannelCommand::Delete { channel_name } = a.command else {
-            panic!()
-        };
-        assert_eq!(channel_name, "chan1");
-    }
-
-    #[test]
-    fn parse_controller_channel_list() {
-        let cli = parse_ok(&["slimctl", "controller", "channel", "list"]);
-        let Commands::Controller(args) = cli.command else {
-            panic!()
-        };
-        let ControllerCommand::Channel(a) = args.command else {
-            panic!()
-        };
-        assert!(matches!(a.command, ControllerChannelCommand::List));
-    }
-
-    #[test]
-    fn parse_controller_participant_add() {
-        let cli = parse_ok(&[
-            "slimctl",
-            "controller",
-            "participant",
-            "add",
-            "alice",
-            "-c",
-            "chan1",
-        ]);
-        let Commands::Controller(args) = cli.command else {
-            panic!()
-        };
-        let ControllerCommand::Participant(a) = args.command else {
-            panic!()
-        };
-        let ControllerParticipantCommand::Add {
-            participant_name,
-            channel_id,
-        } = a.command
-        else {
-            panic!()
-        };
-        assert_eq!(participant_name, "alice");
-        assert_eq!(channel_id, "chan1");
-    }
-
-    #[test]
-    fn parse_controller_participant_delete() {
-        let cli = parse_ok(&[
-            "slimctl",
-            "controller",
-            "participant",
-            "delete",
-            "alice",
-            "-c",
-            "chan1",
-        ]);
-        let Commands::Controller(args) = cli.command else {
-            panic!()
-        };
-        let ControllerCommand::Participant(a) = args.command else {
-            panic!()
-        };
-        let ControllerParticipantCommand::Delete {
-            participant_name,
-            channel_id,
-        } = a.command
-        else {
-            panic!()
-        };
-        assert_eq!(participant_name, "alice");
-        assert_eq!(channel_id, "chan1");
-    }
-
-    #[test]
-    fn parse_controller_participant_list() {
-        let cli = parse_ok(&[
-            "slimctl",
-            "controller",
-            "participant",
-            "list",
-            "-c",
-            "chan1",
-        ]);
-        let Commands::Controller(args) = cli.command else {
-            panic!()
-        };
-        let ControllerCommand::Participant(a) = args.command else {
-            panic!()
-        };
-        let ControllerParticipantCommand::List { channel_id } = a.command else {
-            panic!()
-        };
-        assert_eq!(channel_id, "chan1");
-    }
-
     // ── node ─────────────────────────────────────────────────────────────────
 
     #[test]
@@ -898,18 +772,6 @@ mod tests {
     #[test]
     fn controller_route_list_missing_node_id_fails() {
         let err = parse_err(&["slimctl", "controller", "route", "list"]);
-        assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
-    }
-
-    #[test]
-    fn controller_participant_list_missing_channel_id_fails() {
-        let err = parse_err(&["slimctl", "controller", "participant", "list"]);
-        assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
-    }
-
-    #[test]
-    fn controller_channel_create_missing_moderators_arg_fails() {
-        let err = parse_err(&["slimctl", "controller", "channel", "create"]);
         assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
     }
 

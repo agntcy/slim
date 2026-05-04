@@ -217,6 +217,7 @@ dependencies = [
  "display-error-chain",
  "drain",
  "duration-string",
+ "futures",
  "h2",
  "parking_lot",
  "prost",

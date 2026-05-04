@@ -33,12 +33,6 @@ CREATE TABLE IF NOT EXISTS links (
     PRIMARY KEY (link_id, source_node_id, dest_node_id, dest_endpoint)
 );
 
-CREATE TABLE IF NOT EXISTS channels (
-    id TEXT NOT NULL PRIMARY KEY,
-    moderators TEXT NOT NULL,
-    participants TEXT NOT NULL
-);
-
 -- Hot-path indices for routes.
 --
 -- source_node_id: get_routes_for_node_id, get_route_for_src_dest_name,
@@ -73,3 +67,11 @@ CREATE INDEX IF NOT EXISTS idx_links_link_id ON links (link_id);
 -- Composite for the endpoint-reuse check in add_link and get_link_for_source_and_endpoint.
 CREATE INDEX IF NOT EXISTS idx_links_src_endpoint
     ON links (source_node_id, dest_endpoint);
+
+-- At most one non-deleted link between any ordered node pair (regardless of direction).
+-- Uses expression indexes so no extra column is needed.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_links_unique_active_pair
+    ON links (
+        CASE WHEN source_node_id < dest_node_id THEN source_node_id ELSE dest_node_id END,
+        CASE WHEN source_node_id < dest_node_id THEN dest_node_id ELSE source_node_id END
+    ) WHERE deleted = 0;

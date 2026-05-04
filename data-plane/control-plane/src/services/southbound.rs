@@ -3,9 +3,7 @@
 
 use std::time::Duration;
 
-use std::sync::Arc;
-
-use tokio::sync::{Semaphore, mpsc};
+use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
 use uuid::Uuid;
@@ -15,23 +13,15 @@ use crate::api::proto::controller::proto::v1::{
 };
 use crate::db::{ConnectionDetails, Node, SharedDb};
 use crate::error::{Error, Result};
-use crate::node_control::{DefaultNodeCommandHandler, NodeStatus};
-use crate::services::group::GroupService;
-use crate::services::routes::{ALL_NODES_ID, Route, RouteService};
+use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus};
+use crate::route_service::{ALL_NODES_ID, Route, RouteService};
 
 const REGISTER_TIMEOUT_SECS: u64 = 15;
-
-/// Maximum number of DP-initiated ConfigCommand tasks that may run concurrently.
-/// Each task may issue DB writes; this prevents unbounded task accumulation under
-/// a burst of incoming ConfigCommand messages.
-const MAX_CONCURRENT_DP_CONFIG_CMDS: usize = 64;
 
 pub struct SouthboundApiService {
     db: SharedDb,
     cmd_handler: DefaultNodeCommandHandler,
     route_service: RouteService,
-    group_service: GroupService,
-    dp_config_semaphore: Arc<Semaphore>,
 }
 
 impl SouthboundApiService {
@@ -39,14 +29,11 @@ impl SouthboundApiService {
         db: SharedDb,
         cmd_handler: DefaultNodeCommandHandler,
         route_service: RouteService,
-        group_service: GroupService,
     ) -> Self {
         Self {
             db,
             cmd_handler,
             route_service,
-            group_service,
-            dp_config_semaphore: Arc::new(Semaphore::new(MAX_CONCURRENT_DP_CONFIG_CMDS)),
         }
     }
 }
@@ -81,8 +68,6 @@ impl ControllerService for SouthboundApiService {
         let db = self.db.clone();
         let cmd_handler = self.cmd_handler.clone();
         let route_service = self.route_service.clone();
-        let group_service = self.group_service.clone();
-        let dp_config_semaphore = Arc::clone(&self.dp_config_semaphore);
 
         tokio::spawn(async move {
             let registered_node_id = match receive_register(
@@ -107,15 +92,8 @@ impl ControllerService for SouthboundApiService {
                 return;
             }
 
-            handle_node_messages(
-                stream,
-                &registered_node_id,
-                &cmd_handler,
-                &route_service,
-                &group_service,
-                dp_config_semaphore,
-            )
-            .await;
+            handle_node_messages(stream, &registered_node_id, &cmd_handler, &route_service)
+                .await;
         });
 
         Ok(Response::new(UnboundedReceiverStream::new(rx)))
@@ -199,8 +177,6 @@ async fn handle_node_messages(
     node_id: &str,
     cmd_handler: &DefaultNodeCommandHandler,
     route_service: &RouteService,
-    group_service: &GroupService,
-    dp_config_semaphore: Arc<Semaphore>,
 ) {
     loop {
         let msg = match stream.message().await {
@@ -214,69 +190,36 @@ async fn handle_node_messages(
 
         match msg.payload {
             Some(Payload::ConfigCommand(cc)) => {
-                // Process DP-initiated route mutations in a background task so
-                // that slow DB writes do not delay ack routing.
-                // The semaphore caps the number of concurrently running tasks to
-                // prevent unbounded task accumulation under a burst of messages.
-                // Process route mutations in a background task (fast path) or
-                // synchronously in the stream loop (fallback) so they are never
-                // silently dropped.  Dropping a ConfigCommand would leave the CP
-                // unaware of the DP's declared subscriptions, causing CP/DP
-                // divergence with no signal to retry.
-                let apply_config = {
-                    let rs = route_service.clone();
-                    let nid = node_id.to_string();
-                    async move {
-                        for sub in &cc.subscriptions_to_set {
-                            if sub.link_id.is_none()
-                                && let Err(e) = rs
-                                    .add_route(Route {
-                                        source_node_id: ALL_NODES_ID.to_string(),
-                                        dest_node_id: nid.clone(),
-                                        component0: sub.component_0.clone(),
-                                        component1: sub.component_1.clone(),
-                                        component2: sub.component_2.clone(),
-                                        component_id: sub.id,
-                                        link_id: String::new(),
-                                    })
-                                    .await
-                            {
-                                tracing::debug!("southbound: error adding route: {e}");
-                            }
-                        }
-                        for sub in &cc.subscriptions_to_delete {
-                            let route = Route {
+                for sub in &cc.subscriptions_to_set {
+                    if sub.link_id.is_none() {
+                        if let Err(e) = route_service
+                            .add_route(Route {
                                 source_node_id: ALL_NODES_ID.to_string(),
-                                dest_node_id: nid.clone(),
+                                dest_node_id: node_id.to_string(),
                                 component0: sub.component_0.clone(),
                                 component1: sub.component_1.clone(),
                                 component2: sub.component_2.clone(),
                                 component_id: sub.id,
                                 link_id: String::new(),
-                            };
-                            if let Err(e) = rs.delete_route(route).await {
-                                tracing::debug!("southbound: error deleting route: {e}");
-                            }
+                            })
+                            .await
+                        {
+                            tracing::debug!("southbound: error adding route: {e}");
                         }
                     }
-                };
-                match dp_config_semaphore.clone().try_acquire_owned() {
-                    Ok(permit) => {
-                        tokio::spawn(async move {
-                            let _permit = permit;
-                            apply_config.await;
-                        });
-                    }
-                    Err(_) => {
-                        // Semaphore is full — fall back to synchronous processing
-                        // in the stream loop rather than dropping the command.
-                        // This keeps the CP and DP in sync at the cost of briefly
-                        // blocking ACK routing for this node.
-                        tracing::warn!(
-                            "southbound: semaphore full for {node_id} — \
-                             processing ConfigCommand synchronously to avoid data loss"
-                        );
-                        apply_config.await;
+                }
+                for sub in &cc.subscriptions_to_delete {
+                    let route = Route {
+                        source_node_id: ALL_NODES_ID.to_string(),
+                        dest_node_id: node_id.to_string(),
+                        component0: sub.component_0.clone(),
+                        component1: sub.component_1.clone(),
+                        component2: sub.component_2.clone(),
+                        component_id: sub.id,
+                        link_id: String::new(),
+                    };
+                    if let Err(e) = route_service.delete_route(route).await {
+                        tracing::debug!("southbound: error deleting route: {e}");
                     }
                 }
             }
@@ -311,134 +254,6 @@ async fn handle_node_messages(
             | Some(Payload::SubscriptionListResponse(_))
             | Some(Payload::ConnectionListResponse(_)) => {
                 cmd_handler.response_received(node_id, msg).await;
-            }
-            Some(Payload::CreateChannelRequest(cr)) => {
-                let channel_req =
-                    crate::api::proto::controlplane::proto::v1::CreateChannelRequest {
-                        moderators: cr.moderators.clone(),
-                    };
-                let orig_id = msg.message_id.clone();
-                let success = match group_service.create_channel(channel_req).await {
-                    Ok(_resp) => true,
-                    Err(e) => {
-                        tracing::error!("southbound: error creating channel: {e}");
-                        false
-                    }
-                };
-                let ack_msg = ControlMessage {
-                    message_id: Uuid::new_v4().to_string(),
-                    payload: Some(Payload::Ack(Ack {
-                        success,
-                        original_message_id: orig_id,
-                        ..Default::default()
-                    })),
-                };
-                if let Err(e) = cmd_handler.send_message(node_id, ack_msg).await {
-                    tracing::error!("southbound: error sending CreateChannelResponse: {e}");
-                    break;
-                }
-            }
-            Some(Payload::DeleteChannelRequest(dr)) => {
-                let orig_id = msg.message_id.clone();
-                let success = match group_service.delete_channel(dr).await {
-                    Ok(ack) => ack.success,
-                    Err(e) => {
-                        tracing::error!("southbound: error deleting channel: {e}");
-                        false
-                    }
-                };
-                let ack_msg = ControlMessage {
-                    message_id: Uuid::new_v4().to_string(),
-                    payload: Some(Payload::Ack(Ack {
-                        success,
-                        original_message_id: orig_id,
-                        ..Default::default()
-                    })),
-                };
-                if let Err(e) = cmd_handler.send_message(node_id, ack_msg).await {
-                    tracing::error!("southbound: error sending ack: {e}");
-                    break;
-                }
-            }
-            Some(Payload::AddParticipantRequest(ar)) => {
-                let orig_id = msg.message_id.clone();
-                let success = match group_service.add_participant(ar).await {
-                    Ok(ack) => ack.success,
-                    Err(e) => {
-                        tracing::error!("southbound: error adding participant: {e}");
-                        false
-                    }
-                };
-                let ack_msg = ControlMessage {
-                    message_id: Uuid::new_v4().to_string(),
-                    payload: Some(Payload::Ack(Ack {
-                        success,
-                        original_message_id: orig_id,
-                        ..Default::default()
-                    })),
-                };
-                if let Err(e) = cmd_handler.send_message(node_id, ack_msg).await {
-                    tracing::error!("southbound: error sending ack: {e}");
-                    break;
-                }
-            }
-            Some(Payload::DeleteParticipantRequest(dr)) => {
-                let orig_id = msg.message_id.clone();
-                let success = match group_service.delete_participant(dr).await {
-                    Ok(ack) => ack.success,
-                    Err(e) => {
-                        tracing::error!("southbound: error deleting participant: {e}");
-                        false
-                    }
-                };
-                let ack_msg = ControlMessage {
-                    message_id: Uuid::new_v4().to_string(),
-                    payload: Some(Payload::Ack(Ack {
-                        success,
-                        original_message_id: orig_id,
-                        ..Default::default()
-                    })),
-                };
-                if let Err(e) = cmd_handler.send_message(node_id, ack_msg).await {
-                    tracing::error!("southbound: error sending ack: {e}");
-                    break;
-                }
-            }
-            Some(Payload::ListChannelRequest(lr)) => {
-                let orig_id = msg.message_id.clone();
-                match group_service.list_channels(lr).await {
-                    Ok(mut resp) => {
-                        resp.original_message_id = orig_id.clone();
-                        let reply = ControlMessage {
-                            message_id: Uuid::new_v4().to_string(),
-                            payload: Some(Payload::ListChannelResponse(resp)),
-                        };
-                        if let Err(e) = cmd_handler.send_message(node_id, reply).await {
-                            tracing::error!("southbound: error sending ListChannelResponse: {e}");
-                            break;
-                        }
-                    }
-                    Err(e) => tracing::error!("southbound: error listing channels: {e}"),
-                }
-            }
-            Some(Payload::ListParticipantsRequest(lr)) => {
-                let orig_id = msg.message_id.clone();
-                match group_service.list_participants(lr).await {
-                    Ok(mut resp) => {
-                        resp.original_message_id = orig_id.clone();
-                        let reply = ControlMessage {
-                            message_id: Uuid::new_v4().to_string(),
-                            payload: Some(Payload::ListParticipantsResponse(resp)),
-                        };
-                        if let Err(e) = cmd_handler.send_message(node_id, reply).await {
-                            tracing::error!(
-                                "southbound: error sending ListParticipantsResponse: {e}"
-                            );
-                            break;
-                        }
-                    }
-                    Err(e) => tracing::error!("southbound: error listing participants: {e}"),
-                }
             }
             _ => {
                 tracing::debug!(

@@ -5,7 +5,7 @@ pub struct ControlMessage {
     pub message_id: ::prost::alloc::string::String,
     #[prost(
         oneof = "control_message::Payload",
-        tags = "2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20"
+        tags = "2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 20"
     )]
     pub payload: ::core::option::Option<control_message::Payload>,
 }
@@ -34,21 +34,7 @@ pub mod control_message {
         #[prost(message, tag = "11")]
         DeregisterNodeResponse(super::DeregisterNodeResponse),
         #[prost(message, tag = "12")]
-        CreateChannelRequest(super::CreateChannelRequest),
-        #[prost(message, tag = "13")]
-        DeleteChannelRequest(super::DeleteChannelRequest),
-        #[prost(message, tag = "14")]
-        AddParticipantRequest(super::AddParticipantRequest),
-        #[prost(message, tag = "15")]
-        DeleteParticipantRequest(super::DeleteParticipantRequest),
-        #[prost(message, tag = "16")]
-        ListChannelRequest(super::ListChannelsRequest),
-        #[prost(message, tag = "17")]
-        ListChannelResponse(super::ListChannelsResponse),
-        #[prost(message, tag = "18")]
-        ListParticipantsRequest(super::ListParticipantsRequest),
-        #[prost(message, tag = "19")]
-        ListParticipantsResponse(super::ListParticipantsResponse),
+        DesiredState(super::DesiredState),
         #[prost(message, tag = "20")]
         ConfigCommandAck(super::ConfigurationCommandAck),
     }
@@ -107,6 +93,13 @@ pub struct ConfigurationCommand {
     pub subscriptions_to_delete: ::prost::alloc::vec::Vec<Subscription>,
     #[prost(string, repeated, tag = "4")]
     pub connections_to_delete: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DesiredState {
+    #[prost(message, repeated, tag = "1")]
+    pub desired_connections: ::prost::alloc::vec::Vec<Connection>,
+    #[prost(message, repeated, tag = "2")]
+    pub desired_subscriptions: ::prost::alloc::vec::Vec<Subscription>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ConfigurationCommandAck {
@@ -202,6 +195,8 @@ pub struct RegisterNodeRequest {
     pub connection_details: ::prost::alloc::vec::Vec<ConnectionDetails>,
     #[prost(string, optional, tag = "3")]
     pub group_name: ::core::option::Option<::prost::alloc::string::String>,
+    /// Active connections on the data plane at the time of registration.
+    /// Allows the control plane to reconcile link state without an extra round-trip.
     #[prost(message, repeated, tag = "4")]
     pub connections: ::prost::alloc::vec::Vec<ConnectionEntry>,
 }
@@ -223,72 +218,6 @@ pub struct DeregisterNodeResponse {
     pub original_message_id: ::prost::alloc::string::String,
     #[prost(bool, tag = "2")]
     pub success: bool,
-}
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct CreateChannelRequest {
-    /// list of moderators for the channel
-    #[prost(string, repeated, tag = "1")]
-    pub moderators: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    /// The channel name in the form organization/namespace/channel_name
-    #[prost(string, tag = "2")]
-    pub channel_name: ::prost::alloc::string::String,
-}
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct DeleteChannelRequest {
-    /// The channel name in the form organization/namespace/channel_name
-    #[prost(string, tag = "1")]
-    pub channel_name: ::prost::alloc::string::String,
-    /// list of moderators for the channel
-    #[prost(string, repeated, tag = "2")]
-    pub moderators: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-}
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct AddParticipantRequest {
-    /// The channel name in the form organization/namespace/channel_name
-    #[prost(string, tag = "1")]
-    pub channel_name: ::prost::alloc::string::String,
-    /// Name of the participant
-    #[prost(string, tag = "2")]
-    pub participant_name: ::prost::alloc::string::String,
-    /// list of moderators for the channel
-    #[prost(string, repeated, tag = "3")]
-    pub moderators: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-}
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct DeleteParticipantRequest {
-    /// The channel name in the form organization/namespace/channel_name
-    #[prost(string, tag = "1")]
-    pub channel_name: ::prost::alloc::string::String,
-    /// ID of participant
-    #[prost(string, tag = "2")]
-    pub participant_name: ::prost::alloc::string::String,
-    /// list of moderators for the channel
-    #[prost(string, repeated, tag = "3")]
-    pub moderators: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-}
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ListChannelsRequest {}
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ListChannelsResponse {
-    #[prost(string, tag = "1")]
-    pub original_message_id: ::prost::alloc::string::String,
-    /// IDs of the channels available in the control plane
-    #[prost(string, repeated, tag = "2")]
-    pub channel_name: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-}
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ListParticipantsRequest {
-    /// name of the channel
-    #[prost(string, tag = "1")]
-    pub channel_name: ::prost::alloc::string::String,
-}
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ListParticipantsResponse {
-    #[prost(string, tag = "1")]
-    pub original_message_id: ::prost::alloc::string::String,
-    /// list of participants in the channel
-    #[prost(string, repeated, tag = "2")]
-    pub participant_name: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

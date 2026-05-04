@@ -187,13 +187,17 @@ impl Drop for Service {
             token.cancel();
         }
 
-        // Disconnect all clients
+        // Disconnect all clients registered via Service::connect
         for (endpoint, conn_id) in self.clients.write().drain() {
             debug!(%endpoint, conn_id = %conn_id, "disconnecting client on drop");
             if let Err(e) = self.message_processor.disconnect(conn_id) {
                 tracing::error!(%endpoint, error = %e.chain(), "disconnect error");
             }
         }
+
+        // Signal all remaining spawned tasks (including connections created by
+        // the controller via ConfigCommand) to shut down.
+        self.message_processor.signal_drain();
     }
 }
 
@@ -276,6 +280,13 @@ impl Service {
     }
 
     #[tracing::instrument(skip_all, fields(service_id = %self.id))]
+    pub async fn deregister(&self) -> Result<(), ServiceError> {
+        if let Some(ref controller) = *self.controller.read().await {
+            controller.deregister().await?;
+        }
+        Ok(())
+    }
+
     pub async fn shutdown(&self) -> Result<(), ServiceError> {
         debug!("shutting down service");
 

@@ -1,11 +1,11 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::node_control::{NodeStatus, ResponseKind};
+use crate::node_transport::{NodeStatus, ResponseKind};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    // ── node_control ──────────────────────────────────────────────────────────
+    // ── node_transport ─────────────────────────────────────────────────────────
     /// Caller passed an empty node ID.
     #[error("node ID cannot be empty")]
     EmptyNodeId,
@@ -50,15 +50,6 @@ pub enum Error {
     /// One or more required link identity fields are empty.
     #[error("link fields cannot be empty")]
     LinkMissingFields,
-
-    #[error("channel {id} already exists")]
-    ChannelAlreadyExists { id: String },
-
-    #[error("channel {id} not found")]
-    ChannelNotFound { id: String },
-
-    #[error("channel ID cannot be empty")]
-    EmptyChannelId,
 
     /// An underlying database operation failed (pool error, query error, etc.)
     #[error("db error in {context}: {msg}")]

@@ -63,6 +63,11 @@ pub trait DataAccess: Send + Sync {
     async fn mark_route_deleted(&self, route_id: i64) -> Result<()>;
     async fn mark_route_applied(&self, route_id: i64) -> Result<()>;
     async fn mark_route_failed(&self, route_id: i64, msg: &str) -> Result<()>;
+    /// Update the link_id on an existing route and reset status to Pending.
+    async fn update_route_link_id(&self, route_id: i64, link_id: &str) -> Result<()>;
+    /// Restore a soft-deleted route: set deleted=false, status=Pending,
+    /// and update the link_id to the current link between the nodes.
+    async fn restore_route(&self, route_id: i64, link_id: &str) -> Result<()>;
 
     // ── Links ──────────────────────────────────────────────────────────────
 
@@ -88,6 +93,13 @@ pub trait DataAccess: Send + Sync {
         source_node_id: &str,
         dest_node_id: &str,
     ) -> Option<Link>;
+
+    /// Atomically check for an existing non-deleted link between the two nodes
+    /// (in either direction) and insert `link` only if none exists.
+    ///
+    /// Returns `Ok((link, true))` if a new link was created, or
+    /// `Ok((existing, false))` if a link already existed.
+    async fn find_or_create_link(&self, link: Link) -> Result<(Link, bool)>;
     async fn get_link_for_source_and_endpoint(
         &self,
         source_node_id: &str,
@@ -102,14 +114,6 @@ pub trait DataAccess: Send + Sync {
     -> Vec<Link>;
     /// Return every link record in the store (no filtering).
     async fn list_all_links(&self) -> Vec<Link>;
-
-    // ── Channels ───────────────────────────────────────────────────────────
-
-    async fn save_channel(&self, channel_id: &str, moderators: Vec<String>) -> Result<()>;
-    async fn delete_channel(&self, channel_id: &str) -> Result<()>;
-    async fn get_channel(&self, channel_id: &str) -> Option<Channel>;
-    async fn update_channel(&self, channel: Channel) -> Result<()>;
-    async fn list_channels(&self) -> Vec<Channel>;
 }
 
 pub type SharedDb = Arc<dyn DataAccess>;

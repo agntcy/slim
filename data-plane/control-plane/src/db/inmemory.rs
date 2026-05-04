@@ -10,8 +10,7 @@ use uuid::Uuid;
 use async_trait::async_trait;
 
 use super::model::{
-    ALL_NODES_ID, Channel, Link, Node, Route, RouteStatus, SubscriptionName,
-    has_connection_details_changed,
+    ALL_NODES_ID, Link, Node, Route, RouteStatus, SubscriptionName, has_connection_details_changed,
 };
 use super::{DataAccess, SharedDb};
 use crate::error::{Error, Result};
@@ -148,7 +147,6 @@ pub struct InMemoryDb {
     nodes: RwLock<HashMap<String, Node>>,
     routes: RwLock<RouteStore>,
     links: RwLock<LinkStore>,
-    channels: RwLock<HashMap<String, Channel>>,
 }
 
 impl InMemoryDb {
@@ -157,8 +155,43 @@ impl InMemoryDb {
             nodes: RwLock::new(HashMap::new()),
             routes: RwLock::new(RouteStore::new()),
             links: RwLock::new(LinkStore::new()),
-            channels: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Find a non-deleted link between two nodes (either direction) in the store.
+    fn find_link_in_store(
+        store: &LinkStore,
+        source_node_id: &str,
+        dest_node_id: &str,
+    ) -> Option<Link> {
+        let mut latest: Option<&Link> = None;
+        // Forward: source_node_id → dest_node_id.
+        for key in store.by_src.get(source_node_id).into_iter().flatten() {
+            if let Some(link) = store.primary.get(key)
+                && !link.deleted
+                && link.dest_node_id == dest_node_id
+            {
+                match latest {
+                    None => latest = Some(link),
+                    Some(prev) if link.last_updated > prev.last_updated => latest = Some(link),
+                    _ => {}
+                }
+            }
+        }
+        // Reverse: dest_node_id → source_node_id.
+        for key in store.by_src.get(dest_node_id).into_iter().flatten() {
+            if let Some(link) = store.primary.get(key)
+                && !link.deleted
+                && link.dest_node_id == source_node_id
+            {
+                match latest {
+                    None => latest = Some(link),
+                    Some(prev) if link.last_updated > prev.last_updated => latest = Some(link),
+                    _ => {}
+                }
+            }
+        }
+        latest.cloned()
     }
 
     pub fn shared() -> SharedDb {
@@ -451,6 +484,32 @@ impl DataAccess for InMemoryDb {
         Ok(())
     }
 
+    async fn update_route_link_id(&self, route_id: i64, link_id: &str) -> Result<()> {
+        let mut store = self.routes.write();
+        let route = store
+            .primary
+            .get_mut(&route_id)
+            .ok_or(Error::RouteNotFound { id: route_id })?;
+        route.link_id = link_id.to_string();
+        route.status = RouteStatus::Pending;
+        route.last_updated = SystemTime::now();
+        Ok(())
+    }
+
+    async fn restore_route(&self, route_id: i64, link_id: &str) -> Result<()> {
+        let mut store = self.routes.write();
+        let route = store
+            .primary
+            .get_mut(&route_id)
+            .ok_or(Error::RouteNotFound { id: route_id })?;
+        route.deleted = false;
+        route.status = RouteStatus::Pending;
+        route.status_msg = String::new();
+        route.link_id = link_id.to_string();
+        route.last_updated = SystemTime::now();
+        Ok(())
+    }
+
     // ── Links ──────────────────────────────────────────────────────────────
 
     async fn add_link(&self, mut link: Link) -> Result<Link> {
@@ -547,35 +606,33 @@ impl DataAccess for InMemoryDb {
         dest_node_id: &str,
     ) -> Option<Link> {
         let store = self.links.read();
-        let mut latest: Option<&Link> = None;
+        Self::find_link_in_store(&store, source_node_id, dest_node_id)
+    }
 
-        // Forward: source_node_id → dest_node_id.
-        for key in store.by_src.get(source_node_id).into_iter().flatten() {
-            if let Some(link) = store.primary.get(key)
-                && !link.deleted
-                && link.dest_node_id == dest_node_id
-            {
-                match latest {
-                    None => latest = Some(link),
-                    Some(prev) if link.last_updated > prev.last_updated => latest = Some(link),
-                    _ => {}
-                }
-            }
+    async fn find_or_create_link(&self, mut link: Link) -> Result<(Link, bool)> {
+        if link.link_id.is_empty()
+            || link.source_node_id.is_empty()
+            || link.dest_node_id.is_empty()
+            || link.dest_endpoint.is_empty()
+        {
+            return Err(Error::LinkMissingFields);
         }
-        // Reverse: dest_node_id → source_node_id.
-        for key in store.by_src.get(dest_node_id).into_iter().flatten() {
-            if let Some(link) = store.primary.get(key)
-                && !link.deleted
-                && link.dest_node_id == source_node_id
-            {
-                match latest {
-                    None => latest = Some(link),
-                    Some(prev) if link.last_updated > prev.last_updated => latest = Some(link),
-                    _ => {}
-                }
-            }
+        let mut store = self.links.write();
+
+        // Check both directions under the write lock.
+        let existing = Self::find_link_in_store(&store, &link.source_node_id, &link.dest_node_id);
+        if let Some(existing) = existing {
+            return Ok((existing, false));
         }
-        latest.cloned()
+
+        // No existing link — insert.
+        link.last_updated = SystemTime::now();
+        let key = link.storage_key();
+        if !store.primary.contains_key(&key) {
+            store.index_add(&link);
+        }
+        store.primary.insert(key, link.clone());
+        Ok((link, true))
     }
 
     async fn get_link_for_source_and_endpoint(
@@ -660,58 +717,6 @@ impl DataAccess for InMemoryDb {
 
     async fn list_all_links(&self) -> Vec<Link> {
         self.links.read().primary.values().cloned().collect()
-    }
-
-    // ── Channels ───────────────────────────────────────────────────────────
-
-    async fn save_channel(&self, channel_id: &str, moderators: Vec<String>) -> Result<()> {
-        let mut channels = self.channels.write();
-        if channels.contains_key(channel_id) {
-            return Err(Error::ChannelAlreadyExists {
-                id: channel_id.to_string(),
-            });
-        }
-        channels.insert(
-            channel_id.to_string(),
-            Channel {
-                id: channel_id.to_string(),
-                moderators,
-                participants: vec![],
-            },
-        );
-        Ok(())
-    }
-
-    async fn delete_channel(&self, channel_id: &str) -> Result<()> {
-        let mut channels = self.channels.write();
-        if channels.remove(channel_id).is_none() {
-            return Err(Error::ChannelNotFound {
-                id: channel_id.to_string(),
-            });
-        }
-        Ok(())
-    }
-
-    async fn get_channel(&self, channel_id: &str) -> Option<Channel> {
-        self.channels.read().get(channel_id).cloned()
-    }
-
-    async fn update_channel(&self, channel: Channel) -> Result<()> {
-        if channel.id.is_empty() {
-            return Err(Error::EmptyChannelId);
-        }
-        let mut channels = self.channels.write();
-        if !channels.contains_key(&channel.id) {
-            return Err(Error::ChannelNotFound {
-                id: channel.id.clone(),
-            });
-        }
-        channels.insert(channel.id.clone(), channel);
-        Ok(())
-    }
-
-    async fn list_channels(&self) -> Vec<Channel> {
-        self.channels.read().values().cloned().collect()
     }
 }
 
@@ -1176,93 +1181,5 @@ mod tests {
         let found = db.filter_routes_by_src_dest("src", "dst").await;
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].dest_node_id, "dst");
-    }
-
-    // ── Channel CRUD ───────────────────────────────────────────────────────
-
-    #[tokio::test]
-    async fn save_and_get_channel() {
-        let db = db();
-        db.save_channel("chan1", vec!["mod1".to_string()])
-            .await
-            .unwrap();
-        let ch = db.get_channel("chan1").await.unwrap();
-        assert_eq!(ch.id, "chan1");
-        assert_eq!(ch.moderators, vec!["mod1"]);
-        assert!(ch.participants.is_empty());
-    }
-
-    #[tokio::test]
-    async fn save_channel_duplicate_returns_error() {
-        let db = db();
-        db.save_channel("chan1", vec![]).await.unwrap();
-        assert!(db.save_channel("chan1", vec![]).await.is_err());
-    }
-
-    #[tokio::test]
-    async fn delete_channel() {
-        let db = db();
-        db.save_channel("chan1", vec![]).await.unwrap();
-        db.delete_channel("chan1").await.unwrap();
-        assert!(db.get_channel("chan1").await.is_none());
-    }
-
-    #[tokio::test]
-    async fn delete_channel_not_found_returns_error() {
-        let db = db();
-        assert!(db.delete_channel("missing").await.is_err());
-    }
-
-    #[tokio::test]
-    async fn update_channel() {
-        let db = db();
-        db.save_channel("chan1", vec!["mod1".to_string()])
-            .await
-            .unwrap();
-        db.update_channel(Channel {
-            id: "chan1".to_string(),
-            moderators: vec!["mod1".to_string()],
-            participants: vec!["p1".to_string()],
-        })
-        .await
-        .unwrap();
-        let ch = db.get_channel("chan1").await.unwrap();
-        assert_eq!(ch.participants, vec!["p1"]);
-    }
-
-    #[tokio::test]
-    async fn update_channel_empty_id_returns_error() {
-        let db = db();
-        assert!(
-            db.update_channel(Channel {
-                id: String::new(),
-                moderators: vec![],
-                participants: vec![],
-            })
-            .await
-            .is_err()
-        );
-    }
-
-    #[tokio::test]
-    async fn update_channel_not_found_returns_error() {
-        let db = db();
-        assert!(
-            db.update_channel(Channel {
-                id: "missing".to_string(),
-                moderators: vec![],
-                participants: vec![],
-            })
-            .await
-            .is_err()
-        );
-    }
-
-    #[tokio::test]
-    async fn list_channels() {
-        let db = db();
-        db.save_channel("c1", vec![]).await.unwrap();
-        db.save_channel("c2", vec![]).await.unwrap();
-        assert_eq!(db.list_channels().await.len(), 2);
     }
 }

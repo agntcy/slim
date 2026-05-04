@@ -207,6 +207,16 @@ impl MessageProcessor {
         Ok(res)
     }
 
+    /// Signal all spawned tasks (process_stream, etc.) to begin shutting down.
+    ///
+    /// Unlike [`shutdown`], this is synchronous: it drops the drain signal (which
+    /// notifies all drain watches) and the drain watch, but does NOT wait for the
+    /// tasks to finish.  Safe to call from a synchronous `Drop` implementation.
+    pub fn signal_drain(&self) {
+        self.internal.drain_signal.write().take();
+        self.internal.drain_watch.write().take();
+    }
+
     pub async fn shutdown(&self) -> Result<(), DataPathError> {
         // Take the drain signal
         let signal = self

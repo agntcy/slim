@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::hash::Hasher;
 use twox_hash::XxHash64;
 
-use super::schema::{channels, links, nodes, routes};
+use super::schema::{links, nodes, routes};
 
 /// Wildcard node ID — matches all nodes.
 pub const ALL_NODES_ID: &str = "*";
@@ -370,18 +370,6 @@ impl std::fmt::Display for Link {
             self.source_node_id, self.dest_node_id, self.dest_endpoint, self.link_id, self.status,
         )
     }
-}
-
-// ─── Channel ──────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Queryable, Selectable, Identifiable, Insertable)]
-#[diesel(table_name = channels)]
-pub struct Channel {
-    pub id: String,
-    #[diesel(deserialize_as = JsonStrings, serialize_as = JsonStrings)]
-    pub moderators: Vec<String>,
-    #[diesel(deserialize_as = JsonStrings, serialize_as = JsonStrings)]
-    pub participants: Vec<String>,
 }
 
 #[cfg(test)]

@@ -27,15 +27,7 @@ message ControlMessage {
     RegisterNodeResponse register_node_response = 9;
     DeregisterNodeRequest deregister_node_request = 10;
     DeregisterNodeResponse deregister_node_response = 11;
-
-    CreateChannelRequest create_channel_request = 12;
-    DeleteChannelRequest delete_channel_request = 13;
-    AddParticipantRequest add_participant_request = 14;
-    DeleteParticipantRequest delete_participant_request = 15;
-    ListChannelsRequest list_channel_request = 16;
-    ListChannelsResponse list_channel_response = 17;
-    ListParticipantsRequest list_participants_request = 18;
-    ListParticipantsResponse list_participants_response = 19;
+    DesiredState desired_state = 12;
 
     ConfigurationCommandAck config_command_ack = 20;
   }
@@ -74,6 +66,11 @@ message ConfigurationCommand {
   repeated Subscription subscriptions_to_set = 2;
   repeated Subscription subscriptions_to_delete = 3;
   repeated string connections_to_delete = 4;
+}
+
+message DesiredState {
+  repeated Connection desired_connections = 1;
+  repeated Subscription desired_subscriptions = 2;
 }
 
 message ConfigurationCommandAck {
@@ -166,59 +163,3 @@ message DeregisterNodeResponse {
   bool success = 2;
 }
 
-message CreateChannelRequest {
-  // list of moderators for the channel
-  repeated string moderators = 1;
-
-  // The channel name in the form organization/namespace/channel_name
-  string channel_name = 2;
-}
-
-message DeleteChannelRequest {
-  // The channel name in the form organization/namespace/channel_name
-  string channel_name = 1;
-
-  // list of moderators for the channel
-  repeated string moderators = 2;
-}
-
-message AddParticipantRequest {
-  // The channel name in the form organization/namespace/channel_name
-  string channel_name = 1;
-
-  // Name of the participant
-  string participant_name = 2;
-
-  // list of moderators for the channel
-  repeated string moderators = 3;
-}
-
-message DeleteParticipantRequest {
-  // The channel name in the form organization/namespace/channel_name
-  string channel_name = 1;
-
-  // ID of participant
-  string participant_name = 2;
-
-  // list of moderators for the channel
-  repeated string moderators = 3;
-}
-
-message ListChannelsRequest {}
-
-message ListChannelsResponse {
-  string original_message_id = 1;
-  // IDs of the channels available in the control plane
-  repeated string channel_name = 2;
-}
-
-message ListParticipantsRequest {
-  // name of the channel
-  string channel_name = 1;
-}
-
-message ListParticipantsResponse {
-  string original_message_id = 1;
-  // list of participants in the channel
-  repeated string participant_name = 2;
-}

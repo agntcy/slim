@@ -5,26 +5,21 @@ use prost_types::{Struct, Value, value::Kind};
 use tonic::{Request, Response, Status};
 
 use crate::api::proto::controller::proto::v1::{
-    Ack, AddParticipantRequest, ConnectionDetails, ConnectionListResponse, DeleteChannelRequest,
-    DeleteParticipantRequest, ListChannelsRequest, ListChannelsResponse, ListParticipantsRequest,
-    ListParticipantsResponse, SubscriptionListResponse,
+    ConnectionDetails, ConnectionListResponse, SubscriptionListResponse,
 };
 use crate::api::proto::controlplane::proto::v1::{
-    AddRouteRequest, AddRouteResponse, CreateChannelRequest, CreateChannelResponse,
-    DeleteRouteRequest, DeleteRouteResponse, LinkListRequest, LinkListResponse, LinkStatus,
-    NodeListRequest, NodeListResponse, RouteListRequest, RouteListResponse, RouteStatus,
-    control_plane_service_server::ControlPlaneService,
+    AddRouteRequest, AddRouteResponse, DeleteRouteRequest, DeleteRouteResponse, LinkListRequest,
+    LinkListResponse, LinkStatus, NodeListRequest, NodeListResponse, RouteListRequest,
+    RouteListResponse, RouteStatus, control_plane_service_server::ControlPlaneService,
 };
 use crate::db::SharedDb;
-use crate::node_control::{DefaultNodeCommandHandler, NodeStatus};
-use crate::services::group::GroupService;
-use crate::services::routes::RouteService;
+use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus};
+use crate::route_service::RouteService;
 
 pub struct NorthboundApiService {
     db: SharedDb,
     cmd_handler: DefaultNodeCommandHandler,
     route_service: RouteService,
-    group_service: GroupService,
 }
 
 impl NorthboundApiService {
@@ -32,13 +27,11 @@ impl NorthboundApiService {
         db: SharedDb,
         cmd_handler: DefaultNodeCommandHandler,
         route_service: RouteService,
-        group_service: GroupService,
     ) -> Self {
         Self {
             db,
             cmd_handler,
             route_service,
-            group_service,
         }
     }
 }
@@ -160,7 +153,7 @@ impl ControlPlaneService for NorthboundApiService {
         })?;
 
         let sub = req.subscription.unwrap_or_default();
-        let route = crate::services::routes::Route {
+        let route = crate::route_service::Route {
             source_node_id: req.node_id,
             dest_node_id: req.dest_node_id,
             component0: sub.component_0,
@@ -199,7 +192,7 @@ impl ControlPlaneService for NorthboundApiService {
         }
 
         let sub = req.subscription.unwrap_or_default();
-        let route = crate::services::routes::Route {
+        let route = crate::route_service::Route {
             source_node_id: req.node_id,
             dest_node_id: req.dest_node_id,
             component0: sub.component_0,
@@ -215,72 +208,6 @@ impl ControlPlaneService for NorthboundApiService {
             .map_err(|e| Status::internal(e.to_string()))?;
 
         Ok(Response::new(DeleteRouteResponse { success: true }))
-    }
-
-    async fn create_channel(
-        &self,
-        request: Request<CreateChannelRequest>,
-    ) -> Result<Response<CreateChannelResponse>, Status> {
-        self.group_service
-            .create_channel(request.into_inner())
-            .await
-            .map(Response::new)
-            .map_err(|e| Status::internal(e.to_string()))
-    }
-
-    async fn delete_channel(
-        &self,
-        request: Request<DeleteChannelRequest>,
-    ) -> Result<Response<Ack>, Status> {
-        self.group_service
-            .delete_channel(request.into_inner())
-            .await
-            .map(Response::new)
-            .map_err(|e| Status::internal(e.to_string()))
-    }
-
-    async fn add_participant(
-        &self,
-        request: Request<AddParticipantRequest>,
-    ) -> Result<Response<Ack>, Status> {
-        self.group_service
-            .add_participant(request.into_inner())
-            .await
-            .map(Response::new)
-            .map_err(|e| Status::internal(e.to_string()))
-    }
-
-    async fn delete_participant(
-        &self,
-        request: Request<DeleteParticipantRequest>,
-    ) -> Result<Response<Ack>, Status> {
-        self.group_service
-            .delete_participant(request.into_inner())
-            .await
-            .map(Response::new)
-            .map_err(|e| Status::internal(e.to_string()))
-    }
-
-    async fn list_channels(
-        &self,
-        request: Request<ListChannelsRequest>,
-    ) -> Result<Response<ListChannelsResponse>, Status> {
-        self.group_service
-            .list_channels(request.into_inner())
-            .await
-            .map(Response::new)
-            .map_err(|e| Status::internal(e.to_string()))
-    }
-
-    async fn list_participants(
-        &self,
-        request: Request<ListParticipantsRequest>,
-    ) -> Result<Response<ListParticipantsResponse>, Status> {
-        self.group_service
-            .list_participants(request.into_inner())
-            .await
-            .map(Response::new)
-            .map_err(|e| Status::internal(e.to_string()))
     }
 
     async fn list_routes(

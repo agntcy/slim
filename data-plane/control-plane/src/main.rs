@@ -9,10 +9,9 @@ use slim_config::tls::provider::initialize_crypto_provider;
 use slim_control_plane::api::proto::controller::proto::v1::controller_service_server::ControllerServiceServer;
 use slim_control_plane::api::proto::controlplane::proto::v1::control_plane_service_server::ControlPlaneServiceServer;
 use slim_control_plane::config::Config;
-use slim_control_plane::node_control::DefaultNodeCommandHandler;
-use slim_control_plane::services::group::GroupService;
+use slim_control_plane::node_transport::DefaultNodeCommandHandler;
 use slim_control_plane::services::northbound::NorthboundApiService;
-use slim_control_plane::services::routes::RouteService;
+use slim_control_plane::route_service::RouteService;
 use slim_control_plane::services::southbound::SouthboundApiService;
 
 #[derive(Debug, Parser)]
@@ -52,21 +51,9 @@ async fn main() -> Result<()> {
 
     let route_service = RouteService::new(db.clone(), cmd_handler.clone(), cfg.reconciler);
 
-    let group_service = GroupService::new(db.clone(), cmd_handler.clone());
+    let nb_svc = NorthboundApiService::new(db.clone(), cmd_handler.clone(), route_service.clone());
 
-    let nb_svc = NorthboundApiService::new(
-        db.clone(),
-        cmd_handler.clone(),
-        route_service.clone(),
-        group_service.clone(),
-    );
-
-    let sb_svc = SouthboundApiService::new(
-        db.clone(),
-        cmd_handler.clone(),
-        route_service.clone(),
-        group_service.clone(),
-    );
+    let sb_svc = SouthboundApiService::new(db.clone(), cmd_handler.clone(), route_service.clone());
 
     // ── gRPC servers ──────────────────────────────────────────────────────────
     // A single drain channel coordinates graceful shutdown of both servers.
