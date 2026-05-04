@@ -36,12 +36,12 @@ use prost_types::Struct;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::traits::TokenProvider;
 use slim_config::grpc::client::ClientConfig;
+use slim_datapath::api::ProtoSessionMessageType;
 use slim_datapath::api::{
     MessageType::Link as LinkType, MessageType::Publish, MessageType::Subscribe,
     MessageType::SubscriptionAck as SubscriptionAckType, MessageType::Unsubscribe,
     ProtoMessage as DataPlaneMessage,
 };
-use slim_datapath::api::ProtoSessionMessageType;
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
@@ -715,12 +715,11 @@ impl ControllerService {
                             error_msg = format!("Connection failed: {}", e);
                         }
                         Ok(conn_id) => {
-                            let requested_link_id =
-                                if client_config.link_id.trim().is_empty() {
-                                    String::new()
-                                } else {
-                                    client_config.link_id.clone()
-                                };
+                            let requested_link_id = if client_config.link_id.trim().is_empty() {
+                                String::new()
+                            } else {
+                                client_config.link_id.clone()
+                            };
                             if !requested_link_id.is_empty() {
                                 self.inner
                                     .link_id_to_conn_id
@@ -749,7 +748,10 @@ impl ControllerService {
     fn resolve_desired_subscriptions<'a>(
         &self,
         desired_subscriptions: &'a [v1::Subscription],
-    ) -> (HashMap<(Name, u64), &'a v1::Subscription>, Vec<v1::SubscriptionAck>) {
+    ) -> (
+        HashMap<(Name, u64), &'a v1::Subscription>,
+        Vec<v1::SubscriptionAck>,
+    ) {
         type SubKey = (Name, u64);
         let mut desired_subs: HashMap<SubKey, &v1::Subscription> = HashMap::new();
         let mut failures: Vec<v1::SubscriptionAck> = Vec::new();
@@ -826,7 +828,10 @@ impl ControllerService {
                         .build_unsubscribe()
                         .unwrap();
 
-                    match self.send_unsubscribe_message_with_ack(unsub_msg, sub_id).await {
+                    match self
+                        .send_unsubscribe_message_with_ack(unsub_msg, sub_id)
+                        .await
+                    {
                         Ok(()) => (true, String::new()),
                         Err(err) => (false, format!("Failed to unsubscribe: {}", err)),
                     }
@@ -890,7 +895,9 @@ impl ControllerService {
 
         // Report already-active subscriptions as success.
         for ((name, conn_id), sub) in desired_subs {
-            let dominated = to_create.iter().any(|((n, c), _)| n == name && *c == *conn_id);
+            let dominated = to_create
+                .iter()
+                .any(|((n, c), _)| n == name && *c == *conn_id);
             if !dominated {
                 subscriptions_status.push(v1::SubscriptionAck {
                     subscription: Some((*sub).clone()),

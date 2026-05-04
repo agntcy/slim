@@ -21,8 +21,8 @@ use slim_control_plane::api::proto::controlplane::proto::v1::{
 };
 use slim_control_plane::config::{Config, DatabaseConfig, ReconcilerConfig};
 use slim_control_plane::node_transport::DefaultNodeCommandHandler;
-use slim_control_plane::services::northbound::NorthboundApiService;
 use slim_control_plane::route_service::RouteService;
+use slim_control_plane::services::northbound::NorthboundApiService;
 use slim_control_plane::services::southbound::SouthboundApiService;
 use slim_service::{Service, ServiceConfiguration};
 
@@ -754,8 +754,14 @@ async fn test_source_node_crash_and_recovery() {
         }
 
         if tokio::time::Instant::now() >= deadline {
-            print_state(&mut client, "TIMEOUT - link not re-applied after source crash").await;
-            panic!("timeout waiting for link {link_id} to be re-applied after source node recovery");
+            print_state(
+                &mut client,
+                "TIMEOUT - link not re-applied after source crash",
+            )
+            .await;
+            panic!(
+                "timeout waiting for link {link_id} to be re-applied after source node recovery"
+            );
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
@@ -1153,8 +1159,9 @@ async fn test_static_connection_adoption() {
     let node_b_dp_port = reserve_port();
     let node_b_dp_server = ServerConfig::with_endpoint(&format!("127.0.0.1:{node_b_dp_port}"))
         .with_tls_settings(TlsServerConfig::insecure());
-    let cp_client_b = ClientConfig::with_endpoint(&format!("http://127.0.0.1:{}", cp.southbound_port))
-        .with_tls_setting(TlsClientConfig::insecure());
+    let cp_client_b =
+        ClientConfig::with_endpoint(&format!("http://127.0.0.1:{}", cp.southbound_port))
+            .with_tls_setting(TlsClientConfig::insecure());
     let svc_b_config = ServiceConfiguration::new()
         .with_dataplane_server(vec![node_b_dp_server])
         .with_controlplane_client(vec![cp_client_b]);
@@ -1167,10 +1174,12 @@ async fn test_static_connection_adoption() {
     let node_a_dp_port = reserve_port();
     let node_a_dp_server = ServerConfig::with_endpoint(&format!("127.0.0.1:{node_a_dp_port}"))
         .with_tls_settings(TlsServerConfig::insecure());
-    let cp_client_a = ClientConfig::with_endpoint(&format!("http://127.0.0.1:{}", cp.southbound_port))
-        .with_tls_setting(TlsClientConfig::insecure());
-    let mut static_client = ClientConfig::with_endpoint(&format!("http://127.0.0.1:{node_b_dp_port}"))
-        .with_tls_setting(TlsClientConfig::insecure());
+    let cp_client_a =
+        ClientConfig::with_endpoint(&format!("http://127.0.0.1:{}", cp.southbound_port))
+            .with_tls_setting(TlsClientConfig::insecure());
+    let mut static_client =
+        ClientConfig::with_endpoint(&format!("http://127.0.0.1:{node_b_dp_port}"))
+            .with_tls_setting(TlsClientConfig::insecure());
     static_client.link_id = static_link_id.clone();
 
     let svc_a_config = ServiceConfiguration::new()

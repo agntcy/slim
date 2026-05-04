@@ -52,8 +52,7 @@ impl Reconciler {
         tracing::info!("reconciler: starting");
 
         while let Some(node_id) = self.queue.pop().await {
-            if let Err(e) =
-                handle_request(&self.db, &self.cmd_handler, &self.queue, &node_id).await
+            if let Err(e) = handle_request(&self.db, &self.cmd_handler, &self.queue, &node_id).await
             {
                 tracing::error!("reconciler: failed for node {node_id}: {e}");
 
@@ -112,7 +111,9 @@ async fn handle_request(
     let (desired_subscriptions, included_routes, mut needs_requeue) =
         build_desired_subscriptions(db, &routes, node_id).await;
 
-    if desired_connections.is_empty() && desired_subscriptions.is_empty() && deleted_links.is_empty()
+    if desired_connections.is_empty()
+        && desired_subscriptions.is_empty()
+        && deleted_links.is_empty()
     {
         if needs_requeue {
             queue.add_after(node_id.to_string(), Duration::from_secs(5));
@@ -212,7 +213,11 @@ async fn build_desired_subscriptions<'a>(
     db: &SharedDb,
     routes: &'a [crate::db::Route],
     _node_id: &str,
-) -> (Vec<Subscription>, HashMap<SubKey, &'a crate::db::Route>, bool) {
+) -> (
+    Vec<Subscription>,
+    HashMap<SubKey, &'a crate::db::Route>,
+    bool,
+) {
     let mut desired_subscriptions: Vec<Subscription> = Vec::new();
     let mut included_routes: HashMap<SubKey, &crate::db::Route> = HashMap::new();
     let mut needs_requeue = false;
@@ -261,12 +266,18 @@ async fn build_desired_subscriptions<'a>(
                     l.status_msg.clone()
                 };
                 if let Err(e) = db.mark_route_failed(route.id, &msg).await {
-                    tracing::warn!("reconciler: failed to mark route {} as failed: {e}", route.id);
+                    tracing::warn!(
+                        "reconciler: failed to mark route {} as failed: {e}",
+                        route.id
+                    );
                 }
                 continue;
             }
         } else {
-            tracing::warn!("reconciler: skipping route {} — link {link_id} not found", route.id);
+            tracing::warn!(
+                "reconciler: skipping route {} — link {link_id} not found",
+                route.id
+            );
             continue;
         }
 
@@ -413,7 +424,10 @@ async fn process_subscription_acks(
                     {
                         Some(r) => r,
                         None => {
-                            tracing::warn!("reconciler: no route found for subscription ack: {:?}", sub);
+                            tracing::warn!(
+                                "reconciler: no route found for subscription ack: {:?}",
+                                sub
+                            );
                             continue;
                         }
                     }

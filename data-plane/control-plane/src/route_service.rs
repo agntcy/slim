@@ -374,9 +374,7 @@ impl RouteService {
                 let Some(link_id) = entry.link_id.as_deref().filter(|id| !id.is_empty()) else {
                     continue;
                 };
-                if let Ok(config) =
-                    serde_json::from_str::<serde_json::Value>(&entry.config_data)
-                {
+                if let Ok(config) = serde_json::from_str::<serde_json::Value>(&entry.config_data) {
                     if let Some(endpoint) = config.get("endpoint").and_then(|v| v.as_str()) {
                         reported.push(ReportedConnection {
                             endpoint: endpoint.to_string(),
@@ -806,25 +804,24 @@ impl RouteService {
         src_node: &crate::db::Node,
         dst_node: &crate::db::Node,
     ) -> Option<(String, Option<crate::db::Link>)> {
-        let (endpoint, config_data, link_id, status) =
-            if let Some(rc) = self.find_reported_connection_for_dest(&src_node.id, dst_node) {
-                (
-                    rc.endpoint.clone(),
-                    rc.config_data.clone(),
-                    rc.link_id.clone(),
-                    LinkStatus::Applied,
-                )
-            } else {
-                match compute_connection_details(src_node, dst_node) {
-                    Ok((ep, cd)) => (ep, cd, Uuid::new_v4().to_string(), LinkStatus::Pending),
-                    Err(e) => {
-                        tracing::error!(
-                            "ensure_direct_link: failed to get connection details: {e}"
-                        );
-                        return None;
-                    }
+        let (endpoint, config_data, link_id, status) = if let Some(rc) =
+            self.find_reported_connection_for_dest(&src_node.id, dst_node)
+        {
+            (
+                rc.endpoint.clone(),
+                rc.config_data.clone(),
+                rc.link_id.clone(),
+                LinkStatus::Applied,
+            )
+        } else {
+            match compute_connection_details(src_node, dst_node) {
+                Ok((ep, cd)) => (ep, cd, Uuid::new_v4().to_string(), LinkStatus::Pending),
+                Err(e) => {
+                    tracing::error!("ensure_direct_link: failed to get connection details: {e}");
+                    return None;
                 }
-            };
+            }
+        };
 
         let link = crate::db::Link {
             link_id,
@@ -874,9 +871,7 @@ impl RouteService {
                 let (ep, cd) = match compute_connection_details(src_node, dst_node) {
                     Ok(cd) => cd,
                     Err(e) => {
-                        tracing::error!(
-                            "ensure_group_link: failed to get connection details: {e}"
-                        );
+                        tracing::error!("ensure_group_link: failed to get connection details: {e}");
                         return None;
                     }
                 };

@@ -92,8 +92,7 @@ impl ControllerService for SouthboundApiService {
                 return;
             }
 
-            handle_node_messages(stream, &registered_node_id, &cmd_handler, &route_service)
-                .await;
+            handle_node_messages(stream, &registered_node_id, &cmd_handler, &route_service).await;
         });
 
         Ok(Response::new(UnboundedReceiverStream::new(rx)))

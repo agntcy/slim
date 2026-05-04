@@ -10,8 +10,8 @@ use slim_control_plane::api::proto::controller::proto::v1::controller_service_se
 use slim_control_plane::api::proto::controlplane::proto::v1::control_plane_service_server::ControlPlaneServiceServer;
 use slim_control_plane::config::Config;
 use slim_control_plane::node_transport::DefaultNodeCommandHandler;
-use slim_control_plane::services::northbound::NorthboundApiService;
 use slim_control_plane::route_service::RouteService;
+use slim_control_plane::services::northbound::NorthboundApiService;
 use slim_control_plane::services::southbound::SouthboundApiService;
 
 #[derive(Debug, Parser)]
