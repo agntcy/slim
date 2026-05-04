@@ -21,10 +21,8 @@ agntcy-slim-session = { workspace = true, default-features = false, features = [
 agntcy-slim-tracing = { workspace = true, default-features = false, features = ["wasm"] }
 console_error_panic_hook = "0.1"
 
-futures = { workspace = true }
 js-sys = "0.3"
 parking_lot = { workspace = true }
-prost = { workspace = true }
 tokio_with_wasm = { version = "0.9", features = ["rt", "sync", "time", "macros"] }
 tracing = { workspace = true }
 url = { workspace = true }

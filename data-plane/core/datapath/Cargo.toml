@@ -39,7 +39,6 @@ wasm = [
     "dep:getrandom",
     "dep:tokio_with_wasm",
     "dep:tokio-stream",
-    "dep:wasm-bindgen",
     "dep:wasm-bindgen-futures",
     "uuid/js",
 ]
@@ -51,7 +50,6 @@ agntcy-slim-config = { workspace = true, optional = true, default-features = fal
 agntcy-slim-tracing = { workspace = true, optional = true, default-features = false }
 # Always available (core types, messages, tables)
 agntcy-slim-version = { workspace = true }
-bit-vec = { workspace = true }
 display-error-chain = { workspace = true, optional = true }
 drain = { workspace = true, optional = true }
 fastwebsockets = { workspace = true, optional = true }
@@ -76,7 +74,6 @@ tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true, optional = true }
 twox-hash = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
-wasm-bindgen = { version = "0.2", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
 
 # Browser-only websocket transport for the wasm build. `gloo-net` only compiles
