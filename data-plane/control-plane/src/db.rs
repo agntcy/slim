@@ -28,7 +28,7 @@ pub trait DataAccess: Send + Sync {
     // ── Routes ─────────────────────────────────────────────────────────────
 
     async fn add_route(&self, route: Route) -> Result<Route>;
-    async fn get_route_by_id(&self, route_id: i64) -> Option<Route>;
+    async fn get_route_by_id(&self, route_id: &str) -> Option<Route>;
     async fn get_routes_for_node_id(&self, node_id: &str) -> Vec<Route>;
     async fn get_routes_for_dest_node_id(&self, node_id: &str) -> Vec<Route>;
     async fn get_routes_for_dest_node_id_and_name(
@@ -59,15 +59,15 @@ pub trait DataAccess: Send + Sync {
         component_id: Option<i64>,
     ) -> Option<String>;
     async fn get_routes_by_link_id(&self, link_id: &str) -> Vec<Route>;
-    async fn delete_route(&self, route_id: i64) -> Result<()>;
-    async fn mark_route_deleted(&self, route_id: i64) -> Result<()>;
-    async fn mark_route_applied(&self, route_id: i64) -> Result<()>;
-    async fn mark_route_failed(&self, route_id: i64, msg: &str) -> Result<()>;
+    async fn delete_route(&self, route_id: &str) -> Result<()>;
+    async fn mark_route_deleted(&self, route_id: &str) -> Result<()>;
+    async fn mark_route_applied(&self, route_id: &str) -> Result<()>;
+    async fn mark_route_failed(&self, route_id: &str, msg: &str) -> Result<()>;
     /// Update the link_id on an existing route and reset status to Pending.
-    async fn update_route_link_id(&self, route_id: i64, link_id: &str) -> Result<()>;
+    async fn update_route_link_id(&self, route_id: &str, link_id: &str) -> Result<()>;
     /// Restore a soft-deleted route: set deleted=false, status=Pending,
     /// and update the link_id to the current link between the nodes.
-    async fn restore_route(&self, route_id: i64, link_id: &str) -> Result<()>;
+    async fn restore_route(&self, route_id: &str, link_id: &str) -> Result<()>;
 
     // ── Links ──────────────────────────────────────────────────────────────
 

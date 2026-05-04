@@ -19,13 +19,13 @@ use crate::error::{Error, Result};
 
 struct RouteStore {
     /// Primary map: route id → Route.
-    primary: HashMap<i64, Route>,
+    primary: HashMap<String, Route>,
     /// Secondary index: source_node_id → set of route IDs.
-    by_src: HashMap<String, HashSet<i64>>,
+    by_src: HashMap<String, HashSet<String>>,
     /// Secondary index: dest_node_id → set of route IDs.
-    by_dest: HashMap<String, HashSet<i64>>,
+    by_dest: HashMap<String, HashSet<String>>,
     /// Secondary index: link_id → set of route IDs (only for non-empty link_ids).
-    by_link: HashMap<String, HashSet<i64>>,
+    by_link: HashMap<String, HashSet<String>>,
 }
 
 impl RouteStore {
@@ -42,16 +42,16 @@ impl RouteStore {
         self.by_src
             .entry(route.source_node_id.clone())
             .or_default()
-            .insert(route.id);
+            .insert(route.id.clone());
         self.by_dest
             .entry(route.dest_node_id.clone())
             .or_default()
-            .insert(route.id);
+            .insert(route.id.clone());
         if !route.link_id.is_empty() {
             self.by_link
                 .entry(route.link_id.clone())
                 .or_default()
-                .insert(route.id);
+                .insert(route.id.clone());
         }
     }
 
@@ -253,15 +253,15 @@ impl DataAccess for InMemoryDb {
                 id: route.to_string(),
             });
         }
-        route.id = route_id;
+        route.id = route_id.clone();
         route.last_updated = SystemTime::now();
         store.index_add(&route);
         store.primary.insert(route_id, route.clone());
         Ok(route)
     }
 
-    async fn get_route_by_id(&self, route_id: i64) -> Option<Route> {
-        self.routes.read().primary.get(&route_id).cloned()
+    async fn get_route_by_id(&self, route_id: &str) -> Option<Route> {
+        self.routes.read().primary.get(route_id).cloned()
     }
 
     async fn get_routes_for_node_id(&self, node_id: &str) -> Vec<Route> {
@@ -439,69 +439,81 @@ impl DataAccess for InMemoryDb {
             .unwrap_or_default()
     }
 
-    async fn delete_route(&self, route_id: i64) -> Result<()> {
+    async fn delete_route(&self, route_id: &str) -> Result<()> {
         let mut store = self.routes.write();
         let route = store
             .primary
-            .remove(&route_id)
-            .ok_or(Error::RouteNotFound { id: route_id })?;
+            .remove(route_id)
+            .ok_or_else(|| Error::RouteNotFound {
+                id: route_id.to_string(),
+            })?;
         store.index_remove(&route);
         Ok(())
     }
 
-    async fn mark_route_deleted(&self, route_id: i64) -> Result<()> {
+    async fn mark_route_deleted(&self, route_id: &str) -> Result<()> {
         let mut store = self.routes.write();
         let route = store
             .primary
-            .get_mut(&route_id)
-            .ok_or(Error::RouteNotFound { id: route_id })?;
+            .get_mut(route_id)
+            .ok_or_else(|| Error::RouteNotFound {
+                id: route_id.to_string(),
+            })?;
         route.deleted = true;
         route.last_updated = SystemTime::now();
         Ok(())
     }
 
-    async fn mark_route_applied(&self, route_id: i64) -> Result<()> {
+    async fn mark_route_applied(&self, route_id: &str) -> Result<()> {
         let mut store = self.routes.write();
         let route = store
             .primary
-            .get_mut(&route_id)
-            .ok_or(Error::RouteNotFound { id: route_id })?;
+            .get_mut(route_id)
+            .ok_or_else(|| Error::RouteNotFound {
+                id: route_id.to_string(),
+            })?;
         route.status = RouteStatus::Applied;
         route.status_msg.clear();
         route.last_updated = SystemTime::now();
         Ok(())
     }
 
-    async fn mark_route_failed(&self, route_id: i64, msg: &str) -> Result<()> {
+    async fn mark_route_failed(&self, route_id: &str, msg: &str) -> Result<()> {
         let mut store = self.routes.write();
         let route = store
             .primary
-            .get_mut(&route_id)
-            .ok_or(Error::RouteNotFound { id: route_id })?;
+            .get_mut(route_id)
+            .ok_or_else(|| Error::RouteNotFound {
+                id: route_id.to_string(),
+            })?;
         route.status = RouteStatus::Failed;
         route.status_msg = msg.to_string();
         route.last_updated = SystemTime::now();
         Ok(())
     }
 
-    async fn update_route_link_id(&self, route_id: i64, link_id: &str) -> Result<()> {
+    async fn update_route_link_id(&self, route_id: &str, link_id: &str) -> Result<()> {
         let mut store = self.routes.write();
         let route = store
             .primary
-            .get_mut(&route_id)
-            .ok_or(Error::RouteNotFound { id: route_id })?;
+            .get_mut(route_id)
+            .ok_or_else(|| Error::RouteNotFound {
+                id: route_id.to_string(),
+            })?;
         route.link_id = link_id.to_string();
         route.status = RouteStatus::Pending;
         route.last_updated = SystemTime::now();
         Ok(())
     }
 
-    async fn restore_route(&self, route_id: i64, link_id: &str) -> Result<()> {
+    async fn restore_route(&self, route_id: &str, link_id: &str) -> Result<()> {
         let mut store = self.routes.write();
         let route = store
             .primary
-            .get_mut(&route_id)
-            .ok_or(Error::RouteNotFound { id: route_id })?;
+            .get_mut(route_id)
+            .ok_or_else(|| Error::RouteNotFound {
+                id: route_id.to_string(),
+            })?;
         route.deleted = false;
         route.status = RouteStatus::Pending;
         route.status_msg = String::new();
@@ -745,7 +757,7 @@ mod tests {
 
     fn make_route(src: &str, dst: &str, link: &str) -> Route {
         Route {
-            id: 0,
+            id: String::new(),
             source_node_id: src.to_string(),
             dest_node_id: dst.to_string(),
             link_id: link.to_string(),
@@ -842,8 +854,8 @@ mod tests {
     async fn add_and_get_route() {
         let db = db();
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
-        assert_ne!(r.id, 0);
-        let got = db.get_route_by_id(r.id).await.unwrap();
+        assert!(!r.id.is_empty());
+        let got = db.get_route_by_id(&r.id).await.unwrap();
         assert_eq!(got.source_node_id, "src");
     }
 
@@ -967,30 +979,30 @@ mod tests {
     async fn delete_route() {
         let db = db();
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
-        db.delete_route(r.id).await.unwrap();
-        assert!(db.get_route_by_id(r.id).await.is_none());
+        db.delete_route(&r.id).await.unwrap();
+        assert!(db.get_route_by_id(&r.id).await.is_none());
     }
 
     #[tokio::test]
     async fn delete_route_not_found() {
         let db = db();
-        assert!(db.delete_route(9999).await.is_err());
+        assert!(db.delete_route("nonexistent").await.is_err());
     }
 
     #[tokio::test]
     async fn mark_route_deleted() {
         let db = db();
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
-        db.mark_route_deleted(r.id).await.unwrap();
-        assert!(db.get_route_by_id(r.id).await.unwrap().deleted);
+        db.mark_route_deleted(&r.id).await.unwrap();
+        assert!(db.get_route_by_id(&r.id).await.unwrap().deleted);
     }
 
     #[tokio::test]
     async fn mark_route_applied() {
         let db = db();
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
-        db.mark_route_applied(r.id).await.unwrap();
-        let got = db.get_route_by_id(r.id).await.unwrap();
+        db.mark_route_applied(&r.id).await.unwrap();
+        let got = db.get_route_by_id(&r.id).await.unwrap();
         assert_eq!(got.status, RouteStatus::Applied);
         assert!(got.status_msg.is_empty());
     }
@@ -999,8 +1011,8 @@ mod tests {
     async fn mark_route_failed() {
         let db = db();
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
-        db.mark_route_failed(r.id, "oops").await.unwrap();
-        let got = db.get_route_by_id(r.id).await.unwrap();
+        db.mark_route_failed(&r.id, "oops").await.unwrap();
+        let got = db.get_route_by_id(&r.id).await.unwrap();
         assert_eq!(got.status, RouteStatus::Failed);
         assert_eq!(got.status_msg, "oops");
     }
@@ -1147,7 +1159,7 @@ mod tests {
     async fn delete_route_removes_from_index() {
         let db = db();
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
-        db.delete_route(r.id).await.unwrap();
+        db.delete_route(&r.id).await.unwrap();
         // Index should no longer return this route.
         assert!(db.get_routes_for_node_id("src").await.is_empty());
         assert!(db.get_routes_for_dest_node_id("dst").await.is_empty());

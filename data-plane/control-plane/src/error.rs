@@ -42,7 +42,7 @@ pub enum Error {
     RouteAlreadyExists { id: String },
 
     #[error("route {id} not found")]
-    RouteNotFound { id: i64 },
+    RouteNotFound { id: String },
 
     #[error("link {id} not found")]
     LinkNotFound { id: String },

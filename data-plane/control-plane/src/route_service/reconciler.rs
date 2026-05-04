@@ -235,7 +235,7 @@ async fn build_desired_subscriptions<'a>(
                 .await
             {
                 Some(l) if !l.deleted => {
-                    if let Err(e) = db.update_route_link_id(route.id, &l.link_id).await {
+                    if let Err(e) = db.update_route_link_id(&route.id, &l.link_id).await {
                         tracing::warn!(
                             "reconciler: failed to update route {} link_id: {e}",
                             route.id
@@ -265,7 +265,7 @@ async fn build_desired_subscriptions<'a>(
                 } else {
                     l.status_msg.clone()
                 };
-                if let Err(e) = db.mark_route_failed(route.id, &msg).await {
+                if let Err(e) = db.mark_route_failed(&route.id, &msg).await {
                     tracing::warn!(
                         "reconciler: failed to mark route {} as failed: {e}",
                         route.id
@@ -439,7 +439,7 @@ async fn process_subscription_acks(
         };
 
         if sub_ack.success {
-            db.mark_route_applied(route.id).await?;
+            db.mark_route_applied(&route.id).await?;
             tracing::debug!("reconciler: marked route {} as applied", route.id);
         } else {
             let err_msg = sub_ack.error_msg.clone();
@@ -454,7 +454,7 @@ async fn process_subscription_acks(
                 continue;
             }
 
-            db.mark_route_failed(route.id, &err_msg).await?;
+            db.mark_route_failed(&route.id, &err_msg).await?;
             tracing::error!("reconciler: marked route {} as failed: {err_msg}", route.id);
         }
     }

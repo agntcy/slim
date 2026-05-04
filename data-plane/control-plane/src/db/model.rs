@@ -10,8 +10,6 @@ use diesel::prelude::*;
 use diesel::serialize::{self, Output, ToSql};
 use diesel::sql_types::{BigInt, Integer, Text};
 use serde::{Deserialize, Serialize};
-use std::hash::Hasher;
-use twox_hash::XxHash64;
 
 use super::schema::{links, nodes, routes};
 
@@ -250,7 +248,7 @@ where
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable, Insertable)]
 #[diesel(table_name = routes)]
 pub struct Route {
-    pub id: i64,
+    pub id: String,
     pub source_node_id: String,
     pub dest_node_id: String,
     pub link_id: String,
@@ -274,19 +272,16 @@ impl Route {
         component_id: Option<i64>,
         dest_node_id: &str,
         link_id: &str,
-    ) -> i64 {
+    ) -> String {
         let sep = '\x00';
         let comp_id = component_id.map(|v| v.to_string()).unwrap_or_default();
         let combined = format!(
             "{source_node_id}{sep}{component0}{sep}{component1}{sep}{component2}{sep}{comp_id}{sep}{dest_node_id}{sep}{link_id}"
         );
-        let mut hasher = XxHash64::with_seed(0);
-        hasher.write(combined.as_bytes());
-        // Keep high bit clear to avoid potential signed-integer issues.
-        (hasher.finish() & 0x7FFF_FFFF_FFFF_FFFF) as i64
+        uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, combined.as_bytes()).to_string()
     }
 
-    pub fn compute_id(&self) -> i64 {
+    pub fn compute_id(&self) -> String {
         Self::unique_id(
             &self.source_node_id,
             &self.component0,
@@ -386,7 +381,7 @@ mod tests {
 
     fn make_route(src: &str, dest: &str, link: &str) -> Route {
         Route {
-            id: 0,
+            id: String::new(),
             source_node_id: src.to_string(),
             dest_node_id: dest.to_string(),
             link_id: link.to_string(),
@@ -424,10 +419,10 @@ mod tests {
     }
 
     #[test]
-    fn unique_id_high_bit_clear() {
+    fn unique_id_is_valid_uuid() {
         for _ in 0..50 {
             let id = Route::unique_id("s", "a", "b", "c", None, "d", "e");
-            assert!(id >= 0, "high bit must be clear (id must be non-negative)");
+            assert!(uuid::Uuid::parse_str(&id).is_ok(), "must be a valid UUID");
         }
     }
 

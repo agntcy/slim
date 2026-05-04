@@ -37,7 +37,7 @@ pub struct Route {
 impl From<&Route> for crate::db::Route {
     fn from(route: &Route) -> Self {
         crate::db::Route {
-            id: 0,
+            id: String::new(),
             source_node_id: route.source_node_id.clone(),
             dest_node_id: route.dest_node_id.clone(),
             link_id: String::new(),
@@ -220,10 +220,10 @@ impl RouteService {
             Err(e) => {
                 // If the route already exists and is marked deleted, clean it up and retry.
                 let unique_id = db_route.compute_id();
-                if let Some(existing) = self.0.db.get_route_by_id(unique_id).await {
+                if let Some(existing) = self.0.db.get_route_by_id(&unique_id).await {
                     if existing.deleted {
                         tracing::warn!("removing stale deleted route {} to allow re-add", existing);
-                        match self.0.db.delete_route(existing.id).await {
+                        match self.0.db.delete_route(&existing.id).await {
                             Ok(()) => {}
                             Err(Error::RouteNotFound { .. }) => {
                                 // Another concurrent task already deleted it — desired state reached.
@@ -274,7 +274,7 @@ impl RouteService {
                 )
                 .await
                 .ok_or(Error::InvalidInput("route not found".to_string()))?;
-            self.0.db.delete_route(db_route.id).await?;
+            self.0.db.delete_route(&db_route.id).await?;
 
             // Also delete all per-node expansions.
             let per_node = self
@@ -289,7 +289,7 @@ impl RouteService {
                 )
                 .await;
             for r in per_node {
-                self.delete_single_route(&r.source_node_id, r.id, &r.to_string())
+                self.delete_single_route(&r.source_node_id, &r.id, &r.to_string())
                     .await?;
             }
             return Ok(());
@@ -319,14 +319,14 @@ impl RouteService {
             .await
             .ok_or(Error::InvalidInput("route not found".to_string()))?;
 
-        self.delete_single_route(&route.source_node_id, db_route.id, &db_route.to_string())
+        self.delete_single_route(&route.source_node_id, &db_route.id, &db_route.to_string())
             .await
     }
 
     async fn delete_single_route(
         &self,
         node_id: &str,
-        route_id: i64,
+        route_id: &str,
         route_key: &str,
     ) -> Result<()> {
         self.0.db.mark_route_deleted(route_id).await?;
@@ -584,7 +584,7 @@ impl RouteService {
                 })
                 .map(|l| l.link_id.clone())
                 .unwrap_or_else(|| route.link_id.clone());
-            if let Err(e) = self.0.db.restore_route(route.id, &link_id).await {
+            if let Err(e) = self.0.db.restore_route(&route.id, &link_id).await {
                 tracing::warn!("node_registered: failed to restore route {}: {e}", route.id);
             } else {
                 self.0.queue.add(route.source_node_id.clone());
@@ -635,7 +635,7 @@ impl RouteService {
         // (source=ALL_NODES_ID) are preserved below and re-expanded on
         // re-registration.
         for route in src_routes {
-            if let Err(e) = self.0.db.delete_route(route.id).await {
+            if let Err(e) = self.0.db.delete_route(&route.id).await {
                 tracing::warn!(
                     "node_deregistered: failed to delete route {}: {e}",
                     route.id
@@ -651,7 +651,7 @@ impl RouteService {
                 // operator intent and will be re-expanded when the node re-registers.
                 continue;
             }
-            if let Err(e) = self.0.db.mark_route_deleted(route.id).await {
+            if let Err(e) = self.0.db.mark_route_deleted(&route.id).await {
                 tracing::warn!(
                     "node_deregistered: failed to mark route {} deleted: {e}",
                     route.id
@@ -1005,7 +1005,7 @@ impl RouteService {
                 continue;
             }
             let new_route = crate::db::Route {
-                id: 0,
+                id: String::new(),
                 source_node_id: node_id.to_string(),
                 dest_node_id: r.dest_node_id.clone(),
                 link_id,
@@ -1063,7 +1063,7 @@ impl RouteService {
                     continue;
                 }
                 let new_route = crate::db::Route {
-                    id: 0,
+                    id: String::new(),
                     source_node_id: other.id.clone(),
                     dest_node_id: node_id.to_string(),
                     link_id,

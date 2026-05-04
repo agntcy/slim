@@ -86,8 +86,8 @@ pub struct RouteListRequest {
 /// Route message representing a single route
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RouteEntry {
-    #[prost(uint64, tag = "1")]
-    pub id: u64,
+    #[prost(string, tag = "1")]
+    pub id: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub source_node_id: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]

@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS nodes (
 );
 
 CREATE TABLE IF NOT EXISTS routes (
-    id BIGINT NOT NULL PRIMARY KEY,
+    id TEXT NOT NULL PRIMARY KEY,
     source_node_id TEXT NOT NULL,
     dest_node_id TEXT NOT NULL,
     link_id TEXT NOT NULL,

@@ -624,7 +624,7 @@ mod tests {
         last_updated: i64,
     ) -> RouteEntry {
         RouteEntry {
-            id: 1,
+            id: 1.to_string(),
             source_node_id: source.to_string(),
             dest_node_id: dest_node.to_string(),
             component_0: c0.to_string(),

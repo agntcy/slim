@@ -239,7 +239,7 @@ impl DataAccess for SqliteDb {
         Ok(route)
     }
 
-    async fn get_route_by_id(&self, route_id: i64) -> Option<Route> {
+    async fn get_route_by_id(&self, route_id: &str) -> Option<Route> {
         let Ok(mut conn) = self.pool.get().await else {
             return None;
         };
@@ -384,7 +384,7 @@ impl DataAccess for SqliteDb {
             .unwrap_or_default()
     }
 
-    async fn delete_route(&self, route_id: i64) -> Result<()> {
+    async fn delete_route(&self, route_id: &str) -> Result<()> {
         let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
             context: "delete_route pool",
             msg: e.to_string(),
@@ -397,12 +397,14 @@ impl DataAccess for SqliteDb {
                 msg: e.to_string(),
             })?;
         if n == 0 {
-            return Err(Error::RouteNotFound { id: route_id });
+            return Err(Error::RouteNotFound {
+                id: route_id.to_string(),
+            });
         }
         Ok(())
     }
 
-    async fn mark_route_deleted(&self, route_id: i64) -> Result<()> {
+    async fn mark_route_deleted(&self, route_id: &str) -> Result<()> {
         let ts = DbTimestamp::from(SystemTime::now());
         let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
             context: "mark_route_deleted pool",
@@ -417,12 +419,14 @@ impl DataAccess for SqliteDb {
                 msg: e.to_string(),
             })?;
         if n == 0 {
-            return Err(Error::RouteNotFound { id: route_id });
+            return Err(Error::RouteNotFound {
+                id: route_id.to_string(),
+            });
         }
         Ok(())
     }
 
-    async fn mark_route_applied(&self, route_id: i64) -> Result<()> {
+    async fn mark_route_applied(&self, route_id: &str) -> Result<()> {
         let ts = DbTimestamp::from(SystemTime::now());
         let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
             context: "mark_route_applied pool",
@@ -441,12 +445,14 @@ impl DataAccess for SqliteDb {
                 msg: e.to_string(),
             })?;
         if n == 0 {
-            return Err(Error::RouteNotFound { id: route_id });
+            return Err(Error::RouteNotFound {
+                id: route_id.to_string(),
+            });
         }
         Ok(())
     }
 
-    async fn mark_route_failed(&self, route_id: i64, msg: &str) -> Result<()> {
+    async fn mark_route_failed(&self, route_id: &str, msg: &str) -> Result<()> {
         let ts = DbTimestamp::from(SystemTime::now());
         let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
             context: "mark_route_failed pool",
@@ -465,12 +471,14 @@ impl DataAccess for SqliteDb {
                 msg: e.to_string(),
             })?;
         if n == 0 {
-            return Err(Error::RouteNotFound { id: route_id });
+            return Err(Error::RouteNotFound {
+                id: route_id.to_string(),
+            });
         }
         Ok(())
     }
 
-    async fn update_route_link_id(&self, route_id: i64, link_id: &str) -> Result<()> {
+    async fn update_route_link_id(&self, route_id: &str, link_id: &str) -> Result<()> {
         let ts = DbTimestamp::from(SystemTime::now());
         let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
             context: "update_route_link_id pool",
@@ -489,12 +497,14 @@ impl DataAccess for SqliteDb {
                 msg: e.to_string(),
             })?;
         if n == 0 {
-            return Err(Error::RouteNotFound { id: route_id });
+            return Err(Error::RouteNotFound {
+                id: route_id.to_string(),
+            });
         }
         Ok(())
     }
 
-    async fn restore_route(&self, route_id: i64, link_id: &str) -> Result<()> {
+    async fn restore_route(&self, route_id: &str, link_id: &str) -> Result<()> {
         let ts = DbTimestamp::from(SystemTime::now());
         let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
             context: "restore_route pool",
@@ -515,7 +525,9 @@ impl DataAccess for SqliteDb {
                 msg: e.to_string(),
             })?;
         if n == 0 {
-            return Err(Error::RouteNotFound { id: route_id });
+            return Err(Error::RouteNotFound {
+                id: route_id.to_string(),
+            });
         }
         Ok(())
     }
@@ -890,7 +902,7 @@ mod tests {
 
     fn make_route(src: &str, dst: &str, link: &str) -> Route {
         Route {
-            id: 0,
+            id: String::new(),
             source_node_id: src.to_string(),
             dest_node_id: dst.to_string(),
             link_id: link.to_string(),
@@ -971,8 +983,8 @@ mod tests {
     async fn add_and_get_route() {
         let (_f, db) = tmp_db().await;
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
-        assert_ne!(r.id, 0);
-        let got = db.get_route_by_id(r.id).await.unwrap();
+        assert!(!r.id.is_empty());
+        let got = db.get_route_by_id(&r.id).await.unwrap();
         assert_eq!(got.source_node_id, "src");
     }
 
@@ -1010,9 +1022,9 @@ mod tests {
     async fn mark_route_applied() {
         let (_f, db) = tmp_db().await;
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
-        db.mark_route_applied(r.id).await.unwrap();
+        db.mark_route_applied(&r.id).await.unwrap();
         assert_eq!(
-            db.get_route_by_id(r.id).await.unwrap().status,
+            db.get_route_by_id(&r.id).await.unwrap().status,
             RouteStatus::Applied
         );
     }
@@ -1021,8 +1033,8 @@ mod tests {
     async fn mark_route_failed() {
         let (_f, db) = tmp_db().await;
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
-        db.mark_route_failed(r.id, "oops").await.unwrap();
-        let got = db.get_route_by_id(r.id).await.unwrap();
+        db.mark_route_failed(&r.id, "oops").await.unwrap();
+        let got = db.get_route_by_id(&r.id).await.unwrap();
         assert_eq!(got.status, RouteStatus::Failed);
         assert_eq!(got.status_msg, "oops");
     }
@@ -1031,16 +1043,16 @@ mod tests {
     async fn mark_route_deleted_and_delete() {
         let (_f, db) = tmp_db().await;
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
-        db.mark_route_deleted(r.id).await.unwrap();
-        assert!(db.get_route_by_id(r.id).await.unwrap().deleted);
-        db.delete_route(r.id).await.unwrap();
-        assert!(db.get_route_by_id(r.id).await.is_none());
+        db.mark_route_deleted(&r.id).await.unwrap();
+        assert!(db.get_route_by_id(&r.id).await.unwrap().deleted);
+        db.delete_route(&r.id).await.unwrap();
+        assert!(db.get_route_by_id(&r.id).await.is_none());
     }
 
     #[tokio::test]
     async fn delete_route_not_found() {
         let (_f, db) = tmp_db().await;
-        assert!(db.delete_route(9999).await.is_err());
+        assert!(db.delete_route("nonexistent").await.is_err());
     }
 
     #[tokio::test]

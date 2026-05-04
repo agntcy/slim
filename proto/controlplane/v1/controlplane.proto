@@ -91,7 +91,7 @@ enum RouteStatus {
 
 // Route message representing a single route
 message RouteEntry {
-  uint64 id = 1;
+  string id = 1;
   string source_node_id = 2;
   string dest_node_id = 3;
   // deprecated

@@ -234,7 +234,7 @@ impl ControlPlaneService for NorthboundApiService {
                     .map(|d| d.as_secs() as i64)
                     .unwrap_or(0);
                 crate::api::proto::controlplane::proto::v1::RouteEntry {
-                    id: r.id as u64,
+                    id: r.id.clone(),
                     source_node_id: r.source_node_id.clone(),
                     dest_node_id: r.dest_node_id.clone(),
                     link_id: r.link_id.clone(),
