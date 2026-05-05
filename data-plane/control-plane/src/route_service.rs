@@ -51,7 +51,7 @@ impl From<&Route> for crate::db::Route {
                 RouteStatus::Applied
             },
             status_msg: String::new(),
-            deleted: false,
+            created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
         }
     }
@@ -221,7 +221,7 @@ impl RouteService {
                 // If the route already exists and is marked deleted, clean it up and retry.
                 let unique_id = db_route.compute_id();
                 if let Some(existing) = self.0.db.get_route_by_id(&unique_id).await {
-                    if existing.deleted {
+                    if existing.status == RouteStatus::Deleted {
                         tracing::warn!("removing stale deleted route {} to allow re-add", existing);
                         match self.0.db.delete_route(&existing.id).await {
                             Ok(()) => {}
@@ -399,7 +399,7 @@ impl RouteService {
         let dp_reported_connections = !dp_connections.is_empty();
 
         for mut link in self.0.db.get_links_for_node(node_id).await {
-            if link.deleted || link.dest_node_id != node_id {
+            if link.status == LinkStatus::Deleted || link.dest_node_id != node_id {
                 continue;
             }
 
@@ -474,7 +474,7 @@ impl RouteService {
 
         // Adopt static connections for existing outgoing links from this node.
         for mut link in self.0.db.get_links_for_node(node_id).await {
-            if link.deleted || link.source_node_id != node_id {
+            if link.status == LinkStatus::Deleted || link.source_node_id != node_id {
                 continue;
             }
             if let Some(rc) = self.find_reported_connection(node_id, &link.dest_endpoint) {
@@ -502,7 +502,7 @@ impl RouteService {
         // These were soft-deleted during deregister; restoring them preserves
         // the link_id so that routes referencing it remain valid.
         for mut link in self.0.db.get_links_for_node(node_id).await {
-            if !link.deleted {
+            if link.status != LinkStatus::Deleted {
                 continue;
             }
             if link.source_node_id == node_id {
@@ -514,7 +514,7 @@ impl RouteService {
                     link.dest_endpoint = endpoint;
                     link.conn_config_data = config_data;
                 }
-                link.deleted = false;
+                link.status = LinkStatus::Pending;
                 link.status = LinkStatus::Pending;
                 link.status_msg = String::new();
                 link.last_updated = SystemTime::now();
@@ -537,7 +537,7 @@ impl RouteService {
                     link.dest_endpoint = endpoint;
                     link.conn_config_data = config_data;
                 }
-                link.deleted = false;
+                link.status = LinkStatus::Pending;
                 link.status = LinkStatus::Pending;
                 link.status_msg = String::new();
                 link.last_updated = SystemTime::now();
@@ -568,7 +568,7 @@ impl RouteService {
         // it's back, restore them.  The link_id is preserved (same link was
         // soft-deleted and restored above).
         for route in self.0.db.get_routes_for_dest_node_id(node_id).await {
-            if !route.deleted {
+            if route.status != RouteStatus::Deleted {
                 continue;
             }
             // Use the route's existing link_id — it should match the restored link.
@@ -577,7 +577,7 @@ impl RouteService {
             let link_id = node_links
                 .iter()
                 .find(|l| {
-                    !l.deleted
+                    l.status != LinkStatus::Deleted
                         && ((l.source_node_id == route.source_node_id && l.dest_node_id == node_id)
                             || (l.source_node_id == node_id
                                 && l.dest_node_id == route.source_node_id))
@@ -663,7 +663,7 @@ impl RouteService {
 
         // Links: process all links involving this node.
         for mut link in self.0.db.get_links_for_node(node_id).await {
-            if link.deleted {
+            if link.status == LinkStatus::Deleted {
                 continue;
             }
             if link.source_node_id == node_id {
@@ -671,7 +671,7 @@ impl RouteService {
                 // this node to tear down the connection (it's gone), but keeping
                 // the record allows re-registration to restore the same link_id
                 // and avoid invalidating route references.
-                link.deleted = true;
+                link.status = LinkStatus::Deleted;
                 link.last_updated = std::time::SystemTime::now();
                 if let Err(e) = self.0.db.update_link(link.clone()).await {
                     tracing::warn!(
@@ -688,7 +688,7 @@ impl RouteService {
                 // connection on the peer is harmless (no routes reference it
                 // while this node is down) and will be replaced when the link
                 // is restored.
-                link.deleted = true;
+                link.status = LinkStatus::Deleted;
                 link.last_updated = std::time::SystemTime::now();
                 if let Err(e) = self.0.db.update_link(link.clone()).await {
                     tracing::warn!(
@@ -738,7 +738,7 @@ impl RouteService {
 
         let connected_peers: std::collections::HashSet<String> = existing_links
             .iter()
-            .filter(|l| !l.deleted)
+            .filter(|l| l.status != LinkStatus::Deleted)
             .map(|l| {
                 if l.source_node_id == node_id {
                     l.dest_node_id.clone()
@@ -830,7 +830,7 @@ impl RouteService {
             conn_config_data: config_data,
             status,
             status_msg: String::new(),
-            deleted: false,
+            created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
         };
 
@@ -894,7 +894,7 @@ impl RouteService {
             conn_config_data: config_data,
             status,
             status_msg: String::new(),
-            deleted: false,
+            created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
         };
 
@@ -939,7 +939,7 @@ impl RouteService {
         // be included here.
         let link_by_peer: std::collections::HashMap<&str, &str> = node_links
             .iter()
-            .filter(|l| !l.deleted)
+            .filter(|l| l.status != LinkStatus::Deleted)
             .map(|l| {
                 let peer = if l.source_node_id == node_id {
                     l.dest_node_id.as_str()
@@ -963,7 +963,7 @@ impl RouteService {
         let existing_routes: std::collections::HashSet<RouteKey> = routes_as_src
             .iter()
             .chain(routes_as_dest.iter())
-            .filter(|r| !r.deleted)
+            .filter(|r| r.status != RouteStatus::Deleted)
             .map(|r| {
                 (
                     r.source_node_id.clone(),
@@ -1015,7 +1015,7 @@ impl RouteService {
                 component_id: r.component_id,
                 status: RouteStatus::Pending,
                 status_msg: String::new(),
-                deleted: false,
+                created_at: SystemTime::now(),
                 last_updated: SystemTime::now(),
             };
             match self.0.db.add_route(new_route).await {
@@ -1073,7 +1073,7 @@ impl RouteService {
                     component_id: r.component_id,
                     status: RouteStatus::Pending,
                     status_msg: String::new(),
-                    deleted: false,
+                    created_at: SystemTime::now(),
                     last_updated: SystemTime::now(),
                 };
                 match self.0.db.add_route(new_route).await {
@@ -1098,7 +1098,7 @@ impl RouteService {
 
     async fn find_matching_link(&self, source: &str, dest: &str) -> Result<String> {
         match self.0.db.find_link_between_nodes(source, dest).await {
-            Some(l) if !l.deleted => Ok(l.link_id),
+            Some(l) if l.status != LinkStatus::Deleted => Ok(l.link_id),
             _ => Err(Error::InvalidInput(format!(
                 "no matching link found for source={source} destination={dest}"
             ))),
@@ -1424,6 +1424,7 @@ mod tests {
             id: id.to_string(),
             group_name: group.map(|s| s.to_string()),
             conn_details: details,
+            created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
         }
     }
@@ -1635,6 +1636,7 @@ mod tests {
             id: "dst".to_string(),
             group_name: None,
             conn_details: vec![make_conn_details("dst:8080", None)],
+            created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
         };
         db.save_node(dst).await.unwrap();
@@ -1651,6 +1653,7 @@ mod tests {
             id: "dst".to_string(),
             group_name: None,
             conn_details: vec![],
+            created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
         };
         db.save_node(dst).await.unwrap();
@@ -1658,6 +1661,7 @@ mod tests {
             id: "src".to_string(),
             group_name: None,
             conn_details: vec![],
+            created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
         };
         db.save_node(src).await.unwrap();
@@ -1673,6 +1677,7 @@ mod tests {
             id: "dst".to_string(),
             group_name: Some("grp".to_string()),
             conn_details: vec![make_conn_details("dst:8080", None)],
+            created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
         };
         db.save_node(dst).await.unwrap();
@@ -1680,6 +1685,7 @@ mod tests {
             id: "src".to_string(),
             group_name: Some("grp".to_string()),
             conn_details: vec![],
+            created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
         };
         db.save_node(src).await.unwrap();

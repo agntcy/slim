@@ -110,8 +110,6 @@ pub struct RouteEntry {
     pub status: i32,
     #[prost(string, tag = "11")]
     pub status_msg: ::prost::alloc::string::String,
-    #[prost(bool, tag = "12")]
-    pub deleted: bool,
     /// Unix timestamp
     #[prost(int64, tag = "13")]
     pub last_updated: i64,
@@ -206,7 +204,7 @@ pub enum RouteStatus {
     Unspecified = 0,
     Applied = 1,
     Failed = 2,
-    Stale = 3,
+    Deleted = 3,
     Pending = 4,
 }
 impl RouteStatus {
@@ -219,7 +217,7 @@ impl RouteStatus {
             Self::Unspecified => "ROUTE_STATUS_UNSPECIFIED",
             Self::Applied => "ROUTE_STATUS_APPLIED",
             Self::Failed => "ROUTE_STATUS_FAILED",
-            Self::Stale => "ROUTE_STATUS_STALE",
+            Self::Deleted => "ROUTE_STATUS_DELETED",
             Self::Pending => "ROUTE_STATUS_PENDING",
         }
     }
@@ -229,7 +227,7 @@ impl RouteStatus {
             "ROUTE_STATUS_UNSPECIFIED" => Some(Self::Unspecified),
             "ROUTE_STATUS_APPLIED" => Some(Self::Applied),
             "ROUTE_STATUS_FAILED" => Some(Self::Failed),
-            "ROUTE_STATUS_STALE" => Some(Self::Stale),
+            "ROUTE_STATUS_DELETED" => Some(Self::Deleted),
             "ROUTE_STATUS_PENDING" => Some(Self::Pending),
             _ => None,
         }

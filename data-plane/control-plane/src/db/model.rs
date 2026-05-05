@@ -130,6 +130,8 @@ pub struct Node {
     #[diesel(deserialize_as = ConnDetailsJson, serialize_as = ConnDetailsJson)]
     pub conn_details: Vec<ConnectionDetails>,
     #[diesel(deserialize_as = DbTimestamp, serialize_as = DbTimestamp)]
+    pub created_at: SystemTime,
+    #[diesel(deserialize_as = DbTimestamp, serialize_as = DbTimestamp)]
     pub last_updated: SystemTime,
 }
 
@@ -230,6 +232,7 @@ pub enum RouteStatus {
     Applied,
     Failed,
     Pending,
+    Deleted,
 }
 
 impl<DB: Backend> FromSql<Integer, DB> for RouteStatus
@@ -240,6 +243,7 @@ where
         Ok(match i32::from_sql(bytes)? {
             1 => RouteStatus::Applied,
             2 => RouteStatus::Failed,
+            3 => RouteStatus::Deleted,
             _ => RouteStatus::Pending,
         })
     }
@@ -258,7 +262,8 @@ pub struct Route {
     pub component_id: Option<i64>,
     pub status: RouteStatus,
     pub status_msg: String,
-    pub deleted: bool,
+    #[diesel(deserialize_as = DbTimestamp, serialize_as = DbTimestamp)]
+    pub created_at: SystemTime,
     #[diesel(deserialize_as = DbTimestamp, serialize_as = DbTimestamp)]
     pub last_updated: SystemTime,
 }
@@ -318,6 +323,7 @@ pub enum LinkStatus {
     Pending,
     Applied,
     Failed,
+    Deleted,
 }
 
 impl<DB: Backend> FromSql<Integer, DB> for LinkStatus
@@ -328,6 +334,7 @@ where
         Ok(match i32::from_sql(bytes)? {
             1 => LinkStatus::Applied,
             2 => LinkStatus::Failed,
+            3 => LinkStatus::Deleted,
             _ => LinkStatus::Pending,
         })
     }
@@ -343,7 +350,8 @@ pub struct Link {
     pub conn_config_data: String,
     pub status: LinkStatus,
     pub status_msg: String,
-    pub deleted: bool,
+    #[diesel(deserialize_as = DbTimestamp, serialize_as = DbTimestamp)]
+    pub created_at: SystemTime,
     #[diesel(deserialize_as = DbTimestamp, serialize_as = DbTimestamp)]
     pub last_updated: SystemTime,
 }
@@ -391,7 +399,7 @@ mod tests {
             component_id: Some(1),
             status: RouteStatus::Pending,
             status_msg: String::new(),
-            deleted: false,
+            created_at: std::time::SystemTime::now(),
             last_updated: std::time::SystemTime::now(),
         }
     }
@@ -465,7 +473,7 @@ mod tests {
             conn_config_data: String::new(),
             status: LinkStatus::Pending,
             status_msg: String::new(),
-            deleted: false,
+            created_at: std::time::SystemTime::now(),
             last_updated: std::time::SystemTime::now(),
         };
         assert_eq!(link.storage_key(), "src|dst|ep:9000|lid");
@@ -481,7 +489,7 @@ mod tests {
             conn_config_data: String::new(),
             status: LinkStatus::Applied,
             status_msg: String::new(),
-            deleted: false,
+            created_at: std::time::SystemTime::now(),
             last_updated: std::time::SystemTime::now(),
         };
         let s = format!("{link}");

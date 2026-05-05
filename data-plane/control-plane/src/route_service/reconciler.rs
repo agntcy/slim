@@ -15,7 +15,7 @@ use crate::error::{Error, Result};
 use crate::api::proto::controller::proto::v1::{
     Connection, ControlMessage, DesiredState, Subscription, control_message::Payload,
 };
-use crate::db::{LinkStatus, SharedDb};
+use crate::db::{LinkStatus, RouteStatus, SharedDb};
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus, ResponseKind};
 use crate::workqueue::WorkQueue;
 
@@ -189,7 +189,7 @@ fn build_desired_connections(
         if link.source_node_id != node_id {
             continue;
         }
-        if link.deleted {
+        if link.status == LinkStatus::Deleted {
             deleted_links.push(link.clone());
             continue;
         }
@@ -223,7 +223,7 @@ async fn build_desired_subscriptions<'a>(
     let mut needs_requeue = false;
 
     for route in routes {
-        if route.deleted {
+        if route.status == RouteStatus::Deleted {
             continue;
         }
 
@@ -234,7 +234,7 @@ async fn build_desired_subscriptions<'a>(
                 .find_link_between_nodes(&route.source_node_id, &route.dest_node_id)
                 .await
             {
-                Some(l) if !l.deleted => {
+                Some(l) if l.status != LinkStatus::Deleted => {
                     if let Err(e) = db.update_route_link_id(&route.id, &l.link_id).await {
                         tracing::warn!(
                             "reconciler: failed to update route {} link_id: {e}",
@@ -340,7 +340,10 @@ async fn process_connection_acks(
     }
 
     for link in links {
-        if link.source_node_id != node_id || link.deleted || link.link_id.is_empty() {
+        if link.source_node_id != node_id
+            || link.status == LinkStatus::Deleted
+            || link.link_id.is_empty()
+        {
             continue;
         }
         if !desired_link_ids.contains(&link.link_id) {

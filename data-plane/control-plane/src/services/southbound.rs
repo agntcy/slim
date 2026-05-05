@@ -146,6 +146,7 @@ async fn receive_register(
             id: node_id.clone(),
             group_name: reg_req.group_name.clone(),
             conn_details,
+            created_at: std::time::SystemTime::now(),
             last_updated: std::time::SystemTime::now(),
         })
         .await?;

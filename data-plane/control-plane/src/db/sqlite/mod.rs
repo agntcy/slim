@@ -43,6 +43,7 @@ impl ToSql<Integer, Sqlite> for RouteStatus {
             RouteStatus::Pending => 0,
             RouteStatus::Applied => 1,
             RouteStatus::Failed => 2,
+            RouteStatus::Deleted => 3,
         };
         out.set_value(v);
         Ok(IsNull::No)
@@ -55,6 +56,7 @@ impl ToSql<Integer, Sqlite> for LinkStatus {
             LinkStatus::Pending => 0,
             LinkStatus::Applied => 1,
             LinkStatus::Failed => 2,
+            LinkStatus::Deleted => 3,
         };
         out.set_value(v);
         Ok(IsNull::No)
@@ -411,7 +413,10 @@ impl DataAccess for SqliteDb {
             msg: e.to_string(),
         })?;
         let n = diesel::update(routes::table.find(route_id))
-            .set((routes::deleted.eq(true), routes::last_updated.eq(ts)))
+            .set((
+                routes::status.eq(RouteStatus::Deleted),
+                routes::last_updated.eq(ts),
+            ))
             .execute(&mut conn)
             .await
             .map_err(|e| Error::DbError {
@@ -512,7 +517,6 @@ impl DataAccess for SqliteDb {
         })?;
         let n = diesel::update(routes::table.find(route_id))
             .set((
-                routes::deleted.eq(false),
                 routes::status.eq(RouteStatus::Pending),
                 routes::status_msg.eq(""),
                 routes::link_id.eq(link_id),
@@ -561,7 +565,6 @@ impl DataAccess for SqliteDb {
                 links::conn_config_data.eq(&link.conn_config_data),
                 links::status.eq(link.status),
                 links::status_msg.eq(&link.status_msg),
-                links::deleted.eq(link.deleted),
                 links::last_updated.eq(ts),
             ))
             .execute(&mut conn)
@@ -598,7 +601,6 @@ impl DataAccess for SqliteDb {
             links::conn_config_data.eq(&link.conn_config_data),
             links::status.eq(link.status),
             links::status_msg.eq(&link.status_msg),
-            links::deleted.eq(link.deleted),
             links::last_updated.eq(ts),
         ))
         .execute(&mut conn)
@@ -659,7 +661,7 @@ impl DataAccess for SqliteDb {
         };
         links::table
             .filter(links::link_id.eq(link_id))
-            .filter(links::deleted.eq(false))
+            .filter(links::status.ne(LinkStatus::Deleted))
             .filter(
                 links::source_node_id
                     .eq(source_node_id)
@@ -684,7 +686,7 @@ impl DataAccess for SqliteDb {
             return None;
         };
         links::table
-            .filter(links::deleted.eq(false))
+            .filter(links::status.ne(LinkStatus::Deleted))
             .filter(
                 links::source_node_id
                     .eq(source_node_id)
@@ -725,7 +727,7 @@ impl DataAccess for SqliteDb {
             })?;
 
         let existing = links::table
-            .filter(links::deleted.eq(false))
+            .filter(links::status.ne(LinkStatus::Deleted))
             .filter(
                 links::source_node_id
                     .eq(&link.source_node_id)
@@ -766,7 +768,6 @@ impl DataAccess for SqliteDb {
                 links::conn_config_data.eq(&link.conn_config_data),
                 links::status.eq(link.status),
                 links::status_msg.eq(&link.status_msg),
-                links::deleted.eq(link.deleted),
                 links::last_updated.eq(ts),
             ))
             .execute(&mut conn)
@@ -797,7 +798,7 @@ impl DataAccess for SqliteDb {
         links::table
             .filter(links::source_node_id.eq(source_node_id))
             .filter(links::dest_endpoint.eq(dest_endpoint))
-            .filter(links::deleted.eq(false))
+            .filter(links::status.ne(LinkStatus::Deleted))
             .order(links::last_updated.desc())
             .first::<Link>(&mut conn)
             .await
@@ -896,6 +897,7 @@ mod tests {
                 external_endpoint: None,
                 spire_mtls: None,
             }],
+            created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
         }
     }
@@ -912,7 +914,7 @@ mod tests {
             component_id: Some(1),
             status: RouteStatus::Pending,
             status_msg: String::new(),
-            deleted: false,
+            created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
         }
     }
@@ -926,7 +928,7 @@ mod tests {
             conn_config_data: String::new(),
             status: LinkStatus::Pending,
             status_msg: String::new(),
-            deleted: false,
+            created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
         }
     }
@@ -1044,7 +1046,10 @@ mod tests {
         let (_f, db) = tmp_db().await;
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
         db.mark_route_deleted(&r.id).await.unwrap();
-        assert!(db.get_route_by_id(&r.id).await.unwrap().deleted);
+        assert_eq!(
+            db.get_route_by_id(&r.id).await.unwrap().status,
+            RouteStatus::Deleted
+        );
         db.delete_route(&r.id).await.unwrap();
         assert!(db.get_route_by_id(&r.id).await.is_none());
     }

@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     id TEXT NOT NULL PRIMARY KEY,
     group_name TEXT,
     conn_details TEXT NOT NULL,
+    created_at BIGINT NOT NULL,
     last_updated BIGINT NOT NULL
 );
 
@@ -16,7 +17,7 @@ CREATE TABLE IF NOT EXISTS routes (
     component_id BIGINT,
     status INTEGER NOT NULL,
     status_msg TEXT NOT NULL,
-    deleted BOOLEAN NOT NULL,
+    created_at BIGINT NOT NULL,
     last_updated BIGINT NOT NULL
 );
 
@@ -28,7 +29,7 @@ CREATE TABLE IF NOT EXISTS links (
     conn_config_data TEXT NOT NULL,
     status INTEGER NOT NULL,
     status_msg TEXT NOT NULL,
-    deleted BOOLEAN NOT NULL,
+    created_at BIGINT NOT NULL,
     last_updated BIGINT NOT NULL,
     PRIMARY KEY (link_id, source_node_id, dest_node_id, dest_endpoint)
 );
@@ -69,9 +70,9 @@ CREATE INDEX IF NOT EXISTS idx_links_src_endpoint
     ON links (source_node_id, dest_endpoint);
 
 -- At most one non-deleted link between any ordered node pair (regardless of direction).
--- Uses expression indexes so no extra column is needed.
+-- status=3 is LinkStatus::Deleted.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_links_unique_active_pair
     ON links (
         CASE WHEN source_node_id < dest_node_id THEN source_node_id ELSE dest_node_id END,
         CASE WHEN source_node_id < dest_node_id THEN dest_node_id ELSE source_node_id END
-    ) WHERE deleted = 0;
+    ) WHERE status != 3;

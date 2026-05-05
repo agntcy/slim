@@ -10,7 +10,8 @@ use uuid::Uuid;
 use async_trait::async_trait;
 
 use super::model::{
-    ALL_NODES_ID, Link, Node, Route, RouteStatus, SubscriptionName, has_connection_details_changed,
+    ALL_NODES_ID, Link, LinkStatus, Node, Route, RouteStatus, SubscriptionName,
+    has_connection_details_changed,
 };
 use super::{DataAccess, SharedDb};
 use crate::error::{Error, Result};
@@ -168,7 +169,7 @@ impl InMemoryDb {
         // Forward: source_node_id → dest_node_id.
         for key in store.by_src.get(source_node_id).into_iter().flatten() {
             if let Some(link) = store.primary.get(key)
-                && !link.deleted
+                && link.status != LinkStatus::Deleted
                 && link.dest_node_id == dest_node_id
             {
                 match latest {
@@ -181,7 +182,7 @@ impl InMemoryDb {
         // Reverse: dest_node_id → source_node_id.
         for key in store.by_src.get(dest_node_id).into_iter().flatten() {
             if let Some(link) = store.primary.get(key)
-                && !link.deleted
+                && link.status != LinkStatus::Deleted
                 && link.dest_node_id == source_node_id
             {
                 match latest {
@@ -222,11 +223,14 @@ impl DataAccess for InMemoryDb {
         let conn_details_changed;
         if node.id.is_empty() {
             node.id = Uuid::new_v4().to_string();
+            node.created_at = SystemTime::now();
             conn_details_changed = false;
         } else if let Some(existing) = nodes.get(&node.id) {
             conn_details_changed =
                 has_connection_details_changed(&existing.conn_details, &node.conn_details);
+            node.created_at = existing.created_at;
         } else {
+            node.created_at = SystemTime::now();
             conn_details_changed = false;
         }
         node.last_updated = SystemTime::now();
@@ -254,6 +258,7 @@ impl DataAccess for InMemoryDb {
             });
         }
         route.id = route_id.clone();
+        route.created_at = SystemTime::now();
         route.last_updated = SystemTime::now();
         store.index_add(&route);
         store.primary.insert(route_id, route.clone());
@@ -459,7 +464,7 @@ impl DataAccess for InMemoryDb {
             .ok_or_else(|| Error::RouteNotFound {
                 id: route_id.to_string(),
             })?;
-        route.deleted = true;
+        route.status = RouteStatus::Deleted;
         route.last_updated = SystemTime::now();
         Ok(())
     }
@@ -514,7 +519,6 @@ impl DataAccess for InMemoryDb {
             .ok_or_else(|| Error::RouteNotFound {
                 id: route_id.to_string(),
             })?;
-        route.deleted = false;
         route.status = RouteStatus::Pending;
         route.status_msg = String::new();
         route.link_id = link_id.to_string();
@@ -533,13 +537,12 @@ impl DataAccess for InMemoryDb {
             return Err(Error::LinkMissingFields);
         }
         let mut store = self.links.write();
-        link.last_updated = SystemTime::now();
         let key = link.storage_key();
-        // Only update indices for new keys; overwriting an existing key leaves
-        // the index entry intact (HashSet::insert is idempotent anyway).
         if !store.primary.contains_key(&key) {
+            link.created_at = SystemTime::now();
             store.index_add(&link);
         }
+        link.last_updated = SystemTime::now();
         store.primary.insert(key, link.clone());
         Ok(link)
     }
@@ -590,7 +593,7 @@ impl DataAccess for InMemoryDb {
         let mut latest: Option<&Link> = None;
         for key in keys {
             if let Some(link) = store.primary.get(key) {
-                if link.deleted {
+                if link.status == LinkStatus::Deleted {
                     continue;
                 }
                 if !source_node_id.is_empty() && !dest_node_id.is_empty() {
@@ -657,7 +660,7 @@ impl DataAccess for InMemoryDb {
         let mut latest: Option<&Link> = None;
         for key in keys {
             if let Some(link) = store.primary.get(key)
-                && !link.deleted
+                && link.status != LinkStatus::Deleted
                 && link.dest_endpoint == dest_endpoint
             {
                 match latest {
@@ -751,6 +754,7 @@ mod tests {
                 external_endpoint: None,
                 spire_mtls: None,
             }],
+            created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
         }
     }
@@ -767,7 +771,7 @@ mod tests {
             component_id: Some(1),
             status: RouteStatus::Pending,
             status_msg: String::new(),
-            deleted: false,
+            created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
         }
     }
@@ -781,7 +785,7 @@ mod tests {
             conn_config_data: String::new(),
             status: LinkStatus::Pending,
             status_msg: String::new(),
-            deleted: false,
+            created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
         }
     }
@@ -807,6 +811,7 @@ mod tests {
             id: String::new(),
             group_name: None,
             conn_details: vec![],
+            created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
         };
         let (id, _) = db.save_node(node).await.unwrap();
@@ -994,7 +999,10 @@ mod tests {
         let db = db();
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
         db.mark_route_deleted(&r.id).await.unwrap();
-        assert!(db.get_route_by_id(&r.id).await.unwrap().deleted);
+        assert_eq!(
+            db.get_route_by_id(&r.id).await.unwrap().status,
+            RouteStatus::Deleted
+        );
     }
 
     #[tokio::test]
@@ -1107,7 +1115,7 @@ mod tests {
             .await
             .unwrap();
         let mut deleted = l.clone();
-        deleted.deleted = true;
+        deleted.status = LinkStatus::Deleted;
         db.update_link(deleted).await.unwrap();
         assert!(db.get_link("lid", "src", "dst").await.is_none());
     }

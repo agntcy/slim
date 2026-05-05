@@ -227,6 +227,7 @@ impl ControlPlaneService for NorthboundApiService {
                     crate::db::RouteStatus::Applied => RouteStatus::Applied as i32,
                     crate::db::RouteStatus::Failed => RouteStatus::Failed as i32,
                     crate::db::RouteStatus::Pending => RouteStatus::Pending as i32,
+                    crate::db::RouteStatus::Deleted => RouteStatus::Deleted as i32,
                 };
                 let last_updated = r
                     .last_updated
@@ -244,7 +245,6 @@ impl ControlPlaneService for NorthboundApiService {
                     component_id: r.component_id.map(|v| v as u64),
                     status,
                     status_msg: r.status_msg.clone(),
-                    deleted: r.deleted,
                     last_updated,
                     dest_endpoint: String::new(),
                     conn_config_data: String::new(),
@@ -289,6 +289,7 @@ impl ControlPlaneService for NorthboundApiService {
                 crate::db::LinkStatus::Pending => LinkStatus::Pending as i32,
                 crate::db::LinkStatus::Applied => LinkStatus::Applied as i32,
                 crate::db::LinkStatus::Failed => LinkStatus::Failed as i32,
+                crate::db::LinkStatus::Deleted => LinkStatus::Failed as i32,
             };
             let last_updated = l
                 .last_updated
@@ -304,7 +305,7 @@ impl ControlPlaneService for NorthboundApiService {
                 conn_config_data: l.conn_config_data,
                 status: link_status,
                 status_msg: l.status_msg,
-                deleted: l.deleted,
+                deleted: l.status == crate::db::LinkStatus::Deleted,
                 last_updated,
             });
         }

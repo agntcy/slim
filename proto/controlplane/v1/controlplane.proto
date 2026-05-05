@@ -85,7 +85,7 @@ enum RouteStatus {
   ROUTE_STATUS_UNSPECIFIED = 0;
   ROUTE_STATUS_APPLIED = 1;
   ROUTE_STATUS_FAILED = 2;
-  ROUTE_STATUS_STALE = 3;
+  ROUTE_STATUS_DELETED = 3;
   ROUTE_STATUS_PENDING = 4;
 }
 
@@ -104,7 +104,7 @@ message RouteEntry {
   optional uint64 component_id = 9;
   RouteStatus status = 10;
   string status_msg = 11;
-  bool deleted = 12;
+  reserved 12;
   int64 last_updated = 13; // Unix timestamp
   string link_id = 14;
 }

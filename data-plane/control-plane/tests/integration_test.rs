@@ -379,7 +379,7 @@ async fn print_state(client: &mut NbClient, label: &str) {
             4 => "Pending",
             _ => "Unknown",
         };
-        let deleted = if r.deleted { " DELETED" } else { "" };
+        let deleted = if r.status == 3 { " DELETED" } else { "" };
         println!(
             "    - {} -> {} [{status}{deleted}] sub={}/{}/{}",
             r.source_node_id, r.dest_node_id, r.component_0, r.component_1, r.component_2
@@ -1017,7 +1017,7 @@ async fn test_node_deregister_and_reregister() {
     let active_route_to_b: Vec<_> = routes
         .routes
         .iter()
-        .filter(|r| r.dest_node_id == id_b && !r.deleted)
+        .filter(|r| r.dest_node_id == id_b && r.status != 3)
         .collect();
     assert!(
         active_route_to_b.is_empty(),
