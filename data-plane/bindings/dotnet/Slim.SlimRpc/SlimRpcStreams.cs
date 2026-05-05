@@ -47,10 +47,10 @@ public static class SlimRpcStreams
             switch (msg)
             {
                 case uniffi.slim_bindings.StreamMessage.Data data:
-                    yield return parser.ParseFrom(data.v1);
+                    yield return parser.ParseFrom(data.V1);
                     break;
                 case uniffi.slim_bindings.StreamMessage.Error err:
-                    throw err.v1;
+                    throw err.V1;
                 case uniffi.slim_bindings.StreamMessage.End:
                     yield break;
             }
@@ -78,10 +78,10 @@ public static class SlimRpcStreams
             switch (msg)
             {
                 case uniffi.slim_bindings.StreamMessage.Data data:
-                    yield return parser.ParseFrom(data.v1);
+                    yield return parser.ParseFrom(data.V1);
                     break;
                 case uniffi.slim_bindings.StreamMessage.Error err:
-                    throw err.v1;
+                    throw err.V1;
                 case uniffi.slim_bindings.StreamMessage.End:
                     yield break;
             }
@@ -109,10 +109,10 @@ public static class SlimRpcStreams
             switch (msg)
             {
                 case uniffi.slim_bindings.StreamMessage.Data data:
-                    yield return parser.ParseFrom(data.v1);
+                    yield return parser.ParseFrom(data.V1);
                     break;
                 case uniffi.slim_bindings.StreamMessage.Error err:
-                    throw err.v1;
+                    throw err.V1;
                 case uniffi.slim_bindings.StreamMessage.End:
                     yield break;
             }
@@ -141,12 +141,12 @@ public static class SlimRpcStreams
             switch (msg)
             {
                 case uniffi.slim_bindings.MulticastStreamMessage.Data data:
-                    var source = data.item.context.source.ToString();
-                    var value = parser.ParseFrom(data.item.message);
+                    var source = data.Item.Context.Source.ToString();
+                    var value = parser.ParseFrom(data.Item.Message);
                     yield return new MulticastItem<T>(source, value);
                     break;
                 case uniffi.slim_bindings.MulticastStreamMessage.Error err:
-                    throw err.error;
+                    throw err.ErrorValue;
                 case uniffi.slim_bindings.MulticastStreamMessage.End:
                     yield break;
             }
@@ -175,12 +175,12 @@ public static class SlimRpcStreams
             switch (msg)
             {
                 case uniffi.slim_bindings.MulticastStreamMessage.Data data:
-                    var source = data.item.context.source.ToString();
-                    var value = parser.ParseFrom(data.item.message);
+                    var source = data.Item.Context.Source.ToString();
+                    var value = parser.ParseFrom(data.Item.Message);
                     yield return new MulticastItem<T>(source, value);
                     break;
                 case uniffi.slim_bindings.MulticastStreamMessage.Error err:
-                    throw err.error;
+                    throw err.ErrorValue;
                 case uniffi.slim_bindings.MulticastStreamMessage.End:
                     yield break;
             }
