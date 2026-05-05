@@ -396,6 +396,7 @@ impl TracingConfiguration {
     /// Set up a subscriber
     pub fn setup_tracing_subscriber(&self) -> Result<OtelGuard, ConfigError> {
         let fmt_layer = fmt::layer()
+            .with_writer(std::io::stderr)
             .with_thread_ids(self.display_thread_ids)
             .with_thread_names(self.display_thread_names)
             .with_line_number(true)

@@ -37,8 +37,8 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use clap::{Args, Subcommand};
 use slim_bindings::{
-    Name, SessionConfig, SessionType, get_global_service, initialize_with_defaults,
-    new_insecure_client_config,
+    Name, SessionConfig, SessionType, get_global_service, initialize_with_configs,
+    new_insecure_client_config, new_runtime_config, new_service_config, new_tracing_config_with,
 };
 
 const DEFAULT_SERVER: &str = "http://localhost:46357";
@@ -49,6 +49,10 @@ const DEFAULT_PREFIX: &str = "bench/test";
 
 #[derive(Args)]
 pub struct BenchArgs {
+    /// Log level for SLIM internals ("error", "warn", "info", "debug", "trace")
+    #[arg(long, default_value = "info", global = true)]
+    pub log_level: String,
+
     #[command(subcommand)]
     pub command: BenchCommand,
 }
@@ -60,6 +64,9 @@ pub enum BenchCommand {
 
     /// Run benchmark publishers
     Pub(BenchPubArgs),
+
+    /// Run channel (group session) benchmark — one publisher broadcasts to N subscribers
+    Channel(BenchChannelArgs),
 }
 
 // ── Sub args ───────────────────────────────────────────────────────────────────
@@ -144,12 +151,104 @@ pub struct BenchPubArgs {
     pub no_progress: bool,
 }
 
+// ── Channel args ───────────────────────────────────────────────────────────────
+
+/// Top-level args for `bench channel`.
+#[derive(Args)]
+pub struct BenchChannelArgs {
+    #[command(subcommand)]
+    pub command: BenchChannelCommand,
+}
+
+#[derive(Subcommand)]
+pub enum BenchChannelCommand {
+    /// Start subscriber workers that join a channel (run before `bench channel pub`)
+    Sub(BenchChannelSubArgs),
+    /// Run the channel publisher: creates a group session, invites all subscribers, broadcasts
+    Pub(BenchChannelPubArgs),
+}
+
+#[derive(Args)]
+pub struct BenchChannelSubArgs {
+    /// Number of subscriber apps to join the channel (must match pub's --count)
+    #[arg(long, default_value_t = 2)]
+    pub count: usize,
+
+    /// Messages to receive per subscriber before reporting (0 = run until Ctrl+C)
+    #[arg(short = 'n', long = "msgs", default_value_t = 100_000)]
+    pub msgs: u64,
+
+    /// Expected payload size in bytes (used for throughput calculation)
+    #[arg(long = "size", default_value_t = 128)]
+    pub size: usize,
+
+    /// SLIM server URL
+    #[arg(long, default_value = DEFAULT_SERVER)]
+    pub server: String,
+
+    /// Shared secret for authentication (min 32 chars)
+    #[arg(long, default_value = DEFAULT_SECRET)]
+    pub secret: String,
+
+    /// Name prefix in org/namespace format (must match pub's prefix)
+    #[arg(long, default_value = DEFAULT_PREFIX)]
+    pub prefix: String,
+
+    /// Append results to CSV file
+    #[arg(long)]
+    pub csv: Option<String>,
+
+    /// Suppress per-second progress output
+    #[arg(long)]
+    pub no_progress: bool,
+}
+
+#[derive(Args)]
+pub struct BenchChannelPubArgs {
+    /// Number of subscribers to invite into the channel (must match `bench channel sub --count`)
+    #[arg(long, default_value_t = 2)]
+    pub count: usize,
+
+    /// Total messages to broadcast to the channel
+    #[arg(short = 'n', long = "msgs", default_value_t = 100_000)]
+    pub msgs: u64,
+
+    /// Payload size in bytes
+    #[arg(long = "size", default_value_t = 128)]
+    pub size: usize,
+
+    /// SLIM server URL
+    #[arg(long, default_value = DEFAULT_SERVER)]
+    pub server: String,
+
+    /// Shared secret for authentication (min 32 chars)
+    #[arg(long, default_value = DEFAULT_SECRET)]
+    pub secret: String,
+
+    /// Name prefix in org/namespace format (must match sub's prefix)
+    #[arg(long, default_value = DEFAULT_PREFIX)]
+    pub prefix: String,
+
+    /// Append results to CSV file
+    #[arg(long)]
+    pub csv: Option<String>,
+
+    /// Suppress per-second progress output
+    #[arg(long)]
+    pub no_progress: bool,
+}
+
 // ── Dispatch ───────────────────────────────────────────────────────────────────
 
 pub async fn run(args: &BenchArgs) -> Result<()> {
+    let tracing = new_tracing_config_with(args.log_level.clone(), false, false, vec![]);
+    initialize_with_configs(new_runtime_config(), tracing, &[new_service_config()])
+        .context("failed to initialize SLIM")?;
+
     match &args.command {
         BenchCommand::Sub(a) => run_sub(a).await,
         BenchCommand::Pub(a) => run_pub(a).await,
+        BenchCommand::Channel(a) => run_channel(a).await,
     }
 }
 
@@ -384,6 +483,30 @@ fn make_pub_name(org: &str, ns: &str, i: usize) -> Arc<Name> {
     Arc::new(Name::new(org.to_string(), ns.to_string(), format!("pub-{i}")))
 }
 
+fn make_channel_name(org: &str, ns: &str) -> Arc<Name> {
+    Arc::new(Name::new(
+        org.to_string(),
+        ns.to_string(),
+        "channel".to_string(),
+    ))
+}
+
+fn make_channel_pub_name(org: &str, ns: &str) -> Arc<Name> {
+    Arc::new(Name::new(
+        org.to_string(),
+        ns.to_string(),
+        "channel-pub".to_string(),
+    ))
+}
+
+fn make_channel_sub_name(org: &str, ns: &str, i: usize) -> Arc<Name> {
+    Arc::new(Name::new(
+        org.to_string(),
+        ns.to_string(),
+        format!("channel-sub-{i}"),
+    ))
+}
+
 // ── Sub command ────────────────────────────────────────────────────────────────
 
 async fn run_sub(args: &BenchSubArgs) -> Result<()> {
@@ -402,8 +525,6 @@ async fn run_sub(args: &BenchSubArgs) -> Result<()> {
         base
     };
     let extra = if args.msgs == 0 { 0 } else { args.msgs % args.count as u64 };
-
-    initialize_with_defaults();
 
     println!("SLIM Bench Sub: {} worker(s) on {}", args.count, args.server);
     println!(
@@ -589,8 +710,6 @@ async fn run_pub(args: &BenchPubArgs) -> Result<()> {
     let base = args.msgs / args.count as u64;
     let extra = args.msgs % args.count as u64;
 
-    initialize_with_defaults();
-
     println!("SLIM Bench Pub: {} publisher(s) on {}", args.count, args.server);
     println!("  Total messages : {}", comma_format(args.msgs as i64));
     println!("  Payload size   : {} bytes", args.size);
@@ -771,6 +890,322 @@ async fn run_pub_worker(
     ))
 }
 
+// ── Channel command ────────────────────────────────────────────────────────────
+
+async fn run_channel(args: &BenchChannelArgs) -> Result<()> {
+    match &args.command {
+        BenchChannelCommand::Sub(a) => run_channel_sub(a).await,
+        BenchChannelCommand::Pub(a) => run_channel_pub(a).await,
+    }
+}
+
+async fn run_channel_sub(args: &BenchChannelSubArgs) -> Result<()> {
+    if args.count == 0 {
+        bail!("--count must be > 0");
+    }
+
+    let (org, ns) = parse_prefix(&args.prefix)?;
+
+    println!(
+        "SLIM Bench Channel Sub: {} worker(s) on {}",
+        args.count, args.server
+    );
+    println!(
+        "  Listening at {}/{}/channel-sub-0..channel-sub-{}",
+        org,
+        ns,
+        args.count - 1
+    );
+    if args.msgs > 0 {
+        println!(
+            "  Expecting {} messages per subscriber",
+            comma_format(args.msgs as i64)
+        );
+    } else {
+        println!("  Running until Ctrl+C");
+    }
+    println!("  Waiting for publisher to invite...\n");
+
+    let (result_tx, mut result_rx) = tokio::sync::mpsc::channel::<Sample>(args.count);
+
+    let mut handles = Vec::with_capacity(args.count);
+    for i in 0..args.count {
+        let org = org.clone();
+        let ns = ns.clone();
+        let server = args.server.clone();
+        let secret = args.secret.clone();
+        let size = args.size;
+        let msgs = args.msgs;
+        let tx = result_tx.clone();
+        let handle = tokio::spawn(async move {
+            match run_channel_sub_worker(i, &org, &ns, &server, &secret, msgs, size).await {
+                Ok(sample) => {
+                    let _ = tx.send(sample).await;
+                }
+                Err(e) => eprintln!("[ch-sub-{i}] error: {e:#}"),
+            }
+        });
+        handles.push(handle);
+    }
+    drop(result_tx);
+
+    for h in handles {
+        let _ = h.await;
+    }
+
+    let mut group = SampleGroup::new();
+    while let Some(sample) = result_rx.recv().await {
+        group.add(sample);
+    }
+
+    if group.has_samples() {
+        println!("\n{}", group.report("Channel sub stats"));
+        if let Some(csv_path) = &args.csv {
+            let run_id = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+            append_csv(csv_path, &group.csv_rows(&run_id, "CS"))
+                .with_context(|| format!("writing CSV to {csv_path}"))?;
+            println!("Results written to {csv_path}");
+        }
+    } else {
+        println!("No samples collected.");
+    }
+
+    Ok(())
+}
+
+async fn run_channel_sub_worker(
+    i: usize,
+    org: &str,
+    ns: &str,
+    server: &str,
+    secret: &str,
+    job_msg_cnt: u64,
+    size: usize,
+) -> Result<Sample> {
+    let own_name = make_channel_sub_name(org, ns, i);
+
+    let service = get_global_service();
+    let conn_id = service
+        .connect_async(new_insecure_client_config(server.to_string()))
+        .await
+        .context("connect to server failed")?;
+
+    println!("[ch-sub-{i}] connected (conn_id: {conn_id})");
+
+    let app = service
+        .create_app_with_secret_async(own_name.clone(), secret.to_string())
+        .await
+        .context("create app failed")?;
+
+    app.subscribe_async(own_name.clone(), Some(conn_id))
+        .await
+        .context("subscribe failed")?;
+
+    println!("[ch-sub-{i}] ready at {own_name} — waiting for channel invite...");
+
+    // Poll for the group session invite with a short timeout so we retry on
+    // any transient error rather than silently giving up.
+    let session = loop {
+        match app
+            .listen_for_session_async(Some(Duration::from_secs(2)))
+            .await
+        {
+            Ok(s) => break s,
+            Err(e) => {
+                let msg = e.to_string().to_lowercase();
+                if !msg.contains("timed out") {
+                    eprintln!("[ch-sub-{i}] listen_for_session: {e} (retrying)");
+                }
+                continue;
+            }
+        }
+    };
+
+    println!("[ch-sub-{i}] joined channel session");
+
+    let recv_timeout = Duration::from_secs(30);
+    let start = Instant::now();
+    let mut msg_cnt = 0u64;
+    let mut msg_bytes = 0u64;
+
+    loop {
+        match session.get_message_async(Some(recv_timeout)).await {
+            Ok(msg) => {
+                msg_bytes += msg.payload.len() as u64;
+                msg_cnt += 1;
+                if job_msg_cnt > 0 && msg_cnt >= job_msg_cnt {
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
+
+    let end = Instant::now();
+
+    if msg_bytes == 0 && msg_cnt > 0 {
+        msg_bytes = msg_cnt * size as u64;
+    }
+
+    Ok(Sample {
+        job_msg_cnt: if job_msg_cnt == 0 { msg_cnt } else { job_msg_cnt },
+        msg_cnt,
+        msg_bytes,
+        start,
+        end,
+    })
+}
+
+async fn run_channel_pub(args: &BenchChannelPubArgs) -> Result<()> {
+    if args.count == 0 {
+        bail!("--count must be > 0");
+    }
+    if args.msgs == 0 {
+        bail!("--msgs must be > 0 for publishers");
+    }
+
+    let (org, ns) = parse_prefix(&args.prefix)?;
+
+    println!(
+        "SLIM Bench Channel Pub: 1 publisher → {} subscriber(s) on {}",
+        args.count, args.server
+    );
+    println!("  Channel        : {}/{}/channel", org, ns);
+    println!("  Total messages : {}", comma_format(args.msgs as i64));
+    println!("  Payload size   : {} bytes", args.size);
+    println!();
+
+    let payload = vec![0u8; args.size];
+
+    match run_channel_pub_worker(&org, &ns, &args.server, &args.secret, args.count, args.msgs, payload).await {
+        Ok(sample) => {
+            let mut group = SampleGroup::new();
+            group.add(sample);
+            println!("\n{}", group.report("Channel pub stats"));
+            if let Some(csv_path) = &args.csv {
+                let run_id = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+                append_csv(csv_path, &group.csv_rows(&run_id, "CP"))
+                    .with_context(|| format!("writing CSV to {csv_path}"))?;
+                println!("Results written to {csv_path}");
+            }
+        }
+        Err(e) => eprintln!("[ch-pub] error: {e:#}"),
+    }
+
+    Ok(())
+}
+
+async fn run_channel_pub_worker(
+    org: &str,
+    ns: &str,
+    server: &str,
+    secret: &str,
+    sub_count: usize,
+    msg_count: u64,
+    payload: Vec<u8>,
+) -> Result<Sample> {
+    let own_name = make_channel_pub_name(org, ns);
+    let channel_name = make_channel_name(org, ns);
+
+    let service = get_global_service();
+    let conn_id = service
+        .connect_async(new_insecure_client_config(server.to_string()))
+        .await
+        .context("connect to server failed")?;
+
+    println!("[ch-pub] connected (conn_id: {conn_id})");
+
+    let app = service
+        .create_app_with_secret_async(own_name.clone(), secret.to_string())
+        .await
+        .context("create app failed")?;
+
+    app.subscribe_async(own_name.clone(), Some(conn_id))
+        .await
+        .context("subscribe failed")?;
+
+    // Advertise routes to each subscriber so SLIM can deliver invites.
+    for i in 0..sub_count {
+        let sub_name = make_channel_sub_name(org, ns, i);
+        app.set_route_async(sub_name, conn_id)
+            .await
+            .context("set route to subscriber failed")?;
+    }
+
+    println!(
+        "[ch-pub] subscribed {own_name} — creating group session on {channel_name}..."
+    );
+
+    let session_config = SessionConfig {
+        session_type: SessionType::Group,
+        enable_mls: false,
+        max_retries: Some(60),
+        interval: Some(Duration::from_millis(500)),
+        metadata: HashMap::new(),
+    };
+
+    let swc = app
+        .create_session_async(session_config, channel_name.clone())
+        .await
+        .context("failed to create group session")?;
+
+    // Group session completion resolves immediately (no per-participant handshake at creation).
+    swc.completion
+        .wait_for_async(Duration::from_secs(5))
+        .await
+        .context("group session creation timed out unexpectedly")?;
+
+    let session = swc.session;
+    println!("[ch-pub] group session created on {channel_name}");
+
+    // Invite each subscriber.  Each invite blocks until the subscriber completes
+    // the MLS-like handshake and joins the group.  Wrap with a wall-clock timeout
+    // so we don't hang forever if a subscriber never comes up.
+    for i in 0..sub_count {
+        let sub_name = make_channel_sub_name(org, ns, i);
+        tokio::time::sleep(Duration::from_millis(100)).await; // stagger invites slightly to avoid
+                                                              // thundering herd
+        println!("[ch-pub] inviting {sub_name}...");
+        tokio::time::timeout(
+            Duration::from_secs(35),
+            session.invite_and_wait_async(sub_name.clone()),
+        )
+        .await
+        .with_context(|| {
+            format!(
+                "[ch-pub] invite of {sub_name} timed out after 35 s — \
+                 is `slimctl bench channel sub` running with matching --prefix and --count?"
+            )
+        })?
+        .with_context(|| format!("invite of {sub_name} failed"))?;
+        println!("[ch-pub] {sub_name} joined");
+    }
+
+    println!(
+        "[ch-pub] all {sub_count} subscriber(s) joined — publishing {msg_count} messages"
+    );
+
+    let start = Instant::now();
+    let msg_bytes = msg_count * payload.len() as u64;
+
+    for _ in 0..msg_count {
+        session
+            .publish_and_wait_async(payload.clone(), None, None)
+            .await
+            .context("publish failed")?;
+    }
+
+    let end = Instant::now();
+
+    Ok(Sample {
+        job_msg_cnt: msg_count,
+        msg_cnt: msg_count,
+        msg_bytes,
+        start,
+        end,
+    })
+}
+
 // ── Formatting utilities ───────────────────────────────────────────────────────
 
 fn comma_format(n: i64) -> String {
@@ -863,6 +1298,18 @@ mod tests {
         let pub_ = make_pub_name("bench", "test", 0);
         let parts = pub_.components();
         assert_eq!(parts, vec!["bench", "test", "pub-0"]);
+    }
+
+    #[test]
+    fn make_channel_names_correct() {
+        let ch = make_channel_name("bench", "test");
+        assert_eq!(ch.components(), vec!["bench", "test", "channel"]);
+
+        let pub_ = make_channel_pub_name("bench", "test");
+        assert_eq!(pub_.components(), vec!["bench", "test", "channel-pub"]);
+
+        let sub = make_channel_sub_name("bench", "test", 2);
+        assert_eq!(sub.components(), vec!["bench", "test", "channel-sub-2"]);
     }
 
     #[test]
