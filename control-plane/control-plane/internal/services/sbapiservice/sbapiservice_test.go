@@ -30,8 +30,10 @@ func startSouthbound(t *testing.T, db db.DataAccess) (target string, cleanup fun
 
 	ctx := util.GetContextWithLogger(context.Background(), config.LogConfig{Level: "debug"})
 	cmdHandler := nodecontrol.DefaultNodeCommandHandler()
+	// MaxRequeues aligns with production default: route reconcile defers until links are
+	// Applied; too few retries drops work on slow CI / -cover when link reconcile lags.
 	routeService := routes.NewRouteService(db, cmdHandler,
-		config.ReconcilerConfig{MaxNumOfParallelReconciles: 3, MaxRequeues: 1})
+		config.ReconcilerConfig{MaxNumOfParallelReconciles: 3, MaxRequeues: 15})
 	if err := routeService.Start(ctx); err != nil {
 		t.Fatalf("routeService.Start: %v", err)
 	}
@@ -418,7 +420,7 @@ func startSouthboundWithMockGroupService(
 	ctx := util.GetContextWithLogger(context.Background(), config.LogConfig{Level: "debug"})
 	cmdHandler := nodecontrol.DefaultNodeCommandHandler()
 	routeService := routes.NewRouteService(db, cmdHandler,
-		config.ReconcilerConfig{MaxNumOfParallelReconciles: 3, MaxRequeues: 1})
+		config.ReconcilerConfig{MaxNumOfParallelReconciles: 3, MaxRequeues: 15})
 	if err := routeService.Start(ctx); err != nil {
 		t.Fatalf("routeService.Start: %v", err)
 	}

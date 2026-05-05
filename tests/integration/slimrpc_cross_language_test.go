@@ -35,6 +35,13 @@ var (
 	goRPCGroupClientPath string
 )
 
+// slimJavaBindingsMavenVersion must match <slim.bindings.version> in
+// data-plane/bindings/java/examples/slimrpc/simple/pom.xml. Maven's exec:java
+// runs the main class in the same JVM as Maven; exec-maven-plugin systemProperties
+// cannot reliably set java.library.path for JNI — it must be on the JVM
+// command line (MAVEN_OPTS).
+const slimJavaBindingsMavenVersion = "1.2.0"
+
 // All languages under test.
 var langs = []string{"go", "python", "java", "csharp"}
 
@@ -48,6 +55,41 @@ func initSlimrpcPaths() {
 	goRPCServerPath = filepath.Join(goSlimrpcDir, "slimrpc-go-server")
 	goRPCClientPath = filepath.Join(goSlimrpcDir, "slimrpc-go-client")
 	goRPCGroupClientPath = filepath.Join(goSlimrpcDir, "slimrpc-go-group-client")
+}
+
+// applyJavaMavenNativeLibraryPath sets MAVEN_OPTS so the Maven JVM can load
+// slim-bindings-java native libraries from the local M2 repo.
+func applyJavaMavenNativeLibraryPath(cmd *exec.Cmd) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return
+	}
+	libDir := filepath.Join(home, ".m2", "repository", "io", "agntcy", "slim", "slim-bindings-java", slimJavaBindingsMavenVersion)
+	libOpt := "-Djava.library.path=" + libDir
+
+	base := cmd.Env
+	if len(base) == 0 {
+		base = os.Environ()
+	}
+	mergedOpts := libOpt
+	for _, e := range base {
+		if after, ok := strings.CutPrefix(e, "MAVEN_OPTS="); ok {
+			after = strings.TrimSpace(after)
+			if after != "" {
+				mergedOpts = libOpt + " " + after
+			}
+			break
+		}
+	}
+	out := make([]string, 0, len(base)+1)
+	for _, e := range base {
+		if strings.HasPrefix(e, "MAVEN_OPTS=") {
+			continue
+		}
+		out = append(out, e)
+	}
+	out = append(out, "MAVEN_OPTS="+mergedOpts)
+	cmd.Env = out
 }
 
 // ---------------------------------------------------------------------------
@@ -69,6 +111,7 @@ func rpcServerCmd(lang, slimAddr, instance string) *exec.Cmd {
 		cmd := exec.Command("mvn", "exec:java@server", "-q",
 			fmt.Sprintf("-Dexec.args=--server %s --instance %s", slimAddr, instance))
 		cmd.Dir = javaSlimrpcDir
+		applyJavaMavenNativeLibraryPath(cmd)
 		return cmd
 	case "csharp":
 		cmd := exec.Command("dotnet", "run",
@@ -99,6 +142,7 @@ func rpcClientCmd(lang, slimAddr string) *exec.Cmd {
 		cmd := exec.Command("mvn", "exec:java@client", "-q",
 			fmt.Sprintf("-Dexec.args=--server %s", slimAddr))
 		cmd.Dir = javaSlimrpcDir
+		applyJavaMavenNativeLibraryPath(cmd)
 		return cmd
 	case "csharp":
 		cmd := exec.Command("dotnet", "run",
@@ -130,6 +174,7 @@ func rpcGroupClientCmd(lang, slimAddr, servers string) *exec.Cmd {
 		cmd := exec.Command("mvn", "exec:java@group-client", "-q",
 			fmt.Sprintf("-Dexec.args=--server %s --servers %s", slimAddr, servers))
 		cmd.Dir = javaSlimrpcDir
+		applyJavaMavenNativeLibraryPath(cmd)
 		return cmd
 	case "csharp":
 		cmd := exec.Command("dotnet", "run",
@@ -228,7 +273,7 @@ var _ = Describe("SlimRPC cross-language", Ordered, func() {
 		// Reserve a random port so we never conflict with other tests or
 		// a developer's local SLIM instance.
 		port := reservePort()
-		slimAddr = fmt.Sprintf("http://localhost:%d", port)
+		slimAddr = fmt.Sprintf("http://127.0.0.1:%d", port)
 
 		fmt.Fprintf(GinkgoWriter, "[test] Starting SLIM data-plane on port %d\n", port)
 
