@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -51,15 +52,36 @@ func startSouthbound(t *testing.T, db db.DataAccess) (target string, cleanup fun
 }
 
 func waitCond(t *testing.T, d time.Duration, cond func() bool, msg string) {
+	t.Helper()
 	fmt.Println(msg)
-	deadline := time.Now().Add(d)
-	for time.Now().Before(deadline) {
-		time.Sleep(1 * time.Second)
+	effective := d
+	// GitHub-hosted runners are often slower; stretch short async windows only.
+	// Coverage + cold GH runners can stall SQLite/reconcilers for many seconds; keep local snappy.
+	if os.Getenv("CI") != "" && d <= 5*time.Second {
+		scaled := d * 12
+		const maxScaledWait = 45 * time.Second
+		if scaled > maxScaledWait {
+			effective = maxScaledWait
+		} else {
+			effective = scaled
+		}
+	}
+	deadline := time.Now().Add(effective)
+	const tick = 100 * time.Millisecond
+	for {
 		if cond() {
 			return
 		}
+		rem := time.Until(deadline)
+		if rem <= 0 {
+			t.Fatalf("condition `%s` not met within %s", msg, effective)
+		}
+		sleep := tick
+		if rem < sleep {
+			sleep = rem
+		}
+		time.Sleep(sleep)
 	}
-	t.Fatalf("condition `%s` not met within %s", msg, d)
 }
 
 func TestSouthbound_RegistrationAndRouteHandling(t *testing.T) {
