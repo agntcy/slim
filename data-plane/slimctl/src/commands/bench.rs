@@ -656,13 +656,16 @@ async fn run_sub_worker(
     println!("[sub-{i}] session established");
 
     let recv_timeout = Duration::from_secs(30);
-    let start = Instant::now();
+    let mut start: Option<Instant> = None;
     let mut msg_cnt = 0u64;
     let mut msg_bytes = 0u64;
 
     loop {
         match session.get_message_async(Some(recv_timeout)).await {
             Ok(msg) => {
+                if start.is_none() {
+                    start = Some(Instant::now());
+                }
                 msg_bytes += msg.payload.len() as u64;
                 msg_cnt += 1;
 
@@ -683,6 +686,7 @@ async fn run_sub_worker(
     }
 
     let end = Instant::now();
+    let start = start.unwrap_or(end);
 
     // Fall back to the configured size hint if payload bytes were not captured
     // (e.g. empty payloads).
@@ -1026,13 +1030,16 @@ async fn run_channel_sub_worker(
     println!("[ch-sub-{i}] joined channel session");
 
     let recv_timeout = Duration::from_secs(30);
-    let start = Instant::now();
+    let mut start: Option<Instant> = None;
     let mut msg_cnt = 0u64;
     let mut msg_bytes = 0u64;
 
     loop {
         match session.get_message_async(Some(recv_timeout)).await {
             Ok(msg) => {
+                if start.is_none() {
+                    start = Some(Instant::now());
+                }
                 msg_bytes += msg.payload.len() as u64;
                 msg_cnt += 1;
                 if job_msg_cnt > 0 && msg_cnt >= job_msg_cnt {
@@ -1044,6 +1051,7 @@ async fn run_channel_sub_worker(
     }
 
     let end = Instant::now();
+    let start = start.unwrap_or(end);
 
     if msg_bytes == 0 && msg_cnt > 0 {
         msg_bytes = msg_cnt * size as u64;
