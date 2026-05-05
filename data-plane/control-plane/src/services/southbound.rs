@@ -190,7 +190,7 @@ async fn handle_node_messages(
 
         match msg.payload {
             Some(Payload::ConfigCommand(cc)) => {
-                for sub in &cc.subscriptions_to_set {
+                for sub in &cc.routes_to_set {
                     if sub.link_id.is_none()
                         && let Err(e) = route_service
                             .add_route(Route {
@@ -207,7 +207,7 @@ async fn handle_node_messages(
                         tracing::debug!("southbound: error adding route: {e}");
                     }
                 }
-                for sub in &cc.subscriptions_to_delete {
+                for sub in &cc.routes_to_delete {
                     let route = Route {
                         source_node_id: ALL_NODES_ID.to_string(),
                         dest_node_id: node_id.to_string(),
@@ -250,7 +250,7 @@ async fn handle_node_messages(
             }
             Some(Payload::Ack(_))
             | Some(Payload::ConfigCommandAck(_))
-            | Some(Payload::SubscriptionListResponse(_))
+            | Some(Payload::RouteListResponse(_))
             | Some(Payload::ConnectionListResponse(_)) => {
                 cmd_handler.response_received(node_id, msg).await;
             }
@@ -275,56 +275,24 @@ fn parse_conn_details(
     peer_host: &str,
     detail: &crate::api::proto::controller::proto::v1::ConnectionDetails,
 ) -> ConnectionDetails {
-    let meta = detail.metadata.as_ref();
-    let local_endpoint = meta
-        .and_then(|m| m.fields.get("local_endpoint"))
-        .and_then(|v| match &v.kind {
-            Some(prost_types::value::Kind::StringValue(s)) if !s.is_empty() => Some(s.clone()),
-            _ => None,
-        });
-    let external_endpoint = meta
-        .and_then(|m| m.fields.get("external_endpoint"))
-        .and_then(|v| match &v.kind {
-            Some(prost_types::value::Kind::StringValue(s)) if !s.is_empty() => Some(s.clone()),
-            _ => None,
-        });
-    let trust_domain = meta
-        .and_then(|m| m.fields.get("trust_domain"))
-        .and_then(|v| match &v.kind {
-            Some(prost_types::value::Kind::StringValue(s)) if !s.is_empty() => Some(s.clone()),
-            _ => None,
-        });
-    let spire_socket_path = meta
-        .and_then(|m| m.fields.get("spire_socket_path"))
-        .and_then(|v| match &v.kind {
-            Some(prost_types::value::Kind::StringValue(s)) if !s.is_empty() => Some(s.clone()),
-            _ => None,
-        });
+    let spire_mtls = detail.spire_mtls.as_ref().map(|s| crate::db::SpireMtls {
+        socket_path: s.socket_path.clone(),
+        trust_domain: s.trust_domain.clone(),
+    });
 
-    let spire_mtls = if detail.mtls_required {
-        Some(crate::db::SpireMtls {
-            socket_path: spire_socket_path.unwrap_or_default(),
-            trust_domain,
-        })
-    } else {
-        spire_socket_path.map(|p| crate::db::SpireMtls {
-            socket_path: p,
-            trust_domain,
-        })
-    };
-
-    // Derive the effective endpoint: prefer local_endpoint, else peer host +
-    // port from the proto endpoint field.
-    let mut endpoint = local_endpoint.unwrap_or_else(|| peer_host.to_string());
-    if let Some(port) = detail.endpoint.rsplit(':').next()
-        && port.parse::<u16>().is_ok()
-    {
-        endpoint = format!("{endpoint}:{port}");
+    // Derive the effective endpoint: if the proto endpoint contains a wildcard
+    // address (0.0.0.0 or [::]), substitute the peer host.
+    let mut endpoint = detail.endpoint.clone();
+    if let Some((host, port)) = endpoint.rsplit_once(':') {
+        let host_trimmed = host.trim_start_matches('[').trim_end_matches(']');
+        if host_trimmed == "0.0.0.0" || host_trimmed == "::" || host_trimmed.is_empty() {
+            endpoint = format!("{peer_host}:{port}");
+        }
     }
 
     ConnectionDetails {
         endpoint,
-        external_endpoint,
+        external_endpoint: detail.external_endpoint.clone(),
         spire_mtls,
     }
 }

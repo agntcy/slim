@@ -21,7 +21,7 @@ use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 
 use super::model::{
     ALL_NODES_ID, ConnDetailsJson, DbClientConfig, DbTimestamp, JsonStrings, Link, LinkStatus,
-    Node, Route, RouteStatus, SubscriptionName, has_connection_details_changed,
+    Node, Route, RouteName, RouteStatus, has_connection_details_changed,
 };
 use super::schema::{links, nodes, routes};
 use super::{DataAccess, SharedDb};
@@ -261,7 +261,7 @@ impl DataAccess for SqliteDb {
             .ok()?
     }
 
-    async fn get_routes_for_node_id(&self, node_id: &str) -> Vec<Route> {
+    async fn get_routes_for_node(&self, node_id: &str) -> Vec<Route> {
         let Ok(mut conn) = self.pool.get().await else {
             return vec![];
         };
@@ -312,7 +312,7 @@ impl DataAccess for SqliteDb {
     async fn get_route_for_src_dest_name(
         &self,
         src_node_id: &str,
-        name: &SubscriptionName<'_>,
+        name: &RouteName<'_>,
         dest_node_id: &str,
         link_id: &str,
     ) -> Option<Route> {
@@ -1012,7 +1012,7 @@ mod tests {
         db.add_route(make_route("other", "dst", "lnk2"))
             .await
             .unwrap();
-        let routes = db.get_routes_for_node_id("src").await;
+        let routes = db.get_routes_for_node("src").await;
         assert_eq!(routes.len(), 1);
     }
 
@@ -1072,7 +1072,7 @@ mod tests {
     async fn get_route_for_src_dest_name() {
         let (_f, db) = tmp_db().await;
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
-        let name = SubscriptionName {
+        let name = RouteName {
             component0: "org",
             component1: "ns",
             component2: "svc",

@@ -561,14 +561,14 @@ mod tests {
         let NodeRouteCommand::Del {
             route,
             via,
-            endpoint,
+            destination,
         } = a.command
         else {
             panic!()
         };
         assert_eq!(route, "org/ns/agent/42");
         assert_eq!(via, "via");
-        assert_eq!(endpoint, "http://host:8080");
+        assert_eq!(destination, "http://host:8080");
     }
 
     #[test]

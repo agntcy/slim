@@ -15,9 +15,9 @@ use crate::error::{Error, Result};
 use crate::workqueue::WorkQueue;
 
 use crate::api::proto::controller::proto::v1::{
-    ConnectionListResponse, ControlMessage, SubscriptionListResponse, control_message::Payload,
+    ConnectionListResponse, ControlMessage, RouteListResponse, control_message::Payload,
 };
-use crate::db::{LinkStatus, RouteStatus, SharedDb, SubscriptionName};
+use crate::db::{LinkStatus, RouteName, RouteStatus, SharedDb};
 use crate::node_transport::{DefaultNodeCommandHandler, ResponseKind};
 
 pub const ALL_NODES_ID: &str = crate::db::ALL_NODES_ID;
@@ -263,7 +263,7 @@ impl RouteService {
                 .db
                 .get_route_for_src_dest_name(
                     &route.source_node_id,
-                    &SubscriptionName {
+                    &RouteName {
                         component0: &route.component0,
                         component1: &route.component1,
                         component2: &route.component2,
@@ -307,7 +307,7 @@ impl RouteService {
             .db
             .get_route_for_src_dest_name(
                 &route.source_node_id,
-                &SubscriptionName {
+                &RouteName {
                     component0: &route.component0,
                     component1: &route.component1,
                     component2: &route.component2,
@@ -622,7 +622,7 @@ impl RouteService {
 
         // Fetch both route sets concurrently.
         let (src_routes, dest_routes) = tokio::join!(
-            self.0.db.get_routes_for_node_id(node_id),
+            self.0.db.get_routes_for_node(node_id),
             self.0.db.get_routes_for_dest_node_id(node_id),
         );
 
@@ -948,12 +948,12 @@ impl RouteService {
             })
             .collect();
 
-        let wildcard_routes = self.0.db.get_routes_for_node_id(ALL_NODES_ID).await;
+        let wildcard_routes = self.0.db.get_routes_for_node(ALL_NODES_ID).await;
 
         // Pre-fetch all existing routes where node_id is source or destination
         // to avoid O(W×N) individual DB lookups in the loops below.
         let (routes_as_src, routes_as_dest) = tokio::join!(
-            self.0.db.get_routes_for_node_id(node_id),
+            self.0.db.get_routes_for_node(node_id),
             self.0.db.get_routes_for_dest_node_id(node_id),
         );
 
@@ -1103,26 +1103,26 @@ impl RouteService {
         }
     }
 
-    pub async fn list_subscriptions(&self, node_id: &str) -> Result<SubscriptionListResponse> {
+    pub async fn list_node_routes(&self, node_id: &str) -> Result<RouteListResponse> {
         let message_id = Uuid::new_v4().to_string();
         let msg = ControlMessage {
             message_id: message_id.clone(),
-            payload: Some(Payload::SubscriptionListRequest(
-                crate::api::proto::controller::proto::v1::SubscriptionListRequest {},
+            payload: Some(Payload::RouteListRequest(
+                crate::api::proto::controller::proto::v1::RouteListRequest {},
             )),
         };
         let chunks = self
             .0
             .cmd_handler
-            .send_and_wait_chunked(node_id, msg, ResponseKind::SubscriptionListResponse)
+            .send_and_wait_chunked(node_id, msg, ResponseKind::RouteListResponse)
             .await?;
         let mut entries = Vec::new();
         for chunk in chunks {
-            if let Some(Payload::SubscriptionListResponse(r)) = chunk.payload {
+            if let Some(Payload::RouteListResponse(r)) = chunk.payload {
                 entries.extend(r.entries);
             }
         }
-        Ok(SubscriptionListResponse {
+        Ok(RouteListResponse {
             original_message_id: message_id,
             entries,
             done: true,

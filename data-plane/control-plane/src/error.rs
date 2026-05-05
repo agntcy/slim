@@ -63,6 +63,10 @@ pub enum Error {
     /// The remote node returned an unexpected response type.
     #[error("unexpected response: {0}")]
     UnexpectedResponse(String),
+
+    // ── serialization ────────────────────────────────────────────────────────
+    #[error("serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;

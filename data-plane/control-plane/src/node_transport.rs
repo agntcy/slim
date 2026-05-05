@@ -36,7 +36,7 @@ impl std::fmt::Display for NodeStatus {
 enum MessageKind {
     Ack,
     ConfigCommandAck,
-    SubscriptionListResponse,
+    RouteListResponse,
     ConnectionListResponse,
 }
 
@@ -44,7 +44,7 @@ enum MessageKind {
 fn is_chunked_kind(kind: &MessageKind) -> bool {
     matches!(
         kind,
-        MessageKind::ConnectionListResponse | MessageKind::SubscriptionListResponse
+        MessageKind::ConnectionListResponse | MessageKind::RouteListResponse
     )
 }
 
@@ -52,7 +52,7 @@ fn is_chunked_kind(kind: &MessageKind) -> bool {
 fn chunk_is_done(msg: &ControlMessage) -> bool {
     match &msg.payload {
         Some(Payload::ConnectionListResponse(r)) => r.done,
-        Some(Payload::SubscriptionListResponse(r)) => r.done,
+        Some(Payload::RouteListResponse(r)) => r.done,
         _ => false,
     }
 }
@@ -61,7 +61,7 @@ fn kind_from_payload(payload: &Payload) -> Option<MessageKind> {
     match payload {
         Payload::Ack(_) => Some(MessageKind::Ack),
         Payload::ConfigCommandAck(_) => Some(MessageKind::ConfigCommandAck),
-        Payload::SubscriptionListResponse(_) => Some(MessageKind::SubscriptionListResponse),
+        Payload::RouteListResponse(_) => Some(MessageKind::RouteListResponse),
         Payload::ConnectionListResponse(_) => Some(MessageKind::ConnectionListResponse),
         _ => None,
     }
@@ -71,7 +71,7 @@ fn original_message_id(payload: &Payload) -> Option<&str> {
     match payload {
         Payload::Ack(a) => Some(&a.original_message_id),
         Payload::ConfigCommandAck(a) => Some(&a.original_message_id),
-        Payload::SubscriptionListResponse(r) => Some(&r.original_message_id),
+        Payload::RouteListResponse(r) => Some(&r.original_message_id),
         Payload::ConnectionListResponse(r) => Some(&r.original_message_id),
         _ => None,
     }
@@ -424,7 +424,7 @@ impl DefaultNodeCommandHandler {
 pub enum ResponseKind {
     Ack,
     ConfigCommandAck,
-    SubscriptionListResponse,
+    RouteListResponse,
     ConnectionListResponse,
 }
 
@@ -433,7 +433,7 @@ impl From<ResponseKind> for MessageKind {
         match k {
             ResponseKind::Ack => MessageKind::Ack,
             ResponseKind::ConfigCommandAck => MessageKind::ConfigCommandAck,
-            ResponseKind::SubscriptionListResponse => MessageKind::SubscriptionListResponse,
+            ResponseKind::RouteListResponse => MessageKind::RouteListResponse,
             ResponseKind::ConnectionListResponse => MessageKind::ConnectionListResponse,
         }
     }
@@ -469,7 +469,7 @@ mod tests {
             payload: Some(Payload::ConfigCommandAck(ConfigurationCommandAck {
                 original_message_id: original_id.to_string(),
                 connections_status: vec![],
-                subscriptions_status: vec![],
+                routes_status: vec![],
             })),
         }
     }

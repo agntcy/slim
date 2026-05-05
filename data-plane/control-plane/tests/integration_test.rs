@@ -12,7 +12,7 @@ use slim_config::grpc::server::ServerConfig;
 use slim_config::tls::client::TlsClientConfig;
 use slim_config::tls::provider::initialize_crypto_provider;
 use slim_config::tls::server::TlsServerConfig;
-use slim_control_plane::api::proto::controller::proto::v1::Subscription;
+use slim_control_plane::api::proto::controller::proto::v1::Route;
 use slim_control_plane::api::proto::controller::proto::v1::controller_service_server::ControllerServiceServer;
 use slim_control_plane::api::proto::controlplane::proto::v1::control_plane_service_client::ControlPlaneServiceClient;
 use slim_control_plane::api::proto::controlplane::proto::v1::control_plane_service_server::ControlPlaneServiceServer;
@@ -344,12 +344,11 @@ async fn add_route(
             connection: None,
             node_id: src_node_id.to_string(),
             dest_node_id: dest_node_id.to_string(),
-            subscription: Some(Subscription {
+            route: Some(Route {
                 component_0: component0.to_string(),
                 component_1: component1.to_string(),
                 component_2: component2.to_string(),
                 id: None,
-                connection_id: String::new(),
                 node_id: None,
                 link_id: None,
                 direction: None,
@@ -419,11 +418,11 @@ async fn get_node_subscriptions(
     node_id: &str,
 ) -> Vec<(String, String, String)> {
     let resp = client
-        .list_subscriptions(CpNode {
+        .list_node_routes(CpNode {
             id: node_id.to_string(),
         })
         .await
-        .expect("list_subscriptions failed")
+        .expect("list_node_routes failed")
         .into_inner();
     resp.entries
         .iter()
@@ -511,7 +510,7 @@ async fn print_node_state(client: &mut NbClient, node_id: &str) {
         .expect("list_connections failed")
         .into_inner();
     println!("  Node {node_id} dataplane state:");
-    println!("    Subscriptions ({}):", subs.len());
+    println!("    Routes ({}):", subs.len());
     for (c0, c1, c2) in &subs {
         println!("      - {c0}/{c1}/{c2}");
     }

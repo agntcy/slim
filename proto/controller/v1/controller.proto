@@ -5,9 +5,6 @@ syntax = "proto3";
 package controller.proto.v1;
 
 import "google/protobuf/struct.proto";
-import "google/protobuf/wrappers.proto";
-
-option go_package = "github.com/agntcy/slim/control-plane/common/proto/controller/v1;controllerv1";
 
 service ControllerService {
   rpc OpenControlChannel(stream ControlMessage) returns (stream ControlMessage) {}
@@ -19,64 +16,58 @@ message ControlMessage {
   oneof payload {
     ConfigurationCommand config_command = 2;
     Ack ack = 3;
-    SubscriptionListRequest subscription_list_request = 4;
-    SubscriptionListResponse subscription_list_response = 5;
+    RouteListRequest route_list_request = 4;
+    RouteListResponse route_list_response = 5;
     ConnectionListRequest connection_list_request = 6;
     ConnectionListResponse connection_list_response = 7;
     RegisterNodeRequest register_node_request = 8;
     RegisterNodeResponse register_node_response = 9;
     DeregisterNodeRequest deregister_node_request = 10;
     DeregisterNodeResponse deregister_node_response = 11;
-    DesiredState desired_state = 12;
 
     ConfigurationCommandAck config_command_ack = 20;
   }
 }
 
 message Connection {
-  string connection_id = 1;
+  string link_id = 1;
   string config_data = 2;
 }
 
 message ConnectionAck {
-  string connection_id = 1;
+  string link_id = 1;
   bool success = 2;
   string errorMsg = 3;
 }
 
-message Subscription {
+message Route {
   string component_0 = 1;
   string component_1 = 2;
   string component_2 = 3;
-  google.protobuf.UInt64Value id = 4;
-  string connection_id = 5;
-  optional string node_id = 6;
-  optional string link_id = 7;
-  optional ConnectionDirection direction = 8;
+  optional uint64 id = 4;
+  optional string node_id = 5;
+  optional string link_id = 6;
+  optional ConnectionDirection direction = 7;
 }
 
-message SubscriptionAck {
-  Subscription subscription = 1;
+message RouteAck {
+  Route route = 1;
   bool success = 2;
   string errorMsg = 3;
 }
 
 message ConfigurationCommand {
   repeated Connection connections_to_create = 1;
-  repeated Subscription subscriptions_to_set = 2;
-  repeated Subscription subscriptions_to_delete = 3;
+  repeated Route routes_to_set = 2;
+  repeated Route routes_to_delete = 3;
   repeated string connections_to_delete = 4;
-}
-
-message DesiredState {
-  repeated Connection desired_connections = 1;
-  repeated Subscription desired_subscriptions = 2;
+  bool reconcile = 5;
 }
 
 message ConfigurationCommandAck {
   string original_message_id = 1;
   repeated ConnectionAck connections_status = 2;
-  repeated SubscriptionAck subscriptions_status = 3;
+  repeated RouteAck routes_status = 3;
 }
 
 message Ack {
@@ -85,21 +76,20 @@ message Ack {
   repeated string messages = 3;
 }
 
-message SubscriptionListRequest {}
+message RouteListRequest {}
 
-message SubscriptionListResponse {
+message RouteListResponse {
   string original_message_id = 1;
-  repeated SubscriptionEntry entries = 2;
+  repeated RouteEntry entries = 2;
   bool done = 3;
 }
 
-message SubscriptionEntry {
+message RouteEntry {
   string component_0 = 1;
   string component_1 = 2;
   string component_2 = 3;
-  google.protobuf.UInt64Value id = 4;
-  repeated ConnectionEntry local_connections = 5;
-  repeated ConnectionEntry remote_connections = 6;
+  optional uint64 id = 4;
+  repeated ConnectionEntry connections = 5;
 }
 
 enum ConnectionType {
@@ -133,11 +123,15 @@ message Node {
 }
 
 message ConnectionDetails {
+  message SpireMtls {
+    string socket_path = 1;
+    optional string trust_domain = 2;
+  }
+
   string endpoint = 1;
-  bool mtls_required = 2;
-  google.protobuf.Struct metadata = 3;
-  optional string auth = 4;
-  optional string tls = 5;
+  optional string external_endpoint = 2;
+  optional SpireMtls spire_mtls = 3;
+  google.protobuf.Struct metadata = 4;
 }
 
 message RegisterNodeRequest {
@@ -162,4 +156,3 @@ message DeregisterNodeResponse {
   string original_message_id = 1;
   bool success = 2;
 }
-

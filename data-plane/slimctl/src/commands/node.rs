@@ -9,9 +9,9 @@ use tokio_stream::StreamExt;
 use crate::client::get_controller_client;
 use crate::config::ResolvedOpts;
 use crate::proto::controller::proto::v1::{
-    ConfigurationCommand, ControlMessage, Subscription, control_message::Payload,
+    ConfigurationCommand, ControlMessage, Route, control_message::Payload,
 };
-use crate::utils::{VIA_KEYWORD, parse_config_file, parse_endpoint, parse_route};
+use crate::utils::{VIA_KEYWORD, parse_config_file_with_link_id, parse_route};
 
 #[derive(Args)]
 pub struct NodeArgs {
@@ -54,14 +54,14 @@ pub enum NodeRouteCommand {
     },
     /// Delete a route from a node
     ///
-    /// Usage: node route del <org/ns/agent/id> via <http|https://host:port>
+    /// Usage: node route del <org/ns/agent/id> via <config.json or link_id>
     Del {
         /// Route in org/namespace/agentname/agentid format
         route: String,
         /// Literal keyword "via"
         via: String,
-        /// Endpoint URL (http|https://host:port)
-        endpoint: String,
+        /// Path to JSON config file or link_id string
+        destination: String,
     },
 }
 
@@ -100,8 +100,8 @@ async fn run_route(args: &NodeRouteArgs, opts: &ResolvedOpts) -> Result<()> {
         NodeRouteCommand::Del {
             route,
             via,
-            endpoint,
-        } => route_del(route, via, endpoint, opts).await,
+            destination,
+        } => route_del(route, via, destination, opts).await,
     }
 }
 
@@ -117,8 +117,8 @@ async fn route_list(opts: &ResolvedOpts) -> Result<()> {
     let mut client = get_controller_client(opts).await?;
     let msg = ControlMessage {
         message_id: uuid::Uuid::new_v4().to_string(),
-        payload: Some(Payload::SubscriptionListRequest(
-            crate::proto::controller::proto::v1::SubscriptionListRequest {},
+        payload: Some(Payload::RouteListRequest(
+            crate::proto::controller::proto::v1::RouteListRequest {},
         )),
     };
     let req = tonic::Request::new(tokio_stream::once(msg));
@@ -129,27 +129,15 @@ async fn route_list(opts: &ResolvedOpts) -> Result<()> {
             Ok(None) => break,
             Ok(Some(Err(e))) => bail!("stream error: {}", e),
             Ok(Some(Ok(msg))) => {
-                if let Some(Payload::SubscriptionListResponse(list_resp)) = msg.payload {
+                if let Some(Payload::RouteListResponse(list_resp)) = msg.payload {
                     for e in &list_resp.entries {
-                        let local_names: Vec<String> = e
-                            .local_connections
+                        let conn_names: Vec<String> = e
+                            .connections
                             .iter()
                             .map(|c| {
                                 format!(
-                                    "local:{}:{}:{:?}:{:?}",
-                                    c.id,
-                                    c.config_data,
-                                    c.link_id,
-                                    c.direction()
-                                )
-                            })
-                            .collect();
-                        let remote_names: Vec<String> = e
-                            .remote_connections
-                            .iter()
-                            .map(|c| {
-                                format!(
-                                    "remote:{}:{}:{:?}:{:?}",
+                                    "{}:{}:{}:{:?}:{:?}",
+                                    c.connection_type().as_str_name(),
                                     c.id,
                                     c.config_data,
                                     c.link_id,
@@ -158,13 +146,12 @@ async fn route_list(opts: &ResolvedOpts) -> Result<()> {
                             })
                             .collect();
                         println!(
-                            "{}/{}/{} id={} local={:?} remote={:?}",
+                            "{}/{}/{} id={} connections={:?}",
                             e.component_0,
                             e.component_1,
                             e.component_2,
                             e.id.map_or_else(|| "None".to_string(), |id| id.to_string()),
-                            local_names,
-                            remote_names
+                            conn_names
                         );
                     }
                     break;
@@ -180,15 +167,14 @@ async fn route_add(route: &str, via: &str, config_file: &str, opts: &ResolvedOpt
         bail!("invalid syntax: expected 'via' keyword, got '{}'", via);
     }
     let (org, ns, agent_type, agent_id) = parse_route(route)?;
-    let conn = parse_config_file(config_file)?;
-    let subscription = Subscription {
+    let (conn, link_id) = parse_config_file_with_link_id(config_file)?;
+    let route = Route {
         component_0: org,
         component_1: ns,
         component_2: agent_type,
         id: Some(agent_id),
-        connection_id: conn.connection_id.clone(),
         node_id: None,
-        link_id: None,
+        link_id: Some(link_id),
         direction: None,
     };
     let msg = ControlMessage {
@@ -196,8 +182,9 @@ async fn route_add(route: &str, via: &str, config_file: &str, opts: &ResolvedOpt
         payload: Some(Payload::ConfigCommand(ConfigurationCommand {
             connections_to_create: vec![conn],
             connections_to_delete: vec![],
-            subscriptions_to_set: vec![subscription],
-            subscriptions_to_delete: vec![],
+            routes_to_set: vec![route],
+            routes_to_delete: vec![],
+            reconcile: false,
         })),
     };
     let mut client = get_controller_client(opts).await?;
@@ -211,22 +198,19 @@ async fn route_add(route: &str, via: &str, config_file: &str, opts: &ResolvedOpt
             if let Some(Payload::ConfigCommandAck(a)) = ack_msg.payload {
                 for cs in &a.connections_status {
                     if cs.success {
-                        println!("connection successfully applied: {}", cs.connection_id);
+                        println!("connection successfully applied: {}", cs.link_id);
                     } else {
                         println!(
                             "failed to create connection {}: {}",
-                            cs.connection_id, cs.error_msg
+                            cs.link_id, cs.error_msg
                         );
                     }
                 }
-                for ss in &a.subscriptions_status {
+                for ss in &a.routes_status {
                     if ss.success {
-                        println!("route added successfully: {:?}", ss.subscription);
+                        println!("route added successfully: {:?}", ss.route);
                     } else {
-                        println!(
-                            "failed to add route {:?}: {}",
-                            ss.subscription, ss.error_msg
-                        );
+                        println!("failed to add route {:?}: {}", ss.route, ss.error_msg);
                     }
                 }
             } else {
@@ -237,20 +221,24 @@ async fn route_add(route: &str, via: &str, config_file: &str, opts: &ResolvedOpt
     Ok(())
 }
 
-async fn route_del(route: &str, via: &str, endpoint: &str, opts: &ResolvedOpts) -> Result<()> {
+async fn route_del(route: &str, via: &str, destination: &str, opts: &ResolvedOpts) -> Result<()> {
     if !via.eq_ignore_ascii_case(VIA_KEYWORD) {
         bail!("invalid syntax: expected 'via' keyword, got '{}'", via);
     }
     let (org, ns, agent_type, agent_id) = parse_route(route)?;
-    let (_, conn_id) = parse_endpoint(endpoint)?;
-    let subscription = Subscription {
+    let link_id = if destination.ends_with(".json") {
+        let (_, lid) = parse_config_file_with_link_id(destination)?;
+        lid
+    } else {
+        destination.to_string()
+    };
+    let route = Route {
         component_0: org,
         component_1: ns,
         component_2: agent_type,
         id: Some(agent_id),
-        connection_id: conn_id,
         node_id: None,
-        link_id: None,
+        link_id: Some(link_id),
         direction: None,
     };
     let msg = ControlMessage {
@@ -258,8 +246,9 @@ async fn route_del(route: &str, via: &str, endpoint: &str, opts: &ResolvedOpts) 
         payload: Some(Payload::ConfigCommand(ConfigurationCommand {
             connections_to_create: vec![],
             connections_to_delete: vec![],
-            subscriptions_to_set: vec![],
-            subscriptions_to_delete: vec![subscription],
+            routes_to_set: vec![],
+            routes_to_delete: vec![route],
+            reconcile: false,
         })),
     };
     let mut client = get_controller_client(opts).await?;
@@ -271,14 +260,11 @@ async fn route_del(route: &str, via: &str, endpoint: &str, opts: &ResolvedOpts) 
         Ok(Some(Err(e))) => bail!("error receiving ACK: {}", e),
         Ok(Some(Ok(ack_msg))) => {
             if let Some(Payload::ConfigCommandAck(a)) = ack_msg.payload {
-                for ss in &a.subscriptions_status {
+                for ss in &a.routes_status {
                     if ss.success {
-                        println!("route deleted successfully: {:?}", ss.subscription);
+                        println!("route deleted successfully: {:?}", ss.route);
                     } else {
-                        println!(
-                            "failed to delete route {:?}: {}",
-                            ss.subscription, ss.error_msg
-                        );
+                        println!("failed to delete route {:?}: {}", ss.route, ss.error_msg);
                     }
                 }
             } else {
@@ -335,7 +321,7 @@ mod tests {
 
     use crate::config::ResolvedOpts;
     use crate::proto::controller::proto::v1::{
-        ConfigurationCommandAck, ConnectionListResponse, ControlMessage, SubscriptionListResponse,
+        ConfigurationCommandAck, ConnectionListResponse, ControlMessage, RouteListResponse,
         control_message::Payload,
         controller_service_server::{ControllerService, ControllerServiceServer},
     };
@@ -367,8 +353,8 @@ mod tests {
                 .map_err(|e| tonic::Status::internal(e.to_string()))?;
 
             let resp_payload = match msg.payload {
-                Some(Payload::SubscriptionListRequest(_)) => {
-                    Payload::SubscriptionListResponse(SubscriptionListResponse {
+                Some(Payload::RouteListRequest(_)) => {
+                    Payload::RouteListResponse(RouteListResponse {
                         original_message_id: msg.message_id.clone(),
                         entries: vec![],
                         done: true,
@@ -385,7 +371,7 @@ mod tests {
                     Payload::ConfigCommandAck(ConfigurationCommandAck {
                         original_message_id: msg.message_id.clone(),
                         connections_status: vec![],
-                        subscriptions_status: vec![],
+                        routes_status: vec![],
                     })
                 }
                 _ => return Err(tonic::Status::invalid_argument("unknown message type")),
@@ -555,7 +541,7 @@ mod tests {
             request: tonic::Request<tonic::Streaming<ControlMessage>>,
         ) -> Result<tonic::Response<Self::OpenControlChannelStream>, tonic::Status> {
             use crate::proto::controller::proto::v1::{
-                ConfigurationCommandAck, ConnectionAck, SubscriptionAck,
+                ConfigurationCommandAck, ConnectionAck, RouteAck,
             };
             let mut stream = request.into_inner();
             let msg = stream
@@ -567,14 +553,14 @@ mod tests {
             let ack = ConfigurationCommandAck {
                 original_message_id: msg.message_id.clone(),
                 connections_status: vec![ConnectionAck {
-                    connection_id: "c1".to_string(),
+                    link_id: "c1".to_string(),
                     success: false,
                     error_msg: "connection failed".to_string(),
                 }],
-                subscriptions_status: vec![SubscriptionAck {
-                    subscription: None,
+                routes_status: vec![RouteAck {
+                    route: None,
                     success: false,
-                    error_msg: "subscription failed".to_string(),
+                    error_msg: "route failed".to_string(),
                 }],
             };
             let resp = ControlMessage {
@@ -604,12 +590,10 @@ mod tests {
             &self,
             _request: tonic::Request<tonic::Streaming<ControlMessage>>,
         ) -> Result<tonic::Response<Self::OpenControlChannelStream>, tonic::Status> {
-            use crate::proto::controller::proto::v1::SubscriptionListResponse;
+            use crate::proto::controller::proto::v1::RouteListResponse;
             let resp = ControlMessage {
                 message_id: uuid::Uuid::new_v4().to_string(),
-                payload: Some(Payload::SubscriptionListResponse(
-                    SubscriptionListResponse::default(),
-                )),
+                payload: Some(Payload::RouteListResponse(RouteListResponse::default())),
             };
             Ok(tonic::Response::new(Box::pin(tokio_stream::once(Ok(resp)))))
         }

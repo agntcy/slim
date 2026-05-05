@@ -38,9 +38,7 @@ pub struct AddRouteRequest {
         super::super::super::controller::proto::v1::Connection,
     >,
     #[prost(message, optional, tag = "2")]
-    pub subscription: ::core::option::Option<
-        super::super::super::controller::proto::v1::Subscription,
-    >,
+    pub route: ::core::option::Option<super::super::super::controller::proto::v1::Route>,
     #[prost(string, tag = "3")]
     pub node_id: ::prost::alloc::string::String,
     /// optional
@@ -57,9 +55,7 @@ pub struct AddRouteResponse {
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DeleteRouteRequest {
     #[prost(message, optional, tag = "1")]
-    pub subscription: ::core::option::Option<
-        super::super::super::controller::proto::v1::Subscription,
-    >,
+    pub route: ::core::option::Option<super::super::super::controller::proto::v1::Route>,
     #[prost(string, tag = "2")]
     pub node_id: ::prost::alloc::string::String,
     /// optional
@@ -415,12 +411,12 @@ pub mod control_plane_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        pub async fn list_subscriptions(
+        pub async fn list_node_routes(
             &mut self,
             request: impl tonic::IntoRequest<super::Node>,
         ) -> std::result::Result<
             tonic::Response<
-                super::super::super::super::controller::proto::v1::SubscriptionListResponse,
+                super::super::super::super::controller::proto::v1::RouteListResponse,
             >,
             tonic::Status,
         > {
@@ -434,14 +430,14 @@ pub mod control_plane_service_client {
                 })?;
             let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/controlplane.proto.v1.ControlPlaneService/ListSubscriptions",
+                "/controlplane.proto.v1.ControlPlaneService/ListNodeRoutes",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
                         "controlplane.proto.v1.ControlPlaneService",
-                        "ListSubscriptions",
+                        "ListNodeRoutes",
                     ),
                 );
             self.inner.unary(req, path, codec).await
@@ -595,12 +591,12 @@ pub mod control_plane_service_server {
             tonic::Response<super::DeleteRouteResponse>,
             tonic::Status,
         >;
-        async fn list_subscriptions(
+        async fn list_node_routes(
             &self,
             request: tonic::Request<super::Node>,
         ) -> std::result::Result<
             tonic::Response<
-                super::super::super::super::controller::proto::v1::SubscriptionListResponse,
+                super::super::super::super::controller::proto::v1::RouteListResponse,
             >,
             tonic::Status,
         >;
@@ -813,12 +809,12 @@ pub mod control_plane_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/controlplane.proto.v1.ControlPlaneService/ListSubscriptions" => {
+                "/controlplane.proto.v1.ControlPlaneService/ListNodeRoutes" => {
                     #[allow(non_camel_case_types)]
-                    struct ListSubscriptionsSvc<T: ControlPlaneService>(pub Arc<T>);
+                    struct ListNodeRoutesSvc<T: ControlPlaneService>(pub Arc<T>);
                     impl<T: ControlPlaneService> tonic::server::UnaryService<super::Node>
-                    for ListSubscriptionsSvc<T> {
-                        type Response = super::super::super::super::controller::proto::v1::SubscriptionListResponse;
+                    for ListNodeRoutesSvc<T> {
+                        type Response = super::super::super::super::controller::proto::v1::RouteListResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -829,7 +825,7 @@ pub mod control_plane_service_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ControlPlaneService>::list_subscriptions(
+                                <T as ControlPlaneService>::list_node_routes(
                                         &inner,
                                         request,
                                     )
@@ -844,7 +840,7 @@ pub mod control_plane_service_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = ListSubscriptionsSvc(inner);
+                        let method = ListNodeRoutesSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

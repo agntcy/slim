@@ -13,7 +13,7 @@ use crate::config::ReconcilerConfig;
 use crate::error::{Error, Result};
 
 use crate::api::proto::controller::proto::v1::{
-    Connection, ControlMessage, DesiredState, Subscription, control_message::Payload,
+    ConfigurationCommand, Connection, ControlMessage, Route, control_message::Payload,
 };
 use crate::db::{LinkStatus, RouteStatus, SharedDb};
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus, ResponseKind};
@@ -103,18 +103,15 @@ async fn handle_request(
         return Ok(());
     }
 
-    let links = db.get_links_for_node(node_id).await;
-    let routes = db.get_routes_for_node_id(node_id).await;
+    let mut links = db.get_links_for_node(node_id).await;
+    let routes = db.get_routes_for_node(node_id).await;
 
     let (desired_connections, desired_link_ids, deleted_links) =
-        build_desired_connections(&links, node_id);
-    let (desired_subscriptions, included_routes, mut needs_requeue) =
-        build_desired_subscriptions(db, &routes, node_id).await;
+        build_desired_connections(&mut links, node_id)?;
+    let (desired_routes, included_routes, mut needs_requeue) =
+        build_desired_routes(db, &routes, node_id).await;
 
-    if desired_connections.is_empty()
-        && desired_subscriptions.is_empty()
-        && deleted_links.is_empty()
-    {
+    if desired_connections.is_empty() && desired_routes.is_empty() && deleted_links.is_empty() {
         if needs_requeue {
             queue.add_after(node_id.to_string(), Duration::from_secs(5));
         }
@@ -122,17 +119,20 @@ async fn handle_request(
     }
 
     tracing::info!(
-        "reconciler: sending desired state to node {node_id}: {} connections, {} subscriptions",
+        "reconciler: sending desired state to node {node_id}: {} connections, {} routes",
         desired_connections.len(),
-        desired_subscriptions.len(),
+        desired_routes.len(),
     );
 
     let message_id = Uuid::new_v4().to_string();
     let msg = ControlMessage {
         message_id: message_id.clone(),
-        payload: Some(Payload::DesiredState(DesiredState {
-            desired_connections,
-            desired_subscriptions,
+        payload: Some(Payload::ConfigCommand(ConfigurationCommand {
+            connections_to_create: desired_connections,
+            routes_to_set: desired_routes,
+            routes_to_delete: vec![],
+            connections_to_delete: vec![],
+            reconcile: true,
         })),
     };
 
@@ -157,7 +157,7 @@ async fn handle_request(
         tracing::info!("reconciler: deleted link record for {}", link.link_id);
     }
 
-    if process_subscription_acks(db, &ack, &included_routes, node_id).await? {
+    if process_route_acks(db, &ack, &included_routes, node_id).await? {
         needs_requeue = true;
     }
 
@@ -178,9 +178,9 @@ async fn handle_request(
 // ── Build desired connections from links ───────────────────────────────────
 
 fn build_desired_connections(
-    links: &[crate::db::Link],
+    links: &mut [crate::db::Link],
     node_id: &str,
-) -> (Vec<Connection>, HashSet<String>, Vec<crate::db::Link>) {
+) -> Result<(Vec<Connection>, HashSet<String>, Vec<crate::db::Link>)> {
     let mut desired_connections: Vec<Connection> = Vec::new();
     let mut desired_link_ids: HashSet<String> = HashSet::new();
     let mut deleted_links: Vec<crate::db::Link> = Vec::new();
@@ -197,32 +197,28 @@ fn build_desired_connections(
             continue;
         }
         desired_link_ids.insert(link.link_id.clone());
-        let mut config = link.conn_config_data.clone();
+        let config = &mut link.conn_config_data;
         if config.link_id.is_empty() {
             config.link_id = link.link_id.clone();
         }
-        let config_data = serde_json::to_string(&config).unwrap_or_default();
+        let config_data = serde_json::to_string(config)?;
         desired_connections.push(Connection {
-            connection_id: link.link_id.clone(),
+            link_id: link.link_id.clone(),
             config_data,
         });
     }
 
-    (desired_connections, desired_link_ids, deleted_links)
+    Ok((desired_connections, desired_link_ids, deleted_links))
 }
 
-// ── Build desired subscriptions from routes ────────────────────────────────
+// ── Build desired routes ───────────────────────────────────────────────────
 
-async fn build_desired_subscriptions<'a>(
+async fn build_desired_routes<'a>(
     db: &SharedDb,
     routes: &'a [crate::db::Route],
     _node_id: &str,
-) -> (
-    Vec<Subscription>,
-    HashMap<SubKey, &'a crate::db::Route>,
-    bool,
-) {
-    let mut desired_subscriptions: Vec<Subscription> = Vec::new();
+) -> (Vec<Route>, HashMap<SubKey, &'a crate::db::Route>, bool) {
+    let mut desired_routes: Vec<Route> = Vec::new();
     let mut included_routes: HashMap<SubKey, &crate::db::Route> = HashMap::new();
     let mut needs_requeue = false;
 
@@ -231,9 +227,10 @@ async fn build_desired_subscriptions<'a>(
             continue;
         }
 
-        let link_id = route.link_id.clone();
+        let link_id = &route.link_id;
 
         if link_id.is_empty() {
+            // Empty link_id, try to find a link in the database
             match db
                 .find_link_between_nodes(&route.source_node_id, &route.dest_node_id)
                 .await
@@ -260,16 +257,16 @@ async fn build_desired_subscriptions<'a>(
         }
 
         if let Some(l) = db
-            .get_link(&link_id, &route.source_node_id, &route.dest_node_id)
+            .get_link(link_id, &route.source_node_id, &route.dest_node_id)
             .await
         {
             if l.status == LinkStatus::Failed {
                 let msg = if l.status_msg.is_empty() {
-                    "link configuration failed".to_string()
+                    "link configuration failed"
                 } else {
-                    l.status_msg.clone()
+                    &l.status_msg
                 };
-                if let Err(e) = db.mark_route_failed(&route.id, &msg).await {
+                if let Err(e) = db.mark_route_failed(&route.id, msg).await {
                     tracing::warn!(
                         "reconciler: failed to mark route {} as failed: {e}",
                         route.id
@@ -285,8 +282,7 @@ async fn build_desired_subscriptions<'a>(
             continue;
         }
 
-        let sub = Subscription {
-            connection_id: link_id.clone(),
+        let sub = Route {
             component_0: route.component0.clone(),
             component_1: route.component1.clone(),
             component_2: route.component2.clone(),
@@ -308,10 +304,10 @@ async fn build_desired_subscriptions<'a>(
             link_id.clone(),
         );
         included_routes.insert(key, route);
-        desired_subscriptions.push(sub);
+        desired_routes.push(sub);
     }
 
-    (desired_subscriptions, included_routes, needs_requeue)
+    (desired_routes, included_routes, needs_requeue)
 }
 
 // ── Process connection ACKs ────────────────────────────────────────────────
@@ -328,7 +324,7 @@ async fn process_connection_acks(
     let mut conn_ack_status: HashMap<String, (bool, String)> = HashMap::new();
     for conn_ack in &ack.connections_status {
         conn_ack_status.insert(
-            conn_ack.connection_id.clone(),
+            conn_ack.link_id.clone(),
             (conn_ack.success, conn_ack.error_msg.clone()),
         );
     }
@@ -386,9 +382,9 @@ async fn process_connection_acks(
     Ok(enqueue_nodes)
 }
 
-// ── Process subscription ACKs ──────────────────────────────────────────────
+// ── Process route ACKs ─────────────────────────────────────────────────────
 
-async fn process_subscription_acks(
+async fn process_route_acks(
     db: &SharedDb,
     ack: &crate::api::proto::controller::proto::v1::ConfigurationCommandAck,
     included_routes: &HashMap<SubKey, &crate::db::Route>,
@@ -396,8 +392,8 @@ async fn process_subscription_acks(
 ) -> Result<bool> {
     let mut needs_requeue = false;
 
-    for sub_ack in &ack.subscriptions_status {
-        let sub = match &sub_ack.subscription {
+    for route_ack in &ack.routes_status {
+        let sub = match &route_ack.route {
             Some(s) => s,
             None => continue,
         };
@@ -418,7 +414,7 @@ async fn process_subscription_acks(
                     match db
                         .get_route_for_src_dest_name(
                             node_id,
-                            &crate::db::SubscriptionName {
+                            &crate::db::RouteName {
                                 component0: &sub.component_0,
                                 component1: &sub.component_1,
                                 component2: &sub.component_2,
@@ -431,25 +427,22 @@ async fn process_subscription_acks(
                     {
                         Some(r) => r,
                         None => {
-                            tracing::warn!(
-                                "reconciler: no route found for subscription ack: {:?}",
-                                sub
-                            );
+                            tracing::warn!("reconciler: no route found for route ack: {:?}", sub);
                             continue;
                         }
                     }
                 } else {
-                    tracing::warn!("reconciler: no route found for subscription ack: {:?}", sub);
+                    tracing::warn!("reconciler: no route found for route ack: {:?}", sub);
                     continue;
                 }
             }
         };
 
-        if sub_ack.success {
+        if route_ack.success {
             db.mark_route_applied(&route.id).await?;
             tracing::debug!("reconciler: marked route {} as applied", route.id);
         } else {
-            let err_msg = sub_ack.error_msg.clone();
+            let err_msg = route_ack.error_msg.clone();
 
             if !route.link_id.is_empty() && is_connection_not_found(&err_msg) {
                 tracing::warn!(

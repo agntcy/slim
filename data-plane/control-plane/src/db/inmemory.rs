@@ -10,7 +10,7 @@ use uuid::Uuid;
 use async_trait::async_trait;
 
 use super::model::{
-    ALL_NODES_ID, Link, LinkStatus, Node, Route, RouteStatus, SubscriptionName,
+    ALL_NODES_ID, Link, LinkStatus, Node, Route, RouteName, RouteStatus,
     has_connection_details_changed,
 };
 use super::{DataAccess, SharedDb};
@@ -269,7 +269,7 @@ impl DataAccess for InMemoryDb {
         self.routes.read().primary.get(route_id).cloned()
     }
 
-    async fn get_routes_for_node_id(&self, node_id: &str) -> Vec<Route> {
+    async fn get_routes_for_node(&self, node_id: &str) -> Vec<Route> {
         let store = self.routes.read();
         store
             .by_src
@@ -328,7 +328,7 @@ impl DataAccess for InMemoryDb {
     async fn get_route_for_src_dest_name(
         &self,
         src_node_id: &str,
-        name: &SubscriptionName<'_>,
+        name: &RouteName<'_>,
         dest_node_id: &str,
         link_id: &str,
     ) -> Option<Route> {
@@ -738,7 +738,7 @@ impl DataAccess for InMemoryDb {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::{ConnectionDetails, LinkStatus, RouteStatus, SubscriptionName};
+    use crate::db::{ConnectionDetails, LinkStatus, RouteName, RouteStatus};
     use std::time::SystemTime;
 
     fn db() -> InMemoryDb {
@@ -878,7 +878,7 @@ mod tests {
         db.add_route(make_route("other", "dst", "lnk2"))
             .await
             .unwrap();
-        let routes = db.get_routes_for_node_id("src").await;
+        let routes = db.get_routes_for_node("src").await;
         assert_eq!(routes.len(), 1);
         assert_eq!(routes[0].source_node_id, "src");
     }
@@ -914,7 +914,7 @@ mod tests {
     async fn get_route_for_src_dest_name() {
         let db = db();
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
-        let name = SubscriptionName {
+        let name = RouteName {
             component0: "org",
             component1: "ns",
             component2: "svc",
@@ -931,7 +931,7 @@ mod tests {
     async fn get_route_for_src_dest_name_empty_filters() {
         let db = db();
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
-        let name = SubscriptionName {
+        let name = RouteName {
             component0: "org",
             component1: "ns",
             component2: "svc",
@@ -1169,7 +1169,7 @@ mod tests {
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
         db.delete_route(&r.id).await.unwrap();
         // Index should no longer return this route.
-        assert!(db.get_routes_for_node_id("src").await.is_empty());
+        assert!(db.get_routes_for_node("src").await.is_empty());
         assert!(db.get_routes_for_dest_node_id("dst").await.is_empty());
         assert!(db.get_routes_by_link_id("lnk").await.is_empty());
     }

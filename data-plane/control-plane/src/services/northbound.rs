@@ -1,12 +1,12 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use prost_types::{Struct, Value, value::Kind};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
 use crate::api::proto::controller::proto::v1::{
-    ConnectionDetails, ConnectionListResponse, SubscriptionListResponse,
+    ConnectionDetails, ConnectionListResponse, RouteListResponse as NodeRouteListResponse,
+    connection_details::SpireMtls,
 };
 use crate::api::proto::controlplane::proto::v1::{
     AddRouteRequest, AddRouteResponse, DeleteRouteRequest, DeleteRouteResponse, LinkEntry,
@@ -73,25 +73,15 @@ impl ControlPlaneService for NorthboundApiService {
                     .conn_details
                     .iter()
                     .map(|cd| {
-                        let mut metadata = None;
-                        if let Some(ref ee) = cd.external_endpoint
-                            && !ee.is_empty()
-                        {
-                            let mut fields = std::collections::BTreeMap::new();
-                            fields.insert(
-                                "external_endpoint".to_string(),
-                                Value {
-                                    kind: Some(Kind::StringValue(ee.clone())),
-                                },
-                            );
-                            metadata = Some(Struct { fields });
-                        }
+                        let spire_mtls = cd.spire_mtls.as_ref().map(|s| SpireMtls {
+                            socket_path: s.socket_path.clone(),
+                            trust_domain: s.trust_domain.clone(),
+                        });
                         ConnectionDetails {
                             endpoint: cd.endpoint.clone(),
-                            mtls_required: cd.spire_mtls.is_some(),
-                            metadata,
-                            auth: None,
-                            tls: None,
+                            external_endpoint: cd.external_endpoint.clone(),
+                            spire_mtls,
+                            metadata: None,
                         }
                     })
                     .collect();
@@ -110,10 +100,10 @@ impl ControlPlaneService for NorthboundApiService {
         Ok(Response::new(ReceiverStream::new(rx)))
     }
 
-    async fn list_subscriptions(
+    async fn list_node_routes(
         &self,
         request: Request<crate::api::proto::controlplane::proto::v1::Node>,
-    ) -> Result<Response<SubscriptionListResponse>, Status> {
+    ) -> Result<Response<NodeRouteListResponse>, Status> {
         let node_id = request.into_inner().id;
         let node = self
             .db
@@ -122,7 +112,7 @@ impl ControlPlaneService for NorthboundApiService {
             .ok_or_else(|| Status::not_found(format!("node {node_id} not found")))?;
 
         self.route_service
-            .list_subscriptions(&node.id)
+            .list_node_routes(&node.id)
             .await
             .map(Response::new)
             .map_err(|e| Status::internal(e.to_string()))
@@ -164,7 +154,7 @@ impl ControlPlaneService for NorthboundApiService {
             Status::not_found(format!("invalid destination nodeID: {}", req.dest_node_id))
         })?;
 
-        let sub = req.subscription.unwrap_or_default();
+        let sub = req.route.unwrap_or_default();
         let route = crate::route_service::Route {
             source_node_id: req.node_id,
             dest_node_id: req.dest_node_id,
@@ -203,7 +193,7 @@ impl ControlPlaneService for NorthboundApiService {
             return Err(Status::invalid_argument("destNodeId must be provided"));
         }
 
-        let sub = req.subscription.unwrap_or_default();
+        let sub = req.route.unwrap_or_default();
         let route = crate::route_service::Route {
             source_node_id: req.node_id,
             dest_node_id: req.dest_node_id,

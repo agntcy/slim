@@ -235,17 +235,17 @@ pub fn has_connection_details_changed(
     false
 }
 
-/// Groups the four subscription-name components used in route lookups.
-pub struct SubscriptionName<'a> {
+/// Groups the four route-name components used in route lookups.
+pub struct RouteName<'a> {
     pub component0: &'a str,
     pub component1: &'a str,
     pub component2: &'a str,
     pub component_id: Option<i64>,
 }
 
-impl<'a> From<&'a Route> for SubscriptionName<'a> {
+impl<'a> From<&'a Route> for RouteName<'a> {
     fn from(r: &'a Route) -> Self {
-        SubscriptionName {
+        RouteName {
             component0: &r.component0,
             component1: &r.component1,
             component2: &r.component2,
@@ -530,12 +530,12 @@ mod tests {
         assert!(s.contains("Applied"));
     }
 
-    // ── SubscriptionName From<&Route> ──────────────────────────────────────
+    // ── RouteName From<&Route> ──────────────────────────────────────
 
     #[test]
     fn subscription_name_from_route() {
         let r = make_route("src", "dst", "lnk");
-        let sn = SubscriptionName::from(&r);
+        let sn = RouteName::from(&r);
         assert_eq!(sn.component0, "org");
         assert_eq!(sn.component1, "ns");
         assert_eq!(sn.component2, "type");

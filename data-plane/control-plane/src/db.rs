@@ -29,7 +29,7 @@ pub trait DataAccess: Send + Sync {
 
     async fn add_route(&self, route: Route) -> Result<Route>;
     async fn get_route_by_id(&self, route_id: &str) -> Option<Route>;
-    async fn get_routes_for_node_id(&self, node_id: &str) -> Vec<Route>;
+    async fn get_routes_for_node(&self, node_id: &str) -> Vec<Route>;
     async fn get_routes_for_dest_node_id(&self, node_id: &str) -> Vec<Route>;
     async fn get_routes_for_dest_node_id_and_name(
         &self,
@@ -42,7 +42,7 @@ pub trait DataAccess: Send + Sync {
     async fn get_route_for_src_dest_name(
         &self,
         src_node_id: &str,
-        name: &SubscriptionName<'_>,
+        name: &RouteName<'_>,
         dest_node_id: &str,
         link_id: &str,
     ) -> Option<Route>;

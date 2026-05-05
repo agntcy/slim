@@ -11,7 +11,7 @@ option go_package = "github.com/agntcy/slim/control-plane/common/proto/controlpl
 service ControlPlaneService {
   rpc AddRoute(AddRouteRequest) returns (AddRouteResponse) {}
   rpc DeleteRoute(DeleteRouteRequest) returns (DeleteRouteResponse) {}
-  rpc ListSubscriptions(Node) returns (controller.proto.v1.SubscriptionListResponse) {}
+  rpc ListNodeRoutes(Node) returns (controller.proto.v1.RouteListResponse) {}
   rpc ListConnections(Node) returns (controller.proto.v1.ConnectionListResponse) {}
   rpc ListNodes(NodeListRequest) returns (stream NodeEntry) {}
 
@@ -52,7 +52,7 @@ message NodeListResponse {
 
 message AddRouteRequest {
   controller.proto.v1.Connection connection = 1;
-  controller.proto.v1.Subscription subscription = 2;
+  controller.proto.v1.Route route = 2;
   string nodeId = 3;
   string destNodeId = 4; // optional
 }
@@ -63,7 +63,7 @@ message AddRouteResponse {
 }
 
 message DeleteRouteRequest {
-  controller.proto.v1.Subscription subscription = 1;
+  controller.proto.v1.Route route = 1;
   string nodeId = 2;
   string destNodeId = 3; // optional
 }

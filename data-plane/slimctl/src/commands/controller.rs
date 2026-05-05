@@ -7,13 +7,13 @@ use tokio_stream::StreamExt;
 
 use crate::client::get_control_plane_client;
 use crate::config::ResolvedOpts;
-use crate::proto::controller::proto::v1::{Connection, Subscription};
+use crate::proto::controller::proto::v1::{Connection, Route};
 use crate::proto::controlplane::proto::v1::{
     AddRouteRequest, DeleteRouteRequest, LinkEntry, LinkListRequest, LinkStatus, Node,
     NodeListRequest, RouteEntry, RouteListRequest, RouteStatus,
 };
 use crate::rpc;
-use crate::utils::{VIA_KEYWORD, is_endpoint, parse_config_file, parse_endpoint, parse_route};
+use crate::utils::{VIA_KEYWORD, parse_config_file, parse_route};
 
 #[derive(Args)]
 pub struct ControllerArgs {
@@ -79,7 +79,7 @@ pub struct ControllerRouteArgs {
 
 #[derive(Subcommand)]
 pub enum ControllerRouteCommand {
-    /// List subscriptions on a node
+    /// List routes on a node
     #[command(alias = "ls")]
     List {
         /// ID of the node to manage routes for
@@ -212,13 +212,14 @@ async fn node_list(opts: &ResolvedOpts) -> Result<()> {
             println!("  Connection details:");
             for conn in &node.connections {
                 println!("  - Endpoint: {}", conn.endpoint);
-                println!("    MtlsRequired: {}", conn.mtls_required);
-                if let Some(meta) = &conn.metadata
-                    && let Some(ext) = meta.fields.get("external_endpoint")
-                    && let Some(prost_types::value::Kind::StringValue(val)) = &ext.kind
-                    && !val.is_empty()
-                {
-                    println!("    ExternalEndpoint: {}", val);
+                if let Some(ref ee) = conn.external_endpoint {
+                    println!("    ExternalEndpoint: {}", ee);
+                }
+                if let Some(ref spire) = conn.spire_mtls {
+                    println!("    SpireMtls: socket={}", spire.socket_path);
+                    if let Some(ref td) = spire.trust_domain {
+                        println!("              trust_domain={}", td);
+                    }
                 }
             }
         } else {
@@ -262,35 +263,30 @@ async fn route_list(node_id: &str, opts: &ResolvedOpts) -> Result<()> {
     println!("Listing routes for node ID: {}", node_id);
     let resp = rpc!(
         client,
-        list_subscriptions,
+        list_node_routes,
         Node {
             id: node_id.to_string()
         },
         opts
     );
-    println!(
-        "Received subscription list response: {}",
-        resp.entries.len()
-    );
+    println!("Received route list response: {}", resp.entries.len());
     for e in &resp.entries {
-        let local_names: Vec<String> = e
-            .local_connections
-            .iter()
-            .map(|c| format!("local:{}:{:?}:{}", c.id, c.link_id, c.config_data))
-            .collect();
-        let remote_names: Vec<String> = e
-            .remote_connections
+        let conn_names: Vec<String> = e
+            .connections
             .iter()
             .map(|c| {
                 format!(
-                    "remote:{:?}:{:?}:{}:{}",
-                    c.connection_type, c.link_id, c.config_data, c.id
+                    "{}:{}:{:?}:{}",
+                    c.connection_type().as_str_name(),
+                    c.id,
+                    c.link_id,
+                    c.config_data
                 )
             })
             .collect();
         println!(
-            "{}/{}/{} id={:?} local={:?} remote={:?}",
-            e.component_0, e.component_1, e.component_2, e.id, local_names, remote_names
+            "{}/{}/{} id={:?} connections={:?}",
+            e.component_0, e.component_1, e.component_2, e.id, conn_names
         );
     }
     Ok(())
@@ -309,12 +305,11 @@ async fn route_add(
     println!("Add route for node ID: {}", node_id);
     let (org, ns, agent_type, agent_id) = parse_route(route)?;
 
-    let mut subscription = Subscription {
+    let route = Route {
         component_0: org,
         component_1: ns,
         component_2: agent_type,
         id: Some(agent_id),
-        connection_id: String::new(),
         node_id: None,
         link_id: None,
         direction: None,
@@ -322,9 +317,8 @@ async fn route_add(
 
     let (cp_connection, final_dest_node) = if std::path::Path::new(destination).exists() {
         let conn = parse_config_file(destination)?;
-        subscription.connection_id = conn.connection_id.clone();
         let cp_conn = Connection {
-            connection_id: conn.connection_id.clone(),
+            link_id: conn.link_id.clone(),
             config_data: conn.config_data.clone(),
         };
         (Some(cp_conn), String::new())
@@ -338,7 +332,7 @@ async fn route_add(
         add_route,
         AddRouteRequest {
             node_id: node_id.to_string(),
-            subscription: Some(subscription),
+            route: Some(route),
             connection: cp_connection,
             dest_node_id: final_dest_node,
         },
@@ -364,31 +358,21 @@ async fn route_del(
     println!("Delete route for node ID: {}", node_id);
     let (org, ns, agent_type, agent_id) = parse_route(route)?;
 
-    let mut subscription = Subscription {
+    let route = Route {
         component_0: org,
         component_1: ns,
         component_2: agent_type,
         id: Some(agent_id),
-        connection_id: String::new(),
         node_id: None,
         link_id: None,
         direction: None,
     };
 
-    let mut req = DeleteRouteRequest {
+    let req = DeleteRouteRequest {
         node_id: node_id.to_string(),
-        subscription: Some(subscription.clone()),
-        dest_node_id: String::new(),
+        route: Some(route),
+        dest_node_id: destination.to_string(),
     };
-
-    if is_endpoint(destination) {
-        let (_, conn_id) = parse_endpoint(destination)
-            .map_err(|e| anyhow::anyhow!("invalid endpoint '{}': {}", destination, e))?;
-        subscription.connection_id = conn_id;
-        req.subscription = Some(subscription);
-    } else {
-        req.dest_node_id = destination.to_string();
-    }
 
     let mut client = get_control_plane_client(opts).await?;
     let resp = rpc!(client, delete_route, req, opts);
@@ -733,7 +717,7 @@ mod tests {
         let cells = route_cells(&r);
         assert_eq!(cells[0], "src-node"); // source
         assert_eq!(cells[1], "dst-node"); // dest node
-        assert_eq!(cells[2], "org/ns/agent/7"); // subscription
+        assert_eq!(cells[2], "org/ns/agent/7"); // route
         assert_eq!(cells[3], "APPLIED"); // status
         assert_eq!(cells[4], "apply succeeded"); // status msg
     }
@@ -862,9 +846,7 @@ mod tests {
         use tokio_stream::wrappers::TcpListenerStream;
 
         use crate::config::ResolvedOpts;
-        use crate::proto::controller::proto::v1::{
-            ConnectionListResponse, SubscriptionListResponse,
-        };
+        use crate::proto::controller::proto::v1::{ConnectionListResponse, RouteListResponse};
         use crate::proto::controlplane::proto::v1::{
             AddRouteRequest, AddRouteResponse, DeleteRouteRequest, DeleteRouteResponse, LinkEntry,
             LinkListRequest, Node as CpNode, NodeEntry, NodeListRequest, RouteEntry,
@@ -911,11 +893,11 @@ mod tests {
                 Ok(tonic::Response::new(DeleteRouteResponse { success: true }))
             }
 
-            async fn list_subscriptions(
+            async fn list_node_routes(
                 &self,
                 _req: tonic::Request<CpNode>,
-            ) -> Result<tonic::Response<SubscriptionListResponse>, tonic::Status> {
-                Ok(tonic::Response::new(SubscriptionListResponse {
+            ) -> Result<tonic::Response<RouteListResponse>, tonic::Status> {
+                Ok(tonic::Response::new(RouteListResponse {
                     original_message_id: String::new(),
                     entries: vec![],
                     done: true,
@@ -1066,10 +1048,10 @@ mod tests {
             ) -> Result<tonic::Response<DeleteRouteResponse>, tonic::Status> {
                 Err(tonic::Status::internal("error"))
             }
-            async fn list_subscriptions(
+            async fn list_node_routes(
                 &self,
                 _: tonic::Request<CpNode>,
-            ) -> Result<tonic::Response<SubscriptionListResponse>, tonic::Status> {
+            ) -> Result<tonic::Response<RouteListResponse>, tonic::Status> {
                 Err(tonic::Status::internal("error"))
             }
             async fn list_connections(
@@ -1127,11 +1109,11 @@ mod tests {
             ) -> Result<tonic::Response<DeleteRouteResponse>, tonic::Status> {
                 Ok(tonic::Response::new(DeleteRouteResponse { success: true }))
             }
-            async fn list_subscriptions(
+            async fn list_node_routes(
                 &self,
                 _: tonic::Request<CpNode>,
-            ) -> Result<tonic::Response<SubscriptionListResponse>, tonic::Status> {
-                Ok(tonic::Response::new(SubscriptionListResponse {
+            ) -> Result<tonic::Response<RouteListResponse>, tonic::Status> {
+                Ok(tonic::Response::new(RouteListResponse {
                     original_message_id: String::new(),
                     entries: vec![],
                     done: true,

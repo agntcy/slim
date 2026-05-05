@@ -24,10 +24,10 @@ use crate::api::proto::api::v1::control_message::Payload;
 use crate::api::proto::api::v1::controller_service_server::ControllerServiceServer;
 use crate::api::proto::api::v1::{
     self, ConnectionDetails, ConnectionDirection, ConnectionListResponse, ConnectionType,
-    SubscriptionListResponse,
+    RouteListResponse,
 };
 use crate::api::proto::api::v1::{
-    Ack, ConnectionEntry, ControlMessage, SubscriptionEntry,
+    Ack, ConnectionEntry, ControlMessage, RouteEntry,
     controller_service_client::ControllerServiceClient,
     controller_service_server::ControllerService as GrpcControllerService,
 };
@@ -126,10 +126,10 @@ struct ControllerServiceInternal {
     /// connection details used by control plane to store connection settings
     connection_details: Vec<ConnectionDetails>,
 
-    /// Maps (subscription_name, connection_id) → subscription_id for route tracking
+    /// Maps (subscription_name, link_id) → subscription_id for route tracking
     route_subscription_ids: parking_lot::Mutex<HashMap<(Name, u64), u64>>,
 
-    /// Reverse index: link_id → connection_id for O(1) lookup.
+    /// Reverse index: link_id → conn_id for O(1) lookup.
     /// Populated lazily on first resolve and eagerly on connection create/delete.
     link_id_to_conn_id: parking_lot::RwLock<HashMap<String, u64>>,
 
@@ -174,28 +174,72 @@ impl Drop for ControlPlane {
 }
 
 pub(crate) fn from_server_config(server_config: &ServerConfig) -> ConnectionDetails {
-    // Convert metadata from MetadataMap to proto Struct
-    let metadata = server_config.metadata.as_ref().map(|m| {
-        let fields = m
-            .inner
-            .iter()
-            .map(|(k, v)| (k.clone(), prost_types::Value::from(v)))
-            .collect();
-        Struct { fields }
-    });
+    let mut endpoint = server_config.endpoint.clone();
+    let mut external_endpoint = None;
+    let mut spire_socket_path = None;
+    let mut trust_domain = None;
+    let mut remaining_fields = std::collections::BTreeMap::new();
 
-    // Serialize auth config to JSON string
-    let auth = serde_json::to_string(&server_config.auth).ok();
+    if let Some(m) = &server_config.metadata {
+        for (k, v) in &m.inner {
+            match k.as_str() {
+                "local_endpoint" => {
+                    if let Some(s) = v.as_str()
+                        && !s.is_empty()
+                    {
+                        endpoint = s.to_string();
+                    }
+                }
+                "external_endpoint" => {
+                    if let Some(s) = v.as_str()
+                        && !s.is_empty()
+                    {
+                        external_endpoint = Some(s.to_string());
+                    }
+                }
+                "spire_socket_path" => {
+                    if let Some(s) = v.as_str()
+                        && !s.is_empty()
+                    {
+                        spire_socket_path = Some(s.to_string());
+                    }
+                }
+                "trust_domain" => {
+                    if let Some(s) = v.as_str()
+                        && !s.is_empty()
+                    {
+                        trust_domain = Some(s.to_string());
+                    }
+                }
+                _ => {
+                    remaining_fields.insert(k.clone(), prost_types::Value::from(v));
+                }
+            }
+        }
+    }
 
-    // Serialize tls config to JSON string
-    let tls = serde_json::to_string(&server_config.tls_setting.config).ok();
+    let spire_mtls = if !server_config.tls_setting.insecure || spire_socket_path.is_some() {
+        Some(v1::connection_details::SpireMtls {
+            socket_path: spire_socket_path.unwrap_or_default(),
+            trust_domain,
+        })
+    } else {
+        None
+    };
+
+    let metadata = if remaining_fields.is_empty() {
+        None
+    } else {
+        Some(Struct {
+            fields: remaining_fields,
+        })
+    };
 
     ConnectionDetails {
-        endpoint: server_config.endpoint.clone(),
-        mtls_required: !server_config.tls_setting.insecure,
+        endpoint,
+        external_endpoint,
+        spire_mtls,
         metadata,
-        auth,
-        tls,
     }
 }
 
@@ -605,11 +649,8 @@ impl ControllerService {
         Ok(())
     }
 
-    fn resolve_subscription_connection(
-        &self,
-        subscription: &v1::Subscription,
-    ) -> Result<Option<u64>, String> {
-        if let Some(link_id) = &subscription.link_id {
+    fn resolve_route_connection(&self, route: &v1::Route) -> Result<Option<u64>, String> {
+        if let Some(link_id) = &route.link_id {
             let trimmed = link_id.trim();
             if !trimmed.is_empty() {
                 return self.resolve_connection_by_link_id(trimmed);
@@ -619,13 +660,15 @@ impl ControllerService {
         Ok(None)
     }
 
-    async fn diff_connections(&self, desired: &v1::DesiredState) -> Vec<v1::ConnectionAck> {
+    async fn diff_connections(
+        &self,
+        desired_connections: &[v1::Connection],
+    ) -> Vec<v1::ConnectionAck> {
         let mut connections_status = Vec::new();
 
-        let desired_link_ids: std::collections::HashSet<String> = desired
-            .desired_connections
+        let desired_link_ids: std::collections::HashSet<String> = desired_connections
             .iter()
-            .map(|c| c.connection_id.clone())
+            .map(|c| c.link_id.clone())
             .collect();
 
         let mut live_outgoing_link_ids: Vec<String> = Vec::new();
@@ -653,14 +696,14 @@ impl ControllerService {
                 error_msg = err;
             }
             connections_status.push(v1::ConnectionAck {
-                connection_id: link_id.clone(),
+                link_id: link_id.clone(),
                 success,
                 error_msg,
             });
         }
 
-        for conn in &desired.desired_connections {
-            let link_id = &conn.connection_id;
+        for conn in desired_connections {
+            let link_id = &conn.link_id;
             if link_id.is_empty() {
                 continue;
             }
@@ -670,7 +713,7 @@ impl ControllerService {
                 Ok(None) => false,
                 Err(err) => {
                     connections_status.push(v1::ConnectionAck {
-                        connection_id: link_id.clone(),
+                        link_id: link_id.clone(),
                         success: false,
                         error_msg: err,
                     });
@@ -680,7 +723,7 @@ impl ControllerService {
 
             if already_exists {
                 connections_status.push(v1::ConnectionAck {
-                    connection_id: link_id.clone(),
+                    link_id: link_id.clone(),
                     success: true,
                     error_msg: String::new(),
                 });
@@ -729,7 +772,7 @@ impl ControllerService {
             }
 
             connections_status.push(v1::ConnectionAck {
-                connection_id: link_id.clone(),
+                link_id: link_id.clone(),
                 success,
                 error_msg,
             });
@@ -738,19 +781,16 @@ impl ControllerService {
         connections_status
     }
 
-    fn resolve_desired_subscriptions<'a>(
+    fn resolve_desired_routes<'a>(
         &self,
-        desired_subscriptions: &'a [v1::Subscription],
-    ) -> (
-        HashMap<(Name, u64), &'a v1::Subscription>,
-        Vec<v1::SubscriptionAck>,
-    ) {
+        desired_routes: &'a [v1::Route],
+    ) -> (HashMap<(Name, u64), &'a v1::Route>, Vec<v1::RouteAck>) {
         type SubKey = (Name, u64);
-        let mut desired_subs: HashMap<SubKey, &v1::Subscription> = HashMap::new();
-        let mut failures: Vec<v1::SubscriptionAck> = Vec::new();
+        let mut desired_subs: HashMap<SubKey, &v1::Route> = HashMap::new();
+        let mut failures: Vec<v1::RouteAck> = Vec::new();
 
-        for sub in desired_subscriptions {
-            match self.resolve_subscription_connection(sub) {
+        for sub in desired_routes {
+            match self.resolve_route_connection(sub) {
                 Ok(Some(conn_id)) => {
                     let name = Name::from_strings([
                         sub.component_0.as_str(),
@@ -761,15 +801,15 @@ impl ControllerService {
                     desired_subs.insert((name, conn_id), sub);
                 }
                 Ok(None) => {
-                    failures.push(v1::SubscriptionAck {
-                        subscription: Some(sub.clone()),
+                    failures.push(v1::RouteAck {
+                        route: Some(sub.clone()),
                         success: false,
                         error_msg: "connection not found".to_string(),
                     });
                 }
                 Err(err) => {
-                    failures.push(v1::SubscriptionAck {
-                        subscription: Some(sub.clone()),
+                    failures.push(v1::RouteAck {
+                        route: Some(sub.clone()),
                         success: false,
                         error_msg: err,
                     });
@@ -782,8 +822,8 @@ impl ControllerService {
 
     async fn delete_stale_subscriptions(
         &self,
-        desired_subs: &HashMap<(Name, u64), &v1::Subscription>,
-    ) -> Vec<v1::SubscriptionAck> {
+        desired_subs: &HashMap<(Name, u64), &v1::Route>,
+    ) -> Vec<v1::RouteAck> {
         let active_subs: Vec<((Name, u64), u64)> = self
             .inner
             .route_subscription_ids
@@ -836,7 +876,7 @@ impl ControllerService {
 
         let results = futures::future::join_all(futs).await;
 
-        let mut subscriptions_status = Vec::with_capacity(results.len());
+        let mut routes_status = Vec::with_capacity(results.len());
         for (name, conn_id, success, error_msg) in results {
             if success {
                 self.inner
@@ -846,13 +886,12 @@ impl ControllerService {
             }
 
             let components = name.components_strings();
-            subscriptions_status.push(v1::SubscriptionAck {
-                subscription: Some(v1::Subscription {
+            routes_status.push(v1::RouteAck {
+                route: Some(v1::Route {
                     component_0: components[0].to_string(),
                     component_1: components[1].to_string(),
                     component_2: components[2].to_string(),
                     id: Some(name.id()),
-                    connection_id: String::new(),
                     link_id: None,
                     node_id: None,
                     direction: None,
@@ -862,16 +901,16 @@ impl ControllerService {
             });
         }
 
-        subscriptions_status
+        routes_status
     }
 
     async fn create_new_subscriptions(
         &self,
-        desired_subs: &HashMap<(Name, u64), &v1::Subscription>,
-    ) -> Vec<v1::SubscriptionAck> {
-        let mut subscriptions_status = Vec::new();
+        desired_subs: &HashMap<(Name, u64), &v1::Route>,
+    ) -> Vec<v1::RouteAck> {
+        let mut routes_status = Vec::new();
 
-        let to_create: Vec<((Name, u64), v1::Subscription)> = desired_subs
+        let to_create: Vec<((Name, u64), v1::Route)> = desired_subs
             .iter()
             .filter(|((name, conn_id), _)| {
                 !self
@@ -889,8 +928,8 @@ impl ControllerService {
                 .iter()
                 .any(|((n, c), _)| n == name && *c == *conn_id);
             if !dominated {
-                subscriptions_status.push(v1::SubscriptionAck {
-                    subscription: Some((*sub).clone()),
+                routes_status.push(v1::RouteAck {
+                    route: Some((*sub).clone()),
                     success: true,
                     error_msg: String::new(),
                 });
@@ -925,20 +964,20 @@ impl ControllerService {
                         .route_subscription_ids
                         .lock()
                         .insert((name, conn_id), subscription_id);
-                    info!(?sub, "desired state: created subscription");
+                    info!(?sub, "desired state: created route");
                     (true, String::new())
                 }
                 Err(err) => (false, format!("Failed to subscribe: {}", err)),
             };
 
-            subscriptions_status.push(v1::SubscriptionAck {
-                subscription: Some(sub),
+            routes_status.push(v1::RouteAck {
+                route: Some(sub),
                 success,
                 error_msg,
             });
         }
 
-        subscriptions_status
+        routes_status
     }
 
     /// Handle new control messages.
@@ -951,290 +990,305 @@ impl ControllerService {
             Some(ref payload) => {
                 match payload {
                     Payload::ConfigCommand(config) => {
-                        let mut connections_status = Vec::new();
-                        let mut subscriptions_status = Vec::new();
+                        let (connections_status, routes_status) = if config.reconcile {
+                            let connections_status =
+                                self.diff_connections(&config.connections_to_create).await;
+                            let (desired_subs, mut routes_status) =
+                                self.resolve_desired_routes(&config.routes_to_set);
+                            routes_status
+                                .extend(self.delete_stale_subscriptions(&desired_subs).await);
+                            routes_status
+                                .extend(self.create_new_subscriptions(&desired_subs).await);
+                            (connections_status, routes_status)
+                        } else {
+                            let mut connections_status = Vec::new();
+                            let mut routes_status = Vec::new();
 
-                        // Process connections to delete by link_id.
-                        for link_id in &config.connections_to_delete {
-                            info!(link_id = %link_id, "received a connection to delete");
-                            let mut connection_success = true;
-                            let mut connection_error_msg = String::new();
+                            // Process connections to delete by link_id.
+                            for link_id in &config.connections_to_delete {
+                                info!(link_id = %link_id, "received a connection to delete");
+                                let mut connection_success = true;
+                                let mut connection_error_msg = String::new();
 
-                            if let Err(err) = self.disconnect_connection_by_link_id(link_id) {
-                                connection_success = false;
-                                connection_error_msg = err;
+                                if let Err(err) = self.disconnect_connection_by_link_id(link_id) {
+                                    connection_success = false;
+                                    connection_error_msg = err;
+                                }
+
+                                connections_status.push(v1::ConnectionAck {
+                                    link_id: link_id.clone(),
+                                    success: connection_success,
+                                    error_msg: connection_error_msg,
+                                });
                             }
 
-                            connections_status.push(v1::ConnectionAck {
-                                connection_id: link_id.clone(),
-                                success: connection_success,
-                                error_msg: connection_error_msg,
-                            });
-                        }
+                            // Process connections to create
+                            for conn in &config.connections_to_create {
+                                info!(?conn, "received a connection to create");
+                                let mut connection_success = true;
+                                let mut connection_error_msg = String::new();
 
-                        // Process connections to create
-                        for conn in &config.connections_to_create {
-                            info!(?conn, "received a connection to create");
-                            let mut connection_success = true;
-                            let mut connection_error_msg = String::new();
-
-                            match serde_json::from_str::<ClientConfig>(&conn.config_data) {
-                                Err(e) => {
-                                    connection_success = false;
-                                    connection_error_msg = format!("Failed to parse config: {}", e);
-                                }
-                                Ok(client_config) => {
-                                    let client_endpoint = &client_config.endpoint;
-                                    let requested_link_id =
-                                        if client_config.link_id.trim().is_empty() {
-                                            String::new()
-                                        } else {
-                                            client_config.link_id.clone()
-                                        };
-                                    let mut existing_conn_for_link_id = false;
-
-                                    if !requested_link_id.is_empty() {
-                                        match self.resolve_connection_by_link_id(&requested_link_id)
-                                        {
-                                            Err(err) => {
-                                                connection_success = false;
-                                                connection_error_msg = err;
-                                            }
-                                            Ok(Some(conn_id)) => {
-                                                existing_conn_for_link_id = true;
-                                                self.inner
-                                                    .link_id_to_conn_id
-                                                    .write()
-                                                    .insert(requested_link_id.clone(), conn_id);
-                                                info!(
-                                                    link_id = %requested_link_id,
-                                                    conn_id,
-                                                    "Connection already exists for link_id"
-                                                );
-                                            }
-                                            Ok(None) => {}
-                                        }
+                                match serde_json::from_str::<ClientConfig>(&conn.config_data) {
+                                    Err(e) => {
+                                        connection_success = false;
+                                        connection_error_msg =
+                                            format!("Failed to parse config: {}", e);
                                     }
+                                    Ok(client_config) => {
+                                        let client_endpoint = &client_config.endpoint;
+                                        let requested_link_id =
+                                            if client_config.link_id.trim().is_empty() {
+                                                String::new()
+                                            } else {
+                                                client_config.link_id.clone()
+                                            };
+                                        let mut existing_conn_for_link_id = false;
 
-                                    if connection_success && !existing_conn_for_link_id {
-                                        match self
-                                            .inner
-                                            .message_processor
-                                            .connect(client_config.clone(), None, None)
-                                            .await
-                                        {
-                                            Err(e) => {
-                                                connection_success = false;
-                                                connection_error_msg =
-                                                    format!("Connection failed: {}", e);
-                                            }
-                                            Ok(conn_id) => {
-                                                if !requested_link_id.is_empty() {
-                                                    self.inner.link_id_to_conn_id.write().insert(
-                                                        requested_link_id.clone(),
-                                                        conn_id.1,
+                                        if !requested_link_id.is_empty() {
+                                            match self
+                                                .resolve_connection_by_link_id(&requested_link_id)
+                                            {
+                                                Err(err) => {
+                                                    connection_success = false;
+                                                    connection_error_msg = err;
+                                                }
+                                                Ok(Some(conn_id)) => {
+                                                    existing_conn_for_link_id = true;
+                                                    self.inner
+                                                        .link_id_to_conn_id
+                                                        .write()
+                                                        .insert(requested_link_id.clone(), conn_id);
+                                                    info!(
+                                                        link_id = %requested_link_id,
+                                                        conn_id,
+                                                        "Connection already exists for link_id"
                                                     );
                                                 }
-                                                info!(
-                                                    endpoint = %client_endpoint, "Successfully created connection",
-                                                );
+                                                Ok(None) => {}
                                             }
                                         }
-                                    }
-                                }
-                            }
 
-                            // Add connection status
-                            connections_status.push(v1::ConnectionAck {
-                                connection_id: conn.connection_id.clone(),
-                                success: connection_success,
-                                error_msg: connection_error_msg,
-                            });
-                        }
-
-                        // Process subscriptions to set
-                        for subscription in &config.subscriptions_to_set {
-                            let mut subscription_success = true;
-                            let mut subscription_error_msg = String::new();
-
-                            let conn = self.resolve_subscription_connection(subscription);
-
-                            if let Ok(Some(conn)) = conn {
-                                let source = Name::from_strings([
-                                    subscription.component_0.as_str(),
-                                    subscription.component_1.as_str(),
-                                    subscription.component_2.as_str(),
-                                ])
-                                .with_id(0);
-                                let name = Name::from_strings([
-                                    subscription.component_0.as_str(),
-                                    subscription.component_1.as_str(),
-                                    subscription.component_2.as_str(),
-                                ])
-                                .with_id(subscription.id.unwrap_or(Name::NULL_COMPONENT));
-
-                                let msg = DataPlaneMessage::builder()
-                                    .source(source.clone())
-                                    .destination(name.clone())
-                                    .identity("")
-                                    .flags(SlimHeaderFlags::default().with_recv_from(conn))
-                                    .build_subscribe()
-                                    .unwrap();
-
-                                match self.send_subscribe_message_with_ack(msg).await {
-                                    Ok(subscription_id) => {
-                                        // Store the subscription_id for later unsubscription
-                                        self.inner
-                                            .route_subscription_ids
-                                            .lock()
-                                            .insert((name.clone(), conn), subscription_id);
-                                        info!(?subscription, "Successfully created subscription");
-                                    }
-                                    Err(err) => {
-                                        subscription_success = false;
-                                        subscription_error_msg =
-                                            format!("Failed to subscribe: {}", err);
-                                    }
-                                }
-                            } else {
-                                subscription_success = false;
-                                subscription_error_msg = match conn {
-                                    Ok(None) => {
-                                        if let Some(link_id) = &subscription.link_id {
-                                            format!("Connection with link_id {} not found", link_id)
-                                        } else {
-                                            format!(
-                                                "Connection {} not found",
-                                                subscription.connection_id
-                                            )
-                                        }
-                                    }
-                                    Err(err) => err,
-                                    _ => "unknown connection lookup error".to_string(),
-                                };
-                            }
-
-                            // Add subscription status
-                            subscriptions_status.push(v1::SubscriptionAck {
-                                subscription: Some(subscription.clone()),
-                                success: subscription_success,
-                                error_msg: subscription_error_msg,
-                            });
-                        }
-
-                        // Process subscriptions to delete
-                        for subscription in &config.subscriptions_to_delete {
-                            let mut subscription_success = true;
-                            let mut subscription_error_msg = String::new();
-
-                            let conn = self.resolve_subscription_connection(subscription);
-
-                            if let Ok(Some(conn)) = conn {
-                                let source = Name::from_strings([
-                                    subscription.component_0.as_str(),
-                                    subscription.component_1.as_str(),
-                                    subscription.component_2.as_str(),
-                                ])
-                                .with_id(0);
-                                let name = Name::from_strings([
-                                    subscription.component_0.as_str(),
-                                    subscription.component_1.as_str(),
-                                    subscription.component_2.as_str(),
-                                ])
-                                .with_id(subscription.id.unwrap_or(Name::NULL_COMPONENT));
-
-                                let msg = DataPlaneMessage::builder()
-                                    .source(source.clone())
-                                    .destination(name.clone())
-                                    .identity("")
-                                    .flags(SlimHeaderFlags::default().with_recv_from(conn))
-                                    .build_unsubscribe()
-                                    .unwrap();
-
-                                let sub_id = self
-                                    .inner
-                                    .route_subscription_ids
-                                    .lock()
-                                    .remove(&(name.clone(), conn));
-                                let unsubscribe_result = match sub_id {
-                                    Some(subscription_id) => {
-                                        self.send_unsubscribe_message_with_ack(msg, subscription_id)
-                                            .await
-                                    }
-                                    None => {
-                                        // No tracking ID in the map (e.g. after a CP restart
-                                        // or for orphan cleanup from the reconciler).  Generate
-                                        // a fresh ID — the datapath locates the subscription
-                                        // by Name+connection, not by ID; the ID is only used
-                                        // for ack correlation.
-                                        let (ack_id, ack_rx) =
-                                            self.inner.subscription_manager.register_ack();
-                                        let mut fresh_msg = msg;
-                                        fresh_msg.set_subscription_id(ack_id);
-                                        if let Err(e) = self.send_control_message(fresh_msg).await {
-                                            self.inner.subscription_manager.cancel_ack(ack_id);
-                                            Err(format!("datapath send error: {}", e.chain()))
-                                        } else {
-                                            match tokio::time::timeout(
-                                                SUBSCRIPTION_ACK_TIMEOUT,
-                                                ack_rx,
-                                            )
-                                            .await
+                                        if connection_success && !existing_conn_for_link_id {
+                                            match self
+                                                .inner
+                                                .message_processor
+                                                .connect(client_config.clone(), None, None)
+                                                .await
                                             {
-                                                Ok(Ok(Ok(()))) => Ok(()),
-                                                Ok(Ok(Err(err))) => Err(err.to_string()),
-                                                Ok(Err(_)) => {
-                                                    Err("subscription ack channel closed"
-                                                        .to_string())
+                                                Err(e) => {
+                                                    connection_success = false;
+                                                    connection_error_msg =
+                                                        format!("Connection failed: {}", e);
                                                 }
-                                                Err(_) => {
-                                                    self.inner
-                                                        .subscription_manager
-                                                        .cancel_ack(ack_id);
-                                                    Err("subscription ack timed out".to_string())
+                                                Ok(conn_id) => {
+                                                    if !requested_link_id.is_empty() {
+                                                        self.inner
+                                                            .link_id_to_conn_id
+                                                            .write()
+                                                            .insert(
+                                                                requested_link_id.clone(),
+                                                                conn_id.1,
+                                                            );
+                                                    }
+                                                    info!(
+                                                        endpoint = %client_endpoint, "Successfully created connection",
+                                                    );
                                                 }
                                             }
                                         }
                                     }
-                                };
-                                if let Err(err) = unsubscribe_result {
-                                    subscription_success = false;
-                                    subscription_error_msg =
-                                        format!("Failed to unsubscribe: {}", err);
-                                } else {
-                                    info!(?subscription, "Successfully deleted subscription");
                                 }
-                            } else {
-                                subscription_success = false;
-                                subscription_error_msg = match conn {
-                                    Ok(None) => {
-                                        if let Some(link_id) = &subscription.link_id {
-                                            format!("Connection with link_id {} not found", link_id)
-                                        } else {
-                                            format!(
-                                                "Connection {} not found",
-                                                subscription.connection_id
-                                            )
-                                        }
-                                    }
-                                    Err(err) => err,
-                                    _ => "unknown connection lookup error".to_string(),
-                                };
+
+                                // Add connection status
+                                connections_status.push(v1::ConnectionAck {
+                                    link_id: conn.link_id.clone(),
+                                    success: connection_success,
+                                    error_msg: connection_error_msg,
+                                });
                             }
 
-                            // Add subscription status (for deletion)
-                            subscriptions_status.push(v1::SubscriptionAck {
-                                subscription: Some(subscription.clone()),
-                                success: subscription_success,
-                                error_msg: subscription_error_msg,
-                            });
-                        }
+                            // Process routes to set
+                            for route in &config.routes_to_set {
+                                let mut route_success = true;
+                                let mut route_error_msg = String::new();
 
-                        // Send ConfigurationCommandAck with detailed status information
+                                let conn = self.resolve_route_connection(route);
+
+                                if let Ok(Some(conn)) = conn {
+                                    let source = Name::from_strings([
+                                        route.component_0.as_str(),
+                                        route.component_1.as_str(),
+                                        route.component_2.as_str(),
+                                    ])
+                                    .with_id(0);
+                                    let name = Name::from_strings([
+                                        route.component_0.as_str(),
+                                        route.component_1.as_str(),
+                                        route.component_2.as_str(),
+                                    ])
+                                    .with_id(route.id.unwrap_or(Name::NULL_COMPONENT));
+
+                                    let msg = DataPlaneMessage::builder()
+                                        .source(source.clone())
+                                        .destination(name.clone())
+                                        .identity("")
+                                        .flags(SlimHeaderFlags::default().with_recv_from(conn))
+                                        .build_subscribe()
+                                        .unwrap();
+
+                                    match self.send_subscribe_message_with_ack(msg).await {
+                                        Ok(subscription_id) => {
+                                            // Store the subscription_id for later unsubscription
+                                            self.inner
+                                                .route_subscription_ids
+                                                .lock()
+                                                .insert((name.clone(), conn), subscription_id);
+                                            info!(?route, "Successfully created route");
+                                        }
+                                        Err(err) => {
+                                            route_success = false;
+                                            route_error_msg =
+                                                format!("Failed to subscribe: {}", err);
+                                        }
+                                    }
+                                } else {
+                                    route_success = false;
+                                    route_error_msg = match conn {
+                                        Ok(None) => {
+                                            format!(
+                                                "Connection with link_id {} not found",
+                                                route.link_id.as_deref().unwrap_or("<none>")
+                                            )
+                                        }
+                                        Err(err) => err,
+                                        _ => "unknown connection lookup error".to_string(),
+                                    };
+                                }
+
+                                // Add route status
+                                routes_status.push(v1::RouteAck {
+                                    route: Some(route.clone()),
+                                    success: route_success,
+                                    error_msg: route_error_msg,
+                                });
+                            }
+
+                            // Process routes to delete
+                            for route in &config.routes_to_delete {
+                                let mut route_success = true;
+                                let mut route_error_msg = String::new();
+
+                                let conn = self.resolve_route_connection(route);
+
+                                if let Ok(Some(conn)) = conn {
+                                    let source = Name::from_strings([
+                                        route.component_0.as_str(),
+                                        route.component_1.as_str(),
+                                        route.component_2.as_str(),
+                                    ])
+                                    .with_id(0);
+                                    let name = Name::from_strings([
+                                        route.component_0.as_str(),
+                                        route.component_1.as_str(),
+                                        route.component_2.as_str(),
+                                    ])
+                                    .with_id(route.id.unwrap_or(Name::NULL_COMPONENT));
+
+                                    let msg = DataPlaneMessage::builder()
+                                        .source(source.clone())
+                                        .destination(name.clone())
+                                        .identity("")
+                                        .flags(SlimHeaderFlags::default().with_recv_from(conn))
+                                        .build_unsubscribe()
+                                        .unwrap();
+
+                                    let sub_id = self
+                                        .inner
+                                        .route_subscription_ids
+                                        .lock()
+                                        .remove(&(name.clone(), conn));
+                                    let unsubscribe_result = match sub_id {
+                                        Some(subscription_id) => {
+                                            self.send_unsubscribe_message_with_ack(
+                                                msg,
+                                                subscription_id,
+                                            )
+                                            .await
+                                        }
+                                        None => {
+                                            // No tracking ID in the map (e.g. after a CP restart
+                                            // or for orphan cleanup from the reconciler).  Generate
+                                            // a fresh ID — the datapath locates the subscription
+                                            // by Name+connection, not by ID; the ID is only used
+                                            // for ack correlation.
+                                            let (ack_id, ack_rx) =
+                                                self.inner.subscription_manager.register_ack();
+                                            let mut fresh_msg = msg;
+                                            fresh_msg.set_subscription_id(ack_id);
+                                            if let Err(e) =
+                                                self.send_control_message(fresh_msg).await
+                                            {
+                                                self.inner.subscription_manager.cancel_ack(ack_id);
+                                                Err(format!("datapath send error: {}", e.chain()))
+                                            } else {
+                                                match tokio::time::timeout(
+                                                    SUBSCRIPTION_ACK_TIMEOUT,
+                                                    ack_rx,
+                                                )
+                                                .await
+                                                {
+                                                    Ok(Ok(Ok(()))) => Ok(()),
+                                                    Ok(Ok(Err(err))) => Err(err.to_string()),
+                                                    Ok(Err(_)) => {
+                                                        Err("subscription ack channel closed"
+                                                            .to_string())
+                                                    }
+                                                    Err(_) => {
+                                                        self.inner
+                                                            .subscription_manager
+                                                            .cancel_ack(ack_id);
+                                                        Err("subscription ack timed out"
+                                                            .to_string())
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    };
+                                    if let Err(err) = unsubscribe_result {
+                                        route_success = false;
+                                        route_error_msg = format!("Failed to unsubscribe: {}", err);
+                                    } else {
+                                        info!(?route, "Successfully deleted route");
+                                    }
+                                } else {
+                                    route_success = false;
+                                    route_error_msg = match conn {
+                                        Ok(None) => {
+                                            format!(
+                                                "Connection with link_id {} not found",
+                                                route.link_id.as_deref().unwrap_or("<none>")
+                                            )
+                                        }
+                                        Err(err) => err,
+                                        _ => "unknown connection lookup error".to_string(),
+                                    };
+                                }
+
+                                // Add route status (for deletion)
+                                routes_status.push(v1::RouteAck {
+                                    route: Some(route.clone()),
+                                    success: route_success,
+                                    error_msg: route_error_msg,
+                                });
+                            }
+
+                            (connections_status, routes_status)
+                        };
+
                         let config_ack = v1::ConfigurationCommandAck {
                             original_message_id: msg.message_id.clone(),
                             connections_status,
-                            subscriptions_status,
+                            routes_status,
                         };
 
                         let reply = ControlMessage {
@@ -1249,12 +1303,12 @@ impl ControllerService {
                         info!(
                             connections = %config.connections_to_create.len(),
                             connections_to_delete = %config.connections_to_delete.len(),
-                            subscriptions_to_set = %config.subscriptions_to_set.len(),
-                            subscriptions_to_del = %config.subscriptions_to_delete.len(),
+                            routes_to_set = %config.routes_to_set.len(),
+                            routes_to_del = %config.routes_to_delete.len(),
                             "Processed ConfigurationCommand"
                         );
                     }
-                    Payload::SubscriptionListRequest(_) => {
+                    Payload::RouteListRequest(_) => {
                         const CHUNK_SIZE: usize = 100;
 
                         let conn_table = self.inner.message_processor.connection_table();
@@ -1262,7 +1316,7 @@ impl ControllerService {
 
                         self.inner.message_processor.subscription_table().for_each(
                             |name, id, local, remote| {
-                                let mut entry = SubscriptionEntry {
+                                let mut entry = RouteEntry {
                                     component_0: name.components_strings()[0].to_string(),
                                     component_1: name.components_strings()[1].to_string(),
                                     component_2: name.components_strings()[2].to_string(),
@@ -1271,7 +1325,7 @@ impl ControllerService {
                                 };
 
                                 for &cid in local {
-                                    entry.local_connections.push(ConnectionEntry {
+                                    entry.connections.push(ConnectionEntry {
                                         id: cid,
                                         connection_type: ConnectionType::Local as i32,
                                         config_data: "{}".to_string(),
@@ -1282,7 +1336,7 @@ impl ControllerService {
 
                                 for &cid in remote {
                                     if let Some(conn) = conn_table.get(cid) {
-                                        entry.remote_connections.push(ConnectionEntry {
+                                        entry.connections.push(ConnectionEntry {
                                             id: cid,
                                             connection_type: ConnectionType::Remote as i32,
                                             config_data: match conn.config_data() {
@@ -1309,32 +1363,28 @@ impl ControllerService {
                         if chunks.is_empty() {
                             let resp = ControlMessage {
                                 message_id: uuid::Uuid::new_v4().to_string(),
-                                payload: Some(Payload::SubscriptionListResponse(
-                                    SubscriptionListResponse {
-                                        original_message_id: msg.message_id.clone(),
-                                        entries: vec![],
-                                        done: true,
-                                    },
-                                )),
+                                payload: Some(Payload::RouteListResponse(RouteListResponse {
+                                    original_message_id: msg.message_id.clone(),
+                                    entries: vec![],
+                                    done: true,
+                                })),
                             };
                             if let Err(e) = tx.send(Ok(resp)).await {
-                                error!(error = %e.chain(), "failed to send subscription list response");
+                                error!(error = %e.chain(), "failed to send route list response");
                             }
                         } else {
                             let n = chunks.len();
                             for (i, chunk) in chunks.into_iter().enumerate() {
                                 let resp = ControlMessage {
                                     message_id: uuid::Uuid::new_v4().to_string(),
-                                    payload: Some(Payload::SubscriptionListResponse(
-                                        SubscriptionListResponse {
-                                            original_message_id: msg.message_id.clone(),
-                                            entries: chunk.to_vec(),
-                                            done: i + 1 == n,
-                                        },
-                                    )),
+                                    payload: Some(Payload::RouteListResponse(RouteListResponse {
+                                        original_message_id: msg.message_id.clone(),
+                                        entries: chunk.to_vec(),
+                                        done: i + 1 == n,
+                                    })),
                                 };
                                 if let Err(e) = tx.send(Ok(resp)).await {
-                                    error!(error = %e.chain(), "failed to send subscription batch");
+                                    error!(error = %e.chain(), "failed to send route batch");
                                     break;
                                 }
                             }
@@ -1407,45 +1457,14 @@ impl ControllerService {
                             }
                         }
                     }
-                    Payload::DesiredState(desired) => {
-                        let connections_status = self.diff_connections(desired).await;
-
-                        let (desired_subs, mut subscriptions_status) =
-                            self.resolve_desired_subscriptions(&desired.desired_subscriptions);
-                        subscriptions_status
-                            .extend(self.delete_stale_subscriptions(&desired_subs).await);
-                        subscriptions_status
-                            .extend(self.create_new_subscriptions(&desired_subs).await);
-
-                        let config_ack = v1::ConfigurationCommandAck {
-                            original_message_id: msg.message_id.clone(),
-                            connections_status,
-                            subscriptions_status,
-                        };
-
-                        let reply = ControlMessage {
-                            message_id: uuid::Uuid::new_v4().to_string(),
-                            payload: Some(Payload::ConfigCommandAck(config_ack)),
-                        };
-
-                        if let Err(e) = tx.send(Ok(reply)).await {
-                            error!(error = %e.chain(), "failed to send ConfigurationCommandAck for DesiredState");
-                        }
-
-                        info!(
-                            connections = %desired.desired_connections.len(),
-                            subscriptions = %desired.desired_subscriptions.len(),
-                            "Processed DesiredState"
-                        );
-                    }
                     Payload::Ack(_ack) => {
                         // received an ack, do nothing - this should not happen
                     }
                     Payload::ConfigCommandAck(_) => {
                         // received a config command ack, do nothing - this should not happen
                     }
-                    Payload::SubscriptionListResponse(_) => {
-                        // received a subscription list response, do nothing - this should not happen
+                    Payload::RouteListResponse(_) => {
+                        // received a route list response, do nothing - this should not happen
                     }
                     Payload::ConnectionListResponse(_) => {
                         // received a connection list response, do nothing - this should not happen
@@ -1479,12 +1498,11 @@ impl ControllerService {
         let mut sub_vec = vec![];
 
         let components = dst.components_strings();
-        let cmd = v1::Subscription {
+        let cmd = v1::Route {
             component_0: components[0].to_string(),
             component_1: components[1].to_string(),
             component_2: components[2].to_string(),
             id: Some(dst.id()),
-            connection_id: "n/a".to_string(),
             node_id: None,
             link_id: None,
             direction: None,
@@ -1497,8 +1515,9 @@ impl ControllerService {
             payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
                 connections_to_create: vec![],
                 connections_to_delete: vec![],
-                subscriptions_to_set: sub_vec,
-                subscriptions_to_delete: vec![],
+                routes_to_set: sub_vec,
+                routes_to_delete: vec![],
+                reconcile: false,
             })),
         };
 
@@ -1509,12 +1528,11 @@ impl ControllerService {
         let mut unsub_vec = vec![];
 
         let components = dst.components_strings();
-        let cmd = v1::Subscription {
+        let cmd = v1::Route {
             component_0: components[0].to_string(),
             component_1: components[1].to_string(),
             component_2: components[2].to_string(),
             id: Some(dst.id()),
-            connection_id: "n/a".to_string(),
             node_id: None,
             link_id: None,
             direction: None,
@@ -1527,8 +1545,9 @@ impl ControllerService {
             payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
                 connections_to_create: vec![],
                 connections_to_delete: vec![],
-                subscriptions_to_set: vec![],
-                subscriptions_to_delete: unsub_vec,
+                routes_to_set: vec![],
+                routes_to_delete: unsub_vec,
+                reconcile: false,
             })),
         };
 
@@ -2134,17 +2153,17 @@ mod tests {
                 payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
                     connections_to_create: vec![],
                     connections_to_delete: vec![],
-                    subscriptions_to_set: vec![v1::Subscription {
+                    routes_to_set: vec![v1::Route {
                         component_0: "queued".to_string(),
                         component_1: "sub".to_string(),
                         component_2: format!("name-{i}"),
                         id: Some(i as u64),
-                        connection_id: "test-conn".to_string(),
                         node_id: None,
                         link_id: None,
                         direction: None,
                     }],
-                    subscriptions_to_delete: vec![],
+                    routes_to_delete: vec![],
+                    reconcile: false,
                 })),
             };
             controller
@@ -2214,8 +2233,9 @@ mod tests {
             payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
                 connections_to_create: vec![],
                 connections_to_delete: vec![link_id.clone()],
-                subscriptions_to_set: vec![],
-                subscriptions_to_delete: vec![],
+                routes_to_set: vec![],
+                routes_to_delete: vec![],
+                reconcile: false,
             })),
         };
         let (tx, mut rx) = mpsc::channel(1);
@@ -2234,7 +2254,7 @@ mod tests {
             _ => panic!("expected ConfigCommandAck payload"),
         };
         assert_eq!(ack.connections_status.len(), 1);
-        assert_eq!(ack.connections_status[0].connection_id, link_id);
+        assert_eq!(ack.connections_status[0].link_id, link_id);
         assert!(ack.connections_status[0].success);
     }
 
@@ -2254,8 +2274,9 @@ mod tests {
             payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
                 connections_to_create: vec![],
                 connections_to_delete: vec!["unknown-link-id".to_string()],
-                subscriptions_to_set: vec![],
-                subscriptions_to_delete: vec![],
+                routes_to_set: vec![],
+                routes_to_delete: vec![],
+                reconcile: false,
             })),
         };
         let (tx, mut rx) = mpsc::channel(1);
@@ -2274,7 +2295,7 @@ mod tests {
             _ => panic!("expected ConfigCommandAck payload"),
         };
         assert_eq!(ack.connections_status.len(), 1);
-        assert_eq!(ack.connections_status[0].connection_id, "unknown-link-id");
+        assert_eq!(ack.connections_status[0].link_id, "unknown-link-id");
         assert!(!ack.connections_status[0].success);
         assert!(ack.connections_status[0].error_msg.contains("not found"));
 
@@ -2332,12 +2353,13 @@ mod tests {
             message_id: uuid::Uuid::new_v4().to_string(),
             payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
                 connections_to_create: vec![v1::Connection {
-                    connection_id: "reuse-existing-link".to_string(),
+                    link_id: "reuse-existing-link".to_string(),
                     config_data: connection_config,
                 }],
                 connections_to_delete: vec![],
-                subscriptions_to_set: vec![],
-                subscriptions_to_delete: vec![],
+                routes_to_set: vec![],
+                routes_to_delete: vec![],
+                reconcile: false,
             })),
         };
 
@@ -2357,10 +2379,7 @@ mod tests {
             _ => panic!("expected ConfigCommandAck payload"),
         };
         assert_eq!(ack.connections_status.len(), 1);
-        assert_eq!(
-            ack.connections_status[0].connection_id,
-            "reuse-existing-link"
-        );
+        assert_eq!(ack.connections_status[0].link_id, "reuse-existing-link");
         assert!(ack.connections_status[0].success);
 
         assert!(
@@ -2389,17 +2408,17 @@ mod tests {
             payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
                 connections_to_create: vec![],
                 connections_to_delete: vec![],
-                subscriptions_to_set: vec![v1::Subscription {
+                routes_to_set: vec![v1::Route {
                     component_0: "org".to_string(),
                     component_1: "ns".to_string(),
                     component_2: "agent".to_string(),
                     id: Some(1),
-                    connection_id: String::new(),
                     node_id: None,
                     link_id: Some("missing-link-id".to_string()),
                     direction: None,
                 }],
-                subscriptions_to_delete: vec![],
+                routes_to_delete: vec![],
+                reconcile: false,
             })),
         };
         let (tx, mut rx) = mpsc::channel(1);
@@ -2418,10 +2437,10 @@ mod tests {
             _ => panic!("expected ConfigCommandAck payload"),
         };
 
-        assert_eq!(ack.subscriptions_status.len(), 1);
-        assert!(!ack.subscriptions_status[0].success);
+        assert_eq!(ack.routes_status.len(), 1);
+        assert!(!ack.routes_status[0].success);
         assert!(
-            ack.subscriptions_status[0]
+            ack.routes_status[0]
                 .error_msg
                 .contains("Connection with link_id missing-link-id not found")
         );
@@ -2444,12 +2463,13 @@ mod tests {
             message_id: uuid::Uuid::new_v4().to_string(),
             payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
                 connections_to_create: vec![v1::Connection {
-                    connection_id: "invalid-config-conn".to_string(),
+                    link_id: "invalid-config-conn".to_string(),
                     config_data: "{invalid-json".to_string(),
                 }],
                 connections_to_delete: vec![],
-                subscriptions_to_set: vec![],
-                subscriptions_to_delete: vec![],
+                routes_to_set: vec![],
+                routes_to_delete: vec![],
+                reconcile: false,
             })),
         };
         let (tx, mut rx) = mpsc::channel(1);
@@ -2492,17 +2512,17 @@ mod tests {
             payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
                 connections_to_create: vec![],
                 connections_to_delete: vec![],
-                subscriptions_to_set: vec![],
-                subscriptions_to_delete: vec![v1::Subscription {
+                routes_to_set: vec![],
+                routes_to_delete: vec![v1::Route {
                     component_0: "org".to_string(),
                     component_1: "ns".to_string(),
                     component_2: "agent".to_string(),
                     id: Some(1),
-                    connection_id: String::new(),
                     node_id: None,
                     link_id: Some("missing-link-id-delete".to_string()),
                     direction: None,
                 }],
+                reconcile: false,
             })),
         };
         let (tx, mut rx) = mpsc::channel(1);
@@ -2521,10 +2541,10 @@ mod tests {
             _ => panic!("expected ConfigCommandAck payload"),
         };
 
-        assert_eq!(ack.subscriptions_status.len(), 1);
-        assert!(!ack.subscriptions_status[0].success);
+        assert_eq!(ack.routes_status.len(), 1);
+        assert!(!ack.routes_status[0].success);
         assert!(
-            ack.subscriptions_status[0]
+            ack.routes_status[0]
                 .error_msg
                 .contains("Connection with link_id missing-link-id-delete not found")
         );
