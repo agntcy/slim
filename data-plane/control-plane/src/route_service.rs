@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use serde_json::json;
+use slim_config::grpc::client::ClientConfig;
 use uuid::Uuid;
 
 use crate::config::ReconcilerConfig;
@@ -61,7 +61,7 @@ impl From<&Route> for crate::db::Route {
 struct ReportedConnection {
     endpoint: String,
     link_id: String,
-    config_data: String,
+    config_data: ClientConfig,
 }
 
 struct Inner {
@@ -374,13 +374,11 @@ impl RouteService {
                 let Some(link_id) = entry.link_id.as_deref().filter(|id| !id.is_empty()) else {
                     continue;
                 };
-                if let Ok(config) = serde_json::from_str::<serde_json::Value>(&entry.config_data)
-                    && let Some(endpoint) = config.get("endpoint").and_then(|v| v.as_str())
-                {
+                if let Ok(config) = serde_json::from_str::<ClientConfig>(&entry.config_data) {
                     reported.push(ReportedConnection {
-                        endpoint: endpoint.to_string(),
+                        endpoint: config.endpoint.clone(),
                         link_id: link_id.to_string(),
-                        config_data: entry.config_data.clone(),
+                        config_data: config,
                     });
                 }
             }
@@ -1163,7 +1161,7 @@ impl RouteService {
         &self,
         source_node_id: &str,
         dest_node_id: &str,
-    ) -> Result<(String, String)> {
+    ) -> Result<(String, ClientConfig)> {
         let dest_node =
             self.0
                 .db
@@ -1231,7 +1229,7 @@ impl RouteService {
 fn compute_connection_details(
     src_node: &crate::db::Node,
     dst_node: &crate::db::Node,
-) -> Result<(String, String)> {
+) -> Result<(String, ClientConfig)> {
     if dst_node.conn_details.is_empty() {
         return Err(Error::InvalidInput(format!(
             "no connections for destination node {}",
@@ -1280,21 +1278,12 @@ fn generate_config_data(
     local_connection: bool,
     dest_node: &crate::db::Node,
     src_node: &crate::db::Node,
-) -> Result<(String, String)> {
-    let mut config: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+) -> Result<(String, ClientConfig)> {
+    use slim_config::grpc::client::{BackoffConfig, KeepaliveConfig};
+    use slim_config::tls::client::TlsClientConfig;
+    use slim_config::tls::common::{CaSource, Config as TlsConfig, TlsSource};
+    use std::time::Duration;
 
-    // Set a default backoff if not present.
-    if !config.contains_key("backoff") {
-        config.insert(
-            "backoff".to_string(),
-            json!({
-                "type": "fixed_interval",
-                "interval": "2000ms"
-            }),
-        );
-    }
-
-    // Determine effective endpoint.
     let endpoint = if local_connection {
         detail.endpoint.clone()
     } else {
@@ -1310,70 +1299,70 @@ fn generate_config_data(
             })?
     };
 
-    // Set TLS / endpoint scheme.
-    if let Some(ref spire) = detail.spire_mtls {
+    let (effective_endpoint, tls_setting) = if let Some(ref spire) = detail.spire_mtls {
         let spire_socket = src_node
             .conn_details
             .iter()
             .find_map(|cd| cd.spire_mtls.as_ref().map(|s| s.socket_path.clone()))
             .unwrap_or_else(|| spire.socket_path.clone());
 
-        config.insert("endpoint".to_string(), json!(format!("https://{endpoint}")));
-
         let trust_domain = spire
             .trust_domain
             .as_deref()
             .or(dest_node.group_name.as_deref());
 
-        let mut ca_source = json!({
-            "type": "spire",
-            "socket_path": spire_socket
-        });
+        let mut trust_domains = Vec::new();
         if let Some(td) = trust_domain {
-            ca_source["trust_domains"] = json!([td]);
+            trust_domains.push(td.to_string());
         }
-        config.insert(
-            "tls".to_string(),
-            json!({
-                "insecure": false,
-                "insecure_skip_verify": local_connection,
-                "source": {
-                    "type": "spire",
-                    "socket_path": spire_socket
+
+        let spire_config = slim_config::auth::spire::SpireConfig {
+            socket_path: Some(spire_socket.clone()),
+            trust_domains: trust_domains.clone(),
+            ..Default::default()
+        };
+
+        let tls = TlsClientConfig {
+            insecure: false,
+            insecure_skip_verify: local_connection,
+            config: TlsConfig {
+                source: TlsSource::Spire {
+                    config: slim_config::auth::spire::SpireConfig {
+                        socket_path: Some(spire_socket),
+                        ..Default::default()
+                    },
                 },
-                "ca_source": ca_source
-            }),
-        );
+                ca_source: CaSource::Spire {
+                    config: spire_config,
+                },
+                ..Default::default()
+            },
+        };
+
+        (format!("https://{endpoint}"), tls)
     } else {
-        config.insert("endpoint".to_string(), json!(format!("http://{endpoint}")));
-        config.insert("tls".to_string(), json!({ "insecure": true }));
-    }
+        let tls = TlsClientConfig {
+            insecure: true,
+            ..Default::default()
+        };
+        (format!("http://{endpoint}"), tls)
+    };
 
-    if !config.contains_key("headers") {
-        config.insert("headers".to_string(), json!({}));
-    }
-    if !config.contains_key("keepalive") {
-        config.insert(
-            "keepalive".to_string(),
-            json!({
-                "http2_keepalive": "20s",
-                "keep_alive_while_idle": false,
-                "tcp_keepalive": "20s",
-                "timeout": "20s"
-            }),
-        );
-    }
+    let client_config = ClientConfig {
+        endpoint: effective_endpoint.clone(),
+        tls_setting,
+        backoff: BackoffConfig::new_fixed_interval(Duration::from_millis(2000), usize::MAX),
+        keepalive: Some(KeepaliveConfig {
+            tcp_keepalive: Duration::from_secs(20).into(),
+            http2_keepalive: Duration::from_secs(20).into(),
+            timeout: Duration::from_secs(20).into(),
+            keep_alive_while_idle: false,
+        }),
+        link_id: String::new(),
+        ..Default::default()
+    };
 
-    let config_data = serde_json::to_string(&config)
-        .map_err(|e| Error::InvalidInput(format!("failed to encode connection config: {e}")))?;
-
-    let effective_endpoint = config
-        .get("endpoint")
-        .and_then(|v| v.as_str())
-        .unwrap_or(&endpoint)
-        .to_string();
-
-    Ok((effective_endpoint, config_data))
+    Ok((effective_endpoint, client_config))
 }
 
 pub(crate) fn is_connection_not_found(msg: &str) -> bool {
@@ -1492,12 +1481,10 @@ mod tests {
         let cd = make_conn_details("host:8080", None);
         let dest = make_node("dst", Some("g"), vec![cd.clone()]);
         let src = make_node("src", Some("g"), vec![]);
-        let (ep, data) = generate_config_data(&cd, true, &dest, &src).unwrap();
+        let (ep, config) = generate_config_data(&cd, true, &dest, &src).unwrap();
         assert!(ep.starts_with("http://"));
-        let v: serde_json::Value = serde_json::from_str(&data).unwrap();
-        assert_eq!(v["tls"]["insecure"], true);
-        assert!(v["backoff"].is_object());
-        assert!(v["keepalive"].is_object());
+        assert!(config.tls_setting.insecure);
+        assert!(config.keepalive.is_some());
     }
 
     #[test]
@@ -1505,10 +1492,9 @@ mod tests {
         let cd = make_conn_details("host:8080", Some("ext:9090"));
         let dest = make_node("dst", Some("g1"), vec![cd.clone()]);
         let src = make_node("src", Some("g2"), vec![]);
-        let (ep, data) = generate_config_data(&cd, false, &dest, &src).unwrap();
+        let (ep, config) = generate_config_data(&cd, false, &dest, &src).unwrap();
         assert!(ep.contains("ext:9090"));
-        let v: serde_json::Value = serde_json::from_str(&data).unwrap();
-        assert_eq!(v["tls"]["insecure"], true);
+        assert!(config.tls_setting.insecure);
     }
 
     #[test]

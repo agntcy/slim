@@ -17,7 +17,8 @@ use slim_control_plane::api::proto::controller::proto::v1::controller_service_se
 use slim_control_plane::api::proto::controlplane::proto::v1::control_plane_service_client::ControlPlaneServiceClient;
 use slim_control_plane::api::proto::controlplane::proto::v1::control_plane_service_server::ControlPlaneServiceServer;
 use slim_control_plane::api::proto::controlplane::proto::v1::{
-    AddRouteRequest, LinkListRequest, Node as CpNode, NodeListRequest, RouteListRequest,
+    AddRouteRequest, LinkEntry, LinkListRequest, Node as CpNode, NodeEntry, NodeListRequest,
+    RouteEntry, RouteListRequest,
 };
 use slim_control_plane::config::{Config, DatabaseConfig, ReconcilerConfig};
 use slim_control_plane::node_transport::DefaultNodeCommandHandler;
@@ -25,6 +26,7 @@ use slim_control_plane::route_service::RouteService;
 use slim_control_plane::services::northbound::NorthboundApiService;
 use slim_control_plane::services::southbound::SouthboundApiService;
 use slim_service::{Service, ServiceConfiguration};
+use tokio_stream::StreamExt;
 
 // --- Helpers ---
 
@@ -146,18 +148,59 @@ async fn create_nb_client(northbound_port: u16) -> NbClient {
         .expect("failed to connect to northbound API")
 }
 
+async fn collect_nodes(client: &mut NbClient) -> Vec<NodeEntry> {
+    let mut stream = client
+        .list_nodes(NodeListRequest {})
+        .await
+        .expect("list_nodes failed")
+        .into_inner();
+    let mut entries = Vec::new();
+    while let Some(entry) = stream.next().await {
+        entries.push(entry.expect("stream error"));
+    }
+    entries
+}
+
+async fn collect_routes(client: &mut NbClient, src: &str, dest: &str) -> Vec<RouteEntry> {
+    let mut stream = client
+        .list_routes(RouteListRequest {
+            src_node_id: src.to_string(),
+            dest_node_id: dest.to_string(),
+        })
+        .await
+        .expect("list_routes failed")
+        .into_inner();
+    let mut entries = Vec::new();
+    while let Some(entry) = stream.next().await {
+        entries.push(entry.expect("stream error"));
+    }
+    entries
+}
+
+async fn collect_links(client: &mut NbClient, src: &str, dest: &str) -> Vec<LinkEntry> {
+    let mut stream = client
+        .list_links(LinkListRequest {
+            src_node_id: src.to_string(),
+            dest_node_id: dest.to_string(),
+        })
+        .await
+        .expect("list_links failed")
+        .into_inner();
+    let mut entries = Vec::new();
+    while let Some(entry) = stream.next().await {
+        entries.push(entry.expect("stream error"));
+    }
+    entries
+}
+
 async fn wait_for_nodes_connected(client: &mut NbClient, node_ids: &[&str], timeout: Duration) {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
-        let resp = client
-            .list_nodes(NodeListRequest {})
-            .await
-            .expect("list_nodes failed")
-            .into_inner();
+        let entries = collect_nodes(client).await;
 
         let connected_status = 1; // NodeStatus::Connected
         let all_connected = node_ids.iter().all(|id| {
-            resp.entries
+            entries
                 .iter()
                 .any(|e| e.id == *id && e.status == connected_status)
         });
@@ -167,8 +210,7 @@ async fn wait_for_nodes_connected(client: &mut NbClient, node_ids: &[&str], time
         }
 
         if tokio::time::Instant::now() >= deadline {
-            let statuses: Vec<_> = resp
-                .entries
+            let statuses: Vec<_> = entries
                 .iter()
                 .map(|e| format!("{}={}", e.id, e.status))
                 .collect();
@@ -188,16 +230,9 @@ async fn wait_for_route_applied(client: &mut NbClient, src: &str, dest: &str, ti
     let applied_status = 1; // RouteStatus::Applied
 
     loop {
-        let resp = client
-            .list_routes(RouteListRequest {
-                src_node_id: src.to_string(),
-                dest_node_id: dest.to_string(),
-            })
-            .await
-            .expect("list_routes failed")
-            .into_inner();
+        let routes = collect_routes(client, src, dest).await;
 
-        let is_applied = resp.routes.iter().any(|e| {
+        let is_applied = routes.iter().any(|e| {
             e.source_node_id == src && e.dest_node_id == dest && e.status == applied_status
         });
 
@@ -206,8 +241,7 @@ async fn wait_for_route_applied(client: &mut NbClient, src: &str, dest: &str, ti
         }
 
         if tokio::time::Instant::now() >= deadline {
-            let statuses: Vec<_> = resp
-                .routes
+            let statuses: Vec<_> = routes
                 .iter()
                 .map(|e| {
                     format!(
@@ -235,17 +269,10 @@ async fn wait_for_all_routes_applied(
     let applied_status = 1;
 
     loop {
-        let resp = client
-            .list_routes(RouteListRequest {
-                src_node_id: String::new(),
-                dest_node_id: String::new(),
-            })
-            .await
-            .expect("list_routes failed")
-            .into_inner();
+        let all_routes = collect_routes(client, "", "").await;
 
         let all_applied = routes.iter().all(|(src, dest)| {
-            resp.routes.iter().any(|e| {
+            all_routes.iter().any(|e| {
                 e.source_node_id == *src && e.dest_node_id == *dest && e.status == applied_status
             })
         });
@@ -258,7 +285,7 @@ async fn wait_for_all_routes_applied(
             let pending: Vec<_> = routes
                 .iter()
                 .filter(|(src, dest)| {
-                    !resp.routes.iter().any(|e| {
+                    !all_routes.iter().any(|e| {
                         e.source_node_id == *src
                             && e.dest_node_id == *dest
                             && e.status == applied_status
@@ -284,16 +311,9 @@ async fn wait_for_link_between(
 ) {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
-        let resp = client
-            .list_links(LinkListRequest {
-                src_node_id: String::new(),
-                dest_node_id: String::new(),
-            })
-            .await
-            .expect("list_links failed")
-            .into_inner();
+        let links = collect_links(client, "", "").await;
 
-        let found = resp.links.iter().any(|l| {
+        let found = links.iter().any(|l| {
             !l.deleted
                 && ((l.source_node_id == node_a && l.dest_node_id == node_b)
                     || (l.source_node_id == node_b && l.dest_node_id == node_a))
@@ -346,13 +366,9 @@ async fn print_state(client: &mut NbClient, label: &str) {
     println!("\n=== {label} ===");
 
     // Nodes
-    let nodes = client
-        .list_nodes(NodeListRequest {})
-        .await
-        .expect("list_nodes failed")
-        .into_inner();
-    println!("  Nodes ({}):", nodes.entries.len());
-    for n in &nodes.entries {
+    let nodes = collect_nodes(client).await;
+    println!("  Nodes ({}):", nodes.len());
+    for n in &nodes {
         let status = match n.status {
             1 => "Connected",
             2 => "NotConnected",
@@ -363,16 +379,9 @@ async fn print_state(client: &mut NbClient, label: &str) {
     }
 
     // Routes
-    let routes = client
-        .list_routes(RouteListRequest {
-            src_node_id: String::new(),
-            dest_node_id: String::new(),
-        })
-        .await
-        .expect("list_routes failed")
-        .into_inner();
-    println!("  Routes ({}):", routes.routes.len());
-    for r in &routes.routes {
+    let routes = collect_routes(client, "", "").await;
+    println!("  Routes ({}):", routes.len());
+    for r in &routes {
         let status = match r.status {
             1 => "Applied",
             2 => "Failed",
@@ -387,16 +396,9 @@ async fn print_state(client: &mut NbClient, label: &str) {
     }
 
     // Links
-    let links = client
-        .list_links(LinkListRequest {
-            src_node_id: String::new(),
-            dest_node_id: String::new(),
-        })
-        .await
-        .expect("list_links failed")
-        .into_inner();
-    println!("  Links ({}):", links.links.len());
-    for l in &links.links {
+    let links = collect_links(client, "", "").await;
+    println!("  Links ({}):", links.len());
+    for l in &links {
         let status = match l.status {
             1 => "Pending",
             2 => "Applied",
@@ -551,17 +553,9 @@ async fn test_basic_subscription_forwarding() {
     print_state(&mut client, "After routes applied").await;
 
     // Verify links exist between the nodes (direction may vary)
-    let all_links = client
-        .list_links(LinkListRequest {
-            src_node_id: String::new(),
-            dest_node_id: String::new(),
-        })
-        .await
-        .expect("list_links failed")
-        .into_inner();
+    let all_links = collect_links(&mut client, "", "").await;
 
     let links_involving_a: Vec<_> = all_links
-        .links
         .iter()
         .filter(|l| l.source_node_id == id_a || l.dest_node_id == id_a)
         .collect();
@@ -611,16 +605,8 @@ async fn test_dest_node_crash_and_recovery() {
     wait_for_route_applied(&mut client, &id_a, &id_b, Duration::from_secs(30)).await;
 
     // Capture link_id before crash
-    let links_before = client
-        .list_links(LinkListRequest {
-            src_node_id: String::new(),
-            dest_node_id: String::new(),
-        })
-        .await
-        .expect("list_links failed")
-        .into_inner();
+    let links_before = collect_links(&mut client, "", "").await;
     let link_before = links_before
-        .links
         .iter()
         .find(|l| {
             (l.source_node_id == id_a && l.dest_node_id == id_b)
@@ -646,16 +632,8 @@ async fn test_dest_node_crash_and_recovery() {
     wait_for_route_applied(&mut client, &id_a, &id_b, Duration::from_secs(30)).await;
 
     // Verify link_id is preserved
-    let links_after = client
-        .list_links(LinkListRequest {
-            src_node_id: String::new(),
-            dest_node_id: String::new(),
-        })
-        .await
-        .expect("list_links failed")
-        .into_inner();
+    let links_after = collect_links(&mut client, "", "").await;
     let link_after = links_after
-        .links
         .iter()
         .find(|l| l.link_id == link_id)
         .expect("link should exist with same link_id after recovery");
@@ -701,16 +679,8 @@ async fn test_source_node_crash_and_recovery() {
     wait_for_route_applied(&mut client, &id_a, &id_b, Duration::from_secs(30)).await;
 
     // Capture link_id before crash
-    let links_before = client
-        .list_links(LinkListRequest {
-            src_node_id: String::new(),
-            dest_node_id: String::new(),
-        })
-        .await
-        .expect("list_links failed")
-        .into_inner();
+    let links_before = collect_links(&mut client, "", "").await;
     let link_before = links_before
-        .links
         .iter()
         .find(|l| {
             (l.source_node_id == id_a && l.dest_node_id == id_b)
@@ -735,19 +705,9 @@ async fn test_source_node_crash_and_recovery() {
     // Wait for the link to be re-established (it was set to Pending during re-registration)
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
-        let links = client
-            .list_links(LinkListRequest {
-                src_node_id: String::new(),
-                dest_node_id: String::new(),
-            })
-            .await
-            .expect("list_links failed")
-            .into_inner();
+        let links = collect_links(&mut client, "", "").await;
 
-        let link_applied = links
-            .links
-            .iter()
-            .any(|l| l.link_id == link_id && l.status == 2);
+        let link_applied = links.iter().any(|l| l.link_id == link_id && l.status == 2);
 
         if link_applied {
             break;
@@ -770,16 +730,8 @@ async fn test_source_node_crash_and_recovery() {
     wait_for_route_applied(&mut client, &id_a, &id_b, Duration::from_secs(30)).await;
 
     // Verify link_id is preserved
-    let links_after = client
-        .list_links(LinkListRequest {
-            src_node_id: String::new(),
-            dest_node_id: String::new(),
-        })
-        .await
-        .expect("list_links failed")
-        .into_inner();
+    let links_after = collect_links(&mut client, "", "").await;
     let link_after = links_after
-        .links
         .iter()
         .find(|l| l.link_id == link_id)
         .expect("link should exist with same link_id after recovery");
@@ -862,50 +814,32 @@ async fn test_scale_many_nodes() {
     wait_for_all_routes_applied(&mut client, &route_refs, Duration::from_secs(120)).await;
 
     // Print summary
-    let nodes_resp = client
-        .list_nodes(NodeListRequest {})
-        .await
-        .expect("list_nodes failed")
-        .into_inner();
-    let connected = nodes_resp.entries.iter().filter(|n| n.status == 1).count();
+    let nodes_list = collect_nodes(&mut client).await;
+    let connected = nodes_list.iter().filter(|n| n.status == 1).count();
     println!(
         "\n=== Scale test summary ===\n  Nodes: {} total, {} connected",
-        nodes_resp.entries.len(),
+        nodes_list.len(),
         connected
     );
 
-    let routes = client
-        .list_routes(RouteListRequest {
-            src_node_id: String::new(),
-            dest_node_id: String::new(),
-        })
-        .await
-        .expect("list_routes failed")
-        .into_inner();
+    let routes = collect_routes(&mut client, "", "").await;
 
-    let applied_count = routes.routes.iter().filter(|e| e.status == 1).count();
-    let pending_count = routes.routes.iter().filter(|e| e.status == 4).count();
-    let failed_count = routes.routes.iter().filter(|e| e.status == 2).count();
+    let applied_count = routes.iter().filter(|e| e.status == 1).count();
+    let pending_count = routes.iter().filter(|e| e.status == 4).count();
+    let failed_count = routes.iter().filter(|e| e.status == 2).count();
     println!(
         "  Routes: {} total, {} applied, {} pending, {} failed",
-        routes.routes.len(),
+        routes.len(),
         applied_count,
         pending_count,
         failed_count
     );
 
-    let links = client
-        .list_links(LinkListRequest {
-            src_node_id: String::new(),
-            dest_node_id: String::new(),
-        })
-        .await
-        .expect("list_links failed")
-        .into_inner();
-    let links_applied = links.links.iter().filter(|l| l.status == 2).count();
+    let links = collect_links(&mut client, "", "").await;
+    let links_applied = links.iter().filter(|l| l.status == 2).count();
     println!(
         "  Links: {} total, {} applied\n",
-        links.links.len(),
+        links.len(),
         links_applied
     );
 
@@ -966,16 +900,8 @@ async fn test_node_deregister_and_reregister() {
     .await;
 
     // Capture the link_id before deregister — it should be preserved
-    let links_before = client
-        .list_links(LinkListRequest {
-            src_node_id: String::new(),
-            dest_node_id: String::new(),
-        })
-        .await
-        .expect("list_links failed")
-        .into_inner();
+    let links_before = collect_links(&mut client, "", "").await;
     let link_id = links_before
-        .links
         .iter()
         .find(|l| {
             (l.source_node_id == id_a && l.dest_node_id == id_b)
@@ -997,25 +923,13 @@ async fn test_node_deregister_and_reregister() {
     // --- Verify cleanup ---
 
     // Node-b should be gone from the node list
-    let nodes = client
-        .list_nodes(NodeListRequest {})
-        .await
-        .expect("list_nodes failed")
-        .into_inner();
-    let node_b_exists = nodes.entries.iter().any(|e| e.id == id_b);
+    let nodes = collect_nodes(&mut client).await;
+    let node_b_exists = nodes.iter().any(|e| e.id == id_b);
     assert!(!node_b_exists, "node-b should be removed after deregister");
 
     // Active routes to node-b should be cleaned up
-    let routes = client
-        .list_routes(RouteListRequest {
-            src_node_id: String::new(),
-            dest_node_id: String::new(),
-        })
-        .await
-        .expect("list_routes failed")
-        .into_inner();
+    let routes = collect_routes(&mut client, "", "").await;
     let active_route_to_b: Vec<_> = routes
-        .routes
         .iter()
         .filter(|r| r.dest_node_id == id_b && r.status != 3)
         .collect();
@@ -1032,16 +946,8 @@ async fn test_node_deregister_and_reregister() {
     );
 
     // Links involving node-b should be soft-deleted
-    let links = client
-        .list_links(LinkListRequest {
-            src_node_id: String::new(),
-            dest_node_id: String::new(),
-        })
-        .await
-        .expect("list_links failed")
-        .into_inner();
+    let links = collect_links(&mut client, "", "").await;
     let active_links_with_b: Vec<_> = links
-        .links
         .iter()
         .filter(|l| (l.source_node_id == id_b || l.dest_node_id == id_b) && !l.deleted)
         .collect();
@@ -1071,16 +977,9 @@ async fn test_node_deregister_and_reregister() {
     // Link should be restored with same link_id and reach Applied status
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
-        let links = client
-            .list_links(LinkListRequest {
-                src_node_id: String::new(),
-                dest_node_id: String::new(),
-            })
-            .await
-            .expect("list_links failed")
-            .into_inner();
+        let links = collect_links(&mut client, "", "").await;
 
-        let link_applied = links.links.iter().any(|l| {
+        let link_applied = links.iter().any(|l| {
             l.link_id == link_id && l.status == 2 // Applied
         });
 
@@ -1105,16 +1004,8 @@ async fn test_node_deregister_and_reregister() {
     .await;
 
     // Verify the link_id is preserved
-    let links_after = client
-        .list_links(LinkListRequest {
-            src_node_id: String::new(),
-            dest_node_id: String::new(),
-        })
-        .await
-        .expect("list_links failed")
-        .into_inner();
+    let links_after = collect_links(&mut client, "", "").await;
     let link = links_after
-        .links
         .iter()
         .find(|l| l.link_id == link_id)
         .expect("link should exist with the same link_id after re-register");
@@ -1202,17 +1093,9 @@ async fn test_static_connection_adoption() {
     wait_for_route_applied(&mut client, &id_a, &id_b, Duration::from_secs(30)).await;
 
     // Verify the link uses the static connection's link_id.
-    let links = client
-        .list_links(LinkListRequest {
-            src_node_id: String::new(),
-            dest_node_id: String::new(),
-        })
-        .await
-        .expect("list_links failed")
-        .into_inner();
+    let links = collect_links(&mut client, "", "").await;
 
     let link_a_to_b = links
-        .links
         .iter()
         .find(|l| l.source_node_id == id_a && l.dest_node_id == id_b)
         .expect("no link found from node-a to node-b");

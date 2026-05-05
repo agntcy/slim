@@ -10,6 +10,7 @@ use diesel::prelude::*;
 use diesel::serialize::{self, Output, ToSql};
 use diesel::sql_types::{BigInt, Integer, Text};
 use serde::{Deserialize, Serialize};
+use slim_config::grpc::client::ClientConfig;
 
 use super::schema::{links, nodes, routes};
 
@@ -117,6 +118,35 @@ where
         let parsed =
             serde_json::from_str(&s).map_err(|e| format!("invalid JSON string array: {e}"))?;
         Ok(JsonStrings(parsed))
+    }
+}
+
+/// `ClientConfig` ↔ `Text` (JSON).
+#[derive(Debug, AsExpression, FromSqlRow)]
+#[diesel(sql_type = Text)]
+pub struct DbClientConfig(pub ClientConfig);
+
+impl From<DbClientConfig> for ClientConfig {
+    fn from(j: DbClientConfig) -> Self {
+        j.0
+    }
+}
+
+impl From<ClientConfig> for DbClientConfig {
+    fn from(v: ClientConfig) -> Self {
+        DbClientConfig(v)
+    }
+}
+
+impl<DB: Backend> FromSql<Text, DB> for DbClientConfig
+where
+    String: FromSql<Text, DB>,
+{
+    fn from_sql(bytes: DB::RawValue<'_>) -> deserialize::Result<Self> {
+        let s = String::from_sql(bytes)?;
+        let parsed =
+            serde_json::from_str(&s).map_err(|e| format!("invalid conn_config_data JSON: {e}"))?;
+        Ok(DbClientConfig(parsed))
     }
 }
 
@@ -347,7 +377,8 @@ pub struct Link {
     pub source_node_id: String,
     pub dest_node_id: String,
     pub dest_endpoint: String,
-    pub conn_config_data: String,
+    #[diesel(deserialize_as = DbClientConfig, serialize_as = DbClientConfig)]
+    pub conn_config_data: ClientConfig,
     pub status: LinkStatus,
     pub status_msg: String,
     #[diesel(deserialize_as = DbTimestamp, serialize_as = DbTimestamp)]
@@ -470,7 +501,7 @@ mod tests {
             source_node_id: "src".to_string(),
             dest_node_id: "dst".to_string(),
             dest_endpoint: "ep:9000".to_string(),
-            conn_config_data: String::new(),
+            conn_config_data: ClientConfig::default(),
             status: LinkStatus::Pending,
             status_msg: String::new(),
             created_at: std::time::SystemTime::now(),
@@ -486,7 +517,7 @@ mod tests {
             source_node_id: "src".to_string(),
             dest_node_id: "dst".to_string(),
             dest_endpoint: "ep:9000".to_string(),
-            conn_config_data: String::new(),
+            conn_config_data: ClientConfig::default(),
             status: LinkStatus::Applied,
             status_msg: String::new(),
             created_at: std::time::SystemTime::now(),

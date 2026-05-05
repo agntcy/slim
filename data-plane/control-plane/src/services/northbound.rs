@@ -2,15 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use prost_types::{Struct, Value, value::Kind};
+use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
 use crate::api::proto::controller::proto::v1::{
     ConnectionDetails, ConnectionListResponse, SubscriptionListResponse,
 };
 use crate::api::proto::controlplane::proto::v1::{
-    AddRouteRequest, AddRouteResponse, DeleteRouteRequest, DeleteRouteResponse, LinkListRequest,
-    LinkListResponse, LinkStatus, NodeListRequest, NodeListResponse, RouteListRequest,
-    RouteListResponse, RouteStatus, control_plane_service_server::ControlPlaneService,
+    AddRouteRequest, AddRouteResponse, DeleteRouteRequest, DeleteRouteResponse, LinkEntry,
+    LinkListRequest, LinkStatus, NodeEntry, NodeListRequest, RouteEntry, RouteListRequest,
+    RouteStatus, control_plane_service_server::ControlPlaneService,
 };
 use crate::db::SharedDb;
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus};
@@ -38,64 +39,75 @@ impl NorthboundApiService {
 
 #[tonic::async_trait]
 impl ControlPlaneService for NorthboundApiService {
+    type ListNodesStream = ReceiverStream<Result<NodeEntry, Status>>;
+    type ListRoutesStream = ReceiverStream<Result<RouteEntry, Status>>;
+    type ListLinksStream = ReceiverStream<Result<LinkEntry, Status>>;
+
     async fn list_nodes(
         &self,
         _request: Request<NodeListRequest>,
-    ) -> Result<Response<NodeListResponse>, Status> {
+    ) -> Result<Response<Self::ListNodesStream>, Status> {
         let nodes = self.db.list_nodes().await;
         let status_futs: Vec<_> = nodes
             .iter()
             .map(|node| self.cmd_handler.get_connection_status(&node.id))
             .collect();
         let statuses = futures::future::join_all(status_futs).await;
-        let mut entries = Vec::with_capacity(nodes.len());
-        for (node, node_status) in nodes.into_iter().zip(statuses) {
-            let status = match node_status {
-                NodeStatus::Connected => {
-                    crate::api::proto::controlplane::proto::v1::NodeStatus::Connected as i32
-                }
-                NodeStatus::NotConnected => {
-                    crate::api::proto::controlplane::proto::v1::NodeStatus::NotConnected as i32
-                }
-                NodeStatus::Unknown => {
-                    crate::api::proto::controlplane::proto::v1::NodeStatus::Unspecified as i32
-                }
-            };
 
-            let connections = node
-                .conn_details
-                .iter()
-                .map(|cd| {
-                    let mut metadata = None;
-                    if let Some(ref ee) = cd.external_endpoint
-                        && !ee.is_empty()
-                    {
-                        let mut fields = std::collections::BTreeMap::new();
-                        fields.insert(
-                            "external_endpoint".to_string(),
-                            Value {
-                                kind: Some(Kind::StringValue(ee.clone())),
-                            },
-                        );
-                        metadata = Some(Struct { fields });
+        let (tx, rx) = tokio::sync::mpsc::channel(64);
+        tokio::spawn(async move {
+            for (node, node_status) in nodes.into_iter().zip(statuses) {
+                let status = match node_status {
+                    NodeStatus::Connected => {
+                        crate::api::proto::controlplane::proto::v1::NodeStatus::Connected as i32
                     }
-                    ConnectionDetails {
-                        endpoint: cd.endpoint.clone(),
-                        mtls_required: cd.spire_mtls.is_some(),
-                        metadata,
-                        auth: None,
-                        tls: None,
+                    NodeStatus::NotConnected => {
+                        crate::api::proto::controlplane::proto::v1::NodeStatus::NotConnected as i32
                     }
-                })
-                .collect();
+                    NodeStatus::Unknown => {
+                        crate::api::proto::controlplane::proto::v1::NodeStatus::Unspecified as i32
+                    }
+                };
 
-            entries.push(crate::api::proto::controlplane::proto::v1::NodeEntry {
-                id: node.id,
-                connections,
-                status,
-            });
-        }
-        Ok(Response::new(NodeListResponse { entries }))
+                let connections = node
+                    .conn_details
+                    .iter()
+                    .map(|cd| {
+                        let mut metadata = None;
+                        if let Some(ref ee) = cd.external_endpoint
+                            && !ee.is_empty()
+                        {
+                            let mut fields = std::collections::BTreeMap::new();
+                            fields.insert(
+                                "external_endpoint".to_string(),
+                                Value {
+                                    kind: Some(Kind::StringValue(ee.clone())),
+                                },
+                            );
+                            metadata = Some(Struct { fields });
+                        }
+                        ConnectionDetails {
+                            endpoint: cd.endpoint.clone(),
+                            mtls_required: cd.spire_mtls.is_some(),
+                            metadata,
+                            auth: None,
+                            tls: None,
+                        }
+                    })
+                    .collect();
+
+                let entry = NodeEntry {
+                    id: node.id,
+                    connections,
+                    status,
+                };
+                if tx.send(Ok(entry)).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        Ok(Response::new(ReceiverStream::new(rx)))
     }
 
     async fn list_subscriptions(
@@ -213,14 +225,14 @@ impl ControlPlaneService for NorthboundApiService {
     async fn list_routes(
         &self,
         request: Request<RouteListRequest>,
-    ) -> Result<Response<RouteListResponse>, Status> {
+    ) -> Result<Response<Self::ListRoutesStream>, Status> {
         let req = request.into_inner();
         let routes = self
             .db
             .filter_routes_by_src_dest(&req.src_node_id, &req.dest_node_id)
             .await;
 
-        let mut route_entries: Vec<crate::api::proto::controlplane::proto::v1::RouteEntry> = routes
+        let mut route_entries: Vec<RouteEntry> = routes
             .iter()
             .map(|r| {
                 let status = match r.status {
@@ -234,7 +246,7 @@ impl ControlPlaneService for NorthboundApiService {
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs() as i64)
                     .unwrap_or(0);
-                crate::api::proto::controlplane::proto::v1::RouteEntry {
+                RouteEntry {
                     id: r.id.clone(),
                     source_node_id: r.source_node_id.clone(),
                     dest_node_id: r.dest_node_id.clone(),
@@ -264,57 +276,65 @@ impl ControlPlaneService for NorthboundApiService {
             }
         });
 
-        Ok(Response::new(RouteListResponse {
-            routes: route_entries,
-        }))
+        let (tx, rx) = tokio::sync::mpsc::channel(64);
+        tokio::spawn(async move {
+            for entry in route_entries {
+                if tx.send(Ok(entry)).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        Ok(Response::new(ReceiverStream::new(rx)))
     }
 
     async fn list_links(
         &self,
         request: Request<LinkListRequest>,
-    ) -> Result<Response<LinkListResponse>, Status> {
+    ) -> Result<Response<Self::ListLinksStream>, Status> {
         let req = request.into_inner();
         let links = self
             .db
             .filter_links_by_src_dest(&req.src_node_id, &req.dest_node_id)
             .await;
-        let mut link_entries = Vec::new();
 
-        for l in links {
-            let key = format!(
-                "{}|{}|{}|{}",
-                l.source_node_id, l.dest_node_id, l.dest_endpoint, l.link_id
-            );
-            let link_status = match l.status {
-                crate::db::LinkStatus::Pending => LinkStatus::Pending as i32,
-                crate::db::LinkStatus::Applied => LinkStatus::Applied as i32,
-                crate::db::LinkStatus::Failed => LinkStatus::Failed as i32,
-                crate::db::LinkStatus::Deleted => LinkStatus::Failed as i32,
-            };
-            let last_updated = l
-                .last_updated
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0);
-            link_entries.push(crate::api::proto::controlplane::proto::v1::LinkEntry {
-                id: key,
-                link_id: l.link_id,
-                source_node_id: l.source_node_id,
-                dest_node_id: l.dest_node_id,
-                dest_endpoint: l.dest_endpoint,
-                conn_config_data: l.conn_config_data,
-                status: link_status,
-                status_msg: l.status_msg,
-                deleted: l.status == crate::db::LinkStatus::Deleted,
-                last_updated,
-            });
-        }
+        let (tx, rx) = tokio::sync::mpsc::channel(64);
+        tokio::spawn(async move {
+            for l in links {
+                let key = format!(
+                    "{}|{}|{}|{}",
+                    l.source_node_id, l.dest_node_id, l.dest_endpoint, l.link_id
+                );
+                let link_status = match l.status {
+                    crate::db::LinkStatus::Pending => LinkStatus::Pending as i32,
+                    crate::db::LinkStatus::Applied => LinkStatus::Applied as i32,
+                    crate::db::LinkStatus::Failed => LinkStatus::Failed as i32,
+                    crate::db::LinkStatus::Deleted => LinkStatus::Failed as i32,
+                };
+                let last_updated = l
+                    .last_updated
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                let entry = LinkEntry {
+                    id: key,
+                    link_id: l.link_id,
+                    source_node_id: l.source_node_id,
+                    dest_node_id: l.dest_node_id,
+                    dest_endpoint: l.dest_endpoint,
+                    conn_config_data: serde_json::to_string(&l.conn_config_data)
+                        .unwrap_or_default(),
+                    status: link_status,
+                    status_msg: l.status_msg,
+                    deleted: l.status == crate::db::LinkStatus::Deleted,
+                    last_updated,
+                };
+                if tx.send(Ok(entry)).await.is_err() {
+                    break;
+                }
+            }
+        });
 
-        // Order is delegated to the DB layer (filter_links_by_src_dest adds
-        // ORDER BY source_node_id, dest_node_id, link_id).  No Rust-side sort
-        // needed.
-        Ok(Response::new(LinkListResponse {
-            links: link_entries,
-        }))
+        Ok(Response::new(ReceiverStream::new(rx)))
     }
 }

@@ -197,7 +197,11 @@ fn build_desired_connections(
             continue;
         }
         desired_link_ids.insert(link.link_id.clone());
-        let config_data = inject_link_id(&link.conn_config_data, &link.link_id);
+        let mut config = link.conn_config_data.clone();
+        if config.link_id.is_empty() {
+            config.link_id = link.link_id.clone();
+        }
+        let config_data = serde_json::to_string(&config).unwrap_or_default();
         desired_connections.push(Connection {
             connection_id: link.link_id.clone(),
             config_data,
@@ -463,64 +467,4 @@ async fn process_subscription_acks(
     }
 
     Ok(needs_requeue)
-}
-
-// ── Helpers ─────────────────────────────────────────────────────────────────
-
-fn inject_link_id(config_data: &str, link_id: &str) -> String {
-    if let Ok(mut cfg) =
-        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(config_data)
-        && !cfg.contains_key("link_id")
-    {
-        cfg.insert(
-            "link_id".to_string(),
-            serde_json::Value::String(link_id.to_string()),
-        );
-        if let Ok(updated) = serde_json::to_string(&cfg) {
-            return updated;
-        }
-    }
-    config_data.to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn inject_link_id_adds_missing_key() {
-        let data = r#"{"endpoint":"http://x:8080"}"#;
-        let result = inject_link_id(data, "my-link-id");
-        let v: serde_json::Value = serde_json::from_str(&result).unwrap();
-        assert_eq!(v["link_id"], "my-link-id");
-        assert_eq!(v["endpoint"], "http://x:8080");
-    }
-
-    #[test]
-    fn inject_link_id_does_not_overwrite_existing() {
-        let data = r#"{"link_id":"existing","endpoint":"http://x:8080"}"#;
-        let result = inject_link_id(data, "new-link-id");
-        let v: serde_json::Value = serde_json::from_str(&result).unwrap();
-        assert_eq!(v["link_id"], "existing");
-    }
-
-    #[test]
-    fn inject_link_id_passthrough_on_invalid_json() {
-        let data = "not json at all";
-        let result = inject_link_id(data, "lid");
-        assert_eq!(result, data);
-    }
-
-    #[test]
-    fn inject_link_id_passthrough_on_empty_string() {
-        let result = inject_link_id("", "lid");
-        assert_eq!(result, "");
-    }
-
-    #[test]
-    fn inject_link_id_passthrough_on_json_array() {
-        let data = r#"[1,2,3]"#;
-        let result = inject_link_id(data, "lid");
-        assert_eq!(result, data);
-    }
 }

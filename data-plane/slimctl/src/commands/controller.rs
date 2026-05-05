@@ -3,6 +3,7 @@
 
 use anyhow::{Result, bail};
 use clap::{Args, Subcommand};
+use tokio_stream::StreamExt;
 
 use crate::client::get_control_plane_client;
 use crate::config::ResolvedOpts;
@@ -199,9 +200,13 @@ async fn run_link(args: &ControllerLinkArgs, opts: &ResolvedOpts) -> Result<()> 
 
 async fn node_list(opts: &ResolvedOpts) -> Result<()> {
     let mut client = get_control_plane_client(opts).await?;
-    let resp = rpc!(client, list_nodes, NodeListRequest {}, opts);
-    println!("{} node(s) found", resp.entries.len());
-    for node in &resp.entries {
+    let mut stream = rpc!(client, list_nodes, NodeListRequest {}, opts);
+    let mut entries = Vec::new();
+    while let Some(entry) = stream.next().await {
+        entries.push(entry?);
+    }
+    println!("{} node(s) found", entries.len());
+    for node in &entries {
         println!("Node ID: {} status: {:?}", node.id, node.status);
         if !node.connections.is_empty() {
             println!("  Connection details:");
@@ -405,7 +410,7 @@ async fn route_outline(
         origin_node_id, target_node_id
     );
     let mut client = get_control_plane_client(opts).await?;
-    let resp = rpc!(
+    let mut stream = rpc!(
         client,
         list_routes,
         RouteListRequest {
@@ -414,12 +419,15 @@ async fn route_outline(
         },
         opts
     );
-    let routes = &resp.routes;
+    let mut routes = Vec::new();
+    while let Some(entry) = stream.next().await {
+        routes.push(entry?);
+    }
     println!("Number of routes: {}\n", routes.len());
     if !routes.is_empty() {
-        let col_widths = compute_route_col_widths(routes);
+        let col_widths = compute_route_col_widths(&routes);
         print_route_header(&col_widths);
-        for route in routes {
+        for route in &routes {
             print_route_row(route, &col_widths);
         }
     }
@@ -436,7 +444,7 @@ async fn link_outline(
         origin_node_id, target_node_id
     );
     let mut client = get_control_plane_client(opts).await?;
-    let resp = rpc!(
+    let mut stream = rpc!(
         client,
         list_links,
         LinkListRequest {
@@ -445,30 +453,32 @@ async fn link_outline(
         },
         opts
     );
-    let links = &resp.links;
+    let mut links = Vec::new();
+    while let Some(entry) = stream.next().await {
+        links.push(entry?);
+    }
     println!("Number of links: {}\n", links.len());
     if !links.is_empty() {
-        let col_widths = compute_link_col_widths(links);
+        let col_widths = compute_link_col_widths(&links);
         print_link_header(&col_widths);
-        for link in links {
+        for link in &links {
             print_link_row(link, &col_widths);
         }
     }
     Ok(())
 }
 
-const ROUTE_HEADERS: [&str; 8] = [
+const ROUTE_HEADERS: [&str; 7] = [
     "SOURCE",
     "DEST_NODE",
     "SUBSCRIPTION",
     "STATUS",
     "STATUS_MSG",
-    "DELETED",
     "LAST_UPDATED",
     "LINK_ID",
 ];
 
-fn route_cells(r: &RouteEntry) -> [String; 8] {
+fn route_cells(r: &RouteEntry) -> [String; 7] {
     [
         r.source_node_id.clone(),
         if r.dest_node_id.is_empty() {
@@ -484,7 +494,6 @@ fn route_cells(r: &RouteEntry) -> [String; 8] {
         } else {
             r.status_msg.clone()
         },
-        if r.deleted { "Yes" } else { "No" }.to_string(),
         format_unix_timestamp(r.last_updated),
         if r.link_id.is_empty() {
             "-".to_string()
@@ -503,7 +512,7 @@ fn print_row<T: AsRef<str>>(cells: &[T], widths: &[usize]) {
     println!("  {}", line.join("  "));
 }
 
-fn compute_route_col_widths(routes: &[RouteEntry]) -> [usize; 8] {
+fn compute_route_col_widths(routes: &[RouteEntry]) -> [usize; 7] {
     let mut widths = ROUTE_HEADERS.map(|h| h.len());
     for r in routes {
         for (w, cell) in widths.iter_mut().zip(route_cells(r).iter()) {
@@ -513,13 +522,13 @@ fn compute_route_col_widths(routes: &[RouteEntry]) -> [usize; 8] {
     widths
 }
 
-fn print_route_header(widths: &[usize; 8]) {
+fn print_route_header(widths: &[usize; 7]) {
     print_row(&ROUTE_HEADERS, widths);
     let total: usize = widths.iter().sum::<usize>() + widths.len() * 2;
     println!("  {}", "-".repeat(total));
 }
 
-fn print_route_row(route: &RouteEntry, widths: &[usize; 8]) {
+fn print_route_row(route: &RouteEntry, widths: &[usize; 7]) {
     print_row(&route_cells(route), widths);
 }
 
@@ -586,7 +595,7 @@ fn route_status_str(status: i32) -> String {
     match RouteStatus::try_from(status) {
         Ok(RouteStatus::Applied) => "APPLIED".to_string(),
         Ok(RouteStatus::Failed) => "FAILED".to_string(),
-        Ok(RouteStatus::Stale) => "STALE".to_string(),
+        Ok(RouteStatus::Deleted) => "DELETED".to_string(),
         Ok(RouteStatus::Pending) => "PENDING".to_string(),
         _ => "UNKNOWN".to_string(),
     }
@@ -620,7 +629,6 @@ mod tests {
         c2: &str,
         component_id: Option<u64>,
         status: i32,
-        deleted: bool,
         last_updated: i64,
     ) -> RouteEntry {
         RouteEntry {
@@ -632,7 +640,6 @@ mod tests {
             component_2: c2.to_string(),
             component_id,
             status,
-            deleted,
             last_updated,
             ..Default::default()
         }
@@ -692,19 +699,19 @@ mod tests {
 
     #[test]
     fn build_subscription_str_with_component_id() {
-        let r = make_route("", "", "org", "ns", "agent", Some(42), 0, false, 0);
+        let r = make_route("", "", "org", "ns", "agent", Some(42), 0, 0);
         assert_eq!(build_subscription_str(&r), "org/ns/agent/42");
     }
 
     #[test]
     fn build_subscription_str_without_component_id() {
-        let r = make_route("", "", "org", "ns", "agent", None, 0, false, 0);
+        let r = make_route("", "", "org", "ns", "agent", None, 0, 0);
         assert_eq!(build_subscription_str(&r), "org/ns/agent");
     }
 
     #[test]
     fn build_subscription_str_zero_component_id() {
-        let r = make_route("", "", "a", "b", "c", Some(0), 0, false, 0);
+        let r = make_route("", "", "a", "b", "c", Some(0), 0, 0);
         assert_eq!(build_subscription_str(&r), "a/b/c/0");
     }
 
@@ -720,7 +727,6 @@ mod tests {
             "agent",
             Some(7),
             RouteStatus::Applied as i32,
-            false,
             0,
         );
         r.status_msg = "apply succeeded".to_string();
@@ -730,25 +736,18 @@ mod tests {
         assert_eq!(cells[2], "org/ns/agent/7"); // subscription
         assert_eq!(cells[3], "APPLIED"); // status
         assert_eq!(cells[4], "apply succeeded"); // status msg
-        assert_eq!(cells[5], "No"); // deleted
     }
 
     #[test]
     fn route_cells_empty_dest_node_becomes_dash() {
-        let r = make_route("src", "", "o", "n", "a", None, 0, false, 0);
+        let r = make_route("src", "", "o", "n", "a", None, 0, 0);
         assert_eq!(route_cells(&r)[1], "-");
     }
 
     #[test]
     fn route_cells_subscription_column() {
-        let r = make_route("src", "", "o", "n", "a", None, 0, false, 0);
+        let r = make_route("src", "", "o", "n", "a", None, 0, 0);
         assert_eq!(route_cells(&r)[2], "o/n/a");
-    }
-
-    #[test]
-    fn route_cells_deleted_shows_yes() {
-        let r = make_route("src", "", "o", "n", "a", None, 0, true, 0);
-        assert_eq!(route_cells(&r)[5], "Yes");
     }
 
     // ── compute_route_col_widths ─────────────────────────────────────────────
@@ -811,7 +810,6 @@ mod tests {
             "agent",
             Some(1),
             RouteStatus::Applied as i32,
-            false,
             0,
         );
         let widths = compute_route_col_widths(std::slice::from_ref(&r));
@@ -868,18 +866,34 @@ mod tests {
             ConnectionListResponse, SubscriptionListResponse,
         };
         use crate::proto::controlplane::proto::v1::{
-            AddRouteRequest, AddRouteResponse, DeleteRouteRequest, DeleteRouteResponse,
-            LinkListRequest, LinkListResponse, Node as CpNode, NodeListRequest, NodeListResponse,
-            RouteListRequest, RouteListResponse,
+            AddRouteRequest, AddRouteResponse, DeleteRouteRequest, DeleteRouteResponse, LinkEntry,
+            LinkListRequest, Node as CpNode, NodeEntry, NodeListRequest, RouteEntry,
+            RouteListRequest,
             control_plane_service_server::{ControlPlaneService, ControlPlaneServiceServer},
         };
 
         use super::super::*;
 
+        type EmptyNodeStream =
+            tokio_stream::wrappers::ReceiverStream<Result<NodeEntry, tonic::Status>>;
+        type EmptyRouteStream =
+            tokio_stream::wrappers::ReceiverStream<Result<RouteEntry, tonic::Status>>;
+        type EmptyLinkStream =
+            tokio_stream::wrappers::ReceiverStream<Result<LinkEntry, tonic::Status>>;
+
+        fn empty_stream<T>() -> tokio_stream::wrappers::ReceiverStream<Result<T, tonic::Status>> {
+            let (_, rx) = tokio::sync::mpsc::channel(1);
+            tokio_stream::wrappers::ReceiverStream::new(rx)
+        }
+
         struct MockControlPlaneSvc;
 
         #[tonic::async_trait]
         impl ControlPlaneService for MockControlPlaneSvc {
+            type ListNodesStream = EmptyNodeStream;
+            type ListRoutesStream = EmptyRouteStream;
+            type ListLinksStream = EmptyLinkStream;
+
             async fn add_route(
                 &self,
                 _req: tonic::Request<AddRouteRequest>,
@@ -922,22 +936,22 @@ mod tests {
             async fn list_nodes(
                 &self,
                 _req: tonic::Request<NodeListRequest>,
-            ) -> Result<tonic::Response<NodeListResponse>, tonic::Status> {
-                Ok(tonic::Response::new(NodeListResponse { entries: vec![] }))
+            ) -> Result<tonic::Response<Self::ListNodesStream>, tonic::Status> {
+                Ok(tonic::Response::new(empty_stream()))
             }
 
             async fn list_routes(
                 &self,
                 _req: tonic::Request<RouteListRequest>,
-            ) -> Result<tonic::Response<RouteListResponse>, tonic::Status> {
-                Ok(tonic::Response::new(RouteListResponse { routes: vec![] }))
+            ) -> Result<tonic::Response<Self::ListRoutesStream>, tonic::Status> {
+                Ok(tonic::Response::new(empty_stream()))
             }
 
             async fn list_links(
                 &self,
                 _req: tonic::Request<LinkListRequest>,
-            ) -> Result<tonic::Response<LinkListResponse>, tonic::Status> {
-                Ok(tonic::Response::new(LinkListResponse { links: vec![] }))
+            ) -> Result<tonic::Response<Self::ListLinksStream>, tonic::Status> {
+                Ok(tonic::Response::new(empty_stream()))
             }
         }
 
@@ -1036,6 +1050,10 @@ mod tests {
 
         #[tonic::async_trait]
         impl ControlPlaneService for ErrorControlPlaneSvc {
+            type ListNodesStream = EmptyNodeStream;
+            type ListRoutesStream = EmptyRouteStream;
+            type ListLinksStream = EmptyLinkStream;
+
             async fn add_route(
                 &self,
                 _: tonic::Request<AddRouteRequest>,
@@ -1063,20 +1081,20 @@ mod tests {
             async fn list_nodes(
                 &self,
                 _: tonic::Request<NodeListRequest>,
-            ) -> Result<tonic::Response<NodeListResponse>, tonic::Status> {
+            ) -> Result<tonic::Response<Self::ListNodesStream>, tonic::Status> {
                 Err(tonic::Status::internal("error"))
             }
             async fn list_routes(
                 &self,
                 _: tonic::Request<RouteListRequest>,
-            ) -> Result<tonic::Response<RouteListResponse>, tonic::Status> {
+            ) -> Result<tonic::Response<Self::ListRoutesStream>, tonic::Status> {
                 Err(tonic::Status::internal("error"))
             }
 
             async fn list_links(
                 &self,
                 _: tonic::Request<LinkListRequest>,
-            ) -> Result<tonic::Response<LinkListResponse>, tonic::Status> {
+            ) -> Result<tonic::Response<Self::ListLinksStream>, tonic::Status> {
                 Err(tonic::Status::internal("error"))
             }
         }
@@ -1090,6 +1108,10 @@ mod tests {
 
         #[tonic::async_trait]
         impl ControlPlaneService for FailureControlPlaneSvc {
+            type ListNodesStream = EmptyNodeStream;
+            type ListRoutesStream = EmptyRouteStream;
+            type ListLinksStream = EmptyLinkStream;
+
             async fn add_route(
                 &self,
                 _: tonic::Request<AddRouteRequest>,
@@ -1128,21 +1150,21 @@ mod tests {
             async fn list_nodes(
                 &self,
                 _: tonic::Request<NodeListRequest>,
-            ) -> Result<tonic::Response<NodeListResponse>, tonic::Status> {
-                Ok(tonic::Response::new(NodeListResponse { entries: vec![] }))
+            ) -> Result<tonic::Response<Self::ListNodesStream>, tonic::Status> {
+                Ok(tonic::Response::new(empty_stream()))
             }
             async fn list_routes(
                 &self,
                 _: tonic::Request<RouteListRequest>,
-            ) -> Result<tonic::Response<RouteListResponse>, tonic::Status> {
-                Ok(tonic::Response::new(RouteListResponse { routes: vec![] }))
+            ) -> Result<tonic::Response<Self::ListRoutesStream>, tonic::Status> {
+                Ok(tonic::Response::new(empty_stream()))
             }
 
             async fn list_links(
                 &self,
                 _: tonic::Request<LinkListRequest>,
-            ) -> Result<tonic::Response<LinkListResponse>, tonic::Status> {
-                Ok(tonic::Response::new(LinkListResponse { links: vec![] }))
+            ) -> Result<tonic::Response<Self::ListLinksStream>, tonic::Status> {
+                Ok(tonic::Response::new(empty_stream()))
             }
         }
 

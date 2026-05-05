@@ -782,7 +782,7 @@ mod tests {
             source_node_id: src.to_string(),
             dest_node_id: dst.to_string(),
             dest_endpoint: ep.to_string(),
-            conn_config_data: String::new(),
+            conn_config_data: slim_config::grpc::client::ClientConfig::default(),
             status: LinkStatus::Pending,
             status_msg: String::new(),
             created_at: SystemTime::now(),

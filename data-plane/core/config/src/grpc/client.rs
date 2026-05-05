@@ -276,68 +276,82 @@ pub struct ClientConfig {
     pub endpoint: String,
 
     /// Transport protocol to use for dataplane communication.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub transport: TransportProtocol,
 
     /// Optional websocket authentication query parameter key.
     /// This is only used when `transport=websocket`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub websocket_auth_query_param: Option<String>,
 
     /// Origin (HTTP Host authority override) for the client.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
 
     /// Optional TLS SNI server name override. If set, this value is used for TLS
     /// server name verification (SNI) instead of the host extracted from endpoint/origin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server_name: Option<String>,
 
     /// Compression type - TODO(msardara): not implemented yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compression: Option<CompressionType>,
 
     /// Rate Limits
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rate_limit: Option<String>,
 
     /// TLS client configuration.
-    #[serde(default, rename = "tls")]
+    #[serde(default, rename = "tls", skip_serializing_if = "is_default")]
     pub tls_setting: TLSSetting,
 
     /// Keepalive parameters.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keepalive: Option<KeepaliveConfig>,
 
     /// HTTP Proxy configuration.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub proxy: ProxyConfig,
 
     /// Timeout for the connection.
-    #[serde(default = "default_connect_timeout")]
+    #[serde(
+        default = "default_connect_timeout",
+        skip_serializing_if = "is_default"
+    )]
     #[schemars(with = "String")]
     pub connect_timeout: DurationString,
 
     /// Timeout per request.
-    #[serde(default = "default_request_timeout")]
+    #[serde(
+        default = "default_request_timeout",
+        skip_serializing_if = "is_default"
+    )]
     #[schemars(with = "String")]
     pub request_timeout: DurationString,
 
     /// ReadBufferSize.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub buffer_size: Option<usize>,
 
     /// The headers associated with gRPC requests.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub headers: HashMap<String, String>,
 
     /// Auth configuration for outgoing RPCs.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub auth: AuthenticationConfig,
 
     /// Backoff retry configuration.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub backoff: BackoffConfig,
 
     /// Arbitrary user-provided metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<MetadataMap>,
 
     /// Link identifier for this connection, used during link negotiation.
     /// Must be a valid UUID v4. Defaults to a randomly generated UUID v4.
-    #[serde(default = "default_link_id")]
+    #[serde(default = "default_link_id", skip_serializing_if = "String::is_empty")]
     pub link_id: String,
 }
 
@@ -365,6 +379,10 @@ impl Default for ClientConfig {
             link_id: default_link_id(),
         }
     }
+}
+
+fn is_default<T: Default + PartialEq>(val: &T) -> bool {
+    *val == T::default()
 }
 
 fn default_link_id() -> String {

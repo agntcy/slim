@@ -481,7 +481,7 @@ pub mod control_plane_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::NodeListRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::NodeListResponse>,
+            tonic::Response<tonic::codec::Streaming<super::NodeEntry>>,
             tonic::Status,
         > {
             self.inner
@@ -504,14 +504,14 @@ pub mod control_plane_service_client {
                         "ListNodes",
                     ),
                 );
-            self.inner.unary(req, path, codec).await
+            self.inner.server_streaming(req, path, codec).await
         }
         /// List routes registered at the controller with optional filtering by source and destination node IDs
         pub async fn list_routes(
             &mut self,
             request: impl tonic::IntoRequest<super::RouteListRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::RouteListResponse>,
+            tonic::Response<tonic::codec::Streaming<super::RouteEntry>>,
             tonic::Status,
         > {
             self.inner
@@ -534,14 +534,14 @@ pub mod control_plane_service_client {
                         "ListRoutes",
                     ),
                 );
-            self.inner.unary(req, path, codec).await
+            self.inner.server_streaming(req, path, codec).await
         }
         /// List links stored in the controller DB with optional filtering by source and destination node IDs
         pub async fn list_links(
             &mut self,
             request: impl tonic::IntoRequest<super::LinkListRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::LinkListResponse>,
+            tonic::Response<tonic::codec::Streaming<super::LinkEntry>>,
             tonic::Status,
         > {
             self.inner
@@ -564,7 +564,7 @@ pub mod control_plane_service_client {
                         "ListLinks",
                     ),
                 );
-            self.inner.unary(req, path, codec).await
+            self.inner.server_streaming(req, path, codec).await
         }
     }
 }
@@ -613,29 +613,38 @@ pub mod control_plane_service_server {
             >,
             tonic::Status,
         >;
+        /// Server streaming response type for the ListNodes method.
+        type ListNodesStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<super::NodeEntry, tonic::Status>,
+            >
+            + std::marker::Send
+            + 'static;
         async fn list_nodes(
             &self,
             request: tonic::Request<super::NodeListRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::NodeListResponse>,
-            tonic::Status,
-        >;
+        ) -> std::result::Result<tonic::Response<Self::ListNodesStream>, tonic::Status>;
+        /// Server streaming response type for the ListRoutes method.
+        type ListRoutesStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<super::RouteEntry, tonic::Status>,
+            >
+            + std::marker::Send
+            + 'static;
         /// List routes registered at the controller with optional filtering by source and destination node IDs
         async fn list_routes(
             &self,
             request: tonic::Request<super::RouteListRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::RouteListResponse>,
-            tonic::Status,
-        >;
+        ) -> std::result::Result<tonic::Response<Self::ListRoutesStream>, tonic::Status>;
+        /// Server streaming response type for the ListLinks method.
+        type ListLinksStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<super::LinkEntry, tonic::Status>,
+            >
+            + std::marker::Send
+            + 'static;
         /// List links stored in the controller DB with optional filtering by source and destination node IDs
         async fn list_links(
             &self,
             request: tonic::Request<super::LinkListRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::LinkListResponse>,
-            tonic::Status,
-        >;
+        ) -> std::result::Result<tonic::Response<Self::ListLinksStream>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct ControlPlaneServiceServer<T> {
@@ -903,11 +912,12 @@ pub mod control_plane_service_server {
                     struct ListNodesSvc<T: ControlPlaneService>(pub Arc<T>);
                     impl<
                         T: ControlPlaneService,
-                    > tonic::server::UnaryService<super::NodeListRequest>
+                    > tonic::server::ServerStreamingService<super::NodeListRequest>
                     for ListNodesSvc<T> {
-                        type Response = super::NodeListResponse;
+                        type Response = super::NodeEntry;
+                        type ResponseStream = T::ListNodesStream;
                         type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
+                            tonic::Response<Self::ResponseStream>,
                             tonic::Status,
                         >;
                         fn call(
@@ -939,7 +949,7 @@ pub mod control_plane_service_server {
                                 max_decoding_message_size,
                                 max_encoding_message_size,
                             );
-                        let res = grpc.unary(method, req).await;
+                        let res = grpc.server_streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)
@@ -949,11 +959,12 @@ pub mod control_plane_service_server {
                     struct ListRoutesSvc<T: ControlPlaneService>(pub Arc<T>);
                     impl<
                         T: ControlPlaneService,
-                    > tonic::server::UnaryService<super::RouteListRequest>
+                    > tonic::server::ServerStreamingService<super::RouteListRequest>
                     for ListRoutesSvc<T> {
-                        type Response = super::RouteListResponse;
+                        type Response = super::RouteEntry;
+                        type ResponseStream = T::ListRoutesStream;
                         type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
+                            tonic::Response<Self::ResponseStream>,
                             tonic::Status,
                         >;
                         fn call(
@@ -985,7 +996,7 @@ pub mod control_plane_service_server {
                                 max_decoding_message_size,
                                 max_encoding_message_size,
                             );
-                        let res = grpc.unary(method, req).await;
+                        let res = grpc.server_streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)
@@ -995,11 +1006,12 @@ pub mod control_plane_service_server {
                     struct ListLinksSvc<T: ControlPlaneService>(pub Arc<T>);
                     impl<
                         T: ControlPlaneService,
-                    > tonic::server::UnaryService<super::LinkListRequest>
+                    > tonic::server::ServerStreamingService<super::LinkListRequest>
                     for ListLinksSvc<T> {
-                        type Response = super::LinkListResponse;
+                        type Response = super::LinkEntry;
+                        type ResponseStream = T::ListLinksStream;
                         type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
+                            tonic::Response<Self::ResponseStream>,
                             tonic::Status,
                         >;
                         fn call(
@@ -1031,7 +1043,7 @@ pub mod control_plane_service_server {
                                 max_decoding_message_size,
                                 max_encoding_message_size,
                             );
-                        let res = grpc.unary(method, req).await;
+                        let res = grpc.server_streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)

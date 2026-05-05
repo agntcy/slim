@@ -13,14 +13,14 @@ service ControlPlaneService {
   rpc DeleteRoute(DeleteRouteRequest) returns (DeleteRouteResponse) {}
   rpc ListSubscriptions(Node) returns (controller.proto.v1.SubscriptionListResponse) {}
   rpc ListConnections(Node) returns (controller.proto.v1.ConnectionListResponse) {}
-  rpc ListNodes(NodeListRequest) returns (NodeListResponse) {}
+  rpc ListNodes(NodeListRequest) returns (stream NodeEntry) {}
 
   // Route management
 
   // List routes registered at the controller with optional filtering by source and destination node IDs
-  rpc ListRoutes(RouteListRequest) returns (RouteListResponse) {}
+  rpc ListRoutes(RouteListRequest) returns (stream RouteEntry) {}
   // List links stored in the controller DB with optional filtering by source and destination node IDs
-  rpc ListLinks(LinkListRequest) returns (LinkListResponse) {}
+  rpc ListLinks(LinkListRequest) returns (stream LinkEntry) {}
 }
 
 message ConfigurationCommand {
