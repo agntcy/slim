@@ -197,9 +197,7 @@ fn build_desired_connections(
         }
         desired_link_ids.insert(link.link_id.clone());
         let config = &mut link.conn_config_data;
-        if config.link_id.is_empty() {
-            config.link_id = link.link_id.clone();
-        }
+        config.link_id = link.link_id.clone();
         let config_data = serde_json::to_string(config)?;
         desired_connections.push(Connection {
             link_id: link.link_id.clone(),
@@ -315,62 +313,44 @@ async fn process_connection_acks(
 ) -> Result<HashSet<String>> {
     let mut enqueue_nodes: HashSet<String> = HashSet::new();
 
-    let mut conn_ack_status: HashMap<String, (bool, String)> = HashMap::new();
+    let links_by_id: HashMap<&str, &crate::db::Link> = links
+        .iter()
+        .filter(|l| l.source_node_id == node_id && desired_link_ids.contains(&l.link_id))
+        .map(|l| (l.link_id.as_str(), l))
+        .collect();
+
     for conn_ack in &ack.connections_status {
-        conn_ack_status.insert(
-            conn_ack.link_id.clone(),
-            (conn_ack.success, conn_ack.error_msg.clone()),
-        );
-    }
+        let link = match links_by_id.get(conn_ack.link_id.as_str()) {
+            Some(l) => *l,
+            None => continue,
+        };
 
-    let mut routes_by_link: HashMap<String, Vec<String>> = HashMap::new();
-    for lid in desired_link_ids {
-        for r in db.get_routes_by_link_id(lid).await {
-            routes_by_link
-                .entry(r.link_id.clone())
-                .or_default()
-                .push(r.source_node_id.clone());
-        }
-    }
-
-    for link in links {
-        if link.source_node_id != node_id
-            || link.status == LinkStatus::Deleted
-            || link.link_id.is_empty()
-        {
-            continue;
-        }
-        if !desired_link_ids.contains(&link.link_id) {
-            continue;
-        }
-        if let Some((success, err_msg)) = conn_ack_status.get(&link.link_id) {
-            let mut updated = link.clone();
-            if *success {
-                updated.status = LinkStatus::Applied;
-                updated.status_msg = String::new();
-                tracing::info!(
-                    "reconciler: link {} ({}→{}) applied",
-                    link.link_id,
-                    link.source_node_id,
-                    link.dest_node_id
-                );
-                if let Some(src_ids) = routes_by_link.get(&link.link_id) {
-                    for src_id in src_ids {
-                        enqueue_nodes.insert(src_id.clone());
-                    }
-                }
-            } else {
-                updated.status = LinkStatus::Failed;
-                updated.status_msg = err_msg.clone();
-                tracing::warn!(
-                    "reconciler: link {} ({}→{}) failed: {err_msg}",
-                    link.link_id,
-                    link.source_node_id,
-                    link.dest_node_id
-                );
+        let mut updated = link.clone();
+        if conn_ack.success {
+            updated.status = LinkStatus::Applied;
+            updated.status_msg = String::new();
+            tracing::info!(
+                "reconciler: link {} ({}→{}) applied",
+                link.link_id,
+                link.source_node_id,
+                link.dest_node_id
+            );
+            enqueue_nodes.insert(link.dest_node_id.clone());
+            for r in db.get_routes_by_link_id(&link.link_id).await {
+                enqueue_nodes.insert(r.source_node_id.clone());
             }
-            db.update_link(updated).await?;
+        } else {
+            updated.status = LinkStatus::Failed;
+            updated.status_msg = conn_ack.error_msg.clone();
+            tracing::warn!(
+                "reconciler: link {} ({}→{}) failed: {}",
+                link.link_id,
+                link.source_node_id,
+                link.dest_node_id,
+                conn_ack.error_msg
+            );
         }
+        db.update_link(updated).await?;
     }
 
     Ok(enqueue_nodes)

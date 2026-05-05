@@ -8,5 +8,6 @@ pub mod db;
 pub mod error;
 pub mod node_transport;
 pub mod route_service;
+pub mod server;
 pub mod services;
 pub mod workqueue;

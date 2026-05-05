@@ -7,26 +7,22 @@ use uuid::Uuid;
 
 use slim_config::component::Component;
 use slim_config::component::id::ID;
-use slim_config::grpc::client::ClientConfig;
+use slim_config::grpc::client::{ClientConfig, KeepaliveConfig};
 use slim_config::grpc::server::ServerConfig;
 use slim_config::tls::client::TlsClientConfig;
 use slim_config::tls::provider::initialize_crypto_provider;
 use slim_config::tls::server::TlsServerConfig;
 use slim_control_plane::api::proto::controller::proto::v1::Route;
-use slim_control_plane::api::proto::controller::proto::v1::controller_service_server::ControllerServiceServer;
 use slim_control_plane::api::proto::controlplane::proto::v1::control_plane_service_client::ControlPlaneServiceClient;
-use slim_control_plane::api::proto::controlplane::proto::v1::control_plane_service_server::ControlPlaneServiceServer;
 use slim_control_plane::api::proto::controlplane::proto::v1::{
     AddRouteRequest, LinkEntry, LinkListRequest, Node as CpNode, NodeEntry, NodeListRequest,
     RouteEntry, RouteListRequest,
 };
 use slim_control_plane::config::{Config, DatabaseConfig, ReconcilerConfig};
-use slim_control_plane::node_transport::DefaultNodeCommandHandler;
-use slim_control_plane::route_service::RouteService;
-use slim_control_plane::services::northbound::NorthboundApiService;
-use slim_control_plane::services::southbound::SouthboundApiService;
+use slim_control_plane::server::ControlPlane;
 use slim_service::{Service, ServiceConfiguration};
 use tokio_stream::StreamExt;
+use tracing_subscriber::EnvFilter;
 
 // --- Helpers ---
 
@@ -57,14 +53,13 @@ fn scale_reconciler_config() -> ReconcilerConfig {
     }
 }
 
-struct ControlPlaneInstance {
+struct TestControlPlane {
     northbound_port: u16,
     southbound_port: u16,
-    route_service: RouteService,
-    drain_tx: drain::Signal,
+    cp: ControlPlane,
 }
 
-async fn start_control_plane(reconciler_config: ReconcilerConfig) -> ControlPlaneInstance {
+async fn start_control_plane(reconciler_config: ReconcilerConfig) -> TestControlPlane {
     initialize_crypto_provider();
 
     let northbound_port = reserve_port();
@@ -80,41 +75,19 @@ async fn start_control_plane(reconciler_config: ReconcilerConfig) -> ControlPlan
         ..Default::default()
     };
 
-    let db = slim_control_plane::db::open(&cfg.database)
+    let cp = ControlPlane::start(cfg)
         .await
-        .expect("failed to open DB");
+        .expect("failed to start control plane");
 
-    let cmd_handler = DefaultNodeCommandHandler::new();
-    let route_service = RouteService::new(db.clone(), cmd_handler.clone(), cfg.reconciler);
-
-    let nb_svc = NorthboundApiService::new(db.clone(), cmd_handler.clone(), route_service.clone());
-    let sb_svc = SouthboundApiService::new(db, cmd_handler, route_service.clone());
-
-    let (drain_tx, drain_rx) = drain::channel();
-
-    cfg.northbound
-        .run_server(&[ControlPlaneServiceServer::new(nb_svc)], drain_rx.clone())
-        .await
-        .expect("failed to start northbound server");
-
-    cfg.southbound
-        .run_server(&[ControllerServiceServer::new(sb_svc)], drain_rx)
-        .await
-        .expect("failed to start southbound server");
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    ControlPlaneInstance {
+    TestControlPlane {
         northbound_port,
         southbound_port,
-        route_service,
-        drain_tx,
+        cp,
     }
 }
 
-async fn stop_control_plane(cp: ControlPlaneInstance) {
-    cp.route_service.shutdown().await;
-    cp.drain_tx.drain().await;
+async fn stop_control_plane(tcp: TestControlPlane) {
+    tcp.cp.shutdown().await;
 }
 
 fn node_id(name: &str) -> String {
@@ -122,13 +95,21 @@ fn node_id(name: &str) -> String {
 }
 
 async fn start_node(name: &str, southbound_port: u16) -> Service {
-    let dp_port = reserve_port();
+    start_node_on_port(name, southbound_port, reserve_port()).await
+}
 
+async fn start_node_on_port(name: &str, southbound_port: u16, dp_port: u16) -> Service {
     let dataplane_server = ServerConfig::with_endpoint(&format!("127.0.0.1:{dp_port}"))
         .with_tls_settings(TlsServerConfig::insecure());
 
     let cp_client = ClientConfig::with_endpoint(&format!("http://127.0.0.1:{southbound_port}"))
-        .with_tls_setting(TlsClientConfig::insecure());
+        .with_tls_setting(TlsClientConfig::insecure())
+        .with_keepalive(KeepaliveConfig {
+            http2_keepalive: Duration::from_secs(1).into(),
+            timeout: Duration::from_secs(1).into(),
+            keep_alive_while_idle: true,
+            ..Default::default()
+        });
 
     let service_config = ServiceConfiguration::new()
         .with_dataplane_server(vec![dataplane_server])
@@ -1118,4 +1099,162 @@ async fn test_static_connection_adoption() {
     node_a.shutdown().await.ok();
     node_b.shutdown().await.ok();
     stop_control_plane(cp).await;
+}
+
+/// Tests bidirectional routes: A→B and B→A both get applied and subscriptions
+/// propagate to both nodes' dataplanes.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_bidirectional_routes() {
+    let cp = start_control_plane(test_reconciler_config()).await;
+    let mut client = create_nb_client(cp.northbound_port).await;
+
+    let id_a = node_id("node-a");
+    let id_b = node_id("node-b");
+
+    let node_a = start_node("node-a", cp.southbound_port).await;
+    let node_b = start_node("node-b", cp.southbound_port).await;
+
+    wait_for_nodes_connected(&mut client, &[&id_a, &id_b], Duration::from_secs(10)).await;
+
+    add_route(&mut client, &id_a, &id_b, "org", "ns", "svc-ab").await;
+    add_route(&mut client, &id_b, &id_a, "org", "ns", "svc-ba").await;
+
+    wait_for_route_applied(&mut client, &id_a, &id_b, Duration::from_secs(30)).await;
+    wait_for_route_applied(&mut client, &id_b, &id_a, Duration::from_secs(30)).await;
+
+    wait_for_node_subscriptions(
+        &mut client,
+        &id_a,
+        &[("org", "ns", "svc-ab")],
+        Duration::from_secs(10),
+    )
+    .await;
+    wait_for_node_subscriptions(
+        &mut client,
+        &id_b,
+        &[("org", "ns", "svc-ba")],
+        Duration::from_secs(10),
+    )
+    .await;
+
+    // Cleanup
+    node_a.shutdown().await.ok();
+    node_b.shutdown().await.ok();
+    stop_control_plane(cp).await;
+}
+
+/// Tests that when the control plane restarts with a persistent SQLite database,
+/// data-plane nodes reconnect and routes are re-reconciled from persisted state.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_control_plane_restart_with_persistent_db() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::new("info"))
+        .with_test_writer()
+        .try_init();
+    initialize_crypto_provider();
+
+    let northbound_port = reserve_port();
+    let southbound_port = reserve_port();
+
+    let dp_port_a = reserve_port();
+    let dp_port_b = reserve_port();
+
+    let db_dir = tempfile::tempdir().expect("failed to create temp dir");
+    let db_path = db_dir.path().join("cp.db").to_str().unwrap().to_string();
+
+    let id_a = node_id("node-a");
+    let id_b = node_id("node-b");
+
+    // ── Phase 1: Start CP, nodes, add routes, verify applied ────────────────
+
+    let cfg = Config {
+        northbound: ServerConfig::with_endpoint(&format!("127.0.0.1:{northbound_port}"))
+            .with_tls_settings(TlsServerConfig::insecure()),
+        southbound: ServerConfig::with_endpoint(&format!("127.0.0.1:{southbound_port}"))
+            .with_tls_settings(TlsServerConfig::insecure()),
+        database: DatabaseConfig::Sqlite {
+            path: db_path.clone(),
+        },
+        reconciler: test_reconciler_config(),
+        ..Default::default()
+    };
+    let cp = ControlPlane::start(cfg).await.expect("failed to start CP");
+
+    let node_a = start_node_on_port("node-a", southbound_port, dp_port_a).await;
+    let node_b = start_node_on_port("node-b", southbound_port, dp_port_b).await;
+
+    let mut client = create_nb_client(northbound_port).await;
+    wait_for_nodes_connected(&mut client, &[&id_a, &id_b], Duration::from_secs(10)).await;
+
+    add_route(&mut client, &id_a, &id_b, "org", "ns", "svc1").await;
+    wait_for_route_applied(&mut client, &id_a, &id_b, Duration::from_secs(30)).await;
+
+    wait_for_node_subscriptions(
+        &mut client,
+        &id_a,
+        &[("org", "ns", "svc1")],
+        Duration::from_secs(10),
+    )
+    .await;
+
+    print_state(&mut client, "Phase 1: before CP shutdown").await;
+
+    // ── Phase 2: Shutdown CP and nodes ────────────────────────────────────────
+    // In production, a CP restart means the process exits and all TCP
+    // connections are closed by the OS. In-process, the gRPC per-connection
+    // handlers survive after drain, so we must also restart the DP nodes to
+    // simulate a clean reconnection.
+
+    cp.shutdown().await;
+    drop(client);
+    node_a.shutdown().await.ok();
+    node_b.shutdown().await.ok();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // ── Phase 3: Restart CP on same ports with same DB ──────────────────────
+
+    let cfg2 = Config {
+        northbound: ServerConfig::with_endpoint(&format!("127.0.0.1:{northbound_port}"))
+            .with_tls_settings(TlsServerConfig::insecure()),
+        southbound: ServerConfig::with_endpoint(&format!("127.0.0.1:{southbound_port}"))
+            .with_tls_settings(TlsServerConfig::insecure()),
+        database: DatabaseConfig::Sqlite {
+            path: db_path.clone(),
+        },
+        reconciler: test_reconciler_config(),
+        ..Default::default()
+    };
+    let cp2 = ControlPlane::start(cfg2)
+        .await
+        .expect("failed to restart CP");
+
+    // ── Phase 4: Restart nodes, verify they reconnect and routes recover ────
+
+    let node_a = start_node_on_port("node-a", southbound_port, dp_port_a).await;
+    let node_b = start_node_on_port("node-b", southbound_port, dp_port_b).await;
+
+    let mut client2 = create_nb_client(northbound_port).await;
+    wait_for_nodes_connected(&mut client2, &[&id_a, &id_b], Duration::from_secs(30)).await;
+
+    // Wait for the link to be re-established.
+    wait_for_link_between(&mut client2, &id_a, &id_b, Duration::from_secs(30)).await;
+
+    wait_for_route_applied(&mut client2, &id_a, &id_b, Duration::from_secs(60)).await;
+
+    wait_for_node_subscriptions(
+        &mut client2,
+        &id_a,
+        &[("org", "ns", "svc1")],
+        Duration::from_secs(30),
+    )
+    .await;
+
+    print_state(&mut client2, "Phase 4: after CP restart").await;
+    print_node_state(&mut client2, &id_a).await;
+
+    // ── Cleanup ─────────────────────────────────────────────────────────────
+
+    node_a.shutdown().await.ok();
+    node_b.shutdown().await.ok();
+    cp2.shutdown().await;
 }

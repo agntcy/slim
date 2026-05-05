@@ -6,13 +6,8 @@ use clap::Parser;
 use slim_config::provider::ConfigResolver;
 use slim_config::tls::provider::initialize_crypto_provider;
 
-use slim_control_plane::api::proto::controller::proto::v1::controller_service_server::ControllerServiceServer;
-use slim_control_plane::api::proto::controlplane::proto::v1::control_plane_service_server::ControlPlaneServiceServer;
 use slim_control_plane::config::Config;
-use slim_control_plane::node_transport::DefaultNodeCommandHandler;
-use slim_control_plane::route_service::RouteService;
-use slim_control_plane::services::northbound::NorthboundApiService;
-use slim_control_plane::services::southbound::SouthboundApiService;
+use slim_control_plane::server::ControlPlane;
 
 #[derive(Debug, Parser)]
 #[command(name = "slim-control-plane", about = "SLIM control plane server")]
@@ -28,68 +23,24 @@ struct Args {
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    // ── Initialise crypto provider ───────────────────────────────────────────
     initialize_crypto_provider();
 
-    // ── Load config ──────────────────────────────────────────────────────────
-    let cfg = load_config(args.config)?;
+    let mut cfg = load_config(args.config)?;
 
-    // ── Initialise tracing ───────────────────────────────────────────────────
-    let _tracing_guard = cfg
-        .tracing
+    let _tracing_guard = std::mem::take(&mut cfg.tracing)
         .setup_tracing_subscriber()
         .context("failed to initialise tracing")?;
 
     tracing::info!("northbound endpoint: {}", cfg.northbound.endpoint);
     tracing::info!("southbound endpoint: {}", cfg.southbound.endpoint);
 
-    // ── Database backend ─────────────────────────────────────────────────────
-    let db = slim_control_plane::db::open(&cfg.database).await?;
-
-    // ── Core services ─────────────────────────────────────────────────────────
-    let cmd_handler = DefaultNodeCommandHandler::new();
-
-    let route_service = RouteService::new(db.clone(), cmd_handler.clone(), cfg.reconciler);
-
-    let nb_svc = NorthboundApiService::new(db.clone(), cmd_handler.clone(), route_service.clone());
-
-    let sb_svc = SouthboundApiService::new(db.clone(), cmd_handler.clone(), route_service.clone());
-
-    // ── gRPC servers ──────────────────────────────────────────────────────────
-    // A single drain channel coordinates graceful shutdown of both servers.
-    let (drain_tx, drain_rx) = drain::channel();
-
-    cfg.northbound
-        .run_server(&[ControlPlaneServiceServer::new(nb_svc)], drain_rx.clone())
-        .await
-        .context("failed to start northbound server")?;
-
-    tracing::info!(
-        "Northbound API Service is listening on {}",
-        cfg.northbound.endpoint
-    );
-
-    cfg.southbound
-        .run_server(&[ControllerServiceServer::new(sb_svc)], drain_rx)
-        .await
-        .context("failed to start southbound server")?;
-
-    tracing::info!(
-        "Southbound API Service is listening on {}",
-        cfg.southbound.endpoint
-    );
+    let cp = ControlPlane::start(cfg).await?;
 
     tracing::info!("control plane started");
-
-    // Block until SIGINT or SIGTERM is received.
     slim_signal::shutdown().await;
     tracing::info!("shutdown signal received, draining connections");
 
-    // Stop reconciler workers and wait for in-flight reconciliations to finish.
-    route_service.shutdown().await;
-
-    // Signal both gRPC servers to stop and wait for them to finish.
-    drain_tx.drain().await;
+    cp.shutdown().await;
 
     tracing::info!("control plane stopped");
     Ok(())
