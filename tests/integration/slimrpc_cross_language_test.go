@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -42,6 +43,56 @@ var (
 // command line (MAVEN_OPTS).
 const slimJavaBindingsMavenVersion = "1.2.0"
 
+func rustHostTriple() string {
+	out, err := exec.Command("rustc", "-vV").Output()
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if after, ok := strings.CutPrefix(line, "host: "); ok {
+			return strings.TrimSpace(after)
+		}
+	}
+	return ""
+}
+
+// javaSlimBindingsCDylibPath returns the absolute path to the slim_bindings cdylib
+// built by `task -d data-plane/bindings/java build` (same layout as
+// data-plane/bindings/java/Taskfile test: libraryOverride). Natives live inside
+// the Maven-installed JAR, not as loose files under ~/.m2/.../version/, so JNI
+// must load via UniFFI's libraryOverride or a directory that contains the .so.
+func javaSlimBindingsCDylibPath(repoRoot string) string {
+	td := filepath.Join(repoRoot, "data-plane", "target")
+	var baseName string
+	switch runtime.GOOS {
+	case "windows":
+		baseName = "slim_bindings.dll"
+	case "darwin":
+		baseName = "libslim_bindings.dylib"
+	default:
+		baseName = "libslim_bindings.so"
+	}
+	host := rustHostTriple()
+	profiles := []string{"debug", "release"}
+	var candidates []string
+	for _, prof := range profiles {
+		candidates = append(candidates, filepath.Join(td, prof, baseName))
+		if host != "" {
+			candidates = append(candidates, filepath.Join(td, host, prof, baseName))
+		}
+	}
+	for _, p := range candidates {
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			abs, err := filepath.Abs(p)
+			if err != nil {
+				return p
+			}
+			return abs
+		}
+	}
+	return ""
+}
+
 // All languages under test.
 var langs = []string{"go", "python", "java", "csharp"}
 
@@ -58,14 +109,29 @@ func initSlimrpcPaths() {
 }
 
 // applyJavaMavenNativeLibraryPath sets MAVEN_OPTS so the Maven JVM can load
-// slim-bindings-java native libraries from the local M2 repo.
+// slim-bindings-java: UniFFI prefers an absolute cdylib via libraryOverride
+// (see java Taskfile test); ~/.m2/.../slim-bindings-java/<ver>/ only holds JARs.
 func applyJavaMavenNativeLibraryPath(cmd *exec.Cmd) {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		return
 	}
 	libDir := filepath.Join(home, ".m2", "repository", "io", "agntcy", "slim", "slim-bindings-java", slimJavaBindingsMavenVersion)
-	libOpt := "-Djava.library.path=" + libDir
+
+	var mavenJVMOpts []string
+	if lib := javaSlimBindingsCDylibPath(repoRoot); lib != "" {
+		libPath := filepath.Dir(lib) + string(os.PathListSeparator) + libDir
+		mavenJVMOpts = append(mavenJVMOpts,
+			"-Duniffi.component.slim_bindings.libraryOverride="+lib,
+			"-Djava.library.path="+libPath,
+			"--enable-preview",
+			"--add-opens=java.base/java.lang=ALL-UNNAMED",
+			"--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
+		)
+	} else {
+		mavenJVMOpts = append(mavenJVMOpts, "-Djava.library.path="+libDir)
+	}
+	libOpt := strings.Join(mavenJVMOpts, " ")
 
 	base := cmd.Env
 	if len(base) == 0 {
