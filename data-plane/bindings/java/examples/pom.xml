@@ -58,6 +58,7 @@
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.1.0</version>
+                <!-- exec:java runs inside Maven's JVM; this block's jvmArgs are ignored by the plugin. -->
                 <configuration>
                     <jvmArgs>
                         <jvmArg>--enable-preview</jvmArg>
