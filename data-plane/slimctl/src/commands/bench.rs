@@ -198,6 +198,13 @@ pub struct BenchChannelSubArgs {
     #[arg(long)]
     pub csv: Option<String>,
 
+    /// Index of the first subscriber in this process.
+    /// Use with --count to distribute subscribers across multiple processes.
+    /// Example: process A: --count 2 --start-index 0  (registers channel-sub-0, channel-sub-1)
+    ///          process B: --count 2 --start-index 2  (registers channel-sub-2, channel-sub-3)
+    #[arg(long, default_value_t = 0)]
+    pub start_index: usize,
+
     /// Suppress per-second progress output
     #[arg(long)]
     pub no_progress: bool,
@@ -543,13 +550,17 @@ async fn run_sub(args: &BenchSubArgs) -> Result<()> {
     }
     println!("  Waiting for publishers...\n");
 
+    let conn_id = get_global_service()
+        .connect_async(new_insecure_client_config(args.server.clone()))
+        .await
+        .context("connect to server failed")?;
+
     let (result_tx, mut result_rx) = tokio::sync::mpsc::channel::<Sample>(args.count);
 
     let mut handles = Vec::with_capacity(args.count);
     for i in 0..args.count {
         let org = org.clone();
         let ns = ns.clone();
-        let server = args.server.clone();
         let secret = args.secret.clone();
         let reply = args.reply;
         let size = args.size;
@@ -558,7 +569,7 @@ async fn run_sub(args: &BenchSubArgs) -> Result<()> {
         let job_cnt = msgs_per_worker + if (i as u64) < extra { 1 } else { 0 };
 
         let handle = tokio::spawn(async move {
-            match run_sub_worker(i, &org, &ns, &server, &secret, job_cnt, size, reply).await {
+            match run_sub_worker(i, &org, &ns, &secret, conn_id, job_cnt, size, reply).await {
                 Ok(sample) => { let _ = tx.send(sample).await; }
                 Err(e) => eprintln!("[sub-{i}] error: {e:#}"),
             }
@@ -598,8 +609,8 @@ async fn run_sub_worker(
     i: usize,
     org: &str,
     ns: &str,
-    server: &str,
     secret: &str,
+    conn_id: u64,
     job_msg_cnt: u64, // 0 = run until session closes or timeout
     size: usize,
     reply: bool,
@@ -607,13 +618,6 @@ async fn run_sub_worker(
     let own_name = make_sub_name(org, ns, i);
 
     let service = get_global_service();
-    let conn_id = service
-        .connect_async(new_insecure_client_config(server.to_string()))
-        .await
-        .context("connect to server failed")?;
-
-    println!("[sub-{i}] connected (conn_id: {conn_id})");
-
     let app = service
         .create_app_with_secret_async(own_name.clone(), secret.to_string())
         .await
@@ -720,6 +724,11 @@ async fn run_pub(args: &BenchPubArgs) -> Result<()> {
 
     let payload = vec![0u8; args.size];
 
+    let conn_id = get_global_service()
+        .connect_async(new_insecure_client_config(args.server.clone()))
+        .await
+        .context("connect to server failed")?;
+
     let (result_tx, mut result_rx) =
         tokio::sync::mpsc::channel::<(Sample, Vec<Duration>)>(args.count);
 
@@ -727,7 +736,6 @@ async fn run_pub(args: &BenchPubArgs) -> Result<()> {
     for i in 0..args.count {
         let org = org.clone();
         let ns = ns.clone();
-        let server = args.server.clone();
         let secret = args.secret.clone();
         let request = args.request;
         let tx = result_tx.clone();
@@ -735,7 +743,7 @@ async fn run_pub(args: &BenchPubArgs) -> Result<()> {
         let msgs = base + if (i as u64) < extra { 1 } else { 0 };
 
         let handle = tokio::spawn(async move {
-            match run_pub_worker(i, &org, &ns, &server, &secret, msgs, p, request).await {
+            match run_pub_worker(i, &org, &ns, &secret, conn_id, msgs, p, request).await {
                 Ok((sample, latencies)) => { let _ = tx.send((sample, latencies)).await; }
                 Err(e) => eprintln!("[pub-{i}] error: {e:#}"),
             }
@@ -782,8 +790,8 @@ async fn run_pub_worker(
     i: usize,
     org: &str,
     ns: &str,
-    server: &str,
     secret: &str,
+    conn_id: u64,
     msg_count: u64,
     payload: Vec<u8>,
     request: bool,
@@ -792,13 +800,6 @@ async fn run_pub_worker(
     let target_name = make_sub_name(org, ns, i);
 
     let service = get_global_service();
-    let conn_id = service
-        .connect_async(new_insecure_client_config(server.to_string()))
-        .await
-        .context("connect to server failed")?;
-
-    println!("[pub-{i}] connected (conn_id: {conn_id})");
-
     let app = service
         .create_app_with_secret_async(own_name.clone(), secret.to_string())
         .await
@@ -911,10 +912,11 @@ async fn run_channel_sub(args: &BenchChannelSubArgs) -> Result<()> {
         args.count, args.server
     );
     println!(
-        "  Listening at {}/{}/channel-sub-0..channel-sub-{}",
+        "  Listening at {}/{}/channel-sub-{}..channel-sub-{}",
         org,
         ns,
-        args.count - 1
+        args.start_index,
+        args.start_index + args.count - 1
     );
     if args.msgs > 0 {
         println!(
@@ -926,23 +928,30 @@ async fn run_channel_sub(args: &BenchChannelSubArgs) -> Result<()> {
     }
     println!("  Waiting for publisher to invite...\n");
 
+    let conn_id = get_global_service()
+        .connect_async(new_insecure_client_config(args.server.clone()))
+        .await
+        .context("connect to server failed")?;
+
     let (result_tx, mut result_rx) = tokio::sync::mpsc::channel::<Sample>(args.count);
 
     let mut handles = Vec::with_capacity(args.count);
     for i in 0..args.count {
+        let actual_index = args.start_index + i;
         let org = org.clone();
         let ns = ns.clone();
-        let server = args.server.clone();
         let secret = args.secret.clone();
         let size = args.size;
         let msgs = args.msgs;
         let tx = result_tx.clone();
         let handle = tokio::spawn(async move {
-            match run_channel_sub_worker(i, &org, &ns, &server, &secret, msgs, size).await {
+            match run_channel_sub_worker(actual_index, &org, &ns, &secret, conn_id, msgs, size)
+                .await
+            {
                 Ok(sample) => {
                     let _ = tx.send(sample).await;
                 }
-                Err(e) => eprintln!("[ch-sub-{i}] error: {e:#}"),
+                Err(e) => eprintln!("[ch-sub-{actual_index}] error: {e:#}"),
             }
         });
         handles.push(handle);
@@ -977,21 +986,14 @@ async fn run_channel_sub_worker(
     i: usize,
     org: &str,
     ns: &str,
-    server: &str,
     secret: &str,
+    conn_id: u64,
     job_msg_cnt: u64,
     size: usize,
 ) -> Result<Sample> {
     let own_name = make_channel_sub_name(org, ns, i);
 
     let service = get_global_service();
-    let conn_id = service
-        .connect_async(new_insecure_client_config(server.to_string()))
-        .await
-        .context("connect to server failed")?;
-
-    println!("[ch-sub-{i}] connected (conn_id: {conn_id})");
-
     let app = service
         .create_app_with_secret_async(own_name.clone(), secret.to_string())
         .await
@@ -1077,7 +1079,12 @@ async fn run_channel_pub(args: &BenchChannelPubArgs) -> Result<()> {
 
     let payload = vec![0u8; args.size];
 
-    match run_channel_pub_worker(&org, &ns, &args.server, &args.secret, args.count, args.msgs, payload).await {
+    let conn_id = get_global_service()
+        .connect_async(new_insecure_client_config(args.server.clone()))
+        .await
+        .context("connect to server failed")?;
+
+    match run_channel_pub_worker(&org, &ns, &args.secret, conn_id, args.count, args.msgs, payload).await {
         Ok(sample) => {
             let mut group = SampleGroup::new();
             group.add(sample);
@@ -1098,8 +1105,8 @@ async fn run_channel_pub(args: &BenchChannelPubArgs) -> Result<()> {
 async fn run_channel_pub_worker(
     org: &str,
     ns: &str,
-    server: &str,
     secret: &str,
+    conn_id: u64,
     sub_count: usize,
     msg_count: u64,
     payload: Vec<u8>,
@@ -1108,13 +1115,6 @@ async fn run_channel_pub_worker(
     let channel_name = make_channel_name(org, ns);
 
     let service = get_global_service();
-    let conn_id = service
-        .connect_async(new_insecure_client_config(server.to_string()))
-        .await
-        .context("connect to server failed")?;
-
-    println!("[ch-pub] connected (conn_id: {conn_id})");
-
     let app = service
         .create_app_with_secret_async(own_name.clone(), secret.to_string())
         .await
@@ -1163,8 +1163,6 @@ async fn run_channel_pub_worker(
     // so we don't hang forever if a subscriber never comes up.
     for i in 0..sub_count {
         let sub_name = make_channel_sub_name(org, ns, i);
-        tokio::time::sleep(Duration::from_millis(100)).await; // stagger invites slightly to avoid
-                                                              // thundering herd
         println!("[ch-pub] inviting {sub_name}...");
         tokio::time::timeout(
             Duration::from_secs(35),
