@@ -24,7 +24,7 @@ use tokio::sync::{Notify, watch};
 
 // ─── Internal state ───────────────────────────────────────────────────────────
 
-struct Inner<T> {
+struct State<T> {
     queue: VecDeque<T>,
     /// Items waiting in the queue (dedup guard for queued items).
     queued: HashSet<T>,
@@ -38,37 +38,43 @@ struct Inner<T> {
     drain: bool,
 }
 
+struct Inner<T> {
+    state: Mutex<State<T>>,
+    /// Wakes blocked pop() callers when an item is added or shutdown.
+    notify: Notify,
+    /// Wakes shutdown_with_drain() when processing reaches zero or drain is cancelled.
+    drain_notify: Notify,
+    /// Broadcast to all add_after tasks when the queue shuts down so they can
+    /// cancel their pending sleeps rather than running until the delay expires.
+    shutdown_watch: watch::Sender<bool>,
+}
+
 // ─── WorkQueue ────────────────────────────────────────────────────────────────
 
 /// A fair, deduplicating, concurrency-safe work queue.
 ///
 /// Cheaply cloneable — all clones share the same underlying queue.
 pub struct WorkQueue<T> {
-    inner: Arc<Mutex<Inner<T>>>,
-    /// Wakes blocked pop() callers when an item is added or shutdown.
-    notify: Arc<Notify>,
-    /// Wakes shutdown_with_drain() when processing reaches zero or drain is cancelled.
-    drain_notify: Arc<Notify>,
-    /// Broadcast to all add_after tasks when the queue shuts down so they can
-    /// cancel their pending sleeps rather than running until the delay expires.
-    shutdown_watch: Arc<watch::Sender<bool>>,
+    inner: Arc<Inner<T>>,
 }
 
 impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
     pub fn new() -> Self {
         let (shutdown_watch, _) = watch::channel(false);
         Self {
-            inner: Arc::new(Mutex::new(Inner {
-                queue: VecDeque::new(),
-                queued: HashSet::new(),
-                processing: HashSet::new(),
-                dirty: HashSet::new(),
-                shutdown: false,
-                drain: false,
-            })),
-            notify: Arc::new(Notify::new()),
-            drain_notify: Arc::new(Notify::new()),
-            shutdown_watch: Arc::new(shutdown_watch),
+            inner: Arc::new(Inner {
+                state: Mutex::new(State {
+                    queue: VecDeque::new(),
+                    queued: HashSet::new(),
+                    processing: HashSet::new(),
+                    dirty: HashSet::new(),
+                    shutdown: false,
+                    drain: false,
+                }),
+                notify: Notify::new(),
+                drain_notify: Notify::new(),
+                shutdown_watch,
+            }),
         }
     }
 
@@ -81,7 +87,7 @@ impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
     /// - After **shutdown** → silently ignored.
     pub fn add(&self, item: T) {
         {
-            let mut g = self.inner.lock();
+            let mut g = self.inner.state.lock();
             if g.shutdown || g.queued.contains(&item) || g.dirty.contains(&item) {
                 return;
             }
@@ -92,7 +98,7 @@ impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
             g.queue.push_back(item.clone());
             g.queued.insert(item);
         }
-        self.notify.notify_one();
+        self.inner.notify.notify_one();
     }
 
     /// Wait for the next item to process.
@@ -103,7 +109,7 @@ impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
     pub async fn pop(&self) -> Option<T> {
         loop {
             {
-                let mut g = self.inner.lock();
+                let mut g = self.inner.state.lock();
                 if let Some(item) = g.queue.pop_front() {
                     g.queued.remove(&item);
                     g.processing.insert(item.clone());
@@ -114,7 +120,7 @@ impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
                 }
             }
             // Lock is dropped before the await — no mutex held across yield points.
-            self.notify.notified().await;
+            self.inner.notify.notified().await;
         }
     }
 
@@ -126,7 +132,7 @@ impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
     /// Calling `done` for an item that is not currently being processed is a no-op.
     pub fn done(&self, item: &T) {
         let (re_queued, drain_complete) = {
-            let mut g = self.inner.lock();
+            let mut g = self.inner.state.lock();
             if !g.processing.remove(item) {
                 return;
             }
@@ -137,15 +143,14 @@ impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
             } else {
                 false
             };
-            // Signal drain_with_shutdown if this was the last in-flight item.
             let drain_complete = g.drain && g.processing.is_empty();
             (re_queued, drain_complete)
         };
         if re_queued {
-            self.notify.notify_one();
+            self.inner.notify.notify_one();
         }
         if drain_complete {
-            self.drain_notify.notify_waiters();
+            self.inner.drain_notify.notify_waiters();
         }
     }
 
@@ -159,14 +164,13 @@ impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
     /// `shutdown` cancels the drain and unblocks it immediately.
     pub fn shutdown(&self) {
         {
-            let mut g = self.inner.lock();
+            let mut g = self.inner.state.lock();
             g.drain = false;
             g.shutdown = true;
         }
-        // Wake add_after tasks so they can cancel their pending sleeps.
-        let _ = self.shutdown_watch.send(true);
-        self.notify.notify_waiters();
-        self.drain_notify.notify_waiters();
+        let _ = self.inner.shutdown_watch.send(true);
+        self.inner.notify.notify_waiters();
+        self.inner.drain_notify.notify_waiters();
     }
 
     /// Shutdown and wait until all items currently being processed have called
@@ -176,29 +180,22 @@ impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
     /// `drain` is already false and this returns immediately.
     pub async fn shutdown_with_drain(&self) {
         {
-            let mut g = self.inner.lock();
-            // Only enable drain if we are the ones initiating shutdown.
-            // If shutdown() already ran, it set drain=false — don't override it.
+            let mut g = self.inner.state.lock();
             if !g.shutdown {
                 g.drain = true;
                 g.shutdown = true;
             }
         }
-        // Wake add_after tasks so they can cancel their pending sleeps.
-        let _ = self.shutdown_watch.send(true);
-        self.notify.notify_waiters();
+        let _ = self.inner.shutdown_watch.send(true);
+        self.inner.notify.notify_waiters();
 
         loop {
-            // Pre-register the listener before releasing the lock so that a
-            // notify_waiters() fired between the condition check and .await is
-            // not lost (tokio Notified::enable pattern).
-            let notified = self.drain_notify.notified();
+            let notified = self.inner.drain_notify.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
 
             {
-                let g = self.inner.lock();
-                // Exit if drain was cancelled (by shutdown()) or no items in flight.
+                let g = self.inner.state.lock();
                 if !g.drain || g.processing.is_empty() {
                     return;
                 }
@@ -216,11 +213,8 @@ impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
     /// If the queue is shut down (or shuts down during the sleep), the
     /// background task exits immediately without adding the item.
     pub fn add_after(&self, item: T, delay: Duration) {
-        // Subscribe before the is_shutdown check to avoid a race where
-        // shutdown() fires between the check and the select! in the task.
-        let mut shutdown_rx = self.shutdown_watch.subscribe();
+        let mut shutdown_rx = self.inner.shutdown_watch.subscribe();
 
-        // Fast path: don't spawn a task for an already-shut-down queue.
         if self.is_shutdown() {
             return;
         }
@@ -229,7 +223,6 @@ impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
         tokio::spawn(async move {
             tokio::select! {
                 biased;
-                // Shutdown signal takes priority so the task exits cleanly.
                 _ = shutdown_rx.changed() => {}
                 _ = tokio::time::sleep(delay) => q.add(item),
             }
@@ -237,15 +230,15 @@ impl<T: Hash + Eq + Clone + Send + 'static> WorkQueue<T> {
     }
 
     pub fn len(&self) -> usize {
-        self.inner.lock().queue.len()
+        self.inner.state.lock().queue.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.inner.lock().queue.is_empty()
+        self.inner.state.lock().queue.is_empty()
     }
 
     pub fn is_shutdown(&self) -> bool {
-        self.inner.lock().shutdown
+        self.inner.state.lock().shutdown
     }
 }
 
@@ -259,9 +252,6 @@ impl<T> Clone for WorkQueue<T> {
     fn clone(&self) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
-            notify: Arc::clone(&self.notify),
-            drain_notify: Arc::clone(&self.drain_notify),
-            shutdown_watch: Arc::clone(&self.shutdown_watch),
         }
     }
 }
