@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::{Mutex, RwLock, mpsc, oneshot};
+use tokio::sync::{Mutex, RwLock, mpsc};
 use tokio::time::timeout;
 use tonic::Status;
 
@@ -40,20 +40,14 @@ enum MessageKind {
     ConnectionListResponse,
 }
 
-/// Returns true if the payload kind uses multi-chunk streaming (mpsc) rather than oneshot.
-fn is_chunked_kind(kind: &MessageKind) -> bool {
-    matches!(
-        kind,
-        MessageKind::ConnectionListResponse | MessageKind::RouteListResponse
-    )
-}
-
-/// Returns true when a chunked response message signals end-of-stream.
-fn chunk_is_done(msg: &ControlMessage) -> bool {
+/// Returns true when a response message signals end-of-stream (single-message
+/// kinds always signal done).
+fn is_done(msg: &ControlMessage) -> bool {
     match &msg.payload {
         Some(Payload::ConnectionListResponse(r)) => r.done,
         Some(Payload::RouteListResponse(r)) => r.done,
-        _ => false,
+        Some(Payload::Ack(_)) | Some(Payload::ConfigCommandAck(_)) => true,
+        _ => true,
     }
 }
 
@@ -88,11 +82,8 @@ struct Inner {
     /// node statuses
     statuses: RwLock<HashMap<String, NodeStatus>>,
 
-    /// in-flight response registry (oneshot, for single-message responses)
-    pending: Mutex<HashMap<PendingKey, oneshot::Sender<ControlMessage>>>,
-
-    /// in-flight chunked response registry (mpsc, for multi-chunk responses)
-    chunked_pending: Mutex<HashMap<PendingKey, mpsc::UnboundedSender<ControlMessage>>>,
+    /// in-flight response registry
+    pending: Mutex<HashMap<PendingKey, mpsc::UnboundedSender<ControlMessage>>>,
 }
 
 /// Thread-safe handler for per-node bidirectional gRPC streams.
@@ -105,7 +96,6 @@ impl DefaultNodeCommandHandler {
             streams: RwLock::new(HashMap::new()),
             statuses: RwLock::new(HashMap::new()),
             pending: Mutex::new(HashMap::new()),
-            chunked_pending: Mutex::new(HashMap::new()),
         }))
     }
 }
@@ -125,17 +115,9 @@ impl DefaultNodeCommandHandler {
         }
         self.update_connection_status(node_id, NodeStatus::NotConnected)
             .await;
-        // Cancel any in-flight waiters for this node so they unblock
-        // immediately (ResponseChannelClosed) rather than blocking until the
-        // 90 s timeout. Dropping the sender closes the channel; the receiver
-        // in wait_for_response / send_and_wait gets Err from rx.await.
         {
             let mut pending = self.0.pending.lock().await;
             pending.retain(|k, _| k.0 != node_id);
-        }
-        {
-            let mut chunked = self.0.chunked_pending.lock().await;
-            chunked.retain(|k, _| k.0 != node_id);
         }
         self.0.statuses.write().await.remove(node_id);
         Ok(())
@@ -207,107 +189,28 @@ impl DefaultNodeCommandHandler {
                 return;
             }
         };
-        let key = (node_id.to_string(), kind.clone(), orig_id);
+        let key = (node_id.to_string(), kind, orig_id);
+        let done = is_done(&msg);
 
-        if is_chunked_kind(&kind) {
-            let done = chunk_is_done(&msg);
-            let mut chunked = self.0.chunked_pending.lock().await;
-            if let Some(tx) = chunked.get(&key) {
-                let _ = tx.send(msg);
-                if done {
-                    chunked.remove(&key);
-                }
-            } else {
-                tracing::warn!(
-                    "response_received: no chunked waiter for node={node_id} key={key:?}"
-                );
+        let mut pending = self.0.pending.lock().await;
+        if let Some(tx) = pending.get(&key) {
+            let _ = tx.send(msg);
+            if done {
+                pending.remove(&key);
             }
         } else {
-            let mut pending = self.0.pending.lock().await;
-            if let Some(tx) = pending.remove(&key) {
-                let _ = tx.send(msg);
-            } else {
-                tracing::warn!("response_received: no waiter for node={node_id} key={key:?}");
-            }
+            tracing::warn!("response_received: no waiter for node={node_id} key={key:?}");
         }
     }
 
-    /// Wait for a specific response from a node with the default timeout.
-    ///
-    /// **Prefer [`send_and_wait`] over calling `send_message` + `wait_for_response`
-    /// separately.**  Registering the waiter after the send leaves a window where
-    /// a fast response can arrive and be silently dropped.  This method is kept
-    /// for test use only and is intentionally not part of the public API.
-    #[cfg(test)]
-    async fn wait_for_response(
-        &self,
-        node_id: &str,
-        kind: ResponseKind,
-        original_message_id: &str,
-    ) -> Result<ControlMessage> {
-        self.wait_for_response_with_timeout(
-            node_id,
-            kind,
-            original_message_id,
-            Duration::from_secs(DEFAULT_RESPONSE_TIMEOUT_SECS),
-        )
-        .await
-    }
-
-    #[cfg(test)]
-    async fn wait_for_response_with_timeout(
-        &self,
-        node_id: &str,
-        kind: ResponseKind,
-        original_message_id: &str,
-        dur: Duration,
-    ) -> Result<ControlMessage> {
-        if node_id.is_empty() {
-            return Err(Error::EmptyNodeId);
-        }
-        if original_message_id.is_empty() {
-            return Err(Error::EmptyMessageId);
-        }
-        let msg_kind: MessageKind = kind.into();
-        let key = (
-            node_id.to_string(),
-            msg_kind,
-            original_message_id.to_string(),
-        );
-        let (tx, rx) = oneshot::channel();
-        {
-            let mut pending = self.0.pending.lock().await;
-            pending.insert(key.clone(), tx);
-        }
-        match timeout(dur, rx).await {
-            Ok(Ok(msg)) => Ok(msg),
-            Ok(Err(_)) => Err(Error::ResponseChannelClosed {
-                node_id: node_id.to_string(),
-            }),
-            Err(_) => {
-                // Remove the entry so it doesn't leak.
-                self.0.pending.lock().await.remove(&key);
-                Err(Error::ResponseTimeout {
-                    node_id: node_id.to_string(),
-                    kind,
-                })
-            }
-        }
-    }
-
-    // Race-free combined send-and-wait helpers.
-    //
-    // These register the response waiter BEFORE calling send_message, eliminating
-    // the window where a fast response could arrive between the send and the
-    // wait_for_response call.
-
-    /// Register a waiter, send `msg`, then wait for a single response of `kind`.
+    /// Register a waiter, send `msg`, then collect all response messages until
+    /// the stream signals done (single-message kinds complete after one message).
     pub async fn send_and_wait(
         &self,
         node_id: &str,
         msg: ControlMessage,
         kind: ResponseKind,
-    ) -> Result<ControlMessage> {
+    ) -> Result<Vec<ControlMessage>> {
         self.send_and_wait_with_timeout(
             node_id,
             msg,
@@ -318,63 +221,6 @@ impl DefaultNodeCommandHandler {
     }
 
     pub async fn send_and_wait_with_timeout(
-        &self,
-        node_id: &str,
-        msg: ControlMessage,
-        kind: ResponseKind,
-        dur: Duration,
-    ) -> Result<ControlMessage> {
-        if node_id.is_empty() {
-            return Err(Error::EmptyNodeId);
-        }
-        let message_id = msg.message_id.clone();
-        if message_id.is_empty() {
-            return Err(Error::EmptyMessageId);
-        }
-        let msg_kind: MessageKind = kind.into();
-        let key = (node_id.to_string(), msg_kind, message_id);
-        let (tx, rx) = oneshot::channel();
-        {
-            let mut pending = self.0.pending.lock().await;
-            pending.insert(key.clone(), tx); // register BEFORE send
-        }
-        // Clean up the waiter if send fails.
-        if let Err(e) = self.send_message(node_id, msg).await {
-            self.0.pending.lock().await.remove(&key);
-            return Err(e);
-        }
-        match timeout(dur, rx).await {
-            Ok(Ok(msg)) => Ok(msg),
-            Ok(Err(_)) => Err(Error::ResponseChannelClosed {
-                node_id: node_id.to_string(),
-            }),
-            Err(_) => {
-                self.0.pending.lock().await.remove(&key);
-                Err(Error::ResponseTimeout {
-                    node_id: node_id.to_string(),
-                    kind,
-                })
-            }
-        }
-    }
-
-    /// Register a waiter, send `msg`, then collect all chunks until `done=true`.
-    pub async fn send_and_wait_chunked(
-        &self,
-        node_id: &str,
-        msg: ControlMessage,
-        kind: ResponseKind,
-    ) -> Result<Vec<ControlMessage>> {
-        self.send_and_wait_chunked_with_timeout(
-            node_id,
-            msg,
-            kind,
-            Duration::from_secs(DEFAULT_RESPONSE_TIMEOUT_SECS),
-        )
-        .await
-    }
-
-    pub async fn send_and_wait_chunked_with_timeout(
         &self,
         node_id: &str,
         msg: ControlMessage,
@@ -392,24 +238,26 @@ impl DefaultNodeCommandHandler {
         let key = (node_id.to_string(), msg_kind, message_id);
         let (tx, mut rx) = mpsc::unbounded_channel::<ControlMessage>();
         {
-            let mut chunked = self.0.chunked_pending.lock().await;
-            chunked.insert(key.clone(), tx); // register BEFORE send
+            let mut pending = self.0.pending.lock().await;
+            pending.insert(key.clone(), tx);
         }
+
         if let Err(e) = self.send_message(node_id, msg).await {
-            self.0.chunked_pending.lock().await.remove(&key);
+            self.0.pending.lock().await.remove(&key);
             return Err(e);
         }
+
         let collect = async move {
-            let mut chunks = Vec::new();
-            while let Some(msg) = rx.recv().await {
-                chunks.push(msg);
+            let mut msgs = Vec::new();
+            while let Some(m) = rx.recv().await {
+                msgs.push(m);
             }
-            chunks
+            msgs
         };
         match timeout(dur, collect).await {
-            Ok(chunks) => Ok(chunks),
+            Ok(msgs) => Ok(msgs),
             Err(_) => {
-                self.0.chunked_pending.lock().await.remove(&key);
+                self.0.pending.lock().await.remove(&key);
                 Err(Error::ResponseTimeout {
                     node_id: node_id.to_string(),
                     kind,
@@ -548,22 +396,19 @@ mod tests {
         );
     }
 
-    // ── wait_for_response / response_received ──────────────────────────────
+    // ── send_and_wait / response_received ──────────────────────────────────
 
     #[tokio::test]
-    async fn wait_for_response_ack() {
+    async fn send_and_wait_ack() {
         let h = make_handler();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         h.add_stream("n1", tx).await;
 
         let msg_id = "req-1";
-        // Spawn a task that reads from the stream and calls response_received.
         let h2 = h.clone();
         tokio::spawn(async move {
-            // Drain the outbound message.
             let _ = rx.recv().await;
-            let ack = ack_message(msg_id, true);
-            h2.response_received("n1", ack).await;
+            h2.response_received("n1", ack_message(msg_id, true)).await;
         });
 
         let outbound = ControlMessage {
@@ -574,20 +419,20 @@ mod tests {
                 messages: vec![],
             })),
         };
-        h.send_message("n1", outbound).await.unwrap();
 
-        let resp = h
-            .wait_for_response("n1", ResponseKind::Ack, msg_id)
+        let msgs = h
+            .send_and_wait("n1", outbound, ResponseKind::Ack)
             .await
             .unwrap();
-        match resp.payload {
+        assert_eq!(msgs.len(), 1);
+        match msgs.into_iter().next().unwrap().payload {
             Some(Payload::Ack(a)) => assert!(a.success),
             _ => panic!("unexpected payload"),
         }
     }
 
     #[tokio::test]
-    async fn wait_for_response_config_command_ack() {
+    async fn send_and_wait_config_command_ack() {
         let h = make_handler();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         h.add_stream("n1", tx).await;
@@ -599,34 +444,38 @@ mod tests {
             h2.response_received("n1", config_ack_message(msg_id)).await;
         });
 
-        h.send_message(
-            "n1",
-            ControlMessage {
-                message_id: msg_id.to_string(),
-                payload: None,
-            },
-        )
-        .await
-        .unwrap();
+        let outbound = ControlMessage {
+            message_id: msg_id.to_string(),
+            payload: None,
+        };
 
-        let resp = h
-            .wait_for_response("n1", ResponseKind::ConfigCommandAck, msg_id)
+        let msgs = h
+            .send_and_wait("n1", outbound, ResponseKind::ConfigCommandAck)
             .await
             .unwrap();
-        assert!(matches!(resp.payload, Some(Payload::ConfigCommandAck(_))));
+        assert_eq!(msgs.len(), 1);
+        assert!(matches!(
+            msgs.into_iter().next().unwrap().payload,
+            Some(Payload::ConfigCommandAck(_))
+        ));
     }
 
     #[tokio::test]
-    async fn wait_for_response_timeout() {
+    async fn send_and_wait_timeout() {
         let h = make_handler();
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         h.add_stream("n1", tx).await;
 
+        let outbound = ControlMessage {
+            message_id: "will-never-arrive".to_string(),
+            payload: None,
+        };
+
         let result = h
-            .wait_for_response_with_timeout(
+            .send_and_wait_with_timeout(
                 "n1",
+                outbound,
                 ResponseKind::Ack,
-                "will-never-arrive",
                 Duration::from_millis(50),
             )
             .await;
@@ -635,19 +484,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn wait_for_response_empty_node_id_fails() {
+    async fn send_and_wait_empty_node_id_fails() {
         let h = make_handler();
+        let outbound = ControlMessage {
+            message_id: "x".to_string(),
+            payload: None,
+        };
         let result = h
-            .wait_for_response_with_timeout("", ResponseKind::Ack, "x", Duration::from_millis(10))
+            .send_and_wait_with_timeout("", outbound, ResponseKind::Ack, Duration::from_millis(10))
             .await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
-    async fn wait_for_response_empty_msg_id_fails() {
+    async fn send_and_wait_empty_msg_id_fails() {
         let h = make_handler();
+        let outbound = ControlMessage {
+            message_id: String::new(),
+            payload: None,
+        };
         let result = h
-            .wait_for_response_with_timeout("n1", ResponseKind::Ack, "", Duration::from_millis(10))
+            .send_and_wait_with_timeout(
+                "n1",
+                outbound,
+                ResponseKind::Ack,
+                Duration::from_millis(10),
+            )
             .await;
         assert!(result.is_err());
     }

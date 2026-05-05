@@ -173,7 +173,6 @@ async fn route_add(route: &str, via: &str, config_file: &str, opts: &ResolvedOpt
         component_1: ns,
         component_2: agent_type,
         id: Some(agent_id),
-        node_id: None,
         link_id: Some(link_id),
         direction: None,
     };
@@ -237,7 +236,6 @@ async fn route_del(route: &str, via: &str, destination: &str, opts: &ResolvedOpt
         component_1: ns,
         component_2: agent_type,
         id: Some(agent_id),
-        node_id: None,
         link_id: Some(link_id),
         direction: None,
     };

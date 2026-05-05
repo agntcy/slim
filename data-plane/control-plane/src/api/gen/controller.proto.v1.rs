@@ -64,10 +64,8 @@ pub struct Route {
     #[prost(uint64, optional, tag = "4")]
     pub id: ::core::option::Option<u64>,
     #[prost(string, optional, tag = "5")]
-    pub node_id: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(string, optional, tag = "6")]
     pub link_id: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(enumeration = "ConnectionDirection", optional, tag = "7")]
+    #[prost(enumeration = "ConnectionDirection", optional, tag = "6")]
     pub direction: ::core::option::Option<i32>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]

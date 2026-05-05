@@ -26,10 +26,6 @@ pub enum Error {
     #[error("failed to send to node {node_id}: {reason}")]
     SendFailed { node_id: String, reason: String },
 
-    /// The oneshot response channel was dropped before a reply arrived.
-    #[error("response channel closed unexpectedly for node {node_id}")]
-    ResponseChannelClosed { node_id: String },
-
     /// No reply arrived within the deadline.
     #[error("timeout waiting for {kind:?} response from node {node_id}")]
     ResponseTimeout { node_id: String, kind: ResponseKind },

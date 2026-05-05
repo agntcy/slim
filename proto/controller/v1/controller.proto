@@ -24,7 +24,6 @@ message ControlMessage {
     RegisterNodeResponse register_node_response = 9;
     DeregisterNodeRequest deregister_node_request = 10;
     DeregisterNodeResponse deregister_node_response = 11;
-
     ConfigurationCommandAck config_command_ack = 20;
   }
 }
@@ -45,15 +44,14 @@ message Route {
   string component_1 = 2;
   string component_2 = 3;
   optional uint64 id = 4;
-  optional string node_id = 5;
-  optional string link_id = 6;
-  optional ConnectionDirection direction = 7;
+  optional string link_id = 5;
+  optional ConnectionDirection direction = 6;
 }
 
 message RouteAck {
   Route route = 1;
   bool success = 2;
-  string errorMsg = 3;
+  string error_msg = 3;
 }
 
 message ConfigurationCommand {

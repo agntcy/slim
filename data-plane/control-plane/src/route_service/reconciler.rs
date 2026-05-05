@@ -124,9 +124,8 @@ async fn handle_request(
         desired_routes.len(),
     );
 
-    let message_id = Uuid::new_v4().to_string();
     let msg = ControlMessage {
-        message_id: message_id.clone(),
+        message_id: Uuid::new_v4().to_string(),
         payload: Some(Payload::ConfigCommand(ConfigurationCommand {
             connections_to_create: desired_connections,
             routes_to_set: desired_routes,
@@ -136,11 +135,11 @@ async fn handle_request(
         })),
     };
 
-    let response = cmd_handler
+    let responses = cmd_handler
         .send_and_wait(node_id, msg, ResponseKind::ConfigCommandAck)
         .await?;
 
-    let ack = match response.payload {
+    let ack = match responses.into_iter().next().and_then(|r| r.payload) {
         Some(Payload::ConfigCommandAck(a)) => a,
         _ => {
             return Err(Error::UnexpectedResponse(format!(
@@ -288,11 +287,6 @@ async fn build_desired_routes<'a>(
             component_2: route.component2.clone(),
             id: route.component_id.map(|v| v as u64),
             link_id: Some(link_id.clone()),
-            node_id: if route.dest_node_id.is_empty() {
-                None
-            } else {
-                Some(route.dest_node_id.clone())
-            },
             ..Default::default()
         };
 
@@ -410,30 +404,25 @@ async fn process_route_acks(
         let route = match included_routes.get(&key) {
             Some(r) => (*r).clone(),
             None => {
-                if let Some(dest_node_id) = sub.node_id.as_deref().filter(|id| !id.is_empty()) {
-                    match db
-                        .get_route_for_src_dest_name(
-                            node_id,
-                            &crate::db::RouteName {
-                                component0: &sub.component_0,
-                                component1: &sub.component_1,
-                                component2: &sub.component_2,
-                                component_id: sub.id.map(|v| v as i64),
-                            },
-                            dest_node_id,
-                            &link_id,
-                        )
-                        .await
-                    {
-                        Some(r) => r,
-                        None => {
-                            tracing::warn!("reconciler: no route found for route ack: {:?}", sub);
-                            continue;
-                        }
+                match db
+                    .get_route_for_src_dest_name(
+                        node_id,
+                        &crate::db::RouteName {
+                            component0: &sub.component_0,
+                            component1: &sub.component_1,
+                            component2: &sub.component_2,
+                            component_id: sub.id.map(|v| v as i64),
+                        },
+                        "",
+                        &link_id,
+                    )
+                    .await
+                {
+                    Some(r) => r,
+                    None => {
+                        tracing::warn!("reconciler: no route found for route ack: {:?}", sub);
+                        continue;
                     }
-                } else {
-                    tracing::warn!("reconciler: no route found for route ack: {:?}", sub);
-                    continue;
                 }
             }
         };

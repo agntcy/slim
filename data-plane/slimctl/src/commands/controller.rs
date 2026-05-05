@@ -310,7 +310,6 @@ async fn route_add(
         component_1: ns,
         component_2: agent_type,
         id: Some(agent_id),
-        node_id: None,
         link_id: None,
         direction: None,
     };
@@ -363,7 +362,6 @@ async fn route_del(
         component_1: ns,
         component_2: agent_type,
         id: Some(agent_id),
-        node_id: None,
         link_id: None,
         direction: None,
     };

@@ -349,7 +349,6 @@ async fn add_route(
                 component_1: component1.to_string(),
                 component_2: component2.to_string(),
                 id: None,
-                node_id: None,
                 link_id: None,
                 direction: None,
             }),

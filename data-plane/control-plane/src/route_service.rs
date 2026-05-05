@@ -1114,7 +1114,7 @@ impl RouteService {
         let chunks = self
             .0
             .cmd_handler
-            .send_and_wait_chunked(node_id, msg, ResponseKind::RouteListResponse)
+            .send_and_wait(node_id, msg, ResponseKind::RouteListResponse)
             .await?;
         let mut entries = Vec::new();
         for chunk in chunks {
@@ -1140,7 +1140,7 @@ impl RouteService {
         let chunks = self
             .0
             .cmd_handler
-            .send_and_wait_chunked(node_id, msg, ResponseKind::ConnectionListResponse)
+            .send_and_wait(node_id, msg, ResponseKind::ConnectionListResponse)
             .await?;
         let mut entries = Vec::new();
         for chunk in chunks {
