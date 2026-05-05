@@ -7,7 +7,7 @@ require (
 	github.com/pavius/impi v0.0.3
 	go.opentelemetry.io/build-tools/multimod v0.29.0
 	golang.org/x/vuln v1.1.4
-	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.6.1
+	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.6.2-0.20260324072446-52bf4d9ecf92
 	google.golang.org/protobuf v1.36.11
 )
 

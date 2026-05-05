@@ -25,6 +25,10 @@ path = "src/bin/protoc-gen-slimrpc-java.rs"
 name = "protoc-gen-slimrpc-csharp"
 path = "src/bin/protoc-gen-slimrpc-csharp.rs"
 
+[[bin]]
+name = "protoc-gen-slimrpc-kotlin"
+path = "src/bin/protoc-gen-slimrpc-kotlin.rs"
+
 [dependencies]
 anyhow = { workspace = true }
 heck = "0.5.0"

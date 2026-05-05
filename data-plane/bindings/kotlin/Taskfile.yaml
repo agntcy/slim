@@ -183,12 +183,16 @@ tasks:
         echo "📊 Total libraries copied: $library_count"
 
   build:
-    desc: Build Kotlin code and create executable JARs
+    desc: Build Kotlin bindings and all examples
     deps:
       - generate
     cmds:
       - echo "🔨 Building Kotlin bindings..."
-      - ./gradlew build
+      - ./gradlew build -x test
+      - echo "📦 Installing bindings to local Maven repository..."
+      - ./gradlew publishToMavenLocal
+      - echo "🔨 Compiling slimrpc example..."
+      - cd examples/slimrpc/simple && ./gradlew compileKotlin
       - echo "✅ Build complete"
 
   publish:maven-central:
@@ -380,3 +384,36 @@ tasks:
         ./gradlew :runGroup --args="--local agntcy/ns/client-2 --shared-secret $SHARED_SECRET {{.EXTRA_ARGS}}"
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  examples:rpc:server:
+    desc: Run the SlimRPC server example
+    deps:
+      - build
+    cmds:
+      - echo "Starting SlimRPC server (instance={{.INSTANCE}})..."
+      - cd examples/slimrpc/simple && ./gradlew server -Pargs="--instance {{.INSTANCE}}"
+    vars:
+      INSTANCE: '{{.INSTANCE | default "server"}}'
+
+  examples:rpc:client:
+    desc: Run the SlimRPC client example
+    deps:
+      - build
+    cmds:
+      - echo "Starting SlimRPC client..."
+      - cd examples/slimrpc/simple && ./gradlew client
+
+  examples:rpc:group-client:
+    desc: Run the SlimRPC group (multicast) client example
+    deps:
+      - build
+    cmds:
+      - echo "Starting SlimRPC group client..."
+      - cd examples/slimrpc/simple && ./gradlew groupClient
+
+  examples:rpc:clean:
+    desc: Clean example build artifacts and generated code
+    cmds:
+      - echo "Cleaning example build artifacts..."
+      - cd examples/slimrpc/simple && rm -rf types/ slimrpc/ build/ .gradle/
+      - echo "Clean complete"
