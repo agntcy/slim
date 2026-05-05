@@ -81,8 +81,8 @@ pub struct BenchSubArgs {
     #[arg(short = 'n', long = "msgs", default_value_t = 100_000)]
     pub msgs: u64,
 
-    /// Expected payload size in bytes (used for throughput calculation)
-    #[arg(long = "size", default_value_t = 128)]
+    /// Payload size — plain bytes or a unit suffix. SI: kb/mb/gb (×1000). IEC: kib/mib/gib (×1024).
+    #[arg(long = "size", default_value = "128", value_parser = parse_byte_size)]
     pub size: usize,
 
     /// SLIM server URL
@@ -122,8 +122,8 @@ pub struct BenchPubArgs {
     #[arg(short = 'n', long = "msgs", default_value_t = 100_000)]
     pub msgs: u64,
 
-    /// Payload size in bytes
-    #[arg(long = "size", default_value_t = 128)]
+    /// Payload size — plain bytes or a unit suffix. SI: kb/mb/gb (×1000). IEC: kib/mib/gib (×1024).
+    #[arg(long = "size", default_value = "128", value_parser = parse_byte_size)]
     pub size: usize,
 
     /// SLIM server URL
@@ -178,8 +178,8 @@ pub struct BenchChannelSubArgs {
     #[arg(short = 'n', long = "msgs", default_value_t = 100_000)]
     pub msgs: u64,
 
-    /// Expected payload size in bytes (used for throughput calculation)
-    #[arg(long = "size", default_value_t = 128)]
+    /// Payload size — plain bytes or a unit suffix. SI: kb/mb/gb (×1000). IEC: kib/mib/gib (×1024).
+    #[arg(long = "size", default_value = "128", value_parser = parse_byte_size)]
     pub size: usize,
 
     /// SLIM server URL
@@ -220,8 +220,8 @@ pub struct BenchChannelPubArgs {
     #[arg(short = 'n', long = "msgs", default_value_t = 100_000)]
     pub msgs: u64,
 
-    /// Payload size in bytes
-    #[arg(long = "size", default_value_t = 128)]
+    /// Payload size — plain bytes or a unit suffix. SI: kb/mb/gb (×1000). IEC: kib/mib/gib (×1024).
+    #[arg(long = "size", default_value = "128", value_parser = parse_byte_size)]
     pub size: usize,
 
     /// SLIM server URL
@@ -1227,6 +1227,44 @@ fn comma_format(n: i64) -> String {
         result.push(c);
     }
     result.chars().rev().collect()
+}
+
+/// Parse a human-readable byte size string into a `usize`.
+/// Accepts plain integers (`128`) or a number followed by an optional unit
+/// suffix (case-insensitive, with or without space).
+///
+/// SI (decimal, powers of 1000): kb, mb, gb
+/// IEC (binary, powers of 1024): kib, mib, gib
+/// Bare `b` = bytes (× 1)
+///
+/// Examples: "128", "16kb", "16kib", "4 MB", "1GiB"
+fn parse_byte_size(s: &str) -> Result<usize, String> {
+    let s = s.trim();
+    if let Ok(n) = s.parse::<usize>() {
+        return Ok(n);
+    }
+    let split = s
+        .find(|c: char| !c.is_ascii_digit())
+        .ok_or_else(|| format!("invalid size: '{s}'"))?;
+    let (num_str, suffix) = s.split_at(split);
+    let n: u64 = num_str
+        .parse()
+        .map_err(|_| format!("invalid size: '{s}'"))?;
+    let multiplier: u64 = match suffix.trim().to_lowercase().as_str() {
+        "b" => 1,
+        "kb" => 1_000,
+        "mb" => 1_000_000,
+        "gb" => 1_000_000_000,
+        "kib" => 1_024,
+        "mib" => 1_024 * 1_024,
+        "gib" => 1_024 * 1_024 * 1_024,
+        other => {
+            return Err(format!(
+                "unknown size unit: '{other}' (use b/kb/mb/gb or kib/mib/gib)"
+            ))
+        }
+    };
+    usize::try_from(n * multiplier).map_err(|_| format!("size too large: '{s}'"))
 }
 
 fn human_bytes(bytes: f64) -> String {
