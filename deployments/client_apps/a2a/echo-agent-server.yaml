@@ -2,13 +2,43 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Echo A2A agent server (slimrpc) for cluster-a. Connects to the in-cluster Slim
-# dataplane Service. Logic matches agntcy/slim-a2a-python examples/echo_agent.
+# dataplane Service with SPIRE (TLS + workload identity), mirroring
+# deployments/client_apps/with_spire/receiver.yaml.
 # https://github.com/agntcy/slim-a2a-python/tree/main/examples/echo_agent
 #
 # PyPI package name is slima2a (see upstream pyproject.toml). Install at runtime
 # via container command; pin with SLIMA2A_VERSION (default 0.4.0).
 # Deploy: task -d deployments/multicluster_private echo-agent:server:deploy
 
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: echo-agent-server
+  labels:
+    app.kubernetes.io/name: echo-agent-server
+    app.kubernetes.io/component: echo-agent-server
+---
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: echo-agent-server
+  labels:
+    app.kubernetes.io/name: echo-agent-server
+    app.kubernetes.io/component: echo-agent-server
+spec:
+  className: spire-spire
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values:
+          - echo-agent-server
+  workloadSelectorTemplates:
+    - k8s:sa:echo-agent-server
+  spiffeIDTemplate: "spiffe://{{ .TrustDomain }}/ns/default/sa/echo-agent-server"
+  federatesWith:
+    - cluster-b.example
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -40,7 +70,7 @@ data:
         AgentSkill,
     )
 
-    from slima2a import setup_slim_client
+    from slima2a import initialize_slim_service
     from slima2a.handler import SRPCHandler
     from slima2a.types.v1.a2a_pb2_slimrpc import add_A2AServiceServicer_to_server as add_v1
 
@@ -110,11 +140,41 @@ data:
         log_level = getattr(logging, _env("SLIM_LOG_LEVEL", "INFO").upper(), logging.INFO)
         logging.basicConfig(level=log_level)
 
-        slim_url = _env("SLIM_URL", "http://slim.slim.svc.cluster.local:46357")
+        slim_url = _env("SLIM_URL", "https://slim.slim.svc.cluster.local:46357")
+        slim_cfg_path = _env("SLIM_CLIENT_CONFIG", "")
         ns = _env("SLIM_NAME_NAMESPACE", "agntcy")
         group = _env("SLIM_NAME_GROUP", "demo")
         name = _env("SLIM_SERVER_LOCAL_NAME", "echo_agent")
         secret = _env("SLIM_APP_SECRET", "my_shared_secret_for_testing_purposes_only")
+        socket_path = _env("SPIRE_SOCKET_PATH", "")
+        jwt_audience_raw = _env("SPIRE_JWT_AUDIENCE", "")
+
+        slim_log = "debug" if log_level <= logging.DEBUG else "info"
+        service = await initialize_slim_service(log_level=slim_log)
+        local_name = slim_bindings.Name(ns, group, name)
+
+        if slim_cfg_path:
+            with open(slim_cfg_path, encoding="utf-8") as f:
+                client_config = slim_bindings.new_config_from_json(f.read())
+        else:
+            client_config = slim_bindings.new_insecure_client_config(slim_url)
+        conn_id = await service.connect_async(client_config)
+
+        if socket_path:
+            audiences = [a.strip() for a in jwt_audience_raw.split(",") if a.strip()]
+            spire_cfg = slim_bindings.SpireConfig(
+                trust_domains=[],
+                socket_path=socket_path,
+                target_spiffe_id=None,
+                jwt_audiences=audiences,
+            )
+            provider = slim_bindings.IdentityProviderConfig.SPIRE(config=spire_cfg)
+            verifier = slim_bindings.IdentityVerifierConfig.SPIRE(config=spire_cfg)
+            local_app = service.create_app(local_name, provider, verifier)
+        else:
+            local_app = service.create_app_with_secret(local_name, secret)
+
+        await local_app.subscribe_async(local_name, conn_id)
 
         skill = AgentSkill(
             id="echo",
@@ -134,15 +194,6 @@ data:
             default_output_modes=["text"],
             capabilities=AgentCapabilities(streaming=True),
             skills=[skill],
-        )
-
-        service, local_app, local_name, conn_id = await setup_slim_client(
-            namespace=ns,
-            group=group,
-            name=name,
-            slim_url=slim_url,
-            secret=secret,
-            log_level="debug" if log_level <= logging.DEBUG else "info",
         )
 
         agent_executor = EchoAgentExecutor()
@@ -183,10 +234,12 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: echo-agent-server
+        app.kubernetes.io/component: echo-agent-server
       annotations:
         # Bump when echo_server.py ConfigMap changes so apply triggers a rollout.
-        echo-agent.redeploy: "2026-04-30-logging"
+        echo-agent.redeploy: "2026-05-04-spire"
     spec:
+      serviceAccountName: echo-agent-server
       containers:
         - name: echo-agent-server
           image: docker.io/library/python:3.12-slim-bookworm
@@ -196,6 +249,10 @@ spec:
               value: "0.4.0"
             - name: SLIM_URL
               value: "http://slim.slim.svc.cluster.local:46357"
+            - name: SPIRE_SOCKET_PATH
+              value: "unix:/tmp/spire-agent/public/api.sock"
+            - name: SPIRE_JWT_AUDIENCE
+              value: "slim-demo"
             - name: SLIM_LOG_LEVEL
               value: "INFO"
           command:
@@ -210,6 +267,9 @@ spec:
             - name: scripts
               mountPath: /scripts
               readOnly: true
+            - name: spire-agent-socket
+              mountPath: /tmp/spire-agent/public/
+              readOnly: true
           resources:
             requests:
               cpu: 100m
@@ -221,3 +281,7 @@ spec:
           configMap:
             name: echo-agent-server-script
             defaultMode: 0444
+        - name: spire-agent-socket
+          hostPath:
+            path: /run/spire/agent-sockets
+            type: Directory
