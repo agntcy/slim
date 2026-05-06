@@ -10,7 +10,7 @@ name = "slim_datapath"
 
 [features]
 default = []
-otel = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
+otel_tracing = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
 
 [dependencies]
 agntcy-slim-config = { workspace = true }

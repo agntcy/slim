@@ -20,8 +20,8 @@ use tokio_util::sync::CancellationToken;
 use tonic::{Request, Response, Status};
 use tracing::{Instrument, debug, error, info};
 
-#[cfg(feature = "otel")]
-use crate::otel;
+#[cfg(feature = "otel_tracing")]
+use crate::otel_tracing;
 
 use crate::api::ProtoMessage;
 use crate::api::ProtoPublishType as PublishType;
@@ -72,10 +72,6 @@ struct MessageProcessorInternal {
 
     /// Service ID for tracing
     service_id: String,
-
-    /// Whether OTEL message propagation is enabled at runtime
-    #[cfg(feature = "otel")]
-    otel_enabled: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -108,8 +104,6 @@ impl MessageProcessor {
             recovery_table,
             sub_ack_manager: crate::subscription_ack::RemoteSubAckManager::new(),
             service_id,
-            #[cfg(feature = "otel")]
-            otel_enabled: false,
         };
         Self {
             internal: Arc::new(internal),
@@ -118,14 +112,6 @@ impl MessageProcessor {
 
     pub fn new() -> Self {
         Self::default()
-    }
-
-    #[cfg(feature = "otel")]
-    pub fn with_otel_enabled(mut self, enabled: bool) -> Self {
-        Arc::get_mut(&mut self.internal)
-            .expect("with_otel_enabled must be called before cloning")
-            .otel_enabled = enabled;
-        self
     }
 
     /// Run a data plane gRPC server using this message processor's drain watch.
@@ -403,19 +389,17 @@ impl MessageProcessor {
 
     pub async fn send_msg(
         &self,
-        #[cfg(feature = "otel")] mut msg: Message,
-        #[cfg(not(feature = "otel"))] msg: Message,
+        #[cfg(feature = "otel_tracing")] mut msg: Message,
+        #[cfg(not(feature = "otel_tracing"))] msg: Message,
         out_conn: u64,
     ) -> Result<(), DataPathError> {
-        #[cfg(feature = "otel")]
-        if self.internal.otel_enabled {
-            otel::prepare_outbound_msg(
-                &mut msg,
-                "send_message",
-                &self.internal.service_id,
-                otel::SpanTarget::Connection(out_conn),
-            );
-        }
+        #[cfg(feature = "otel_tracing")]
+        otel_tracing::prepare_outbound_msg(
+            &mut msg,
+            "send_message",
+            &self.internal.service_id,
+            otel_tracing::SpanTarget::Connection(out_conn),
+        );
         self.send_msg_raw(msg, out_conn).await
     }
 
@@ -452,8 +436,8 @@ impl MessageProcessor {
 
     async fn match_and_forward_msg(
         &self,
-        #[cfg(feature = "otel")] mut msg: Message,
-        #[cfg(not(feature = "otel"))] msg: Message,
+        #[cfg(feature = "otel_tracing")] mut msg: Message,
+        #[cfg(not(feature = "otel_tracing"))] msg: Message,
         name: Name,
         in_connection: u64,
         fanout: u32,
@@ -482,15 +466,13 @@ impl MessageProcessor {
                     return self.send_msg(msg, out_vec[0]).await;
                 }
 
-                #[cfg(feature = "otel")]
-                if self.internal.otel_enabled {
-                    otel::prepare_fanout_msg(
-                        &mut msg,
-                        "send_message",
-                        &self.internal.service_id,
-                        len as u32,
-                    );
-                }
+                #[cfg(feature = "otel_tracing")]
+                otel_tracing::prepare_fanout_msg(
+                    &mut msg,
+                    "send_message",
+                    &self.internal.service_id,
+                    len as u32,
+                );
 
                 let mut i = 0usize;
                 while i < len - 1 {
@@ -944,16 +926,14 @@ impl MessageProcessor {
             // add incoming connection to the SLIM header
             msg.set_incoming_conn(Some(conn_index));
 
-            #[cfg(feature = "otel")]
-            if self.internal.otel_enabled {
-                otel::prepare_inbound_msg(
-                    &mut msg,
-                    "process_local",
-                    &self.internal.service_id,
-                    conn_index,
-                    is_local,
-                );
-            }
+            #[cfg(feature = "otel_tracing")]
+            otel_tracing::prepare_inbound_msg(
+                &mut msg,
+                "process_local",
+                &self.internal.service_id,
+                conn_index,
+                is_local,
+            );
         }
 
         match self.process_message(msg, conn_index, is_local).await {
