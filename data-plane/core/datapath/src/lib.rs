@@ -9,6 +9,8 @@ pub mod tables;
 
 mod connection;
 mod forwarder;
+#[cfg(feature = "otel")]
+mod otel;
 mod recovery;
 pub(crate) mod subscription_ack;
 

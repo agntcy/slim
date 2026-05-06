@@ -7,14 +7,10 @@ use std::{pin::Pin, sync::Arc};
 
 use crate::api::DataPlaneServiceServer;
 use display_error_chain::ErrorChainExt;
-use opentelemetry::propagation::{Extractor, Injector};
-use opentelemetry::trace::TraceContextExt;
 use parking_lot::RwLock;
 use slim_config::component::configuration::Configuration;
 use slim_config::grpc::client::ClientConfig;
 use slim_config::grpc::server::ServerConfig;
-use slim_tracing::otel_propagation_enabled;
-use slim_tracing::utils::INSTANCE_ID;
 use tokio::sync::mpsc::{self, Sender};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
@@ -22,8 +18,10 @@ use tokio_stream::{Stream, StreamExt};
 use tokio_util::sync::CancellationToken;
 
 use tonic::{Request, Response, Status};
-use tracing::{Instrument, Span, debug, error, info};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
+use tracing::{Instrument, debug, error, info};
+
+#[cfg(feature = "otel")]
+use crate::otel;
 
 use crate::api::ProtoMessage;
 use crate::api::ProtoPublishType as PublishType;
@@ -47,84 +45,6 @@ use crate::recovery::RecoveryTable;
 use crate::tables::connection_table::ConnectionTable;
 use crate::tables::remote_subscription_table::SubscriptionInfo;
 use crate::tables::subscription_table::SubscriptionTableImpl;
-
-// Implementation based on: https://docs.rs/opentelemetry-tonic/latest/src/opentelemetry_tonic/lib.rs.html#1-134
-struct MetadataExtractor<'a>(&'a std::collections::HashMap<String, String>);
-
-impl Extractor for MetadataExtractor<'_> {
-    fn get(&self, key: &str) -> Option<&str> {
-        self.0.get(key).map(|s| s.as_str())
-    }
-
-    fn keys(&self) -> Vec<&str> {
-        self.0.keys().map(|s| s.as_str()).collect()
-    }
-}
-
-struct MetadataInjector<'a>(&'a mut std::collections::HashMap<String, String>);
-
-impl Injector for MetadataInjector<'_> {
-    fn set(&mut self, key: &str, value: String) {
-        self.0.insert(key.to_string(), value);
-    }
-}
-
-// Helper function to extract the parent OpenTelemetry context from metadata
-fn extract_parent_context(msg: &Message) -> Option<opentelemetry::Context> {
-    let extractor = MetadataExtractor(&msg.metadata);
-    let parent_context =
-        opentelemetry::global::get_text_map_propagator(|propagator| propagator.extract(&extractor));
-
-    if parent_context.span().span_context().is_valid() {
-        Some(parent_context)
-    } else {
-        None
-    }
-}
-
-// Helper function to inject the current OpenTelemetry context into metadata
-fn inject_current_context(msg: &mut Message) {
-    let cx = tracing::Span::current().context();
-    let mut injector = MetadataInjector(&mut msg.metadata);
-    opentelemetry::global::get_text_map_propagator(|propagator| {
-        propagator.inject_context(&cx, &mut injector)
-    });
-}
-
-/// Per-connection span vs one span covering all fan-out subscribers.
-enum ProcessSpanTarget {
-    Connection(u64),
-    Fanout { subscribers: u32 },
-}
-
-#[inline]
-fn message_otel_active(msg: &Message) -> bool {
-    otel_propagation_enabled() && !msg.is_link() && !msg.is_subscription_ack()
-}
-
-fn apply_publish_span_attributes(span: &Span, msg: &Message) {
-    if let PublishType(_) = msg.get_type() {
-        span.set_attribute("session_type", msg.get_session_message_type().as_str_name());
-        span.set_attribute(
-            "session_id",
-            msg.get_session_header().get_session_id() as i64,
-        );
-        span.set_attribute(
-            "message_id",
-            msg.get_session_header().get_message_id() as i64,
-        );
-    }
-}
-
-fn attach_trace_to_message(msg: &mut Message, span: Span, parent: Option<opentelemetry::Context>) {
-    if let Some(ctx) = parent
-        && let Err(e) = span.set_parent(ctx)
-    {
-        error!(error = %e.chain(), "error setting parent context");
-    }
-    let _guard = span.enter();
-    inject_current_context(msg);
-}
 
 fn local_version() -> &'static str {
     slim_version::version()
@@ -152,6 +72,10 @@ struct MessageProcessorInternal {
 
     /// Service ID for tracing
     service_id: String,
+
+    /// Whether OTEL message propagation is enabled at runtime
+    #[cfg(feature = "otel")]
+    otel_enabled: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -184,6 +108,8 @@ impl MessageProcessor {
             recovery_table,
             sub_ack_manager: crate::subscription_ack::RemoteSubAckManager::new(),
             service_id,
+            #[cfg(feature = "otel")]
+            otel_enabled: false,
         };
         Self {
             internal: Arc::new(internal),
@@ -194,41 +120,12 @@ impl MessageProcessor {
         Self::default()
     }
 
-    fn create_process_span(
-        &self,
-        function: &str,
-        msg: &Message,
-        target: ProcessSpanTarget,
-    ) -> Span {
-        let span = match target {
-            ProcessSpanTarget::Connection(connection_id) => tracing::span!(
-                tracing::Level::INFO,
-                "slim_process_message",
-                function = function,
-                service_id = %self.internal.service_id,
-                source = %msg.get_source(),
-                destination = %msg.get_dst(),
-                instance_id = %INSTANCE_ID.as_str(),
-                connection_id = connection_id,
-                message_type = %msg.get_type(),
-                telemetry = true
-            ),
-            ProcessSpanTarget::Fanout { subscribers } => tracing::span!(
-                tracing::Level::INFO,
-                "slim_process_message",
-                function = function,
-                service_id = %self.internal.service_id,
-                source = %msg.get_source(),
-                destination = %msg.get_dst(),
-                instance_id = %INSTANCE_ID.as_str(),
-                fanout_subscribers = subscribers,
-                connection_id = 0u64,
-                message_type = %msg.get_type(),
-                telemetry = true
-            ),
-        };
-        apply_publish_span_attributes(&span, msg);
-        span
+    #[cfg(feature = "otel")]
+    pub fn with_otel_enabled(mut self, enabled: bool) -> Self {
+        Arc::get_mut(&mut self.internal)
+            .expect("with_otel_enabled must be called before cloning")
+            .otel_enabled = enabled;
+        self
     }
 
     /// Run a data plane gRPC server using this message processor's drain watch.
@@ -504,36 +401,30 @@ impl MessageProcessor {
         Ok((conn_id, tx1, rx2))
     }
 
-    pub async fn send_msg(&self, msg: Message, out_conn: u64) -> Result<(), DataPathError> {
-        self.send_msg_inner(msg, out_conn, false).await
+    pub async fn send_msg(
+        &self,
+        #[cfg(feature = "otel")] mut msg: Message,
+        #[cfg(not(feature = "otel"))] msg: Message,
+        out_conn: u64,
+    ) -> Result<(), DataPathError> {
+        #[cfg(feature = "otel")]
+        if self.internal.otel_enabled {
+            otel::prepare_outbound_msg(
+                &mut msg,
+                "send_message",
+                &self.internal.service_id,
+                otel::SpanTarget::Connection(out_conn),
+            );
+        }
+        self.send_msg_raw(msg, out_conn).await
     }
 
-    /// Sends a message on `out_conn`. When `outbound_otel_already_prepared` is true, trace
-    /// context was applied once for a fanout (see [`Self::match_and_forward_msg`]).
-    async fn send_msg_inner(
-        &self,
-        mut msg: Message,
-        out_conn: u64,
-        outbound_otel_already_prepared: bool,
-    ) -> Result<(), DataPathError> {
+    async fn send_msg_raw(&self, mut msg: Message, out_conn: u64) -> Result<(), DataPathError> {
         let connection = self.forwarder().get_connection(out_conn);
         match connection {
             Some(conn) => {
-                // Link and SubscriptionAck messages have no SLIM header: skip header
-                // manipulation and telemetry span creation.
                 if !msg.is_link() && !msg.is_subscription_ack() {
-                    // reset header fields
                     msg.clear_slim_header();
-
-                    if message_otel_active(&msg) && !outbound_otel_already_prepared {
-                        let parent = extract_parent_context(&msg);
-                        let span = self.create_process_span(
-                            "send_message",
-                            &msg,
-                            ProcessSpanTarget::Connection(out_conn),
-                        );
-                        attach_trace_to_message(&mut msg, span, parent);
-                    }
                 }
 
                 match conn.channel() {
@@ -561,7 +452,8 @@ impl MessageProcessor {
 
     async fn match_and_forward_msg(
         &self,
-        mut msg: Message,
+        #[cfg(feature = "otel")] mut msg: Message,
+        #[cfg(not(feature = "otel"))] msg: Message,
         name: Name,
         in_connection: u64,
         fanout: u32,
@@ -590,29 +482,22 @@ impl MessageProcessor {
                     return self.send_msg(msg, out_vec[0]).await;
                 }
 
-                // Fan-out: one extract + span + inject for all copies (same propagated context).
-                let fanout_otel_prepped = message_otel_active(&msg);
-                if fanout_otel_prepped {
-                    msg.clear_slim_header();
-                    let parent = extract_parent_context(&msg);
-                    let span = self.create_process_span(
+                #[cfg(feature = "otel")]
+                if self.internal.otel_enabled {
+                    otel::prepare_fanout_msg(
+                        &mut msg,
                         "send_message",
-                        &msg,
-                        ProcessSpanTarget::Fanout {
-                            subscribers: len as u32,
-                        },
+                        &self.internal.service_id,
+                        len as u32,
                     );
-                    attach_trace_to_message(&mut msg, span, parent);
                 }
 
                 let mut i = 0usize;
                 while i < len - 1 {
-                    self.send_msg_inner(msg.clone(), out_vec[i], fanout_otel_prepped)
-                        .await?;
+                    self.send_msg_raw(msg.clone(), out_vec[i]).await?;
                     i += 1;
                 }
-                self.send_msg_inner(msg, out_vec[i], fanout_otel_prepped)
-                    .await?;
+                self.send_msg_raw(msg, out_vec[i]).await?;
                 Ok(())
             }
             Err(e) => Err(DataPathError::MessageProcessingError {
@@ -1059,18 +944,15 @@ impl MessageProcessor {
             // add incoming connection to the SLIM header
             msg.set_incoming_conn(Some(conn_index));
 
-            if message_otel_active(&msg) {
-                let parent = if is_local {
-                    None
-                } else {
-                    extract_parent_context(&msg)
-                };
-                let span = self.create_process_span(
+            #[cfg(feature = "otel")]
+            if self.internal.otel_enabled {
+                otel::prepare_inbound_msg(
+                    &mut msg,
                     "process_local",
-                    &msg,
-                    ProcessSpanTarget::Connection(conn_index),
+                    &self.internal.service_id,
+                    conn_index,
+                    is_local,
                 );
-                attach_trace_to_message(&mut msg, span, parent);
             }
         }
 
