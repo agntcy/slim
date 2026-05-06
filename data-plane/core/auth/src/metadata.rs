@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Supported variants:
 /// - String
+/// - Bool
 /// - Number (serde_json::Number – can represent integer & floating point)
 /// - List (Vec<MetadataValue>)
 /// - Map (nested MetadataMap)
@@ -25,6 +26,7 @@ use serde::{Deserialize, Serialize};
 #[serde(untagged)]
 pub enum MetadataValue {
     String(String),
+    Bool(bool),
     Number(serde_json::Number),
     List(Vec<MetadataValue>),
     Map(MetadataMap),
@@ -35,6 +37,7 @@ impl MetadataValue {
     fn variant_name(&self) -> &'static str {
         match self {
             MetadataValue::String(_) => "String",
+            MetadataValue::Bool(_) => "Bool",
             MetadataValue::Number(_) => "Number",
             MetadataValue::List(_) => "List",
             MetadataValue::Map(_) => "Map",
@@ -52,6 +55,13 @@ impl MetadataValue {
     pub fn as_number(&self) -> Option<&serde_json::Number> {
         match self {
             MetadataValue::Number(n) => Some(n),
+            _ => None,
+        }
+    }
+
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            MetadataValue::Bool(v) => Some(*v),
             _ => None,
         }
     }
@@ -130,6 +140,12 @@ impl From<i64> for MetadataValue {
     }
 }
 
+impl From<bool> for MetadataValue {
+    fn from(value: bool) -> Self {
+        MetadataValue::Bool(value)
+    }
+}
+
 impl From<u64> for MetadataValue {
     fn from(value: u64) -> Self {
         MetadataValue::Number(serde_json::Number::from(value))
@@ -195,6 +211,34 @@ impl TryFrom<&MetadataValue> for String {
             MetadataValue::String(s) => Ok(s.clone()),
             other => Err(MetadataConversionError::WrongType {
                 expected: "String",
+                found: other.variant_name(),
+            }),
+        }
+    }
+}
+
+impl TryFrom<MetadataValue> for bool {
+    type Error = MetadataConversionError;
+
+    fn try_from(value: MetadataValue) -> Result<Self, Self::Error> {
+        match value {
+            MetadataValue::Bool(v) => Ok(v),
+            other => Err(MetadataConversionError::WrongType {
+                expected: "Bool",
+                found: other.variant_name(),
+            }),
+        }
+    }
+}
+
+impl TryFrom<&MetadataValue> for bool {
+    type Error = MetadataConversionError;
+
+    fn try_from(value: &MetadataValue) -> Result<Self, Self::Error> {
+        match value {
+            MetadataValue::Bool(v) => Ok(*v),
+            other => Err(MetadataConversionError::WrongType {
+                expected: "Bool",
                 found: other.variant_name(),
             }),
         }
@@ -465,6 +509,7 @@ impl From<&MetadataValue> for prost_types::Value {
     fn from(value: &MetadataValue) -> Self {
         let kind = match value {
             MetadataValue::String(s) => prost_types::value::Kind::StringValue(s.clone()),
+            MetadataValue::Bool(v) => prost_types::value::Kind::BoolValue(*v),
             MetadataValue::Number(n) => {
                 // Convert serde_json::Number to f64
                 prost_types::value::Kind::NumberValue(
@@ -500,11 +545,13 @@ mod tests {
     fn insert_and_get_primitives() {
         let mut m = MetadataMap::new();
         m.insert("s", "hello");
+        m.insert("b", true);
         m.insert("i", 42i64);
         m.insert("u", 7u64);
         m.insert("f", std::f64::consts::PI);
 
         assert!(matches!(m.get("s"), Some(MetadataValue::String(v)) if v == "hello"));
+        assert!(matches!(m.get("b"), Some(MetadataValue::Bool(v)) if *v));
         assert!(matches!(m.get("i"), Some(MetadataValue::Number(n)) if n.as_i64()==Some(42)));
         assert!(matches!(m.get("u"), Some(MetadataValue::Number(n)) if n.as_u64()==Some(7)));
         // Float may become string fallback if NaN; here it's valid
@@ -536,6 +583,7 @@ mod tests {
     fn serialize_to_json() {
         let mut m = MetadataMap::new();
         m.insert("name", "slim");
+        m.insert("enabled", true);
         m.insert("version", 1u64);
         m.insert("values", vec!["a", "b", "c"]);
         let mut nested = MetadataMap::new();
@@ -545,6 +593,7 @@ mod tests {
         let json_str = serde_json::to_string(&m).unwrap();
         let v: Value = serde_json::from_str(&json_str).unwrap();
         assert_eq!(v["name"], json!("slim"));
+        assert_eq!(v["enabled"], json!(true));
         assert_eq!(v["version"], json!(1));
         assert_eq!(v["values"], json!(["a", "b", "c"]));
         assert_eq!(v["nested"]["inner"], json!(10));
@@ -554,12 +603,14 @@ mod tests {
     fn deserialize_from_json() {
         let raw = r#"{
             "alpha":"a",
+            "enabled": true,
             "num": 5,
             "list": [1,2,3],
             "deep": {"k":"v","n":9}
         }"#;
         let m: MetadataMap = serde_json::from_str(raw).unwrap();
         assert!(matches!(m.get("alpha"), Some(MetadataValue::String(s)) if s=="a"));
+        assert!(matches!(m.get("enabled"), Some(MetadataValue::Bool(v)) if *v));
         assert!(matches!(m.get("num"), Some(MetadataValue::Number(n)) if n.as_i64()==Some(5)));
         assert!(matches!(m.get("list"), Some(MetadataValue::List(v)) if v.len()==3));
         match m.get("deep").unwrap() {
@@ -637,6 +688,15 @@ mod tests {
     }
 
     #[test]
+    fn try_from_bool_ok() {
+        let v: MetadataValue = true.into();
+        let b: bool = v.clone().try_into().unwrap();
+        assert!(b);
+        let b_ref: bool = (&v).try_into().unwrap();
+        assert!(b_ref);
+    }
+
+    #[test]
     fn number_out_of_range_for_i64() {
         let big = MetadataValue::from(u64::MAX);
         let err = i64::try_from(big).unwrap_err();
@@ -679,6 +739,10 @@ mod tests {
         let n: MetadataValue = 42i64.into();
         assert_eq!(n.as_number().unwrap().as_i64(), Some(42));
         assert!(n.as_list().is_none());
+
+        let b: MetadataValue = true.into();
+        assert_eq!(b.as_bool(), Some(true));
+        assert!(b.as_number().is_none());
 
         let lst: MetadataValue = vec![1i64, 2i64].into();
         assert_eq!(lst.as_list().unwrap().len(), 2);

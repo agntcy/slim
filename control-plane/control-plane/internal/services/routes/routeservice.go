@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,23 +28,22 @@ const AllNodesID = "*"
 type RouteService struct {
 	mu               sync.RWMutex
 	queue            workqueue.TypedRateLimitingInterface[RouteReconcileRequest]
+	linkQueue        workqueue.TypedRateLimitingInterface[LinkReconcileRequest]
 	dbService        db.DataAccess
 	cmdHandler       nodecontrol.NodeCommandHandler
 	reconcilerConfig config.ReconcilerConfig
 	reconcilerThread *RouteReconciler
+	linkThread       *LinkReconciler
 }
 
 type Route struct {
 	SourceNodeID string
-	// if DestNodeID is empty, DestEndpoint should be used to determine the destination
 	DestNodeID   string
-	DestEndpoint string
-	// ConnConfigData is a JSON string containing connection configuration details in case DestEndpoint is set
-	ConnConfigData string
-	Component0     string
-	Component1     string
-	Component2     string
-	ComponentID    *wrapperspb.UInt64Value
+	LinkID       string
+	Component0   string
+	Component1   string
+	Component2   string
+	ComponentID  *wrapperspb.UInt64Value
 }
 
 func NewRouteService(dbService db.DataAccess, cmdHandler nodecontrol.NodeCommandHandler,
@@ -54,9 +54,17 @@ func NewRouteService(dbService db.DataAccess, cmdHandler nodecontrol.NodeCommand
 		Name:          "RouteReconcileQueue",
 		DelayingQueue: workqueue.NewTypedDelayingQueue[RouteReconcileRequest](),
 	}
-	queue := workqueue.NewTypedRateLimitingQueueWithConfig[RouteReconcileRequest](rateLimiter, queueConfig)
+	routeQueue := workqueue.NewTypedRateLimitingQueueWithConfig[RouteReconcileRequest](rateLimiter, queueConfig)
+	linkQueue := workqueue.NewTypedRateLimitingQueueWithConfig[LinkReconcileRequest](
+		workqueue.NewTypedItemExponentialFailureRateLimiter[LinkReconcileRequest](5*time.Millisecond, 1000*time.Second),
+		workqueue.TypedRateLimitingQueueConfig[LinkReconcileRequest]{
+			Name:          "LinkReconcileQueue",
+			DelayingQueue: workqueue.NewTypedDelayingQueue[LinkReconcileRequest](),
+		},
+	)
 	return &RouteService{
-		queue:            queue,
+		queue:            routeQueue,
+		linkQueue:        linkQueue,
 		dbService:        dbService,
 		cmdHandler:       cmdHandler,
 		reconcilerConfig: reconcilerConfig,
@@ -64,18 +72,25 @@ func NewRouteService(dbService db.DataAccess, cmdHandler nodecontrol.NodeCommand
 }
 
 func (s *RouteService) Start(ctx context.Context) error {
-	reconciler := NewRouteReconciler("reconciler",
+	reconciler := NewRouteReconciler("route-reconciler",
 		s.reconcilerConfig, s.queue, s.dbService, s.cmdHandler)
+	linkReconciler := NewLinkReconciler("link-reconciler",
+		s.reconcilerConfig, s.linkQueue, s.queue, s.dbService, s.cmdHandler)
 	go func(r *RouteReconciler) {
 		r.Run(ctx)
 	}(reconciler)
+	go func(r *LinkReconciler) {
+		r.Run(ctx)
+	}(linkReconciler)
 	s.reconcilerThread = reconciler
+	s.linkThread = linkReconciler
 	return nil
 }
 
 func (s *RouteService) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.linkQueue.ShutDownWithDrain()
 	s.queue.ShutDownWithDrain()
 }
 
@@ -84,31 +99,29 @@ func (s *RouteService) AddRoute(ctx context.Context, route Route) (string, error
 		return "", fmt.Errorf("source node ID cannot be empty")
 	}
 
-	// validate that either DestNodeID or DestEndpoint and ConnConfigData is set
 	if route.DestNodeID == "" {
-		if route.DestEndpoint == "" || route.ConnConfigData == "" {
-			return "", fmt.Errorf("either destNodeID or both destEndpoint and connConfigData must be set")
-		}
-	} else {
-		// source node ID and dest node ID cannot be the same
-		if route.SourceNodeID == route.DestNodeID {
-			return "", fmt.Errorf("destination node ID cannot be the same as source node ID")
-		}
+		return "", fmt.Errorf("destination node ID cannot be empty")
+	}
+
+	// source node ID and dest node ID cannot be the same
+	if route.SourceNodeID == route.DestNodeID {
+		return "", fmt.Errorf("destination node ID cannot be the same as source node ID")
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	dbRoute := db.Route{
-		SourceNodeID:   route.SourceNodeID,
-		DestNodeID:     route.DestNodeID,
-		DestEndpoint:   route.DestEndpoint,
-		Component0:     route.Component0,
-		Component1:     route.Component1,
-		Component2:     route.Component2,
-		ComponentID:    route.ComponentID,
-		ConnConfigData: route.ConnConfigData,
-		Deleted:        false,
+		SourceNodeID: route.SourceNodeID,
+		DestNodeID:   route.DestNodeID,
+		Component0:   route.Component0,
+		Component1:   route.Component1,
+		Component2:   route.Component2,
+		ComponentID:  route.ComponentID,
+		Deleted:      false,
+	}
+	if route.SourceNodeID != AllNodesID {
+		dbRoute.Status = db.RouteStatusPending
 	}
 	routeID, err := s.addSingleRoute(ctx, dbRoute)
 	if err != nil {
@@ -124,15 +137,14 @@ func (s *RouteService) AddRoute(ctx context.Context, route Route) (string, error
 				continue
 			}
 			newRoute := db.Route{
-				SourceNodeID:   n.ID,
-				DestNodeID:     route.DestNodeID,
-				DestEndpoint:   route.DestEndpoint,
-				Component0:     route.Component0,
-				Component1:     route.Component1,
-				Component2:     route.Component2,
-				ComponentID:    route.ComponentID,
-				ConnConfigData: route.ConnConfigData,
-				Deleted:        false,
+				SourceNodeID: n.ID,
+				DestNodeID:   route.DestNodeID,
+				Component0:   route.Component0,
+				Component1:   route.Component1,
+				Component2:   route.Component2,
+				ComponentID:  route.ComponentID,
+				Status:       db.RouteStatusPending,
+				Deleted:      false,
 			}
 			_, err2 := s.addSingleRoute(ctx, newRoute)
 			if err2 != nil {
@@ -146,17 +158,34 @@ func (s *RouteService) AddRoute(ctx context.Context, route Route) (string, error
 
 func (s *RouteService) addSingleRoute(ctx context.Context, dbRoute db.Route) (string, error) {
 	if dbRoute.SourceNodeID != AllNodesID {
-		endpoint, configData, err := s.getConnectionDetails(ctx, dbRoute)
+		linkID, err := s.findMatchingLinkForRoute(dbRoute)
 		if err != nil {
-			return "", fmt.Errorf("failed to set connection details for route: %w", err)
+			return "", fmt.Errorf("failed to find matching link for route: %w", err)
 		}
-		dbRoute.DestEndpoint = endpoint
-		dbRoute.ConnConfigData = configData
+		dbRoute.LinkID = linkID
 	}
 
 	route, err := s.dbService.AddRoute(dbRoute)
 	if err != nil {
-		return "", fmt.Errorf("failed to add route to database: %w", err)
+		// If the route already exists, check whether the existing record is a
+		// stale deleted route (e.g. left behind by a failed deletion).  If so,
+		// remove it and re-add the new route so the subscription can proceed.
+		existingRoute := s.dbService.GetRouteByID(dbRoute.GetUniqueID())
+		if existingRoute != nil && existingRoute.Deleted {
+			zerolog.Ctx(ctx).Warn().
+				Str("existing_route", existingRoute.String()).
+				Str("status_msg", existingRoute.StatusMsg).
+				Msg("Removing stale deleted route to allow re-add")
+			if delErr := s.dbService.DeleteRoute(existingRoute.ID); delErr != nil {
+				return "", fmt.Errorf("failed to remove stale route before re-add: %w", delErr)
+			}
+			route, err = s.dbService.AddRoute(dbRoute)
+			if err != nil {
+				return "", fmt.Errorf("failed to add route after removing stale record: %w", err)
+			}
+		} else {
+			return "", fmt.Errorf("failed to add route to database: %w", err)
+		}
 	}
 	zerolog.Ctx(ctx).Info().Msgf("Route added: %s", route)
 	if dbRoute.SourceNodeID != AllNodesID {
@@ -165,21 +194,90 @@ func (s *RouteService) addSingleRoute(ctx context.Context, dbRoute db.Route) (st
 	return route.String(), nil
 }
 
+// RequeueRouteForSourceNode looks up routes where nodeID is the source for
+// the given subscription name and triggers reconciliation so the subscriptions
+// are re-pushed to the node's dataplane.  This is needed when a node reports
+// that subscriptions have been lost (e.g. after an internal connection drop)
+// but the control plane still considers the routes "applied".
+//
+// Because the subscription loss usually means the underlying link connection
+// was also lost on the dataplane, we reset the link back to pending so the
+// link reconciler re-establishes the connection before routes are re-pushed.
+func (s *RouteService) RequeueRouteForSourceNode(ctx context.Context, nodeID string, route Route) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	zlog := zerolog.Ctx(ctx)
+
+	// Try to find the route where this node is the source (not the dest).
+	dbRoute, err := s.dbService.GetRouteForSrcAndDestinationAndName(
+		nodeID, route.Component0, route.Component1, route.Component2,
+		route.ComponentID, "", "")
+	if err != nil {
+		// No matching route found — nothing to re-queue.
+		return
+	}
+
+	zlog.Info().
+		Str("node_id", nodeID).
+		Str("component0", route.Component0).
+		Str("component1", route.Component1).
+		Str("component2", route.Component2).
+		Msg("Re-queueing route reconciliation for source node after subscription loss report")
+
+	// Reset the link to pending so the link reconciler re-pushes the
+	// connection to the dataplane.  Without this the route reconciler will
+	// keep failing with "Connection with link_id ... not found" because the
+	// dataplane lost the connection even though the CP still marks the link
+	// as applied.
+	if dbRoute.LinkID != "" {
+		link, lerr := s.dbService.GetLink(dbRoute.LinkID, dbRoute.SourceNodeID, dbRoute.DestNodeID)
+		if lerr == nil && link != nil && !link.Deleted && link.Status == db.LinkStatusApplied {
+			link.Status = db.LinkStatusPending
+			link.StatusMsg = "reset after subscription loss on consumer node"
+			if uerr := s.dbService.UpdateLink(*link); uerr != nil {
+				zlog.Error().Err(uerr).
+					Str("link_id", link.LinkID).
+					Msg("Failed to reset link to pending after subscription loss")
+			} else {
+				zlog.Info().
+					Str("link_id", link.LinkID).
+					Str("source_node_id", link.SourceNodeID).
+					Str("dest_node_id", link.DestNodeID).
+					Msg("Link reset to pending after subscription loss; enqueueing link reconciliation")
+				s.linkQueue.Add(LinkReconcileRequest{NodeID: link.SourceNodeID})
+			}
+		}
+	}
+
+	s.queue.Add(RouteReconcileRequest{NodeID: nodeID})
+}
+
+func (s *RouteService) findMatchingLinkForRoute(dbRoute db.Route) (string, error) {
+	link, err := s.dbService.FindLinkBetweenNodes(dbRoute.SourceNodeID, dbRoute.DestNodeID)
+	if err != nil {
+		return "", err
+	}
+	if link != nil && !link.Deleted {
+		return link.LinkID, nil
+	}
+	return "", fmt.Errorf("no matching link found for source=%s destination=%s",
+		dbRoute.SourceNodeID, dbRoute.DestNodeID)
+}
+
 func (s *RouteService) DeleteRoute(ctx context.Context, route Route) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// validate that either DestNodeID or DestEndpoint is set
+	// validate that destination node is set
 	if route.DestNodeID == "" {
-		if route.DestEndpoint == "" {
-			return fmt.Errorf("either destNodeID or both destEndpoint must be set")
-		}
+		return fmt.Errorf("destNodeID must be set")
 	}
 
 	// delete routes for all existing nodes if the route is for all nodes
 	if route.SourceNodeID == AllNodesID {
 		dbRoute, err := s.dbService.GetRouteForSrcAndDestinationAndName(route.SourceNodeID, route.Component0,
-			route.Component1, route.Component2, route.ComponentID, route.DestNodeID, route.DestEndpoint)
+			route.Component1, route.Component2, route.ComponentID, route.DestNodeID, route.LinkID)
 		if err != nil {
 			return fmt.Errorf("failed to fetch route for delete (%w)", err)
 		}
@@ -200,8 +298,20 @@ func (s *RouteService) DeleteRoute(ctx context.Context, route Route) error {
 		return nil
 	}
 
+	if route.LinkID == "" {
+		matchRoute := db.Route{
+			SourceNodeID: route.SourceNodeID,
+			DestNodeID:   route.DestNodeID,
+		}
+		linkID, err := s.findMatchingLinkForRoute(matchRoute)
+		if err != nil {
+			return fmt.Errorf("failed to find matching link for route delete: %w", err)
+		}
+		route.LinkID = linkID
+	}
+
 	dbRoute, err := s.dbService.GetRouteForSrcAndDestinationAndName(route.SourceNodeID, route.Component0,
-		route.Component1, route.Component2, route.ComponentID, route.DestNodeID, route.DestEndpoint)
+		route.Component1, route.Component2, route.ComponentID, route.DestNodeID, route.LinkID)
 	if err != nil {
 		return fmt.Errorf("failed to fetch route for delete (%w)", err)
 	}
@@ -230,126 +340,314 @@ func (s *RouteService) NodeRegistered(ctx context.Context, nodeID string, connDe
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	zlog := zerolog.Ctx(ctx).With().Str("service", "RouteService").Str("node_id", nodeID).Logger()
-	zlog.Info().Msgf("Create generic routes for node")
+	reconcileLinkForNodes := map[string]struct{}{}
+	if connDetailsUpdated {
+		for _, nid := range s.reconnectExistingLinks(ctx, nodeID) {
+			reconcileLinkForNodes[nid] = struct{}{}
+		}
+	}
+	for _, nid := range s.ensureLinksForNode(ctx, nodeID) {
+		reconcileLinkForNodes[nid] = struct{}{}
+	}
+	s.ensureRoutesForNode(ctx, nodeID)
+	// we need to send links for current node after registration
+	reconcileLinkForNodes[nodeID] = struct{}{}
+	for nid := range reconcileLinkForNodes {
+		s.linkQueue.Add(LinkReconcileRequest{NodeID: nid})
+	}
 
-	// create generic routes for the newly registered node
+}
+
+func (s *RouteService) reconnectExistingLinks(ctx context.Context, nodeID string) []string {
+	zlog := zerolog.Ctx(ctx).With().Str("service", "RouteService").Str("node_id", nodeID).Logger()
+	affected := map[string]struct{}{nodeID: {}}
+	for _, link := range s.dbService.GetLinksForNode(nodeID) {
+		// we only need to recreate links that are connecting to nodeID
+		if link.Deleted || link.DestNodeID != nodeID {
+			continue
+		}
+
+		endpoint, configData, err := s.getConnectionDetails(ctx, db.Route{
+			SourceNodeID: link.SourceNodeID,
+			DestNodeID:   link.DestNodeID,
+		})
+		if err != nil {
+			zlog.Error().
+				Err(err).
+				Str("old_link_id", link.LinkID).
+				Str("source_node_id", link.SourceNodeID).
+				Str("dest_node_id", link.DestNodeID).
+				Msg("failed to compute replacement connection details")
+			continue
+		}
+
+		replacement, err := s.dbService.AddLink(db.Link{
+			LinkID:         uuid.NewString(),
+			SourceNodeID:   link.SourceNodeID,
+			DestNodeID:     link.DestNodeID,
+			DestEndpoint:   endpoint,
+			ConnConfigData: configData,
+			Status:         db.LinkStatusPending,
+			Deleted:        false,
+		})
+		if err != nil {
+			zlog.Error().
+				Err(err).
+				Str("old_link_id", link.LinkID).
+				Str("source_node_id", link.SourceNodeID).
+				Str("dest_node_id", link.DestNodeID).
+				Msg("failed to create replacement link")
+			continue
+		}
+
+		zlog.Info().
+			Str("old_link_id", link.LinkID).
+			Str("new_link_id", replacement.LinkID).
+			Str("source_node_id", link.SourceNodeID).
+			Str("dest_node_id", link.DestNodeID).
+			Str("dest_endpoint", endpoint).
+			Msg("Replacement link created")
+		affected[replacement.SourceNodeID] = struct{}{}
+
+		for _, r := range s.dbService.GetRoutesByLinkID(link.LinkID) {
+			if err := s.dbService.RepointRoute(
+				r.ID,
+				replacement.LinkID,
+				db.RouteStatusPending,
+				"waiting for replacement link apply",
+			); err != nil {
+				zlog.Error().
+					Err(err).
+					Str("route", r.String()).
+					Str("old_link_id", link.LinkID).
+					Str("new_link_id", replacement.LinkID).
+					Msg("failed to repoint dependent route to replacement link")
+				continue
+			}
+			zlog.Info().
+				Uint64("route_id", r.ID).
+				Str("source_node_id", r.SourceNodeID).
+				Str("old_link_id", link.LinkID).
+				Str("new_link_id", replacement.LinkID).
+				Msg("Dependent route moved to replacement link and marked pending")
+			affected[r.SourceNodeID] = struct{}{}
+		}
+
+		link.Deleted = true
+		link.StatusMsg = "marked deleted after replacement link creation"
+		if err := s.dbService.UpdateLink(link); err != nil {
+			zlog.Error().Err(err).Msgf("failed to mark old link %s deleted", link.LinkID)
+			continue
+		}
+		zlog.Info().
+			Str("link_id", link.LinkID).
+			Str("replacement_link_id", replacement.LinkID).
+			Str("source_node_id", link.SourceNodeID).
+			Str("dest_node_id", link.DestNodeID).
+			Str("reason", link.StatusMsg).
+			Msg("Old link marked for delete")
+	}
+	out := make([]string, 0, len(affected))
+	for nid := range affected {
+		out = append(out, nid)
+	}
+	return out
+}
+
+func (s *RouteService) ensureLinksForNode(ctx context.Context, nodeID string) []string {
+	zlog := zerolog.Ctx(ctx).With().Str("service", "RouteService").Str("node_id", nodeID).Logger()
+	srcNode, err := s.dbService.GetNode(nodeID)
+	if err != nil {
+		zlog.Error().Err(err).Msg("failed to load registered node")
+		return []string{nodeID}
+	}
+	affected := map[string]struct{}{nodeID: {}}
+	for _, other := range s.dbService.ListNodes() {
+		if other.ID == nodeID {
+			continue
+		}
+
+		if existing, err := s.dbService.FindLinkBetweenNodes(nodeID, other.ID); err == nil &&
+			existing != nil && !existing.Deleted {
+			zerolog.Ctx(ctx).Info().
+				Str("link", existing.String()).
+				Msg("Link already exists, skipping creation")
+			continue
+		}
+
+		sameGroup := (srcNode.GroupName == nil && other.GroupName == nil) ||
+			(srcNode.GroupName != nil && other.GroupName != nil && *srcNode.GroupName == *other.GroupName)
+		// make direct link in case of same group, which means direct connectivity between nodes
+		if sameGroup {
+			if createdSource, ok := s.ensureDirectLink(ctx, nodeID, other.ID); ok {
+				affected[createdSource] = struct{}{}
+			}
+			continue
+		}
+		// make link to external endpoint if destination node has external endpoint
+		hasDstExternal := false
+		for _, d := range other.ConnDetails {
+			if d.ExternalEndpoint != nil && *d.ExternalEndpoint != "" {
+				hasDstExternal = true
+				break
+			}
+		}
+		if hasDstExternal {
+			if createdSource, ok := s.ensureGroupLink(ctx, nodeID, other.ID); ok {
+				affected[createdSource] = struct{}{}
+			}
+			continue
+		}
+
+		// make reverse link to src node external endpoint if source node has external endpoint
+		hasSrcExternal := false
+		for _, d := range srcNode.ConnDetails {
+			if d.ExternalEndpoint != nil && *d.ExternalEndpoint != "" {
+				hasSrcExternal = true
+				break
+			}
+		}
+		if hasSrcExternal {
+			if createdSource, ok := s.ensureGroupLink(ctx, other.ID, nodeID); ok {
+				affected[createdSource] = struct{}{}
+			}
+			continue
+		}
+
+		zlog.Error().Msgf("cannot create link between %s and %s: no external endpoint available", nodeID, other.ID)
+	}
+	out := make([]string, 0, len(affected))
+	for nid := range affected {
+		out = append(out, nid)
+	}
+	return out
+}
+
+func (s *RouteService) ensureDirectLink(ctx context.Context, sourceNodeID string, destNodeID string) (string, bool) {
+	tmpRoute := db.Route{SourceNodeID: sourceNodeID, DestNodeID: destNodeID}
+	endpoint, configData, err := s.getConnectionDetails(ctx, tmpRoute)
+	if err != nil {
+		zerolog.Ctx(ctx).Error().Err(err).Msgf("failed to compute link connection details for %s -> %s",
+			sourceNodeID, destNodeID)
+		return sourceNodeID, false
+	}
+	linkID := uuid.NewString()
+	_, err = s.dbService.AddLink(db.Link{
+		LinkID:         linkID,
+		SourceNodeID:   sourceNodeID,
+		DestNodeID:     destNodeID,
+		DestEndpoint:   endpoint,
+		ConnConfigData: configData,
+		Status:         db.LinkStatusPending,
+		Deleted:        false,
+	})
+	if err != nil {
+		zerolog.Ctx(ctx).Error().Err(err).Msgf("failed to add link %s -> %s", sourceNodeID, destNodeID)
+		return sourceNodeID, false
+	}
+	zerolog.Ctx(ctx).Info().
+		Str("link_id", linkID).
+		Str("source_node_id", sourceNodeID).
+		Str("dest_node_id", destNodeID).
+		Str("dest_endpoint", endpoint).
+		Msg("Link created")
+	return sourceNodeID, true
+}
+
+func (s *RouteService) ensureGroupLink(ctx context.Context, sourceNodeID string, destNodeID string) (string, bool) {
+	tmpRoute := db.Route{SourceNodeID: sourceNodeID, DestNodeID: destNodeID}
+	endpoint, configData, err := s.getConnectionDetails(ctx, tmpRoute)
+	if err != nil {
+		zerolog.Ctx(ctx).Error().Err(err).Msgf("failed to compute link connection details for %s -> %s",
+			sourceNodeID, destNodeID)
+		return sourceNodeID, false
+	}
+	// Avoid duplicate links to the same destination group and endpoint
+	// by reusing an existing link when available.
+	reused, err := s.dbService.GetLinkForSourceAndEndpoint(sourceNodeID, endpoint)
+	if err != nil {
+		zerolog.Ctx(ctx).Error().Err(err).Msgf("failed to find reusable link for %s endpoint=%s", sourceNodeID, endpoint)
+		return sourceNodeID, false
+	}
+	linkID := uuid.NewString()
+	if reused != nil {
+		linkID = reused.LinkID
+	}
+	_, err = s.dbService.AddLink(db.Link{
+		LinkID:         linkID,
+		SourceNodeID:   sourceNodeID,
+		DestNodeID:     destNodeID,
+		DestEndpoint:   endpoint,
+		ConnConfigData: configData,
+		Status:         db.LinkStatusPending,
+		Deleted:        false,
+	})
+	if err != nil {
+		zerolog.Ctx(ctx).Error().Err(err).Msgf("failed to add link %s -> %s", sourceNodeID, destNodeID)
+		return sourceNodeID, false
+	}
+	zerolog.Ctx(ctx).Info().
+		Str("link_id", linkID).
+		Str("source_node_id", sourceNodeID).
+		Str("dest_node_id", destNodeID).
+		Str("dest_endpoint", endpoint).
+		Msg("Link created")
+	return sourceNodeID, true
+}
+
+func (s *RouteService) ensureRoutesForNode(ctx context.Context, nodeID string) {
+	zlog := zerolog.Ctx(ctx).With().Str("service", "RouteService").Str("node_id", nodeID).Logger()
 	genericRoutes := s.dbService.GetRoutesForNodeID(AllNodesID)
 	for _, r := range genericRoutes {
 		if r.DestNodeID == nodeID {
-			// skip inserting route for the destination node itself
 			continue
 		}
+		_, err := s.dbService.GetRouteForSrcAndDestinationAndName(
+			nodeID,
+			r.Component0,
+			r.Component1,
+			r.Component2,
+			r.ComponentID,
+			r.DestNodeID,
+			"",
+		)
+		if err == nil {
+			zlog.Debug().Msgf("generic route already expanded for node %s/%s/%s/%s",
+				nodeID, r.Component0, r.Component1, r.Component2)
+			continue
+		}
+		if !isRouteNotFoundErr(err) {
+			zlog.Error().Err(err).Msgf("failed to check if generic route exists for node %s/%s/%s/%s",
+				nodeID, r.Component0, r.Component1, r.Component2)
+			continue
+		}
+
 		newRoute := db.Route{
-			SourceNodeID:   nodeID,
-			DestNodeID:     r.DestNodeID,
-			Component0:     r.Component0,
-			Component1:     r.Component1,
-			Component2:     r.Component2,
-			ComponentID:    r.ComponentID,
-			ConnConfigData: r.ConnConfigData,
-			Deleted:        false,
+			SourceNodeID: nodeID,
+			DestNodeID:   r.DestNodeID,
+			Component0:   r.Component0,
+			Component1:   r.Component1,
+			Component2:   r.Component2,
+			ComponentID:  r.ComponentID,
+			Status:       db.RouteStatusPending,
+			Deleted:      false,
 		}
-
-		endpoint, configData, err := s.getConnectionDetails(ctx, newRoute)
+		linkID, err := s.findMatchingLinkForRoute(newRoute)
 		if err != nil {
-			zlog.Error().Err(err).Msgf("Failed to get connection details for route: %s", newRoute)
+			zlog.Error().Err(err).Msgf("failed to find matching link for generic route %s", newRoute)
+			continue
 		}
-		newRoute.DestEndpoint = endpoint
-		newRoute.ConnConfigData = configData
-		route, rerr := s.dbService.AddRoute(newRoute)
-		if rerr != nil {
-			zlog.Error().Err(rerr).Msgf("Failed to create generic route: %s", newRoute)
+		newRoute.LinkID = linkID
+		if _, err := s.dbService.AddRoute(newRoute); err != nil {
+			zlog.Debug().Err(err).Msgf("generic route already exists or cannot be added: %s", newRoute)
 		} else {
-			zlog.Debug().Msgf("generic route created: %s", route)
+			zlog.Info().Msgf("generic route created: %s", newRoute)
 		}
 	}
+}
 
-	if connDetailsUpdated {
-		// if connection details were updated, we also need to check routes for other nodes
-		// which might be affected by the new node connection details
-		zlog.Info().Msgf("Connection details changed, checking routes with DestinationNodeID: %s", nodeID)
-		routesToBeChecked := s.dbService.GetRoutesForDestinationNodeID(nodeID)
-		for _, r := range routesToBeChecked {
-
-			// get new conn details and compare with existing ones, if they differ, mark existing as deleted
-			// and create a new route and reconcile
-			endpoint, configData, err := s.getConnectionDetails(ctx, r)
-			if err != nil {
-				zlog.Error().Msgf("failed to get connection details for route %s: %v", r, err)
-				continue
-			}
-			if r.DestEndpoint != endpoint || r.ConnConfigData != configData {
-				zerolog.Ctx(ctx).Info().Msgf("Mark route for delete: %s", r)
-				err := s.dbService.MarkRouteAsDeleted(r.ID)
-				if err != nil {
-					zlog.Error().Msgf("failed to mark route %s as deleted: %v", r, err)
-					continue
-				}
-				newRoute := db.Route{
-					SourceNodeID:   r.SourceNodeID,
-					DestNodeID:     r.DestNodeID,
-					DestEndpoint:   endpoint,
-					ConnConfigData: configData,
-					Component0:     r.Component0,
-					Component1:     r.Component1,
-					Component2:     r.Component2,
-					ComponentID:    r.ComponentID,
-					Deleted:        false,
-				}
-				newRoute, err = s.dbService.AddRoute(newRoute)
-				if err != nil {
-					zerolog.Ctx(ctx).Error().Msgf("Failed to add route to database: %s", newRoute)
-					continue
-				}
-				zerolog.Ctx(ctx).Info().Msgf("New route added: %s", newRoute)
-
-				s.queue.Add(RouteReconcileRequest{NodeID: r.SourceNodeID})
-			}
-		}
-
-		zlog.Info().Msgf("Connection details changed, checking routes with SourceNodeID: %s", nodeID)
-		routesToBeChecked = s.dbService.GetRoutesForNodeID(nodeID)
-		for _, r := range routesToBeChecked {
-
-			// get new conn details and compare with existing ones, if they differ, mark existing as deleted
-			// and create a new route and reconcile
-			endpoint, configData, err := s.getConnectionDetails(ctx, r)
-			if err != nil {
-				zlog.Error().Msgf("failed to get connection details for route %s: %v", r, err)
-				continue
-			}
-			if r.DestEndpoint != endpoint || r.ConnConfigData != configData {
-				err := s.dbService.MarkRouteAsDeleted(r.ID)
-				if err != nil {
-					zlog.Error().Msgf("failed to mark route %s as deleted: %v", r, err)
-					continue
-				}
-				newRoute := db.Route{
-					SourceNodeID:   r.SourceNodeID,
-					DestNodeID:     r.DestNodeID,
-					DestEndpoint:   endpoint,
-					ConnConfigData: configData,
-					Component0:     r.Component0,
-					Component1:     r.Component1,
-					Component2:     r.Component2,
-					ComponentID:    r.ComponentID,
-					Deleted:        false,
-				}
-				route, err := s.dbService.AddRoute(newRoute)
-				if err != nil {
-					zlog.Error().Msgf("failed to add new route %s: %v", newRoute, err)
-					continue
-				}
-				zerolog.Ctx(ctx).Info().Msgf("Route changed: %s", route)
-			}
-
-		}
-	}
-
-	// reconcile generic routes for the newly registered node
-	s.queue.Add(RouteReconcileRequest{NodeID: nodeID})
-
+func isRouteNotFoundErr(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "route not found")
 }
 
 func (s *RouteService) ListSubscriptions(
@@ -398,7 +696,6 @@ func (s *RouteService) ListConnections(
 	ctx context.Context,
 	nodeEntry *controlplaneApi.NodeEntry,
 ) (*controllerapi.ConnectionListResponse, error) {
-	zlog := zerolog.Ctx(ctx)
 	messageID := uuid.NewString()
 	msg := &controllerapi.ControlMessage{
 		MessageId: messageID,
@@ -414,9 +711,6 @@ func (s *RouteService) ListConnections(
 		return nil, fmt.Errorf("failed to receive ConnectionListResponse: %w", err)
 	}
 	if listResp := response.GetConnectionListResponse(); listResp != nil {
-		for _, e := range listResp.Entries {
-			zlog.Debug().Msgf("id=%d %s\n", e.GetId(), e.GetConfigData())
-		}
 		return listResp, nil
 	}
 	// If we reach here, it means we didn't find a ConnectionListResponse
@@ -426,7 +720,7 @@ func (s *RouteService) ListConnections(
 func (s *RouteService) getConnectionDetails(ctx context.Context,
 	route db.Route) (endpoint string, configData string, err error) {
 	if route.DestNodeID == "" {
-		return route.DestEndpoint, route.ConnConfigData, nil
+		return "", "", fmt.Errorf("destination node ID cannot be empty")
 	}
 
 	destNode, err := s.dbService.GetNode(route.DestNodeID)
@@ -472,8 +766,10 @@ func selectConnection(dstNode *db.Node, srcNode *db.Node) (db.ConnectionDetails,
 
 func getSrcNodeSpireSocketPath(srcNode *db.Node) *string {
 	for _, conn := range srcNode.ConnDetails {
-		if conn.TLSConfig != nil && conn.TLSConfig.Source != nil && conn.TLSConfig.Source.SocketPath != nil {
-			return conn.TLSConfig.Source.SocketPath
+		if conn.ClientConfig.TLS != nil &&
+			conn.ClientConfig.TLS.Source != nil &&
+			conn.ClientConfig.TLS.Source.SocketPath != nil {
+			return conn.ClientConfig.TLS.Source.SocketPath
 		}
 	}
 	return nil
@@ -485,9 +781,18 @@ func generateConfigData(ctx context.Context, detail db.ConnectionDetails, localC
 	truev := true
 	falsev := false
 	skipVerify := false
-	config := db.ClientConnectionConfig{
-		Endpoint: detail.Endpoint,
+	config := detail.ClientConfig
+
+	if config.Backoff == nil {
+		config.Backoff = &db.BackoffConfig{
+			Type: "fixed_interval",
+			FixedIntervalBackoffConfig: &db.FixedIntervalBackoffConfig{
+				Interval: "2000ms",
+			},
+		}
 	}
+
+	config.Endpoint = detail.Endpoint
 	if !localConnection {
 		if detail.ExternalEndpoint == nil || *detail.ExternalEndpoint == "" {
 			return "", "", fmt.Errorf("no external endpoint defined for connection %v", detail)
@@ -496,10 +801,13 @@ func generateConfigData(ctx context.Context, detail db.ConnectionDetails, localC
 	} else {
 		skipVerify = true // skip verification for local connections
 	}
-	if !detail.MTLSRequired {
+	switch {
+	case config.TLS != nil:
+		config.Endpoint = "https://" + config.Endpoint
+	case !detail.MTLSRequired:
 		config.Endpoint = "http://" + config.Endpoint
 		config.TLS = &db.TLS{Insecure: &truev}
-	} else {
+	default:
 		// Socket path for SPIRE should be set in the source node's connection details
 		srcNodeSpireSocketPath := getSrcNodeSpireSocketPath(srcNode)
 		if srcNodeSpireSocketPath == nil {
@@ -528,24 +836,18 @@ func generateConfigData(ctx context.Context, detail db.ConnectionDetails, localC
 			zlog.Debug().Msgf("Trust domain set to: %s", *destNode.GroupName)
 		}
 	}
-	var bufferSize int64 = 1024
-	config.BufferSize = &bufferSize
-	gzip := db.Gzip
-	config.Compression = &gzip
-	config.ConnectTimeout = stringPtr("10s")
-	config.Headers = map[string]string{
-		"x-custom-header": "value",
+	if config.Headers == nil {
+		config.Headers = map[string]string{}
 	}
 
-	config.Keepalive = &db.KeepaliveClass{
-		HTTP2Keepalive:     stringPtr("2h"),
-		KeepAliveWhileIdle: &falsev,
-		TCPKeepalive:       stringPtr("20s"),
-		Timeout:            stringPtr("20s"),
+	if config.Keepalive == nil {
+		config.Keepalive = &db.KeepaliveClass{
+			HTTP2Keepalive:     stringPtr("20s"),
+			KeepAliveWhileIdle: &falsev,
+			TCPKeepalive:       stringPtr("20s"),
+			Timeout:            stringPtr("20s"),
+		}
 	}
-	config.Origin = stringPtr("https://client.example.com")
-	config.RateLimit = stringPtr("20/60")
-	config.RequestTimeout = stringPtr("30s")
 
 	// render struct as json
 	var buf bytes.Buffer
@@ -588,17 +890,16 @@ func (s *RouteService) ListRoutes(_ context.Context,
 	routeEntries := make([]*controlplaneApi.RouteEntry, 0, len(allRoutes))
 	for _, r := range allRoutes {
 		entry := &controlplaneApi.RouteEntry{
-			Id:             r.ID,
-			SourceNodeId:   r.SourceNodeID,
-			DestNodeId:     r.DestNodeID,
-			DestEndpoint:   r.DestEndpoint,
-			ConnConfigData: r.ConnConfigData,
-			Component_0:    r.Component0,
-			Component_1:    r.Component1,
-			Component_2:    r.Component2,
-			StatusMsg:      r.StatusMsg,
-			Deleted:        r.Deleted,
-			LastUpdated:    r.LastUpdated.Unix(),
+			Id:           r.ID,
+			SourceNodeId: r.SourceNodeID,
+			DestNodeId:   r.DestNodeID,
+			LinkId:       r.LinkID,
+			Component_0:  r.Component0,
+			Component_1:  r.Component1,
+			Component_2:  r.Component2,
+			StatusMsg:    r.StatusMsg,
+			Deleted:      r.Deleted,
+			LastUpdated:  r.LastUpdated.Unix(),
 		}
 
 		// Set component_id if present
@@ -612,6 +913,8 @@ func (s *RouteService) ListRoutes(_ context.Context,
 			entry.Status = controlplaneApi.RouteStatus_ROUTE_STATUS_APPLIED
 		case db.RouteStatusFailed:
 			entry.Status = controlplaneApi.RouteStatus_ROUTE_STATUS_FAILED
+		case db.RouteStatusPending:
+			entry.Status = controlplaneApi.RouteStatus_ROUTE_STATUS_PENDING
 		default:
 			entry.Status = controlplaneApi.RouteStatus_ROUTE_STATUS_UNSPECIFIED
 		}
@@ -623,4 +926,71 @@ func (s *RouteService) ListRoutes(_ context.Context,
 		Routes: routeEntries,
 	}, nil
 
+}
+
+func (s *RouteService) ListLinks(_ context.Context,
+	request *controlplaneApi.LinkListRequest) (*controlplaneApi.LinkListResponse, error) {
+	allNodes := s.dbService.ListNodes()
+	srcFilter := request.GetSrcNodeId()
+	destFilter := request.GetDestNodeId()
+
+	linkEntries := make([]*controlplaneApi.LinkEntry, 0)
+	seen := make(map[string]struct{})
+
+	for _, node := range allNodes {
+		links := s.dbService.GetLinksForNode(node.ID)
+		for _, l := range links {
+			if srcFilter != "" && l.SourceNodeID != srcFilter {
+				continue
+			}
+			if destFilter != "" && l.DestNodeID != destFilter {
+				continue
+			}
+
+			// A link can be returned while iterating both source and destination nodes.
+			// De-duplicate by the same key shape used by in-memory storage.
+			id := fmt.Sprintf("%s|%s|%s|%s", l.SourceNodeID, l.DestNodeID, l.DestEndpoint, l.LinkID)
+			if _, exists := seen[id]; exists {
+				continue
+			}
+			seen[id] = struct{}{}
+
+			entry := &controlplaneApi.LinkEntry{
+				Id:             id,
+				LinkId:         l.LinkID,
+				SourceNodeId:   l.SourceNodeID,
+				DestNodeId:     l.DestNodeID,
+				DestEndpoint:   l.DestEndpoint,
+				ConnConfigData: l.ConnConfigData,
+				StatusMsg:      l.StatusMsg,
+				Deleted:        l.Deleted,
+				LastUpdated:    l.LastUpdated.Unix(),
+			}
+
+			switch l.Status {
+			case db.LinkStatusApplied:
+				entry.Status = controlplaneApi.LinkStatus_LINK_STATUS_APPLIED
+			case db.LinkStatusFailed:
+				entry.Status = controlplaneApi.LinkStatus_LINK_STATUS_FAILED
+			case db.LinkStatusPending:
+				entry.Status = controlplaneApi.LinkStatus_LINK_STATUS_PENDING
+			default:
+				entry.Status = controlplaneApi.LinkStatus_LINK_STATUS_UNSPECIFIED
+			}
+
+			linkEntries = append(linkEntries, entry)
+		}
+	}
+
+	sort.Slice(linkEntries, func(i, j int) bool {
+		if linkEntries[i].SourceNodeId != linkEntries[j].SourceNodeId {
+			return linkEntries[i].SourceNodeId < linkEntries[j].SourceNodeId
+		}
+		if linkEntries[i].DestNodeId != linkEntries[j].DestNodeId {
+			return linkEntries[i].DestNodeId < linkEntries[j].DestNodeId
+		}
+		return linkEntries[i].LinkId < linkEntries[j].LinkId
+	})
+
+	return &controlplaneApi.LinkListResponse{Links: linkEntries}, nil
 }

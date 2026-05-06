@@ -267,8 +267,9 @@ where
                             future: self.inner.call(req),
                         }
                     }
-                    Err(_) => {
+                    Err(e) => {
                         // Verification failed, need to use async verification
+                        tracing::warn!(error = %e, "ValidateJwt: sync try_get_claims failed, trying async");
                         let verifier = self.verifier.clone();
                         let clone = self.inner.clone();
                         let inner = std::mem::replace(&mut self.inner, clone);
@@ -277,7 +278,11 @@ where
                             request: req,
                             verifier_future: Box::pin(async move {
                                 // Perform the verification asynchronously
-                                verifier.get_claims::<Claim>(&bearer_token).await
+                                let result = verifier.get_claims::<Claim>(&bearer_token).await;
+                                if let Err(ref e) = result {
+                                    tracing::warn!(error = %e, "ValidateJwt: async get_claims also failed");
+                                }
+                                result
                             }),
                             service: inner,
                             _phantom: self._phantom,
@@ -285,7 +290,10 @@ where
                     }
                 }
             }
-            _ => Self::Future::Error,
+            _ => {
+                tracing::warn!("ValidateJwt: no Authorization Bearer header found in request");
+                Self::Future::Error
+            }
         }
     }
 }

@@ -5,6 +5,7 @@ Kotlin/JVM bindings for the SLIM data plane, generated using [UniFFI](https://mo
 ## Overview
 
 This package provides Kotlin bindings for SLIM, enabling secure messaging with:
+
 - **Point-to-point messaging**: Direct communication between two parties
 - **Group messaging**: Multi-party communication with MLS encryption support
 - **Identity management**: Support for shared secrets, JWT, and SPIRE authentication
@@ -15,7 +16,7 @@ This package provides Kotlin bindings for SLIM, enabling secure messaging with:
 - **JDK 17 or higher**
 - **Gradle 8.5+** (wrapper included)
 - **Rust toolchain** (for building native library)
-- **uniffi-bindgen** CLI tool (installed automatically via Taskfile)
+- **uniffi-bindgen-cli** CLI tool (installed automatically via Taskfile)
 - **Task** (for running build tasks) - Install from [taskfile.dev](https://taskfile.dev/)
 
 ## Project Structure
@@ -28,6 +29,7 @@ kotlin/
 ├── build.gradle.kts        # Gradle build configuration
 ├── settings.gradle.kts     # Gradle settings
 ├── gradle.properties       # Build properties
+├── detekt.yml              # Detekt linter rules (used by `task lint`)
 ├── examples/
 │   ├── common/             # Shared utilities
 │   │   ├── Config.kt       # Configuration data classes
@@ -39,6 +41,7 @@ kotlin/
 └── generated/              # UniFFI-generated code (gitignored)
     └── io/agntcy/slim/bindings/
         └── slim_bindings.kt
+
 ```
 
 ## Quick Start
@@ -52,8 +55,9 @@ task generate
 ```
 
 This will:
+
 1. Build the Rust `slim_bindings` library
-2. Run `uniffi-bindgen` with `uniffi.toml` config to generate Kotlin code in the `io.agntcy.slim.bindings` package
+2. Run `uniffi-bindgen-cli` with `uniffi.toml` config to generate Kotlin code in the `io.agntcy.slim.bindings` package
 3. Apply compatibility patches (exception message parameters, wait() method conflicts)
 4. Copy the native library to `generated/jniLibs/`
 
@@ -272,13 +276,16 @@ All examples support the following common arguments:
 - `--enable-opentelemetry` - Enable OpenTelemetry tracing
 
 **Point-to-Point specific:**
+
 - `--message <text>` - Message to send (activates sender mode)
 - `--iterations <n>` - Number of request/reply cycles (default: 10)
 
 **Group specific:**
+
 - `--invites <id>` - Invite participant (can be specified multiple times)
 
 **Server specific:**
+
 - `--slim, -s <address>` - Server address (host:port)
 
 ### Environment Variables
@@ -296,6 +303,7 @@ Configuration can also be provided via environment variables with the `SLIM_` pr
 The bindings support three authentication modes:
 
 1. **Shared Secret** (default, for development):
+
    ```kotlin
    val config = BaseConfig(
        local = "org/alice/app",
@@ -304,6 +312,7 @@ The bindings support three authentication modes:
    ```
 
 2. **JWT with JWKS**:
+
    ```kotlin
    val config = BaseConfig(
        local = "org/alice/app",
@@ -314,6 +323,7 @@ The bindings support three authentication modes:
    ```
 
 3. **SPIRE** (dynamic identity):
+
    ```kotlin
    val config = BaseConfig(
        local = "org/alice/app",
@@ -353,7 +363,7 @@ The project uses [Task](https://taskfile.dev/) for build automation:
 The Kotlin bindings are generated from the Rust `slim_bindings` crate using UniFFI:
 
 1. Rust code uses `#[uniffi::export]` macros to mark public APIs
-2. `uniffi-bindgen` reads the compiled library and generates Kotlin code
+2. `uniffi-bindgen-cli` reads the compiled library and generates Kotlin code
 3. Generated code uses JNA to call native functions
 4. Native library is packaged in `generated/jniLibs/` for runtime loading
 
@@ -402,6 +412,7 @@ try {
 - `examples/*.kt` - Example applications
 - `generated/` - UniFFI-generated Kotlin code (not in git)
 - `build.gradle.kts` - Gradle build configuration
+- `detekt.yml` — Static analysis rules (`task lint` in this directory)
 - `Taskfile.yaml` - Task automation
 
 ## License

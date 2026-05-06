@@ -10,7 +10,7 @@ import (
 )
 
 // TestInitializeCryptoProvider tests crypto initialization
-func TestInitializeCryptoProvider(t *testing.T) {
+func TestInitializeCryptoProvider(_ *testing.T) {
 	// Should not panic
 	slim.InitializeWithDefaults()
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0-rc.0](https://github.com/agntcy/slim/compare/helm-slim-control-plane-v1.0.0...helm-slim-control-plane-v1.4.0-rc.0) (2026-04-21)
+
+
+### Features
+
+* **control-plane-helm:** upgrade cp to 1.4.0-rc.0 ([#1534](https://github.com/agntcy/slim/issues/1534)) ([edbc15e](https://github.com/agntcy/slim/commit/edbc15e6f8a078c8cde473b7d101e5329042aab2))
+
 ## [1.0.0](https://github.com/agntcy/slim/compare/helm-slim-control-plane-v0.7.0...helm-slim-control-plane-v1.0.0) (2026-02-02)
 
 

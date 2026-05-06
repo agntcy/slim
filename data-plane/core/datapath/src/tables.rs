@@ -4,7 +4,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 pub mod connection_table;
 pub mod remote_subscription_table;
@@ -37,7 +37,13 @@ pub trait SubscriptionTable {
         subscription_id: u64,
     ) -> Result<(), Self::Error>;
 
-    fn remove_connection(&self, conn: u64, is_local: bool) -> Result<HashSet<Name>, Self::Error>;
+    /// Remove all subscriptions for `conn` and return a map of each name to its set of
+    /// subscription IDs, so that callers can restore the exact state later if needed.
+    fn remove_connection(
+        &self,
+        conn: u64,
+        is_local: bool,
+    ) -> Result<HashMap<Name, HashSet<u64>>, Self::Error>;
 
     fn match_one(&self, name: &Name, incoming_conn: u64) -> Result<u64, Self::Error>;
 

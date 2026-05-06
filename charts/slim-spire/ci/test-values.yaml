@@ -1,0 +1,21 @@
+# CI test values for slim-spire.
+# Disables components that require CRDs or external connectivity not available in the CI cluster.
+
+global:
+  spire:
+    clusterName: ci-cluster
+    trustDomain: ci.example.org
+    upstreamSpireAddress: spire.ci.example.org
+
+spire-server:
+  # Disable the controller manager to avoid rendering ClusterSPIFFEID resources,
+  # which require the SPIRE CRDs to be installed in the cluster.
+  controllerManager:
+    enabled: false
+  # No upstream agent in CI, so disable the co-location requirement.
+  requireUpstreamAgentCoLocation: false
+  # Disable upstream authority so the server starts as a self-signed root CA
+  # instead of waiting for the upstream agent socket (which doesn't exist in CI).
+  upstreamAuthority:
+    spire:
+      enabled: false

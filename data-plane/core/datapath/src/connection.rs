@@ -133,7 +133,7 @@ impl Connection {
 
     /// Return true if this node initiated the connection (client side).
     /// False means the remote peer connected to us (server side).
-    pub(crate) fn is_outgoing(&self) -> bool {
+    pub fn is_outgoing(&self) -> bool {
         matches!(self.channel, Channel::Client(_))
     }
 
@@ -151,6 +151,13 @@ impl Connection {
     /// Get cancellation token
     pub(crate) fn cancellation_token(&self) -> Option<&CancellationToken> {
         self.cancellation_token.as_ref()
+    }
+
+    /// Set the link identifier at construction time so it is available the moment the
+    /// connection enters the table, before the negotiation message is sent.
+    pub(crate) fn with_link_id(self, link_id: String) -> Self {
+        self.negotiation.write().link_id = Some(link_id);
+        self
     }
 
     /// Set the shared link identifier for this connection.

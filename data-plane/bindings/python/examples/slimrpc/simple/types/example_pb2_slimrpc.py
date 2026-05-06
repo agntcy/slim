@@ -241,7 +241,7 @@ class TestServicer:
 
 
 
-class _TestServicer_ExampleUnaryUnary_Handler:
+class _TestServicer_ExampleUnaryUnary_Handler(slim_bindings.UnaryUnaryHandler):
     def __init__(self, servicer):
         self.servicer = servicer
 
@@ -259,7 +259,7 @@ class _TestServicer_ExampleUnaryUnary_Handler:
                 details=None
             )
 
-class _TestServicer_ExampleUnaryStream_Handler:
+class _TestServicer_ExampleUnaryStream_Handler(slim_bindings.UnaryStreamHandler):
     def __init__(self, servicer):
         self.servicer = servicer
 
@@ -280,7 +280,7 @@ class _TestServicer_ExampleUnaryStream_Handler:
             )
             await sink.send_error_async(rpc_error)
 
-class _TestServicer_ExampleStreamUnary_Handler:
+class _TestServicer_ExampleStreamUnary_Handler(slim_bindings.StreamUnaryHandler):
     def __init__(self, servicer):
         self.servicer = servicer
 
@@ -307,7 +307,7 @@ class _TestServicer_ExampleStreamUnary_Handler:
                 details=None
             )
 
-class _TestServicer_ExampleStreamStream_Handler:
+class _TestServicer_ExampleStreamStream_Handler(slim_bindings.StreamStreamHandler):
     def __init__(self, servicer):
         self.servicer = servicer
 

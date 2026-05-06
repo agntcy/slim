@@ -1,0 +1,45 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+#
+# Detekt configuration for slim Kotlin bindings (CLI + examples + tests).
+#
+# Runnable samples live under ./examples/ (module root). Excludes below are relative
+# to this module when running: task lint / detekt --base-path <this dir>.
+
+config:
+  validation: true
+
+build:
+  maxIssues: 0
+
+complexity:
+  CyclomaticComplexMethod:
+    threshold: 18
+  LongMethod:
+    threshold: 100
+  LongParameterList:
+    functionThreshold: 8
+    constructorThreshold: 15
+  NestedBlockDepth:
+    threshold: 6
+
+style:
+  WildcardImport:
+    active: false
+  MagicNumber:
+    excludes:
+      - "examples/**"
+      - "**/src/test/**"
+
+exceptions:
+  SwallowedException:
+    excludes:
+      - "examples/**"
+      - "**/src/test/**"
+  TooGenericExceptionCaught:
+    excludes:
+      - "examples/**"
+      - "**/src/test/**"
+  TooGenericExceptionThrown:
+    excludes:
+      - "examples/**"

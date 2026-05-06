@@ -1,0 +1,99 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+global:
+  spire:
+    ## @param global.spire.clusterName The name of the k8s cluster
+    clusterName: example-cluster
+    ## @param global.spire.trustDomain The SPIFFE trust domain
+    trustDomain: example.org
+    ## @param global.spire.upstreamSpireAddress Hostname of the root SPIRE server
+    upstreamSpireAddress: ""
+    ## @param global.spire.caSubject CA subject for the downstream SPIRE server certificate
+    caSubject:
+      country: ""
+      organization: ""
+      commonName: ""
+    ## @param global.spire.strictMode Reject unsafe values (e.g. example.org trust domain) at install time
+    strictMode: false
+
+  installAndUpgradeHooks:
+    enabled: false
+  deleteHooks:
+    enabled: false
+
+## @section Spire server parameters
+spire-server:
+  enabled: true
+  nameOverride: server
+  kind: statefulset
+  controllerManager:
+    enabled: true
+  externalControllerManagers:
+    enabled: false
+  nodeAttestor:
+    k8sPSAT:
+      enabled: true
+  upstreamAuthority:
+    spire:
+      enabled: true
+      upstreamDriver: "upstream.csi.spiffe.io"
+      server:
+        port: 443
+  # When true, the server is pinned to the same node as the upstream agent via podAffinity.
+  # Set to false when the upstream agent is not deployed (e.g. CI or standalone testing).
+  requireUpstreamAgentCoLocation: true
+
+## @section Spire agent parameters
+spire-agent:
+  enabled: true
+  nameOverride: agent
+
+## @section SPIFFE CSI Driver parameters
+spiffe-csi-driver:
+  enabled: true
+
+## @section Upstream SPIFFE CSI Driver parameters
+upstream-spiffe-csi-driver:
+  enabled: true
+  pluginName: upstream.csi.spiffe.io
+  agentSocketPath: /run/spire/agent-sockets-upstream/spire-agent.sock
+  validatingAdmissionPolicy:
+    enabled: false
+
+## @section Upstream SPIRE agent parameters
+upstream-spire-agent:
+  nameOverride: agent-upstream-placeholder
+  serviceAccount:
+    name: spire-agent-upstream
+  server:
+    port: 443
+  healthChecks:
+    port: 9981
+  persistence:
+    hostPath: /var/lib/spire/k8s/upstream-agent
+  # Join token for bootstrapping the upstream agent against the root SPIRE server.
+  # Provide ONE of the following options:
+  #
+  #   Option A – inline value (chart creates the Secret automatically):
+  #     joinToken:
+  #       value: "<token>"
+  #
+  #   Option B – reference an existing Secret:
+  #     joinToken:
+  #       existingSecret:
+  #         name: my-secret
+  #         key: token   # optional, defaults to "token"
+  #
+  joinToken:
+    # When enabled, exactly one of .value or .existingSecret.name must be provided.
+    enabled: false
+    value: ""
+    existingSecret:
+      name: ""
+      key: ""
+  # URL of the root SPIRE server's trust bundle endpoint (e.g. https://spire-bundle.example.org).
+  # When empty, insecure_bootstrap = true is set in the agent config.
+  trustBundleURL: ""
+  trustBundleFormat: "spiffe"
+  extraEnvVars: []

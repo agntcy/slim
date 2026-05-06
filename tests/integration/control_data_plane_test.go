@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -92,22 +93,6 @@ var _ = Describe("Routing", func() {
 		Eventually(serverASession.Out, 15*time.Second).Should(gbytes.Say("started controlplane server"))
 		Eventually(serverBSession.Out, 15*time.Second).Should(gbytes.Say("started controlplane server"))
 
-		// add routes
-		runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
-			return exec.Command(slimctlPath, "n",
-				"route", "add", "org/default/b/0",
-				"via", clientBConfigVia,
-				"-s", fmt.Sprintf("127.0.0.1:%d", controllerAPort),
-			)
-		})
-
-		runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
-			return exec.Command(slimctlPath, "n",
-				"route", "add", "org/default/a/0",
-				"via", clientAConfigVia,
-				"-s", fmt.Sprintf("127.0.0.1:%d", controllerBPort),
-			)
-		})
 	})
 
 	AfterEach(func() {
@@ -125,6 +110,32 @@ var _ = Describe("Routing", func() {
 	})
 
 	Describe("message routing", func() {
+		// getRouteWithID queries a SLIM node's route list and returns the full
+		// route name including the runtime-assigned app ID for the given prefix.
+		// The route list output format is: "org/ns/agent id=<id> local=[...] remote=[...]"
+		getRouteWithID := func(controllerPort int, routePrefix string) string {
+			var routeName string
+			re := regexp.MustCompile(fmt.Sprintf(`(%s)\s+id=(\d+)`, regexp.QuoteMeta(routePrefix)))
+			Eventually(func() string {
+				out, err := exec.Command(
+					slimctlPath, "n",
+					"route", "list",
+					"-s", fmt.Sprintf("127.0.0.1:%d", controllerPort),
+				).CombinedOutput()
+				if err != nil {
+					return ""
+				}
+				matches := re.FindStringSubmatch(string(out))
+				if len(matches) >= 3 && matches[2] != "0" {
+					routeName = fmt.Sprintf("%s/%s", matches[1], matches[2])
+					return routeName
+				}
+				return ""
+			}, 10*time.Second, 500*time.Millisecond).ShouldNot(BeEmpty(),
+				"timed out waiting for route with real app ID for %s", routePrefix)
+			return routeName
+		}
+
 		It("should deliver at least one message each way", func() {
 			var err error
 
@@ -138,7 +149,16 @@ var _ = Describe("Routing", func() {
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			time.Sleep(3000 * time.Millisecond)
+			// Wait for client B to register, then get its real route ID from SLIM B
+			// and add it to SLIM A so A knows how to reach B with the correct app ID
+			routeB := getRouteWithID(controllerBPort, "org/default/b")
+			runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
+				return exec.Command(slimctlPath, "n",
+					"route", "add", routeB,
+					"via", clientBConfigVia,
+					"-s", fmt.Sprintf("127.0.0.1:%d", controllerAPort),
+				)
+			})
 
 			clientASession, err = gexec.Start(
 				exec.Command(sdkMockPath,
@@ -151,15 +171,48 @@ var _ = Describe("Routing", func() {
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			Eventually(clientBSession.Out, 5*time.Second).
+			// Get client A's real route ID from SLIM A and add it to SLIM B
+			routeA := getRouteWithID(controllerAPort, "org/default/a")
+			runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
+				return exec.Command(slimctlPath, "n",
+					"route", "add", routeA,
+					"via", clientAConfigVia,
+					"-s", fmt.Sprintf("127.0.0.1:%d", controllerBPort),
+				)
+			})
+
+			Eventually(clientBSession.Out, 15*time.Second).
 				Should(gbytes.Say(`hello from the a`))
 
-			Eventually(clientASession.Out, 5*time.Second).
+			Eventually(clientASession.Out, 15*time.Second).
 				Should(gbytes.Say(`hello from the b`))
 		})
 
 		It("should have the valid routes and connections", func() {
-			// test listing routes
+			var err error
+
+			// Start client B so routes get registered
+			clientBSession, err = gexec.Start(
+				exec.Command(sdkMockPath,
+					"--config", clientBConfig,
+					"--local-name", "b",
+					"--remote-name", "a",
+				),
+				GinkgoWriter, GinkgoWriter,
+			)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Get client B's real route and add it to SLIM A
+			routeB := getRouteWithID(controllerBPort, "org/default/b")
+			runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
+				return exec.Command(slimctlPath, "n",
+					"route", "add", routeB,
+					"via", clientBConfigVia,
+					"-s", fmt.Sprintf("127.0.0.1:%d", controllerAPort),
+				)
+			})
+
+			// test listing routes on SLIM A - should show the route to B with its real ID
 			routeListOut, err := exec.Command(
 				slimctlPath, "n",
 				"route", "list",
@@ -168,7 +221,7 @@ var _ = Describe("Routing", func() {
 			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOut))
 
 			routeListOutput := string(routeListOut)
-			Expect(routeListOutput).To(ContainSubstring("org/default/b id=0"))
+			Expect(routeListOutput).To(ContainSubstring("org/default/b"))
 
 			// test listing connections
 			connectionListOut, err := exec.Command(

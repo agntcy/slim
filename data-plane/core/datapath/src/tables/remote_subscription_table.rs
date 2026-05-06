@@ -24,6 +24,22 @@ pub struct SubscriptionInfo {
 }
 
 impl SubscriptionInfo {
+    #[cfg(test)]
+    pub(crate) fn new(
+        source: Name,
+        name: Name,
+        source_identity: String,
+        _conn: u64,
+        subscription_id: u64,
+    ) -> Self {
+        Self {
+            source,
+            name,
+            source_identity,
+            subscription_id,
+        }
+    }
+
     pub fn source(&self) -> &Name {
         &self.source
     }

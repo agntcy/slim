@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use super::tables::SubscriptionTable;
@@ -38,16 +38,10 @@ where
 
     pub fn on_connection_established(&self, conn: T, existing_index: Option<u64>) -> Option<u64> {
         match existing_index {
-            None => {
-                let x = self.connection_table.insert(conn) as u64;
-                Some(x)
-            }
+            None => Some(self.connection_table.insert(conn)),
             Some(x) => {
-                if self.connection_table.insert_at(conn, x as usize) {
-                    existing_index
-                } else {
-                    None
-                }
+                self.connection_table.insert_at(conn, x);
+                existing_index
             }
         }
     }
@@ -56,8 +50,8 @@ where
         &self,
         conn_index: u64,
         is_local: bool,
-    ) -> (HashSet<Name>, HashSet<SubscriptionInfo>) {
-        self.connection_table.remove(conn_index as usize);
+    ) -> (HashMap<Name, HashSet<u64>>, HashSet<SubscriptionInfo>) {
+        self.connection_table.remove(conn_index);
         let local_subs = self
             .subscription_table
             .remove_connection(conn_index, is_local)
@@ -65,15 +59,14 @@ where
                 debug!(
                     %conn_index, %is_local, %e, "failed to remove local subscriptions for connection",
                 );
-                HashSet::new()
+                HashMap::new()
             });
         let remote_subs = self.remote_subscription_table.remove_connection(conn_index);
-
         (local_subs, remote_subs)
     }
 
     pub fn get_connection(&self, conn_index: u64) -> Option<Arc<T>> {
-        self.connection_table.get(conn_index as usize)
+        self.connection_table.get(conn_index)
     }
 
     pub fn get_subscriptions_forwarded_on_connection(

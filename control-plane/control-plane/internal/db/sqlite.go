@@ -33,23 +33,39 @@ func (NodeModel) TableName() string {
 }
 
 type RouteModel struct {
+	ID           uint64 `gorm:"primaryKey"`
+	SourceNodeID string
+	DestNodeID   string
+	LinkID       string
+	Component0   string
+	Component1   string
+	Component2   string
+	ComponentID  *string
+	Status       int
+	StatusMsg    string
+	Deleted      bool
+	LastUpdated  time.Time
+}
+
+func (RouteModel) TableName() string {
+	return "routes"
+}
+
+type LinkModel struct {
 	ID             uint64 `gorm:"primaryKey"`
+	LinkID         string
 	SourceNodeID   string
 	DestNodeID     string
 	DestEndpoint   string
 	ConnConfigData string
-	Component0     string
-	Component1     string
-	Component2     string
-	ComponentID    *string
 	Status         int
 	StatusMsg      string
 	Deleted        bool
 	LastUpdated    time.Time
 }
 
-func (RouteModel) TableName() string {
-	return "routes"
+func (LinkModel) TableName() string {
+	return "links"
 }
 
 type ChannelModel struct {
@@ -81,7 +97,7 @@ func NewSQLiteDBService(ctx context.Context, dbPath string) (DataAccess, error) 
 }
 
 func (s *SQLiteDBService) migrate() error {
-	return s.db.AutoMigrate(&NodeModel{}, &RouteModel{}, &ChannelModel{})
+	return s.db.AutoMigrate(&NodeModel{}, &RouteModel{}, &LinkModel{}, &ChannelModel{})
 }
 
 // Node operations
@@ -154,6 +170,133 @@ func (s *SQLiteDBService) AddRoute(route Route) (Route, error) {
 	return route, nil
 }
 
+func (s *SQLiteDBService) AddLink(link Link) (Link, error) {
+	if link.SourceNodeID == "" || link.DestNodeID == "" || link.DestEndpoint == "" {
+		return Link{}, fmt.Errorf("sourceNodeID, destNodeID and destEndpoint are required")
+	}
+	existingByEndpoint, err := s.GetLinkForSourceAndEndpoint(link.SourceNodeID, link.DestEndpoint)
+	if err != nil {
+		return Link{}, err
+	}
+	if existingByEndpoint != nil {
+		link.LinkID = existingByEndpoint.LinkID
+	}
+	if link.LinkID == "" {
+		link.LinkID = uuid.NewString()
+	}
+	link.LastUpdated = time.Now()
+	model := s.linkToLinkModel(link)
+	if err := s.db.Save(&model).Error; err != nil {
+		return Link{}, err
+	}
+	return link, nil
+}
+
+func (s *SQLiteDBService) UpdateLink(link Link) error {
+	if link.LinkID == "" || link.SourceNodeID == "" || link.DestNodeID == "" || link.DestEndpoint == "" {
+		return fmt.Errorf("link identity fields cannot be empty")
+	}
+	link.LastUpdated = time.Now()
+	model := s.linkToLinkModel(link)
+	return s.db.Model(&LinkModel{}).
+		Where("link_id = ? AND source_node_id = ? AND dest_node_id = ? AND dest_endpoint = ?",
+			link.LinkID, link.SourceNodeID, link.DestNodeID, link.DestEndpoint).
+		Updates(map[string]interface{}{
+			"conn_config_data": model.ConnConfigData,
+			"status":           model.Status,
+			"status_msg":       model.StatusMsg,
+			"deleted":          model.Deleted,
+			"last_updated":     model.LastUpdated,
+		}).Error
+}
+
+func (s *SQLiteDBService) DeleteLink(link Link) error {
+	if link.LinkID == "" || link.SourceNodeID == "" || link.DestNodeID == "" || link.DestEndpoint == "" {
+		return fmt.Errorf("link identity fields cannot be empty")
+	}
+	result := s.db.Where(
+		"link_id = ? AND source_node_id = ? AND dest_node_id = ? AND dest_endpoint = ?",
+		link.LinkID, link.SourceNodeID, link.DestNodeID, link.DestEndpoint,
+	).Delete(&LinkModel{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("link not found")
+	}
+	return nil
+}
+
+func (s *SQLiteDBService) GetLink(linkID string, sourceNodeID string, destNodeID string) (*Link, error) {
+	var model LinkModel
+	query := s.db.Where("link_id = ? AND deleted = ?", linkID, false)
+	if sourceNodeID != "" && destNodeID != "" {
+		query = query.Where(
+			"(source_node_id = ? AND dest_node_id = ?) OR (source_node_id = ? AND dest_node_id = ?)",
+			sourceNodeID, destNodeID, destNodeID, sourceNodeID,
+		)
+	}
+	if err := query.Order("last_updated desc").First(&model).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("link not found")
+		}
+		return nil, err
+	}
+	link := s.linkModelToLink(model)
+	return &link, nil
+}
+
+func (s *SQLiteDBService) FindLinkBetweenNodes(sourceNodeID string, destNodeID string) (*Link, error) {
+	var model LinkModel
+	query := s.db.Where(
+		"((source_node_id = ? AND dest_node_id = ?) OR (source_node_id = ? AND dest_node_id = ?)) AND deleted = ?",
+		sourceNodeID, destNodeID, destNodeID, sourceNodeID, false,
+	)
+	if err := query.Order("last_updated desc").First(&model).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	link := s.linkModelToLink(model)
+	return &link, nil
+}
+
+func (s *SQLiteDBService) GetLinkForSourceAndEndpoint(sourceNodeID string, destEndpoint string) (*Link, error) {
+	var model LinkModel
+	if err := s.db.Where(
+		"source_node_id = ? AND dest_endpoint = ? AND deleted = ?",
+		sourceNodeID, destEndpoint, false,
+	).Order("last_updated desc").First(&model).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	link := s.linkModelToLink(model)
+	return &link, nil
+}
+
+func (s *SQLiteDBService) GetLinksForNode(nodeID string) []Link {
+	var models []LinkModel
+	s.db.Where("source_node_id = ? OR dest_node_id = ?", nodeID, nodeID).Find(&models)
+	links := make([]Link, 0, len(models))
+	for _, m := range models {
+		links = append(links, s.linkModelToLink(m))
+	}
+	return links
+}
+
+func (s *SQLiteDBService) GetRoutesByLinkID(linkID string) []Route {
+	var models []RouteModel
+	s.db.Where("link_id = ?", linkID).Find(&models)
+	routes := make([]Route, 0, len(models))
+	for _, m := range models {
+		routes = append(routes, s.routeModelToRoute(m))
+	}
+	return routes
+}
+
 func (s *SQLiteDBService) GetRoutesForNodeID(nodeID string) []Route {
 	var routeModels []RouteModel
 	s.db.Where("source_node_id = ?", nodeID).Find(&routeModels)
@@ -200,7 +343,7 @@ func (s *SQLiteDBService) GetRoutesForDestinationNodeIDAndName(nodeID string, co
 }
 
 func (s *SQLiteDBService) GetRouteForSrcAndDestinationAndName(srcNodeID string, component0 string, component1 string,
-	component2 string, componentID *wrapperspb.UInt64Value, destNodeID string, destEndpoint string) (Route, error) {
+	component2 string, componentID *wrapperspb.UInt64Value, destNodeID string, linkID string) (Route, error) {
 
 	query := s.db.Where("source_node_id = ? AND component0 = ? AND component1 = ? AND component2 = ?",
 		srcNodeID, component0, component1, component2)
@@ -208,8 +351,8 @@ func (s *SQLiteDBService) GetRouteForSrcAndDestinationAndName(srcNodeID string, 
 	if destNodeID != "" {
 		query = query.Where("dest_node_id = ?", destNodeID)
 	}
-	if destEndpoint != "" {
-		query = query.Where("dest_endpoint = ?", destEndpoint)
+	if linkID != "" {
+		query = query.Where("link_id = ?", linkID)
 	}
 
 	if componentID == nil {
@@ -312,6 +455,7 @@ func (s *SQLiteDBService) MarkRouteAsDeleted(routeID uint64) error {
 func (s *SQLiteDBService) MarkRouteAsApplied(routeID uint64) error {
 	result := s.db.Model(&RouteModel{}).Where("id = ?", routeID).Updates(map[string]interface{}{
 		"status":       int(RouteStatusApplied),
+		"status_msg":   "",
 		"last_updated": time.Now(),
 	})
 	if result.Error != nil {
@@ -326,6 +470,22 @@ func (s *SQLiteDBService) MarkRouteAsApplied(routeID uint64) error {
 func (s *SQLiteDBService) MarkRouteAsFailed(routeID uint64, msg string) error {
 	result := s.db.Model(&RouteModel{}).Where("id = ?", routeID).Updates(map[string]interface{}{
 		"status":       int(RouteStatusFailed),
+		"status_msg":   msg,
+		"last_updated": time.Now(),
+	})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("route %v not found", routeID)
+	}
+	return nil
+}
+
+func (s *SQLiteDBService) RepointRoute(routeID uint64, linkID string, status RouteStatus, msg string) error {
+	result := s.db.Model(&RouteModel{}).Where("id = ?", routeID).Updates(map[string]interface{}{
+		"link_id":      linkID,
+		"status":       int(status),
 		"status_msg":   msg,
 		"last_updated": time.Now(),
 	})
@@ -438,19 +598,18 @@ func (s *SQLiteDBService) routeToRouteModel(route Route) RouteModel {
 	}
 
 	return RouteModel{
-		ID:             route.ID,
-		SourceNodeID:   route.SourceNodeID,
-		DestNodeID:     route.DestNodeID,
-		DestEndpoint:   route.DestEndpoint,
-		ConnConfigData: route.ConnConfigData,
-		Component0:     route.Component0,
-		Component1:     route.Component1,
-		Component2:     route.Component2,
-		ComponentID:    componentID,
-		Status:         int(route.Status),
-		StatusMsg:      route.StatusMsg,
-		Deleted:        route.Deleted,
-		LastUpdated:    route.LastUpdated,
+		ID:           route.ID,
+		SourceNodeID: route.SourceNodeID,
+		DestNodeID:   route.DestNodeID,
+		LinkID:       route.LinkID,
+		Component0:   route.Component0,
+		Component1:   route.Component1,
+		Component2:   route.Component2,
+		ComponentID:  componentID,
+		Status:       int(route.Status),
+		StatusMsg:    route.StatusMsg,
+		Deleted:      route.Deleted,
+		LastUpdated:  route.LastUpdated,
 	}
 }
 
@@ -463,19 +622,46 @@ func (s *SQLiteDBService) routeModelToRoute(routeModel RouteModel) Route {
 	}
 
 	return Route{
-		ID:             routeModel.ID,
-		SourceNodeID:   routeModel.SourceNodeID,
-		DestNodeID:     routeModel.DestNodeID,
-		DestEndpoint:   routeModel.DestEndpoint,
-		ConnConfigData: routeModel.ConnConfigData,
-		Component0:     routeModel.Component0,
-		Component1:     routeModel.Component1,
-		Component2:     routeModel.Component2,
-		ComponentID:    componentID,
-		Status:         RouteStatus(routeModel.Status),
-		StatusMsg:      routeModel.StatusMsg,
-		Deleted:        routeModel.Deleted,
-		LastUpdated:    routeModel.LastUpdated,
+		ID:           routeModel.ID,
+		SourceNodeID: routeModel.SourceNodeID,
+		DestNodeID:   routeModel.DestNodeID,
+		LinkID:       routeModel.LinkID,
+		Component0:   routeModel.Component0,
+		Component1:   routeModel.Component1,
+		Component2:   routeModel.Component2,
+		ComponentID:  componentID,
+		Status:       RouteStatus(routeModel.Status),
+		StatusMsg:    routeModel.StatusMsg,
+		Deleted:      routeModel.Deleted,
+		LastUpdated:  routeModel.LastUpdated,
+	}
+}
+
+func (s *SQLiteDBService) linkToLinkModel(link Link) LinkModel {
+	return LinkModel{
+		LinkID:         link.LinkID,
+		SourceNodeID:   link.SourceNodeID,
+		DestNodeID:     link.DestNodeID,
+		DestEndpoint:   link.DestEndpoint,
+		ConnConfigData: link.ConnConfigData,
+		Status:         int(link.Status),
+		StatusMsg:      link.StatusMsg,
+		Deleted:        link.Deleted,
+		LastUpdated:    link.LastUpdated,
+	}
+}
+
+func (s *SQLiteDBService) linkModelToLink(model LinkModel) Link {
+	return Link{
+		LinkID:         model.LinkID,
+		SourceNodeID:   model.SourceNodeID,
+		DestNodeID:     model.DestNodeID,
+		DestEndpoint:   model.DestEndpoint,
+		ConnConfigData: model.ConnConfigData,
+		Status:         LinkStatus(model.Status),
+		StatusMsg:      model.StatusMsg,
+		Deleted:        model.Deleted,
+		LastUpdated:    model.LastUpdated,
 	}
 }
 

@@ -1153,9 +1153,9 @@ mod tests {
         // Create multicast channel name
         let channel_name = Name::from_strings(["org", "ns", config.channel_suffix]);
 
-        // Have all participants subscribe to the channel
+        // Have all participants subscribe for their own name
         for app in &participant_apps {
-            app.subscribe(&channel_name, None).await.unwrap();
+            app.subscribe(app.app_name(), None).await.unwrap();
         }
 
         // Give some time for subscriptions to be processed
@@ -1177,10 +1177,9 @@ mod tests {
 
         // Invite all participants to the multicast session
         for participant_name in &participant_names {
-            session_arc
-                .invite_participant(participant_name)
-                .await
-                .unwrap();
+            let mut n = participant_name.clone();
+            n.reset_id();
+            session_arc.invite_participant(&n).await.unwrap();
         }
 
         // Send a test message through the multicast session

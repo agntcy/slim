@@ -38,6 +38,7 @@ type RouteManager interface {
 	DeleteRoute(ctx context.Context, route routes.Route) error
 
 	ListRoutes(ctx context.Context, request *controlplaneApi.RouteListRequest) (*controlplaneApi.RouteListResponse, error)
+	ListLinks(ctx context.Context, request *controlplaneApi.LinkListRequest) (*controlplaneApi.LinkListResponse, error)
 }
 
 type nbAPIService struct {
@@ -135,20 +136,12 @@ func (s *nbAPIService) AddRoute(
 	if err != nil {
 		return nil, fmt.Errorf("invalid source nodeID: %w", err)
 	}
-	if addRouteRequest.DestNodeId != "" {
-		_, err = s.nodeService.GetNodeByID(addRouteRequest.DestNodeId)
-		if err != nil {
-			return nil, fmt.Errorf("invalid destination nodeID: %w", err)
-		}
-	} else {
-		// if destNodeId is empty, connectionId must be provided
-		if addRouteRequest.Connection == nil || addRouteRequest.Connection.ConnectionId == "" {
-			return nil, fmt.Errorf("either destNodeId or connectionId must be provided")
-		}
-		err = validateConnection(addRouteRequest.Connection)
-		if err != nil {
-			return nil, fmt.Errorf("invalid connection: %w", err)
-		}
+	if addRouteRequest.DestNodeId == "" {
+		return nil, fmt.Errorf("destNodeId must be provided")
+	}
+	_, err = s.nodeService.GetNodeByID(addRouteRequest.DestNodeId)
+	if err != nil {
+		return nil, fmt.Errorf("invalid destination nodeID: %w", err)
 	}
 
 	route := routes.Route{
@@ -158,10 +151,6 @@ func (s *nbAPIService) AddRoute(
 		Component1:   addRouteRequest.Subscription.Component_1,
 		Component2:   addRouteRequest.Subscription.Component_2,
 		ComponentID:  addRouteRequest.Subscription.Id,
-	}
-	if addRouteRequest.Subscription.ConnectionId != "" && addRouteRequest.Connection != nil {
-		route.DestEndpoint = addRouteRequest.Connection.ConnectionId
-		route.ConnConfigData = addRouteRequest.Connection.ConfigData
 	}
 	routeID, err := s.routeService.AddRoute(ctx, route)
 	if err != nil {
@@ -187,13 +176,12 @@ func (s *nbAPIService) DeleteRoute(
 		return nil, fmt.Errorf("invalid source nodeID: %w", err)
 	}
 
-	if deleteRouteRequest.DestNodeId != "" {
-		_, err = s.nodeService.GetNodeByID(deleteRouteRequest.DestNodeId)
-		if err != nil {
-			return nil, fmt.Errorf("invalid destination nodeID: %w", err)
-		}
-	} else if deleteRouteRequest.Subscription.ConnectionId == "" {
-		return nil, fmt.Errorf("either destNodeId or connectionId must be provided")
+	if deleteRouteRequest.DestNodeId == "" {
+		return nil, fmt.Errorf("destNodeId must be provided")
+	}
+	_, err = s.nodeService.GetNodeByID(deleteRouteRequest.DestNodeId)
+	if err != nil {
+		return nil, fmt.Errorf("invalid destination nodeID: %w", err)
 	}
 
 	route := routes.Route{
@@ -203,9 +191,6 @@ func (s *nbAPIService) DeleteRoute(
 		Component1:   deleteRouteRequest.Subscription.Component_1,
 		Component2:   deleteRouteRequest.Subscription.Component_2,
 		ComponentID:  deleteRouteRequest.Subscription.Id,
-	}
-	if deleteRouteRequest.Subscription.ConnectionId != "" {
-		route.DestEndpoint = deleteRouteRequest.Subscription.ConnectionId
 	}
 
 	err = s.routeService.DeleteRoute(ctx, route)
@@ -257,4 +242,9 @@ func (s *nbAPIService) ListRoutes(ctx context.Context,
 	request *controlplaneApi.RouteListRequest) (*controlplaneApi.RouteListResponse, error) {
 
 	return s.routeService.ListRoutes(ctx, request)
+}
+
+func (s *nbAPIService) ListLinks(ctx context.Context,
+	request *controlplaneApi.LinkListRequest) (*controlplaneApi.LinkListResponse, error) {
+	return s.routeService.ListLinks(ctx, request)
 }

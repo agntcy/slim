@@ -1,0 +1,46 @@
+apiVersion: v2
+name: slim-spire
+description: >
+  A Helm chart for deploying the SPIRE identity stack for SLIM, including:
+  spire-server, spire-agent, upstream-agent (join token), and SPIFFE CSI
+  drivers. Based on
+  https://github.com/spiffe/helm-charts-hardened/tree/main/charts/spire
+type: application
+version: 1.4.0-rc.0
+appVersion: "1.14.2"
+keywords:
+  [
+    "spiffe",
+    "spire",
+    "spire-server",
+    "spire-agent",
+    "slim"
+  ]
+home: https://github.com/agntcy/slim
+sources:
+  - https://github.com/agntcy/slim
+kubeVersion: ">=1.21.0-0"
+dependencies:
+  - name: spire-lib
+    repository: file://./charts/spire-lib
+    version: 0.1.0
+  - name: spire-server
+    condition: spire-server.enabled
+    repository: file://./charts/spire-server
+    version: 0.1.0
+  - name: spire-agent
+    condition: spire-agent.enabled
+    repository: file://./charts/spire-agent
+    version: 0.1.0
+  - name: spiffe-csi-driver
+    condition: spiffe-csi-driver.enabled
+    repository: file://./charts/spiffe-csi-driver
+    version: 0.1.0
+  - name: spiffe-csi-driver
+    alias: upstream-spiffe-csi-driver
+    condition: upstream-spiffe-csi-driver.enabled
+    repository: file://./charts/spiffe-csi-driver
+    version: 0.1.0
+annotations:
+  artifacthub.io/category: security
+  artifacthub.io/license: Apache-2.0

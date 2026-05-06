@@ -23,6 +23,7 @@ jobs:
       contents: read
     outputs:
       release_tag: ${{ steps.resolve.outputs.release_tag }}
+      lint_with_subcharts: ${{ steps.resolve.outputs.lint_with_subcharts }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -34,7 +35,17 @@ jobs:
       - name: Resolve release tag
         id: resolve
         run: |
-          tag="${GITHUB_REF#refs/*/}"; echo "release_tag=${tag#helm-}" >> "$GITHUB_OUTPUT"
+          tag="${GITHUB_REF#refs/*/}"
+          chart_tag="${tag#helm-}"
+          echo "release_tag=${chart_tag}" >> "$GITHUB_OUTPUT"
+          chart_name="${chart_tag%-v*}"
+          # slim-spire vendors spire-lib into each subchart; linting subcharts
+          # independently fails because the library is only available via the parent.
+          if [[ "$chart_name" == "slim-spire" ]]; then
+            echo "lint_with_subcharts=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "lint_with_subcharts=true" >> "$GITHUB_OUTPUT"
+          fi
 
   release:
     name: Release Helm charts
@@ -48,6 +59,7 @@ jobs:
     with:
       registry: ghcr.io/agntcy/slim
       release_tag: ${{ needs.prepare-build.outputs.release_tag }}
+      lint-with-subcharts: ${{ needs.prepare-build.outputs.lint_with_subcharts == 'true' }}
     secrets:
       github-token: ${{ secrets.GITHUB_TOKEN }}
 

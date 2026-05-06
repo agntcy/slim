@@ -435,6 +435,9 @@ func TestSessionInviteRemove(t *testing.T) {
 
 	// Set route to participant to simulate connectivity
 	err = harness.Sender.SetRoute(participant, 1)
+	if err != nil {
+		t.Logf("Setting route failed: %v", err)
+	}
 
 	// Test invite - may fail for point-to-point or without full group management
 	err = session.InviteAndWait(participant)

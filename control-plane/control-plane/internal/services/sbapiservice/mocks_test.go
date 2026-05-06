@@ -34,8 +34,7 @@ type MockSlimServer struct {
 	LocalEndpoint    *string
 	ExternalEndpoint *string
 	MTLSRequired     bool
-	Auth             *db.Auth
-	TLSConfig        *db.SeverTLSConfig
+	ClientConfig     *db.ClientConnectionConfig
 	TrustDomain      *string
 
 	// behavior flags (for tests)
@@ -106,13 +105,14 @@ func (m *MockSlimServer) connect(ctx context.Context) error {
 	if m.TrustDomain != nil {
 		connDetails.Metadata.Fields["trust_domain"] = structpb.NewStringValue(*m.TrustDomain)
 	}
-	if m.Auth != nil {
-		authJSON, _ := json.Marshal(m.Auth)
-		connDetails.Auth = stringPtr(string(authJSON))
-	}
-	if m.TLSConfig != nil {
-		tlsJSON, _ := json.Marshal(m.TLSConfig)
-		connDetails.Tls = stringPtr(string(tlsJSON))
+	if m.ClientConfig != nil {
+		clientConfigJSON, _ := json.Marshal(m.ClientConfig)
+		var clientConfigMap map[string]any
+		if err := json.Unmarshal(clientConfigJSON, &clientConfigMap); err == nil {
+			if clientConfigStruct, err := structpb.NewStruct(clientConfigMap); err == nil {
+				connDetails.Metadata.Fields["client_config"] = structpb.NewStructValue(clientConfigStruct)
+			}
+		}
 	}
 
 	reg := &controllerapi.ControlMessage{
@@ -129,10 +129,6 @@ func (m *MockSlimServer) connect(ctx context.Context) error {
 
 	go m.recvLoop()
 	return nil
-}
-
-func stringPtr(s string) *string {
-	return &s
 }
 
 func (m *MockSlimServer) recvLoop() {
@@ -160,6 +156,18 @@ func (m *MockSlimServer) handleConfigCommand(origMsgID string, cfg *controllerap
 		}
 		m.recvConnections[c.ConnectionId] = c
 	}
+	for _, id := range cfg.ConnectionsToDelete {
+		if m.recvConnections != nil {
+			delete(m.recvConnections, id)
+		}
+		if m.recvSubscriptions != nil {
+			for key, sub := range m.recvSubscriptions {
+				if sub.GetLinkId() == id || sub.ConnectionId == id {
+					delete(m.recvSubscriptions, key)
+				}
+			}
+		}
+	}
 	for _, c := range cfg.SubscriptionsToSet {
 		if m.recvSubscriptions == nil {
 			m.recvSubscriptions = make(map[string]*controllerapi.Subscription)
@@ -184,6 +192,14 @@ func (m *MockSlimServer) handleConfigCommand(origMsgID string, cfg *controllerap
 	// inject errors if requested
 	for _, c := range cfg.ConnectionsToCreate {
 		cack := &controllerapi.ConnectionAck{ConnectionId: c.ConnectionId, Success: true}
+		if m.AckConnectionError {
+			cack.Success = false
+			cack.ErrorMsg = "conn error"
+		}
+		ack.GetConfigCommandAck().ConnectionsStatus = append(ack.GetConfigCommandAck().ConnectionsStatus, cack)
+	}
+	for _, id := range cfg.ConnectionsToDelete {
+		cack := &controllerapi.ConnectionAck{ConnectionId: id, Success: true}
 		if m.AckConnectionError {
 			cack.Success = false
 			cack.ErrorMsg = "conn error"

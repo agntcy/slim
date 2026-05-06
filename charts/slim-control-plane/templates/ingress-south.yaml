@@ -3,29 +3,29 @@ Copyright AGNTCY Contributors (https://github.com/agntcy)
 SPDX-License-Identifier: Apache-2.0
 */}}
 
-{{- if .Values.ingress.enabled -}}
+{{- if .Values.ingressSouth.enabled -}}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "control-plane.fullname" . }}
+  name: {{ include "control-plane.fullname" . }}-south
   labels:
     {{- include "control-plane.labels" . | nindent 4 }}
   annotations:
-  {{- if .Values.ingress.basicAuth.enabled }}
+  {{- if .Values.ingressSouth.basicAuth.enabled }}
     nginx.ingress.kubernetes.io/auth-type: basic
-    nginx.ingress.kubernetes.io/auth-secret: {{ .Values.ingress.basicAuth.existingBasicAuthSecret }}
-    nginx.ingress.kubernetes.io/auth-realm: {{ .Values.ingress.basicAuth.realm }}
+    nginx.ingress.kubernetes.io/auth-secret: {{ .Values.ingressSouth.basicAuth.existingBasicAuthSecret }}
+    nginx.ingress.kubernetes.io/auth-realm: {{ .Values.ingressSouth.basicAuth.realm }}
   {{- end }}
-  {{- with .Values.ingress.annotations }}
+  {{- with .Values.ingressSouth.annotations }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  {{- with .Values.ingress.className }}
+  {{- with .Values.ingressSouth.className }}
   ingressClassName: {{ . }}
   {{- end }}
-  {{- if .Values.ingress.tls }}
+  {{- if .Values.ingressSouth.tls }}
   tls:
-    {{- range .Values.ingress.tls }}
+    {{- range .Values.ingressSouth.tls }}
     - hosts:
         {{- range .hosts }}
         - {{ . | quote }}
@@ -34,7 +34,7 @@ spec:
     {{- end }}
   {{- end }}
   rules:
-    {{- range .Values.ingress.hosts }}
+    {{- range .Values.ingressSouth.hosts }}
     - host: {{ .host | quote }}
       http:
         paths:
@@ -47,7 +47,7 @@ spec:
               service:
                 name: {{ include "control-plane.fullname" $ }}
                 port:
-                  number: {{ $.Values.service.north.port }}
+                  number: {{ $.Values.service.south.port }}
           {{- end }}
     {{- end }}
 {{- end }}

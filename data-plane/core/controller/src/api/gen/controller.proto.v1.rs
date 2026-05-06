@@ -83,6 +83,10 @@ pub struct Subscription {
     pub connection_id: ::prost::alloc::string::String,
     #[prost(string, optional, tag = "6")]
     pub node_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "7")]
+    pub link_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(enumeration = "ConnectionDirection", optional, tag = "8")]
+    pub direction: ::core::option::Option<i32>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SubscriptionAck {
@@ -101,6 +105,8 @@ pub struct ConfigurationCommand {
     pub subscriptions_to_set: ::prost::alloc::vec::Vec<Subscription>,
     #[prost(message, repeated, tag = "3")]
     pub subscriptions_to_delete: ::prost::alloc::vec::Vec<Subscription>,
+    #[prost(string, repeated, tag = "4")]
+    pub connections_to_delete: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ConfigurationCommandAck {
@@ -152,6 +158,10 @@ pub struct ConnectionEntry {
     pub connection_type: i32,
     #[prost(string, tag = "3")]
     pub config_data: ::prost::alloc::string::String,
+    #[prost(string, optional, tag = "4")]
+    pub link_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(enumeration = "ConnectionDirection", tag = "5")]
+    pub direction: i32,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ConnectionListRequest {}
@@ -296,6 +306,32 @@ impl ConnectionType {
         match value {
             "CONNECTION_TYPE_LOCAL" => Some(Self::Local),
             "CONNECTION_TYPE_REMOTE" => Some(Self::Remote),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ConnectionDirection {
+    Outgoing = 0,
+    Incoming = 1,
+}
+impl ConnectionDirection {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Outgoing => "CONNECTION_DIRECTION_OUTGOING",
+            Self::Incoming => "CONNECTION_DIRECTION_INCOMING",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "CONNECTION_DIRECTION_OUTGOING" => Some(Self::Outgoing),
+            "CONNECTION_DIRECTION_INCOMING" => Some(Self::Incoming),
             _ => None,
         }
     }

@@ -202,19 +202,6 @@ var _ = Describe("Routing", func() {
 			Expect(routeListOutputA).To(ContainSubstring("org/default/b1"))
 			Expect(routeListOutputA).To(ContainSubstring("org/default/b2"))
 
-			// test listing connections for node a
-			connectionListOutA := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
-				return exec.Command(
-					slimctlPath,
-					"controller", "connection", "list",
-					"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
-					"-n", "slim/a",
-				)
-			})
-
-			connectionOutputA := string(connectionListOutA)
-			Expect(connectionOutputA).To(ContainSubstring(fmt.Sprintf(":%d", dataPlaneBPort)))
-
 			// test listing routes for node b
 			routeListOutB := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
 				return exec.Command(
@@ -228,18 +215,19 @@ var _ = Describe("Routing", func() {
 			routeListOutputB := string(routeListOutB)
 			Expect(routeListOutputB).To(ContainSubstring("org/default/a"))
 
-			// test listing connections for node b
-			connectionListOutB := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
+			// test there's a link from node b to node a
+			listLinksOut := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
 				return exec.Command(
 					slimctlPath,
-					"controller", "connection", "list",
+					"controller", "link", "outline",
 					"-s", fmt.Sprintf("127.0.0.1:%d", controlPlaneNorthPort),
-					"-n", "slim/b",
 				)
 			})
-
-			connectionOutputB := string(connectionListOutB)
-			Expect(connectionOutputB).To(ContainSubstring(fmt.Sprintf(":%d", dataPlaneAPort)))
+			listLinksOutStr := string(listLinksOut)
+			Expect(listLinksOutStr).To(ContainSubstring("Number of links: 1"))
+			Expect(listLinksOutStr).To(MatchRegexp(
+				`(?m)^\s*[0-9a-f-]{36}\s+slim/a\s+slim/b\s+http://127\.0\.0\.1:\d+\s+APPLIED\s+-\s+No\s+\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\s*$`,
+			))
 
 			terminateSession(clientBSession, 2*time.Second)
 			terminateSession(clientCSession, 2*time.Second)

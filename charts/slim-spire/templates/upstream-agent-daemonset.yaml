@@ -1,0 +1,145 @@
+{{- $upstreamAgent := index .Values "upstream-spire-agent" }}
+{{- $joinToken := $upstreamAgent.joinToken | default dict }}
+{{- if $joinToken.enabled }}
+{{- $secretName := "" }}
+{{- $secretKey := "token" }}
+{{- if $joinToken.enabled }}
+  {{- $existingSecret := $joinToken.existingSecret | default dict }}
+  {{- if $existingSecret.name }}
+    {{- $secretName = $existingSecret.name }}
+    {{- $secretKey = $existingSecret.key | default "token" }}
+  {{- else if $joinToken.value }}
+    {{- $secretName = printf "%s-upstream-join-token" .Release.Name }}
+  {{- else }}
+    {{- fail "upstream-spire-agent.joinToken: either .value or .existingSecret.name must be set when joinToken.enabled is true" }}
+  {{- end }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ printf "%s-agent-upstream" .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: default
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/name: agent-upstream
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: default
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/name: agent-upstream
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: spire-agent
+        checksum/config: {{ include (print $.Template.BasePath "/upstream-agent-config-override.yaml") . | sha256sum | quote }}
+      labels:
+        app.kubernetes.io/component: default
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/name: agent-upstream
+    spec:
+      hostPID: true
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      serviceAccountName: {{ $upstreamAgent.serviceAccount.name }}
+      initContainers:
+        - name: ensure-alternate-names
+          image: cgr.dev/chainguard/bash:latest@sha256:3a1830320b1d57167a7317fcd6efd8c72cd872440da8055fa25730d600c9c39a
+          imagePullPolicy: IfNotPresent
+          command: ["bash", "-xc"]
+          args:
+            - |
+              cd /run/spire/agent-sockets-upstream
+              L=`readlink socket`
+              [ "x$L" != "xspire-agent.sock" ] && rm -f socket
+              [ ! -L socket ] && ln -s spire-agent.sock socket
+              L=`readlink api.sock`
+              [ "x$L" != "xspire-agent.sock" ] && rm -f api.sock
+              [ ! -L api.sock ] && ln -s spire-agent.sock api.sock
+              [ -L spire-agent.sock ] && rm -f spire-agent.sock
+              exit 0
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          volumeMounts:
+            - name: spire-agent-socket-dir
+              mountPath: /run/spire/agent-sockets-upstream
+      containers:
+        - name: upstream-spire-agent
+          image: ghcr.io/spiffe/spire-agent:{{ .Chart.AppVersion }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - -config
+            - /opt/spire/conf/agent/agent.conf
+            {{- if $joinToken.enabled }}
+            - -joinTokenFile
+            - /run/spire/upstream-bootstrap/token
+            {{- end }}
+          env:
+            - name: PATH
+              value: /opt/spire/bin:/bin
+            {{- if $upstreamAgent.extraEnvVars }}
+{{ toYaml $upstreamAgent.extraEnvVars | indent 12 }}
+            {{- end }}
+          ports:
+            - containerPort: {{ default 9981 $upstreamAgent.healthChecks.port }}
+              name: healthz
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: healthz
+            initialDelaySeconds: 15
+            periodSeconds: 60
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: healthz
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          volumeMounts:
+            - name: spire-config
+              mountPath: /opt/spire/conf/agent
+              readOnly: true
+            - name: spire-agent-persistence
+              mountPath: /var/lib/spire
+            - name: spire-agent-socket-dir
+              mountPath: /tmp/spire-agent/public
+            - name: spire-token
+              mountPath: /var/run/secrets/tokens
+            {{- if $joinToken.enabled }}
+            - name: upstream-bootstrap
+              mountPath: /run/spire/upstream-bootstrap
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: spire-config
+          configMap:
+            name: {{ printf "%s-agent-upstream" .Release.Name }}
+        - name: spire-agent-persistence
+          hostPath:
+            path: {{ printf "%s/upstream.csi.spiffe.io" $upstreamAgent.persistence.hostPath }}
+            type: DirectoryOrCreate
+        - name: spire-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: spire-agent
+                  expirationSeconds: 7200
+                  audience: spire-server
+        - name: spire-agent-socket-dir
+          hostPath:
+            path: /run/spire/agent-sockets-upstream
+            type: DirectoryOrCreate
+        {{- if $joinToken.enabled }}
+        - name: upstream-bootstrap
+          secret:
+            secretName: {{ $secretName }}
+            items:
+              - key: {{ $secretKey }}
+                path: token
+        {{- end }}
+{{- end }}

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-version: '3'
+version: "3"
 
 silent: true
 set: [pipefail]
@@ -37,6 +37,8 @@ tasks:
     desc: "Lint the Python bindings"
     deps:
       - python:bindings:devdeps
+    aliases:
+      - lint
     cmds:
       - uv sync --group linting
       - uv run ruff check
@@ -45,6 +47,8 @@ tasks:
 
   python:bindings:build:
     desc: "Build the Python bindings using Maturin"
+    aliases:
+      - generate
     vars:
       PROFILE: '{{.PROFILE | default "debug"}}'
       RELEASE:
@@ -60,6 +64,8 @@ tasks:
 
   python:bindings:test:
     desc: "Test the Python bindings"
+    aliases:
+      - test
     deps:
       - python:bindings:build
     cmds:
@@ -74,6 +80,8 @@ tasks:
       - tools:zig
     vars:
       INTERPRETERS: '{{.INTERPRETERS | default "3.10 3.11 3.12 3.13 3.14"}}'
+    aliases:
+      - build
     cmds:
       - |
         # Force aarch64 Python on Windows ARM64, as uv defaults to x86_64 even on ARM64
@@ -228,6 +236,8 @@ tasks:
 
   python:bindings:clean:
     desc: Clean build artifacts
+    aliases:
+      - clean
     cmds:
       - echo "Cleaning build artifacts..."
       - uv pip uninstall -y slim-bindings 2>/dev/null || true
@@ -265,7 +275,7 @@ tasks:
       - task: python:bindings:build
       - task: python:bindings:install-examples
 
-  python:examples:server:
+  examples:server:
     desc: "Run the server example"
     deps:
       - python:build
@@ -276,7 +286,7 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python:examples:p2p:alice:
+  examples:p2p:alice:
     desc: "Point to Point example - Alice will listen for messages and echo them"
     deps:
       - python:build
@@ -288,7 +298,7 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python:examples:p2p:no-mls:bob:
+  examples:p2p:no-mls:bob:
     desc: "Point to Point example - Bob will send unencrypted messages to Alice"
     deps:
       - python:build
@@ -304,7 +314,7 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python:examples:p2p:mls:bob:
+  examples:p2p:mls:bob:
     desc: "Point to Point example - Bob will send encrypted messages to Alice"
     deps:
       - python:build
@@ -321,7 +331,7 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python:examples:group:moderator:
+  examples:group:moderator:
     desc: "group moderator example - Creates a channel, invites participants, and sends encrypted messages"
     deps:
       - python:build
@@ -337,7 +347,7 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python:examples:group:client-1:
+  examples:group:client-1:
     desc: "Group client example - Waits to be invited to a channel and receives encrypted messages"
     deps:
       - python:build
@@ -349,7 +359,7 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python:examples:group:client-2:
+  examples:group:client-2:
     desc: "Group client example - Waits to be invited to a channel and receives encrypted messages"
     deps:
       - python:build
@@ -361,7 +371,7 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python:examples:rpc:server:
+  examples:rpc:server:
     desc: "Run the SlimRPC server example"
     deps:
       - python:build
@@ -382,7 +392,7 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
-  python:examples:rpc:group-client:
+  examples:rpc:group-client:
     desc: "Run the SlimRPC group (multicast) client example"
     deps:
       - python:build
