@@ -137,7 +137,6 @@ pub(crate) fn prepare_fanout_msg(
         return;
     }
 
-    msg.clear_slim_header();
     let parent = extract_parent_context(msg);
     let span = create_span(
         function,
