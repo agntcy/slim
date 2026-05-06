@@ -1475,7 +1475,7 @@ mod tests {
 
     #[test]
     fn latency_report_percentiles() {
-        let samples: Vec<Duration> = (1..=100).map(|i| Duration::from_micros(i)).collect();
+        let samples: Vec<Duration> = (1..=100).map(Duration::from_micros).collect();
         let lr = LatencyReport::new(samples);
         assert_eq!(lr.percentile(50.0), Duration::from_micros(50));
         assert_eq!(lr.percentile(99.0), Duration::from_micros(99));
