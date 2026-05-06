@@ -280,12 +280,20 @@ impl Sample {
 
     fn rate(&self) -> f64 {
         let s = self.duration().as_secs_f64();
-        if s == 0.0 { 0.0 } else { self.job_msg_cnt as f64 / s }
+        if s == 0.0 {
+            0.0
+        } else {
+            self.job_msg_cnt as f64 / s
+        }
     }
 
     fn throughput(&self) -> f64 {
         let s = self.duration().as_secs_f64();
-        if s == 0.0 { 0.0 } else { self.msg_bytes as f64 / s }
+        if s == 0.0 {
+            0.0
+        } else {
+            self.msg_bytes as f64 / s
+        }
     }
 }
 
@@ -351,20 +359,34 @@ impl SampleGroup {
 
     fn aggregate_rate(&self) -> f64 {
         let s = self.window_duration().as_secs_f64();
-        if s == 0.0 { 0.0 } else { self.total_msgs as f64 / s }
+        if s == 0.0 {
+            0.0
+        } else {
+            self.total_msgs as f64 / s
+        }
     }
 
     fn aggregate_throughput(&self) -> f64 {
         let s = self.window_duration().as_secs_f64();
-        if s == 0.0 { 0.0 } else { self.total_bytes as f64 / s }
+        if s == 0.0 {
+            0.0
+        } else {
+            self.total_bytes as f64 / s
+        }
     }
 
     fn min_rate(&self) -> f64 {
-        self.samples.iter().map(|s| s.rate()).fold(f64::MAX, f64::min)
+        self.samples
+            .iter()
+            .map(|s| s.rate())
+            .fold(f64::MAX, f64::min)
     }
 
     fn max_rate(&self) -> f64 {
-        self.samples.iter().map(|s| s.rate()).fold(f64::MIN, f64::max)
+        self.samples
+            .iter()
+            .map(|s| s.rate())
+            .fold(f64::MIN, f64::max)
     }
 
     fn avg_rate(&self) -> f64 {
@@ -379,7 +401,9 @@ impl SampleGroup {
             return 0.0;
         }
         let avg = self.avg_rate();
-        let variance = self.samples.iter()
+        let variance = self
+            .samples
+            .iter()
             .map(|s| (s.rate() - avg).powi(2))
             .sum::<f64>()
             / self.samples.len() as f64;
@@ -418,18 +442,22 @@ impl SampleGroup {
     }
 
     fn csv_rows(&self, run_id: &str, client_prefix: &str) -> String {
-        self.samples.iter().enumerate().map(|(i, s)| {
-            format!(
-                "{},{}{},{},{},{:.0},{:.2}\n",
-                run_id,
-                client_prefix,
-                i + 1,
-                s.msg_cnt,
-                s.msg_bytes,
-                s.rate(),
-                s.throughput(),
-            )
-        }).collect()
+        self.samples
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                format!(
+                    "{},{}{},{},{},{:.0},{:.2}\n",
+                    run_id,
+                    client_prefix,
+                    i + 1,
+                    s.msg_cnt,
+                    s.msg_bytes,
+                    s.rate(),
+                    s.throughput(),
+                )
+            })
+            .collect()
     }
 }
 
@@ -483,11 +511,19 @@ fn parse_prefix(prefix: &str) -> Result<(String, String)> {
 }
 
 fn make_sub_name(org: &str, ns: &str, i: usize) -> Arc<Name> {
-    Arc::new(Name::new(org.to_string(), ns.to_string(), format!("sub-{i}")))
+    Arc::new(Name::new(
+        org.to_string(),
+        ns.to_string(),
+        format!("sub-{i}"),
+    ))
 }
 
 fn make_pub_name(org: &str, ns: &str, i: usize) -> Arc<Name> {
-    Arc::new(Name::new(org.to_string(), ns.to_string(), format!("pub-{i}")))
+    Arc::new(Name::new(
+        org.to_string(),
+        ns.to_string(),
+        format!("pub-{i}"),
+    ))
 }
 
 fn make_channel_name(org: &str, ns: &str) -> Arc<Name> {
@@ -527,13 +563,19 @@ async fn run_sub(args: &BenchSubArgs) -> Result<()> {
     let msgs_per_worker = if args.msgs == 0 {
         0u64
     } else {
-        let base = args.msgs / args.count as u64;
         // workers may get slightly different counts, we'll assign per-worker below
-        base
+        args.msgs / args.count as u64
     };
-    let extra = if args.msgs == 0 { 0 } else { args.msgs % args.count as u64 };
+    let extra = if args.msgs == 0 {
+        0
+    } else {
+        args.msgs % args.count as u64
+    };
 
-    println!("SLIM Bench Sub: {} worker(s) on {}", args.count, args.server);
+    println!(
+        "SLIM Bench Sub: {} worker(s) on {}",
+        args.count, args.server
+    );
     println!(
         "  Listening at {}/{}/sub-0..sub-{}",
         org,
@@ -541,7 +583,10 @@ async fn run_sub(args: &BenchSubArgs) -> Result<()> {
         args.count - 1
     );
     if args.msgs > 0 {
-        println!("  Expecting {} total messages", comma_format(args.msgs as i64));
+        println!(
+            "  Expecting {} total messages",
+            comma_format(args.msgs as i64)
+        );
     } else {
         println!("  Running until Ctrl+C");
     }
@@ -570,7 +615,9 @@ async fn run_sub(args: &BenchSubArgs) -> Result<()> {
 
         let handle = tokio::spawn(async move {
             match run_sub_worker(i, &org, &ns, &secret, conn_id, job_cnt, size, reply).await {
-                Ok(sample) => { let _ = tx.send(sample).await; }
+                Ok(sample) => {
+                    let _ = tx.send(sample).await;
+                }
                 Err(e) => eprintln!("[sub-{i}] error: {e:#}"),
             }
         });
@@ -605,6 +652,7 @@ async fn run_sub(args: &BenchSubArgs) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_sub_worker(
     i: usize,
     org: &str,
@@ -660,28 +708,23 @@ async fn run_sub_worker(
     let mut msg_cnt = 0u64;
     let mut msg_bytes = 0u64;
 
-    loop {
-        match session.get_message_async(Some(recv_timeout)).await {
-            Ok(msg) => {
-                if start.is_none() {
-                    start = Some(Instant::now());
-                }
-                msg_bytes += msg.payload.len() as u64;
-                msg_cnt += 1;
+    while let Ok(msg) = session.get_message_async(Some(recv_timeout)).await {
+        if start.is_none() {
+            start = Some(Instant::now());
+        }
+        msg_bytes += msg.payload.len() as u64;
+        msg_cnt += 1;
 
-                if reply {
-                    // Echo the payload back to the sender.
-                    let payload = msg.payload.clone();
-                    let _ = session
-                        .publish_to_and_wait_async(msg.context, payload, None, None)
-                        .await;
-                }
+        if reply {
+            // Echo the payload back to the sender.
+            let payload = msg.payload.clone();
+            let _ = session
+                .publish_to_and_wait_async(msg.context, payload, None, None)
+                .await;
+        }
 
-                if job_msg_cnt > 0 && msg_cnt >= job_msg_cnt {
-                    break;
-                }
-            }
-            Err(_) => break, // timeout or session closed
+        if job_msg_cnt > 0 && msg_cnt >= job_msg_cnt {
+            break;
         }
     }
 
@@ -695,7 +738,11 @@ async fn run_sub_worker(
     }
 
     Ok(Sample {
-        job_msg_cnt: if job_msg_cnt == 0 { msg_cnt } else { job_msg_cnt },
+        job_msg_cnt: if job_msg_cnt == 0 {
+            msg_cnt
+        } else {
+            job_msg_cnt
+        },
         msg_cnt,
         msg_bytes,
         start,
@@ -718,7 +765,10 @@ async fn run_pub(args: &BenchPubArgs) -> Result<()> {
     let base = args.msgs / args.count as u64;
     let extra = args.msgs % args.count as u64;
 
-    println!("SLIM Bench Pub: {} publisher(s) on {}", args.count, args.server);
+    println!(
+        "SLIM Bench Pub: {} publisher(s) on {}",
+        args.count, args.server
+    );
     println!("  Total messages : {}", comma_format(args.msgs as i64));
     println!("  Payload size   : {} bytes", args.size);
     if args.request {
@@ -748,7 +798,9 @@ async fn run_pub(args: &BenchPubArgs) -> Result<()> {
 
         let handle = tokio::spawn(async move {
             match run_pub_worker(i, &org, &ns, &secret, conn_id, msgs, p, request).await {
-                Ok((sample, latencies)) => { let _ = tx.send((sample, latencies)).await; }
+                Ok((sample, latencies)) => {
+                    let _ = tx.send((sample, latencies)).await;
+                }
                 Err(e) => eprintln!("[pub-{i}] error: {e:#}"),
             }
         });
@@ -790,6 +842,7 @@ async fn run_pub(args: &BenchPubArgs) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_pub_worker(
     i: usize,
     org: &str,
@@ -1034,19 +1087,14 @@ async fn run_channel_sub_worker(
     let mut msg_cnt = 0u64;
     let mut msg_bytes = 0u64;
 
-    loop {
-        match session.get_message_async(Some(recv_timeout)).await {
-            Ok(msg) => {
-                if start.is_none() {
-                    start = Some(Instant::now());
-                }
-                msg_bytes += msg.payload.len() as u64;
-                msg_cnt += 1;
-                if job_msg_cnt > 0 && msg_cnt >= job_msg_cnt {
-                    break;
-                }
-            }
-            Err(_) => break,
+    while let Ok(msg) = session.get_message_async(Some(recv_timeout)).await {
+        if start.is_none() {
+            start = Some(Instant::now());
+        }
+        msg_bytes += msg.payload.len() as u64;
+        msg_cnt += 1;
+        if job_msg_cnt > 0 && msg_cnt >= job_msg_cnt {
+            break;
         }
     }
 
@@ -1058,7 +1106,11 @@ async fn run_channel_sub_worker(
     }
 
     Ok(Sample {
-        job_msg_cnt: if job_msg_cnt == 0 { msg_cnt } else { job_msg_cnt },
+        job_msg_cnt: if job_msg_cnt == 0 {
+            msg_cnt
+        } else {
+            job_msg_cnt
+        },
         msg_cnt,
         msg_bytes,
         start,
@@ -1092,7 +1144,17 @@ async fn run_channel_pub(args: &BenchChannelPubArgs) -> Result<()> {
         .await
         .context("connect to server failed")?;
 
-    match run_channel_pub_worker(&org, &ns, &args.secret, conn_id, args.count, args.msgs, payload).await {
+    match run_channel_pub_worker(
+        &org,
+        &ns,
+        &args.secret,
+        conn_id,
+        args.count,
+        args.msgs,
+        payload,
+    )
+    .await
+    {
         Ok(sample) => {
             let mut group = SampleGroup::new();
             group.add(sample);
@@ -1140,9 +1202,7 @@ async fn run_channel_pub_worker(
             .context("set route to subscriber failed")?;
     }
 
-    println!(
-        "[ch-pub] subscribed {own_name} — creating group session on {channel_name}..."
-    );
+    println!("[ch-pub] subscribed {own_name} — creating group session on {channel_name}...");
 
     let session_config = SessionConfig {
         session_type: SessionType::Group,
@@ -1187,9 +1247,7 @@ async fn run_channel_pub_worker(
         println!("[ch-pub] {sub_name} joined");
     }
 
-    println!(
-        "[ch-pub] all {sub_count} subscriber(s) joined — publishing {msg_count} messages"
-    );
+    println!("[ch-pub] all {sub_count} subscriber(s) joined — publishing {msg_count} messages");
 
     let start = Instant::now();
     let msg_bytes = msg_count * payload.len() as u64;
@@ -1261,7 +1319,7 @@ fn parse_byte_size(s: &str) -> Result<usize, String> {
         other => {
             return Err(format!(
                 "unknown size unit: '{other}' (use b/kb/mb/gb or kib/mib/gib)"
-            ))
+            ));
         }
     };
     usize::try_from(n * multiplier).map_err(|_| format!("size too large: '{s}'"))
