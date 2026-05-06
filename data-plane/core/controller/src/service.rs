@@ -1788,6 +1788,37 @@ impl ControllerService {
                     });
                 });
 
+            let active_routes = {
+                let conn_id_to_link_id: HashMap<u64, String> = this
+                    .inner
+                    .link_id_to_conn_id
+                    .read()
+                    .iter()
+                    .map(|(lid, cid)| (*cid, lid.clone()))
+                    .collect();
+                this.inner
+                    .route_subscription_ids
+                    .lock()
+                    .iter()
+                    .map(|((name, conn_id), _sub_id)| {
+                        let strings = name.components_strings();
+                        let id = name.id();
+                        v1::Route {
+                            component_0: strings[0].clone(),
+                            component_1: strings[1].clone(),
+                            component_2: strings[2].clone(),
+                            id: if id != Name::NULL_COMPONENT {
+                                Some(id)
+                            } else {
+                                None
+                            },
+                            link_id: conn_id_to_link_id.get(conn_id).cloned(),
+                            direction: None,
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            };
+
             let register_request = ControlMessage {
                 message_id: uuid::Uuid::new_v4().to_string(),
                 payload: Some(Payload::RegisterNodeRequest(v1::RegisterNodeRequest {
@@ -1795,6 +1826,7 @@ impl ControllerService {
                     group_name: this.inner.group_name.clone(),
                     connection_details: this.inner.connection_details.clone(),
                     connections: active_connections,
+                    routes: active_routes,
                 })),
             };
 
@@ -1806,7 +1838,74 @@ impl ControllerService {
                 return;
             }
 
-            // TODO; here we should wait for an ack
+            // Send queued notifications after the register request so that
+            // RegisterNodeRequest is always the first message on the stream.
+            this.send_queued_notifications(&tx, &endpoint).await;
+
+            // Wait for RegisterNodeResponse from control plane before processing commands.
+            if config.is_some() {
+                let registration_result = tokio::time::timeout(
+                    Duration::from_secs(10),
+                    async {
+                        loop {
+                            tokio::select! {
+                                next = stream.next() => {
+                                    match next {
+                                        Some(Ok(msg)) => {
+                                            if let Some(Payload::RegisterNodeResponse(resp)) = msg.payload {
+                                                if resp.success {
+                                                    info!(
+                                                        connections = resp.connections.len(),
+                                                        routes = resp.routes.len(),
+                                                        "registration acknowledged by control plane"
+                                                    );
+                                                    return Ok(resp);
+                                                } else {
+                                                    return Err("registration rejected by control plane".to_string());
+                                                }
+                                            }
+                                        }
+                                        Some(Err(_)) => return Err("stream error waiting for registration response".to_string()),
+                                        None => return Err("stream closed before registration response".to_string()),
+                                    }
+                                }
+                                _ = cancellation_token.cancelled() => {
+                                    return Err("cancelled while waiting for registration response".to_string());
+                                }
+                            }
+                        }
+                    }
+                ).await;
+
+                match registration_result {
+                    Ok(Ok(resp)) => {
+                        // Apply initial desired state from the control plane.
+                        if !resp.connections.is_empty() || !resp.routes.is_empty() {
+                            let init_cmd = ControlMessage {
+                                message_id: uuid::Uuid::new_v4().to_string(),
+                                payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
+                                    connections_to_create: resp.connections,
+                                    routes_to_set: resp.routes,
+                                    routes_to_delete: vec![],
+                                    connections_to_delete: vec![],
+                                    reconcile: true,
+                                })),
+                            };
+                            if let Err(e) = this.handle_new_control_message(init_cmd, &tx).await {
+                                error!(error = %e.chain(), "failed to apply initial state from registration");
+                            }
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        error!(%e, "registration handshake failed");
+                        return;
+                    }
+                    Err(_) => {
+                        error!("registration handshake timed out");
+                        return;
+                    }
+                }
+            }
 
             let mut drain_fut = std::pin::pin!(watch.clone().signaled());
 
@@ -1955,8 +2054,6 @@ impl ControllerService {
         let stream = client
             .open_control_channel(Request::new(out_stream))
             .await?;
-
-        self.send_queued_notifications(&tx, &config.endpoint).await;
 
         let timer_settings = TimerSettings::new(
             Duration::from_millis(2000),

@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use tokio::sync::{Mutex, RwLock, mpsc};
@@ -74,10 +75,12 @@ fn original_message_id(payload: &Payload) -> Option<&str> {
 type PendingKey = (String, MessageKind, String); // (node_id, kind, original_msg_id)
 type StreamTx = tokio::sync::mpsc::UnboundedSender<Result<ControlMessage, Status>>;
 
-#[derive(Default)]
 struct Inner {
-    /// control stream towards a node
-    streams: RwLock<HashMap<String, StreamTx>>,
+    /// control stream towards a node, with a generation counter to detect stale removals
+    streams: RwLock<HashMap<String, (StreamTx, u64)>>,
+
+    /// monotonically increasing counter assigned to each stream registration
+    stream_epoch: AtomicU64,
 
     /// node statuses
     statuses: RwLock<HashMap<String, NodeStatus>>,
@@ -86,33 +89,63 @@ struct Inner {
     pending: Mutex<HashMap<PendingKey, mpsc::UnboundedSender<ControlMessage>>>,
 }
 
+impl Default for Inner {
+    fn default() -> Self {
+        Self {
+            streams: RwLock::new(HashMap::new()),
+            stream_epoch: AtomicU64::new(0),
+            statuses: RwLock::new(HashMap::new()),
+            pending: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
 /// Thread-safe handler for per-node bidirectional gRPC streams.
 #[derive(Clone, Default)]
 pub struct DefaultNodeCommandHandler(Arc<Inner>);
 
 impl DefaultNodeCommandHandler {
     pub fn new() -> Self {
-        Self(Arc::new(Inner {
-            streams: RwLock::new(HashMap::new()),
-            statuses: RwLock::new(HashMap::new()),
-            pending: Mutex::new(HashMap::new()),
-        }))
+        Self(Arc::new(Inner::default()))
     }
 }
 
 impl DefaultNodeCommandHandler {
-    pub async fn add_stream(&self, node_id: &str, tx: StreamTx) {
-        self.0.streams.write().await.insert(node_id.to_string(), tx);
+    /// Register a stream for a node, returning the epoch (generation) of this
+    /// registration. Pass the epoch to `remove_stream` so stale cleanup from a
+    /// previous connection doesn't remove a newer stream.
+    pub async fn add_stream(&self, node_id: &str, tx: StreamTx) -> u64 {
+        let epoch = self.0.stream_epoch.fetch_add(1, Ordering::Relaxed) + 1;
+        self.0
+            .streams
+            .write()
+            .await
+            .insert(node_id.to_string(), (tx, epoch));
         self.update_connection_status(node_id, NodeStatus::Connected)
             .await;
+        epoch
     }
 
-    pub async fn remove_stream(&self, node_id: &str) -> Result<()> {
-        if self.0.streams.write().await.remove(node_id).is_none() {
-            return Err(Error::StreamNotFound {
-                node_id: node_id.to_string(),
-            });
+    /// Remove a stream only if its epoch matches the currently registered one.
+    /// This prevents a stale cleanup task from removing a newer stream that
+    /// replaced it during a rapid reconnect.
+    pub async fn remove_stream(&self, node_id: &str, epoch: u64) -> Result<()> {
+        let mut streams = self.0.streams.write().await;
+        match streams.get(node_id) {
+            Some((_, current_epoch)) if *current_epoch == epoch => {
+                streams.remove(node_id);
+            }
+            Some(_) => {
+                // A newer stream has been registered; skip cleanup.
+                return Ok(());
+            }
+            None => {
+                return Err(Error::StreamNotFound {
+                    node_id: node_id.to_string(),
+                });
+            }
         }
+        drop(streams);
         self.update_connection_status(node_id, NodeStatus::NotConnected)
             .await;
         {
@@ -155,7 +188,7 @@ impl DefaultNodeCommandHandler {
         }
 
         let streams = self.0.streams.read().await;
-        let tx = streams.get(node_id).ok_or_else(|| Error::StreamNotFound {
+        let (tx, _) = streams.get(node_id).ok_or_else(|| Error::StreamNotFound {
             node_id: node_id.to_string(),
         })?;
 
@@ -348,15 +381,30 @@ mod tests {
     async fn remove_stream_prunes_status() {
         let h = make_handler();
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-        h.add_stream("node1", tx).await;
-        h.remove_stream("node1").await.unwrap();
+        let epoch = h.add_stream("node1", tx).await;
+        h.remove_stream("node1", epoch).await.unwrap();
         assert_eq!(h.get_connection_status("node1").await, NodeStatus::Unknown);
+    }
+
+    #[tokio::test]
+    async fn remove_stream_stale_epoch_is_noop() {
+        let h = make_handler();
+        let (tx1, _rx1) = tokio::sync::mpsc::unbounded_channel();
+        let epoch1 = h.add_stream("node1", tx1).await;
+        let (tx2, _rx2) = tokio::sync::mpsc::unbounded_channel();
+        let _epoch2 = h.add_stream("node1", tx2).await;
+        // Removing with the old epoch should be a no-op.
+        h.remove_stream("node1", epoch1).await.unwrap();
+        assert_eq!(
+            h.get_connection_status("node1").await,
+            NodeStatus::Connected
+        );
     }
 
     #[tokio::test]
     async fn remove_stream_missing_returns_error() {
         let h = make_handler();
-        assert!(h.remove_stream("ghost").await.is_err());
+        assert!(h.remove_stream("ghost", 1).await.is_err());
     }
 
     #[tokio::test]

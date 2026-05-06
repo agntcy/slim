@@ -1,6 +1,9 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 use std::time::Duration;
 
 use tokio::sync::mpsc;
@@ -9,19 +12,23 @@ use tonic::{Request, Response, Status, Streaming};
 use uuid::Uuid;
 
 use crate::api::proto::controller::proto::v1::{
-    Ack, ControlMessage, control_message::Payload, controller_service_server::ControllerService,
+    Connection, ControlMessage, RegisterNodeResponse, Route as ProtoRoute,
+    control_message::Payload, controller_service_server::ControllerService,
 };
-use crate::db::{ConnectionDetails, Node, SharedDb};
+use crate::db::{ConnectionDetails, LinkStatus, Node, RouteStatus, SharedDb};
 use crate::error::{Error, Result};
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus};
 use crate::route_service::{ALL_NODES_ID, Route, RouteService};
 
 const REGISTER_TIMEOUT_SECS: u64 = 15;
 
+pub type SharedDrain = Arc<Mutex<Option<drain::Watch>>>;
+
 pub struct SouthboundApiService {
     db: SharedDb,
     cmd_handler: DefaultNodeCommandHandler,
     route_service: RouteService,
+    drain: SharedDrain,
 }
 
 impl SouthboundApiService {
@@ -29,11 +36,13 @@ impl SouthboundApiService {
         db: SharedDb,
         cmd_handler: DefaultNodeCommandHandler,
         route_service: RouteService,
+        drain: SharedDrain,
     ) -> Self {
         Self {
             db,
             cmd_handler,
             route_service,
+            drain,
         }
     }
 }
@@ -55,22 +64,13 @@ impl ControllerService for SouthboundApiService {
 
         let (tx, rx) = mpsc::unbounded_channel::<Result<ControlMessage, Status>>();
 
-        // Send initial ACK to acknowledge the connection.
-        let init_ack = ControlMessage {
-            message_id: Uuid::new_v4().to_string(),
-            payload: Some(Payload::Ack(Ack {
-                success: true,
-                ..Default::default()
-            })),
-        };
-        tx.send(Ok(init_ack)).ok();
-
         let db = self.db.clone();
         let cmd_handler = self.cmd_handler.clone();
         let route_service = self.route_service.clone();
+        let drain = self.drain.lock().clone();
 
         tokio::spawn(async move {
-            let registered_node_id = match receive_register(
+            let (registered_node_id, stream_epoch) = match receive_register(
                 &mut stream,
                 &peer_addr,
                 &db,
@@ -80,7 +80,7 @@ impl ControllerService for SouthboundApiService {
             )
             .await
             {
-                Ok(id) => id,
+                Ok(r) => r,
                 Err(e) => {
                     tracing::error!("southbound: registration failed: {e}");
                     return;
@@ -92,7 +92,15 @@ impl ControllerService for SouthboundApiService {
                 return;
             }
 
-            handle_node_messages(stream, &registered_node_id, &cmd_handler, &route_service).await;
+            handle_node_messages(
+                stream,
+                &registered_node_id,
+                stream_epoch,
+                &cmd_handler,
+                &route_service,
+                drain,
+            )
+            .await;
         });
 
         Ok(Response::new(UnboundedReceiverStream::new(rx)))
@@ -100,8 +108,8 @@ impl ControllerService for SouthboundApiService {
 }
 
 /// Wait for the RegisterNodeRequest with a timeout, save the node, register
-/// the stream, and return the node ID. Returns empty string if no register
-/// message arrived.
+/// the stream, and return the (node ID, stream epoch). Returns empty string
+/// and epoch 0 if no register message arrived.
 async fn receive_register(
     stream: &mut Streaming<ControlMessage>,
     peer_host: &str,
@@ -109,7 +117,7 @@ async fn receive_register(
     cmd_handler: &DefaultNodeCommandHandler,
     route_service: &RouteService,
     tx: &mpsc::UnboundedSender<Result<ControlMessage, Status>>,
-) -> Result<String> {
+) -> Result<(String, u64)> {
     let msg = tokio::time::timeout(Duration::from_secs(REGISTER_TIMEOUT_SECS), stream.message())
         .await
         .map_err(|e| {
@@ -119,12 +127,14 @@ async fn receive_register(
 
     let msg = match msg {
         Some(m) => m,
-        None => return Ok(String::new()),
+        None => return Ok((String::new(), 0)),
     };
+
+    let request_message_id = msg.message_id.clone();
 
     let reg_req = match msg.payload {
         Some(Payload::RegisterNodeRequest(r)) => r,
-        _ => return Ok(String::new()),
+        _ => return Ok((String::new(), 0)),
     };
 
     let mut node_id = reg_req.node_id.clone();
@@ -151,39 +161,125 @@ async fn receive_register(
         })
         .await?;
 
-    cmd_handler.add_stream(&node_id, tx.clone()).await;
+    let stream_epoch = cmd_handler.add_stream(&node_id, tx.clone()).await;
 
-    // Acknowledge the registration.
-    let ack = ControlMessage {
+    // Build the current desired state (links + routes) for this node from
+    // what is already in the DB. Send the response BEFORE calling
+    // node_registered so the DP exits its registration wait loop before
+    // the reconciler can send follow-up commands.
+    let connections = build_node_connections(db, route_service, &node_id).await;
+    let routes = build_node_routes(db, &node_id).await;
+
+    let response = ControlMessage {
         message_id: Uuid::new_v4().to_string(),
-        payload: Some(Payload::Ack(Ack {
+        payload: Some(Payload::RegisterNodeResponse(RegisterNodeResponse {
+            original_message_id: request_message_id,
             success: true,
-            messages: vec!["Node registered successfully".to_string()],
-            ..Default::default()
+            connections,
+            routes,
         })),
     };
-    tx.send(Ok(ack)).ok();
+    tx.send(Ok(response)).ok();
 
+    // Now trigger link/route reconciliation. The DP has already received the
+    // response and entered its event loop, so reconciler messages will be
+    // handled correctly.
     route_service
-        .node_registered(&node_id, conn_details_updated, reg_req.connections)
+        .node_registered(
+            &node_id,
+            conn_details_updated,
+            reg_req.connections,
+            reg_req.routes,
+        )
         .await;
 
-    Ok(node_id)
+    Ok((node_id, stream_epoch))
+}
+
+/// Build desired connections for a node (outgoing links from this node).
+/// Uses the destination node's current endpoint rather than the potentially
+/// stale value stored in the link record.
+async fn build_node_connections(
+    db: &SharedDb,
+    route_service: &RouteService,
+    node_id: &str,
+) -> Vec<Connection> {
+    let mut connections = Vec::new();
+    for link in db.get_links_for_node(node_id).await {
+        if link.source_node_id != node_id || link.status == LinkStatus::Deleted {
+            continue;
+        }
+        if link.link_id.is_empty() {
+            continue;
+        }
+        let mut config = match route_service
+            .get_connection_details(&link.source_node_id, &link.dest_node_id)
+            .await
+        {
+            Ok((_endpoint, cfg)) => cfg,
+            Err(_) => continue,
+        };
+        config.link_id = link.link_id.clone();
+        let config_data = match serde_json::to_string(&config) {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+        connections.push(Connection {
+            link_id: link.link_id.clone(),
+            config_data,
+        });
+    }
+    connections
+}
+
+/// Build desired routes for a node (routes sourced from this node).
+async fn build_node_routes(db: &SharedDb, node_id: &str) -> Vec<ProtoRoute> {
+    let mut routes = Vec::new();
+    for route in db.get_routes_for_node(node_id).await {
+        if route.status == RouteStatus::Deleted || route.link_id.is_empty() {
+            continue;
+        }
+        routes.push(ProtoRoute {
+            component_0: route.component0.clone(),
+            component_1: route.component1.clone(),
+            component_2: route.component2.clone(),
+            id: route.component_id.map(|v| v as u64),
+            link_id: Some(route.link_id.clone()),
+            ..Default::default()
+        });
+    }
+    routes
 }
 
 /// Main message loop after the node has been registered.
 async fn handle_node_messages(
     mut stream: Streaming<ControlMessage>,
     node_id: &str,
+    stream_epoch: u64,
     cmd_handler: &DefaultNodeCommandHandler,
     route_service: &RouteService,
+    drain: Option<drain::Watch>,
 ) {
+    let shutdown = drain.map(|d| d.signaled());
+    tokio::pin!(shutdown);
+
     loop {
-        let msg = match stream.message().await {
-            Ok(Some(m)) => m,
-            Ok(None) => break,
-            Err(e) => {
-                tracing::error!("southbound: stream error for node {node_id}: {e}");
+        let msg = tokio::select! {
+            result = stream.message() => {
+                match result {
+                    Ok(Some(m)) => m,
+                    Ok(None) => break,
+                    Err(e) => {
+                        tracing::error!("southbound: stream error for node {node_id}: {e}");
+                        break;
+                    }
+                }
+            }
+            _ = async { match shutdown.as_mut().as_pin_mut() {
+                Some(fut) => fut.await,
+                None => std::future::pending().await,
+            }} => {
+                tracing::info!("southbound: drain signaled, closing stream for node {node_id}");
                 break;
             }
         };
@@ -242,7 +338,7 @@ async fn handle_node_messages(
                     cmd_handler
                         .update_connection_status(&nid, NodeStatus::NotConnected)
                         .await;
-                    let _ = cmd_handler.remove_stream(&nid).await;
+                    let _ = cmd_handler.remove_stream(&nid, stream_epoch).await;
                     // Clean up DB state for the deregistering node.
                     route_service.node_deregistered(&nid).await;
                     return;
@@ -264,9 +360,9 @@ async fn handle_node_messages(
     }
 
     // Stream ended or errored — mark disconnected and clean up.
-    let _ = cmd_handler.remove_stream(node_id).await;
-    // Clean up the per-node lock entry so node_locks does not grow without
-    // bound for crash-disconnected nodes that never re-register.
+    // Only remove if our epoch is still current (a newer connection may have
+    // already replaced our stream).
+    let _ = cmd_handler.remove_stream(node_id, stream_epoch).await;
     route_service.remove_node_lock(node_id).await;
 }
 

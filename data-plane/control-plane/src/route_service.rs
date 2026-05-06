@@ -344,6 +344,7 @@ impl RouteService {
         node_id: &str,
         conn_details_updated: bool,
         dp_connections: Vec<crate::api::proto::controller::proto::v1::ConnectionEntry>,
+        dp_routes: Vec<crate::api::proto::controller::proto::v1::Route>,
     ) {
         // Serialize with node_deregistered for the same node to prevent a
         // rapid disconnect-reconnect race from leaving stale link records.
@@ -591,6 +592,30 @@ impl RouteService {
 
         self.ensure_routes_for_node(node_id, &node_links, &all_nodes)
             .await;
+
+        // If the DP reported active routes, mark matching DB routes as Applied
+        // so the reconciler doesn't redundantly re-push them.
+        if !dp_routes.is_empty() {
+            let db_routes = self.0.db.get_routes_for_node(node_id).await;
+            for db_route in &db_routes {
+                if db_route.status != RouteStatus::Pending {
+                    continue;
+                }
+                let matched = dp_routes.iter().any(|dp| {
+                    dp.component_0 == db_route.component0
+                        && dp.component_1 == db_route.component1
+                        && dp.component_2 == db_route.component2
+                        && dp.link_id.as_deref() == Some(db_route.link_id.as_str())
+                });
+                if matched && let Err(e) = self.0.db.mark_route_applied(&db_route.id).await {
+                    tracing::warn!(
+                        "node_registered: failed to mark route {} applied: {e}",
+                        db_route.id
+                    );
+                }
+            }
+        }
+
         // Always enqueue the reconnecting node for route reconciliation so that
         // any pending deletes (deleted=true routes) and pending applies are
         // pushed to the data plane immediately, rather than waiting for the link

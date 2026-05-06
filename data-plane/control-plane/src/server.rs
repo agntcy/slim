@@ -9,11 +9,12 @@ use crate::config::Config;
 use crate::node_transport::DefaultNodeCommandHandler;
 use crate::route_service::RouteService;
 use crate::services::northbound::NorthboundApiService;
-use crate::services::southbound::SouthboundApiService;
+use crate::services::southbound::{SharedDrain, SouthboundApiService};
 
 pub struct ControlPlane {
     route_service: RouteService,
     drain_tx: drain::Signal,
+    shared_drain: SharedDrain,
 }
 
 impl ControlPlane {
@@ -24,9 +25,13 @@ impl ControlPlane {
         let route_service = RouteService::new(db.clone(), cmd_handler.clone(), cfg.reconciler);
         let nb_svc =
             NorthboundApiService::new(db.clone(), cmd_handler.clone(), route_service.clone());
-        let sb_svc = SouthboundApiService::new(db, cmd_handler, route_service.clone());
 
         let (drain_tx, drain_rx) = drain::channel();
+
+        let shared_drain: SharedDrain =
+            std::sync::Arc::new(parking_lot::Mutex::new(Some(drain_rx.clone())));
+        let sb_svc =
+            SouthboundApiService::new(db, cmd_handler, route_service.clone(), shared_drain.clone());
 
         cfg.northbound
             .run_server(&[ControlPlaneServiceServer::new(nb_svc)], drain_rx.clone())
@@ -41,11 +46,17 @@ impl ControlPlane {
         Ok(Self {
             route_service,
             drain_tx,
+            shared_drain,
         })
     }
 
     pub async fn shutdown(self) {
-        self.route_service.shutdown().await;
+        // Take the drain watch out of the service before signaling drain.
+        // The service is behind tonic's Arc so it won't be dropped until all
+        // handler tasks exit — but handler tasks need the drain signal to exit.
+        // Taking it here breaks the circular dependency.
+        self.shared_drain.lock().take();
         self.drain_tx.drain().await;
+        self.route_service.shutdown().await;
     }
 }

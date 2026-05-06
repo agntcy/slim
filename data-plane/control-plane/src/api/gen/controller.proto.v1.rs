@@ -194,13 +194,21 @@ pub struct RegisterNodeRequest {
     /// Allows the control plane to reconcile link state without an extra round-trip.
     #[prost(message, repeated, tag = "4")]
     pub connections: ::prost::alloc::vec::Vec<ConnectionEntry>,
+    /// Active routes on the data plane at the time of registration.
+    #[prost(message, repeated, tag = "5")]
+    pub routes: ::prost::alloc::vec::Vec<Route>,
 }
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RegisterNodeResponse {
     #[prost(string, tag = "1")]
     pub original_message_id: ::prost::alloc::string::String,
     #[prost(bool, tag = "2")]
     pub success: bool,
+    /// Current desired state for the node — connections to maintain and routes to set.
+    #[prost(message, repeated, tag = "3")]
+    pub connections: ::prost::alloc::vec::Vec<Connection>,
+    #[prost(message, repeated, tag = "4")]
+    pub routes: ::prost::alloc::vec::Vec<Route>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DeregisterNodeRequest {

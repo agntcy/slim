@@ -139,11 +139,16 @@ message RegisterNodeRequest {
   // Active connections on the data plane at the time of registration.
   // Allows the control plane to reconcile link state without an extra round-trip.
   repeated ConnectionEntry connections = 4;
+  // Active routes on the data plane at the time of registration.
+  repeated Route routes = 5;
 }
 
 message RegisterNodeResponse {
   string original_message_id = 1;
   bool success = 2;
+  // Current desired state for the node — connections to maintain and routes to set.
+  repeated Connection connections = 3;
+  repeated Route routes = 4;
 }
 
 message DeregisterNodeRequest {
