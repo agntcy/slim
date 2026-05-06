@@ -407,10 +407,7 @@ impl MessageProcessor {
         let connection = self.forwarder().get_connection(out_conn);
         match connection {
             Some(conn) => {
-                if !msg.is_link() && !msg.is_subscription_ack() {
-                    msg.clear_slim_header();
-                }
-
+                msg.clear_slim_header();
                 match conn.channel() {
                     Channel::Server(s) => {
                         s.send(Ok(msg))

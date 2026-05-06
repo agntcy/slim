@@ -117,6 +117,10 @@ pub(crate) fn prepare_outbound_msg(
     service_id: &str,
     target: SpanTarget,
 ) {
+    if msg.is_link() || msg.is_subscription_ack() {
+        return;
+    }
+
     let parent = extract_parent_context(msg);
     let span = create_span(function, service_id, msg, target);
     attach_trace(msg, span, parent);
