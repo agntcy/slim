@@ -8,6 +8,7 @@ description = "Observability for SLIM data plane: logs, traces and metrics infra
 [lib]
 name = "slim_tracing"
 
+
 [dependencies]
 agntcy-slim-config = { workspace = true }
 agntcy-slim-version = { workspace = true }
