@@ -7,8 +7,8 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
-    kotlin("jvm") version "2.1.0"
-    kotlin("plugin.serialization") version "2.1.0"
+    kotlin("jvm") version "2.2.0"
+    kotlin("plugin.serialization") version "2.2.0"
     application
     `maven-publish`
     signing
@@ -33,6 +33,11 @@ dependencies {
 
     // JSON parsing for config files
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+
+    // Protobuf — must match checked-in generated code under examples/slimrpc/simple/types (see Java gencode header)
+    val protobufVersion = "4.34.1"
+    implementation("com.google.protobuf:protobuf-java:$protobufVersion")
+    implementation("com.google.protobuf:protobuf-kotlin:$protobufVersion")
 
     // Testing
     testImplementation(kotlin("test"))
@@ -151,6 +156,9 @@ tasks.register<Test>("testPattern") {
         showStandardStreams = true
     }
 }
+
+tasks.named("distTar") { enabled = false }
+tasks.named("distZip") { enabled = false }
 
 // Task to run the Server example
 tasks.register<JavaExec>("runServer") {

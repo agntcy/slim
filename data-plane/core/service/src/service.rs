@@ -205,7 +205,11 @@ impl Service {
 
     /// Create a new Service with configuration
     pub fn new_with_config(id: ID, config: ServiceConfiguration) -> Self {
-        let message_processor = Arc::new(MessageProcessor::new_with_service_id(id.to_string()));
+        let recovery_ttl = config.dataplane.recovery_ttl.as_ref().map(|d| (*d).into());
+        let message_processor = Arc::new(MessageProcessor::new_with_options(
+            id.to_string(),
+            recovery_ttl,
+        ));
 
         Service {
             id,
@@ -474,7 +478,7 @@ impl Service {
                 // Get connection details from the connection table
                 self.message_processor
                     .connection_table()
-                    .get(conn_id as usize)
+                    .get(conn_id)
                     .map(|conn| ConnectionInfo {
                         id: conn_id,
                         remote_addr: conn.remote_addr().copied(),
@@ -748,7 +752,7 @@ mod tests {
             service
                 .message_processor
                 .connection_table()
-                .get(conn_id as usize)
+                .get(conn_id)
                 .is_none(),
             "connection should be removed after disconnect"
         );

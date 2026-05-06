@@ -9,6 +9,7 @@ pub mod tables;
 
 mod connection;
 mod forwarder;
+mod recovery;
 pub(crate) mod subscription_ack;
 
 pub use tonic::Status;

@@ -53,66 +53,30 @@ tasks:
     silent: true
     cmds:
       - echo "🦀 Building Rust bindings library... {{.TARGET}}"
-      - rustup target add {{.TARGET}}
+      - task: rust:crossbuild
+        vars:
+          ARGS: --config 'profile.release.strip="none"'
+          TARGET: "{{.TARGET}}"
+          PROFILE: "{{.PROFILE}}"
+      # zigbuild always uses --target on Linux, so only target/<triple>/<profile>/ exists.
+      # That artifact can lack UNIFFI_META* symbols (strip / linker); UniFFI Java bindgen needs them.
+      # When building for the host, also produce target/<profile>/ via plain cargo build.
       - |
-        # Determine the correct libc version based on TARGET_ABI
-        TARGET_ABI="{{.TARGET_ABI}}"
-        TARGET_OS="{{.TARGET_OS}}"
-
-        ARGS=()
-
-        # Determine whether to use cargo build or cargo zigbuild
-        # - Native builds: use regular cargo build with --target for consistent paths
-        # - Apple targets (iOS, macOS): use regular cargo build (zigbuild not compatible)
-        # - Linux/gnu targets: use zigbuild with libc version for gnu ABI
-        # - Other cross-compilation targets: use zigbuild
-        if [[ "{{.TARGET}}" == "" || "{{.TARGET}}" == "$(rustc -vV | sed -n 's|host: ||p')" ]]; then
-          # Native build - explicitly specify target for consistent output paths
-          ARGS=(
-            "build"
-            "--target"
-            "{{.TARGET}}"
-            {{.RELEASE}}
-          )
-        elif [[ "{{.TARGET}}" == *"apple-ios"* || "{{.TARGET}}" == *"apple-darwin"* ]]; then
-          # Apple targets (iOS, iOS Simulator, macOS) - use regular cargo build
-          # Force linker wrapper for iOS so -target 10.0 is rewritten to 13.4 (___chkstk_darwin)
-          # Only set if not already set (e.g. by CI with absolute path)
-          IOS_LINKER_WRAPPER="$(cd "{{.TASKFILE_DIR}}/../../.cargo" && pwd)/clang-ios-linker-wrapper.sh"
-          [[ -z "${CARGO_TARGET_AARCH64_APPLE_IOS_LINKER:-}" ]] && export CARGO_TARGET_AARCH64_APPLE_IOS_LINKER="$IOS_LINKER_WRAPPER"
-          [[ -z "${CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER:-}" ]] && export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER="$IOS_LINKER_WRAPPER"
-          ARGS=(
-            "build"
-            "--target"
-            "{{.TARGET}}"
-            {{.RELEASE}}
-          )
-        elif [[ "$TARGET_OS" == "linux" || "$TARGET_ABI" == "gnu" ]]; then
-          # For Linux or gnu targets, use zigbuild with libc version for gnu ABI
-          LIBC_VERSION=""
-          if [[ "$TARGET_ABI" == "gnu" ]]; then
-            LIBC_VERSION=".{{.GNU_CLIB_VERSION}}"
-          fi
-
-          ARGS=(
-            "zigbuild"
-            "--target"
-            "{{.TARGET}}$LIBC_VERSION"
-            {{.RELEASE}}
-          )
-        else
-          # Other cross-compilation targets (e.g., Windows MSVC) - use zigbuild
-          ARGS=(
-            "zigbuild"
-            "--target"
-            "{{.TARGET}}"
-            {{.RELEASE}}
-          )
+        set -eu
+        HOST=$(rustc -vV | sed -n 's/^host: //p' | tr -d '\r' | xargs)
+        TARGET=$(printf '%s' '{{.TARGET}}' | tr -d '\r' | xargs)
+        if [[ "$TARGET" != "$HOST" ]]; then
+          echo "🦀 Skip host-native cdylib (TARGET != host)."
+          exit 0
         fi
-
-        echo cargo ${ARGS[*]}
-        # Prepend workspace .cargo so Cargo finds clang-ios-linker-wrapper.sh for iOS targets
-        PATH="{{.TASKFILE_DIR}}/../../.cargo:{{.TOOLS_INSTALL_DIR}}:$PATH" cargo "${ARGS[@]}"
+        echo "🦀 Building host-native cdylib for UniFFI (cargo build, no --target)..."
+        cd "{{.TASKFILE_DIR}}/../.."
+        PROFILE="{{.PROFILE}}"
+        if [[ "$PROFILE" == "release" ]]; then
+          cargo build --release -p {{.BINDINGS_PACKAGE}} --locked --all-features
+        else
+          cargo build -p {{.BINDINGS_PACKAGE}} --locked --all-features
+        fi
       - echo "🦀 Rust bindings library built successfully."
 
   lint:

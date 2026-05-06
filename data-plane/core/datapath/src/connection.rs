@@ -153,6 +153,13 @@ impl Connection {
         self.cancellation_token.as_ref()
     }
 
+    /// Set the link identifier at construction time so it is available the moment the
+    /// connection enters the table, before the negotiation message is sent.
+    pub(crate) fn with_link_id(self, link_id: String) -> Self {
+        self.negotiation.write().link_id = Some(link_id);
+        self
+    }
+
     /// Set the shared link identifier for this connection.
     /// Used by the client before sending the initial negotiation request.
     pub fn set_link_id(&self, link_id: String) {

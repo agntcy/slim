@@ -178,13 +178,20 @@ public sealed class SlimName : IDisposable
     public static SlimName Parse(string id)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
-        return SlimHelper.Try(() => new SlimName(Internal.Name.FromString(id)));
+        try
+        {
+            return SlimHelper.Try(() => new SlimName(Internal.Name.FromString(id)));
+        }
+        catch (SlimException ex)
+        {
+            throw new ArgumentException(ex.Message, nameof(id), ex);
+        }
     }
 
     /// <summary>
     /// Get the string representation in "org/namespace/app" format.
     /// </summary>
-    public override string ToString() => _inner.ToString();
+    public override string ToString() => string.Join("/", _inner.Components());
 
     public void Dispose()
     {

@@ -1,0 +1,16 @@
+version: v2
+clean: true
+managed:
+  enabled: true
+  override:
+    - file_option: java_package_prefix
+      value: com
+inputs:
+  - proto_file: example.proto
+plugins:
+  - remote: buf.build/protocolbuffers/java
+    out: types
+  - remote: buf.build/protocolbuffers/kotlin
+    out: types
+  - local: ../../../../../target/release/protoc-gen-slimrpc-kotlin
+    out: slimrpc

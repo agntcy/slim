@@ -14,4 +14,5 @@ extend-exclude = [
     "**/*.pbxproj",
     "**/*.pbxproj.bak",
     "bindings/java/examples/**/types/**",
+    "bindings/kotlin/examples/**/types/**",
 ]
