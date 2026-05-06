@@ -1413,6 +1413,8 @@ async fn test_subscription_route_propagation() {
     // Verify link exists from node-a to node-b
     wait_for_link_between(&mut client, &id_a, &id_b, Duration::from_secs(10)).await;
 
+    print_state(&mut client, "subscription_route_propagation: final").await;
+
     app_svc.shutdown().await.ok();
     node_a.shutdown().await.ok();
     node_b.shutdown().await.ok();
@@ -1506,6 +1508,8 @@ async fn test_subscription_with_static_link() {
     )
     .await;
 
+    print_state(&mut client, "subscription_with_static_link: before restart").await;
+
     // Restart node-a — route should persist in CP and be re-applied.
     app_svc.shutdown().await.ok();
     node_a.shutdown().await.ok();
@@ -1527,6 +1531,8 @@ async fn test_subscription_with_static_link() {
         Duration::from_secs(10),
     )
     .await;
+
+    print_state(&mut client, "subscription_with_static_link: after restart").await;
 
     node_a.shutdown().await.ok();
     node_b.shutdown().await.ok();
@@ -1649,6 +1655,8 @@ async fn test_subscription_before_cp_available() {
     )
     .await;
 
+    print_state(&mut client, "subscription_before_cp_available: final").await;
+
     app_a.shutdown().await.ok();
     app_b.shutdown().await.ok();
     node_a.shutdown().await.ok();
@@ -1752,6 +1760,8 @@ async fn test_subscription_survives_cp_restart() {
     )
     .await;
 
+    print_state(&mut client, "subscription_survives_cp_restart: before CP shutdown").await;
+
     // Phase 2: Shut down CP, verify nodes reconnect and routes persist.
     cp.shutdown().await;
     drop(client);
@@ -1796,6 +1806,8 @@ async fn test_subscription_survives_cp_restart() {
         Duration::from_secs(30),
     )
     .await;
+
+    print_state(&mut client2, "subscription_survives_cp_restart: after CP restart").await;
 
     app_a.shutdown().await.ok();
     app_b.shutdown().await.ok();
