@@ -107,7 +107,7 @@ jobs:
               done
 
               cd "$platform_dir"
-              zip -r "../../release-artifacts/slim-bindings-${platform_name}.zip" *
+              zip -r "../../release-artifacts/slim-bindings-${platform_name}.zip" .
               cd - > /dev/null
 
               echo "✅ Created slim-bindings-${platform_name}.zip"
@@ -197,7 +197,9 @@ jobs:
       - build-and-test-bindings
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
@@ -205,7 +207,7 @@ jobs:
           workspace: ./data-plane
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
 
@@ -213,7 +215,7 @@ jobs:
         uses: ./.github/actions/setup-task
 
       - name: Download library artifact (x86_64 Linux)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: bindings-x86_64-unknown-linux-gnu
           path: .
@@ -222,15 +224,15 @@ jobs:
         run: |
           RELEASE_DIR="data-plane/target/x86_64-unknown-linux-gnu/release"
           mkdir -p "$RELEASE_DIR"
-          if [ -n "$(ls -A "$RELEASE_DIR" 2>/dev/null)" ]; then
+          if [ -n "$(find "$RELEASE_DIR" -mindepth 1 -print -quit 2>/dev/null)" ]; then
             echo "Library files (from artifact path):"
-            ls -la "$RELEASE_DIR/"
+            find "$RELEASE_DIR" -maxdepth 1 ! -path "$RELEASE_DIR" -ls
             exit 0
           fi
           find . -name '*slim_bindings*' -type f -exec cp -v {} "$RELEASE_DIR/" \; 2>/dev/null
-          [ -n "$(ls -A "$RELEASE_DIR" 2>/dev/null)" ] || { echo "No library files found."; ls -laR . 2>/dev/null | head -80; exit 1; }
+          [ -n "$(find "$RELEASE_DIR" -mindepth 1 -print -quit 2>/dev/null)" ] || { echo "No library files found."; find . -maxdepth 4 -ls 2>/dev/null | head -80; exit 1; }
           echo "Library files (copied):"
-          ls -la "$RELEASE_DIR/"
+          find "$RELEASE_DIR" -maxdepth 1 ! -path "$RELEASE_DIR" -ls
 
       - name: Generate Node bindings
         working-directory: ./data-plane/bindings/node
@@ -239,7 +241,7 @@ jobs:
           task generate TARGET=x86_64-unknown-linux-gnu
 
       - name: Upload generated bindings
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: node-generated-bindings
           path: ./data-plane/bindings/node/generated/
@@ -267,14 +269,16 @@ jobs:
           - aarch64-pc-windows-msvc
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Get bindings version
         id: version
-        run: echo "version=$(bash .github/scripts/get-binding-version.sh)" >> $GITHUB_OUTPUT
+        run: echo "version=$(bash .github/scripts/get-binding-version.sh)" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
 
@@ -282,13 +286,13 @@ jobs:
         uses: ./.github/actions/setup-task
 
       - name: Download generated bindings
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: node-generated-bindings
           path: ./data-plane/bindings/node/generated/
 
       - name: Download library artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: bindings-${{ matrix.target }}
           path: .
@@ -297,19 +301,19 @@ jobs:
         run: |
           RELEASE_DIR="data-plane/target/${{ matrix.target }}/release"
           mkdir -p "$RELEASE_DIR"
-          if [ -n "$(ls -A "$RELEASE_DIR" 2>/dev/null)" ]; then
+          if [ -n "$(find "$RELEASE_DIR" -mindepth 1 -print -quit 2>/dev/null)" ]; then
             echo "Library files (from artifact path):"
-            ls -la "$RELEASE_DIR/"
+            find "$RELEASE_DIR" -maxdepth 1 ! -path "$RELEASE_DIR" -ls
             exit 0
           fi
           find . -name '*slim_bindings*' -type f -exec cp -v {} "$RELEASE_DIR/" \; 2>/dev/null
-          if [ -n "$(ls -A "$RELEASE_DIR" 2>/dev/null)" ]; then
+          if [ -n "$(find "$RELEASE_DIR" -mindepth 1 -print -quit 2>/dev/null)" ]; then
             echo "Library files (copied):"
-            ls -la "$RELEASE_DIR/"
+            find "$RELEASE_DIR" -maxdepth 1 ! -path "$RELEASE_DIR" -ls
             exit 0
           fi
           echo "No library files found after download."
-          ls -laR . 2>/dev/null | head -80
+          find . -maxdepth 4 -ls 2>/dev/null | head -80
           exit 1
 
       - name: Pack Node platform package
@@ -319,7 +323,7 @@ jobs:
           task pack:platform:from-artifacts TARGET=${{ matrix.target }} VERSION=${{ steps.version.outputs.version }}
 
       - name: Upload Node platform package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: node-platform-${{ matrix.target }}
           path: ./data-plane/bindings/node/dist/node-*.tgz
@@ -335,7 +339,7 @@ jobs:
       contents: read
     steps:
       - name: Download all Node platform artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: ./node-packages
           pattern: node-platform-*
@@ -369,14 +373,16 @@ jobs:
       contents: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Get bindings version
         id: version
-        run: echo "version=$(bash .github/scripts/get-binding-version.sh)" >> $GITHUB_OUTPUT
+        run: echo "version=$(bash .github/scripts/get-binding-version.sh)" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
 
@@ -384,7 +390,7 @@ jobs:
         uses: ./.github/actions/setup-task
 
       - name: Download generated bindings
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: node-generated-bindings
           path: ./data-plane/bindings/node/generated/
@@ -397,12 +403,15 @@ jobs:
 
       - name: Set version in package.json
         working-directory: ./data-plane/bindings/node
+        env:
+          BINDINGS_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          npm pkg set version="${{ steps.version.outputs.version }}"
+          npm pkg set version="${BINDINGS_VERSION}"
           node -e "
             const pkg = require('./package.json');
+            const v = process.env.BINDINGS_VERSION;
             const opt = pkg.optionalDependencies || {};
-            for (const k of Object.keys(opt)) opt[k] = '${{ steps.version.outputs.version }}';
+            for (const k of Object.keys(opt)) opt[k] = v;
             pkg.optionalDependencies = opt;
             require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2));
           "
@@ -432,11 +441,13 @@ jobs:
       contents: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Get bindings version
         id: version
-        run: echo "version=$(bash .github/scripts/get-binding-version.sh)" >> $GITHUB_OUTPUT
+        run: echo "version=$(bash .github/scripts/get-binding-version.sh)" >> "$GITHUB_OUTPUT"
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
@@ -447,7 +458,7 @@ jobs:
         uses: ./.github/actions/setup-task
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
@@ -464,9 +475,13 @@ jobs:
         run: |
           chmod +x "${{ github.workspace }}/data-plane/.cargo/clang-ios-linker-wrapper.sh"
           rm -f /tmp/linker-args.log
-          export BINDGEN_EXTRA_CLANG_ARGS="-isysroot $(xcrun --sdk iphonesimulator --show-sdk-path) -target arm64-apple-ios15.0-simulator"
+          _sim_sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          BINDGEN_EXTRA_CLANG_ARGS="-isysroot ${_sim_sdk} -target arm64-apple-ios15.0-simulator"
+          export BINDGEN_EXTRA_CLANG_ARGS
           task adapter:bindings:build:all TARGET=aarch64-apple-ios-sim PROFILE=release
-          export BINDGEN_EXTRA_CLANG_ARGS="-isysroot $(xcrun --sdk iphoneos --show-sdk-path) -target arm64-apple-ios15.0"
+          _ios_sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
+          BINDGEN_EXTRA_CLANG_ARGS="-isysroot ${_ios_sdk} -target arm64-apple-ios15.0"
+          export BINDGEN_EXTRA_CLANG_ARGS
           task adapter:bindings:build:all TARGET=aarch64-apple-ios PROFILE=release
 
       - name: Vendor iOS libs and create XCFramework
@@ -481,12 +496,16 @@ jobs:
           CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER: "${{ github.workspace }}/data-plane/.cargo/clang-ios-linker-wrapper.sh"
           IPHONEOS_DEPLOYMENT_TARGET: "13.4"
         run: |
-          export BINDGEN_EXTRA_CLANG_ARGS="-isysroot $(xcrun --sdk iphonesimulator --show-sdk-path) -target arm64-apple-ios15.0-simulator"
+          _sim_sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          BINDGEN_EXTRA_CLANG_ARGS="-isysroot ${_sim_sdk} -target arm64-apple-ios15.0-simulator"
+          export BINDGEN_EXTRA_CLANG_ARGS
           task generate TARGET=aarch64-apple-ios-sim
 
       - name: Set version in package.json
         working-directory: ./data-plane/bindings/react-native
-        run: npm pkg set version="${{ steps.version.outputs.version }}"
+        env:
+          BINDINGS_VERSION: ${{ steps.version.outputs.version }}
+        run: npm pkg set version="${BINDINGS_VERSION}"
 
       - name: Configure npm auth
         working-directory: ./data-plane/bindings/react-native
