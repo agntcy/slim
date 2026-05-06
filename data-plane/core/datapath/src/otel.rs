@@ -56,7 +56,6 @@ fn inject_current_context(msg: &mut Message) {
     });
 }
 
-
 fn create_span(function: &str, service_id: &str, msg: &Message, target: SpanTarget) -> Span {
     let span = match target {
         SpanTarget::Connection(connection_id) => tracing::span!(
