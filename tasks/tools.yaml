@@ -132,6 +132,21 @@ tasks:
           fi
     cmds:
       - |
+        # Use system minisign if available
+        if command -v minisign >/dev/null 2>&1; then
+          SYSTEM_MINISIGN=$(command -v minisign)
+          ln -sf "$SYSTEM_MINISIGN" "{{.TOOLS_INSTALL_DIR}}/minisign"
+          echo "Using system minisign: $SYSTEM_MINISIGN"
+          exit 0
+        fi
+
+        # macOS: pre-built binary is arm64 only, use Homebrew for x86_64
+        if [[ "{{OS}}" == "darwin" ]] && [[ "{{ARCH}}" == "amd64" ]]; then
+          brew install minisign
+          ln -sf "$(command -v minisign)" "{{.TOOLS_INSTALL_DIR}}/minisign"
+          exit 0
+        fi
+
         curl -sSL "{{.MINISIGN_URL}}/{{.MINISIGN_VERSION}}/minisign-{{.MINISIGN_VERSION}}-{{.MINISIGN_PLATFORM}}.{{.MINISIGN_EXT}}" \
           -o "minisign.{{.MINISIGN_EXT}}"
         if [[ "{{.MINISIGN_EXT}}" == "zip" ]]; then
@@ -139,9 +154,15 @@ tasks:
         else
           tar -xzf "minisign.{{.MINISIGN_EXT}}"
         fi
-        find . -name "minisign" -type f -exec mv {} "{{.TOOLS_INSTALL_DIR}}/minisign" \;
+
+        # Linux tarball contains arch-specific subdirectories (x86_64/, aarch64/)
+        if [[ "{{OS}}" == "linux" ]]; then
+          mv "minisign-{{.MINISIGN_PLATFORM}}/{{.DETECTED_ARCH}}/minisign" "{{.TOOLS_INSTALL_DIR}}/minisign"
+        else
+          find . -name "minisign" -type f -exec mv {} "{{.TOOLS_INSTALL_DIR}}/minisign" \;
+        fi
         chmod +x "{{.TOOLS_INSTALL_DIR}}/minisign"
-        rm -f "minisign.{{.MINISIGN_EXT}}"
+        rm -rf "minisign.{{.MINISIGN_EXT}}" minisign-*
     status:
       - test -f "{{.TOOLS_INSTALL_DIR}}/minisign"
 
