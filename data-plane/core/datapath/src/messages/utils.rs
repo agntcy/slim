@@ -834,6 +834,10 @@ impl ProtoMessage {
         matches!(self.get_type(), MessageType::SubscriptionAck(_))
     }
 
+    pub fn is_traceable(&self) -> bool {
+        !self.is_link() && !self.is_subscription_ack()
+    }
+
     pub fn get_subscription_ack(&self) -> &ProtoSubscriptionAck {
         match &self.message_type {
             Some(ProtoSubscriptionAckType(ack)) => ack,

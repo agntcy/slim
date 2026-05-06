@@ -8,6 +8,10 @@ description = "Core data plane functionality for SLIM"
 [lib]
 name = "slim_datapath"
 
+[features]
+default = []
+otel_tracing = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
+
 [dependencies]
 agntcy-slim-config = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
@@ -15,7 +19,7 @@ agntcy-slim-version = { workspace = true }
 display-error-chain = { workspace = true }
 drain = { workspace = true }
 h2 = { workspace = true }
-opentelemetry = { workspace = true }
+opentelemetry = { workspace = true, optional = true }
 parking_lot = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
@@ -29,7 +33,7 @@ tokio-util = { workspace = true }
 tonic = { workspace = true }
 tonic-prost = { workspace = true }
 tracing = { workspace = true }
-tracing-opentelemetry = { workspace = true }
+tracing-opentelemetry = { workspace = true, optional = true }
 twox-hash = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 
