@@ -117,7 +117,7 @@ pub(crate) fn prepare_outbound_msg(
     service_id: &str,
     target: SpanTarget,
 ) {
-    if msg.is_link() || msg.is_subscription_ack() {
+    if !msg.is_traceable() {
         return;
     }
 
@@ -133,6 +133,10 @@ pub(crate) fn prepare_fanout_msg(
     service_id: &str,
     subscriber_count: u32,
 ) {
+    if !msg.is_traceable() {
+        return;
+    }
+
     msg.clear_slim_header();
     let parent = extract_parent_context(msg);
     let span = create_span(
