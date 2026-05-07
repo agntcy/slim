@@ -158,12 +158,13 @@ tasks:
         # Linux and Windows archives contain arch-specific subdirectories (x86_64/, aarch64/)
         if [[ "{{OS}}" == "linux" ]]; then
           mv "minisign-{{.MINISIGN_PLATFORM}}/{{.DETECTED_ARCH}}/minisign" "{{.TOOLS_INSTALL_DIR}}/minisign"
+          chmod +x "{{.TOOLS_INSTALL_DIR}}/minisign"
         elif [[ "{{OS}}" == "windows" ]]; then
           mv "minisign-{{.MINISIGN_PLATFORM}}/{{.DETECTED_ARCH}}/minisign.exe" "{{.TOOLS_INSTALL_DIR}}/minisign.exe"
         else
           find . -name "minisign" -type f -exec mv {} "{{.TOOLS_INSTALL_DIR}}/minisign" \;
+          chmod +x "{{.TOOLS_INSTALL_DIR}}/minisign"
         fi
-        chmod +x "{{.TOOLS_INSTALL_DIR}}/minisign"
         rm -rf "minisign.{{.MINISIGN_EXT}}" minisign-*
     status:
       - test -f "{{.TOOLS_INSTALL_DIR}}/minisign" || test -f "{{.TOOLS_INSTALL_DIR}}/minisign.exe"
