@@ -51,6 +51,16 @@ pub enum Error {
     #[error("db error in {context}: {msg}")]
     DbError { context: &'static str, msg: String },
 
+    // ── route ─────────────────────────────────────────────────────────────────
+    #[error("source node ID cannot be empty")]
+    EmptySourceNodeId,
+
+    #[error("destination node ID cannot be empty")]
+    EmptyDestNodeId,
+
+    #[error("destination node ID cannot be the same as source node ID")]
+    SameSourceAndDest,
+
     // ── service ───────────────────────────────────────────────────────────────
     /// Invalid or missing input (validation failures, business-rule violations).
     #[error("{0}")]

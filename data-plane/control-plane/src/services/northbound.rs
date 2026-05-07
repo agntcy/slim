@@ -155,19 +155,9 @@ impl ControlPlaneService for NorthboundApiService {
         })?;
 
         let sub = req.route.unwrap_or_default();
-        let route = crate::route_service::Route {
-            source_node_id: req.node_id,
-            dest_node_id: req.dest_node_id,
-            component0: sub.component_0,
-            component1: sub.component_1,
-            component2: sub.component_2,
-            component_id: sub.id,
-            link_id: String::new(),
-        };
-
         let route_id = self
             .route_service
-            .add_route(route)
+            .add_route(&req.node_id, &req.dest_node_id, &sub)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -194,18 +184,8 @@ impl ControlPlaneService for NorthboundApiService {
         }
 
         let sub = req.route.unwrap_or_default();
-        let route = crate::route_service::Route {
-            source_node_id: req.node_id,
-            dest_node_id: req.dest_node_id,
-            component0: sub.component_0,
-            component1: sub.component_1,
-            component2: sub.component_2,
-            component_id: sub.id,
-            link_id: String::new(),
-        };
-
         self.route_service
-            .delete_route(route)
+            .delete_route(&req.node_id, &req.dest_node_id, &sub)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 

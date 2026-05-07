@@ -18,7 +18,7 @@ use crate::api::proto::controller::proto::v1::{
 use crate::db::{ConnectionDetails, LinkStatus, Node, RouteStatus, SharedDb};
 use crate::error::{Error, Result};
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus};
-use crate::route_service::{ALL_NODES_ID, Route, RouteService};
+use crate::route_service::{ALL_NODES_ID, RouteService};
 
 const REGISTER_TIMEOUT_SECS: u64 = 15;
 
@@ -289,31 +289,14 @@ async fn handle_node_messages(
                 for sub in &cc.routes_to_set {
                     if sub.link_id.is_none()
                         && let Err(e) = route_service
-                            .add_route(Route {
-                                source_node_id: ALL_NODES_ID.to_string(),
-                                dest_node_id: node_id.to_string(),
-                                component0: sub.component_0.clone(),
-                                component1: sub.component_1.clone(),
-                                component2: sub.component_2.clone(),
-                                component_id: sub.id,
-                                link_id: String::new(),
-                            })
+                            .add_route(ALL_NODES_ID, node_id, sub)
                             .await
                     {
                         tracing::debug!("southbound: error adding route: {e}");
                     }
                 }
                 for sub in &cc.routes_to_delete {
-                    let route = Route {
-                        source_node_id: ALL_NODES_ID.to_string(),
-                        dest_node_id: node_id.to_string(),
-                        component0: sub.component_0.clone(),
-                        component1: sub.component_1.clone(),
-                        component2: sub.component_2.clone(),
-                        component_id: sub.id,
-                        link_id: String::new(),
-                    };
-                    if let Err(e) = route_service.delete_route(route).await {
+                    if let Err(e) = route_service.delete_route(ALL_NODES_ID, node_id, sub).await {
                         tracing::debug!("southbound: error deleting route: {e}");
                     }
                 }
