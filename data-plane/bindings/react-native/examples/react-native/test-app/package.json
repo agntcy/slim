@@ -1,5 +1,6 @@
 {
   "name": "slim-test-app",
+  "description": "React Native sample app (includes standard RN Xcode/Android boilerplate). For a slimmer tree, generate with react-native init or keep this app in a separate checkout.",
   "version": "0.0.1",
   "private": true,
   "scripts": {

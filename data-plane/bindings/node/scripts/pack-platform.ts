@@ -75,13 +75,21 @@ function main() {
   // noEmitOnError: false allows emit despite errors; tsc still exits non-zero, so we run
   // and then verify output exists instead of failing on exit code.
   const tscPath = path.join(TASKFILE_DIR, 'tsconfig.pack-platform.json');
+  const quoted = JSON.stringify(tscPath);
   try {
-    execSync(
-      `npx -p typescript tsc -p ${tscPath}`,
-      { cwd: TASKFILE_DIR, stdio: 'inherit' }
-    );
-  } catch {
+    execSync(`npx -p typescript tsc -p ${quoted}`, {
+      cwd: TASKFILE_DIR,
+      encoding: 'utf-8',
+      stdio: ['inherit', 'pipe', 'pipe'],
+    });
+  } catch (err: unknown) {
     // tsc exits non-zero when type errors exist even with noEmitOnError: false
+    const e = err as { status?: number; stdout?: string; stderr?: string };
+    const combined = `${e.stderr ?? ''}${e.stdout ?? ''}`.trim();
+    console.warn(
+      '[pack-platform] TypeScript reported diagnostics (emit may still succeed; review before release):\n' +
+        (combined || '(no output captured)')
+    );
   }
   const expectedJs = path.join(OUT_DIR, 'slim-bindings-node.js');
   const expectedDts = path.join(OUT_DIR, 'slim-bindings-node.d.ts');

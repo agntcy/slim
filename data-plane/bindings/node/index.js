@@ -3,6 +3,8 @@
 
 'use strict';
 
+const { detectLinuxLibc } = require('./libc-linux.js');
+
 /**
  * Resolves the platform id for the current Node process.
  * Must match the optionalDependency package suffixes.
@@ -14,7 +16,13 @@ function getCurrentPlatformId() {
     return arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64';
   }
   if (platform === 'linux') {
-    return arch === 'arm64' ? 'linux-arm64-gnu' : 'linux-x64-gnu';
+    const libc = detectLinuxLibc();
+    if (arch === 'arm64') {
+      return `linux-arm64-${libc}`;
+    }
+    if (arch === 'x64') {
+      return `linux-x64-${libc}`;
+    }
   }
   if (platform === 'win32') {
     return arch === 'arm64' ? 'win32-arm64-msvc' : 'win32-x64-msvc';
@@ -31,7 +39,9 @@ try {
 } catch (err) {
   if (err.code === 'MODULE_NOT_FOUND') {
     throw new Error(
-      `Platform package ${packageName} is not installed. Install with: npm install @agntcy/slim-bindings-node (includes optional dependencies for your platform).`
+      `Platform package ${packageName} is not installed. ` +
+        `Run: npm install @agntcy/slim-bindings-node (optional dependencies include linux-*-gnu, linux-*-musl, darwin-*, win32-*). ` +
+        `On Alpine or other musl Linux, ensure the linux-*-musl optional package is available for your Node arch.`
     );
   }
   throw err;

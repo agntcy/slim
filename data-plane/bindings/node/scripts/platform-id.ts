@@ -8,6 +8,16 @@
  *           (2) Runtime: process.platform/arch → platform id to require().
  */
 
+import * as path from 'path';
+import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const { detectLinuxLibc } = require(path.join(__dirname, '..', 'libc-linux.js')) as {
+  detectLinuxLibc: () => 'musl' | 'gnu';
+};
+
 /** Rust target triple → npm platform id (package suffix) */
 export const RUST_TARGET_TO_PLATFORM_ID: Record<string, string> = {
   'aarch64-apple-darwin': 'darwin-arm64',
@@ -49,16 +59,22 @@ export function rustTargetToPlatformId(rustTarget: string): string {
 
 /**
  * Get the platform id for the current Node process (for runtime require).
- * Node does not expose musl vs gnu; we default to gnu for Linux.
+ * Linux distinguishes musl vs gnu when possible (see libc-linux.js).
  */
 export function getCurrentPlatformId(): PlatformId {
   const platform = process.platform;
-  const arch = process.arch; // 'x64' | 'arm64' | 'ia32' | ...
+  const arch = process.arch;
   if (platform === 'darwin') {
     return arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64';
   }
   if (platform === 'linux') {
-    return arch === 'arm64' ? 'linux-arm64-gnu' : 'linux-x64-gnu';
+    const libc = detectLinuxLibc();
+    if (arch === 'arm64') {
+      return `linux-arm64-${libc}` as PlatformId;
+    }
+    if (arch === 'x64') {
+      return `linux-x64-${libc}` as PlatformId;
+    }
   }
   if (platform === 'win32') {
     return arch === 'arm64' ? 'win32-arm64-msvc' : 'win32-x64-msvc';

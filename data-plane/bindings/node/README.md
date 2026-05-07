@@ -90,6 +90,8 @@ If you need to build from source (development or a platform not yet published):
 2. Run `task generate` (builds the Rust lib and generates Node bindings).
 3. Use the bindings from `generated/` or run the examples with `task example:server`, etc.
 
+Optional platform packages (`@agntcy/slim-bindings-node-*`) are listed at the version in `package.json` (same as the root package). `npm install` resolves them from the registry when that version is published. To test against a **local** platform tarball you built (`task pack:platform`), install it explicitly, e.g. `npm install ./dist/node-darwin-arm64.tgz`, in addition to installing this package.
+
 ## Publishing (maintainers)
 
 - **Dry run**: From `data-plane/bindings/node`, run `npm pack` to produce a tarball and inspect contents (main package: no `generated/`; platform packages: `task pack:platform TARGET=<target>` then check `dist/node-<platform>.tgz`).
@@ -98,7 +100,7 @@ If you need to build from source (development or a platform not yet published):
 
 ## Resources
 
-- [uniffi-bindgen-node](https://github.com/livekit/uniffi-bindgen-node)
+- [uniffi-bindgen-node](https://github.com/livekit/uniffi-bindgen-node) — if generator output changes, open issues there so post-generate patches can be reduced over time.
 - [UniFFI Documentation](https://mozilla.github.io/uniffi-rs/)
 - [ffi-rs](https://www.npmjs.com/package/ffi-rs)
 - [SLIM Core](https://github.com/agntcy/slim)

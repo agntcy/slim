@@ -1,6 +1,5 @@
 {
   "name": "@agntcy/slim-bindings-node-examples",
-  "version": "0.7.0",
   "private": true,
   "type": "module",
   "description": "Example applications for SLIM Node.js bindings",

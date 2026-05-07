@@ -18,6 +18,9 @@ vars:
     sh: 'rustc -vV | sed -n "s|host: ||p"'
   TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
   LIB_NAME: slim_bindings
+  PKG_VERSION:
+    sh: node -p "require('./package.json').version"
+    dir: "{{.TASKFILE_DIR}}"
   DYLIB_PREFIX:
     sh: |
       case "$(uname -s)" in
@@ -197,7 +200,7 @@ tasks:
   pack:platform:
     desc: Pack platform-specific npm package (TARGET=, VERSION= optional)
     vars:
-      VERSION: '{{.VERSION | default "0.7.0"}}'
+      VERSION: '{{.VERSION | default .PKG_VERSION}}'
     deps:
       - task: generate
         vars:
@@ -213,7 +216,7 @@ tasks:
     desc: Pack platform package using existing generated/ and target library (no generate)
     dir: "{{.TASKFILE_DIR}}"
     vars:
-      VERSION: '{{.VERSION | default "0.7.0"}}'
+      VERSION: '{{.VERSION | default .PKG_VERSION}}'
     cmds:
       - |
         TARGET="{{.TARGET}}"

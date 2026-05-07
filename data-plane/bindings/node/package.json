@@ -6,6 +6,7 @@
   "types": "index.d.ts",
   "files": [
     "index.js",
+    "libc-linux.js",
     "index.d.ts",
     "types/",
     "README.md"
@@ -34,7 +35,7 @@
   },
   "license": "Apache-2.0",
   "optionalDependencies": {
-    "@agntcy/slim-bindings-node-darwin-arm64": "file:dist/node-darwin-arm64.tgz",
+    "@agntcy/slim-bindings-node-darwin-arm64": "0.7.0",
     "@agntcy/slim-bindings-node-darwin-x64": "0.7.0",
     "@agntcy/slim-bindings-node-linux-arm64-gnu": "0.7.0",
     "@agntcy/slim-bindings-node-linux-arm64-musl": "0.7.0",
