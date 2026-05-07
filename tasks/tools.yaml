@@ -290,7 +290,7 @@ tasks:
         fi
 
         # Install
-        cp -af zig-{{.DETECTED_ARCH}}-{{.DETECTED_OS}}-{{.ZIG_VERSION}}/* "{{.TOOLS_INSTALL_DIR}}"
+        cp -Rf zig-{{.DETECTED_ARCH}}-{{.DETECTED_OS}}-{{.ZIG_VERSION}}/* "{{.TOOLS_INSTALL_DIR}}"
         rm -rf zig-{{.DETECTED_ARCH}}-{{.DETECTED_OS}}-{{.ZIG_VERSION}}
         rm -f "$FILENAME" "$SIGFILE" mirrors.txt
         echo "Zig installed to {{.TOOLS_INSTALL_DIR}}"
