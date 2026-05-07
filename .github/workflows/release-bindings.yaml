@@ -207,9 +207,11 @@ jobs:
           workspace: ./data-plane
 
       - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: '20'
+          # Release workflow: disable GHA npm cache (zizmor cache-poisoning / trusted tag builds only).
+          package-manager-cache: false
 
       - name: Setup Task
         uses: ./.github/actions/setup-task
@@ -278,9 +280,10 @@ jobs:
         run: echo "version=$(bash .github/scripts/get-binding-version.sh)" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: '20'
+          package-manager-cache: false
 
       - name: Setup Task
         uses: ./.github/actions/setup-task
@@ -382,9 +385,10 @@ jobs:
         run: echo "version=$(bash .github/scripts/get-binding-version.sh)" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: '20'
+          package-manager-cache: false
 
       - name: Setup Task
         uses: ./.github/actions/setup-task
@@ -458,10 +462,11 @@ jobs:
         uses: ./.github/actions/setup-task
 
       - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
 
       - name: Build iOS static libs (device + simulator)
         id: build-ios
