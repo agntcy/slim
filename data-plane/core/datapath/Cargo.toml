@@ -46,10 +46,14 @@ wasm = [
 
 [dependencies]
 
-# Optional config/tracing — wasm and native each enable their flavor.
+# Optional deps gated by the `native` / `wasm` / `otel_tracing` features above.
+# `native` and `wasm` are mutually exclusive; cargo picks the right flavor of
+# `agntcy-slim-config` / `agntcy-slim-tracing` via their own feature lists.
 agntcy-slim-config = { workspace = true, optional = true, default-features = false }
 agntcy-slim-tracing = { workspace = true, optional = true, default-features = false }
-# Always available (core types, messages, tables)
+
+# Always-available core deps (used by `messages`, `tables`, `api` regardless of
+# the active runtime feature).
 agntcy-slim-version = { workspace = true }
 display-error-chain = { workspace = true, optional = true }
 drain = { workspace = true, optional = true }
@@ -65,19 +69,6 @@ semver = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tracing = { workspace = true }
-tracing-opentelemetry = { workspace = true, optional = true }
-twox-hash = { workspace = true }
-uuid = { workspace = true, features = ["v4"] }
-
-# Native-only dependencies
-agntcy-slim-config = { workspace = true, optional = true, features = ["native"] }
-agntcy-slim-tracing = { workspace = true, optional = true, features = ["native"] }
-display-error-chain = { workspace = true, optional = true }
-drain = { workspace = true, optional = true }
-fastwebsockets = { workspace = true, optional = true }
-h2 = { workspace = true, optional = true }
-opentelemetry = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 tokio-stream = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }

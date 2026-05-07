@@ -11,10 +11,6 @@ use std::pin::Pin;
 #[cfg(feature = "native")]
 use crate::api::DataPlaneServiceServer;
 use display_error_chain::ErrorChainExt;
-#[cfg(feature = "native")]
-use opentelemetry::propagation::{Extractor, Injector};
-#[cfg(feature = "native")]
-use opentelemetry::trace::TraceContextExt;
 use parking_lot::RwLock;
 use slim_config::client::ClientConfig;
 use slim_config::client::TransportChannel;
@@ -24,24 +20,18 @@ use slim_config::server::ServerConfig;
 use slim_config::transport::TransportProtocol;
 #[cfg(feature = "native")]
 use slim_config::websocket::server as websocket_server;
-#[cfg(feature = "native")]
-use slim_tracing::utils::INSTANCE_ID;
 use tokio::sync::mpsc::{self, Sender};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{Stream, StreamExt};
 
+use crate::Status;
 #[cfg(feature = "otel_tracing")]
 use crate::otel_tracing;
-use crate::Status;
 use crate::runtime::CancellationToken;
 #[cfg(feature = "native")]
 use tonic::{Request, Response};
-#[cfg(feature = "native")]
-use tracing::Span;
 use tracing::{Instrument, debug, error, info};
-#[cfg(feature = "native")]
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::api::ProtoMessage;
 use crate::api::ProtoPublishType as PublishType;
@@ -68,88 +58,6 @@ use crate::tables::connection_table::ConnectionTable;
 use crate::tables::remote_subscription_table::SubscriptionInfo;
 use crate::tables::subscription_table::SubscriptionTableImpl;
 use crate::websocket;
-
-// Implementation based on: https://docs.rs/opentelemetry-tonic/latest/src/opentelemetry_tonic/lib.rs.html#1-134
-#[cfg(feature = "native")]
-struct MetadataExtractor<'a>(&'a std::collections::HashMap<String, String>);
-
-#[cfg(feature = "native")]
-impl Extractor for MetadataExtractor<'_> {
-    fn get(&self, key: &str) -> Option<&str> {
-        self.0.get(key).map(|s| s.as_str())
-    }
-
-    fn keys(&self) -> Vec<&str> {
-        self.0.keys().map(|s| s.as_str()).collect()
-    }
-}
-
-#[cfg(feature = "native")]
-struct MetadataInjector<'a>(&'a mut std::collections::HashMap<String, String>);
-
-#[cfg(feature = "native")]
-impl Injector for MetadataInjector<'_> {
-    fn set(&mut self, key: &str, value: String) {
-        self.0.insert(key.to_string(), value);
-    }
-}
-
-// Helper function to extract the parent OpenTelemetry context from metadata
-#[cfg(feature = "native")]
-fn extract_parent_context(msg: &Message) -> Option<opentelemetry::Context> {
-    let extractor = MetadataExtractor(&msg.metadata);
-    let parent_context =
-        opentelemetry::global::get_text_map_propagator(|propagator| propagator.extract(&extractor));
-
-    if parent_context.span().span_context().is_valid() {
-        Some(parent_context)
-    } else {
-        None
-    }
-}
-
-// Helper function to inject the current OpenTelemetry context into metadata
-#[cfg(feature = "native")]
-fn inject_current_context(msg: &mut Message) {
-    let cx = tracing::Span::current().context();
-    let mut injector = MetadataInjector(&mut msg.metadata);
-    opentelemetry::global::get_text_map_propagator(|propagator| {
-        propagator.inject_context(&cx, &mut injector)
-    });
-}
-
-#[cfg(feature = "native")]
-impl MessageProcessor {
-    // Helper to create the trace span, attached to the processor so it carries service_id
-    fn create_span(&self, function: &str, out_conn: u64, msg: &Message) -> Span {
-        let span = tracing::span!(
-            tracing::Level::INFO,
-            "slim_process_message",
-            function = function,
-            service_id = %self.internal.service_id,
-            source = format!("{}", msg.get_source()),
-            destination = format!("{}", msg.get_dst()),
-            instance_id = %INSTANCE_ID.as_str(),
-            connection_id = out_conn,
-            message_type = msg.get_type().to_string(),
-            telemetry = true
-        );
-
-        if let PublishType(_) = msg.get_type() {
-            span.set_attribute("session_type", msg.get_session_message_type().as_str_name());
-            span.set_attribute(
-                "session_id",
-                msg.get_session_header().get_session_id().to_string(),
-            );
-            span.set_attribute(
-                "message_id",
-                msg.get_session_header().get_message_id().to_string(),
-            );
-        }
-
-        span
-    }
-}
 
 fn local_version() -> &'static str {
     slim_version::version()
@@ -725,30 +633,11 @@ impl MessageProcessor {
         let connection = self.forwarder().get_connection(out_conn);
         match connection {
             Some(conn) => {
+                // Telemetry context (when enabled via the `otel_tracing` feature) is
+                // already prepared by the caller (`send_msg` / `match_and_forward_msg`),
+                // so this hot-path stays free of OTEL work. `clear_slim_header()` is
+                // a no-op for Link / SubscriptionAck messages.
                 msg.clear_slim_header();
-                // Link and SubscriptionAck messages have no SLIM header: skip header
-                // manipulation and telemetry span creation.
-                if !msg.is_link() && !msg.is_subscription_ack() {
-                    // reset header fields
-                    msg.clear_slim_header();
-
-                    // telemetry ////////////////////////////////////////////////////////
-                    #[cfg(feature = "native")]
-                    {
-                        let parent_context = extract_parent_context(&msg);
-                        let span = self.create_span("send_message", out_conn, &msg);
-
-                        if let Some(ctx) = parent_context
-                            && let Err(e) = span.set_parent(ctx)
-                        {
-                            // log the error but don't fail the message sending
-                            error!(error = %e.chain(), "error setting parent context");
-                        }
-                        let _guard = span.enter();
-                        inject_current_context(&mut msg);
-                    }
-                    ///////////////////////////////////////////////////////////////////
-                }
 
                 match conn.channel() {
                     Channel::Server(s) => {
@@ -1273,24 +1162,6 @@ impl MessageProcessor {
                 conn_index,
                 is_local,
             );
-            // telemetry /////////////////////////////////////////
-            #[cfg(feature = "native")]
-            if is_local {
-                let span = self.create_span("process_local", conn_index, &msg);
-                let _guard = span.enter();
-                inject_current_context(&mut msg);
-            } else {
-                let parent_context = extract_parent_context(&msg);
-                let span = self.create_span("process_local", conn_index, &msg);
-                if let Some(ctx) = parent_context
-                    && let Err(e) = span.set_parent(ctx)
-                {
-                    error!(error = %e.chain(), "error setting parent context");
-                }
-                let _guard = span.enter();
-                inject_current_context(&mut msg);
-            }
-            //////////////////////////////////////////////////////
         }
 
         match self.process_message(msg, conn_index, is_local).await {
