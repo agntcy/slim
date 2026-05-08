@@ -110,15 +110,11 @@ fn bench_match_one_local_preference(c: &mut Criterion) {
     let table = SubscriptionTableImpl::default();
     // 4 remote connections
     for i in 0u64..4 {
-        table
-            .add_subscription(name.clone(), i, false, i)
-            .unwrap();
+        table.add_subscription(name.clone(), i, false, i).unwrap();
     }
     // 2 local connections (should be preferred)
     for i in 10u64..12 {
-        table
-            .add_subscription(name.clone(), i, true, i)
-            .unwrap();
+        table.add_subscription(name.clone(), i, true, i).unwrap();
     }
     let enc = encoded(&name);
     c.bench_function("match_one/local_preference", |b| {

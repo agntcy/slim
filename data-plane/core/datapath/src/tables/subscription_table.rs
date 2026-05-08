@@ -479,36 +479,41 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 }),
             }
         } else {
-            // NULL_COMPONENT: fan out over all registered IDs — data already hot
-            // from the single lookup above.
-            let mut local: Vec<u64> = Vec::new();
-            let mut remote: Vec<u64> = Vec::new();
-            for id_entry in &prefix_entry.by_id {
-                for &c in &id_entry.local {
-                    if c != incoming_conn && !local.contains(&c) {
-                        local.push(c);
-                    }
-                }
-                for &c in &id_entry.remote {
-                    if c != incoming_conn && !remote.contains(&c) {
-                        remote.push(c);
-                    }
-                }
+            // NULL_COMPONENT: pick one connection across all registered IDs.
+            // Data is already hot from the single lookup above.
+
+            // Fast path: single IdEntry — delegate to its round-robin picker,
+            // which already prefers locals and costs nothing to allocate.
+            if prefix_entry.by_id.len() == 1 {
+                return prefix_entry.by_id[0].get_one(incoming_conn).ok_or_else(|| {
+                    debug!("no output connection available");
+                    DataPathError::NoMatchEncoded([
+                        encoded.component_0,
+                        encoded.component_1,
+                        encoded.component_2,
+                        id,
+                    ])
+                });
             }
 
-            let candidates = if !local.is_empty() { &local } else { &remote };
-            if candidates.is_empty() {
-                debug!("no output connection available");
-                return Err(DataPathError::NoMatchEncoded([
-                    encoded.component_0,
-                    encoded.component_1,
-                    encoded.component_2,
-                    id,
-                ]));
+            // General case: pick a random starting IdEntry, then use its
+            // existing get_one (round-robin, local-preferred). A single
+            // random_range call keeps the hot path allocation-free.
+            let by_id = &prefix_entry.by_id;
+            let n = by_id.len();
+            let start = rand::rng().random_range(0..n);
+            for entry in by_id[start..].iter().chain(by_id[..start].iter()) {
+                if let Some(c) = entry.get_one(incoming_conn) {
+                    return Ok(c);
+                }
             }
-            let mut rng = rand::rng();
-            let pos = rng.random_range(0..candidates.len());
-            Ok(candidates[pos])
+            debug!("no output connection available");
+            Err(DataPathError::NoMatchEncoded([
+                encoded.component_0,
+                encoded.component_1,
+                encoded.component_2,
+                id,
+            ]))
         }
     }
 
@@ -558,7 +563,8 @@ impl SubscriptionTable for SubscriptionTableImpl {
                     ]))
                 }
                 Some(entry) => {
-                    let out: Vec<u64> = entry.get_all(incoming_conn).collect();
+                    let mut out = Vec::with_capacity(entry.local.len() + entry.remote.len());
+                    out.extend(entry.get_all(incoming_conn));
                     if out.is_empty() {
                         debug!("no connection available (local/remote)");
                         Err(DataPathError::NoMatchEncoded([
@@ -576,11 +582,13 @@ impl SubscriptionTable for SubscriptionTableImpl {
         } else {
             // NULL_COMPONENT: union of all connections across all registered IDs;
             // data already hot from the single lookup.
-            let mut seen: HashSet<u64> = HashSet::new();
-            let mut out: Vec<u64> = Vec::new();
+            // Use Vec::contains for dedup to avoid the HashSet allocation cost.
+            // O(n²) but n ≤ ~16 in practice, so linear scan beats HashSet overhead.
+            let n = prefix_entry.by_id.len();
+            let mut out: Vec<u64> = Vec::with_capacity(n);
             for id_entry in &prefix_entry.by_id {
                 for c in id_entry.get_all(incoming_conn) {
-                    if seen.insert(c) {
+                    if !out.contains(&c) {
                         out.push(c);
                     }
                 }
