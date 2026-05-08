@@ -218,8 +218,7 @@ where
 
         let token = self.identity_provider.get_token()?;
         let basic_cred = BasicCredential::new(token.as_bytes().to_vec());
-        let signing_identity =
-            SigningIdentity::new(basic_cred.into_credential(), pub_key.clone());
+        let signing_identity = SigningIdentity::new(basic_cred.into_credential(), pub_key.clone());
 
         if let Some(stored) = self.stored_identity.as_mut() {
             stored.last_credential = Some(token);
@@ -616,8 +615,14 @@ mod tests {
         let (priv_key, pub_key) =
             Mls::<SharedSecret, SharedSecret>::generate_key_pair().expect("key gen");
 
-        assert!(!priv_key.as_bytes().is_empty(), "private key must not be empty");
-        assert!(!pub_key.as_bytes().is_empty(), "public key must not be empty");
+        assert!(
+            !priv_key.as_bytes().is_empty(),
+            "private key must not be empty"
+        );
+        assert!(
+            !pub_key.as_bytes().is_empty(),
+            "public key must not be empty"
+        );
 
         // Sanity bound on key sizes:
         // - P-256 SEC1 uncompressed pubkey is 65 bytes, secret is 32 bytes
