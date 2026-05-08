@@ -149,27 +149,14 @@ struct SubRecord {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// RoutingState — HOT read path.
-//
-// Protected by an RwLock so many readers can proceed concurrently without
-// ever being blocked by subscription bookkeeping (WriteState).
-// ──────────────────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Default)]
-struct RoutingState {
-    // One HashMap lookup covers both specific-ID and NULL_COMPONENT cases.
-    routing: HashMap<[u64; 3], PrefixEntry>,
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// WriteState — COLD write path.
+// SubscriptionState — COLD write path.
 //
 // Protected by a Mutex (exclusive access always required). Never held by
 // match_one / match_all, so subscription churn never blocks message routing.
 // ──────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Default)]
-struct WriteState {
+struct SubscriptionState {
     subscriptions: HashMap<u64, SubRecord>, // sub_id  → (encoded, conn_id)
     conn_subs: HashMap<u64, Vec<u64>>,      // conn_id → sub_ids
 }
@@ -178,22 +165,22 @@ struct WriteState {
 // SubscriptionTableImpl
 //
 // Lock ordering (must always be respected to prevent deadlock):
-//   1. write_state.lock()   — acquired first by all writers
-//   2. routing.write()      — acquired second by all writers
-// Readers only ever acquire routing.read(); they never touch write_state.
+//   1. subscription_state.lock() — acquired first by all writers
+//   2. routing.write()           — acquired second by all writers
+// Readers only ever acquire routing.read(); they never touch subscription_state.
 // ──────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Default)]
 pub struct SubscriptionTableImpl {
-    routing: RwLock<RoutingState>,  // only lock held on the hot read path
-    write_state: Mutex<WriteState>, // never held by match_one / match_all
+    routing: RwLock<HashMap<[u64; 3], PrefixEntry>>, // only lock held on the hot read path
+    subscription_state: Mutex<SubscriptionState>,    // never held by match_one / match_all
 }
 
 impl Display for SubscriptionTableImpl {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let rs = self.routing.read();
         writeln!(f, "Subscription Table")?;
-        for prefix_entry in rs.routing.values() {
+        for prefix_entry in rs.values() {
             writeln!(
                 f,
                 "Type: {}/{}/{}",
@@ -234,7 +221,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         F: FnMut(&ProtoName, u64, &[u64], &[u64]),
     {
         let rs = self.routing.read();
-        for prefix_entry in rs.routing.values() {
+        for prefix_entry in rs.values() {
             let base_name = ProtoName::from_strings([
                 prefix_entry.strings[0].as_str(),
                 prefix_entry.strings[1].as_str(),
@@ -259,11 +246,11 @@ impl SubscriptionTable for SubscriptionTableImpl {
         let encoded = *enc;
 
         // Lock order: write_state first, routing second.
-        let mut ws = self.write_state.lock();
+        let mut ss = self.subscription_state.lock();
         let mut rs = self.routing.write();
 
         // 1. Ensure PrefixEntry exists; record strings on first insertion.
-        let prefix_entry = rs.routing.entry(prefix).or_insert_with(|| {
+        let prefix_entry = rs.entry(prefix).or_insert_with(|| {
             let (s0, s1, s2) = name.str_components();
             PrefixEntry::new([s0.to_string(), s1.to_string(), s2.to_string()])
         });
@@ -278,7 +265,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         id_entry.insert(conn, is_local);
 
         // 4. Record the subscription (idempotent: same sub_id overwrites itself).
-        ws.subscriptions.insert(
+        ss.subscriptions.insert(
             subscription_id,
             SubRecord {
                 encoded,
@@ -287,7 +274,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         );
 
         // 5. Track sub_id → conn (deduped).
-        let subs = ws.conn_subs.entry(conn).or_default();
+        let subs = ss.conn_subs.entry(conn).or_default();
         if !subs.contains(&subscription_id) {
             subs.push(subscription_id);
         }
@@ -309,21 +296,21 @@ impl SubscriptionTable for SubscriptionTableImpl {
         let encoded = *enc;
 
         // Lock order: write_state first, routing second.
-        let mut ws = self.write_state.lock();
+        let mut ss = self.subscription_state.lock();
         let mut rs = self.routing.write();
 
         // Error precedence: routing checks first.
-        if !rs.routing.contains_key(&prefix) {
+        if !rs.contains_key(&prefix) {
             debug!("subscription not found {}", name);
             return Err(DataPathError::SubscriptionNotFound(name.clone()));
         }
-        if !rs.routing[&prefix].by_id.iter().any(|e| e.id == id) {
+        if !rs[&prefix].by_id.iter().any(|e| e.id == id) {
             warn!(%id, "not found");
             return Err(DataPathError::IdNotFound(id));
         }
 
         // Validate the subscription record.
-        let record = ws
+        let record = ss
             .subscriptions
             .get(&subscription_id)
             .copied()
@@ -337,16 +324,16 @@ impl SubscriptionTable for SubscriptionTableImpl {
         }
 
         // Remove sub_id from the flat maps.
-        ws.subscriptions.remove(&subscription_id);
-        if let Some(subs) = ws.conn_subs.get_mut(&conn) {
+        ss.subscriptions.remove(&subscription_id);
+        if let Some(subs) = ss.conn_subs.get_mut(&conn) {
             subs.retain(|&s| s != subscription_id);
         }
 
         // Check whether conn still holds any subscription for this exact name.
         // O(subs_per_conn) scan; typically < 20 entries.
-        let conn_still_subscribed = ws.conn_subs.get(&conn).is_some_and(|subs| {
+        let conn_still_subscribed = ss.conn_subs.get(&conn).is_some_and(|subs| {
             subs.iter().any(|&s| {
-                ws.subscriptions
+                ss.subscriptions
                     .get(&s)
                     .is_some_and(|r| r.encoded == encoded)
             })
@@ -355,7 +342,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         if !conn_still_subscribed {
             // Remove conn from the routing entry; drop the mutable ref before
             // potentially calling routing.remove().
-            let should_remove_prefix = if let Some(prefix_entry) = rs.routing.get_mut(&prefix) {
+            let should_remove_prefix = if let Some(prefix_entry) = rs.get_mut(&prefix) {
                 if let Some(id_entry) = prefix_entry.by_id.iter_mut().find(|e| e.id == id) {
                     id_entry.remove(conn, is_local);
                 }
@@ -365,13 +352,13 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 false
             };
             if should_remove_prefix {
-                rs.routing.remove(&prefix);
+                rs.remove(&prefix);
             }
         }
 
         // Clean up conn_subs if empty.
-        if ws.conn_subs.get(&conn).is_some_and(|s| s.is_empty()) {
-            ws.conn_subs.remove(&conn);
+        if ss.conn_subs.get(&conn).is_some_and(|s| s.is_empty()) {
+            ss.conn_subs.remove(&conn);
         }
 
         Ok(())
@@ -383,10 +370,10 @@ impl SubscriptionTable for SubscriptionTableImpl {
         is_local: bool,
     ) -> Result<HashMap<ProtoName, HashSet<u64>>, Self::Error> {
         // Lock order: write_state first, routing second.
-        let mut ws = self.write_state.lock();
+        let mut ss = self.subscription_state.lock();
         let mut rs = self.routing.write();
 
-        let sub_ids = ws
+        let sub_ids = ss
             .conn_subs
             .remove(&conn)
             .ok_or(DataPathError::ConnectionIdNotFound(conn))?;
@@ -398,14 +385,13 @@ impl SubscriptionTable for SubscriptionTableImpl {
         let mut encoded_names: Vec<EncodedName> = Vec::new();
 
         for sub_id in sub_ids {
-            if let Some(record) = ws.subscriptions.remove(&sub_id) {
+            if let Some(record) = ss.subscriptions.remove(&sub_id) {
                 let prefix = [
                     record.encoded.component_0,
                     record.encoded.component_1,
                     record.encoded.component_2,
                 ];
                 let proto_name = rs
-                    .routing
                     .get(&prefix)
                     .map(|pe| pe.to_proto_name(record.encoded.component_3))
                     .unwrap_or(ProtoName {
@@ -430,7 +416,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
             ];
             let id = encoded.component_3;
 
-            let should_remove_prefix = if let Some(prefix_entry) = rs.routing.get_mut(&prefix) {
+            let should_remove_prefix = if let Some(prefix_entry) = rs.get_mut(&prefix) {
                 if let Some(id_entry) = prefix_entry.by_id.iter_mut().find(|e| e.id == id) {
                     id_entry.remove(conn, is_local);
                 }
@@ -441,7 +427,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
             };
 
             if should_remove_prefix {
-                rs.routing.remove(&prefix);
+                rs.remove(&prefix);
             }
         }
 
@@ -458,7 +444,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         let rs = self.routing.read();
 
         // ONE HashMap lookup — the same for any c3 value.
-        let prefix_entry = match rs.routing.get(&prefix) {
+        let prefix_entry = match rs.get(&prefix) {
             None => {
                 debug!(
                     component_0 = encoded.component_0,
@@ -552,7 +538,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         let rs = self.routing.read();
 
         // ONE HashMap lookup — the same for any c3 value.
-        let prefix_entry = match rs.routing.get(&prefix) {
+        let prefix_entry = match rs.get(&prefix) {
             None => {
                 debug!(
                     component_0 = encoded.component_0,
