@@ -160,7 +160,9 @@ impl PrefixEntry {
     /// Returns `None` if `id` has no slot or all connections equal `skip`.
     fn get_one(&self, id: u64, skip: u64) -> Option<u64> {
         let idx = self.ids.iter().position(|&i| i == id)?;
-        self.get_one_at(idx, skip)
+        Self::pick_one(&self.local_connections[idx], &self.local_cursors[idx], skip).or_else(
+            || Self::pick_one(&self.remote_connections[idx], &self.remote_cursors[idx], skip),
+        )
     }
 
     /// Return all connections for `id` (local + remote) excluding `skip`.
@@ -171,8 +173,63 @@ impl PrefixEntry {
         let mut out = Vec::with_capacity(
             self.local_connections[idx].len() + self.remote_connections[idx].len(),
         );
-        out.extend(self.get_all_at(idx, skip));
+        out.extend(
+            self.local_connections[idx]
+                .iter()
+                .chain(self.remote_connections[idx].iter())
+                .copied()
+                .filter(|&c| c != skip),
+        );
         Some(out)
+    }
+
+    /// NULL_COMPONENT `match_one`: pick one connection, all locals before any remote,
+    /// starting from a random slot, skipping `skip`.
+    fn pick_one_any(&self, skip: u64) -> Option<u64> {
+        let n = self.len();
+        if n == 0 {
+            return None;
+        }
+        // Skip the rng call when there is only one slot.
+        let start = if n == 1 { 0 } else { rand::rng().random_range(0..n) };
+        // All locals first (starting from random slot, wrapping).
+        for i in (start..n).chain(0..start) {
+            for &c in &self.local_connections[i] {
+                if c != skip {
+                    return Some(c);
+                }
+            }
+        }
+        // Then all remotes (same wrapping start).
+        for i in (start..n).chain(0..start) {
+            for &c in &self.remote_connections[i] {
+                if c != skip {
+                    return Some(c);
+                }
+            }
+        }
+        None
+    }
+
+    /// NULL_COMPONENT `match_all`: collect all distinct connections, locals before
+    /// remotes, skipping `skip`.
+    fn get_all_any(&self, skip: u64) -> Vec<u64> {
+        let mut out: Vec<u64> = Vec::with_capacity(self.len());
+        for local in &self.local_connections {
+            for &c in local {
+                if c != skip && !out.contains(&c) {
+                    out.push(c);
+                }
+            }
+        }
+        for remote in &self.remote_connections {
+            for &c in remote {
+                if c != skip && !out.contains(&c) {
+                    out.push(c);
+                }
+            }
+        }
+        out
     }
 
     /// Iterate all slots, yielding `(id, local, remote)` — used by `for_each`.
@@ -180,28 +237,6 @@ impl PrefixEntry {
         for (i, &id) in self.ids.iter().enumerate() {
             f(id, &self.local_connections[i], &self.remote_connections[i]);
         }
-    }
-
-    /// Return one connection for slot `idx`, preferring local, round-robin, excluding `skip`.
-    fn get_one_at(&self, idx: usize, skip: u64) -> Option<u64> {
-        Self::pick_one(&self.local_connections[idx], &self.local_cursors[idx], skip).or_else(
-            || {
-                Self::pick_one(
-                    &self.remote_connections[idx],
-                    &self.remote_cursors[idx],
-                    skip,
-                )
-            },
-        )
-    }
-
-    /// Return all connections for slot `idx` (local + remote) excluding `skip`.
-    fn get_all_at(&self, idx: usize, skip: u64) -> impl Iterator<Item = u64> + '_ {
-        self.local_connections[idx]
-            .iter()
-            .chain(self.remote_connections[idx].iter())
-            .copied()
-            .filter(move |&c| c != skip)
     }
 
     /// Build a `ProtoName` from the stored strings and a component_3 value.
@@ -546,40 +581,17 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 ])
             })
         } else {
-            // NULL_COMPONENT: pick one connection across all registered IDs.
-            // Data is already hot from the single lookup above.
-
-            // Fast path: single slot — delegate to its round-robin picker,
-            // which already prefers locals and costs nothing to allocate.
-            if prefix_entry.len() == 1 {
-                return prefix_entry.get_one_at(0, incoming_conn).ok_or_else(|| {
-                    debug!("no output connection available");
-                    DataPathError::NoMatchEncoded([
-                        encoded.component_0,
-                        encoded.component_1,
-                        encoded.component_2,
-                        id,
-                    ])
-                });
-            }
-
-            // General case: pick a random starting slot, then use its
-            // get_one_at (round-robin, local-preferred). A single
-            // random_range call keeps the hot path allocation-free.
-            let n = prefix_entry.len();
-            let start = rand::rng().random_range(0..n);
-            for i in (start..n).chain(0..start) {
-                if let Some(c) = prefix_entry.get_one_at(i, incoming_conn) {
-                    return Ok(c);
-                }
-            }
-            debug!("no output connection available");
-            Err(DataPathError::NoMatchEncoded([
-                encoded.component_0,
-                encoded.component_1,
-                encoded.component_2,
-                id,
-            ]))
+            // NULL_COMPONENT: pick one connection across all registered IDs,
+            // locals preferred.  Data is already hot from the single lookup above.
+            prefix_entry.pick_one_any(incoming_conn).ok_or_else(|| {
+                debug!("no output connection available");
+                DataPathError::NoMatchEncoded([
+                    encoded.component_0,
+                    encoded.component_1,
+                    encoded.component_2,
+                    id,
+                ])
+            })
         }
     }
 
@@ -643,20 +655,9 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 }
             }
         } else {
-            // NULL_COMPONENT: union of all connections across all registered IDs;
-            // data already hot from the single lookup.
-            // Use Vec::contains for dedup to avoid the HashSet allocation cost.
-            // O(n²) but n ≤ ~16 in practice, so linear scan beats HashSet overhead.
-            let n = prefix_entry.len();
-            let mut out: Vec<u64> = Vec::with_capacity(n);
-            for i in 0..n {
-                for c in prefix_entry.get_all_at(i, incoming_conn) {
-                    if !out.contains(&c) {
-                        out.push(c);
-                    }
-                }
-            }
-
+            // NULL_COMPONENT: union of all connections, locals before remotes.
+            // Data is already hot from the single lookup above.
+            let out = prefix_entry.get_all_any(incoming_conn);
             if out.is_empty() {
                 debug!("no connection available");
                 Err(DataPathError::NoMatchEncoded([
