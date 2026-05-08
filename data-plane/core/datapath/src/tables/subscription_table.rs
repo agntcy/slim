@@ -14,58 +14,106 @@ use crate::api::{EncodedName, ProtoName};
 use crate::errors::DataPathError;
 
 // ──────────────────────────────────────────────────────────────────────────────
-// IdEntry – one entry per unique component_3 value registered under a prefix.
+// PrefixEntry – one allocation per unique [u64; 3] prefix.
 //
-// `local` and `remote` are insertion-ordered Vecs (deduped).  The AtomicUsize
-// cursors advance under the read lock for round-robin selection.
+// Struct-of-arrays layout: `ids` is a flat Vec<u64> so a scan for a matching
+// component_3 value reads 8 IDs per cache line instead of striding across
+// 72-byte AoS IdEntry objects.  Once the index is found the per-slot
+// connection Vecs are accessed by that index.
+//
+// Invariant: all five Vecs always have the same length.
 // ──────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug)]
-struct IdEntry {
-    id: u64,
-    local: Vec<u64>,
-    remote: Vec<u64>,
-    local_cursor: AtomicUsize,
-    remote_cursor: AtomicUsize,
+struct PrefixEntry {
+    /// Dense u64 array — 8 IDs per cache line.
+    ids: Vec<u64>,
+    local_connections: Vec<Vec<u64>>,
+    remote_connections: Vec<Vec<u64>>,
+    local_cursors: Vec<AtomicUsize>,
+    remote_cursors: Vec<AtomicUsize>,
+    /// Human-readable prefix strings for for_each / Display / ProtoName.
+    strings: [String; 3],
 }
 
-impl IdEntry {
-    fn new(id: u64) -> Self {
-        IdEntry {
-            id,
-            local: Vec::new(),
-            remote: Vec::new(),
-            local_cursor: AtomicUsize::new(0),
-            remote_cursor: AtomicUsize::new(0),
+impl PrefixEntry {
+    fn new(strings: [String; 3]) -> Self {
+        PrefixEntry {
+            ids: Vec::new(),
+            local_connections: Vec::new(),
+            remote_connections: Vec::new(),
+            local_cursors: Vec::new(),
+            remote_cursors: Vec::new(),
+            strings,
         }
     }
 
-    /// Add `conn` to the appropriate list if not already present.
-    fn insert(&mut self, conn: u64, is_local: bool) {
+    /// Append a new ID slot. Called only when `id` is not already present.
+    fn push_id(&mut self, id: u64) {
+        self.ids.push(id);
+        self.local_connections.push(Vec::new());
+        self.remote_connections.push(Vec::new());
+        self.local_cursors.push(AtomicUsize::new(0));
+        self.remote_cursors.push(AtomicUsize::new(0));
+    }
+
+    fn len(&self) -> usize {
+        self.ids.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.ids.is_empty()
+    }
+
+    /// Add `conn` to the appropriate list for slot `idx` if not already present.
+    fn insert_conn(&mut self, idx: usize, conn: u64, is_local: bool) {
         let vec = if is_local {
-            &mut self.local
+            &mut self.local_connections[idx]
         } else {
-            &mut self.remote
+            &mut self.remote_connections[idx]
         };
         if !vec.contains(&conn) {
             vec.push(conn);
         }
     }
 
-    /// Remove `conn` from the appropriate list (no-op if absent).
-    fn remove(&mut self, conn: u64, is_local: bool) {
+    /// Remove `conn` from the appropriate list for slot `idx` (no-op if absent).
+    fn remove_conn(&mut self, idx: usize, conn: u64, is_local: bool) {
         let vec = if is_local {
-            &mut self.local
+            &mut self.local_connections[idx]
         } else {
-            &mut self.remote
+            &mut self.remote_connections[idx]
         };
         if let Some(pos) = vec.iter().position(|&c| c == conn) {
             vec.swap_remove(pos);
         }
     }
 
-    fn is_empty(&self) -> bool {
-        self.local.is_empty() && self.remote.is_empty()
+    /// True when both local and remote lists for slot `idx` are empty.
+    fn is_slot_empty(&self, idx: usize) -> bool {
+        self.local_connections[idx].is_empty() && self.remote_connections[idx].is_empty()
+    }
+
+    /// Remove slot `idx` using swap_remove on every parallel Vec.
+    fn remove_slot(&mut self, idx: usize) {
+        self.ids.swap_remove(idx);
+        self.local_connections.swap_remove(idx);
+        self.remote_connections.swap_remove(idx);
+        self.local_cursors.swap_remove(idx);
+        self.remote_cursors.swap_remove(idx);
+    }
+
+    /// Remove all slots whose local and remote lists are both empty.
+    /// Replaces `by_id.retain(|e| !e.is_empty())`.
+    fn retain_non_empty(&mut self) {
+        let mut i = 0;
+        while i < self.ids.len() {
+            if self.is_slot_empty(i) {
+                self.remove_slot(i); // swap_remove: don't advance i
+            } else {
+                i += 1;
+            }
+        }
     }
 
     /// Round-robin pick from `slice`, skipping `skip`.
@@ -87,43 +135,26 @@ impl IdEntry {
         None
     }
 
-    /// Return one connection preferring local, round-robin, excluding `skip`.
-    fn get_one(&self, skip: u64) -> Option<u64> {
-        Self::pick_one(&self.local, &self.local_cursor, skip)
-            .or_else(|| Self::pick_one(&self.remote, &self.remote_cursor, skip))
+    /// Return one connection for slot `idx`, preferring local, round-robin, excluding `skip`.
+    fn get_one_at(&self, idx: usize, skip: u64) -> Option<u64> {
+        Self::pick_one(&self.local_connections[idx], &self.local_cursors[idx], skip).or_else(
+            || {
+                Self::pick_one(
+                    &self.remote_connections[idx],
+                    &self.remote_cursors[idx],
+                    skip,
+                )
+            },
+        )
     }
 
-    /// Return all connections (local + remote) excluding `skip`.
-    fn get_all(&self, skip: u64) -> impl Iterator<Item = u64> + '_ {
-        self.local
+    /// Return all connections for slot `idx` (local + remote) excluding `skip`.
+    fn get_all_at(&self, idx: usize, skip: u64) -> impl Iterator<Item = u64> + '_ {
+        self.local_connections[idx]
             .iter()
-            .chain(self.remote.iter())
+            .chain(self.remote_connections[idx].iter())
             .copied()
             .filter(move |&c| c != skip)
-    }
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// PrefixEntry – one allocation per unique [u64; 3] prefix.
-//
-// All IdEntries for a prefix share this heap object → a single cache miss
-// brings the whole routing context into L1/L2.
-// ──────────────────────────────────────────────────────────────────────────────
-
-#[derive(Debug)]
-struct PrefixEntry {
-    /// Linear scan only; n ≤ ~10 in any real deployment.
-    by_id: Vec<IdEntry>,
-    /// Human-readable prefix strings for for_each / Display / ProtoName.
-    strings: [String; 3],
-}
-
-impl PrefixEntry {
-    fn new(strings: [String; 3]) -> Self {
-        PrefixEntry {
-            by_id: Vec::new(),
-            strings,
-        }
     }
 
     /// Build a `ProtoName` from the stored strings and a component_3 value.
@@ -190,23 +221,23 @@ impl Display for SubscriptionTableImpl {
                 prefix_entry.strings[0], prefix_entry.strings[1], prefix_entry.strings[2]
             )?;
             writeln!(f, "  Names:")?;
-            for id_entry in &prefix_entry.by_id {
-                writeln!(f, "    Id: {}", id_entry.id)?;
-                if id_entry.local.is_empty() {
+            for (i, &id) in prefix_entry.ids.iter().enumerate() {
+                writeln!(f, "    Id: {}", id)?;
+                if prefix_entry.local_connections[i].is_empty() {
                     writeln!(f, "       Local Connections:")?;
                     writeln!(f, "         None")?;
                 } else {
                     writeln!(f, "       Local Connections:")?;
-                    for c in &id_entry.local {
+                    for c in &prefix_entry.local_connections[i] {
                         writeln!(f, "         Connection: {}", c)?;
                     }
                 }
-                if id_entry.remote.is_empty() {
+                if prefix_entry.remote_connections[i].is_empty() {
                     writeln!(f, "       Remote Connections:")?;
                     writeln!(f, "         None")?;
                 } else {
                     writeln!(f, "       Remote Connections:")?;
-                    for c in &id_entry.remote {
+                    for c in &prefix_entry.remote_connections[i] {
                         writeln!(f, "         Connection: {}", c)?;
                     }
                 }
@@ -230,8 +261,13 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 prefix_entry.strings[1].as_str(),
                 prefix_entry.strings[2].as_str(),
             ]);
-            for id_entry in &prefix_entry.by_id {
-                f(&base_name, id_entry.id, &id_entry.local, &id_entry.remote);
+            for (i, &id) in prefix_entry.ids.iter().enumerate() {
+                f(
+                    &base_name,
+                    id,
+                    &prefix_entry.local_connections[i],
+                    &prefix_entry.remote_connections[i],
+                );
             }
         }
     }
@@ -258,14 +294,14 @@ impl SubscriptionTable for SubscriptionTableImpl {
             PrefixEntry::new([s0.to_string(), s1.to_string(), s2.to_string()])
         });
 
-        // 2. Ensure an IdEntry for this id exists within the prefix.
-        if !prefix_entry.by_id.iter().any(|e| e.id == id) {
-            prefix_entry.by_id.push(IdEntry::new(id));
+        // 2. Ensure an ID slot exists within the prefix.
+        if !prefix_entry.ids.contains(&id) {
+            prefix_entry.push_id(id);
         }
 
         // 3. Insert conn into the right list (deduped).
-        let id_entry = prefix_entry.by_id.iter_mut().find(|e| e.id == id).unwrap();
-        id_entry.insert(conn, is_local);
+        let idx = prefix_entry.ids.iter().position(|&i| i == id).unwrap();
+        prefix_entry.insert_conn(idx, conn, is_local);
 
         // 4. Record the subscription (idempotent: same sub_id overwrites itself).
         ss.subscriptions.insert(
@@ -307,7 +343,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
             debug!("subscription not found {}", name);
             return Err(DataPathError::SubscriptionNotFound(name.clone()));
         }
-        if !rs[&prefix].by_id.iter().any(|e| e.id == id) {
+        if !rs[&prefix].ids.contains(&id) {
             warn!(%id, "not found");
             return Err(DataPathError::IdNotFound(id));
         }
@@ -346,11 +382,11 @@ impl SubscriptionTable for SubscriptionTableImpl {
             // Remove conn from the routing entry; drop the mutable ref before
             // potentially calling routing.remove().
             let should_remove_prefix = if let Some(prefix_entry) = rs.get_mut(&prefix) {
-                if let Some(id_entry) = prefix_entry.by_id.iter_mut().find(|e| e.id == id) {
-                    id_entry.remove(conn, is_local);
+                if let Some(idx) = prefix_entry.ids.iter().position(|&i| i == id) {
+                    prefix_entry.remove_conn(idx, conn, is_local);
                 }
-                prefix_entry.by_id.retain(|e| !e.is_empty());
-                prefix_entry.by_id.is_empty()
+                prefix_entry.retain_non_empty();
+                prefix_entry.is_empty()
             } else {
                 false
             };
@@ -420,11 +456,11 @@ impl SubscriptionTable for SubscriptionTableImpl {
             let id = encoded.component_3;
 
             let should_remove_prefix = if let Some(prefix_entry) = rs.get_mut(&prefix) {
-                if let Some(id_entry) = prefix_entry.by_id.iter_mut().find(|e| e.id == id) {
-                    id_entry.remove(conn, is_local);
+                if let Some(idx) = prefix_entry.ids.iter().position(|&i| i == id) {
+                    prefix_entry.remove_conn(idx, conn, is_local);
                 }
-                prefix_entry.by_id.retain(|e| !e.is_empty());
-                prefix_entry.by_id.is_empty()
+                prefix_entry.retain_non_empty();
+                prefix_entry.is_empty()
             } else {
                 false
             };
@@ -467,8 +503,8 @@ impl SubscriptionTable for SubscriptionTableImpl {
         };
 
         if id != ProtoName::NULL_COMPONENT {
-            // Specific ID: linear scan over by_id (n ≤ ~10, fits in cache).
-            match prefix_entry.by_id.iter().find(|e| e.id == id) {
+            // Specific ID: linear scan over ids (8 per cache line).
+            match prefix_entry.ids.iter().position(|&i| i == id) {
                 None => {
                     debug!(component_3 = id, "match not found for name");
                     Err(DataPathError::NoMatchEncoded([
@@ -478,7 +514,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
                         id,
                     ]))
                 }
-                Some(entry) => entry.get_one(incoming_conn).ok_or_else(|| {
+                Some(idx) => prefix_entry.get_one_at(idx, incoming_conn).ok_or_else(|| {
                     debug!("no output connection available");
                     DataPathError::NoMatchEncoded([
                         encoded.component_0,
@@ -492,10 +528,10 @@ impl SubscriptionTable for SubscriptionTableImpl {
             // NULL_COMPONENT: pick one connection across all registered IDs.
             // Data is already hot from the single lookup above.
 
-            // Fast path: single IdEntry — delegate to its round-robin picker,
+            // Fast path: single slot — delegate to its round-robin picker,
             // which already prefers locals and costs nothing to allocate.
-            if prefix_entry.by_id.len() == 1 {
-                return prefix_entry.by_id[0].get_one(incoming_conn).ok_or_else(|| {
+            if prefix_entry.len() == 1 {
+                return prefix_entry.get_one_at(0, incoming_conn).ok_or_else(|| {
                     debug!("no output connection available");
                     DataPathError::NoMatchEncoded([
                         encoded.component_0,
@@ -506,14 +542,13 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 });
             }
 
-            // General case: pick a random starting IdEntry, then use its
-            // existing get_one (round-robin, local-preferred). A single
+            // General case: pick a random starting slot, then use its
+            // get_one_at (round-robin, local-preferred). A single
             // random_range call keeps the hot path allocation-free.
-            let by_id = &prefix_entry.by_id;
-            let n = by_id.len();
+            let n = prefix_entry.len();
             let start = rand::rng().random_range(0..n);
-            for entry in by_id[start..].iter().chain(by_id[..start].iter()) {
-                if let Some(c) = entry.get_one(incoming_conn) {
+            for i in (start..n).chain(0..start) {
+                if let Some(c) = prefix_entry.get_one_at(i, incoming_conn) {
                     return Ok(c);
                 }
             }
@@ -561,8 +596,8 @@ impl SubscriptionTable for SubscriptionTableImpl {
         };
 
         if id != ProtoName::NULL_COMPONENT {
-            // Specific ID: linear scan over by_id.
-            match prefix_entry.by_id.iter().find(|e| e.id == id) {
+            // Specific ID: linear scan over ids (8 per cache line).
+            match prefix_entry.ids.iter().position(|&i| i == id) {
                 None => {
                     debug!(component_3 = id, "match not found for name");
                     Err(DataPathError::NoMatchEncoded([
@@ -572,9 +607,12 @@ impl SubscriptionTable for SubscriptionTableImpl {
                         id,
                     ]))
                 }
-                Some(entry) => {
-                    let mut out = Vec::with_capacity(entry.local.len() + entry.remote.len());
-                    out.extend(entry.get_all(incoming_conn));
+                Some(idx) => {
+                    let mut out = Vec::with_capacity(
+                        prefix_entry.local_connections[idx].len()
+                            + prefix_entry.remote_connections[idx].len(),
+                    );
+                    out.extend(prefix_entry.get_all_at(idx, incoming_conn));
                     if out.is_empty() {
                         debug!("no connection available (local/remote)");
                         Err(DataPathError::NoMatchEncoded([
@@ -594,10 +632,10 @@ impl SubscriptionTable for SubscriptionTableImpl {
             // data already hot from the single lookup.
             // Use Vec::contains for dedup to avoid the HashSet allocation cost.
             // O(n²) but n ≤ ~16 in practice, so linear scan beats HashSet overhead.
-            let n = prefix_entry.by_id.len();
+            let n = prefix_entry.len();
             let mut out: Vec<u64> = Vec::with_capacity(n);
-            for id_entry in &prefix_entry.by_id {
-                for c in id_entry.get_all(incoming_conn) {
+            for i in 0..n {
+                for c in prefix_entry.get_all_at(i, incoming_conn) {
                     if !out.contains(&c) {
                         out.push(c);
                     }
