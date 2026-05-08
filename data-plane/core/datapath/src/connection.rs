@@ -67,7 +67,7 @@ pub struct Connection {
     negotiation: Arc<RwLock<NegotiationState>>,
 
     /// Optional HMAC session for SLIM header integrity on this inter-node link.
-    header_mac: Option<Arc<HeaderMacSession>>,
+    header_hmac: Option<Arc<HeaderMacSession>>,
 }
 
 /// Implementation of Connection
@@ -82,7 +82,7 @@ impl Connection {
             connection_type,
             cancellation_token: None,
             negotiation: Arc::new(RwLock::new(NegotiationState::default())),
-            header_mac: None,
+            header_hmac: None,
         }
     }
 
@@ -107,12 +107,15 @@ impl Connection {
         }
     }
 
-    pub(crate) fn with_header_mac(self, header_mac: Option<Arc<HeaderMacSession>>) -> Self {
-        Self { header_mac, ..self }
+    pub(crate) fn with_header_mac(self, header_hmac: Option<Arc<HeaderMacSession>>) -> Self {
+        Self {
+            header_hmac: header_hmac,
+            ..self
+        }
     }
 
-    pub(crate) fn header_mac(&self) -> Option<&Arc<HeaderMacSession>> {
-        self.header_mac.as_ref()
+    pub(crate) fn header_hmac(&self) -> Option<&Arc<HeaderMacSession>> {
+        self.header_hmac.as_ref()
     }
 
     /// Get the remote address

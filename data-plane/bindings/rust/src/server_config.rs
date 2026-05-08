@@ -106,7 +106,6 @@ pub struct ServerConfig {
     pub metadata: Option<String>,
 
     /// HMAC-SHA256 key for verifying SLIM headers on inbound links (≥32 bytes when set)
-    #[uniffi(default = None)]
     pub header_mac_key: Option<String>,
 }
 

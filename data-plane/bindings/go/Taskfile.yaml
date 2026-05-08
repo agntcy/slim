@@ -222,11 +222,12 @@ tasks:
 
   install-uniffi-bindgen-go:
     desc: Install uniffi-bindgen-go
+    # Do not skip when an unrelated uniffi-bindgen-go is on PATH (e.g. 0.29 vs Rust UniFFI 0.31).
     status:
-      - which uniffi-bindgen-go
+      - 'command -v uniffi-bindgen-go >/dev/null && uniffi-bindgen-go --version 2>/dev/null | grep -Fq "0.7.1+v0.31.0"'
     cmds:
       - echo "📦 Installing uniffi-bindgen-go..."
-      - cargo install uniffi-bindgen-go --git https://github.com/NordSecurity/uniffi-bindgen-go.git --tag v0.7.1+v0.31.0 --config net.git-fetch-with-cli=true
+      - cargo install uniffi-bindgen-go --git https://github.com/NordSecurity/uniffi-bindgen-go.git --tag v0.7.1+v0.31.0 --config net.git-fetch-with-cli=true --force
     silent: true
 
   copy-library:

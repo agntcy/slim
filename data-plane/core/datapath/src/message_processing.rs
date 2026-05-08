@@ -190,7 +190,7 @@ impl MessageProcessor {
             .forwarder()
             .get_connection(conn_index)
             .ok_or(DataPathError::ConnectionNotFound(conn_index))?;
-        let Some(mac) = conn.header_mac() else {
+        let Some(mac) = conn.header_hmac() else {
             return Ok(());
         };
         let lid = conn
@@ -460,21 +460,22 @@ impl MessageProcessor {
                 // Link and SubscriptionAck messages have no SLIM header: skip header
                 // manipulation and telemetry span creation.
                 if !msg.is_link() && !msg.is_subscription_ack() {
+                    // reset header fields
                     msg.clear_slim_header();
                 }
 
                 if !msg.is_link()
                     && !msg.is_subscription_ack()
                     && !conn.is_local_connection()
-                    && let Some(mac) = conn.header_mac()
+                    && let Some(mac) = conn.header_hmac()
                 {
-                    let lid = conn
+                    let link_id = conn
                         .link_id()
                         .or_else(|| conn.config_data().map(|c| c.link_id.clone()))
                         .filter(|id| slim_config::grpc::client::is_valid_uuid_v4(id));
-                    if let Some(ref id) = lid {
-                        let hdr = msg.get_slim_header_mut();
-                        mac.sign_slim_header(hdr, id.as_str())
+                    if let Some(ref id) = link_id {
+                        let header = msg.get_slim_header_mut();
+                        mac.sign_slim_header(header, id.as_str())
                             .map_err(DataPathError::HeaderIntegrity)?;
                     } else {
                         return Err(DataPathError::HeaderMacAwaitingLinkNegotiation(out_conn));

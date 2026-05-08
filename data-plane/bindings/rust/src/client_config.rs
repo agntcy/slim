@@ -313,7 +313,6 @@ pub struct ClientConfig {
     pub metadata: Option<String>,
 
     /// HMAC-SHA256 key for SLIM header integrity on this link (≥32 bytes when set)
-    #[uniffi(default = None)]
     pub header_mac_key: Option<String>,
 }
 
