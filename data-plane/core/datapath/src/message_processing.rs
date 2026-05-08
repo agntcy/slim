@@ -40,6 +40,7 @@ use crate::api::proto::dataplane::v1::data_plane_service_server::DataPlaneServic
 use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::{DataPathError, MessageContext};
 use crate::forwarder::Forwarder;
+use crate::header_mac::HeaderMacSession;
 use crate::messages::Name;
 use crate::messages::utils::SlimHeaderFlags;
 use crate::recovery::RecoveryTable;
@@ -148,6 +149,9 @@ struct MessageProcessorInternal {
 
     /// Service ID for tracing
     service_id: String,
+
+    /// Optional HMAC session applied to every **accepted** inbound inter-node connection.
+    inbound_header_mac: RwLock<Option<Arc<HeaderMacSession>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -180,6 +184,7 @@ impl MessageProcessor {
             recovery_table,
             sub_ack_manager: crate::subscription_ack::RemoteSubAckManager::new(),
             service_id,
+            inbound_header_mac: RwLock::new(None),
         };
         Self {
             internal: Arc::new(internal),
@@ -197,6 +202,14 @@ impl MessageProcessor {
         config: &ServerConfig,
     ) -> Result<CancellationToken, DataPathError> {
         debug!(%config, "starting dataplane server");
+        let inbound_mac = match config.header_mac_key.as_deref() {
+            None | Some("") => None,
+            Some(secret) => Some(Arc::new(
+                HeaderMacSession::new(secret.as_bytes()).map_err(DataPathError::HeaderIntegrity)?,
+            )),
+        };
+        *self.internal.inbound_header_mac.write() = inbound_mac;
+
         let watch = self.get_drain_watch()?;
         // Wrap self in an Arc since the server builder expects an Arc<MessageProcessor>
         let svc = Arc::new(self.clone());
@@ -237,6 +250,34 @@ impl MessageProcessor {
 
     fn forwarder(&self) -> &Forwarder<Connection> {
         &self.internal.forwarder
+    }
+
+    fn inbound_header_mac(&self) -> Option<Arc<HeaderMacSession>> {
+        self.internal.inbound_header_mac.read().clone()
+    }
+
+    /// Verify SLIM header MAC for messages arriving on a remote connection (no-op if disabled).
+    fn verify_remote_header_mac(
+        &self,
+        conn_index: u64,
+        msg: &Message,
+    ) -> Result<(), DataPathError> {
+        let conn = self
+            .forwarder()
+            .get_connection(conn_index)
+            .ok_or(DataPathError::ConnectionNotFound(conn_index))?;
+        let Some(mac) = conn.header_mac() else {
+            return Ok(());
+        };
+        let lid = conn
+            .link_id()
+            .filter(|id| slim_config::grpc::client::is_valid_uuid_v4(id))
+            .ok_or(DataPathError::HeaderMacAwaitingLinkNegotiation(conn_index))?;
+        let hdr = msg
+            .try_get_slim_header()
+            .ok_or(DataPathError::UnknownMsgType)?;
+        mac.verify_slim_header(hdr, &lid)
+            .map_err(DataPathError::HeaderIntegrity)
     }
 
     pub(crate) fn remove_sub_ack(&self, subscription_id: u64) {
@@ -323,12 +364,21 @@ impl MessageProcessor {
         let link_id = client_config.link_id.clone();
 
         let cancellation_token = CancellationToken::new();
+        let header_mac: Option<Arc<HeaderMacSession>> =
+            match client_config.header_mac_key.as_deref() {
+                None | Some("") => None,
+                Some(secret) => Some(Arc::new(
+                    HeaderMacSession::new(secret.as_bytes())
+                        .map_err(DataPathError::HeaderIntegrity)?,
+                )),
+            };
         let connection = Connection::new(ConnectionType::Remote, Channel::Client(tx))
             .with_local_addr(local)
             .with_remote_addr(remote)
             .with_config_data(Some(client_config.clone()))
             .with_cancellation_token(Some(cancellation_token.clone()))
-            .with_link_id(link_id.clone());
+            .with_link_id(link_id.clone())
+            .with_header_mac(header_mac);
 
         debug!(
             remote = ?connection.remote_addr(),
@@ -486,6 +536,24 @@ impl MessageProcessor {
                     let _guard = span.enter();
                     inject_current_context(&mut msg);
                     ///////////////////////////////////////////////////////////////////
+                }
+
+                if !msg.is_link()
+                    && !msg.is_subscription_ack()
+                    && !conn.is_local_connection()
+                    && let Some(mac) = conn.header_mac()
+                {
+                    let lid = conn
+                        .link_id()
+                        .or_else(|| conn.config_data().map(|c| c.link_id.clone()))
+                        .filter(|id| slim_config::grpc::client::is_valid_uuid_v4(id));
+                    if let Some(ref id) = lid {
+                        let hdr = msg.get_slim_header_mut();
+                        mac.sign_slim_header(hdr, id.as_str())
+                            .map_err(DataPathError::HeaderIntegrity)?;
+                    } else {
+                        return Err(DataPathError::HeaderMacAwaitingLinkNegotiation(out_conn));
+                    }
                 }
 
                 match conn.channel() {
@@ -1173,6 +1241,19 @@ impl MessageProcessor {
                             Some(result) => {
                                 match result {
                                     Ok(msg) => {
+                                        if !is_local
+                                            && !msg.is_link()
+                                            && !msg.is_subscription_ack()
+                                            && let Err(e) = self_clone
+                                                .verify_remote_header_mac(conn_index, &msg)
+                                        {
+                                            error!(
+                                                %conn_index,
+                                                error = %e.chain(),
+                                                "SLIM header integrity verification failed",
+                                            );
+                                            break;
+                                        }
                                         // check if we need to send the message to the control plane
                                         // we send the message if
                                         // 1. the message is coming from remote
@@ -1377,9 +1458,11 @@ impl DataPlaneService for MessageProcessor {
         let stream = request.into_inner();
         let (tx, rx) = mpsc::channel(128);
 
+        let header_mac = self.inbound_header_mac();
         let connection = Connection::new(ConnectionType::Remote, Channel::Server(tx))
             .with_remote_addr(remote_addr)
-            .with_local_addr(local_addr);
+            .with_local_addr(local_addr)
+            .with_header_mac(header_mac);
 
         debug!(
             remote = ?connection.remote_addr(),

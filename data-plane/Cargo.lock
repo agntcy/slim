@@ -204,6 +204,7 @@ dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-tracing",
  "agntcy-slim-version",
+ "aws-lc-rs",
  "criterion",
  "display-error-chain",
  "drain",

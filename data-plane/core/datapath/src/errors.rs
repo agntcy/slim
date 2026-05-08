@@ -72,6 +72,12 @@ pub enum DataPathError {
     ShuttingDownError,
     #[error("timeout during shutdown")]
     ShutdownTimeoutError,
+
+    #[error("SLIM header integrity: {0}")]
+    HeaderIntegrity(#[from] crate::header_mac::HeaderMacError),
+
+    #[error("header MAC requires completed link negotiation on connection {0}")]
+    HeaderMacAwaitingLinkNegotiation(u64),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

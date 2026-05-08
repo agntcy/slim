@@ -9,6 +9,7 @@ description = "Core data plane functionality for SLIM"
 name = "slim_datapath"
 
 [dependencies]
+aws-lc-rs = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
 agntcy-slim-version = { workspace = true }

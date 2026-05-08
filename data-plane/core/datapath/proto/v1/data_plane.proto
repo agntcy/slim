@@ -63,6 +63,7 @@ message SLIMHeader {
   optional uint64 forward_to = 6;
   optional uint64 incoming_conn = 7;
   optional bool error = 8;
+  optional bytes header_mac = 9;
 }
 
 message SessionHeader {

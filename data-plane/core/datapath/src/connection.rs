@@ -1,12 +1,14 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::Arc;
+
 use crate::api::proto::dataplane::v1::Message;
+use crate::header_mac::HeaderMacSession;
 use parking_lot::RwLock;
 use semver::Version;
 use slim_config::grpc::client::{ClientConfig, is_valid_uuid_v4};
 use std::net::SocketAddr;
-use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tonic::Status;
@@ -63,6 +65,9 @@ pub struct Connection {
 
     /// Link negotiation state (link_id + remote_slim_version) under one lock for atomic check-and-set.
     negotiation: Arc<RwLock<NegotiationState>>,
+
+    /// Optional HMAC session for SLIM header integrity on this inter-node link.
+    header_mac: Option<Arc<HeaderMacSession>>,
 }
 
 /// Implementation of Connection
@@ -77,6 +82,7 @@ impl Connection {
             connection_type,
             cancellation_token: None,
             negotiation: Arc::new(RwLock::new(NegotiationState::default())),
+            header_mac: None,
         }
     }
 
@@ -99,6 +105,14 @@ impl Connection {
             config_data,
             ..self
         }
+    }
+
+    pub(crate) fn with_header_mac(self, header_mac: Option<Arc<HeaderMacSession>>) -> Self {
+        Self { header_mac, ..self }
+    }
+
+    pub(crate) fn header_mac(&self) -> Option<&Arc<HeaderMacSession>> {
+        self.header_mac.as_ref()
     }
 
     /// Get the remote address

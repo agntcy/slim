@@ -326,6 +326,10 @@ pub struct ClientConfig {
     /// Arbitrary user-provided metadata as JSON string
     #[uniffi(default = None)]
     pub metadata: Option<String>,
+
+    /// HMAC-SHA256 key for SLIM header integrity on this link (≥32 bytes when set)
+    #[uniffi(default = None)]
+    pub header_mac_key: Option<String>,
 }
 
 impl From<ClientConfig> for CoreClientConfig {
@@ -364,6 +368,7 @@ impl From<ClientConfig> for CoreClientConfig {
                 .metadata
                 .and_then(|json| serde_json::from_str::<MetadataMap>(&json).ok()),
             link_id: core_defaults.link_id,
+            header_mac_key: config.header_mac_key,
         }
     }
 }
@@ -388,6 +393,7 @@ impl From<CoreClientConfig> for ClientConfig {
             auth: Some(config.auth.into()),
             backoff: Some(config.backoff.into()),
             metadata: config.metadata.and_then(|m| serde_json::to_string(&m).ok()),
+            header_mac_key: config.header_mac_key,
         }
     }
 }
@@ -413,6 +419,7 @@ impl Default for ClientConfig {
             auth: None,
             backoff: None,
             metadata: None,
+            header_mac_key: None,
         }
     }
 }
@@ -493,6 +500,7 @@ mod tests {
             auth: None,
             backoff: None,
             metadata: None,
+            header_mac_key: None,
         };
 
         assert_eq!(config.endpoint, "example.com:443");
@@ -522,6 +530,7 @@ mod tests {
         assert_eq!(config.auth, None);
         assert_eq!(config.backoff, None);
         assert_eq!(config.metadata, None);
+        assert_eq!(config.header_mac_key, None);
 
         // Verify core defaults are applied when converting to CoreClientConfig
         let core: CoreClientConfig = config.into();
@@ -618,6 +627,7 @@ mod tests {
                 },
             }),
             metadata: Some(r#"{"client":"test"}"#.to_string()),
+            header_mac_key: None,
         };
 
         let core_config: CoreClientConfig = ffi_config.into();
@@ -687,6 +697,7 @@ mod tests {
                 config: ExponentialBackoff::default(),
             }),
             metadata: None,
+            header_mac_key: None,
         };
 
         // FFI -> Core -> FFI using the new From implementation

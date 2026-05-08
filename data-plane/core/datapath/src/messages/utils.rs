@@ -229,6 +229,7 @@ impl SlimHeader {
             forward_to: flags.forward_to,
             incoming_conn: flags.incoming_conn,
             error: flags.error,
+            header_mac: None,
         }
     }
 
@@ -1981,6 +1982,7 @@ mod tests {
             forward_to: None,
             incoming_conn: None,
             error: None,
+            header_mac: None,
         };
 
         // the operations to retrieve source and destination should fail with panic

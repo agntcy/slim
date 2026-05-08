@@ -9,6 +9,7 @@ pub mod tables;
 
 mod connection;
 mod forwarder;
+mod header_mac;
 mod recovery;
 pub(crate) mod subscription_ack;
 

@@ -78,6 +78,9 @@ pub enum ConfigError {
     #[error("link_id must be a valid UUID v4")]
     InvalidLinkId,
 
+    #[error("header_mac_key must be at least 32 bytes")]
+    HeaderMacKeyTooShort,
+
     // Unknown / catch-all
     #[error("unknown error")]
     Unknown,
