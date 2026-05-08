@@ -27,6 +27,12 @@ wasm = [
     "dep:mls-rs-crypto-webcrypto",
     "dep:getrandom",
 ]
+# Opt-in to the MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519 ciphersuite
+# (Curve25519 + Ed25519). Only meaningful with the `native` backend because
+# browser WebCrypto (used by the `wasm` backend) does not support 
+# Curve25519. By default the crate uses P256_AES128 so that native and
+# WASM peers can interoperate in the same MLS group.
+curve25519 = []
 
 [dependencies]
 agntcy-slim-auth = { workspace = true, default-features = false }

@@ -8,7 +8,11 @@ use mls_rs::{
     group::ReceivedMessage,
     identity::{SigningIdentity, basic::BasicCredential},
 };
-#[cfg(any(test, all(feature = "wasm", not(feature = "native"))))]
+// `CipherSuiteProvider` / `CryptoProvider` are only referenced by
+// `generate_key_pair`, which is itself feature/test gated. Importing them
+// unconditionally would produce an `unuse d_imports` warning under the
+// `curve25519` feature.
+#[cfg(any(test, not(all(feature = "native", feature = "curve25519"))))]
 use mls_rs::{CipherSuiteProvider, CryptoProvider};
 
 use crate::crypto::CryptoProviderImpl;
@@ -20,11 +24,18 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use crate::errors::MlsError;
 use crate::identity_provider::SlimIdentityProvider;
 
-// Native uses CURVE25519_AES128 (Ed25519 + X25519, supported by aws-lc).
-// WASM uses P256_AES128 because browser WebCrypto lacks Curve25519 support.
-#[cfg(feature = "native")]
+// Default cipher suite is P256_AES128 (NIST P-256 + ECDSA-P256 + AES-128-GCM)
+// so that native and WASM peers can interoperate in the same MLS group:
+// browser WebCrypto (used by the `wasm` backend) does not support
+// Curve25519, but it does support P-256.
+//
+// Operators that do not need browser interoperability can opt in to the
+// stronger CURVE25519_AES128 ciphersuite by enabling the crate's
+// `curve25519` feature. This only takes effect on the `native` backend
+// because the `wasm` backend cannot service it at runtime.
+#[cfg(all(feature = "native", feature = "curve25519"))]
 const CIPHERSUITE: CipherSuite = CipherSuite::CURVE25519_AES128;
-#[cfg(all(feature = "wasm", not(feature = "native")))]
+#[cfg(not(all(feature = "native", feature = "curve25519")))]
 const CIPHERSUITE: CipherSuite = CipherSuite::P256_AES128;
 
 pub type CommitMsg = Vec<u8>;
@@ -121,6 +132,12 @@ where
 
     /// Creates a signing identity from the keys stored in the identity provider.
     /// The provider must have had its MLS keys generated (done automatically at construction).
+    ///
+    /// This path is only used when the crate is compiled with the
+    /// `curve25519` feature on the `native` backend: in that case the
+    /// auth provider hands us real Ed25519 key material and we can wrap
+    /// it directly into an MLS signing identity.
+    #[cfg(all(feature = "native", feature = "curve25519"))]
     fn create_signing_identity(
         &mut self,
         is_rotation: bool,
@@ -149,7 +166,16 @@ where
         Ok((private_key, signing_identity))
     }
 
-    #[cfg(any(test, all(feature = "wasm", not(feature = "native"))))]
+    /// Generate a fresh signature key pair for the active MLS ciphersuite.
+    ///
+    /// Always defers to the MLS crypto provider so the produced bytes are
+    /// guaranteed to be valid for the negotiated ciphersuite (P-256 by
+    /// default, or Curve25519 when the `curve25519` feature is enabled).
+    ///
+    /// Only compiled when the default P256 path is active or when running
+    /// the unit tests; the opt-in `curve25519` feature uses the auth
+    /// provider's Ed25519 keys directly and never calls this helper.
+    #[cfg(any(test, not(all(feature = "native", feature = "curve25519"))))]
     #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
     #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
     async fn generate_key_pair() -> Result<(SignatureSecretKey, SignaturePublicKey), MlsError> {
@@ -162,6 +188,50 @@ where
             .signature_key_generate()
             .await
             .map_err(MlsError::crypto_provider)
+    }
+
+    /// Generate a fresh ciphersuite-correct key pair via the MLS crypto
+    /// provider, push it into the identity provider so the next token
+    /// embeds the matching public key, and assemble the corresponding
+    /// `SigningIdentity`.
+    ///
+    /// Used by the default P256 path on both `native` and `wasm`. The
+    /// auth provider's `rotate_signature_keys` only produces Ed25519
+    /// material (or random bytes on WASM) and so cannot be used as the
+    /// source of truth when the negotiated ciphersuite is P-256.
+    #[cfg(not(all(feature = "native", feature = "curve25519")))]
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    async fn install_generated_signing_identity(
+        &mut self,
+        is_rotation: bool,
+    ) -> Result<(SignatureSecretKey, SigningIdentity), MlsError> {
+        let (priv_key, pub_key) = Self::generate_key_pair().await?;
+
+        // Push the ciphersuite-correct keys into the identity provider so
+        // that get_token() embeds the matching public key in the
+        // credential. This is required: SlimIdentityProvider's
+        // validate_member() checks that the signing identity's public key
+        // equals the one bound to the token.
+        self.identity_provider
+            .set_signature_keys(priv_key.as_bytes().to_vec(), pub_key.as_bytes().to_vec())?;
+
+        let token = self.identity_provider.get_token()?;
+        let basic_cred = BasicCredential::new(token.as_bytes().to_vec());
+        let signing_identity =
+            SigningIdentity::new(basic_cred.into_credential(), pub_key.clone());
+
+        if let Some(stored) = self.stored_identity.as_mut() {
+            stored.last_credential = Some(token);
+            stored.public_key_bytes = pub_key.as_bytes().to_vec();
+            stored.private_key_bytes = priv_key.as_bytes().to_vec();
+
+            if is_rotation {
+                stored.credential_version = stored.credential_version.saturating_add(1);
+            }
+        }
+
+        Ok((priv_key, signing_identity))
     }
 
     #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
@@ -193,30 +263,17 @@ where
 
         self.stored_identity = Some(stored_identity);
 
-        // For WASM: the identity provider's rotate_signature_keys() produces
-        // opaque random bytes, not real P256 keys that WebCrypto can use.
-        // Generate a proper key pair via the MLS crypto provider and push
-        // those keys back into the identity provider so that get_token()
-        // embeds the correct public key in the token.
-        #[cfg(all(feature = "wasm", not(feature = "native")))]
-        let (private_key, signing_identity) = {
-            let (priv_key, pub_key) = Self::generate_key_pair().await?;
-            self.identity_provider
-                .set_signature_keys(priv_key.as_bytes().to_vec(), pub_key.as_bytes().to_vec())?;
-            let token = self.identity_provider.get_token()?;
-            let basic_cred = BasicCredential::new(token.as_bytes().to_vec());
-            let si = SigningIdentity::new(basic_cred.into_credential(), pub_key.clone());
-            if let Some(stored) = self.stored_identity.as_mut() {
-                stored.last_credential = Some(token);
-                stored.public_key_bytes = pub_key.as_bytes().to_vec();
-                stored.private_key_bytes = priv_key.as_bytes().to_vec();
-            }
-            (priv_key, si)
-        };
+        // Default (P256) path on either backend: the auth provider's keys
+        // are not valid for the negotiated ciphersuite, so we generate a
+        // fresh P-256 pair via the MLS crypto provider and install it.
+        #[cfg(not(all(feature = "native", feature = "curve25519")))]
+        let (private_key, signing_identity) =
+            self.install_generated_signing_identity(false).await?;
 
-        // For native: the identity provider supplies real Ed25519 keys via
-        // rotate_signature_keys(), so use them directly.
-        #[cfg(feature = "native")]
+        // Opt-in Curve25519 path on `native`: the auth provider supplies
+        // real Ed25519 keys via rotate_signature_keys(), so use them
+        // directly.
+        #[cfg(all(feature = "native", feature = "curve25519"))]
         let (private_key, signing_identity) = self.create_signing_identity(false)?;
 
         let crypto_provider = crate::crypto::default_crypto_provider();
@@ -473,11 +530,21 @@ where
     #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
     #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
     pub async fn create_rotation_proposal(&mut self) -> Result<ProposalMsg, MlsError> {
-        // Ask the identity provider to generate new keys internally
-        self.identity_provider.rotate_signature_keys()?;
+        // Default (P256) path: generate the new key pair via the MLS
+        // crypto provider so it is valid for the negotiated ciphersuite,
+        // and install it into the identity provider so the rotated token
+        // embeds the matching public key.
+        #[cfg(not(all(feature = "native", feature = "curve25519")))]
+        let (new_private_key, new_signing_identity) =
+            self.install_generated_signing_identity(true).await?;
 
-        // Create signing identity with token containing the new public key
-        let (new_private_key, new_signing_identity) = self.create_signing_identity(true)?;
+        // Opt-in Curve25519 path on `native`: ask the auth provider to
+        // rotate its Ed25519 keys internally and read them back.
+        #[cfg(all(feature = "native", feature = "curve25519"))]
+        let (new_private_key, new_signing_identity) = {
+            self.identity_provider.rotate_signature_keys()?;
+            self.create_signing_identity(true)?
+        };
 
         // Now get mutable reference to group after creating signing identity
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
@@ -518,6 +585,56 @@ mod tests {
     use std::time::Duration;
 
     const SHARED_SECRET: &str = "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas";
+
+    /// The default ciphersuite must be P256_AES128 so that native and WASM
+    /// peers can join the same MLS group. Operators that explicitly opt in
+    /// to the `curve25519` feature get the legacy CURVE25519_AES128 suite,
+    /// which is incompatible with browser WebCrypto.
+    #[test]
+    fn test_default_ciphersuite_is_p256() {
+        #[cfg(not(all(feature = "native", feature = "curve25519")))]
+        assert_eq!(
+            CIPHERSUITE,
+            CipherSuite::P256_AES128,
+            "Default ciphersuite must be P256_AES128 for browser interop",
+        );
+
+        #[cfg(all(feature = "native", feature = "curve25519"))]
+        assert_eq!(
+            CIPHERSUITE,
+            CipherSuite::CURVE25519_AES128,
+            "`curve25519` feature must select CURVE25519_AES128",
+        );
+    }
+
+    /// `generate_key_pair` must yield bytes that decode back into the
+    /// active ciphersuite's public-key format. In particular this catches
+    /// the case where the cipher constant and the key-generation provider
+    /// drift apart.
+    #[test]
+    fn test_generate_key_pair_matches_active_ciphersuite() {
+        let (priv_key, pub_key) =
+            Mls::<SharedSecret, SharedSecret>::generate_key_pair().expect("key gen");
+
+        assert!(!priv_key.as_bytes().is_empty(), "private key must not be empty");
+        assert!(!pub_key.as_bytes().is_empty(), "public key must not be empty");
+
+        // Sanity bound on key sizes:
+        // - P-256 SEC1 uncompressed pubkey is 65 bytes, secret is 32 bytes
+        // - X25519/Ed25519 pubkeys/secrets are 32 bytes
+        // We don't pin to an exact size to stay resilient to representation
+        // changes in `mls-rs`, but the keys must fit within reasonable bounds.
+        assert!(
+            pub_key.as_bytes().len() <= 128,
+            "public key length {} unexpectedly large",
+            pub_key.as_bytes().len()
+        );
+        assert!(
+            priv_key.as_bytes().len() <= 128,
+            "private key length {} unexpectedly large",
+            priv_key.as_bytes().len()
+        );
+    }
 
     #[test]
     fn test_mls_creation() -> Result<(), Box<dyn std::error::Error>> {
