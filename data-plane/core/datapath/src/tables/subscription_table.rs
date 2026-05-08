@@ -135,6 +135,53 @@ impl PrefixEntry {
         None
     }
 
+    /// True when a slot for `id` exists.
+    fn has_id(&self, id: u64) -> bool {
+        self.ids.contains(&id)
+    }
+
+    /// Ensure a slot for `id` exists, then insert `conn` (deduped).
+    fn insert_conn_for_id(&mut self, id: u64, conn: u64, is_local: bool) {
+        if !self.ids.contains(&id) {
+            self.push_id(id);
+        }
+        let idx = self.ids.iter().position(|&i| i == id).unwrap();
+        self.insert_conn(idx, conn, is_local);
+    }
+
+    /// Remove `conn` from the slot for `id` (no-op if slot absent).
+    fn remove_conn_for_id(&mut self, id: u64, conn: u64, is_local: bool) {
+        if let Some(idx) = self.ids.iter().position(|&i| i == id) {
+            self.remove_conn(idx, conn, is_local);
+        }
+    }
+
+    /// Return one connection for `id`, preferring local, round-robin, excluding `skip`.
+    /// Returns `None` if `id` has no slot or all connections equal `skip`.
+    fn get_one(&self, id: u64, skip: u64) -> Option<u64> {
+        let idx = self.ids.iter().position(|&i| i == id)?;
+        self.get_one_at(idx, skip)
+    }
+
+    /// Return all connections for `id` (local + remote) excluding `skip`.
+    /// `None` means the slot for `id` does not exist;
+    /// `Some(empty)` means the slot exists but all connections equal `skip`.
+    fn get_all(&self, id: u64, skip: u64) -> Option<Vec<u64>> {
+        let idx = self.ids.iter().position(|&i| i == id)?;
+        let mut out = Vec::with_capacity(
+            self.local_connections[idx].len() + self.remote_connections[idx].len(),
+        );
+        out.extend(self.get_all_at(idx, skip));
+        Some(out)
+    }
+
+    /// Iterate all slots, yielding `(id, local, remote)` — used by `for_each`.
+    fn for_each_slot<F: FnMut(u64, &[u64], &[u64])>(&self, mut f: F) {
+        for (i, &id) in self.ids.iter().enumerate() {
+            f(id, &self.local_connections[i], &self.remote_connections[i]);
+        }
+    }
+
     /// Return one connection for slot `idx`, preferring local, round-robin, excluding `skip`.
     fn get_one_at(&self, idx: usize, skip: u64) -> Option<u64> {
         Self::pick_one(&self.local_connections[idx], &self.local_cursors[idx], skip).or_else(
@@ -261,14 +308,9 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 prefix_entry.strings[1].as_str(),
                 prefix_entry.strings[2].as_str(),
             ]);
-            for (i, &id) in prefix_entry.ids.iter().enumerate() {
-                f(
-                    &base_name,
-                    id,
-                    &prefix_entry.local_connections[i],
-                    &prefix_entry.remote_connections[i],
-                );
-            }
+            prefix_entry.for_each_slot(|id, local, remote| {
+                f(&base_name, id, local, remote);
+            });
         }
     }
 
@@ -294,14 +336,8 @@ impl SubscriptionTable for SubscriptionTableImpl {
             PrefixEntry::new([s0.to_string(), s1.to_string(), s2.to_string()])
         });
 
-        // 2. Ensure an ID slot exists within the prefix.
-        if !prefix_entry.ids.contains(&id) {
-            prefix_entry.push_id(id);
-        }
-
-        // 3. Insert conn into the right list (deduped).
-        let idx = prefix_entry.ids.iter().position(|&i| i == id).unwrap();
-        prefix_entry.insert_conn(idx, conn, is_local);
+        // 2 & 3. Ensure an ID slot exists and insert conn (deduped).
+        prefix_entry.insert_conn_for_id(id, conn, is_local);
 
         // 4. Record the subscription (idempotent: same sub_id overwrites itself).
         ss.subscriptions.insert(
@@ -343,7 +379,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
             debug!("subscription not found {}", name);
             return Err(DataPathError::SubscriptionNotFound(name.clone()));
         }
-        if !rs[&prefix].ids.contains(&id) {
+        if !rs[&prefix].has_id(id) {
             warn!(%id, "not found");
             return Err(DataPathError::IdNotFound(id));
         }
@@ -382,9 +418,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
             // Remove conn from the routing entry; drop the mutable ref before
             // potentially calling routing.remove().
             let should_remove_prefix = if let Some(prefix_entry) = rs.get_mut(&prefix) {
-                if let Some(idx) = prefix_entry.ids.iter().position(|&i| i == id) {
-                    prefix_entry.remove_conn(idx, conn, is_local);
-                }
+                prefix_entry.remove_conn_for_id(id, conn, is_local);
                 prefix_entry.retain_non_empty();
                 prefix_entry.is_empty()
             } else {
@@ -456,9 +490,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
             let id = encoded.component_3;
 
             let should_remove_prefix = if let Some(prefix_entry) = rs.get_mut(&prefix) {
-                if let Some(idx) = prefix_entry.ids.iter().position(|&i| i == id) {
-                    prefix_entry.remove_conn(idx, conn, is_local);
-                }
+                prefix_entry.remove_conn_for_id(id, conn, is_local);
                 prefix_entry.retain_non_empty();
                 prefix_entry.is_empty()
             } else {
@@ -504,26 +536,15 @@ impl SubscriptionTable for SubscriptionTableImpl {
 
         if id != ProtoName::NULL_COMPONENT {
             // Specific ID: linear scan over ids (8 per cache line).
-            match prefix_entry.ids.iter().position(|&i| i == id) {
-                None => {
-                    debug!(component_3 = id, "match not found for name");
-                    Err(DataPathError::NoMatchEncoded([
-                        encoded.component_0,
-                        encoded.component_1,
-                        encoded.component_2,
-                        id,
-                    ]))
-                }
-                Some(idx) => prefix_entry.get_one_at(idx, incoming_conn).ok_or_else(|| {
-                    debug!("no output connection available");
-                    DataPathError::NoMatchEncoded([
-                        encoded.component_0,
-                        encoded.component_1,
-                        encoded.component_2,
-                        id,
-                    ])
-                }),
-            }
+            prefix_entry.get_one(id, incoming_conn).ok_or_else(|| {
+                debug!(component_3 = id, "match not found for name");
+                DataPathError::NoMatchEncoded([
+                    encoded.component_0,
+                    encoded.component_1,
+                    encoded.component_2,
+                    id,
+                ])
+            })
         } else {
             // NULL_COMPONENT: pick one connection across all registered IDs.
             // Data is already hot from the single lookup above.
@@ -597,7 +618,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
 
         if id != ProtoName::NULL_COMPONENT {
             // Specific ID: linear scan over ids (8 per cache line).
-            match prefix_entry.ids.iter().position(|&i| i == id) {
+            match prefix_entry.get_all(id, incoming_conn) {
                 None => {
                     debug!(component_3 = id, "match not found for name");
                     Err(DataPathError::NoMatchEncoded([
@@ -607,24 +628,18 @@ impl SubscriptionTable for SubscriptionTableImpl {
                         id,
                     ]))
                 }
-                Some(idx) => {
-                    let mut out = Vec::with_capacity(
-                        prefix_entry.local_connections[idx].len()
-                            + prefix_entry.remote_connections[idx].len(),
-                    );
-                    out.extend(prefix_entry.get_all_at(idx, incoming_conn));
-                    if out.is_empty() {
-                        debug!("no connection available (local/remote)");
-                        Err(DataPathError::NoMatchEncoded([
-                            encoded.component_0,
-                            encoded.component_1,
-                            encoded.component_2,
-                            id,
-                        ]))
-                    } else {
-                        debug!(?out, "found connections");
-                        Ok(out)
-                    }
+                Some(out) if out.is_empty() => {
+                    debug!("no connection available (local/remote)");
+                    Err(DataPathError::NoMatchEncoded([
+                        encoded.component_0,
+                        encoded.component_1,
+                        encoded.component_2,
+                        id,
+                    ]))
+                }
+                Some(out) => {
+                    debug!(?out, "found connections");
+                    Ok(out)
                 }
             }
         } else {
