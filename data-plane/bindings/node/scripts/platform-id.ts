@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Platform identifier mapping for @agntcy/slim-bindings-node.
+ * Platform identifier mapping for @agntcy/slim-bindings (optional platform packages).
  * Used for: (1) CI: Rust TARGET → npm platform package name
  *           (2) Runtime: process.platform/arch → platform id to require().
  */
@@ -84,7 +84,7 @@ export function getCurrentPlatformId(): PlatformId {
 
 /** Package name for a platform-specific optional dependency */
 export function getPlatformPackageName(platformId: PlatformId): string {
-  return `@agntcy/slim-bindings-node-${platformId}`;
+  return `@agntcy/slim-bindings-${platformId}`;
 }
 
 // CLI: print platform id for given Rust TARGET (for use in Taskfile/shell)

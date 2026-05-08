@@ -8,7 +8,7 @@ const { execFileSync } = require('child_process');
 
 /**
  * Best-effort libc family for Linux (gnu vs musl).
- * Used to pick the correct @agntcy/slim-bindings-node-linux-* optional package.
+ * Used to pick the correct @agntcy/slim-bindings-linux-* optional package.
  */
 function detectLinuxLibc() {
   try {

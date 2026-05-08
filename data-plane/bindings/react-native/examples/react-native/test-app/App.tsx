@@ -18,8 +18,8 @@ let bindingsError: string = '';
 
 async function initializeSlimBindings() {
   try {
-    console.log('[DEBUG] Attempting to require @agntcy/slim-bindings...');
-    const bindings = require('@agntcy/slim-bindings');
+    console.log('[DEBUG] Attempting to require @agntcy/slim-bindings-react-native...');
+    const bindings = require('@agntcy/slim-bindings-react-native');
     console.log('[DEBUG] Module required successfully');
     console.log('[DEBUG] Available exports:', Object.keys(bindings).slice(0, 20).join(', '));
     

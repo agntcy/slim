@@ -1,5 +1,5 @@
 {
-  "name": "@agntcy/slim-bindings",
+  "name": "@agntcy/slim-bindings-react-native",
   "version": "0.7.0",
   "description": "JavaScript/TypeScript bindings for SLIM data plane - React Native support",
   "main": "./src/index.ts",

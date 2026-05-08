@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Type definitions for @agntcy/slim-bindings-node.
+ * Type definitions for @agntcy/slim-bindings.
  * Full types are in types/ (generated from bindings before publish).
  */
 export * from './types/slim-bindings-node';

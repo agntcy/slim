@@ -1,19 +1,29 @@
-# SLIM Node.js Bindings
+# SLIM JavaScript / TypeScript bindings (`@agntcy/slim-bindings`)
 
-Node.js bindings for SLIM using UniFFI.
-Bindings generated with [uniffi-bindgen-node](https://github.com/livekit/uniffi-bindgen-node).
+This is thenpm package for using SLIM from JavaScript and TypeScript. It targets **Node.js** (≥18): servers, services, CLIs, tests, and any workflow where the native addon loads through Node.
+
+Bindings are generated with [uniffi-bindgen-node](https://github.com/livekit/uniffi-bindgen-node) and talk to the Rust core via [ffi-rs](https://www.npmjs.com/package/ffi-rs).
+
+## Features
+
+- **Primary JS/TS entry point** — Install `@agntcy/slim-bindings` for Node; optional `@agntcy/slim-bindings-*` packages supply the correct native binary per OS/arch.
+- **Rust-backed core** — Same SLIM logic as other language bindings; native code ships per platform.
+- **TypeScript** — Typed surface and editor support (with known FFI quirks documented below).
+- **Authentication** — Shared secret, JWT, and SPIRE-oriented flows exposed through the generated API.
+- **Async-first** — Promise-based calls aligned with Node conventions.
+- **UniFFI** — Generated from Mozilla’s [UniFFI](https://mozilla.github.io/uniffi-rs/) bindings.
 
 ## Installation
 
-For released versions, install from npm (no Rust or build required):
+Published builds install from npm only (no local Rust required):
 
 ```bash
-npm install @agntcy/slim-bindings-node
+npm install @agntcy/slim-bindings
 ```
 
-This installs the main package and the matching platform-specific native addon for your OS/arch.
+That pulls this package plus the matching optional native addon for your platform when a release exists for your version.
 
-To build from source (e.g. for development or unsupported platforms), see [Build from source](#build-from-source) below.
+To build from source (development or an unpublished platform), see [Build from source](#build-from-source).
 
 ## Prerequisites (build from source)
 
@@ -23,13 +33,13 @@ To build from source (e.g. for development or unsupported platforms), see [Build
 
 ## Usage
 
-### 1. Generate Bindings (build from source)
+### 1. Generate bindings (from source)
 
 ```bash
 task generate
 ```
 
-### 2. Run P2P Examples
+### 2. Run P2P examples
 
 ```bash
 # Terminal 1: Start the server
@@ -38,11 +48,11 @@ task example:server
 # Terminal 2: Start Alice (receiver)
 task example:alice
 
-# Terminal 3: Start Bob (sender) 
+# Terminal 3: Start Bob (sender)
 task example:bob
 ```
 
-### Available Commands
+### Available commands
 
 ```bash
 task generate         # Generate bindings
@@ -52,55 +62,46 @@ task example:alice    # Run Alice receiver
 task example:bob      # Run Bob sender
 ```
 
-## Build Process
+## Build process
 
-The bindings generation includes patching to fix compatibility issues between `uniffi-bindgen-node` (code generator) and `uniffi-bindgen-react-native` (runtime library):
+Generation applies small patches so output from `uniffi-bindgen-node` works with the shared `uniffi-bindgen-react-native` runtime dependency:
 
-- **Naming fixes**: `FfiConverterBytes` → `FfiConverterArrayBuffer`
-- **Buffer wrapping**: Proper RustBuffer allocation for byte arrays
-- **Pointer conversions**: BigInt → Number for FFI calls
-- **Error handling**: Enhanced error extraction from Rust
+- **Naming**: `FfiConverterBytes` → `FfiConverterArrayBuffer`
+- **Buffers**: Correct RustBuffer handling for byte arrays
+- **Pointers**: BigInt ↔ Number at FFI boundaries where needed
+- **Errors**: Clearer extraction from Rust error types
 
-## FFI Type Conversions
+## FFI type conversions
 
-The generated bindings use `bigint` in TypeScript signatures for u64 types, but the underlying FFI layer returns JavaScript `number` types at runtime. Application code handles conversions at API boundaries:
+Generated TypeScript may use `bigint` for some unsigned 64-bit values while the FFI layer returns JavaScript `number` at runtime. Normalize at your API boundary:
 
 ```typescript
-// connectAsync returns a number at runtime, despite bigint type signature
 const connId = await service.connectAsync(config);
-
-// Convert to BigInt when passing to methods expecting bigint
 await app.subscribeAsync(name, BigInt(connId));
-
-// When using with methods that need number (for direct FFI calls)
 app.setRoute(name, Number(connId));
 ```
 
-**Key conversions:**
-- `connectAsync` returns `number` → convert to `BigInt()` for TypeScript bigint parameters
-- When calling FFI methods with u64 params → convert to `Number()` if passing bigint
-
-This explicit conversion at API boundaries ensures type safety and makes FFI requirements visible.
+- `connectAsync` often behaves like `number` at runtime → use `BigInt()` when a parameter expects `bigint`.
+- When calling through to FFI with u64 parameters → use `Number()` from `bigint` when required.
 
 ## Build from source
 
-If you need to build from source (development or a platform not yet published):
+1. Install Rust and Task.
+2. Run `task generate` (builds the Rust library and emits Node bindings).
+3. Consume files under `generated/` or run examples (`task example:server`, etc.).
 
-1. Ensure Rust and Task are installed.
-2. Run `task generate` (builds the Rust lib and generates Node bindings).
-3. Use the bindings from `generated/` or run the examples with `task example:server`, etc.
-
-Optional platform packages (`@agntcy/slim-bindings-node-*`) are listed at the version in `package.json` (same as the root package). `npm install` resolves them from the registry when that version is published. To test against a **local** platform tarball you built (`task pack:platform`), install it explicitly, e.g. `npm install ./dist/node-darwin-arm64.tgz`, in addition to installing this package.
+Optional platform packages (`@agntcy/slim-bindings-*`) are version-pinned beside this package in `package.json`. For a **local** platform tarball from `task pack:platform`, install it explicitly (for example `npm install ./dist/node-darwin-arm64.tgz`) in addition to this package.
 
 ## Publishing (maintainers)
 
-- **Dry run**: From `data-plane/bindings/node`, run `npm pack` to produce a tarball and inspect contents (main package: no `generated/`; platform packages: `task pack:platform TARGET=<target>` then check `dist/node-<platform>.tgz`).
-- **Version**: Set in package.json; CI derives version from tag `slim-bindings-v*` via `.github/scripts/get-binding-version.sh`.
-- **Secrets**: `NPM_TOKEN` must be set in the repo for `npm publish`.
+- **Dry run**: From `data-plane/bindings/node`, run `npm pack` for the main tarball; platform bundles via `task pack:platform TARGET=<target>` → `dist/node-<platform>.tgz`.
+- **Version**: In `package.json`; release tags use `slim-bindings-v*` (see `.github/scripts/get-binding-version.sh`).
+- **Secrets**: `NPM_TOKEN` for `npm publish`.
 
 ## Resources
 
-- [uniffi-bindgen-node](https://github.com/livekit/uniffi-bindgen-node) — if generator output changes, open issues there so post-generate patches can be reduced over time.
-- [UniFFI Documentation](https://mozilla.github.io/uniffi-rs/)
+- [uniffi-bindgen-node](https://github.com/livekit/uniffi-bindgen-node)
+- [UniFFI](https://mozilla.github.io/uniffi-rs/)
 - [ffi-rs](https://www.npmjs.com/package/ffi-rs)
-- [SLIM Core](https://github.com/agntcy/slim)
+- [SLIM](https://github.com/agntcy/slim)
+- [React Native bindings](../react-native/README.md)

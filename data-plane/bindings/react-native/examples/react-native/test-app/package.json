@@ -11,7 +11,7 @@
     "test": "jest"
   },
   "dependencies": {
-    "@agntcy/slim-bindings": "file:../../..",
+    "@agntcy/slim-bindings-react-native": "file:../../..",
     "react": "19.2.0",
     "react-native": "0.83.1",
     "@react-native/new-app-screen": "0.83.1",

@@ -154,7 +154,7 @@ To add new tests:
 ```
 App.tsx
   ↓ imports
-@agntcy/slim-bindings (local)
+@agntcy/slim-bindings-react-native (local)
   ↓ uses
 generated/typescript/slim_bindings.ts
   ↓ calls

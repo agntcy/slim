@@ -9,7 +9,7 @@ const path = require('path');
  */
 const config = {
   watchFolders: [
-    // Include the bindings directory so Metro can find @agntcy/slim-bindings
+    // Include the bindings directory so Metro can find @agntcy/slim-bindings-react-native
     path.resolve(__dirname, '../../..'),
   ],
   resolver: {

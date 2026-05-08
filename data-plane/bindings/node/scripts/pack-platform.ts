@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Packs a platform-specific npm package for @agntcy/slim-bindings-node.
+ * Packs a platform-specific npm package for @agntcy/slim-bindings (optional dependency).
  * Usage: npx tsx scripts/pack-platform.ts <RUST_TARGET> [VERSION]
  * Requires: task generate has been run for that TARGET (generated/ exists).
  * Output: dist/node-<platform>.tgz
@@ -28,7 +28,7 @@ function main() {
   }
 
   const platformId = rustTargetToPlatformId(rustTarget);
-  const packageName = `@agntcy/slim-bindings-node-${platformId}`;
+  const packageName = `@agntcy/slim-bindings-${platformId}`;
 
   if (!fs.existsSync(GENERATED_DIR)) {
     console.error('generated/ not found. Run: task generate TARGET=' + rustTarget);

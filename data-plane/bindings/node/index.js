@@ -31,7 +31,7 @@ function getCurrentPlatformId() {
 }
 
 const platformId = getCurrentPlatformId();
-const packageName = `@agntcy/slim-bindings-node-${platformId}`;
+const packageName = `@agntcy/slim-bindings-${platformId}`;
 
 let bindings;
 try {
@@ -40,7 +40,7 @@ try {
   if (err.code === 'MODULE_NOT_FOUND') {
     throw new Error(
       `Platform package ${packageName} is not installed. ` +
-        `Run: npm install @agntcy/slim-bindings-node (optional dependencies include linux-*-gnu, linux-*-musl, darwin-*, win32-*). ` +
+        `Run: npm install @agntcy/slim-bindings (optional dependencies include linux-*-gnu, linux-*-musl, darwin-*, win32-*). ` +
         `On Alpine or other musl Linux, ensure the linux-*-musl optional package is available for your Node arch.`
     );
   }
