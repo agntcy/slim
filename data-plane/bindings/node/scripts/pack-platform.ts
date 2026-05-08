@@ -19,6 +19,20 @@ const GENERATED_DIR = path.join(TASKFILE_DIR, 'generated');
 const OUT_DIR = path.join(TASKFILE_DIR, '.platform-pkg');
 const DIST_DIR = path.join(TASKFILE_DIR, 'dist');
 
+/** Single shipped native artifact basename per Rust triple (matches Taskfile CANONICAL). */
+function canonicalNativeLibraryBasename(rustTarget: string): string {
+  if (rustTarget.includes('apple-darwin')) {
+    return 'libslim_bindings.dylib';
+  }
+  if (rustTarget.includes('linux')) {
+    return 'libslim_bindings.so';
+  }
+  if (rustTarget.includes('windows')) {
+    return 'slim_bindings.dll';
+  }
+  throw new Error(`Cannot derive native library filename for target: ${rustTarget}`);
+}
+
 function main() {
   const rustTarget = process.argv[2];
   const version = process.argv[3] || readVersion();
@@ -98,15 +112,19 @@ function main() {
     process.exit(1);
   }
 
-  const nativeLibs = fs.readdirSync(GENERATED_DIR).filter((f) => {
-    const lower = f.toLowerCase();
-    return (
-      lower.endsWith('.so') || lower.endsWith('.dylib') || lower.endsWith('.dll')
+  // CI merges Linux-generated `generated/` (often includes libslim_bindings.so) with each
+  // target's library copied as CANONICAL. Copying every *.so/*.dylib here shipped Linux ELF
+  // inside @agntcy/slim-bindings-darwin-* tarballs. Only pack the library for this triple.
+  const nativeBasename = canonicalNativeLibraryBasename(rustTarget);
+  const nativeSrc = path.join(GENERATED_DIR, nativeBasename);
+  if (!fs.existsSync(nativeSrc)) {
+    console.error(
+      `Missing ${nativeBasename} in ${GENERATED_DIR} for ${rustTarget}. ` +
+        'Run task pack:platform:from-artifacts / generate for this target first.'
     );
-  });
-  for (const lib of nativeLibs) {
-    fs.copyFileSync(path.join(GENERATED_DIR, lib), path.join(OUT_DIR, lib));
+    process.exit(1);
   }
+  fs.copyFileSync(nativeSrc, path.join(OUT_DIR, nativeBasename));
 
   const generatedPkg = JSON.parse(
     fs.readFileSync(path.join(GENERATED_DIR, 'package.json'), 'utf-8')
