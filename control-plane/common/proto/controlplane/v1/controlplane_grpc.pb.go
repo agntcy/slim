@@ -19,8 +19,8 @@ import (
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
-// Requires gRPC-Go v1.62.0 or later.
-const _ = grpc.SupportPackageIsVersion8
+// Requires gRPC-Go v1.64.0 or later.
+const _ = grpc.SupportPackageIsVersion9
 
 const (
 	ControlPlaneService_AddRoute_FullMethodName          = "/controlplane.proto.v1.ControlPlaneService/AddRoute"
@@ -200,7 +200,7 @@ func (c *controlPlaneServiceClient) ListLinks(ctx context.Context, in *LinkListR
 
 // ControlPlaneServiceServer is the server API for ControlPlaneService service.
 // All implementations must embed UnimplementedControlPlaneServiceServer
-// for forward compatibility
+// for forward compatibility.
 type ControlPlaneServiceServer interface {
 	AddRoute(context.Context, *AddRouteRequest) (*AddRouteResponse, error)
 	DeleteRoute(context.Context, *DeleteRouteRequest) (*DeleteRouteResponse, error)
@@ -221,9 +221,12 @@ type ControlPlaneServiceServer interface {
 	mustEmbedUnimplementedControlPlaneServiceServer()
 }
 
-// UnimplementedControlPlaneServiceServer must be embedded to have forward compatible implementations.
-type UnimplementedControlPlaneServiceServer struct {
-}
+// UnimplementedControlPlaneServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedControlPlaneServiceServer struct{}
 
 func (UnimplementedControlPlaneServiceServer) AddRoute(context.Context, *AddRouteRequest) (*AddRouteResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AddRoute not implemented")
@@ -265,6 +268,7 @@ func (UnimplementedControlPlaneServiceServer) ListLinks(context.Context, *LinkLi
 	return nil, status.Error(codes.Unimplemented, "method ListLinks not implemented")
 }
 func (UnimplementedControlPlaneServiceServer) mustEmbedUnimplementedControlPlaneServiceServer() {}
+func (UnimplementedControlPlaneServiceServer) testEmbeddedByValue()                             {}
 
 // UnsafeControlPlaneServiceServer may be embedded to opt out of forward compatibility for this service.
 // Use of this interface is not recommended, as added methods to ControlPlaneServiceServer will
