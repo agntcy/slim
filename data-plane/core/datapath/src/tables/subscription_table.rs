@@ -74,6 +74,9 @@ impl IdEntry {
         if n == 0 {
             return None;
         }
+        if n == 1 {
+            return if slice[0] != skip { Some(slice[0]) } else { None };
+        }
         for _ in 0..n {
             let pos = cursor.fetch_add(1, Ordering::Relaxed) % n;
             let c = slice[pos];
