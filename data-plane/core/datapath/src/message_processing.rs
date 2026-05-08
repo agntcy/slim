@@ -460,7 +460,6 @@ impl MessageProcessor {
                 // Link and SubscriptionAck messages have no SLIM header: skip header
                 // manipulation and telemetry span creation.
                 if !msg.is_link() && !msg.is_subscription_ack() {
-                    // reset header fields
                     msg.clear_slim_header();
                 }
 
