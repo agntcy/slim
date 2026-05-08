@@ -629,6 +629,160 @@ mod tests {
         assert_eq!(server_config.auth, AuthenticationConfig::None);
     }
 
+    #[test]
+    fn test_with_http2_only() {
+        let default_value = default_http2_only();
+
+        let cfg = ServerConfig::default().with_http2_only(!default_value);
+        assert_eq!(cfg.http2_only, !default_value);
+
+        let cfg = cfg.with_http2_only(default_value);
+        assert_eq!(cfg.http2_only, default_value);
+
+        let endpoint = "127.0.0.1:50051";
+        let cfg = ServerConfig::with_endpoint(endpoint).with_http2_only(false);
+        assert_eq!(cfg.endpoint, endpoint);
+        assert!(!cfg.http2_only);
+        assert_eq!(cfg.max_frame_size, ServerConfig::default().max_frame_size);
+    }
+
+    #[test]
+    fn test_with_max_frame_size() {
+        let cfg = ServerConfig::default().with_max_frame_size(Some(8));
+        assert_eq!(cfg.max_frame_size, Some(8));
+
+        let cfg = cfg.with_max_frame_size(None);
+        assert_eq!(cfg.max_frame_size, None);
+
+        let cfg = ServerConfig::default().with_max_frame_size(Some(0));
+        assert_eq!(cfg.max_frame_size, Some(0));
+
+        let cfg = ServerConfig::default().with_max_frame_size(Some(u32::MAX));
+        assert_eq!(cfg.max_frame_size, Some(u32::MAX));
+
+        let original = ServerConfig::default();
+        let updated = original.clone().with_max_frame_size(Some(16));
+        assert_eq!(updated.max_frame_size, Some(16));
+        assert_eq!(updated.endpoint, original.endpoint);
+        assert_eq!(updated.http2_only, original.http2_only);
+        assert_eq!(
+            updated.max_concurrent_streams,
+            original.max_concurrent_streams
+        );
+    }
+
+    #[test]
+    fn test_with_max_concurrent_streams() {
+        let cfg = ServerConfig::default().with_max_concurrent_streams(Some(250));
+        assert_eq!(cfg.max_concurrent_streams, Some(250));
+
+        let cfg = cfg.with_max_concurrent_streams(None);
+        assert_eq!(cfg.max_concurrent_streams, None);
+
+        let cfg = ServerConfig::default().with_max_concurrent_streams(Some(1));
+        assert_eq!(cfg.max_concurrent_streams, Some(1));
+
+        let cfg = ServerConfig::default().with_max_concurrent_streams(Some(u32::MAX));
+        assert_eq!(cfg.max_concurrent_streams, Some(u32::MAX));
+
+        let original = ServerConfig::default();
+        let updated = original.clone().with_max_concurrent_streams(Some(500));
+        assert_eq!(updated.max_concurrent_streams, Some(500));
+        assert_eq!(updated.max_frame_size, original.max_frame_size);
+        assert_eq!(updated.http2_only, original.http2_only);
+    }
+
+    #[test]
+    fn test_with_max_header_list_size() {
+        let cfg = ServerConfig::default().with_max_header_list_size(Some(8192));
+        assert_eq!(cfg.max_header_list_size, Some(8192));
+
+        let cfg = cfg.with_max_header_list_size(None);
+        assert_eq!(cfg.max_header_list_size, None);
+
+        let cfg = ServerConfig::default().with_max_header_list_size(Some(0));
+        assert_eq!(cfg.max_header_list_size, Some(0));
+
+        let cfg = ServerConfig::default().with_max_header_list_size(Some(u32::MAX));
+        assert_eq!(cfg.max_header_list_size, Some(u32::MAX));
+
+        let original = ServerConfig::default();
+        let updated = original.clone().with_max_header_list_size(Some(4096));
+        assert_eq!(updated.max_header_list_size, Some(4096));
+        assert_eq!(updated.max_frame_size, original.max_frame_size);
+        assert_eq!(
+            updated.max_concurrent_streams,
+            original.max_concurrent_streams
+        );
+    }
+
+    #[test]
+    fn test_with_read_buffer_size() {
+        let cfg = ServerConfig::default().with_read_buffer_size(Some(2 * 1024 * 1024));
+        assert_eq!(cfg.read_buffer_size, Some(2 * 1024 * 1024));
+
+        let cfg = cfg.with_read_buffer_size(None);
+        assert_eq!(cfg.read_buffer_size, None);
+
+        let cfg = ServerConfig::default().with_read_buffer_size(Some(0));
+        assert_eq!(cfg.read_buffer_size, Some(0));
+
+        let cfg = ServerConfig::default().with_read_buffer_size(Some(usize::MAX));
+        assert_eq!(cfg.read_buffer_size, Some(usize::MAX));
+
+        let original = ServerConfig::default();
+        let updated = original.clone().with_read_buffer_size(Some(64 * 1024));
+        assert_eq!(updated.read_buffer_size, Some(64 * 1024));
+        assert_eq!(updated.write_buffer_size, original.write_buffer_size);
+        assert_eq!(updated.http2_only, original.http2_only);
+    }
+
+    #[test]
+    fn test_with_write_buffer_size() {
+        let cfg = ServerConfig::default().with_write_buffer_size(Some(2 * 1024 * 1024));
+        assert_eq!(cfg.write_buffer_size, Some(2 * 1024 * 1024));
+
+        let cfg = cfg.with_write_buffer_size(None);
+        assert_eq!(cfg.write_buffer_size, None);
+
+        let cfg = ServerConfig::default().with_write_buffer_size(Some(0));
+        assert_eq!(cfg.write_buffer_size, Some(0));
+
+        let cfg = ServerConfig::default().with_write_buffer_size(Some(usize::MAX));
+        assert_eq!(cfg.write_buffer_size, Some(usize::MAX));
+
+        let original = ServerConfig::default();
+        let updated = original.clone().with_write_buffer_size(Some(64 * 1024));
+        assert_eq!(updated.write_buffer_size, Some(64 * 1024));
+        assert_eq!(updated.read_buffer_size, original.read_buffer_size);
+        assert_eq!(updated.http2_only, original.http2_only);
+    }
+
+    #[test]
+    fn test_server_config_builders_chain_independently() {
+        let cfg = ServerConfig::with_endpoint("127.0.0.1:50051")
+            .with_http2_only(false)
+            .with_max_frame_size(Some(8))
+            .with_max_concurrent_streams(Some(200))
+            .with_max_header_list_size(Some(16384))
+            .with_read_buffer_size(Some(2 * 1024 * 1024))
+            .with_write_buffer_size(Some(4 * 1024 * 1024));
+
+        assert_eq!(cfg.endpoint, "127.0.0.1:50051");
+        assert!(!cfg.http2_only);
+        assert_eq!(cfg.max_frame_size, Some(8));
+        assert_eq!(cfg.max_concurrent_streams, Some(200));
+        assert_eq!(cfg.max_header_list_size, Some(16384));
+        assert_eq!(cfg.read_buffer_size, Some(2 * 1024 * 1024));
+        assert_eq!(cfg.write_buffer_size, Some(4 * 1024 * 1024));
+
+        // Defaults preserved for unchanged fields.
+        assert_eq!(cfg.transport, TransportProtocol::default());
+        assert_eq!(cfg.tls_setting, TLSSetting::default());
+        assert_eq!(cfg.keepalive, KeepaliveServerParameters::default());
+        assert_eq!(cfg.auth, AuthenticationConfig::default());
+    }
+
     #[tokio::test]
     async fn test_to_incoming_server_config() {
         let mut server_config = ServerConfig::default();
