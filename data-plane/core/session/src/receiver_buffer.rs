@@ -18,7 +18,7 @@ pub(crate) struct ReceiverBuffer {
     // removed from the front of the buffer and we want to
     // avoid copies. This pointer keeps track of the valid entries
     first_entry: usize,
-    // set of messages definitely lost that cannot be recoverd
+    // set of messages definitely lost that cannot be recovered
     // anymore using RTX messages
     lost_msgs: HashSet<usize>,
     // Buffer of valid messages received Out-of-Order (OOO)

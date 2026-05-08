@@ -61,8 +61,14 @@ impl Name {
     /// Returns an error if the format is invalid.
     #[uniffi::constructor]
     pub fn from_string(s: String) -> Result<Self, SlimError> {
-        let parts: Vec<&str> = s.splitn(4, '/').collect();
-        if parts.len() != 3 {
+        let trimmed = s.trim();
+        if trimmed.is_empty() {
+            return Err(SlimError::InvalidArgument {
+                message: format!("expected \"org/namespace/agent\", got {:?}", s),
+            });
+        }
+        let parts: Vec<&str> = trimmed.split('/').map(str::trim).collect();
+        if parts.len() != 3 || parts.iter().any(|p| p.is_empty()) {
             return Err(SlimError::InvalidArgument {
                 message: format!("expected \"org/namespace/agent\", got {:?}", s),
             });
@@ -282,6 +288,19 @@ mod tests {
     #[test]
     fn test_from_string_too_many_components() {
         assert!(Name::from_string("org/namespace/agent/extra".to_string()).is_err());
+    }
+
+    #[test]
+    fn test_from_string_rejects_empty_segment() {
+        assert!(Name::from_string("a//b".to_string()).is_err());
+        assert!(Name::from_string("/a/b".to_string()).is_err());
+        assert!(Name::from_string("a/b/".to_string()).is_err());
+    }
+
+    #[test]
+    fn test_from_string_trims_components() {
+        let name = Name::from_string(" org / app / v1 ".to_string()).unwrap();
+        assert_eq!(name.components(), vec!["org", "app", "v1"]);
     }
 
     /// Test Name components getter

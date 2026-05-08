@@ -34,6 +34,25 @@ tasks:
           ARGS: --config 'profile.release.strip="none"'
           TARGET: "{{.TARGET}}"
           PROFILE: "{{.PROFILE}}"
+      # zigbuild always uses --target on Linux, so only target/<triple>/<profile>/ exists.
+      # That artifact can lack UNIFFI_META* symbols (strip / linker); UniFFI Java bindgen needs them.
+      # When building for the host, also produce target/<profile>/ via plain cargo build.
+      - |
+        set -eu
+        HOST=$(rustc -vV | sed -n 's/^host: //p' | tr -d '\r' | xargs)
+        TARGET=$(printf '%s' '{{.TARGET}}' | tr -d '\r' | xargs)
+        if [[ "$TARGET" != "$HOST" ]]; then
+          echo "🦀 Skip host-native cdylib (TARGET != host)."
+          exit 0
+        fi
+        echo "🦀 Building host-native cdylib for UniFFI (cargo build, no --target)..."
+        cd "{{.TASKFILE_DIR}}/../.."
+        PROFILE="{{.PROFILE}}"
+        if [[ "$PROFILE" == "release" ]]; then
+          cargo build --release -p {{.BINDINGS_PACKAGE}} --locked --all-features
+        else
+          cargo build -p {{.BINDINGS_PACKAGE}} --locked --all-features
+        fi
       - echo "🦀 Rust bindings library built successfully."
 
   lint:

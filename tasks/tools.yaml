@@ -28,6 +28,14 @@ vars:
 
   PROTOC_VERSION: "29.0"
 
+  MINISIGN_VERSION: "0.12"
+
+  MINISIGN_URL: "https://github.com/jedisct1/minisign/releases/download"
+
+  ZIG_PUBLIC_KEY: "RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U"
+
+  ZIG_MIRRORS_URL: "https://ziglang.org/download/community-mirrors.txt"
+
   DETECTED_OS:
     sh: |
         if [[ "{{OS}}" == "linux" ]]; then
@@ -99,6 +107,68 @@ tasks:
     status:
       - test -f {{.TOOLS_INSTALL_DIR}}/buf
 
+  minisign:
+    internal: true
+    desc: Install minisign for signature verification
+    deps:
+      - dir
+    dir: "{{.TMP_FOLDER}}"
+    vars:
+      MINISIGN_PLATFORM:
+        sh: |
+          if [[ "{{OS}}" == "linux" ]]; then
+            echo "linux"
+          elif [[ "{{OS}}" == "darwin" ]]; then
+            echo "macos"
+          elif [[ "{{OS}}" == "windows" ]]; then
+            echo "win64"
+          fi
+      MINISIGN_EXT:
+        sh: |
+          if [[ "{{OS}}" == "darwin" ]] || [[ "{{OS}}" == "windows" ]]; then
+            echo "zip"
+          else
+            echo "tar.gz"
+          fi
+    cmds:
+      - |
+        # Use system minisign if available
+        if command -v minisign >/dev/null 2>&1; then
+          SYSTEM_MINISIGN=$(command -v minisign)
+          ln -sf "$SYSTEM_MINISIGN" "{{.TOOLS_INSTALL_DIR}}/minisign"
+          echo "Using system minisign: $SYSTEM_MINISIGN"
+          exit 0
+        fi
+
+        # macOS: pre-built binary is arm64 only, use Homebrew for x86_64
+        if [[ "{{OS}}" == "darwin" ]] && [[ "{{ARCH}}" == "amd64" ]]; then
+          brew install minisign
+          ln -sf "$(command -v minisign)" "{{.TOOLS_INSTALL_DIR}}/minisign"
+          exit 0
+        fi
+
+        curl -sSL "{{.MINISIGN_URL}}/{{.MINISIGN_VERSION}}/minisign-{{.MINISIGN_VERSION}}-{{.MINISIGN_PLATFORM}}.{{.MINISIGN_EXT}}" \
+          -o "minisign.{{.MINISIGN_EXT}}"
+        if [[ "{{.MINISIGN_EXT}}" == "zip" ]]; then
+          unzip -qo "minisign.{{.MINISIGN_EXT}}"
+        else
+          tar -xzf "minisign.{{.MINISIGN_EXT}}"
+        fi
+
+        # Linux and Windows archives contain arch-specific subdirectories (x86_64/, aarch64/)
+        if [[ "{{OS}}" == "linux" ]]; then
+          mv "minisign-{{.MINISIGN_PLATFORM}}/{{.DETECTED_ARCH}}/minisign" "{{.TOOLS_INSTALL_DIR}}/minisign"
+          chmod +x "{{.TOOLS_INSTALL_DIR}}/minisign"
+        elif [[ "{{OS}}" == "windows" ]]; then
+          mv "minisign-{{.MINISIGN_PLATFORM}}/{{.DETECTED_ARCH}}/minisign.exe" "{{.TOOLS_INSTALL_DIR}}/minisign.exe"
+        else
+          find . -name "minisign" -type f -exec mv {} "{{.TOOLS_INSTALL_DIR}}/minisign" \;
+          chmod +x "{{.TOOLS_INSTALL_DIR}}/minisign"
+        fi
+        rm -rf "minisign.{{.MINISIGN_EXT}}" minisign-*
+    status:
+      - test -f "{{.TOOLS_INSTALL_DIR}}/minisign" || test -f "{{.TOOLS_INSTALL_DIR}}/minisign.exe"
+
   protoc:
     deps:
       - dir
@@ -149,25 +219,81 @@ tasks:
       - task: zig
 
   zig:
-    desc: Install Zig locally for all platforms via direct download
+    desc: Install Zig locally for all platforms via community mirrors with signature verification
     dir: "{{.TMP_FOLDER}}"
     status:
       - test -f "{{.TOOLS_INSTALL_DIR}}/zig" || test -f "{{.TOOLS_INSTALL_DIR}}/zig.exe"
     deps:
       - dir
+      - minisign
     vars:
       ZIG_VERSION: '{{.ZIG_VERSION | default "0.14.1"}}'
-      DOWNLOAD_BASE: "https://ziglang.org/download/{{.ZIG_VERSION}}/zig-{{.DETECTED_ARCH}}-{{.DETECTED_OS}}-{{.ZIG_VERSION}}.{{.EXTENSION}}"
+      ZIG_FILENAME: "zig-{{.DETECTED_ARCH}}-{{.DETECTED_OS}}-{{.ZIG_VERSION}}.{{.EXTENSION}}"
     cmds:
-      - curl -L "{{.DOWNLOAD_BASE}}" -o "zig.{{.EXTENSION}}"
       - |
-        if [[ "{{.EXTENSION}}" == "zip" ]]; then
-          unzip -q "zig.{{.EXTENSION}}" -d .
-        else
-          tar -xf "zig.{{.EXTENSION}}" -C .
+        FILENAME="{{.ZIG_FILENAME}}"
+        SIGFILE="${FILENAME}.minisig"
+        SOURCE="agntcy"
+        PUBLIC_KEY="{{.ZIG_PUBLIC_KEY}}"
+
+        # Fetch mirror list
+        curl -sSL "{{.ZIG_MIRRORS_URL}}" -o mirrors.txt
+
+        # Shuffle mirrors
+        MIRRORS=$(awk 'BEGIN{srand()}{print rand()"\t"$0}' mirrors.txt | sort -n | cut -f2-)
+
+        # Try each mirror
+        DOWNLOADED=false
+        for MIRROR in $MIRRORS; do
+          echo "Trying mirror: ${MIRROR}"
+          STATUS=$(curl -sSL --connect-timeout 10 --max-time 120 -o "$FILENAME" -w "%{http_code}" "${MIRROR}/${FILENAME}?source=${SOURCE}" 2>/dev/null || echo "000")
+          if [ "$STATUS" = "200" ]; then
+            SIG_STATUS=$(curl -sSL --connect-timeout 10 --max-time 30 -o "$SIGFILE" -w "%{http_code}" "${MIRROR}/${SIGFILE}?source=${SOURCE}" 2>/dev/null || echo "000")
+            if [ "$SIG_STATUS" = "200" ]; then
+              DOWNLOADED=true
+              echo "Downloaded from mirror: ${MIRROR}"
+              break
+            fi
+          fi
+        done
+
+        # Fallback to ziglang.org
+        if [ "$DOWNLOADED" = "false" ]; then
+          echo "All mirrors failed, falling back to ziglang.org"
+          curl -sSL -o "$FILENAME" "https://ziglang.org/download/{{.ZIG_VERSION}}/${FILENAME}"
+          curl -sSL -o "$SIGFILE" "https://ziglang.org/download/{{.ZIG_VERSION}}/${SIGFILE}"
         fi
-      - mv zig-{{.DETECTED_ARCH}}-{{.DETECTED_OS}}-{{.ZIG_VERSION}}/* "{{.TOOLS_INSTALL_DIR}}"
-      - echo "Zig installed to {{.TOOLS_INSTALL_DIR}}"
+
+        # Verify signature with minisign
+        MINISIGN="{{.TOOLS_INSTALL_DIR}}/minisign"
+        [[ -f "{{.TOOLS_INSTALL_DIR}}/minisign.exe" ]] && MINISIGN="{{.TOOLS_INSTALL_DIR}}/minisign.exe"
+        "$MINISIGN" -Vm "$FILENAME" -P "$PUBLIC_KEY" -x "$SIGFILE"
+        if [ $? -ne 0 ]; then
+          echo "ERROR: Signature verification failed!"
+          exit 1
+        fi
+
+        # Verify trusted comment file field (prevent downgrade attacks)
+        TRUSTED_COMMENT=$(grep "^trusted comment:" "$SIGFILE" | head -1)
+        if ! echo "$TRUSTED_COMMENT" | grep -q "file:${FILENAME}"; then
+          echo "ERROR: Trusted comment file field does not match requested filename!"
+          exit 1
+        fi
+
+        echo "Signature verification passed."
+
+        # Extract
+        if [[ "{{.EXTENSION}}" == "zip" ]]; then
+          unzip -q "$FILENAME" -d .
+        else
+          tar -xf "$FILENAME" -C .
+        fi
+
+        # Install
+        cp -Rf zig-{{.DETECTED_ARCH}}-{{.DETECTED_OS}}-{{.ZIG_VERSION}}/* "{{.TOOLS_INSTALL_DIR}}"
+        rm -rf zig-{{.DETECTED_ARCH}}-{{.DETECTED_OS}}-{{.ZIG_VERSION}}
+        rm -f "$FILENAME" "$SIGFILE" mirrors.txt
+        echo "Zig installed to {{.TOOLS_INSTALL_DIR}}"
       - task: dlltool-wrapper
 
   dlltool-wrapper:
