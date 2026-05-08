@@ -1,0 +1,17 @@
+{
+  "name": "@agntcy/slim-bindings-tests",
+  "private": true,
+  "type": "module",
+  "description": "Integration tests for SLIM Node.js bindings",
+  "scripts": {
+    "test": "tsx --test integration.test.ts"
+  },
+  "dependencies": {
+    "@agntcy/slim-bindings": "file:.."
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0",
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  }
+}

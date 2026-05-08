@@ -1,0 +1,418 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: '3'
+
+includes:
+  adapter:
+    taskfile: "../rust/Taskfile.yaml"
+    internal: false
+  rust:
+    taskfile: ../../../tasks/rust.yaml
+    internal: true
+
+vars:
+  # The Rust UniFFI bindings crate - in bindings/rust (sibling to bindings/react-native)
+  BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
+  PROFILE: '{{.PROFILE | default "release"}}'
+  CURRENT_TARGET:
+    sh: 'rustc -vV | sed -n "s|host: ||p"'
+  TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
+  # For native builds (TARGET == CURRENT_TARGET), Rust outputs to target/PROFILE/
+  # For cross-compilation, Rust outputs to target/TARGET/PROFILE/
+  SERVICE_TARGET:
+    sh: |
+      CURRENT_TARGET=$(rustc -vV | sed -n "s|host: ||p")
+      TARGET="{{.TARGET}}"
+      PROFILE="{{.PROFILE | default "release"}}"
+      if [ -z "$TARGET" ] || [ "$TARGET" = "$CURRENT_TARGET" ]; then
+        # Native build - output is in target/PROFILE/
+        echo "{{.TASKFILE_DIR}}/../../target/${PROFILE}"
+      else
+        # Cross-compilation - output is in target/TARGET/PROFILE/
+        echo "{{.TASKFILE_DIR}}/../../target/${TARGET}/${PROFILE}"
+      fi
+  LIB_NAME: slim_bindings
+  _DEFAULT_LIB_PATH:
+    sh: |
+      # Detect OS to determine library extension
+      OS=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
+      case "$OS" in
+        mingw*|msys*|cygwin*)
+          # Windows uses .lib without lib prefix
+          echo "{{.SERVICE_TARGET}}/{{.LIB_NAME}}.lib"
+          ;;
+        *)
+          # Unix/Linux/macOS use .a with lib prefix
+          echo "{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.a"
+          ;;
+      esac
+  LIB_PATH: "{{.LIB_PATH | default ._DEFAULT_LIB_PATH}}"
+  # iOS targets to vendor static libs for (for npm publish; XCFramework uses device + sim)
+  IOS_VENDOR_TARGETS: "aarch64-apple-ios-sim aarch64-apple-ios"
+
+tasks:
+  default:
+    cmds:
+      - task -l
+
+  install-uniffi-bindgen-react-native:
+    desc: Install uniffi-bindgen-react-native tool
+    status:
+      - which ubrn
+    cmds:
+      - echo "📦 Installing uniffi-bindgen-react-native..."
+      - npm install -g uniffi-bindgen-react-native
+    silent: true
+
+  install-wasm-tools:
+    desc: Install wasm-bindgen-cli and wasm-pack
+    status:
+      - which wasm-bindgen
+      - which wasm-pack
+    cmds:
+      - echo "📦 Installing WASM tools..."
+      - cargo install wasm-bindgen-cli --version 0.2.92
+      - cargo install wasm-pack
+    silent: true
+
+  generate:
+    desc: Generate React Native JSI bindings
+    deps:
+      - task: adapter:bindings:build:all
+        vars:
+          PROFILE: release
+      - task: install-uniffi-bindgen-react-native
+    cmds:
+      - task: generate:react-native
+      # WASM generation disabled - tokio incompatibility with WASM targets
+      # - task: generate:wasm
+      - echo "✅ React Native bindings generated successfully"
+    silent: true
+
+  build:ios-simulator:
+    desc: Build Rust library for iOS simulator
+    cmds:
+      # aws-lc-sys bindgen needs iOS Simulator SDK and a valid clang triple (arm64-apple-iosN-simulator)
+      - BINDGEN_EXTRA_CLANG_ARGS="-isysroot $(xcrun --sdk iphonesimulator --show-sdk-path) -target arm64-apple-ios15.0-simulator" task adapter:bindings:build:all TARGET=aarch64-apple-ios-sim PROFILE=debug
+
+  generate:react-native:
+    desc: Generate React Native JSI bindings from compiled library
+    dir: "{{.TASKFILE_DIR}}"
+    deps:
+      - task: adapter:bindings:build:all
+        vars:
+          PROFILE: release
+      - task: install-uniffi-bindgen-react-native
+    cmds:
+      - echo "🔧 Generating React Native JSI bindings..."
+      - mkdir -p generated/typescript generated/cpp
+      - |
+        cd {{.BINDINGS_DIR}} && ubrn generate jsi bindings \
+          --ts-dir ../react-native/generated/typescript \
+          --cpp-dir ../react-native/generated/cpp \
+          --library \
+          '{{.LIB_PATH}}'
+      - echo "🔧 Fixing generator bug (async public → public async)... {{.TASKFILE_DIR}}"
+      - sed -i '' 's/async public/public async/g' {{.TASKFILE_DIR}}/generated/typescript/slim_bindings.ts
+      - sed -i '' 's/async static/static async/g' {{.TASKFILE_DIR}}/generated/typescript/slim_bindings.ts
+      - echo "✅ React Native bindings generated in generated/"
+    silent: true
+
+  install:
+    desc: Install npm dependencies
+    cmds:
+      - echo "📦 Installing npm dependencies..."
+      - npm install
+    silent: true
+
+  test:
+    desc: Run all tests (unit + E2E)
+    deps:
+      - install
+    cmds:
+      - echo "🧪 Running all tests..."
+      - npm test  # Unit tests
+      - task: test:e2e
+
+  check-prerequisites:ios:
+    desc: Check if iOS E2E prerequisites are installed
+    cmds:
+      - |
+        echo "🔍 Checking iOS E2E prerequisites..."
+        
+        # Check for Xcode (not just Command Line Tools)
+        if ! xcodebuild -version > /dev/null 2>&1; then
+          echo "❌ ERROR: Xcode is not installed or not properly configured"
+          echo "iOS E2E tests require the FULL Xcode application (not Command Line Tools)."
+          echo "Install: https://apps.apple.com/app/xcode/id497799835"
+          echo "Then run: sudo xcodebuild -license accept"
+          exit 1
+        fi
+        
+        # Check for iOS SDK
+        if ! xcrun --show-sdk-path --sdk iphoneos > /dev/null 2>&1; then
+          echo "❌ ERROR: iOS SDK not found"
+          echo "Run: sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer"
+          exit 1
+        fi
+        
+        # Check for CocoaPods
+        if ! command -v pod > /dev/null 2>&1; then
+          echo "❌ ERROR: CocoaPods is not installed"
+          echo "Install: sudo gem install cocoapods"
+          exit 1
+        fi
+        
+        # Check for Maestro
+        if ! command -v maestro > /dev/null 2>&1; then
+          echo "❌ ERROR: Maestro is not installed"
+          echo 'Install: curl -Ls "https://get.maestro.mobile.dev" | bash'
+          exit 1
+        fi
+        
+        echo "✅ All iOS E2E prerequisites are installed"
+    silent: true
+
+  check-prerequisites:android:
+    desc: Check if Android E2E prerequisites are installed
+    cmds:
+      - |
+        echo "🔍 Checking Android E2E prerequisites..."
+        
+        # Check for Android SDK
+        if ! command -v adb > /dev/null 2>&1; then
+          echo "❌ ERROR: Android SDK is not installed"
+          echo ""
+          echo "Android E2E tests require Android SDK and tools."
+          echo ""
+          echo "To install:"
+          echo "  1. Install Android Studio: https://developer.android.com/studio"
+          echo "  2. Open Android Studio and install SDK tools via SDK Manager"
+          echo "  3. Add to PATH: export PATH=\$PATH:\$ANDROID_HOME/platform-tools"
+          echo ""
+          exit 1
+        fi
+        
+        # Check for Maestro
+        if ! command -v maestro > /dev/null 2>&1; then
+          echo "❌ ERROR: Maestro is not installed"
+          echo ""
+          echo "Maestro is required to run E2E tests."
+          echo ""
+          echo "To install:"
+          echo '  curl -Ls "https://get.maestro.mobile.dev" | bash'
+          echo ""
+          exit 1
+        fi
+        
+        echo "✅ All Android E2E prerequisites are installed"
+    silent: true
+
+  test:e2e:setup:
+    desc: Set up React Native test app
+    dir: examples/react-native/test-app
+    cmds:
+      - echo "📱 Setting up React Native test app..."
+      - npm install
+      - |
+        if [ -d "ios" ]; then
+          cd ios && pod install && cd ..
+        fi
+      - echo "✅ Test app ready"
+    silent: true
+
+  test:e2e:ios:
+    desc: Run E2E tests on iOS simulator
+    deps:
+      - check-prerequisites:ios
+      - build:ios-simulator
+      - generate:react-native
+      - test:e2e:setup
+    dir: examples/react-native/test-app
+    cmds:
+      - echo "🍎 Running iOS E2E tests..."
+      - echo "Starting Metro bundler..."
+      - npx react-native start --reset-cache > /tmp/metro.log 2>&1 &
+      - sleep 5
+      - echo "Building and launching app on iOS simulator (Debug mode for faster builds)..."
+      - echo "This may take 2-3 minutes on first run..."
+      - npx react-native run-ios --mode Debug > /tmp/rn-ios.log 2>&1 &
+      - echo "Waiting for app to launch (120s)..."
+      - sleep 60
+      - echo "Running Maestro tests..."
+      - maestro test maestro/smoke-tests.yaml || (echo "Tests failed"; exit 1)
+      - echo "Cleaning up..."
+      - killall node || true
+      - killall Simulator || true
+      - echo "✅ iOS E2E tests passed"
+
+  test:e2e:android:
+    desc: Run E2E tests on Android emulator
+    deps:
+      - check-prerequisites:android
+      - generate:react-native
+      - test:e2e:setup
+    dir: examples/react-native/test-app
+    cmds:
+      - echo "🤖 Running Android E2E tests..."
+      - echo "Starting Android app..."
+      - npx react-native run-android --mode release > /tmp/rn-android.log 2>&1 &
+      - echo "Waiting for app to launch (30s)..."
+      - sleep 30
+      - echo "Running Maestro tests..."
+      - maestro test maestro/smoke-tests.yaml || (echo "Tests failed"; exit 1)
+      - echo "Cleaning up..."
+      - adb emu kill || true
+      - echo "✅ Android E2E tests passed"
+
+  test:e2e:
+    desc: Run E2E tests on current platform
+    cmds:
+      - |
+        if [ "$(uname)" = "Darwin" ]; then
+          echo "Detected macOS - running iOS tests"
+          task test:e2e:ios
+        else
+          echo "Detected Linux - running Android tests"
+          task test:e2e:android
+        fi
+
+  test:unit:
+    desc: Run unit tests only
+    deps:
+      - install
+    cmds:
+      - echo "🧪 Running unit tests..."
+      - npm run test:unit
+    silent: true
+
+  test:integration:
+    desc: Run integration tests (requires native bindings)
+    deps:
+      - install
+    cmds:
+      - echo "🧪 Running integration tests..."
+      - npm run test:integration
+    silent: true
+
+  test:watch:
+    desc: Run tests in watch mode
+    deps:
+      - install
+    cmds:
+      - echo "👀 Running tests in watch mode..."
+      - npm run test:watch
+
+  test:coverage:
+    desc: Run tests with coverage report
+    deps:
+      - install
+    cmds:
+      - echo "📊 Running tests with coverage..."
+      - npm run test:coverage
+    silent: true
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - echo "🧹 Cleaning build artifacts..."
+      - rm -rf generated/
+      - rm -rf ios/static/
+      - rm -rf ios/SlimBindings.xcframework
+      - rm -rf node_modules/
+      - rm -rf dist/
+      - rm -rf coverage/
+      - cd {{.BINDINGS_DIR}} && cargo clean
+      - echo "✅ Clean complete"
+    silent: true
+
+  # Copy built iOS static libs into ios/static/<target>/ for npm publish. Run xcframework:ios after to create XCFramework.
+  # Requires: Rust libs built for each IOS_VENDOR_TARGETS (e.g. adapter:bindings:build:all TARGET=aarch64-apple-ios-sim and TARGET=aarch64-apple-ios).
+  vendor:ios:
+    desc: Vendor iOS static libs into ios/static/ for publish
+    cmds:
+      - echo "📦 Vendoring iOS static libs..."
+      - |
+        TASKFILE_DIR="{{.TASKFILE_DIR}}"
+        TARGET_DIR="$TASKFILE_DIR/../../target"
+        TARGETS="{{.IOS_VENDOR_TARGETS}}"
+        for TARGET in $TARGETS; do
+          for CANDIDATE in "$TARGET_DIR/$TARGET/release/libslim_bindings.a" "$TARGET_DIR/$TARGET/release/deps/libslim_bindings.a" "$TARGET_DIR/$TARGET/debug/libslim_bindings.a" "$TARGET_DIR/$TARGET/debug/deps/libslim_bindings.a"; do
+            if [ -f "$CANDIDATE" ]; then
+              DEST_DIR="$TASKFILE_DIR/ios/static/$TARGET"
+              mkdir -p "$DEST_DIR"
+              cp -v "$CANDIDATE" "$DEST_DIR/libslim_bindings.a"
+              echo "  ✅ $TARGET"
+              break
+            fi
+          done
+          if [ ! -f "$TASKFILE_DIR/ios/static/$TARGET/libslim_bindings.a" ]; then
+            echo "  ⚠️  Not found: $TARGET_DIR/$TARGET/release/libslim_bindings.a (or deps/)"
+          fi
+        done
+      - echo "✅ Vendored to ios/static/"
+    silent: false
+
+  # Alias: task prepare runs prepare:ios (build XCFramework for local iOS dev)
+  prepare:
+    desc: Alias for prepare:ios - build SlimBindings.xcframework for iOS
+    cmds:
+      - task prepare:ios
+
+  # One-shot: build both iOS targets, vendor, and create XCFramework. Use this for local iOS dev
+  # when SlimBindings.xcframework is missing (e.g. after clone, task clean, or using file: dep).
+  prepare:ios:
+    desc: Build Rust for iOS (device + sim), vendor libs, and create SlimBindings.xcframework
+    cmds:
+      - echo "🍎 Preparing iOS XCFramework (device + simulator)..."
+      - task adapter:bindings:build:all TARGET=aarch64-apple-ios PROFILE=release
+      - BINDGEN_EXTRA_CLANG_ARGS="-isysroot $(xcrun --sdk iphonesimulator --show-sdk-path) -target arm64-apple-ios15.0-simulator" task adapter:bindings:build:all TARGET=aarch64-apple-ios-sim PROFILE=release
+      - task xcframework:ios
+      - echo "✅ SlimBindings.xcframework ready. Run 'cd examples/react-native/test-app/ios && pod install' then build from Xcode."
+    silent: false
+
+  # Create XCFramework from vendored iOS static libs (device + simulator). Requires vendor:ios first.
+  xcframework:ios:
+    desc: Create SlimBindings.xcframework from ios/static/ libs for device and simulator
+    deps:
+      - task: vendor:ios
+    cmds:
+      - echo "📦 Creating SlimBindings.xcframework..."
+      - |
+        TASKFILE_DIR="{{.TASKFILE_DIR}}"
+        DEVICE_LIB="$TASKFILE_DIR/ios/static/aarch64-apple-ios/libslim_bindings.a"
+        SIM_LIB="$TASKFILE_DIR/ios/static/aarch64-apple-ios-sim/libslim_bindings.a"
+        OUT="$TASKFILE_DIR/ios/SlimBindings.xcframework"
+        if [ ! -f "$DEVICE_LIB" ] || [ ! -f "$SIM_LIB" ]; then
+          echo "❌ Missing static libs. Build both targets and run vendor:ios first."
+          exit 1
+        fi
+        rm -rf "$OUT"
+        xcodebuild -create-xcframework \
+          -library "$DEVICE_LIB" \
+          -library "$SIM_LIB" \
+          -output "$OUT"
+        echo "✅ Created $OUT"
+    silent: false
+
+  # Development helpers
+  watch:
+    desc: Watch for changes and rebuild
+    cmds:
+      - echo "👀 Watching for changes..."
+      - |
+        while true; do
+          inotifywait -r -e modify,create,delete {{.BINDINGS_DIR}}/src || fswatch -o {{.BINDINGS_DIR}}/src || true
+          task generate
+        done
+
+  format:
+    desc: Format TypeScript code
+    cmds:
+      - npx prettier --write "**/*.{ts,tsx,js,jsx,json}"
+
+  lint:
+    desc: Lint TypeScript code
+    cmds:
+      - npx eslint "**/*.{ts,tsx,js,jsx}"
