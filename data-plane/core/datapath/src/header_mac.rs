@@ -118,31 +118,68 @@ fn reserve_preimage_upper_bound(buf: &mut Vec<u8>, hdr: &SlimHeader) {
 }
 
 #[inline]
-fn preimage_upper_bound(hdr: &SlimHeader) -> usize {
-    let mut n = DOMAIN_V1.len() + 16 + 4;
-    n += 4 + hdr.identity.len();
-    n += encoded_name_upper_bound(&hdr.source);
-    n += encoded_name_upper_bound(&hdr.destination);
-    n += 9 + 9 + 2;
-    n
+fn preimage_upper_bound(header: &SlimHeader) -> usize {
+    /// Byte size of `link_uuid` field.
+    /// * 16 bytes for `&[u8; 16]`.
+    const LINK_UUID_SIZE: usize = 16;
+
+    /// Byte size of `fanout`, serialized by [`to_le_bytes`]
+    /// * 4 bytes for `u32`
+    const FANOUT_SIZE: usize = 4;
+
+    /// The total byte size of a `recv_from` field.
+    ///
+    /// This is calculated as 9 bytes:
+    /// * 1 byte for the presence tag (boolean `0` or `1`).
+    /// * 8 bytes for the `u64` value (via [`push_u64_opt`]).
+    const RECV_FROM_SIZE: usize = 9;
+
+    /// The total byte size of a `forward_to` field.
+    ///
+    /// This is calculated as 9 bytes:
+    /// * 1 byte for the presence tag (boolean `0` or `1`).
+    /// * 8 bytes for the `u64` value (via [`push_u64_opt`]).
+    const FORWARD_TO_SIZE: usize = 9;
+
+    /// Byte size of error: Option<bool> encoded by [`push_bool_opt`]
+    const ERROR_SIZE: usize = 2;
+
+    DOMAIN_V1.len()
+        + LINK_UUID_SIZE
+        + FANOUT_SIZE
+        + RECV_FROM_SIZE
+        + FORWARD_TO_SIZE
+        + ERROR_SIZE
+        + encoded_name_upper_bound(&header.source)
+        + encoded_name_upper_bound(&header.destination)
 }
 
 #[inline]
-fn encoded_name_upper_bound(n: &Option<Name>) -> usize {
-    match n {
+fn encoded_name_upper_bound(name_opt: &Option<Name>) -> usize {
+    match name_opt {
         None => 1,
         Some(name) => {
-            let mut u = 2 + 32;
+            /// Byte size of presence flags:
+            /// * 1 byte for Some(name) that [`push_encoded_name`] pushes.
+            /// * 1 byte for the flag showing if name.name is present.
+            /// * 1 byte for `str_name` present/absent.
+            const PRESENCE_FLAGS_SIZE: usize = 3;
+            /// Byte size of 4 `u64` components of EncodedName:
+            /// * 4*8 bytes for component 0..3 serialized by [`to_le_bytes`].
+            const ENCODED_NAME_SIZE: usize = 32;
+
+            // Byte sizs of 3 `u32` prefixes:
+            // * 3*4 byte length size prefix befor each component
+            const LENGTH_PREFIXES_SIZE: usize = 12;
+
+            let mut encoded_name_bound = PRESENCE_FLAGS_SIZE + ENCODED_NAME_SIZE;
             if let Some(sn) = name.str_name.as_ref() {
-                u += 1
-                    + 12
+                encoded_name_bound += LENGTH_PREFIXES_SIZE
                     + sn.str_component_0.len()
                     + sn.str_component_1.len()
                     + sn.str_component_2.len();
-            } else {
-                u += 1;
             }
-            u
+            encoded_name_bound
         }
     }
 }

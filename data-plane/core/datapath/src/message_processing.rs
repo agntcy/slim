@@ -460,22 +460,7 @@ impl MessageProcessor {
                 // Link and SubscriptionAck messages have no SLIM header: skip header
                 // manipulation and telemetry span creation.
                 if !msg.is_link() && !msg.is_subscription_ack() {
-                    // reset header fields
                     msg.clear_slim_header();
-
-                    // telemetry ////////////////////////////////////////////////////////
-                    let parent_context = extract_parent_context(&msg);
-                    let span = self.create_span("send_message", out_conn, &msg);
-
-                    if let Some(ctx) = parent_context
-                        && let Err(e) = span.set_parent(ctx)
-                    {
-                        // log the error but don't fail the message sending
-                        error!(error = %e.chain(), "error setting parent context");
-                    }
-                    let _guard = span.enter();
-                    inject_current_context(&mut msg);
-                    ///////////////////////////////////////////////////////////////////
                 }
 
                 if !msg.is_link()
