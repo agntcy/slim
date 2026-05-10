@@ -14,14 +14,14 @@ path = "src/client/main.rs"
 
 [dependencies]
 agntcy-slim = { workspace = true }
-agntcy-slim-auth = { workspace = true }
-agntcy-slim-config = { workspace = true }
-agntcy-slim-controller = { workspace = true }
-agntcy-slim-datapath = { workspace = true }
-agntcy-slim-mls = { workspace = true }
-agntcy-slim-service = { workspace = true, features = ["session"] }
-agntcy-slim-session = { workspace = true }
-agntcy-slim-signal = { workspace = true }
+agntcy-slim-auth = { workspace = true, features = ["native"] }
+agntcy-slim-config = { workspace = true, features = ["native"] }
+agntcy-slim-controller = { workspace = true, features = ["native"] }
+agntcy-slim-datapath = { workspace = true, features = ["native"] }
+agntcy-slim-mls = { workspace = true, features = ["native"] }
+agntcy-slim-service = { workspace = true, features = ["native", "session"] }
+agntcy-slim-session = { workspace = true, features = ["native"] }
+agntcy-slim-signal = { workspace = true, features = ["native"] }
 agntcy-slim-testing = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }

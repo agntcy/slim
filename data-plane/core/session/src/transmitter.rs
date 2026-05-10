@@ -52,7 +52,8 @@ impl SessionInterceptorProvider for SessionTransmitter {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(feature = "native", async_trait::async_trait)]
+#[cfg_attr(feature = "wasm", async_trait::async_trait(?Send))]
 impl Transmitter for SessionTransmitter {
     async fn send_to_app(
         &self,
@@ -120,7 +121,8 @@ impl SessionInterceptorProvider for AppTransmitter {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(feature = "native", async_trait::async_trait)]
+#[cfg_attr(feature = "wasm", async_trait::async_trait(?Send))]
 impl Transmitter for AppTransmitter {
     async fn send_to_app(
         &self,
@@ -179,7 +181,8 @@ mod tests {
         pub slim_calls: Arc<RwLock<usize>>,
     }
 
-    #[async_trait]
+    #[cfg_attr(feature = "native", async_trait)]
+    #[cfg_attr(feature = "wasm", async_trait(?Send))]
     impl SessionInterceptor for RecordingInterceptor {
         async fn on_msg_from_app(&self, msg: &mut Message) -> Result<(), SessionError> {
             *self.app_calls.write() += 1;

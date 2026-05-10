@@ -26,12 +26,12 @@ path = "src/bin/stress_publish.rs"
 
 [dependencies]
 agntcy-slim = { workspace = true }
-agntcy-slim-auth = { workspace = true }
-agntcy-slim-config = { workspace = true }
-agntcy-slim-datapath = { workspace = true }
-agntcy-slim-service = { workspace = true, features = ["session"] }
-agntcy-slim-session = { workspace = true }
-agntcy-slim-tracing = { workspace = true }
+agntcy-slim-auth = { workspace = true, features = ["native"] }
+agntcy-slim-config = { workspace = true, features = ["native"] }
+agntcy-slim-datapath = { workspace = true, features = ["native"] }
+agntcy-slim-service = { workspace = true, features = ["native", "session"] }
+agntcy-slim-session = { workspace = true, features = ["native"] }
+agntcy-slim-tracing = { workspace = true, features = ["native"] }
 aws-lc-rs = { workspace = true }
 base64 = { workspace = true }
 bollard = { version = "0.17" }

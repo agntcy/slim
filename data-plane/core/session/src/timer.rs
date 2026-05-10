@@ -3,14 +3,16 @@
 
 // Standard library imports
 use std::sync::Arc;
+use std::time::Duration;
 
 // Third-party crates
-use tokio::time::{self, Duration};
-use tokio_util::sync::CancellationToken;
-use tonic::async_trait;
+use crate::runtime::CancellationToken;
+use async_trait::async_trait;
+use tokio::time;
 use tracing::trace;
 
-#[async_trait]
+#[cfg_attr(feature = "native", async_trait)]
+#[cfg_attr(feature = "wasm", async_trait(?Send))]
 pub trait TimerObserver {
     async fn on_timeout(&self, timer_id: u32, timeouts: u32);
     async fn on_failure(&self, timer_id: u32, timeouts: u32);
@@ -128,7 +130,7 @@ impl Timer {
                 tokio::pin!(timer);
 
                 tokio::select! {
-                    _ = timer.as_mut() => {
+                    _ = &mut timer => {
                         timeouts += 1;
                         match max_retries {
                             Some(max) => {
@@ -142,11 +144,11 @@ impl Timer {
                             None => observer.on_timeout(timer_id, timeouts).await
                         }
                         retry += 1;
-                    },
+                    }
                     _ = cancellation_token.cancelled() => {
                         observer.on_stop(timer_id).await;
                         break;
-                    },
+                    }
                 }
             }
         });
@@ -176,6 +178,7 @@ impl Drop for Timer {
 // tests
 #[cfg(test)]
 mod tests {
+    use tokio::time;
     use tracing::debug;
     use tracing_test::traced_test;
 
@@ -185,7 +188,8 @@ mod tests {
         id: u32,
     }
 
-    #[async_trait]
+    #[cfg_attr(feature = "native", async_trait)]
+    #[cfg_attr(feature = "wasm", async_trait(?Send))]
     impl TimerObserver for Observer {
         async fn on_timeout(&self, timer_id: u32, timeouts: u32) {
             debug!(

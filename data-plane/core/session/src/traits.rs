@@ -10,6 +10,27 @@ use slim_datapath::api::ProtoMessage as Message;
 use super::SessionInterceptorProvider;
 use crate::{common::SessionMessage, errors::SessionError};
 
+// Conditional Send/Sync bounds for cross-platform support
+#[cfg(feature = "native")]
+pub trait MaybeSend: Send {}
+#[cfg(feature = "native")]
+impl<T: Send> MaybeSend for T {}
+
+#[cfg(all(feature = "wasm", not(feature = "native")))]
+pub trait MaybeSend {}
+#[cfg(all(feature = "wasm", not(feature = "native")))]
+impl<T> MaybeSend for T {}
+
+#[cfg(feature = "native")]
+pub trait MaybeSync: Sync {}
+#[cfg(feature = "native")]
+impl<T: Sync> MaybeSync for T {}
+
+#[cfg(all(feature = "wasm", not(feature = "native")))]
+pub trait MaybeSync {}
+#[cfg(all(feature = "wasm", not(feature = "native")))]
+impl<T> MaybeSync for T {}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProcessingState {
     Active,
@@ -17,7 +38,8 @@ pub enum ProcessingState {
 }
 
 /// Session transmitter trait
-#[async_trait]
+#[cfg_attr(feature = "native", async_trait)]
+#[cfg_attr(feature = "wasm", async_trait(?Send))]
 pub trait Transmitter: SessionInterceptorProvider {
     async fn send_to_slim(&self, message: Result<Message, Status>) -> Result<(), SessionError>;
 
@@ -29,8 +51,9 @@ pub trait Transmitter: SessionInterceptorProvider {
 ///
 /// Each layer implements this trait and can hold an inner layer.
 /// The layer decides whether to pass messages to its inner layer or handle them itself (or both).
-#[async_trait]
-pub trait MessageHandler: Send + Sync {
+#[cfg_attr(feature = "native", async_trait)]
+#[cfg_attr(feature = "wasm", async_trait(?Send))]
+pub trait MessageHandler: MaybeSend + MaybeSync {
     /// Init the layer.
     async fn init(&mut self) -> Result<(), SessionError>;
 

@@ -229,6 +229,9 @@ impl TlsServerConfig {
             return Ok(None);
         }
 
+        // Ensure rustls has a process-level crypto provider before any config builders run.
+        crate::tls::provider::initialize_crypto_provider();
+
         // TLS version
         let tls_version = match self.config.tls_version.as_str() {
             "tls1.2" => &TLS12,

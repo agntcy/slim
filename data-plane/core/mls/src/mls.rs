@@ -8,10 +8,14 @@ use mls_rs::{
     group::ReceivedMessage,
     identity::{SigningIdentity, basic::BasicCredential},
 };
-#[cfg(test)]
+// `CipherSuiteProvider` / `CryptoProvider` are only referenced by
+// `generate_key_pair`, which is itself feature/test gated. Importing them
+// unconditionally would produce an `unuse d_imports` warning under the
+// `curve25519` feature.
+#[cfg(any(test, not(all(feature = "native", feature = "curve25519"))))]
 use mls_rs::{CipherSuiteProvider, CryptoProvider};
 
-use mls_rs_crypto_awslc::AwsLcCryptoProvider;
+use crate::crypto::CryptoProviderImpl;
 use std::collections::HashSet;
 use tracing::debug;
 
@@ -20,7 +24,19 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use crate::errors::MlsError;
 use crate::identity_provider::SlimIdentityProvider;
 
+// Default cipher suite is P256_AES128 (NIST P-256 + ECDSA-P256 + AES-128-GCM)
+// so that native and WASM peers can interoperate in the same MLS group:
+// browser WebCrypto (used by the `wasm` backend) does not support
+// Curve25519, but it does support P-256.
+//
+// Operators that do not need browser interoperability can opt in to the
+// stronger CURVE25519_AES128 ciphersuite by enabling the crate's
+// `curve25519` feature. This only takes effect on the `native` backend
+// because the `wasm` backend cannot service it at runtime.
+#[cfg(all(feature = "native", feature = "curve25519"))]
 const CIPHERSUITE: CipherSuite = CipherSuite::CURVE25519_AES128;
+#[cfg(not(all(feature = "native", feature = "curve25519")))]
+const CIPHERSUITE: CipherSuite = CipherSuite::P256_AES128;
 
 pub type CommitMsg = Vec<u8>;
 pub type WelcomeMsg = Vec<u8>;
@@ -55,7 +71,7 @@ where
             mls_rs::client_builder::WithIdentityProvider<
                 SlimIdentityProvider<V>,
                 mls_rs::client_builder::WithCryptoProvider<
-                    AwsLcCryptoProvider,
+                    CryptoProviderImpl,
                     mls_rs::client_builder::BaseConfig,
                 >,
             >,
@@ -66,7 +82,7 @@ where
             mls_rs::client_builder::WithIdentityProvider<
                 SlimIdentityProvider<V>,
                 mls_rs::client_builder::WithCryptoProvider<
-                    AwsLcCryptoProvider,
+                    CryptoProviderImpl,
                     mls_rs::client_builder::BaseConfig,
                 >,
             >,
@@ -116,6 +132,12 @@ where
 
     /// Creates a signing identity from the keys stored in the identity provider.
     /// The provider must have had its MLS keys generated (done automatically at construction).
+    ///
+    /// This path is only used when the crate is compiled with the
+    /// `curve25519` feature on the `native` backend: in that case the
+    /// auth provider hands us real Ed25519 key material and we can wrap
+    /// it directly into an MLS signing identity.
+    #[cfg(all(feature = "native", feature = "curve25519"))]
     fn create_signing_identity(
         &mut self,
         is_rotation: bool,
@@ -144,19 +166,76 @@ where
         Ok((private_key, signing_identity))
     }
 
-    #[cfg(test)]
-    fn generate_key_pair() -> Result<(SignatureSecretKey, SignaturePublicKey), MlsError> {
-        let crypto_provider = AwsLcCryptoProvider::default();
+    /// Generate a fresh signature key pair for the active MLS ciphersuite.
+    ///
+    /// Always defers to the MLS crypto provider so the produced bytes are
+    /// guaranteed to be valid for the negotiated ciphersuite (P-256 by
+    /// default, or Curve25519 when the `curve25519` feature is enabled).
+    ///
+    /// Only compiled when the default P256 path is active or when running
+    /// the unit tests; the opt-in `curve25519` feature uses the auth
+    /// provider's Ed25519 keys directly and never calls this helper.
+    #[cfg(any(test, not(all(feature = "native", feature = "curve25519"))))]
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    async fn generate_key_pair() -> Result<(SignatureSecretKey, SignaturePublicKey), MlsError> {
+        let crypto_provider = crate::crypto::default_crypto_provider();
         let cipher_suite_provider = crypto_provider
             .cipher_suite_provider(CIPHERSUITE)
             .ok_or(MlsError::CiphersuiteUnavailable)?;
 
         cipher_suite_provider
             .signature_key_generate()
+            .await
             .map_err(MlsError::crypto_provider)
     }
 
-    pub fn initialize(&mut self) -> Result<(), MlsError> {
+    /// Generate a fresh ciphersuite-correct key pair via the MLS crypto
+    /// provider, push it into the identity provider so the next token
+    /// embeds the matching public key, and assemble the corresponding
+    /// `SigningIdentity`.
+    ///
+    /// Used by the default P256 path on both `native` and `wasm`. The
+    /// auth provider's `rotate_signature_keys` only produces Ed25519
+    /// material (or random bytes on WASM) and so cannot be used as the
+    /// source of truth when the negotiated ciphersuite is P-256.
+    #[cfg(not(all(feature = "native", feature = "curve25519")))]
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    async fn install_generated_signing_identity(
+        &mut self,
+        is_rotation: bool,
+    ) -> Result<(SignatureSecretKey, SigningIdentity), MlsError> {
+        let (priv_key, pub_key) = Self::generate_key_pair().await?;
+
+        // Push the ciphersuite-correct keys into the identity provider so
+        // that get_token() embeds the matching public key in the
+        // credential. This is required: SlimIdentityProvider's
+        // validate_member() checks that the signing identity's public key
+        // equals the one bound to the token.
+        self.identity_provider
+            .set_signature_keys(priv_key.as_bytes().to_vec(), pub_key.as_bytes().to_vec())?;
+
+        let token = self.identity_provider.get_token()?;
+        let basic_cred = BasicCredential::new(token.as_bytes().to_vec());
+        let signing_identity = SigningIdentity::new(basic_cred.into_credential(), pub_key.clone());
+
+        if let Some(stored) = self.stored_identity.as_mut() {
+            stored.last_credential = Some(token);
+            stored.public_key_bytes = pub_key.as_bytes().to_vec();
+            stored.private_key_bytes = priv_key.as_bytes().to_vec();
+
+            if is_rotation {
+                stored.credential_version = stored.credential_version.saturating_add(1);
+            }
+        }
+
+        Ok((priv_key, signing_identity))
+    }
+
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn initialize(&mut self) -> Result<(), MlsError> {
         debug!("Initializing MLS");
 
         // Generate fresh MLS signature keys before first use. This ensures that
@@ -183,10 +262,21 @@ where
 
         self.stored_identity = Some(stored_identity);
 
-        // Create signing identity using keys provided by the identity provider
+        // Default (P256) path on either backend: the auth provider's keys
+        // are not valid for the negotiated ciphersuite, so we generate a
+        // fresh P-256 pair via the MLS crypto provider and install it.
+        #[cfg(not(all(feature = "native", feature = "curve25519")))]
+        let (private_key, signing_identity) =
+            self.install_generated_signing_identity(false).await?;
+
+        // Opt-in Curve25519 path on `native`: the auth provider supplies
+        // real Ed25519 keys via rotate_signature_keys(), so use them
+        // directly.
+        #[cfg(all(feature = "native", feature = "curve25519"))]
         let (private_key, signing_identity) = self.create_signing_identity(false)?;
 
-        let crypto_provider = AwsLcCryptoProvider::default();
+        let crypto_provider = crate::crypto::default_crypto_provider();
+
         let identity_provider = SlimIdentityProvider::new(self.identity_verifier.clone());
 
         let client = Client::builder()
@@ -200,15 +290,20 @@ where
         Ok(())
     }
 
-    pub fn create_group(&mut self) -> Result<Vec<u8>, MlsError> {
-        debug!("Creating new MLS group");
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn create_group(&mut self) -> Result<Vec<u8>, MlsError> {
+        tracing::info!("Creating new MLS group");
         let client = self.client.as_ref().ok_or(MlsError::ClientNotInitialized)?;
 
-        let group = client.create_group(ExtensionList::default(), Default::default(), None)?;
+        tracing::info!("calling mls-rs client.create_group");
+        let group = client
+            .create_group(ExtensionList::default(), Default::default(), None)
+            .await?;
 
         let group_id = group.group_id().to_vec();
         self.group = Some(group);
-        debug!(
+        tracing::info!(
             id = ?hex::encode(&group_id),
             "MLS group created successfully",
         );
@@ -216,19 +311,27 @@ where
         Ok(group_id)
     }
 
-    pub fn generate_key_package(&self) -> Result<KeyPackageMsg, MlsError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn generate_key_package(&self) -> Result<KeyPackageMsg, MlsError> {
         debug!("Generating key package");
         let client = self.client.as_ref().ok_or(MlsError::ClientNotInitialized)?;
 
-        let key_package =
-            client.generate_key_package_message(Default::default(), Default::default(), None)?;
+        let key_package = client
+            .generate_key_package_message(Default::default(), Default::default(), None)
+            .await?;
 
         let ret = key_package.to_bytes()?;
 
         Ok(ret)
     }
 
-    pub fn add_member(&mut self, key_package_bytes: &[u8]) -> Result<MlsAddMemberResult, MlsError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn add_member(
+        &mut self,
+        key_package_bytes: &[u8],
+    ) -> Result<MlsAddMemberResult, MlsError> {
         debug!("Adding member to the MLS group");
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
         let key_package = MlsMessage::from_bytes(key_package_bytes)?;
@@ -240,12 +343,14 @@ where
         let old_roster = group.roster().members();
         let mut ids = HashSet::new();
         for m in old_roster {
-            let identifier = identity_provider.identity(&m.signing_identity, &m.extensions)?;
+            let identifier = identity_provider
+                .identity(&m.signing_identity, &m.extensions)
+                .await?;
             ids.insert(identifier);
         }
 
         let commit = group.commit_builder().add_member(key_package)?;
-        let commit = commit.build()?;
+        let commit = commit.build().await?;
 
         // create the commit message to broadcast in the group
         let commit_msg = commit.commit_message.to_bytes()?;
@@ -255,15 +360,17 @@ where
             .welcome_messages
             .first()
             .ok_or(MlsError::NoWelcomeMessage)
-            .and_then(|w| w.to_bytes().map_err(MlsError::from))?;
+            .map(|w| w.to_bytes().map_err(MlsError::from))??;
 
         // apply the commit locally
-        group.apply_pending_commit()?;
+        group.apply_pending_commit().await?;
 
         let new_roster = group.roster().members();
         let mut new_id = vec![];
         for m in new_roster {
-            let identifier = identity_provider.identity(&m.signing_identity, &m.extensions)?;
+            let identifier = identity_provider
+                .identity(&m.signing_identity, &m.extensions)
+                .await?;
             if !ids.contains(&identifier) {
                 new_id = identifier;
                 break;
@@ -278,38 +385,44 @@ where
         Ok(ret)
     }
 
-    pub fn remove_member(&mut self, identity: &[u8]) -> Result<CommitMsg, MlsError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn remove_member(&mut self, identity: &[u8]) -> Result<CommitMsg, MlsError> {
         debug!("Removing member from the MLS group");
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
-        let m = group.member_with_identity(identity)?;
+        let m = group.member_with_identity(identity).await?;
 
         let commit = group.commit_builder().remove_member(m.index)?;
-        let commit = commit.build()?;
+        let commit = commit.build().await?;
 
         let commit_msg = commit.commit_message.to_bytes()?;
 
-        group.apply_pending_commit()?;
+        group.apply_pending_commit().await?;
 
         Ok(commit_msg)
     }
 
-    pub fn process_commit(&mut self, commit_message: &[u8]) -> Result<(), MlsError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn process_commit(&mut self, commit_message: &[u8]) -> Result<(), MlsError> {
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
         let commit = MlsMessage::from_bytes(commit_message)?;
 
         // process an incoming commit message
-        group.process_incoming_message(commit)?;
+        group.process_incoming_message(commit).await?;
         Ok(())
     }
 
-    pub fn process_welcome(&mut self, welcome_message: &[u8]) -> Result<Vec<u8>, MlsError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn process_welcome(&mut self, welcome_message: &[u8]) -> Result<Vec<u8>, MlsError> {
         debug!("Processing welcome message and joining MLS group");
         let client = self.client.as_ref().ok_or(MlsError::ClientNotInitialized)?;
 
         // process the welcome message and connect to the group
         let welcome = MlsMessage::from_bytes(welcome_message)?;
-        let (group, _) = client.join_group(None, &welcome, None)?;
+        let (group, _) = client.join_group(None, &welcome, None).await?;
 
         let group_id = group.group_id().to_vec();
         self.group = Some(group);
@@ -321,7 +434,9 @@ where
         Ok(group_id)
     }
 
-    pub fn process_proposal(
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn process_proposal(
         &mut self,
         proposal_message: &[u8],
         create_commit: bool,
@@ -329,7 +444,7 @@ where
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
         let proposal = MlsMessage::from_bytes(proposal_message)?;
 
-        group.process_incoming_message(proposal)?;
+        group.process_incoming_message(proposal).await?;
 
         if !create_commit {
             debug!("process proposal but do not create commit. return empty commit");
@@ -337,49 +452,57 @@ where
         }
 
         // create commit message from proposal
-        let commit = group.commit_builder().build()?;
+        let commit = group.commit_builder().build().await?;
 
         // apply the commit locally
-        group.apply_pending_commit()?;
+        group.apply_pending_commit().await?;
 
         // return the commit message
         let commit_msg = commit.commit_message.to_bytes()?;
         Ok(commit_msg)
     }
 
-    pub fn process_local_pending_proposal(&mut self) -> Result<CommitMsg, MlsError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn process_local_pending_proposal(&mut self) -> Result<CommitMsg, MlsError> {
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
         // create commit message from proposal
-        let commit = group.commit_builder().build()?;
+        let commit = group.commit_builder().build().await?;
 
         // apply the commit locally
-        group.apply_pending_commit()?;
+        group.apply_pending_commit().await?;
 
         // return the commit message
         let commit_msg = commit.commit_message.to_bytes()?;
         Ok(commit_msg)
     }
 
-    pub fn encrypt_message(&mut self, message: &[u8]) -> Result<Vec<u8>, MlsError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn encrypt_message(&mut self, message: &[u8]) -> Result<Vec<u8>, MlsError> {
         debug!("Encrypting MLS message");
 
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
-        let encrypted_msg = group.encrypt_application_message(message, Default::default())?;
+        let encrypted_msg = group
+            .encrypt_application_message(message, Default::default())
+            .await?;
 
         let msg = encrypted_msg.to_bytes()?;
         Ok(msg)
     }
 
-    pub fn decrypt_message(&mut self, encrypted_message: &[u8]) -> Result<Vec<u8>, MlsError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn decrypt_message(&mut self, encrypted_message: &[u8]) -> Result<Vec<u8>, MlsError> {
         debug!("Decrypting MLS message");
 
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
         let message = MlsMessage::from_bytes(encrypted_message)?;
 
-        match group.process_incoming_message(message)? {
+        match group.process_incoming_message(message).await? {
             ReceivedMessage::ApplicationMessage(app_msg) => Ok(app_msg.data().to_vec()),
             _ => Err(MlsError::verification_failed(
                 "Message was not an application message",
@@ -387,9 +510,11 @@ where
         }
     }
 
-    pub fn write_to_storage(&mut self) -> Result<(), MlsError> {
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn write_to_storage(&mut self) -> Result<(), MlsError> {
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
-        group.write_to_storage()?;
+        group.write_to_storage().await?;
         Ok(())
     }
 
@@ -401,21 +526,31 @@ where
         self.group.as_ref().map(|g| g.current_epoch())
     }
 
-    pub fn create_rotation_proposal(&mut self) -> Result<ProposalMsg, MlsError> {
-        // Ask the identity provider to generate new keys internally
-        self.identity_provider.rotate_signature_keys()?;
+    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
+    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+    pub async fn create_rotation_proposal(&mut self) -> Result<ProposalMsg, MlsError> {
+        // Default (P256) path: generate the new key pair via the MLS
+        // crypto provider so it is valid for the negotiated ciphersuite,
+        // and install it into the identity provider so the rotated token
+        // embeds the matching public key.
+        #[cfg(not(all(feature = "native", feature = "curve25519")))]
+        let (new_private_key, new_signing_identity) =
+            self.install_generated_signing_identity(true).await?;
 
-        // Create signing identity with token containing the new public key
-        let (new_private_key, new_signing_identity) = self.create_signing_identity(true)?;
+        // Opt-in Curve25519 path on `native`: ask the auth provider to
+        // rotate its Ed25519 keys internally and read them back.
+        #[cfg(all(feature = "native", feature = "curve25519"))]
+        let (new_private_key, new_signing_identity) = {
+            self.identity_provider.rotate_signature_keys()?;
+            self.create_signing_identity(true)?
+        };
 
         // Now get mutable reference to group after creating signing identity
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
-        let update_proposal = group.propose_update_with_identity(
-            new_private_key.clone(),
-            new_signing_identity,
-            vec![],
-        )?;
+        let update_proposal = group
+            .propose_update_with_identity(new_private_key.clone(), new_signing_identity, vec![])
+            .await?;
 
         debug!(
             "Created credential rotation proposal, stored new keys and incremented credential version"
@@ -449,6 +584,62 @@ mod tests {
     use std::time::Duration;
 
     const SHARED_SECRET: &str = "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas";
+
+    /// The default ciphersuite must be P256_AES128 so that native and WASM
+    /// peers can join the same MLS group. Operators that explicitly opt in
+    /// to the `curve25519` feature get the legacy CURVE25519_AES128 suite,
+    /// which is incompatible with browser WebCrypto.
+    #[test]
+    fn test_default_ciphersuite_is_p256() {
+        #[cfg(not(all(feature = "native", feature = "curve25519")))]
+        assert_eq!(
+            CIPHERSUITE,
+            CipherSuite::P256_AES128,
+            "Default ciphersuite must be P256_AES128 for browser interop",
+        );
+
+        #[cfg(all(feature = "native", feature = "curve25519"))]
+        assert_eq!(
+            CIPHERSUITE,
+            CipherSuite::CURVE25519_AES128,
+            "`curve25519` feature must select CURVE25519_AES128",
+        );
+    }
+
+    /// `generate_key_pair` must yield bytes that decode back into the
+    /// active ciphersuite's public-key format. In particular this catches
+    /// the case where the cipher constant and the key-generation provider
+    /// drift apart.
+    #[test]
+    fn test_generate_key_pair_matches_active_ciphersuite() {
+        let (priv_key, pub_key) =
+            Mls::<SharedSecret, SharedSecret>::generate_key_pair().expect("key gen");
+
+        assert!(
+            !priv_key.as_bytes().is_empty(),
+            "private key must not be empty"
+        );
+        assert!(
+            !pub_key.as_bytes().is_empty(),
+            "public key must not be empty"
+        );
+
+        // Sanity bound on key sizes:
+        // - P-256 SEC1 uncompressed pubkey is 65 bytes, secret is 32 bytes
+        // - X25519/Ed25519 pubkeys/secrets are 32 bytes
+        // We don't pin to an exact size to stay resilient to representation
+        // changes in `mls-rs`, but the keys must fit within reasonable bounds.
+        assert!(
+            pub_key.as_bytes().len() <= 128,
+            "public key length {} unexpectedly large",
+            pub_key.as_bytes().len()
+        );
+        assert!(
+            priv_key.as_bytes().len() <= 128,
+            "private key length {} unexpectedly large",
+            priv_key.as_bytes().len()
+        );
+    }
 
     #[test]
     fn test_mls_creation() -> Result<(), Box<dyn std::error::Error>> {
@@ -918,7 +1109,7 @@ mod tests {
 
         // Build MLS client with mismatched private key
         let verifier = SharedSecret::new("alice", SHARED_SECRET).unwrap();
-        let crypto_provider = AwsLcCryptoProvider::default();
+        let crypto_provider = crate::crypto::default_crypto_provider();
         let identity_provider = SlimIdentityProvider::new(verifier.clone());
         let client = Client::builder()
             .identity_provider(identity_provider)

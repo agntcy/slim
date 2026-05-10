@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use slim_datapath::Status;
 use slim_datapath::errors::{ErrorPayload, MessageContext};
 use slim_datapath::messages::Name;
 // Third-party crates
@@ -11,7 +12,6 @@ use slim_auth::errors::AuthError;
 use slim_datapath::api::{ProtoMessage, ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::messages::utils::MessageError;
 use slim_mls::errors::MlsError;
-use tonic::Status;
 
 use crate::SessionMessage;
 use crate::subscription_manager::SubscriptionAckError;

@@ -4,7 +4,6 @@ use duration_string::DurationString;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use tokio_retry::strategy::FixedInterval;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(default)]
@@ -35,6 +34,7 @@ impl Default for Config {
 
 impl Strategy for Config {
     fn get_strategy(&self) -> Box<dyn Iterator<Item = Duration> + Send> {
-        Box::new(FixedInterval::new(self.interval.into()).take(self.max_attempts))
+        let interval: Duration = self.interval.into();
+        Box::new(std::iter::repeat_n(interval, self.max_attempts))
     }
 }

@@ -126,6 +126,29 @@ tasks:
     cmds:
       - cargo run --bin generate-schema
 
+  # Feature-specific build tasks for agntcy-slim-config
+  data-plane:check:no-default-features:
+    desc: "Check agntcy-slim-config compiles with no default features"
+    cmds:
+      - cargo check --package agntcy-slim-config --no-default-features --locked
+
+  data-plane:check:config-wasm:
+    desc: "Check agntcy-slim-config compiles with wasm feature for wasm target"
+    cmds:
+      - cargo check --package agntcy-slim-config --no-default-features --features wasm --target wasm32-unknown-unknown --locked
+
+  data-plane:check:features:
+    desc: "Check all feature combinations compile"
+    cmds:
+      - task: data-plane:check:no-default-features
+      - task: data-plane:check:config-wasm
+
+  # Build tasks for specific features
+  data-plane:build:config-wasm:
+    desc: "Build with wasm feature for wasm target"
+    cmds:
+      - cargo build --package agntcy-slim-config --no-default-features --features wasm --target wasm32-unknown-unknown --locked
+
   # Enhanced coverage task that includes Python bindings coverage
   data-plane:coverage-full:
     desc: "Run full tests coverage including Python bindings"
@@ -134,3 +157,17 @@ tasks:
         vars:
           ARGS: "{{.GLOBAL_ARGS}} --all-targets --locked --all-features"
       - task: data-plane:core:test
+
+  # WASM (wasm32-unknown-unknown) build checks
+  data-plane:check:wasm:
+    desc: "Check all WASM-ready crates compile for wasm32-unknown-unknown"
+    cmds:
+      - task: data-plane:check:config-wasm
+      - cargo check -p agntcy-slim-auth --target wasm32-unknown-unknown --no-default-features --features wasm --locked
+      - cargo check -p agntcy-slim-datapath --target wasm32-unknown-unknown --no-default-features --features wasm --locked
+      - cargo check -p agntcy-slim-tracing --target wasm32-unknown-unknown --no-default-features --features wasm --locked
+      - cargo check -p agntcy-slim-signal --target wasm32-unknown-unknown --no-default-features --features wasm --locked
+      - cargo check -p agntcy-slim-mls --target wasm32-unknown-unknown --no-default-features --features wasm --locked
+      - cargo check -p agntcy-slim-session --target wasm32-unknown-unknown --no-default-features --features wasm --locked
+      - cargo check -p agntcy-slim-controller --target wasm32-unknown-unknown --no-default-features --features wasm --locked
+      - cargo check -p agntcy-slim-service --target wasm32-unknown-unknown --no-default-features --features "wasm,session" --locked

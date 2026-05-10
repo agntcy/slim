@@ -33,6 +33,8 @@ fn main() {
 
     tonic_prost_build::configure()
         .out_dir("src/api/gen")
+        .server_mod_attribute("controller.proto.v1", "#[cfg(feature = \"native\")]")
+        .client_mod_attribute("controller.proto.v1", "#[cfg(feature = \"native\")]")
         .compile_protos(
             &[proto_file.to_str().unwrap()],
             &[std::path::Path::new(&manifest_dir)

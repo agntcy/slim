@@ -16,10 +16,10 @@ pub struct Args {
     #[arg(short, long, value_name = "LOCAL_NAME")]
     local_name: String,
 
-    /// Set the topic to subscribe to.
-    #[clap(long, env, required = true)]
+    /// Set the remote app name. If omitted, sessions are accepted from any peer.
+    #[clap(long, env)]
     #[arg(short, long, value_name = "REMOTE_NAME")]
-    remote_name: String,
+    remote_name: Option<String>,
 
     /// Set the message to publish. If not set, the program will subscribe to the topic.
     #[clap(long, env)]
@@ -41,8 +41,8 @@ impl Args {
         &self.local_name
     }
 
-    pub fn remote_name(&self) -> &str {
-        &self.remote_name
+    pub fn remote_name(&self) -> Option<&str> {
+        self.remote_name.as_deref()
     }
 
     pub fn message(&self) -> Option<&str> {
