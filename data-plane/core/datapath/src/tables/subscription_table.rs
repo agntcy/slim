@@ -13,24 +13,94 @@ use crate::api::{EncodedName, ProtoName};
 use crate::errors::DataPathError;
 
 // ──────────────────────────────────────────────────────────────────────────────
+// ConnList – a connection Vec with a built-in round-robin cursor.
+// ──────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug)]
+struct ConnList {
+    conns: Vec<u64>,
+    cursor: AtomicUsize,
+}
+
+impl ConnList {
+    fn new() -> Self {
+        ConnList {
+            conns: Vec::new(),
+            cursor: AtomicUsize::new(0),
+        }
+    }
+
+    /// Add `conn` if not already present (deduped).
+    fn push(&mut self, conn: u64) {
+        if !self.conns.contains(&conn) {
+            self.conns.push(conn);
+        }
+    }
+
+    /// Remove `conn` (no-op if absent).
+    fn remove(&mut self, conn: u64) {
+        if let Some(pos) = self.conns.iter().position(|&c| c == conn) {
+            self.conns.swap_remove(pos);
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.conns.is_empty()
+    }
+
+    fn len(&self) -> usize {
+        self.conns.len()
+    }
+
+    fn as_slice(&self) -> &[u64] {
+        &self.conns
+    }
+
+    fn iter(&self) -> impl Iterator<Item = u64> + '_ {
+        self.conns.iter().copied()
+    }
+
+    /// Round-robin next connection, skipping `skip`.
+    fn next(&self, skip: u64) -> Option<u64> {
+        let n = self.conns.len();
+        if n == 0 {
+            return None;
+        }
+        if n == 1 {
+            return if self.conns[0] != skip {
+                Some(self.conns[0])
+            } else {
+                None
+            };
+        }
+        for _ in 0..n {
+            let pos = self.cursor.fetch_add(1, Ordering::Relaxed) % n;
+            let c = self.conns[pos];
+            if c != skip {
+                return Some(c);
+            }
+        }
+        None
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // PrefixEntry – one allocation per unique [u64; 3] prefix.
 //
 // Struct-of-arrays layout: `ids` is a flat Vec<u64> so a scan for a matching
 // component_3 value reads 8 IDs per cache line instead of striding across
 // 72-byte AoS IdEntry objects.  Once the index is found the per-slot
-// connection Vecs are accessed by that index.
+// ConnLists are accessed by that index.
 //
-// Invariant: all five Vecs always have the same length.
+// Invariant: all three Vecs always have the same length.
 // ──────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug)]
 struct PrefixEntry {
     /// Dense u64 array — 8 IDs per cache line.
     ids: Vec<u64>,
-    local_connections: Vec<Vec<u64>>,
-    remote_connections: Vec<Vec<u64>>,
-    local_cursors: Vec<AtomicUsize>,
-    remote_cursors: Vec<AtomicUsize>,
+    local: Vec<ConnList>,
+    remote: Vec<ConnList>,
     /// Round-robin cursor for NULL_COMPONENT slot selection.
     slot_cursor: AtomicUsize,
     /// Human-readable prefix strings for for_each / Display / ProtoName.
@@ -41,10 +111,8 @@ impl PrefixEntry {
     fn new(strings: [String; 3]) -> Self {
         PrefixEntry {
             ids: Vec::new(),
-            local_connections: Vec::new(),
-            remote_connections: Vec::new(),
-            local_cursors: Vec::new(),
-            remote_cursors: Vec::new(),
+            local: Vec::new(),
+            remote: Vec::new(),
             slot_cursor: AtomicUsize::new(0),
             strings,
         }
@@ -53,10 +121,8 @@ impl PrefixEntry {
     /// Append a new ID slot. Called only when `id` is not already present.
     fn push_id(&mut self, id: u64) {
         self.ids.push(id);
-        self.local_connections.push(Vec::new());
-        self.remote_connections.push(Vec::new());
-        self.local_cursors.push(AtomicUsize::new(0));
-        self.remote_cursors.push(AtomicUsize::new(0));
+        self.local.push(ConnList::new());
+        self.remote.push(ConnList::new());
     }
 
     fn len(&self) -> usize {
@@ -69,40 +135,34 @@ impl PrefixEntry {
 
     /// Add `conn` to the appropriate list for slot `idx` if not already present.
     fn insert_conn(&mut self, idx: usize, conn: u64, is_local: bool) {
-        let vec = if is_local {
-            &mut self.local_connections[idx]
+        let list = if is_local {
+            &mut self.local[idx]
         } else {
-            &mut self.remote_connections[idx]
+            &mut self.remote[idx]
         };
-        if !vec.contains(&conn) {
-            vec.push(conn);
-        }
+        list.push(conn);
     }
 
     /// Remove `conn` from the appropriate list for slot `idx` (no-op if absent).
     fn remove_conn(&mut self, idx: usize, conn: u64, is_local: bool) {
-        let vec = if is_local {
-            &mut self.local_connections[idx]
+        let list = if is_local {
+            &mut self.local[idx]
         } else {
-            &mut self.remote_connections[idx]
+            &mut self.remote[idx]
         };
-        if let Some(pos) = vec.iter().position(|&c| c == conn) {
-            vec.swap_remove(pos);
-        }
+        list.remove(conn);
     }
 
     /// True when both local and remote lists for slot `idx` are empty.
     fn is_slot_empty(&self, idx: usize) -> bool {
-        self.local_connections[idx].is_empty() && self.remote_connections[idx].is_empty()
+        self.local[idx].is_empty() && self.remote[idx].is_empty()
     }
 
     /// Remove slot `idx` using swap_remove on every parallel Vec.
     fn remove_slot(&mut self, idx: usize) {
         self.ids.swap_remove(idx);
-        self.local_connections.swap_remove(idx);
-        self.remote_connections.swap_remove(idx);
-        self.local_cursors.swap_remove(idx);
-        self.remote_cursors.swap_remove(idx);
+        self.local.swap_remove(idx);
+        self.remote.swap_remove(idx);
     }
 
     /// Remove all slots whose local and remote lists are both empty.
@@ -116,29 +176,6 @@ impl PrefixEntry {
                 i += 1;
             }
         }
-    }
-
-    /// Round-robin pick from `slice`, skipping `skip`.
-    fn pick_one(slice: &[u64], cursor: &AtomicUsize, skip: u64) -> Option<u64> {
-        let n = slice.len();
-        if n == 0 {
-            return None;
-        }
-        if n == 1 {
-            return if slice[0] != skip {
-                Some(slice[0])
-            } else {
-                None
-            };
-        }
-        for _ in 0..n {
-            let pos = cursor.fetch_add(1, Ordering::Relaxed) % n;
-            let c = slice[pos];
-            if c != skip {
-                return Some(c);
-            }
-        }
-        None
     }
 
     /// True when a slot for `id` exists.
@@ -166,13 +203,9 @@ impl PrefixEntry {
     /// Returns `None` if `id` has no slot or all connections equal `skip`.
     fn get_one(&self, id: u64, skip: u64) -> Option<u64> {
         let idx = self.ids.iter().position(|&i| i == id)?;
-        Self::pick_one(&self.local_connections[idx], &self.local_cursors[idx], skip).or_else(|| {
-            Self::pick_one(
-                &self.remote_connections[idx],
-                &self.remote_cursors[idx],
-                skip,
-            )
-        })
+        self.local[idx]
+            .next(skip)
+            .or_else(|| self.remote[idx].next(skip))
     }
 
     /// Return all connections for `id` (local + remote) excluding `skip`.
@@ -180,14 +213,11 @@ impl PrefixEntry {
     /// `Some(empty)` means the slot exists but all connections equal `skip`.
     fn get_all(&self, id: u64, skip: u64) -> Option<Vec<u64>> {
         let idx = self.ids.iter().position(|&i| i == id)?;
-        let mut out = Vec::with_capacity(
-            self.local_connections[idx].len() + self.remote_connections[idx].len(),
-        );
+        let mut out = Vec::with_capacity(self.local[idx].len() + self.remote[idx].len());
         out.extend(
-            self.local_connections[idx]
+            self.local[idx]
                 .iter()
-                .chain(self.remote_connections[idx].iter())
-                .copied()
+                .chain(self.remote[idx].iter())
                 .filter(|&c| c != skip),
         );
         Some(out)
@@ -208,18 +238,14 @@ impl PrefixEntry {
         };
         // All locals first (starting from random slot, wrapping).
         for i in (start..n).chain(0..start) {
-            for &c in &self.local_connections[i] {
-                if c != skip {
-                    return Some(c);
-                }
+            if let Some(c) = self.local[i].next(skip) {
+                return Some(c);
             }
         }
         // Then all remotes (same wrapping start).
         for i in (start..n).chain(0..start) {
-            for &c in &self.remote_connections[i] {
-                if c != skip {
-                    return Some(c);
-                }
+            if let Some(c) = self.remote[i].next(skip) {
+                return Some(c);
             }
         }
         None
@@ -229,15 +255,15 @@ impl PrefixEntry {
     /// remotes, skipping `skip`.
     fn get_all_any(&self, skip: u64) -> Vec<u64> {
         let mut out: Vec<u64> = Vec::with_capacity(self.len());
-        for local in &self.local_connections {
-            for &c in local {
+        for local in &self.local {
+            for c in local.iter() {
                 if c != skip && !out.contains(&c) {
                     out.push(c);
                 }
             }
         }
-        for remote in &self.remote_connections {
-            for &c in remote {
+        for remote in &self.remote {
+            for c in remote.iter() {
                 if c != skip && !out.contains(&c) {
                     out.push(c);
                 }
@@ -249,7 +275,7 @@ impl PrefixEntry {
     /// Iterate all slots, yielding `(id, local, remote)` — used by `for_each`.
     fn for_each_slot<F: FnMut(u64, &[u64], &[u64])>(&self, mut f: F) {
         for (i, &id) in self.ids.iter().enumerate() {
-            f(id, &self.local_connections[i], &self.remote_connections[i]);
+            f(id, self.local[i].as_slice(), self.remote[i].as_slice());
         }
     }
 
@@ -319,21 +345,21 @@ impl Display for SubscriptionTableImpl {
             writeln!(f, "  Names:")?;
             for (i, &id) in prefix_entry.ids.iter().enumerate() {
                 writeln!(f, "    Id: {}", id)?;
-                if prefix_entry.local_connections[i].is_empty() {
+                if prefix_entry.local[i].is_empty() {
                     writeln!(f, "       Local Connections:")?;
                     writeln!(f, "         None")?;
                 } else {
                     writeln!(f, "       Local Connections:")?;
-                    for c in &prefix_entry.local_connections[i] {
+                    for c in prefix_entry.local[i].iter() {
                         writeln!(f, "         Connection: {}", c)?;
                     }
                 }
-                if prefix_entry.remote_connections[i].is_empty() {
+                if prefix_entry.remote[i].is_empty() {
                     writeln!(f, "       Remote Connections:")?;
                     writeln!(f, "         None")?;
                 } else {
                     writeln!(f, "       Remote Connections:")?;
-                    for c in &prefix_entry.remote_connections[i] {
+                    for c in prefix_entry.remote[i].iter() {
                         writeln!(f, "         Connection: {}", c)?;
                     }
                 }
