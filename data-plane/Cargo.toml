@@ -57,8 +57,6 @@ anyhow = "1.0.98"
 
 async-stream = "0.3"
 async-trait = "0.1.88"
-# `bindgen`: use lib bindgen in aws-lc-sys build (pregenerated bindings omit some targets
-# like aarch64-apple-ios-sim, which otherwise require bindgen-cli on PATH (absent on GHA).
 aws-lc-rs = { version = "1.16", features = ["bindgen"] }
 base64 = "0.22"
 bincode = "2.0.1"
