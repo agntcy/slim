@@ -7,7 +7,7 @@ name: ci-release-bindings
 on:
   push:
     tags:
-      - 'slim-node-test-bindings-*'
+      - 'slim-bindings-*'
 
 permissions:
   contents: read
@@ -31,15 +31,11 @@ jobs:
     uses: ./.github/workflows/reusable-bindings-build-and-test.yaml
     with:
       tag-name: ${{ github.ref_name }}
-      # TEMPORARY: set false (or remove) before merging — limits matrix + skips Go/Python/.NET/Kotlin/Java for npm-only tag testing.
-      node-rn-release-test-only: true
 
   # ==========================================================================
   # Job 2: Create GitHub release with library artifacts (for test tags)
   # ==========================================================================
   release-libraries:
-    # TEMPORARY: disabled for npm-only release test; delete this `if` line to restore GitHub Release + zips.
-    if: false
     name: Release Libraries
     runs-on: ubuntu-latest
     needs: build-and-test-bindings
@@ -144,8 +140,6 @@ jobs:
   # Job 3: Generate and publish Go bindings
   # ==========================================================================
   release-go-bindings:
-    # TEMPORARY: disabled for npm-only release test; delete this `if` line to restore.
-    if: false
     name: "Release Go Bindings"
     needs: build-and-test-bindings
     uses: ./.github/workflows/reusable-go-bindings-release.yaml
@@ -156,8 +150,6 @@ jobs:
   # Job 4: Release Python bindings to PyPI
   # ==========================================================================
   release-python-bindings:
-    # TEMPORARY: disabled for npm-only release test; delete this `if` line to restore.
-    if: false
     name: Upload release to PyPI
     runs-on: ubuntu-latest
     needs:
@@ -187,8 +179,6 @@ jobs:
   # Job 5: Release .NET bindings to NuGet
   # ==========================================================================
   release-dotnet-bindings:
-    # TEMPORARY: disabled for npm-only release test; delete this `if` line to restore.
-    if: false
     name: "Release .NET Bindings"
     needs: build-and-test-bindings
     uses: ./.github/workflows/reusable-dotnet-bindings-release.yaml
@@ -552,8 +542,6 @@ jobs:
   # Job 6b: Release Kotlin bindings to GitHub Packages
   # ==========================================================================
   release-kotlin-bindings:
-    # TEMPORARY: disabled for npm-only release test; delete this `if` line to restore.
-    if: false
     name: "Release Kotlin Bindings"
     needs: build-and-test-bindings
     uses: ./.github/workflows/reusable-kotlin-bindings-release.yaml
@@ -570,8 +558,6 @@ jobs:
   # Job 7: Release Java bindings to GitHub Packages and Maven Central
   # ==========================================================================
   release-java-bindings:
-    # TEMPORARY: disabled for npm-only release test; delete this `if` line to restore.
-    if: false
     name: "Release Java Bindings"
     needs: build-and-test-bindings
     uses: ./.github/workflows/reusable-java-bindings-release.yaml
