@@ -180,27 +180,30 @@ impl MessageProcessor {
         self.internal.inbound_header_mac.read().clone()
     }
 
-    /// Verify SLIM header MAC for messages arriving on a remote connection (no-op if disabled).
+    /// Verify SLIM header MAC for inter-node traffic only (local app connections skip this).
     fn verify_remote_header_mac(
         &self,
         conn_index: u64,
-        msg: &Message,
+        message: &Message,
     ) -> Result<(), DataPathError> {
         let conn = self
             .forwarder()
             .get_connection(conn_index)
             .ok_or(DataPathError::ConnectionNotFound(conn_index))?;
+        if !matches!(*conn.connection_type(), ConnectionType::Remote) {
+            return Ok(());
+        }
         let Some(mac) = conn.header_hmac() else {
             return Ok(());
         };
-        let lid = conn
+        let link_id = conn
             .link_id()
             .filter(|id| slim_config::grpc::client::is_valid_uuid_v4(id))
             .ok_or(DataPathError::HeaderMacAwaitingLinkNegotiation(conn_index))?;
-        let hdr = msg
+        let header = message
             .try_get_slim_header()
             .ok_or(DataPathError::UnknownMsgType)?;
-        mac.verify_slim_header(hdr, &lid)
+        mac.verify_slim_header(header, &link_id)
             .map_err(DataPathError::HeaderIntegrity)
     }
 
@@ -465,7 +468,7 @@ impl MessageProcessor {
 
                 if !msg.is_link()
                     && !msg.is_subscription_ack()
-                    && !conn.is_local_connection()
+                    && matches!(*conn.connection_type(), ConnectionType::Remote)
                     && let Some(mac) = conn.header_hmac()
                 {
                     let link_id = conn
@@ -474,8 +477,23 @@ impl MessageProcessor {
                         .filter(|id| slim_config::grpc::client::is_valid_uuid_v4(id));
                     if let Some(ref id) = link_id {
                         let header = msg.get_slim_header_mut();
+
                         mac.sign_slim_header(header, id.as_str())
                             .map_err(DataPathError::HeaderIntegrity)?;
+
+                        // Debug / integration-test builds only (`--release` omits this; env var is inert).
+                        // Must run *after* sign so the tag does not cover the mutated preimage fields.
+                        #[cfg(debug_assertions)]
+                        if std::env::var("SLIM_TEST_TAMPER_DESTINATION").is_ok() {
+                            use crate::api::ProtoName;
+
+                            if let Some(ref destination) = header.destination {
+                                let current = Name::from(destination);
+                                let tampered = Name::from_strings(["org", "ns", "malicious"])
+                                    .with_id(current.id());
+                                header.destination = Some(ProtoName::from(&tampered));
+                            }
+                        }
                     } else {
                         return Err(DataPathError::HeaderMacAwaitingLinkNegotiation(out_conn));
                     }
