@@ -125,7 +125,11 @@ impl PrefixEntry {
             return None;
         }
         if n == 1 {
-            return if slice[0] != skip { Some(slice[0]) } else { None };
+            return if slice[0] != skip {
+                Some(slice[0])
+            } else {
+                None
+            };
         }
         for _ in 0..n {
             let pos = cursor.fetch_add(1, Ordering::Relaxed) % n;
@@ -162,9 +166,13 @@ impl PrefixEntry {
     /// Returns `None` if `id` has no slot or all connections equal `skip`.
     fn get_one(&self, id: u64, skip: u64) -> Option<u64> {
         let idx = self.ids.iter().position(|&i| i == id)?;
-        Self::pick_one(&self.local_connections[idx], &self.local_cursors[idx], skip).or_else(
-            || Self::pick_one(&self.remote_connections[idx], &self.remote_cursors[idx], skip),
-        )
+        Self::pick_one(&self.local_connections[idx], &self.local_cursors[idx], skip).or_else(|| {
+            Self::pick_one(
+                &self.remote_connections[idx],
+                &self.remote_cursors[idx],
+                skip,
+            )
+        })
     }
 
     /// Return all connections for `id` (local + remote) excluding `skip`.
