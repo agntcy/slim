@@ -36,6 +36,11 @@ on:
         required: false
         type: string
         default: v0.7.1+v0.31.0
+      node-rn-release-test-only:
+        description: When true, build only native targets required for Node npm pack and skip Go/Python/.NET/Kotlin/Java binding jobs (no wheels).
+        required: false
+        type: boolean
+        default: false
 env:
   LIBRARY_NAME: slim_bindings
   PYTHON_VERSION: '3.11'
@@ -44,6 +49,8 @@ jobs:
   generate-matrix:
     name: Generate Platform Matrix
     runs-on: ubuntu-latest
+    env:
+      NODE_RN_RELEASE_TEST_ONLY: ${{ inputs.node-rn-release-test-only }}
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       matrix-no-windows-gnu: ${{ steps.set-matrix.outputs.matrix-no-windows-gnu }}
@@ -130,6 +137,20 @@ jobs:
           }
           MATRIX_EOF
           )
+
+          # TEMPORARY fast path: npm / Node pack targets only (see release-bindings.yaml).
+          if [ "$NODE_RN_RELEASE_TEST_ONLY" = "true" ]; then
+            MATRIX=$(echo "$MATRIX" | jq -c '
+              .platform |= map(select(
+                .target == "x86_64-unknown-linux-gnu" or
+                .target == "aarch64-unknown-linux-gnu" or
+                .target == "x86_64-pc-windows-msvc" or
+                .target == "aarch64-pc-windows-msvc" or
+                .target == "x86_64-apple-darwin" or
+                .target == "aarch64-apple-darwin"
+              ))
+            ')
+          fi
 
           # Output full matrix for build job
           echo "matrix=$(echo "$MATRIX" | jq -c .)" >> "$GITHUB_OUTPUT"
@@ -224,24 +245,25 @@ jobs:
           name: bindings-${{ matrix.platform.target }}
           path: ./data-plane/target/${{ matrix.platform.target }}/release/*slim_bindings*
       - name: Install uv
-        if: "!contains(matrix.platform.target, 'windows-gnu')"
+        if: ${{ !inputs.node-rn-release-test-only && !contains(matrix.platform.target, 'windows-gnu') }}
         uses: ./.github/actions/setup-python
         with:
           uv-install: 'true'
       - name: Generate python wheels
-        if: "!contains(matrix.platform.target, 'windows-gnu')"
+        if: ${{ !inputs.node-rn-release-test-only && !contains(matrix.platform.target, 'windows-gnu') }}
         working-directory: ./data-plane/bindings/python
         env:
           PLATFORM_TARGET: ${{ matrix.platform.target }}
         run: task python:bindings:packaging TARGET="$PLATFORM_TARGET" PROFILE=release
       - name: Upload wheels
-        if: "!contains(matrix.platform.target, 'windows-gnu')"
+        if: ${{ !inputs.node-rn-release-test-only && !contains(matrix.platform.target, 'windows-gnu') }}
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: wheels-${{ matrix.platform.target }}
           path: ./data-plane/bindings/python/dist
 
   go-bindings-build-and-test:
+    if: ${{ !inputs.node-rn-release-test-only }}
     runs-on: ${{ inputs.runner }}
     needs:
       - generate-matrix
@@ -338,6 +360,7 @@ jobs:
           if-no-files-found: error
 
   python-bindings-test:
+    if: ${{ !inputs.node-rn-release-test-only }}
     name: Test Python Wheels (${{ matrix.platform.target }})
     runs-on: ${{ matrix.platform.runner }}
     needs:
@@ -525,6 +548,7 @@ jobs:
           task generate TARGET=x86_64-unknown-linux-gnu
 
   dotnet-bindings-build-and-test:
+    if: ${{ !inputs.node-rn-release-test-only }}
     name: "Dotnet Bindings Build and Test"
     permissions:
       contents: read
@@ -539,6 +563,7 @@ jobs:
       tag-name: ${{ inputs.tag-name }}
 
   kotlin-bindings-build-and-test:
+    if: ${{ !inputs.node-rn-release-test-only }}
     name: "Kotlin Bindings Build and Test"
     permissions:
       contents: read
@@ -551,6 +576,7 @@ jobs:
       rust-workspace: ${{ inputs.rust-workspace }}
 
   java-bindings-build-and-test:
+    if: ${{ !inputs.node-rn-release-test-only }}
     name: "Java Bindings Build and Test"
     permissions:
       contents: read
