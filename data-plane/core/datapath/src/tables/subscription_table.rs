@@ -6,7 +6,6 @@ use std::fmt::{Display, Formatter};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use parking_lot::{Mutex, RwLock};
-use rand::Rng;
 use tracing::{debug, warn};
 
 use super::SubscriptionTable;
@@ -32,6 +31,8 @@ struct PrefixEntry {
     remote_connections: Vec<Vec<u64>>,
     local_cursors: Vec<AtomicUsize>,
     remote_cursors: Vec<AtomicUsize>,
+    /// Round-robin cursor for NULL_COMPONENT slot selection.
+    slot_cursor: AtomicUsize,
     /// Human-readable prefix strings for for_each / Display / ProtoName.
     strings: [String; 3],
 }
@@ -44,6 +45,7 @@ impl PrefixEntry {
             remote_connections: Vec::new(),
             local_cursors: Vec::new(),
             remote_cursors: Vec::new(),
+            slot_cursor: AtomicUsize::new(0),
             strings,
         }
     }
@@ -190,8 +192,12 @@ impl PrefixEntry {
         if n == 0 {
             return None;
         }
-        // Skip the rng call when there is only one slot.
-        let start = if n == 1 { 0 } else { rand::rng().random_range(0..n) };
+        // Skip the atomic increment when there is only one slot.
+        let start = if n == 1 {
+            0
+        } else {
+            self.slot_cursor.fetch_add(1, Ordering::Relaxed) % n
+        };
         // All locals first (starting from random slot, wrapping).
         for i in (start..n).chain(0..start) {
             for &c in &self.local_connections[i] {
