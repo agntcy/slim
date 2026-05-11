@@ -1823,3 +1823,196 @@ async fn test_subscription_survives_cp_restart() {
     node_b.shutdown().await.ok();
     cp2.shutdown().await;
 }
+
+/// Rapid disconnect-reconnect: drop node-a's Service abruptly (no graceful
+/// deregister), immediately restart node-a on the same DP port. Routes must
+/// converge to Applied again. Validates node_locks serialization and
+/// epoch-based stream replacement.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_rapid_disconnect_reconnect() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::new("info"))
+        .with_test_writer()
+        .try_init();
+
+    let cp = start_control_plane(test_reconciler_config()).await;
+    let mut client = create_nb_client(cp.northbound_port).await;
+
+    let id_a = node_id("node-a");
+    let id_b = node_id("node-b");
+
+    // Pin node-a's DP port so the restart reuses the same endpoint and the
+    // CP's existing link record stays valid.
+    let node_a_dp_port = reserve_port();
+    let node_a = start_node_on_port("node-a", cp.southbound_port, node_a_dp_port).await;
+    let node_b = start_node("node-b", cp.southbound_port).await;
+
+    wait_for_nodes_connected(&mut client, &[&id_a, &id_b], Duration::from_secs(10)).await;
+
+    add_route(&mut client, &id_a, &id_b, "org", "ns", "svc-rapid").await;
+    wait_for_route_applied(&mut client, &id_a, &id_b, Duration::from_secs(30)).await;
+
+    print_state(&mut client, "rapid_disconnect_reconnect: before drop").await;
+
+    // Drop node-a abruptly (no graceful deregister) and immediately restart it
+    // on the same DP port. CP must replace the stream (epoch bump) and
+    // re-reconcile routes.
+    node_a.shutdown().await.ok();
+    drop(node_a);
+
+    let node_a2 = start_node_on_port("node-a", cp.southbound_port, node_a_dp_port).await;
+
+    wait_for_nodes_connected(&mut client, &[&id_a, &id_b], Duration::from_secs(30)).await;
+    wait_for_route_applied(&mut client, &id_a, &id_b, Duration::from_secs(60)).await;
+
+    wait_for_node_subscriptions(
+        &mut client,
+        &id_a,
+        &[("org", "ns", "svc-rapid")],
+        Duration::from_secs(30),
+    )
+    .await;
+
+    print_state(&mut client, "rapid_disconnect_reconnect: after reconnect").await;
+
+    node_a2.shutdown().await.ok();
+    node_b.shutdown().await.ok();
+    stop_control_plane(cp).await;
+}
+
+/// Wildcard expansion on new node: install a wildcard route (*→A) via the
+/// subscribe-via-link path before node-b exists. When node-b starts, the CP
+/// must expand the wildcard into a concrete route node-b→node-a and reach
+/// Applied. Validates ensure_routes_for_node's wildcard expansion.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_wildcard_expansion_on_new_node() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::new("info"))
+        .with_test_writer()
+        .try_init();
+
+    let cp = start_control_plane(test_reconciler_config()).await;
+    let mut client = create_nb_client(cp.northbound_port).await;
+
+    let id_a = node_id("node-a");
+    let id_b = node_id("node-b");
+
+    // Start node-a on a known DP port so a client app can subscribe through it
+    // and trigger the CP to record a wildcard route (*→node-a).
+    let node_a_dp_port = reserve_port();
+    let node_a = start_node_on_port("node-a", cp.southbound_port, node_a_dp_port).await;
+    wait_for_nodes_connected(&mut client, &[&id_a], Duration::from_secs(10)).await;
+
+    let app_svc = subscribe_via_link(node_a_dp_port, "org", "ns", "svc-wild").await;
+
+    // Wait until the wildcard route exists in the CP (dest=node-a, any source).
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    loop {
+        let routes = collect_routes(&mut client, "", "").await;
+        if routes
+            .iter()
+            .any(|r| r.dest_node_id == id_a && r.component_2 == "svc-wild")
+        {
+            break;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!("timeout waiting for wildcard route to be installed");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    print_state(&mut client, "wildcard_expansion: after wildcard installed").await;
+
+    // Now start node-b — the wildcard must expand into node-b→node-a.
+    let node_b = start_node("node-b", cp.southbound_port).await;
+    wait_for_nodes_connected(&mut client, &[&id_b], Duration::from_secs(10)).await;
+
+    wait_for_route_applied(&mut client, &id_b, &id_a, Duration::from_secs(60)).await;
+
+    wait_for_node_subscriptions(
+        &mut client,
+        &id_b,
+        &[("org", "ns", "svc-wild")],
+        Duration::from_secs(30),
+    )
+    .await;
+
+    print_state(&mut client, "wildcard_expansion: after node-b joined").await;
+
+    app_svc.shutdown().await.ok();
+    node_a.shutdown().await.ok();
+    node_b.shutdown().await.ok();
+    stop_control_plane(cp).await;
+}
+
+/// Bidirectional link reuse: add route A→B (which creates link A→B), then
+/// add route B→A. The reverse route must reuse the existing link rather
+/// than creating a new one, and both routes must reach Applied.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_bidirectional_link_reuse() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::new("info"))
+        .with_test_writer()
+        .try_init();
+
+    let cp = start_control_plane(test_reconciler_config()).await;
+    let mut client = create_nb_client(cp.northbound_port).await;
+
+    let id_a = node_id("node-a");
+    let id_b = node_id("node-b");
+
+    let node_a = start_node("node-a", cp.southbound_port).await;
+    let node_b = start_node("node-b", cp.southbound_port).await;
+
+    wait_for_nodes_connected(&mut client, &[&id_a, &id_b], Duration::from_secs(10)).await;
+
+    // First route creates the link A→B.
+    add_route(&mut client, &id_a, &id_b, "org", "ns", "svc-fwd").await;
+    wait_for_route_applied(&mut client, &id_a, &id_b, Duration::from_secs(30)).await;
+
+    let links_after_first = collect_links(&mut client, "", "").await;
+    let active_links_first: Vec<_> = links_after_first.iter().filter(|l| !l.deleted).collect();
+    assert_eq!(
+        active_links_first.len(),
+        1,
+        "expected exactly one active link after first route, got: {:?}",
+        active_links_first
+            .iter()
+            .map(|l| format!(
+                "{}->{} link_id={}",
+                l.source_node_id, l.dest_node_id, l.link_id
+            ))
+            .collect::<Vec<_>>()
+    );
+    let original_link_id = active_links_first[0].link_id.clone();
+
+    // Reverse route should reuse the same link (bidirectional lookup).
+    add_route(&mut client, &id_b, &id_a, "org", "ns", "svc-rev").await;
+    wait_for_route_applied(&mut client, &id_b, &id_a, Duration::from_secs(30)).await;
+
+    let links_after_second = collect_links(&mut client, "", "").await;
+    let active_links_second: Vec<_> = links_after_second.iter().filter(|l| !l.deleted).collect();
+    assert_eq!(
+        active_links_second.len(),
+        1,
+        "expected the reverse route to reuse the existing link, got {} active links: {:?}",
+        active_links_second.len(),
+        active_links_second
+            .iter()
+            .map(|l| format!(
+                "{}->{} link_id={}",
+                l.source_node_id, l.dest_node_id, l.link_id
+            ))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        active_links_second[0].link_id, original_link_id,
+        "reverse route should not have created a new link_id"
+    );
+
+    print_state(&mut client, "bidirectional_link_reuse: final").await;
+
+    node_a.shutdown().await.ok();
+    node_b.shutdown().await.ok();
+    stop_control_plane(cp).await;
+}

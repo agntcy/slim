@@ -134,7 +134,12 @@ async fn receive_register(
 
     let reg_req = match msg.payload {
         Some(Payload::RegisterNodeRequest(r)) => r,
-        _ => return Ok((String::new(), 0)),
+        other => {
+            return Err(Error::InvalidInput(format!(
+                "expected RegisterNodeRequest, got {:?}",
+                other.as_ref().map(std::mem::discriminant)
+            )));
+        }
     };
 
     let mut node_id = reg_req.node_id.clone();
@@ -205,7 +210,14 @@ async fn build_node_connections(
     node_id: &str,
 ) -> Vec<Connection> {
     let mut connections = Vec::new();
-    for link in db.get_links_for_node(node_id).await {
+    let links = match db.get_links_for_node(node_id).await {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::error!("build_node_connections: {e}");
+            return connections;
+        }
+    };
+    for link in links {
         if link.source_node_id != node_id || link.status == LinkStatus::Deleted {
             continue;
         }
@@ -235,7 +247,14 @@ async fn build_node_connections(
 /// Build desired routes for a node (routes sourced from this node).
 async fn build_node_routes(db: &SharedDb, node_id: &str) -> Vec<ProtoRoute> {
     let mut routes = Vec::new();
-    for route in db.get_routes_for_node(node_id).await {
+    let db_routes = match db.get_routes_for_node(node_id).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("build_node_routes: {e}");
+            return routes;
+        }
+    };
+    for route in db_routes {
         if route.status == RouteStatus::Deleted || route.link_id.is_none() {
             continue;
         }
@@ -299,31 +318,27 @@ async fn handle_node_messages(
                     }
                 }
             }
-            Some(Payload::DeregisterNodeRequest(dr)) => {
-                if let Some(node) = dr.node {
-                    let nid = node.id;
-                    // Send the response BEFORE removing the stream — once the
-                    // stream is gone send_message fails immediately.
-                    let resp = ControlMessage {
-                        message_id: Uuid::new_v4().to_string(),
-                        payload: Some(Payload::DeregisterNodeResponse(
-                            crate::api::proto::controller::proto::v1::DeregisterNodeResponse {
-                                success: true,
-                                original_message_id: msg.message_id.clone(),
-                            },
-                        )),
-                    };
-                    if let Err(e) = cmd_handler.send_message(&nid, resp).await {
-                        tracing::error!("southbound: error sending DeregisterNodeResponse: {e}");
-                    }
-                    cmd_handler
-                        .update_connection_status(&nid, NodeStatus::NotConnected)
-                        .await;
-                    let _ = cmd_handler.remove_stream(&nid, stream_epoch).await;
-                    // Clean up DB state for the deregistering node.
-                    route_service.node_deregistered(&nid).await;
-                    return;
+            Some(Payload::DeregisterNodeRequest(_)) => {
+                // Always use the authenticated node_id from registration,
+                // never the ID from the message payload.
+                let resp = ControlMessage {
+                    message_id: Uuid::new_v4().to_string(),
+                    payload: Some(Payload::DeregisterNodeResponse(
+                        crate::api::proto::controller::proto::v1::DeregisterNodeResponse {
+                            success: true,
+                            original_message_id: msg.message_id.clone(),
+                        },
+                    )),
+                };
+                if let Err(e) = cmd_handler.send_message(node_id, resp).await {
+                    tracing::error!("southbound: error sending DeregisterNodeResponse: {e}");
                 }
+                cmd_handler
+                    .update_connection_status(node_id, NodeStatus::NotConnected)
+                    .await;
+                let _ = cmd_handler.remove_stream(node_id, stream_epoch).await;
+                route_service.node_deregistered(node_id).await;
+                return;
             }
             Some(Payload::Ack(_))
             | Some(Payload::ConfigCommandAck(_))
@@ -344,7 +359,10 @@ async fn handle_node_messages(
     // Only remove if our epoch is still current (a newer connection may have
     // already replaced our stream).
     let _ = cmd_handler.remove_stream(node_id, stream_epoch).await;
-    route_service.remove_node_lock(node_id).await;
+    // Do NOT call remove_node_lock here: if the node already reconnected, the
+    // new session may have re-created the lock entry, and removing it would
+    // defeat the disconnect-reconnect serialization.  The entry is cleaned up
+    // by node_deregistered on graceful deregister, or reused on reconnect.
 }
 
 /// Parse proto `ConnectionDetails` into the DB model.

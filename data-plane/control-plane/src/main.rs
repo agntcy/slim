@@ -40,7 +40,12 @@ async fn main() -> Result<()> {
     slim_signal::shutdown().await;
     tracing::info!("shutdown signal received, draining connections");
 
-    cp.shutdown().await;
+    if tokio::time::timeout(std::time::Duration::from_secs(30), cp.shutdown())
+        .await
+        .is_err()
+    {
+        tracing::warn!("shutdown timed out after 30s, forcing exit");
+    }
 
     tracing::info!("control plane stopped");
     Ok(())

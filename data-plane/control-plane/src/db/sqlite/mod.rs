@@ -143,30 +143,38 @@ impl SqliteDb {
 impl DataAccess for SqliteDb {
     // ── Nodes ──────────────────────────────────────────────────────────────
 
-    async fn list_nodes(&self) -> Vec<Node> {
-        let Ok(mut conn) = self.pool.get().await else {
-            return vec![];
-        };
+    async fn list_nodes(&self) -> Result<Vec<Node>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "list_nodes pool",
+            msg: e.to_string(),
+        })?;
         nodes::table
             .load::<Node>(&mut conn)
             .await
-            .unwrap_or_default()
+            .map_err(|e| Error::DbError {
+                context: "list_nodes",
+                msg: e.to_string(),
+            })
     }
 
-    async fn get_node(&self, id: &str) -> Option<Node> {
-        let Ok(mut conn) = self.pool.get().await else {
-            return None;
-        };
+    async fn get_node(&self, id: &str) -> Result<Option<Node>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "get_node pool",
+            msg: e.to_string(),
+        })?;
         nodes::table
             .find(id)
             .first::<Node>(&mut conn)
             .await
             .optional()
-            .ok()?
+            .map_err(|e| Error::DbError {
+                context: "get_node",
+                msg: e.to_string(),
+            })
     }
 
     async fn save_node(&self, node: Node) -> Result<(String, bool)> {
-        let existing = self.get_node(&node.id).await;
+        let existing = self.get_node(&node.id).await?;
         let conn_details_changed = existing
             .as_ref()
             .map(|e| has_connection_details_changed(&e.conn_details, &node.conn_details))
@@ -246,39 +254,51 @@ impl DataAccess for SqliteDb {
         Ok(route)
     }
 
-    async fn get_route_by_id(&self, route_id: &str) -> Option<Route> {
-        let Ok(mut conn) = self.pool.get().await else {
-            return None;
-        };
+    async fn get_route_by_id(&self, route_id: &str) -> Result<Option<Route>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "get_route_by_id pool",
+            msg: e.to_string(),
+        })?;
         routes::table
             .find(route_id)
             .first::<Route>(&mut conn)
             .await
             .optional()
-            .ok()?
+            .map_err(|e| Error::DbError {
+                context: "get_route_by_id",
+                msg: e.to_string(),
+            })
     }
 
-    async fn get_routes_for_node(&self, node_id: &str) -> Vec<Route> {
-        let Ok(mut conn) = self.pool.get().await else {
-            return vec![];
-        };
+    async fn get_routes_for_node(&self, node_id: &str) -> Result<Vec<Route>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "get_routes_for_node pool",
+            msg: e.to_string(),
+        })?;
         routes::table
             .filter(routes::source_node_id.eq(node_id))
             .load::<Route>(&mut conn)
             .await
-            .unwrap_or_default()
+            .map_err(|e| Error::DbError {
+                context: "get_routes_for_node",
+                msg: e.to_string(),
+            })
     }
 
-    async fn get_routes_for_dest_node_id(&self, node_id: &str) -> Vec<Route> {
-        let Ok(mut conn) = self.pool.get().await else {
-            return vec![];
-        };
+    async fn get_routes_for_dest_node_id(&self, node_id: &str) -> Result<Vec<Route>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "get_routes_for_dest_node_id pool",
+            msg: e.to_string(),
+        })?;
         routes::table
             .filter(routes::dest_node_id.eq(node_id))
             .filter(routes::source_node_id.ne(ALL_NODES_ID))
             .load::<Route>(&mut conn)
             .await
-            .unwrap_or_default()
+            .map_err(|e| Error::DbError {
+                context: "get_routes_for_dest_node_id",
+                msg: e.to_string(),
+            })
     }
 
     async fn get_routes_for_dest_node_id_and_name(
@@ -288,10 +308,11 @@ impl DataAccess for SqliteDb {
         component1: &str,
         component2: &str,
         component_id: Option<i64>,
-    ) -> Vec<Route> {
-        let Ok(mut conn) = self.pool.get().await else {
-            return vec![];
-        };
+    ) -> Result<Vec<Route>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "get_routes_for_dest_node_id_and_name pool",
+            msg: e.to_string(),
+        })?;
         let mut q = routes::table
             .filter(routes::dest_node_id.eq(node_id))
             .filter(routes::component0.eq(component0))
@@ -303,7 +324,12 @@ impl DataAccess for SqliteDb {
         } else {
             q = q.filter(routes::component_id.is_null());
         }
-        q.load::<Route>(&mut conn).await.unwrap_or_default()
+        q.load::<Route>(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "get_routes_for_dest_node_id_and_name",
+                msg: e.to_string(),
+            })
     }
 
     async fn get_route_for_src_dest_name(
@@ -312,10 +338,11 @@ impl DataAccess for SqliteDb {
         name: &RouteName<'_>,
         dest_node_id: &str,
         link_id: Option<&str>,
-    ) -> Option<Route> {
-        let Ok(mut conn) = self.pool.get().await else {
-            return None;
-        };
+    ) -> Result<Option<Route>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "get_route_for_src_dest_name pool",
+            msg: e.to_string(),
+        })?;
         let mut q = routes::table
             .filter(routes::source_node_id.eq(src_node_id))
             .filter(routes::component0.eq(name.component0))
@@ -333,17 +360,25 @@ impl DataAccess for SqliteDb {
         } else {
             q = q.filter(routes::component_id.is_null());
         }
-        q.limit(1).first::<Route>(&mut conn).await.optional().ok()?
+        q.limit(1)
+            .first::<Route>(&mut conn)
+            .await
+            .optional()
+            .map_err(|e| Error::DbError {
+                context: "get_route_for_src_dest_name",
+                msg: e.to_string(),
+            })
     }
 
     async fn filter_routes_by_src_dest(
         &self,
         source_node_id: &str,
         dest_node_id: &str,
-    ) -> Vec<Route> {
-        let Ok(mut conn) = self.pool.get().await else {
-            return vec![];
-        };
+    ) -> Result<Vec<Route>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "filter_routes_by_src_dest pool",
+            msg: e.to_string(),
+        })?;
         let mut q = routes::table.into_boxed();
         if !source_node_id.is_empty() {
             q = q.filter(routes::source_node_id.eq(source_node_id));
@@ -351,7 +386,12 @@ impl DataAccess for SqliteDb {
         if !dest_node_id.is_empty() {
             q = q.filter(routes::dest_node_id.eq(dest_node_id));
         }
-        q.load::<Route>(&mut conn).await.unwrap_or_default()
+        q.load::<Route>(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "filter_routes_by_src_dest",
+                msg: e.to_string(),
+            })
     }
 
     async fn get_destination_node_id_for_name(
@@ -360,10 +400,11 @@ impl DataAccess for SqliteDb {
         component1: &str,
         component2: &str,
         component_id: Option<i64>,
-    ) -> Option<String> {
-        let Ok(mut conn) = self.pool.get().await else {
-            return None;
-        };
+    ) -> Result<Option<String>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "get_destination_node_id_for_name pool",
+            msg: e.to_string(),
+        })?;
         let mut q = routes::table
             .filter(routes::source_node_id.eq(ALL_NODES_ID))
             .filter(routes::component0.eq(component0))
@@ -377,18 +418,28 @@ impl DataAccess for SqliteDb {
         } else {
             q = q.filter(routes::component_id.is_null());
         }
-        q.first::<String>(&mut conn).await.optional().ok()?
+        q.first::<String>(&mut conn)
+            .await
+            .optional()
+            .map_err(|e| Error::DbError {
+                context: "get_destination_node_id_for_name",
+                msg: e.to_string(),
+            })
     }
 
-    async fn get_routes_by_link_id(&self, link_id: &str) -> Vec<Route> {
-        let Ok(mut conn) = self.pool.get().await else {
-            return vec![];
-        };
+    async fn get_routes_by_link_id(&self, link_id: &str) -> Result<Vec<Route>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "get_routes_by_link_id pool",
+            msg: e.to_string(),
+        })?;
         routes::table
             .filter(routes::link_id.eq(link_id))
             .load::<Route>(&mut conn)
             .await
-            .unwrap_or_default()
+            .map_err(|e| Error::DbError {
+                context: "get_routes_by_link_id",
+                msg: e.to_string(),
+            })
     }
 
     async fn delete_route(&self, route_id: &str) -> Result<()> {
@@ -660,10 +711,11 @@ impl DataAccess for SqliteDb {
         link_id: &str,
         source_node_id: &str,
         dest_node_id: &str,
-    ) -> Option<Link> {
-        let Ok(mut conn) = self.pool.get().await else {
-            return None;
-        };
+    ) -> Result<Option<Link>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "get_link pool",
+            msg: e.to_string(),
+        })?;
         links::table
             .filter(links::link_id.eq(link_id))
             .filter(links::status.ne(LinkStatus::Deleted))
@@ -679,17 +731,21 @@ impl DataAccess for SqliteDb {
             .first::<Link>(&mut conn)
             .await
             .optional()
-            .ok()?
+            .map_err(|e| Error::DbError {
+                context: "get_link",
+                msg: e.to_string(),
+            })
     }
 
     async fn find_link_between_nodes(
         &self,
         source_node_id: &str,
         dest_node_id: &str,
-    ) -> Option<Link> {
-        let Ok(mut conn) = self.pool.get().await else {
-            return None;
-        };
+    ) -> Result<Option<Link>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "find_link_between_nodes pool",
+            msg: e.to_string(),
+        })?;
         links::table
             .filter(links::status.ne(LinkStatus::Deleted))
             .filter(
@@ -704,7 +760,10 @@ impl DataAccess for SqliteDb {
             .first::<Link>(&mut conn)
             .await
             .optional()
-            .ok()?
+            .map_err(|e| Error::DbError {
+                context: "find_link_between_nodes",
+                msg: e.to_string(),
+            })
     }
 
     async fn find_or_create_link(&self, mut link: Link) -> Result<(Link, bool)> {
@@ -731,75 +790,76 @@ impl DataAccess for SqliteDb {
                 msg: e.to_string(),
             })?;
 
-        let existing = links::table
-            .filter(links::status.ne(LinkStatus::Deleted))
-            .filter(
-                links::source_node_id
-                    .eq(&link.source_node_id)
-                    .and(links::dest_node_id.eq(&link.dest_node_id))
-                    .or(links::source_node_id
-                        .eq(&link.dest_node_id)
-                        .and(links::dest_node_id.eq(&link.source_node_id))),
-            )
-            .order(links::last_updated.desc())
-            .first::<Link>(&mut conn)
-            .await
-            .optional()
-            .map_err(|e| Error::DbError {
-                context: "find_or_create_link select",
-                msg: e.to_string(),
-            })?;
-
-        if let Some(existing) = existing {
-            conn.batch_execute("COMMIT")
+        let result = async {
+            let existing = links::table
+                .filter(links::status.ne(LinkStatus::Deleted))
+                .filter(
+                    links::source_node_id
+                        .eq(&link.source_node_id)
+                        .and(links::dest_node_id.eq(&link.dest_node_id))
+                        .or(links::source_node_id
+                            .eq(&link.dest_node_id)
+                            .and(links::dest_node_id.eq(&link.source_node_id))),
+                )
+                .order(links::last_updated.desc())
+                .first::<Link>(&mut conn)
                 .await
+                .optional()
                 .map_err(|e| Error::DbError {
-                    context: "find_or_create_link commit",
+                    context: "find_or_create_link select",
                     msg: e.to_string(),
                 })?;
-            return Ok((existing, false));
+
+            if let Some(existing) = existing {
+                return Ok((existing, false));
+            }
+
+            diesel::insert_into(links::table)
+                .values(link.clone())
+                .on_conflict((
+                    links::link_id,
+                    links::source_node_id,
+                    links::dest_node_id,
+                    links::dest_endpoint,
+                ))
+                .do_update()
+                .set((
+                    links::conn_config_data.eq(DbClientConfig::from(link.conn_config_data.clone())),
+                    links::status.eq(link.status),
+                    links::status_msg.eq(&link.status_msg),
+                    links::last_updated.eq(ts),
+                ))
+                .execute(&mut conn)
+                .await
+                .map_err(|e| Error::DbError {
+                    context: "find_or_create_link insert",
+                    msg: e.to_string(),
+                })?;
+
+            Ok((link, true))
         }
+        .await;
 
-        diesel::insert_into(links::table)
-            .values(link.clone())
-            .on_conflict((
-                links::link_id,
-                links::source_node_id,
-                links::dest_node_id,
-                links::dest_endpoint,
-            ))
-            .do_update()
-            .set((
-                links::conn_config_data.eq(DbClientConfig::from(link.conn_config_data.clone())),
-                links::status.eq(link.status),
-                links::status_msg.eq(&link.status_msg),
-                links::last_updated.eq(ts),
-            ))
-            .execute(&mut conn)
+        let commit_or_rollback = if result.is_ok() { "COMMIT" } else { "ROLLBACK" };
+        conn.batch_execute(commit_or_rollback)
             .await
             .map_err(|e| Error::DbError {
-                context: "find_or_create_link insert",
+                context: "find_or_create_link commit/rollback",
                 msg: e.to_string(),
             })?;
 
-        conn.batch_execute("COMMIT")
-            .await
-            .map_err(|e| Error::DbError {
-                context: "find_or_create_link commit",
-                msg: e.to_string(),
-            })?;
-
-        Ok((link, true))
+        result
     }
 
     async fn get_link_for_source_and_endpoint(
         &self,
         source_node_id: &str,
         dest_endpoint: &str,
-    ) -> Option<Link> {
-        let Ok(mut conn) = self.pool.get().await else {
-            return None;
-        };
+    ) -> Result<Option<Link>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "get_link_for_source_and_endpoint pool",
+            msg: e.to_string(),
+        })?;
         links::table
             .filter(links::source_node_id.eq(source_node_id))
             .filter(links::dest_endpoint.eq(dest_endpoint))
@@ -808,13 +868,17 @@ impl DataAccess for SqliteDb {
             .first::<Link>(&mut conn)
             .await
             .optional()
-            .ok()?
+            .map_err(|e| Error::DbError {
+                context: "get_link_for_source_and_endpoint",
+                msg: e.to_string(),
+            })
     }
 
-    async fn get_links_for_node(&self, node_id: &str) -> Vec<Link> {
-        let Ok(mut conn) = self.pool.get().await else {
-            return vec![];
-        };
+    async fn get_links_for_node(&self, node_id: &str) -> Result<Vec<Link>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "get_links_for_node pool",
+            msg: e.to_string(),
+        })?;
         links::table
             .filter(
                 links::source_node_id
@@ -823,58 +887,69 @@ impl DataAccess for SqliteDb {
             )
             .load::<Link>(&mut conn)
             .await
-            .unwrap_or_default()
+            .map_err(|e| Error::DbError {
+                context: "get_links_for_node",
+                msg: e.to_string(),
+            })
     }
 
     async fn filter_links_by_src_dest(
         &self,
         source_node_id: &str,
         dest_node_id: &str,
-    ) -> Vec<Link> {
-        let Ok(mut conn) = self.pool.get().await else {
-            return vec![];
-        };
+    ) -> Result<Vec<Link>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "filter_links_by_src_dest pool",
+            msg: e.to_string(),
+        })?;
         let order = (
             links::source_node_id.asc(),
             links::dest_node_id.asc(),
             links::link_id.asc(),
         );
-        match (source_node_id.is_empty(), dest_node_id.is_empty()) {
-            (true, true) => links::table
-                .order(order)
-                .load::<Link>(&mut conn)
-                .await
-                .unwrap_or_default(),
-            (false, true) => links::table
-                .filter(links::source_node_id.eq(source_node_id))
-                .order(order)
-                .load::<Link>(&mut conn)
-                .await
-                .unwrap_or_default(),
-            (true, false) => links::table
-                .filter(links::dest_node_id.eq(dest_node_id))
-                .order(order)
-                .load::<Link>(&mut conn)
-                .await
-                .unwrap_or_default(),
-            (false, false) => links::table
-                .filter(links::source_node_id.eq(source_node_id))
-                .filter(links::dest_node_id.eq(dest_node_id))
-                .order(order)
-                .load::<Link>(&mut conn)
-                .await
-                .unwrap_or_default(),
-        }
+        let result = match (source_node_id.is_empty(), dest_node_id.is_empty()) {
+            (true, true) => links::table.order(order).load::<Link>(&mut conn).await,
+            (false, true) => {
+                links::table
+                    .filter(links::source_node_id.eq(source_node_id))
+                    .order(order)
+                    .load::<Link>(&mut conn)
+                    .await
+            }
+            (true, false) => {
+                links::table
+                    .filter(links::dest_node_id.eq(dest_node_id))
+                    .order(order)
+                    .load::<Link>(&mut conn)
+                    .await
+            }
+            (false, false) => {
+                links::table
+                    .filter(links::source_node_id.eq(source_node_id))
+                    .filter(links::dest_node_id.eq(dest_node_id))
+                    .order(order)
+                    .load::<Link>(&mut conn)
+                    .await
+            }
+        };
+        result.map_err(|e| Error::DbError {
+            context: "filter_links_by_src_dest",
+            msg: e.to_string(),
+        })
     }
 
-    async fn list_all_links(&self) -> Vec<Link> {
-        let Ok(mut conn) = self.pool.get().await else {
-            return vec![];
-        };
+    async fn list_all_links(&self) -> Result<Vec<Link>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "list_all_links pool",
+            msg: e.to_string(),
+        })?;
         links::table
             .load::<Link>(&mut conn)
             .await
-            .unwrap_or_default()
+            .map_err(|e| Error::DbError {
+                context: "list_all_links",
+                msg: e.to_string(),
+            })
     }
 }
 
@@ -947,7 +1022,7 @@ mod tests {
         let (id, changed) = db.save_node(node).await.unwrap();
         assert_eq!(id, "n1");
         assert!(!changed);
-        let got = db.get_node("n1").await.unwrap();
+        let got = db.get_node("n1").await.unwrap().unwrap();
         assert_eq!(got.id, "n1");
         assert_eq!(got.group_name.as_deref(), Some("grp"));
     }
@@ -957,7 +1032,7 @@ mod tests {
         let (_f, db) = tmp_db().await;
         db.save_node(make_node("n1", None)).await.unwrap();
         db.save_node(make_node("n2", None)).await.unwrap();
-        assert_eq!(db.list_nodes().await.len(), 2);
+        assert_eq!(db.list_nodes().await.unwrap().len(), 2);
     }
 
     #[tokio::test]
@@ -965,7 +1040,7 @@ mod tests {
         let (_f, db) = tmp_db().await;
         db.save_node(make_node("n1", None)).await.unwrap();
         db.delete_node("n1").await.unwrap();
-        assert!(db.get_node("n1").await.is_none());
+        assert!(db.get_node("n1").await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -991,7 +1066,7 @@ mod tests {
         let (_f, db) = tmp_db().await;
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
         assert!(!r.id.is_empty());
-        let got = db.get_route_by_id(&r.id).await.unwrap();
+        let got = db.get_route_by_id(&r.id).await.unwrap().unwrap();
         assert_eq!(got.source_node_id, "src");
     }
 
@@ -1009,7 +1084,7 @@ mod tests {
         db.add_route(make_route("other", "dst", "lnk2"))
             .await
             .unwrap();
-        let routes = db.get_routes_for_node("src").await;
+        let routes = db.get_routes_for_node("src").await.unwrap();
         assert_eq!(routes.len(), 1);
     }
 
@@ -1020,7 +1095,7 @@ mod tests {
         let mut wc = make_route(ALL_NODES_ID, "dst", "lnk2");
         wc.component1 = "ns2".to_string();
         db.add_route(wc).await.unwrap();
-        let routes = db.get_routes_for_dest_node_id("dst").await;
+        let routes = db.get_routes_for_dest_node_id("dst").await.unwrap();
         assert_eq!(routes.len(), 1);
         assert_eq!(routes[0].source_node_id, "src");
     }
@@ -1031,7 +1106,7 @@ mod tests {
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
         db.mark_route_applied(&r.id).await.unwrap();
         assert_eq!(
-            db.get_route_by_id(&r.id).await.unwrap().status,
+            db.get_route_by_id(&r.id).await.unwrap().unwrap().status,
             RouteStatus::Applied
         );
     }
@@ -1041,7 +1116,7 @@ mod tests {
         let (_f, db) = tmp_db().await;
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
         db.mark_route_failed(&r.id, "oops").await.unwrap();
-        let got = db.get_route_by_id(&r.id).await.unwrap();
+        let got = db.get_route_by_id(&r.id).await.unwrap().unwrap();
         assert_eq!(got.status, RouteStatus::Failed);
         assert_eq!(got.status_msg, "oops");
     }
@@ -1052,11 +1127,11 @@ mod tests {
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
         db.mark_route_deleted(&r.id).await.unwrap();
         assert_eq!(
-            db.get_route_by_id(&r.id).await.unwrap().status,
+            db.get_route_by_id(&r.id).await.unwrap().unwrap().status,
             RouteStatus::Deleted
         );
         db.delete_route(&r.id).await.unwrap();
-        assert!(db.get_route_by_id(&r.id).await.is_none());
+        assert!(db.get_route_by_id(&r.id).await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -1077,7 +1152,8 @@ mod tests {
         };
         let found = db
             .get_route_for_src_dest_name("src", &name, "dst", Some("lnk"))
-            .await;
+            .await
+            .unwrap();
         assert!(found.is_some());
         assert_eq!(found.unwrap().id, r.id);
     }
@@ -1086,11 +1162,28 @@ mod tests {
     async fn filter_routes_by_src_dest() {
         let (_f, db) = tmp_db().await;
         db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
-        assert_eq!(db.filter_routes_by_src_dest("", "").await.len(), 1);
-        assert_eq!(db.filter_routes_by_src_dest("src", "").await.len(), 1);
-        assert_eq!(db.filter_routes_by_src_dest("", "dst").await.len(), 1);
-        assert_eq!(db.filter_routes_by_src_dest("src", "dst").await.len(), 1);
-        assert!(db.filter_routes_by_src_dest("other", "").await.is_empty());
+        assert_eq!(db.filter_routes_by_src_dest("", "").await.unwrap().len(), 1);
+        assert_eq!(
+            db.filter_routes_by_src_dest("src", "").await.unwrap().len(),
+            1
+        );
+        assert_eq!(
+            db.filter_routes_by_src_dest("", "dst").await.unwrap().len(),
+            1
+        );
+        assert_eq!(
+            db.filter_routes_by_src_dest("src", "dst")
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(
+            db.filter_routes_by_src_dest("other", "")
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[tokio::test]
@@ -1101,7 +1194,8 @@ mod tests {
             .unwrap();
         let result = db
             .get_destination_node_id_for_name("org", "ns", "svc", Some(1))
-            .await;
+            .await
+            .unwrap();
         assert_eq!(result.as_deref(), Some("dst_node"));
     }
 
@@ -1111,8 +1205,13 @@ mod tests {
         db.add_route(make_route("src", "dst", "link-abc"))
             .await
             .unwrap();
-        assert_eq!(db.get_routes_by_link_id("link-abc").await.len(), 1);
-        assert!(db.get_routes_by_link_id("link-xyz").await.is_empty());
+        assert_eq!(db.get_routes_by_link_id("link-abc").await.unwrap().len(), 1);
+        assert!(
+            db.get_routes_by_link_id("link-xyz")
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     // ── Link CRUD ──────────────────────────────────────────────────────────
@@ -1123,7 +1222,7 @@ mod tests {
         db.add_link(make_link("src", "dst", "ep:8080", "lid"))
             .await
             .unwrap();
-        assert!(db.get_link("lid", "src", "dst").await.is_some());
+        assert!(db.get_link("lid", "src", "dst").await.unwrap().is_some());
     }
 
     #[tokio::test]
@@ -1144,7 +1243,11 @@ mod tests {
         updated.status = LinkStatus::Applied;
         db.update_link(updated).await.unwrap();
         assert_eq!(
-            db.get_link("lid", "src", "dst").await.unwrap().status,
+            db.get_link("lid", "src", "dst")
+                .await
+                .unwrap()
+                .unwrap()
+                .status,
             LinkStatus::Applied
         );
     }
@@ -1157,7 +1260,7 @@ mod tests {
             .await
             .unwrap();
         db.delete_link(&l).await.unwrap();
-        assert!(db.get_link("lid", "src", "dst").await.is_none());
+        assert!(db.get_link("lid", "src", "dst").await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -1166,9 +1269,24 @@ mod tests {
         db.add_link(make_link("src", "dst", "ep:8080", "lid"))
             .await
             .unwrap();
-        assert!(db.find_link_between_nodes("src", "dst").await.is_some());
-        assert!(db.find_link_between_nodes("dst", "src").await.is_some());
-        assert!(db.find_link_between_nodes("a", "b").await.is_none());
+        assert!(
+            db.find_link_between_nodes("src", "dst")
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            db.find_link_between_nodes("dst", "src")
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            db.find_link_between_nodes("a", "b")
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -1180,11 +1298,13 @@ mod tests {
         assert!(
             db.get_link_for_source_and_endpoint("src", "ep:8080")
                 .await
+                .unwrap()
                 .is_some()
         );
         assert!(
             db.get_link_for_source_and_endpoint("src", "other")
                 .await
+                .unwrap()
                 .is_none()
         );
     }
@@ -1198,6 +1318,6 @@ mod tests {
         db.add_link(make_link("other", "src", "ep:9090", "lid2"))
             .await
             .unwrap();
-        assert_eq!(db.get_links_for_node("src").await.len(), 2);
+        assert_eq!(db.get_links_for_node("src").await.unwrap().len(), 2);
     }
 }

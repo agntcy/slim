@@ -47,7 +47,10 @@ impl ControlPlaneService for NorthboundApiService {
         &self,
         _request: Request<NodeListRequest>,
     ) -> Result<Response<Self::ListNodesStream>, Status> {
-        let nodes = self.db.list_nodes().await;
+        let nodes = self.db.list_nodes().await.map_err(|e| {
+            tracing::error!("list_nodes: {e}");
+            Status::internal("internal error")
+        })?;
         let status_futs: Vec<_> = nodes
             .iter()
             .map(|node| self.cmd_handler.get_connection_status(&node.id))
@@ -109,13 +112,20 @@ impl ControlPlaneService for NorthboundApiService {
             .db
             .get_node(&node_id)
             .await
+            .map_err(|e| {
+                tracing::error!("list_node_routes get_node: {e}");
+                Status::internal("internal error")
+            })?
             .ok_or_else(|| Status::not_found(format!("node {node_id} not found")))?;
 
         self.route_service
             .list_node_routes(&node.id)
             .await
             .map(Response::new)
-            .map_err(|e| Status::internal(e.to_string()))
+            .map_err(|e| {
+                tracing::error!("list_node_routes: {e}");
+                Status::internal("internal error")
+            })
     }
 
     async fn list_connections(
@@ -127,13 +137,20 @@ impl ControlPlaneService for NorthboundApiService {
             .db
             .get_node(&node_id)
             .await
+            .map_err(|e| {
+                tracing::error!("list_connections get_node: {e}");
+                Status::internal("internal error")
+            })?
             .ok_or_else(|| Status::not_found(format!("node {node_id} not found")))?;
 
         self.route_service
             .list_connections(&node.id)
             .await
             .map(Response::new)
-            .map_err(|e| Status::internal(e.to_string()))
+            .map_err(|e| {
+                tracing::error!("list_connections: {e}");
+                Status::internal("internal error")
+            })
     }
 
     async fn add_route(
@@ -145,14 +162,25 @@ impl ControlPlaneService for NorthboundApiService {
         self.db
             .get_node(&req.node_id)
             .await
+            .map_err(|e| {
+                tracing::error!("add_route get_node: {e}");
+                Status::internal("internal error")
+            })?
             .ok_or_else(|| Status::not_found(format!("invalid source nodeID: {}", req.node_id)))?;
 
         if req.dest_node_id.is_empty() {
             return Err(Status::invalid_argument("destNodeId must be provided"));
         }
-        self.db.get_node(&req.dest_node_id).await.ok_or_else(|| {
-            Status::not_found(format!("invalid destination nodeID: {}", req.dest_node_id))
-        })?;
+        self.db
+            .get_node(&req.dest_node_id)
+            .await
+            .map_err(|e| {
+                tracing::error!("add_route get_node: {e}");
+                Status::internal("internal error")
+            })?
+            .ok_or_else(|| {
+                Status::not_found(format!("invalid destination nodeID: {}", req.dest_node_id))
+            })?;
 
         let sub = req.route.unwrap_or_default();
         let route_id = self
@@ -200,7 +228,11 @@ impl ControlPlaneService for NorthboundApiService {
         let routes = self
             .db
             .filter_routes_by_src_dest(&req.src_node_id, &req.dest_node_id)
-            .await;
+            .await
+            .map_err(|e| {
+                tracing::error!("list_routes: {e}");
+                Status::internal("internal error")
+            })?;
 
         let mut route_entries: Vec<RouteEntry> = routes
             .iter()
@@ -266,7 +298,11 @@ impl ControlPlaneService for NorthboundApiService {
         let links = self
             .db
             .filter_links_by_src_dest(&req.src_node_id, &req.dest_node_id)
-            .await;
+            .await
+            .map_err(|e| {
+                tracing::error!("list_links: {e}");
+                Status::internal("internal error")
+            })?;
 
         let (tx, rx) = tokio::sync::mpsc::channel(64);
         tokio::spawn(async move {
@@ -279,7 +315,7 @@ impl ControlPlaneService for NorthboundApiService {
                     crate::db::LinkStatus::Pending => LinkStatus::Pending as i32,
                     crate::db::LinkStatus::Applied => LinkStatus::Applied as i32,
                     crate::db::LinkStatus::Failed => LinkStatus::Failed as i32,
-                    crate::db::LinkStatus::Deleted => LinkStatus::Failed as i32,
+                    crate::db::LinkStatus::Deleted => LinkStatus::Unspecified as i32,
                 };
                 let last_updated = l
                     .last_updated

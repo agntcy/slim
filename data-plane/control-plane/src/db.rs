@@ -19,8 +19,8 @@ use crate::error::Result;
 pub trait DataAccess: Send + Sync {
     // ── Nodes ──────────────────────────────────────────────────────────────
 
-    async fn list_nodes(&self) -> Vec<Node>;
-    async fn get_node(&self, id: &str) -> Option<Node>;
+    async fn list_nodes(&self) -> Result<Vec<Node>>;
+    async fn get_node(&self, id: &str) -> Result<Option<Node>>;
     /// Returns (node_id, conn_details_changed).
     async fn save_node(&self, node: Node) -> Result<(String, bool)>;
     async fn delete_node(&self, id: &str) -> Result<()>;
@@ -28,9 +28,9 @@ pub trait DataAccess: Send + Sync {
     // ── Routes ─────────────────────────────────────────────────────────────
 
     async fn add_route(&self, route: Route) -> Result<Route>;
-    async fn get_route_by_id(&self, route_id: &str) -> Option<Route>;
-    async fn get_routes_for_node(&self, node_id: &str) -> Vec<Route>;
-    async fn get_routes_for_dest_node_id(&self, node_id: &str) -> Vec<Route>;
+    async fn get_route_by_id(&self, route_id: &str) -> Result<Option<Route>>;
+    async fn get_routes_for_node(&self, node_id: &str) -> Result<Vec<Route>>;
+    async fn get_routes_for_dest_node_id(&self, node_id: &str) -> Result<Vec<Route>>;
     async fn get_routes_for_dest_node_id_and_name(
         &self,
         node_id: &str,
@@ -38,27 +38,27 @@ pub trait DataAccess: Send + Sync {
         component1: &str,
         component2: &str,
         component_id: Option<i64>,
-    ) -> Vec<Route>;
+    ) -> Result<Vec<Route>>;
     async fn get_route_for_src_dest_name(
         &self,
         src_node_id: &str,
         name: &RouteName<'_>,
         dest_node_id: &str,
         link_id: Option<&str>,
-    ) -> Option<Route>;
+    ) -> Result<Option<Route>>;
     async fn filter_routes_by_src_dest(
         &self,
         source_node_id: &str,
         dest_node_id: &str,
-    ) -> Vec<Route>;
+    ) -> Result<Vec<Route>>;
     async fn get_destination_node_id_for_name(
         &self,
         component0: &str,
         component1: &str,
         component2: &str,
         component_id: Option<i64>,
-    ) -> Option<String>;
-    async fn get_routes_by_link_id(&self, link_id: &str) -> Vec<Route>;
+    ) -> Result<Option<String>>;
+    async fn get_routes_by_link_id(&self, link_id: &str) -> Result<Vec<Route>>;
     async fn delete_route(&self, route_id: &str) -> Result<()>;
     async fn mark_route_deleted(&self, route_id: &str) -> Result<()>;
     async fn mark_route_applied(&self, route_id: &str) -> Result<()>;
@@ -87,12 +87,12 @@ pub trait DataAccess: Send + Sync {
         link_id: &str,
         source_node_id: &str,
         dest_node_id: &str,
-    ) -> Option<Link>;
+    ) -> Result<Option<Link>>;
     async fn find_link_between_nodes(
         &self,
         source_node_id: &str,
         dest_node_id: &str,
-    ) -> Option<Link>;
+    ) -> Result<Option<Link>>;
 
     /// Atomically check for an existing non-deleted link between the two nodes
     /// (in either direction) and insert `link` only if none exists.
@@ -104,16 +104,19 @@ pub trait DataAccess: Send + Sync {
         &self,
         source_node_id: &str,
         dest_endpoint: &str,
-    ) -> Option<Link>;
-    async fn get_links_for_node(&self, node_id: &str) -> Vec<Link>;
+    ) -> Result<Option<Link>>;
+    async fn get_links_for_node(&self, node_id: &str) -> Result<Vec<Link>>;
     /// Return links filtered by source and/or destination node.
     ///
     /// An empty string for either parameter is treated as "any" (no filter on
     /// that dimension).  Passing both empty is equivalent to [`list_all_links`].
-    async fn filter_links_by_src_dest(&self, source_node_id: &str, dest_node_id: &str)
-    -> Vec<Link>;
+    async fn filter_links_by_src_dest(
+        &self,
+        source_node_id: &str,
+        dest_node_id: &str,
+    ) -> Result<Vec<Link>>;
     /// Return every link record in the store (no filtering).
-    async fn list_all_links(&self) -> Vec<Link>;
+    async fn list_all_links(&self) -> Result<Vec<Link>>;
 }
 
 pub type SharedDb = Arc<dyn DataAccess>;

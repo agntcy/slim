@@ -453,7 +453,7 @@ async fn link_outline(
 const ROUTE_HEADERS: [&str; 7] = [
     "SOURCE",
     "DEST_NODE",
-    "SUBSCRIPTION",
+    "ROUTE",
     "STATUS",
     "STATUS_MSG",
     "LAST_UPDATED",

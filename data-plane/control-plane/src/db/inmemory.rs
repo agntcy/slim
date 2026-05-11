@@ -210,12 +210,12 @@ impl Default for InMemoryDb {
 impl DataAccess for InMemoryDb {
     // ── Nodes ──────────────────────────────────────────────────────────────
 
-    async fn list_nodes(&self) -> Vec<Node> {
-        self.nodes.read().values().cloned().collect()
+    async fn list_nodes(&self) -> Result<Vec<Node>> {
+        Ok(self.nodes.read().values().cloned().collect())
     }
 
-    async fn get_node(&self, id: &str) -> Option<Node> {
-        self.nodes.read().get(id).cloned()
+    async fn get_node(&self, id: &str) -> Result<Option<Node>> {
+        Ok(self.nodes.read().get(id).cloned())
     }
 
     async fn save_node(&self, mut node: Node) -> Result<(String, bool)> {
@@ -265,13 +265,13 @@ impl DataAccess for InMemoryDb {
         Ok(route)
     }
 
-    async fn get_route_by_id(&self, route_id: &str) -> Option<Route> {
-        self.routes.read().primary.get(route_id).cloned()
+    async fn get_route_by_id(&self, route_id: &str) -> Result<Option<Route>> {
+        Ok(self.routes.read().primary.get(route_id).cloned())
     }
 
-    async fn get_routes_for_node(&self, node_id: &str) -> Vec<Route> {
+    async fn get_routes_for_node(&self, node_id: &str) -> Result<Vec<Route>> {
         let store = self.routes.read();
-        store
+        Ok(store
             .by_src
             .get(node_id)
             .map(|ids| {
@@ -280,12 +280,12 @@ impl DataAccess for InMemoryDb {
                     .cloned()
                     .collect()
             })
-            .unwrap_or_default()
+            .unwrap_or_default())
     }
 
-    async fn get_routes_for_dest_node_id(&self, node_id: &str) -> Vec<Route> {
+    async fn get_routes_for_dest_node_id(&self, node_id: &str) -> Result<Vec<Route>> {
         let store = self.routes.read();
-        store
+        Ok(store
             .by_dest
             .get(node_id)
             .map(|ids| {
@@ -295,7 +295,7 @@ impl DataAccess for InMemoryDb {
                     .cloned()
                     .collect()
             })
-            .unwrap_or_default()
+            .unwrap_or_default())
     }
 
     async fn get_routes_for_dest_node_id_and_name(
@@ -305,9 +305,9 @@ impl DataAccess for InMemoryDb {
         component1: &str,
         component2: &str,
         component_id: Option<i64>,
-    ) -> Vec<Route> {
+    ) -> Result<Vec<Route>> {
         let store = self.routes.read();
-        store
+        Ok(store
             .by_dest
             .get(node_id)
             .map(|ids| {
@@ -322,7 +322,7 @@ impl DataAccess for InMemoryDb {
                     .cloned()
                     .collect()
             })
-            .unwrap_or_default()
+            .unwrap_or_default())
     }
 
     async fn get_route_for_src_dest_name(
@@ -331,31 +331,30 @@ impl DataAccess for InMemoryDb {
         name: &RouteName<'_>,
         dest_node_id: &str,
         link_id: Option<&str>,
-    ) -> Option<Route> {
+    ) -> Result<Option<Route>> {
         let store = self.routes.read();
-        store
-            .by_src
-            .get(src_node_id)?
-            .iter()
-            .filter_map(|id| store.primary.get(id))
-            .find(|r| {
-                (dest_node_id.is_empty() || r.dest_node_id == dest_node_id)
-                    && (link_id.is_none() || r.link_id.as_deref() == link_id)
-                    && r.component0 == name.component0
-                    && r.component1 == name.component1
-                    && r.component2 == name.component2
-                    && r.component_id == name.component_id
-            })
-            .cloned()
+        Ok(store.by_src.get(src_node_id).and_then(|ids| {
+            ids.iter()
+                .filter_map(|id| store.primary.get(id))
+                .find(|r| {
+                    (dest_node_id.is_empty() || r.dest_node_id == dest_node_id)
+                        && (link_id.is_none() || r.link_id.as_deref() == link_id)
+                        && r.component0 == name.component0
+                        && r.component1 == name.component1
+                        && r.component2 == name.component2
+                        && r.component_id == name.component_id
+                })
+                .cloned()
+        }))
     }
 
     async fn filter_routes_by_src_dest(
         &self,
         source_node_id: &str,
         dest_node_id: &str,
-    ) -> Vec<Route> {
+    ) -> Result<Vec<Route>> {
         let store = self.routes.read();
-        match (source_node_id.is_empty(), dest_node_id.is_empty()) {
+        Ok(match (source_node_id.is_empty(), dest_node_id.is_empty()) {
             (true, true) => store.primary.values().cloned().collect(),
             (false, true) => store
                 .by_src
@@ -382,7 +381,6 @@ impl DataAccess for InMemoryDb {
                 let dest_ids = store.by_dest.get(dest_node_id);
                 match (src_ids, dest_ids) {
                     (Some(src_ids), Some(dest_ids)) => {
-                        // Iterate the smaller set and filter by the other dimension.
                         if src_ids.len() <= dest_ids.len() {
                             src_ids
                                 .iter()
@@ -402,7 +400,7 @@ impl DataAccess for InMemoryDb {
                     _ => vec![],
                 }
             }
-        }
+        })
     }
 
     async fn get_destination_node_id_for_name(
@@ -411,28 +409,25 @@ impl DataAccess for InMemoryDb {
         component1: &str,
         component2: &str,
         component_id: Option<i64>,
-    ) -> Option<String> {
+    ) -> Result<Option<String>> {
         let store = self.routes.read();
-        let ids = store.by_src.get(ALL_NODES_ID)?;
-        let matching: Vec<&Route> = ids
-            .iter()
-            .filter_map(|id| store.primary.get(id))
-            .filter(|r| {
-                r.component0 == component0
-                    && r.component1 == component1
-                    && r.component2 == component2
-                    && r.component_id == component_id
-            })
-            .collect();
-        matching
-            .into_iter()
-            .max_by_key(|r| r.last_updated)
-            .map(|r| r.dest_node_id.clone())
+        Ok(store.by_src.get(ALL_NODES_ID).and_then(|ids| {
+            ids.iter()
+                .filter_map(|id| store.primary.get(id))
+                .filter(|r| {
+                    r.component0 == component0
+                        && r.component1 == component1
+                        && r.component2 == component2
+                        && r.component_id == component_id
+                })
+                .max_by_key(|r| r.last_updated)
+                .map(|r| r.dest_node_id.clone())
+        }))
     }
 
-    async fn get_routes_by_link_id(&self, link_id: &str) -> Vec<Route> {
+    async fn get_routes_by_link_id(&self, link_id: &str) -> Result<Vec<Route>> {
         let store = self.routes.read();
-        store
+        Ok(store
             .by_link
             .get(link_id)
             .map(|ids| {
@@ -441,7 +436,7 @@ impl DataAccess for InMemoryDb {
                     .cloned()
                     .collect()
             })
-            .unwrap_or_default()
+            .unwrap_or_default())
     }
 
     async fn delete_route(&self, route_id: &str) -> Result<()> {
@@ -501,13 +496,18 @@ impl DataAccess for InMemoryDb {
         let mut store = self.routes.write();
         let route = store
             .primary
-            .get_mut(route_id)
+            .get(route_id)
             .ok_or_else(|| Error::RouteNotFound {
                 id: route_id.to_string(),
             })?;
+        let old_snapshot = route.clone();
+        store.index_remove(&old_snapshot);
+        let route = store.primary.get_mut(route_id).unwrap();
         route.link_id = Some(link_id.to_string());
         route.status = RouteStatus::Pending;
         route.last_updated = SystemTime::now();
+        let updated = route.clone();
+        store.index_add(&updated);
         Ok(())
     }
 
@@ -515,14 +515,19 @@ impl DataAccess for InMemoryDb {
         let mut store = self.routes.write();
         let route = store
             .primary
-            .get_mut(route_id)
+            .get(route_id)
             .ok_or_else(|| Error::RouteNotFound {
                 id: route_id.to_string(),
             })?;
+        let old_snapshot = route.clone();
+        store.index_remove(&old_snapshot);
+        let route = store.primary.get_mut(route_id).unwrap();
         route.status = RouteStatus::Pending;
         route.status_msg = String::new();
         route.link_id = Some(link_id.to_string());
         route.last_updated = SystemTime::now();
+        let updated = route.clone();
+        store.index_add(&updated);
         Ok(())
     }
 
@@ -587,9 +592,12 @@ impl DataAccess for InMemoryDb {
         link_id: &str,
         source_node_id: &str,
         dest_node_id: &str,
-    ) -> Option<Link> {
+    ) -> Result<Option<Link>> {
         let store = self.links.read();
-        let keys = store.by_link_id.get(link_id)?;
+        let keys = match store.by_link_id.get(link_id) {
+            Some(k) => k,
+            None => return Ok(None),
+        };
         let mut latest: Option<&Link> = None;
         for key in keys {
             if let Some(link) = store.primary.get(key) {
@@ -612,16 +620,20 @@ impl DataAccess for InMemoryDb {
                 }
             }
         }
-        latest.cloned()
+        Ok(latest.cloned())
     }
 
     async fn find_link_between_nodes(
         &self,
         source_node_id: &str,
         dest_node_id: &str,
-    ) -> Option<Link> {
+    ) -> Result<Option<Link>> {
         let store = self.links.read();
-        Self::find_link_in_store(&store, source_node_id, dest_node_id)
+        Ok(Self::find_link_in_store(
+            &store,
+            source_node_id,
+            dest_node_id,
+        ))
     }
 
     async fn find_or_create_link(&self, mut link: Link) -> Result<(Link, bool)> {
@@ -654,9 +666,12 @@ impl DataAccess for InMemoryDb {
         &self,
         source_node_id: &str,
         dest_endpoint: &str,
-    ) -> Option<Link> {
+    ) -> Result<Option<Link>> {
         let store = self.links.read();
-        let keys = store.by_src.get(source_node_id)?;
+        let keys = match store.by_src.get(source_node_id) {
+            Some(k) => k,
+            None => return Ok(None),
+        };
         let mut latest: Option<&Link> = None;
         for key in keys {
             if let Some(link) = store.primary.get(key)
@@ -670,10 +685,10 @@ impl DataAccess for InMemoryDb {
                 }
             }
         }
-        latest.cloned()
+        Ok(latest.cloned())
     }
 
-    async fn get_links_for_node(&self, node_id: &str) -> Vec<Link> {
+    async fn get_links_for_node(&self, node_id: &str) -> Result<Vec<Link>> {
         let store = self.links.read();
         let mut keys: HashSet<String> = HashSet::new();
         if let Some(src_keys) = store.by_src.get(node_id) {
@@ -682,19 +697,20 @@ impl DataAccess for InMemoryDb {
         if let Some(dst_keys) = store.by_dest.get(node_id) {
             keys.extend(dst_keys.iter().cloned());
         }
-        keys.iter()
+        Ok(keys
+            .iter()
             .filter_map(|k| store.primary.get(k))
             .cloned()
-            .collect()
+            .collect())
     }
 
     async fn filter_links_by_src_dest(
         &self,
         source_node_id: &str,
         dest_node_id: &str,
-    ) -> Vec<Link> {
+    ) -> Result<Vec<Link>> {
         let store = self.links.read();
-        match (source_node_id.is_empty(), dest_node_id.is_empty()) {
+        Ok(match (source_node_id.is_empty(), dest_node_id.is_empty()) {
             (true, true) => store.primary.values().cloned().collect(),
             (false, true) => store
                 .by_src
@@ -727,11 +743,11 @@ impl DataAccess for InMemoryDb {
                         .collect()
                 })
                 .unwrap_or_default(),
-        }
+        })
     }
 
-    async fn list_all_links(&self) -> Vec<Link> {
-        self.links.read().primary.values().cloned().collect()
+    async fn list_all_links(&self) -> Result<Vec<Link>> {
+        Ok(self.links.read().primary.values().cloned().collect())
     }
 }
 
@@ -799,7 +815,7 @@ mod tests {
         let (id, changed) = db.save_node(node).await.unwrap();
         assert_eq!(id, "n1");
         assert!(!changed);
-        let got = db.get_node("n1").await.unwrap();
+        let got = db.get_node("n1").await.unwrap().unwrap();
         assert_eq!(got.id, "n1");
         assert_eq!(got.group_name.as_deref(), Some("grp"));
     }
@@ -835,7 +851,7 @@ mod tests {
         let db = db();
         db.save_node(make_node("n1", None)).await.unwrap();
         db.save_node(make_node("n2", None)).await.unwrap();
-        let nodes = db.list_nodes().await;
+        let nodes = db.list_nodes().await.unwrap();
         assert_eq!(nodes.len(), 2);
     }
 
@@ -844,7 +860,7 @@ mod tests {
         let db = db();
         db.save_node(make_node("n1", None)).await.unwrap();
         db.delete_node("n1").await.unwrap();
-        assert!(db.get_node("n1").await.is_none());
+        assert!(db.get_node("n1").await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -860,7 +876,7 @@ mod tests {
         let db = db();
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
         assert!(!r.id.is_empty());
-        let got = db.get_route_by_id(&r.id).await.unwrap();
+        let got = db.get_route_by_id(&r.id).await.unwrap().unwrap();
         assert_eq!(got.source_node_id, "src");
     }
 
@@ -878,7 +894,7 @@ mod tests {
         db.add_route(make_route("other", "dst", "lnk2"))
             .await
             .unwrap();
-        let routes = db.get_routes_for_node("src").await;
+        let routes = db.get_routes_for_node("src").await.unwrap();
         assert_eq!(routes.len(), 1);
         assert_eq!(routes[0].source_node_id, "src");
     }
@@ -891,7 +907,7 @@ mod tests {
         let mut wildcard = make_route(ALL_NODES_ID, "dst", "lnk2");
         wildcard.component1 = "ns2".to_string();
         db.add_route(wildcard).await.unwrap();
-        let routes = db.get_routes_for_dest_node_id("dst").await;
+        let routes = db.get_routes_for_dest_node_id("dst").await.unwrap();
         assert_eq!(routes.len(), 1);
         assert_eq!(routes[0].source_node_id, "src");
     }
@@ -902,11 +918,13 @@ mod tests {
         db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
         let found = db
             .get_routes_for_dest_node_id_and_name("dst", "org", "ns", "svc", Some(1))
-            .await;
+            .await
+            .unwrap();
         assert_eq!(found.len(), 1);
         let not_found = db
             .get_routes_for_dest_node_id_and_name("dst", "org", "ns", "svc", None)
-            .await;
+            .await
+            .unwrap();
         assert!(not_found.is_empty());
     }
 
@@ -922,7 +940,8 @@ mod tests {
         };
         let found = db
             .get_route_for_src_dest_name("src", &name, "dst", Some("lnk"))
-            .await;
+            .await
+            .unwrap();
         assert!(found.is_some());
         assert_eq!(found.unwrap().id, r.id);
     }
@@ -937,8 +956,10 @@ mod tests {
             component2: "svc",
             component_id: Some(1),
         };
-        // Empty dest_node_id and link_id should match any.
-        let found = db.get_route_for_src_dest_name("src", &name, "", None).await;
+        let found = db
+            .get_route_for_src_dest_name("src", &name, "", None)
+            .await
+            .unwrap();
         assert!(found.is_some());
         assert_eq!(found.unwrap().id, r.id);
     }
@@ -947,13 +968,13 @@ mod tests {
     async fn filter_routes_by_src_dest() {
         let db = db();
         db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
-        let all = db.filter_routes_by_src_dest("", "").await;
+        let all = db.filter_routes_by_src_dest("", "").await.unwrap();
         assert_eq!(all.len(), 1);
-        let by_src = db.filter_routes_by_src_dest("src", "").await;
+        let by_src = db.filter_routes_by_src_dest("src", "").await.unwrap();
         assert_eq!(by_src.len(), 1);
-        let by_dest = db.filter_routes_by_src_dest("", "dst").await;
+        let by_dest = db.filter_routes_by_src_dest("", "dst").await.unwrap();
         assert_eq!(by_dest.len(), 1);
-        let mismatch = db.filter_routes_by_src_dest("other", "").await;
+        let mismatch = db.filter_routes_by_src_dest("other", "").await.unwrap();
         assert!(mismatch.is_empty());
     }
 
@@ -964,7 +985,8 @@ mod tests {
         db.add_route(r).await.unwrap();
         let result = db
             .get_destination_node_id_for_name("org", "ns", "svc", Some(1))
-            .await;
+            .await
+            .unwrap();
         assert_eq!(result.as_deref(), Some("dst_node"));
     }
 
@@ -974,9 +996,9 @@ mod tests {
         db.add_route(make_route("src", "dst", "link-abc"))
             .await
             .unwrap();
-        let routes = db.get_routes_by_link_id("link-abc").await;
+        let routes = db.get_routes_by_link_id("link-abc").await.unwrap();
         assert_eq!(routes.len(), 1);
-        let none = db.get_routes_by_link_id("link-xyz").await;
+        let none = db.get_routes_by_link_id("link-xyz").await.unwrap();
         assert!(none.is_empty());
     }
 
@@ -985,7 +1007,7 @@ mod tests {
         let db = db();
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
         db.delete_route(&r.id).await.unwrap();
-        assert!(db.get_route_by_id(&r.id).await.is_none());
+        assert!(db.get_route_by_id(&r.id).await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -1000,7 +1022,7 @@ mod tests {
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
         db.mark_route_deleted(&r.id).await.unwrap();
         assert_eq!(
-            db.get_route_by_id(&r.id).await.unwrap().status,
+            db.get_route_by_id(&r.id).await.unwrap().unwrap().status,
             RouteStatus::Deleted
         );
     }
@@ -1010,7 +1032,7 @@ mod tests {
         let db = db();
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
         db.mark_route_applied(&r.id).await.unwrap();
-        let got = db.get_route_by_id(&r.id).await.unwrap();
+        let got = db.get_route_by_id(&r.id).await.unwrap().unwrap();
         assert_eq!(got.status, RouteStatus::Applied);
         assert!(got.status_msg.is_empty());
     }
@@ -1020,7 +1042,7 @@ mod tests {
         let db = db();
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
         db.mark_route_failed(&r.id, "oops").await.unwrap();
-        let got = db.get_route_by_id(&r.id).await.unwrap();
+        let got = db.get_route_by_id(&r.id).await.unwrap().unwrap();
         assert_eq!(got.status, RouteStatus::Failed);
         assert_eq!(got.status_msg, "oops");
     }
@@ -1035,7 +1057,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(l.link_id, "lid1");
-        let found = db.get_link("lid1", "src", "dst").await;
+        let found = db.get_link("lid1", "src", "dst").await.unwrap();
         assert!(found.is_some());
     }
 
@@ -1067,7 +1089,7 @@ mod tests {
         let mut updated = make_link("src", "dst", "ep:8080", "lid");
         updated.status = LinkStatus::Applied;
         db.update_link(updated).await.unwrap();
-        let got = db.get_link("lid", "src", "dst").await.unwrap();
+        let got = db.get_link("lid", "src", "dst").await.unwrap().unwrap();
         assert_eq!(got.status, LinkStatus::Applied);
     }
 
@@ -1086,7 +1108,7 @@ mod tests {
             .await
             .unwrap();
         db.delete_link(&l).await.unwrap();
-        assert!(db.get_link("lid", "src", "dst").await.is_none());
+        assert!(db.get_link("lid", "src", "dst").await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -1103,7 +1125,7 @@ mod tests {
             .await
             .unwrap();
         // Should find link even when src/dst are swapped.
-        let found = db.get_link("lid", "dst", "src").await;
+        let found = db.get_link("lid", "dst", "src").await.unwrap();
         assert!(found.is_some());
     }
 
@@ -1117,7 +1139,7 @@ mod tests {
         let mut deleted = l.clone();
         deleted.status = LinkStatus::Deleted;
         db.update_link(deleted).await.unwrap();
-        assert!(db.get_link("lid", "src", "dst").await.is_none());
+        assert!(db.get_link("lid", "src", "dst").await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -1126,9 +1148,24 @@ mod tests {
         db.add_link(make_link("src", "dst", "ep:8080", "lid"))
             .await
             .unwrap();
-        assert!(db.find_link_between_nodes("src", "dst").await.is_some());
-        assert!(db.find_link_between_nodes("dst", "src").await.is_some());
-        assert!(db.find_link_between_nodes("a", "b").await.is_none());
+        assert!(
+            db.find_link_between_nodes("src", "dst")
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            db.find_link_between_nodes("dst", "src")
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            db.find_link_between_nodes("a", "b")
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -1140,11 +1177,13 @@ mod tests {
         assert!(
             db.get_link_for_source_and_endpoint("src", "ep:8080")
                 .await
+                .unwrap()
                 .is_some()
         );
         assert!(
             db.get_link_for_source_and_endpoint("src", "other")
                 .await
+                .unwrap()
                 .is_none()
         );
     }
@@ -1157,7 +1196,7 @@ mod tests {
             .unwrap();
         let l2 = make_link("other", "src", "ep:9090", "lid2");
         db.add_link(l2).await.unwrap();
-        let links = db.get_links_for_node("src").await;
+        let links = db.get_links_for_node("src").await.unwrap();
         assert_eq!(links.len(), 2);
     }
 
@@ -1169,9 +1208,14 @@ mod tests {
         let r = db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
         db.delete_route(&r.id).await.unwrap();
         // Index should no longer return this route.
-        assert!(db.get_routes_for_node("src").await.is_empty());
-        assert!(db.get_routes_for_dest_node_id("dst").await.is_empty());
-        assert!(db.get_routes_by_link_id("lnk").await.is_empty());
+        assert!(db.get_routes_for_node("src").await.unwrap().is_empty());
+        assert!(
+            db.get_routes_for_dest_node_id("dst")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(db.get_routes_by_link_id("lnk").await.unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -1182,9 +1226,9 @@ mod tests {
             .await
             .unwrap();
         db.delete_link(&l).await.unwrap();
-        assert!(db.get_links_for_node("src").await.is_empty());
-        assert!(db.get_links_for_node("dst").await.is_empty());
-        assert!(db.get_link("lid", "src", "dst").await.is_none());
+        assert!(db.get_links_for_node("src").await.unwrap().is_empty());
+        assert!(db.get_links_for_node("dst").await.unwrap().is_empty());
+        assert!(db.get_link("lid", "src", "dst").await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -1196,7 +1240,7 @@ mod tests {
         r2.component1 = "ns2".to_string();
         db.add_route(r2).await.unwrap();
 
-        let found = db.filter_routes_by_src_dest("src", "dst").await;
+        let found = db.filter_routes_by_src_dest("src", "dst").await.unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].dest_node_id, "dst");
     }

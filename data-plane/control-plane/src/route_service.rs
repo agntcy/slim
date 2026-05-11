@@ -108,7 +108,9 @@ impl RouteService {
                         _ = shutdown_rx.changed() => break,
                         _ = interval.tick() => {}
                     }
-                    let nodes = svc_clone.0.db.list_nodes().await;
+                    let Ok(nodes) = svc_clone.0.db.list_nodes().await else {
+                        continue;
+                    };
                     for node in nodes {
                         if svc_clone
                             .0
@@ -150,7 +152,7 @@ impl RouteService {
 
         // For wildcard source, create per-node routes for all existing nodes.
         if source_node_id == ALL_NODES_ID {
-            let all_nodes = self.0.db.list_nodes().await;
+            let all_nodes = self.0.db.list_nodes().await?;
             for n in all_nodes {
                 if n.id == dest_node_id {
                     continue;
@@ -180,44 +182,44 @@ impl RouteService {
                 .ok();
         }
 
-        let route_str;
-        match self.0.db.add_route(db_route.clone()).await {
-            Ok(r) => {
-                route_str = r.to_string();
-                tracing::info!("route added: {route_str}");
-            }
-            Err(e) => {
-                // If the route already exists and is marked deleted, clean it up and retry.
-                let unique_id = db_route.compute_id();
-                if let Some(existing) = self.0.db.get_route_by_id(&unique_id).await {
-                    if existing.status == RouteStatus::Deleted {
-                        tracing::warn!("removing stale deleted route {} to allow re-add", existing);
-                        match self.0.db.delete_route(&existing.id).await {
-                            Ok(()) => {}
-                            Err(Error::RouteNotFound { .. }) => {
-                                // Another concurrent task already deleted it — desired state reached.
-                                tracing::debug!(
-                                    "stale deleted route {} already removed by concurrent task",
-                                    existing.id
-                                );
-                            }
-                            Err(e) => return Err(e),
-                        }
-                        let r = self.0.db.add_route(db_route.clone()).await?;
-                        route_str = r.to_string();
-                    } else {
-                        return Err(Error::InvalidInput(format!("failed to add route: {e}")));
+        // Retry once if a stale soft-deleted route blocks insertion. The
+        // get_route_by_id + delete_route + add_route sequence is not atomic, so
+        // a concurrent caller can race; bound retries to 2 attempts.
+        for attempt in 0..2 {
+            match self.0.db.add_route(db_route.clone()).await {
+                Ok(r) => {
+                    let route_str = r.to_string();
+                    tracing::info!("route added: {route_str}");
+                    if db_route.source_node_id != ALL_NODES_ID {
+                        self.0.queue.add(db_route.source_node_id);
                     }
-                } else {
-                    return Err(Error::InvalidInput(format!("failed to add route: {e}")));
+                    return Ok(route_str);
+                }
+                Err(e) => {
+                    let unique_id = db_route.compute_id();
+                    match self.0.db.get_route_by_id(&unique_id).await? {
+                        Some(existing) if existing.status == RouteStatus::Deleted => {
+                            tracing::warn!(
+                                "removing stale deleted route {} to allow re-add (attempt {})",
+                                existing,
+                                attempt + 1
+                            );
+                            match self.0.db.delete_route(&existing.id).await {
+                                Ok(()) | Err(Error::RouteNotFound { .. }) => {}
+                                Err(e) => return Err(e),
+                            }
+                            continue;
+                        }
+                        _ => {
+                            return Err(Error::InvalidInput(format!("failed to add route: {e}")));
+                        }
+                    }
                 }
             }
         }
-
-        if db_route.source_node_id != ALL_NODES_ID {
-            self.0.queue.add(db_route.source_node_id);
-        }
-        Ok(route_str)
+        Err(Error::InvalidInput(
+            "failed to add route after retries".into(),
+        ))
     }
 
     pub async fn delete_route(
@@ -243,7 +245,7 @@ impl RouteService {
                 .0
                 .db
                 .get_route_for_src_dest_name(source_node_id, &name, dest_node_id, None)
-                .await
+                .await?
                 .ok_or(Error::InvalidInput("route not found".to_string()))?;
             self.0.db.delete_route(&db_route.id).await?;
 
@@ -258,7 +260,7 @@ impl RouteService {
                     &route.component_2,
                     route.id.map(|v| v as i64),
                 )
-                .await;
+                .await?;
             for r in per_node {
                 self.delete_single_route(&r.source_node_id, &r.id, &r.to_string())
                     .await?;
@@ -278,7 +280,7 @@ impl RouteService {
             .0
             .db
             .get_route_for_src_dest_name(source_node_id, &name, dest_node_id, Some(&link_id))
-            .await
+            .await?
             .ok_or(Error::InvalidInput("route not found".to_string()))?;
 
         self.delete_single_route(source_node_id, &db_route.id, &db_route.to_string())
@@ -349,7 +351,14 @@ impl RouteService {
         let dp_reported_connections = !dp_connections.is_empty();
 
         // Single pass over all links involving this node.
-        for mut link in self.0.db.get_links_for_node(node_id).await {
+        let links = match self.0.db.get_links_for_node(node_id).await {
+            Ok(l) => l,
+            Err(e) => {
+                tracing::error!("node_registered: get_links_for_node: {e}");
+                return;
+            }
+        };
+        for mut link in links {
             if link.status == LinkStatus::Deleted {
                 self.restore_deleted_link(node_id, &mut link, &mut link_reconcile_nodes)
                     .await;
@@ -371,9 +380,21 @@ impl RouteService {
             }
         }
 
-        let all_nodes = self.0.db.list_nodes().await;
+        let all_nodes = match self.0.db.list_nodes().await {
+            Ok(n) => n,
+            Err(e) => {
+                tracing::error!("node_registered: list_nodes: {e}");
+                return;
+            }
+        };
 
-        let mut node_links = self.0.db.get_links_for_node(node_id).await;
+        let mut node_links = match self.0.db.get_links_for_node(node_id).await {
+            Ok(l) => l,
+            Err(e) => {
+                tracing::error!("node_registered: get_links_for_node: {e}");
+                return;
+            }
+        };
         let (affected_nodes, new_links) = self
             .ensure_links_for_node(node_id, &node_links, &all_nodes, &reported)
             .await;
@@ -383,7 +404,14 @@ impl RouteService {
         node_links.extend(new_links);
 
         // Restore soft-deleted routes where this node is the destination.
-        for route in self.0.db.get_routes_for_dest_node_id(node_id).await {
+        let dest_routes = match self.0.db.get_routes_for_dest_node_id(node_id).await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!("node_registered: get_routes_for_dest_node_id: {e}");
+                return;
+            }
+        };
+        for route in dest_routes {
             if route.status != RouteStatus::Deleted {
                 continue;
             }
@@ -410,7 +438,13 @@ impl RouteService {
 
         // Mark DP-reported routes as Applied to avoid redundant reconciler pushes.
         if !dp_routes.is_empty() {
-            let db_routes = self.0.db.get_routes_for_node(node_id).await;
+            let db_routes = match self.0.db.get_routes_for_node(node_id).await {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::error!("node_registered: get_routes_for_node: {e}");
+                    return;
+                }
+            };
             for db_route in &db_routes {
                 if db_route.status != RouteStatus::Pending {
                     continue;
@@ -583,13 +617,21 @@ impl RouteService {
             self.0.db.get_routes_for_node(node_id),
             self.0.db.get_routes_for_dest_node_id(node_id),
         );
+        let src_routes = match src_routes {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!("node_deregistered: failed to get routes for node {node_id}: {e}");
+                vec![]
+            }
+        };
+        let dest_routes = match dest_routes {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!("node_deregistered: failed to get dest routes for {node_id}: {e}");
+                vec![]
+            }
+        };
 
-        // Hard-delete all routes where this node is the source.  This includes
-        // both wildcard expansions (auto-created) and operator-added concrete
-        // routes.  Operator-added routes are permanently lost and must be
-        // re-added after the node re-registers; wildcard *template* routes
-        // (source=ALL_NODES_ID) are preserved below and re-expanded on
-        // re-registration.
         for route in src_routes {
             if let Err(e) = self.0.db.delete_route(&route.id).await {
                 tracing::warn!(
@@ -618,7 +660,16 @@ impl RouteService {
         }
 
         // Links: process all links involving this node.
-        for mut link in self.0.db.get_links_for_node(node_id).await {
+        let links = self
+            .0
+            .db
+            .get_links_for_node(node_id)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::error!("node_deregistered: failed to get links for {node_id}: {e}");
+                vec![]
+            });
+        for mut link in links {
             if link.status == LinkStatus::Deleted {
                 continue;
             }
@@ -841,6 +892,8 @@ impl RouteService {
                     .db
                     .get_link_for_source_and_endpoint(&src_node.id, &ep)
                     .await
+                    .ok()
+                    .flatten()
                     .filter(|l| l.dest_node_id == dst_node.id)
                     .map(|l| l.link_id)
                     .unwrap_or_else(|| Uuid::new_v4().to_string());
@@ -911,14 +964,16 @@ impl RouteService {
             })
             .collect();
 
-        let wildcard_routes = self.0.db.get_routes_for_node(ALL_NODES_ID).await;
+        let Ok(wildcard_routes) = self.0.db.get_routes_for_node(ALL_NODES_ID).await else {
+            return;
+        };
 
-        // Pre-fetch all existing routes where node_id is source or destination
-        // to avoid O(W×N) individual DB lookups in the loops below.
         let (routes_as_src, routes_as_dest) = tokio::join!(
             self.0.db.get_routes_for_node(node_id),
             self.0.db.get_routes_for_dest_node_id(node_id),
         );
+        let routes_as_src = routes_as_src.unwrap_or_default();
+        let routes_as_dest = routes_as_dest.unwrap_or_default();
 
         type RouteKey = (
             String,
@@ -1058,15 +1113,8 @@ impl RouteService {
         }
     }
 
-    /// Remove the per-node lock entry to prevent `node_locks` from growing
-    /// without bound for crash-disconnected nodes.  For graceful deregisters
-    /// `node_deregistered` already removes the entry; this covers the crash path.
-    pub async fn remove_node_lock(&self, node_id: &str) {
-        self.0.node_locks.lock().await.remove(node_id);
-    }
-
     async fn find_matching_link(&self, source: &str, dest: &str) -> Result<String> {
-        match self.0.db.find_link_between_nodes(source, dest).await {
+        match self.0.db.find_link_between_nodes(source, dest).await? {
             Some(l) if l.status != LinkStatus::Deleted => Ok(l.link_id),
             _ => Err(Error::InvalidInput(format!(
                 "no matching link found for source={source} destination={dest}"
@@ -1137,7 +1185,7 @@ impl RouteService {
             self.0
                 .db
                 .get_node(dest_node_id)
-                .await
+                .await?
                 .ok_or_else(|| Error::NodeNotFound {
                     id: dest_node_id.to_string(),
                 })?;
@@ -1150,7 +1198,7 @@ impl RouteService {
             self.0
                 .db
                 .get_node(source_node_id)
-                .await
+                .await?
                 .ok_or_else(|| Error::NodeNotFound {
                     id: source_node_id.to_string(),
                 })?;

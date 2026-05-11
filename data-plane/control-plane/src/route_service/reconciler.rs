@@ -103,13 +103,13 @@ async fn handle_request(
         return Ok(());
     }
 
-    let mut links = db.get_links_for_node(node_id).await;
-    let routes = db.get_routes_for_node(node_id).await;
+    let mut links = db.get_links_for_node(node_id).await?;
+    let routes = db.get_routes_for_node(node_id).await?;
 
     let (desired_connections, desired_link_ids, deleted_links) =
         build_desired_connections(&mut links, node_id)?;
     let (desired_routes, included_routes, mut needs_requeue) =
-        build_desired_routes(db, &routes, node_id).await;
+        build_desired_routes(db, &routes, node_id).await?;
 
     if desired_connections.is_empty() && desired_routes.is_empty() && deleted_links.is_empty() {
         if needs_requeue {
@@ -214,7 +214,7 @@ async fn build_desired_routes<'a>(
     db: &SharedDb,
     routes: &'a [crate::db::Route],
     _node_id: &str,
-) -> (Vec<Route>, HashMap<SubKey, &'a crate::db::Route>, bool) {
+) -> Result<(Vec<Route>, HashMap<SubKey, &'a crate::db::Route>, bool)> {
     let mut desired_routes: Vec<Route> = Vec::new();
     let mut included_routes: HashMap<SubKey, &crate::db::Route> = HashMap::new();
     let mut needs_requeue = false;
@@ -230,7 +230,7 @@ async fn build_desired_routes<'a>(
                 // No link_id yet, try to find a link in the database.
                 match db
                     .find_link_between_nodes(&route.source_node_id, &route.dest_node_id)
-                    .await
+                    .await?
                 {
                     Some(l) if l.status != LinkStatus::Deleted => {
                         if let Err(e) = db.update_route_link_id(&route.id, &l.link_id).await {
@@ -254,10 +254,13 @@ async fn build_desired_routes<'a>(
             }
         };
 
-        if let Some(l) = db
+        let link_lookup = db
             .get_link(link_id, &route.source_node_id, &route.dest_node_id)
-            .await
-        {
+            .await?
+            .or(db
+                .get_link(link_id, &route.dest_node_id, &route.source_node_id)
+                .await?);
+        if let Some(l) = link_lookup {
             if l.status == LinkStatus::Failed {
                 let msg = if l.status_msg.is_empty() {
                     "link configuration failed"
@@ -300,7 +303,7 @@ async fn build_desired_routes<'a>(
         desired_routes.push(sub);
     }
 
-    (desired_routes, included_routes, needs_requeue)
+    Ok((desired_routes, included_routes, needs_requeue))
 }
 
 // ── Process connection ACKs ────────────────────────────────────────────────
@@ -337,7 +340,7 @@ async fn process_connection_acks(
                 link.dest_node_id
             );
             enqueue_nodes.insert(link.dest_node_id.clone());
-            for r in db.get_routes_by_link_id(&link.link_id).await {
+            for r in db.get_routes_by_link_id(&link.link_id).await? {
                 enqueue_nodes.insert(r.source_node_id.clone());
             }
         } else {
@@ -397,7 +400,7 @@ async fn process_route_acks(
                         "",
                         Some(&link_id),
                     )
-                    .await
+                    .await?
                 {
                     Some(r) => r,
                     None => {
