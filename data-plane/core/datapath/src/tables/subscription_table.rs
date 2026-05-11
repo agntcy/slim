@@ -433,14 +433,14 @@ impl SubscriptionTable for SubscriptionTableImpl {
             return Err(DataPathError::SubscriptionIdNotFound(subscription_id));
         }
 
-        // Remove sub_id from the flat maps.
+        // Remove sub_id from the subscriptions map and the reverse conn_subs map.
         ss.subscriptions.remove(&subscription_id);
         if let Some(subs) = ss.conn_subs.get_mut(&conn) {
             subs.retain(|&s| s != subscription_id);
         }
 
-        // Check whether conn still holds any subscription for this exact name.
-        // O(subs_per_conn) scan; typically < 20 entries.
+        // Check whether the connection is still subscribed to the same encoded name via another
+        // subscription_id.
         let conn_still_subscribed = ss.conn_subs.get(&conn).is_some_and(|subs| {
             subs.iter().any(|&s| {
                 ss.subscriptions
