@@ -231,7 +231,7 @@ jobs:
             find "$RELEASE_DIR" -maxdepth 1 ! -path "$RELEASE_DIR" -ls
             exit 0
           fi
-          find . -name '*slim_bindings*' -type f -exec cp -v {} "$RELEASE_DIR/" \; 2>/dev/null
+          find . -type f \( -name 'libslim_bindings*.so' -o -name 'slim_bindings*.so' \) -exec cp -v {} "$RELEASE_DIR/" \; 2>/dev/null
           [ -n "$(find "$RELEASE_DIR" -mindepth 1 -print -quit 2>/dev/null)" ] || { echo "No library files found."; find . -maxdepth 4 -ls 2>/dev/null | head -80; exit 1; }
           echo "Library files (copied):"
           find "$RELEASE_DIR" -maxdepth 1 ! -path "$RELEASE_DIR" -ls
@@ -309,7 +309,21 @@ jobs:
             find "$RELEASE_DIR" -maxdepth 1 ! -path "$RELEASE_DIR" -ls
             exit 0
           fi
-          find . -name '*slim_bindings*' -type f -exec cp -v {} "$RELEASE_DIR/" \; 2>/dev/null
+          TARGET="${{ matrix.target }}"
+          case "$TARGET" in
+            *-apple-darwin)
+              find . -type f \( -name 'libslim_bindings*.dylib' -o -name 'slim_bindings*.dylib' \) -exec cp -v {} "$RELEASE_DIR/" \;
+              ;;
+            *-linux-gnu|*-linux-musl)
+              find . -type f \( -name 'libslim_bindings*.so' -o -name 'slim_bindings*.so' \) -exec cp -v {} "$RELEASE_DIR/" \;
+              ;;
+            *-windows-msvc|*-windows-gnu)
+              find . -type f \( -name 'slim_bindings*.dll' -o -name '*slim_bindings*.dll' \) -exec cp -v {} "$RELEASE_DIR/" \;
+              ;;
+            *)
+              find . -name '*slim_bindings*' -type f -exec cp -v {} "$RELEASE_DIR/" \; 2>/dev/null
+              ;;
+          esac
           if [ -n "$(find "$RELEASE_DIR" -mindepth 1 -print -quit 2>/dev/null)" ]; then
             echo "Library files (copied):"
             find "$RELEASE_DIR" -maxdepth 1 ! -path "$RELEASE_DIR" -ls
