@@ -224,34 +224,35 @@ async fn build_desired_routes<'a>(
             continue;
         }
 
-        let link_id = &route.link_id;
-
-        if link_id.is_empty() {
-            // Empty link_id, try to find a link in the database
-            match db
-                .find_link_between_nodes(&route.source_node_id, &route.dest_node_id)
-                .await
-            {
-                Some(l) if l.status != LinkStatus::Deleted => {
-                    if let Err(e) = db.update_route_link_id(&route.id, &l.link_id).await {
-                        tracing::warn!(
-                            "reconciler: failed to update route {} link_id: {e}",
-                            route.id
+        let link_id = match route.link_id.as_deref() {
+            Some(id) => id,
+            None => {
+                // No link_id yet, try to find a link in the database.
+                match db
+                    .find_link_between_nodes(&route.source_node_id, &route.dest_node_id)
+                    .await
+                {
+                    Some(l) if l.status != LinkStatus::Deleted => {
+                        if let Err(e) = db.update_route_link_id(&route.id, &l.link_id).await {
+                            tracing::warn!(
+                                "reconciler: failed to update route {} link_id: {e}",
+                                route.id
+                            );
+                        }
+                        needs_requeue = true;
+                    }
+                    _ => {
+                        tracing::debug!(
+                            "reconciler: no link yet for route {} ({}→{}), deferring",
+                            route.id,
+                            route.source_node_id,
+                            route.dest_node_id
                         );
                     }
-                    needs_requeue = true;
                 }
-                _ => {
-                    tracing::debug!(
-                        "reconciler: no link yet for route {} ({}→{}), deferring",
-                        route.id,
-                        route.source_node_id,
-                        route.dest_node_id
-                    );
-                }
+                continue;
             }
-            continue;
-        }
+        };
 
         if let Some(l) = db
             .get_link(link_id, &route.source_node_id, &route.dest_node_id)
@@ -284,7 +285,7 @@ async fn build_desired_routes<'a>(
             component_1: route.component1.clone(),
             component_2: route.component2.clone(),
             id: route.component_id.map(|v| v as u64),
-            link_id: Some(link_id.clone()),
+            link_id: Some(link_id.to_string()),
             ..Default::default()
         };
 
@@ -293,7 +294,7 @@ async fn build_desired_routes<'a>(
             route.component1.clone(),
             route.component2.clone(),
             route.component_id.map(|v| v as u64),
-            link_id.clone(),
+            link_id.to_string(),
         );
         included_routes.insert(key, route);
         desired_routes.push(sub);
@@ -394,7 +395,7 @@ async fn process_route_acks(
                             component_id: sub.id.map(|v| v as i64),
                         },
                         "",
-                        &link_id,
+                        Some(&link_id),
                     )
                     .await
                 {
@@ -413,9 +414,9 @@ async fn process_route_acks(
         } else {
             let err_msg = route_ack.error_msg.clone();
 
-            if !route.link_id.is_empty() && is_connection_not_found(&err_msg) {
+            if route.link_id.is_some() && is_connection_not_found(&err_msg) {
                 tracing::warn!(
-                    "reconciler: connection not found for route {} (link {}) — requeuing",
+                    "reconciler: connection not found for route {} (link {:?}) — requeuing",
                     route.id,
                     route.link_id
                 );

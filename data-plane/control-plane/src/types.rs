@@ -28,7 +28,7 @@ impl ProtoRoute {
             id: String::new(),
             source_node_id: source_node_id.to_string(),
             dest_node_id: dest_node_id.to_string(),
-            link_id: String::new(),
+            link_id: None,
             component0: self.component_0.clone(),
             component1: self.component_1.clone(),
             component2: self.component_2.clone(),

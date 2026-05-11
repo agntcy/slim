@@ -34,7 +34,7 @@ struct State<T> {
     dirty: HashSet<T>,
     shutdown: bool,
     /// True while shutdown_with_drain is waiting. Set to false by shutdown() to
-    /// cancel the drain, matching k8s ShutDown() cancelling ShutDownWithDrain().
+    /// cancel the drain
     drain: bool,
 }
 

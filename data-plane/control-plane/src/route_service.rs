@@ -18,7 +18,7 @@ use crate::api::proto::controller::proto::v1::{
     ConnectionDirection, ConnectionListResponse, ControlMessage, Route as ProtoRoute,
     RouteListResponse, control_message::Payload,
 };
-use crate::db::{LinkStatus, RouteName, RouteStatus, SharedDb};
+use crate::db::{LinkStatus, Route, RouteName, RouteStatus, SharedDb};
 use crate::node_transport::{DefaultNodeCommandHandler, ResponseKind};
 
 pub use crate::types::ALL_NODES_ID;
@@ -43,15 +43,17 @@ struct Inner {
     /// race: node_deregistered deletes links while node_registered is recreating
     /// them, leaving stale link records for a disconnected node.
     node_locks: tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
-    /// Outgoing connections reported by DP nodes during registration.
-    /// Used to adopt static connections instead of generating new config.
-    reported_connections: parking_lot::RwLock<HashMap<String, Vec<ReportedConnection>>>,
 }
 
 #[derive(Clone)]
 pub struct RouteService(Arc<Inner>);
 
-async fn save_link(db: &SharedDb, link: &mut crate::db::Link, status: LinkStatus, ctx: &str) -> bool {
+async fn save_link(
+    db: &SharedDb,
+    link: &mut crate::db::Link,
+    status: LinkStatus,
+    ctx: &str,
+) -> bool {
     link.status = status;
     link.status_msg = String::new();
     link.last_updated = SystemTime::now();
@@ -89,7 +91,6 @@ impl RouteService {
             queue,
             shutdown_tx,
             node_locks: tokio::sync::Mutex::new(HashMap::new()),
-            reported_connections: parking_lot::RwLock::new(HashMap::new()),
         }));
 
         // Periodic full-sweep reconciliation with clean shutdown support.
@@ -154,9 +155,9 @@ impl RouteService {
                 if n.id == dest_node_id {
                     continue;
                 }
-                let per_node = crate::db::Route {
+                let per_node = Route {
                     source_node_id: n.id.clone(),
-                    link_id: String::new(),
+                    link_id: None,
                     status: RouteStatus::Pending,
                     ..route.to_db_route(source_node_id, dest_node_id)
                 };
@@ -169,14 +170,14 @@ impl RouteService {
         Ok(route_id)
     }
 
-    async fn add_single_route(&self, mut db_route: crate::db::Route) -> Result<String> {
+    async fn add_single_route(&self, mut db_route: Route) -> Result<String> {
         // Try to resolve the link_id now; if no link exists yet, store the
-        // route with an empty link_id — the reconciler will resolve it later.
+        // route with link_id=None — the reconciler will resolve it later.
         if db_route.source_node_id != ALL_NODES_ID {
             db_route.link_id = self
                 .find_matching_link(&db_route.source_node_id, &db_route.dest_node_id)
                 .await
-                .unwrap_or_default();
+                .ok();
         }
 
         let route_str;
@@ -241,7 +242,7 @@ impl RouteService {
             let db_route = self
                 .0
                 .db
-                .get_route_for_src_dest_name(source_node_id, &name, dest_node_id, "")
+                .get_route_for_src_dest_name(source_node_id, &name, dest_node_id, None)
                 .await
                 .ok_or(Error::InvalidInput("route not found".to_string()))?;
             self.0.db.delete_route(&db_route.id).await?;
@@ -267,13 +268,16 @@ impl RouteService {
 
         let link_id = match route.link_id.as_deref().filter(|s| !s.is_empty()) {
             Some(id) => id.to_string(),
-            None => self.find_matching_link(source_node_id, dest_node_id).await?,
+            None => {
+                self.find_matching_link(source_node_id, dest_node_id)
+                    .await?
+            }
         };
 
         let db_route = self
             .0
             .db
-            .get_route_for_src_dest_name(source_node_id, &name, dest_node_id, &link_id)
+            .get_route_for_src_dest_name(source_node_id, &name, dest_node_id, Some(&link_id))
             .await
             .ok_or(Error::InvalidInput("route not found".to_string()))?;
 
@@ -339,13 +343,7 @@ impl RouteService {
                 });
             }
         }
-        self.0
-            .reported_connections
-            .write()
-            .insert(node_id.to_string(), reported);
-
-        let mut link_reconcile_nodes: HashSet<String> =
-            HashSet::new();
+        let mut link_reconcile_nodes: HashSet<String> = HashSet::new();
 
         // True only when the DP explicitly sent a non-empty connections list.
         let dp_reported_connections = !dp_connections.is_empty();
@@ -353,11 +351,11 @@ impl RouteService {
         // Single pass over all links involving this node.
         for mut link in self.0.db.get_links_for_node(node_id).await {
             if link.status == LinkStatus::Deleted {
-                // Restore soft-deleted links (preserved during deregister to keep link_id).
                 self.restore_deleted_link(node_id, &mut link, &mut link_reconcile_nodes)
                     .await;
-            } else if link.dest_node_id == node_id {
-                // Incoming link: sync status based on DP report.
+            }
+
+            if link.dest_node_id == node_id {
                 self.handle_incoming_link_on_register(
                     node_id,
                     &mut link,
@@ -368,8 +366,8 @@ impl RouteService {
                 )
                 .await;
             } else if link.source_node_id == node_id {
-                // Outgoing link: try to adopt a static DP connection.
-                self.adopt_static_connection(node_id, &mut link).await;
+                self.adopt_static_connection(node_id, &mut link, &reported)
+                    .await;
             }
         }
 
@@ -377,7 +375,7 @@ impl RouteService {
 
         let mut node_links = self.0.db.get_links_for_node(node_id).await;
         let (affected_nodes, new_links) = self
-            .ensure_links_for_node(node_id, &node_links, &all_nodes)
+            .ensure_links_for_node(node_id, &node_links, &all_nodes, &reported)
             .await;
         for nid in affected_nodes {
             link_reconcile_nodes.insert(nid);
@@ -397,9 +395,10 @@ impl RouteService {
                             || (l.source_node_id == node_id
                                 && l.dest_node_id == route.source_node_id))
                 })
-                .map(|l| l.link_id.clone())
-                .unwrap_or_else(|| route.link_id.clone());
-            if let Err(e) = self.0.db.restore_route(&route.id, &link_id).await {
+                .map(|l| l.link_id.as_str())
+                .or(route.link_id.as_deref())
+                .unwrap_or_default();
+            if let Err(e) = self.0.db.restore_route(&route.id, link_id).await {
                 tracing::warn!("node_registered: failed to restore route {}: {e}", route.id);
             } else {
                 self.0.queue.add(route.source_node_id.clone());
@@ -420,7 +419,7 @@ impl RouteService {
                     dp.component_0 == db_route.component0
                         && dp.component_1 == db_route.component1
                         && dp.component_2 == db_route.component2
-                        && dp.link_id.as_deref() == Some(db_route.link_id.as_str())
+                        && dp.link_id.as_deref() == db_route.link_id.as_deref()
                 });
                 if matched && let Err(e) = self.0.db.mark_route_applied(&db_route.id).await {
                     tracing::warn!(
@@ -449,61 +448,78 @@ impl RouteService {
         active_link_ids: &HashSet<String>,
         link_reconcile_nodes: &mut HashSet<String>,
     ) {
-        let dp_says_alive =
-            !conn_details_updated && dp_reported_connections && active_link_ids.contains(&link.link_id);
-        let dp_says_dead =
-            !conn_details_updated && dp_reported_connections && !active_link_ids.contains(&link.link_id);
-
-        if dp_says_alive {
+        // DP confirms this link is still active and endpoint hasn't changed.
+        if !conn_details_updated
+            && dp_reported_connections
+            && active_link_ids.contains(&link.link_id)
+        {
             if link.status != LinkStatus::Applied {
-                save_link(&self.0.db, link, LinkStatus::Applied, &format!(
-                    "failed to mark link {} applied", link.link_id
-                )).await;
+                save_link(
+                    &self.0.db,
+                    link,
+                    LinkStatus::Applied,
+                    &format!("failed to mark link {} applied", link.link_id),
+                )
+                .await;
             }
             self.0.queue.add(link.source_node_id.clone());
-        } else if !conn_details_updated && !dp_says_dead && link.status == LinkStatus::Applied {
-            tracing::debug!(
-                "node_registered: link {} still Applied and endpoint unchanged, skipping link reconcile",
-                link.link_id
-            );
+            return;
+        }
+
+        // Nothing changed and link is already Applied — just enqueue reconciliation.
+        if !conn_details_updated && link.status == LinkStatus::Applied {
             self.0.queue.add(link.source_node_id.clone());
-        } else {
-            if conn_details_updated {
-                match self
-                    .get_connection_details(&link.source_node_id, node_id)
-                    .await
-                {
-                    Ok((endpoint, config_data)) => {
-                        link.dest_endpoint = endpoint;
-                        link.conn_config_data = config_data;
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "node_registered: failed to get connection details for {} -> {node_id}: {e}",
-                            link.source_node_id
-                        );
-                    }
+            return;
+        }
+
+        // Endpoint changed or DP says link is dead — refresh config and reset to Pending.
+        if conn_details_updated {
+            match self
+                .get_connection_details(&link.source_node_id, node_id)
+                .await
+            {
+                Ok((endpoint, config_data)) => {
+                    link.dest_endpoint = endpoint;
+                    link.conn_config_data = config_data;
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "node_registered: failed to get connection details for {} -> {node_id}: {e}",
+                        link.source_node_id
+                    );
                 }
             }
-            if link.status != LinkStatus::Pending || conn_details_updated {
-                save_link(&self.0.db, link, LinkStatus::Pending, &format!(
-                    "failed to reset link {} to pending", link.link_id
-                )).await;
-            }
-            link_reconcile_nodes.insert(link.source_node_id.clone());
         }
+        save_link(
+            &self.0.db,
+            link,
+            LinkStatus::Pending,
+            &format!("failed to reset link {} to pending", link.link_id),
+        )
+        .await;
+        link_reconcile_nodes.insert(link.source_node_id.clone());
     }
 
     /// Try to adopt a static DP connection for an outgoing link from this node.
-    async fn adopt_static_connection(&self, node_id: &str, link: &mut crate::db::Link) {
-        let Some(rc) = self.find_reported_connection(node_id, &link.dest_endpoint) else {
+    async fn adopt_static_connection(
+        &self,
+        node_id: &str,
+        link: &mut crate::db::Link,
+        reported: &[ReportedConnection],
+    ) {
+        let Some(rc) = find_reported_connection(reported, &link.dest_endpoint) else {
             return;
         };
         if link.link_id != rc.link_id || link.conn_config_data != rc.config_data {
             link.link_id = rc.link_id.clone();
             link.conn_config_data = rc.config_data.clone();
-            save_link(&self.0.db, link, LinkStatus::Applied,
-                "failed to adopt static connection for link").await;
+            save_link(
+                &self.0.db,
+                link,
+                LinkStatus::Applied,
+                "failed to adopt static connection for link",
+            )
+            .await;
         } else if link.status != LinkStatus::Applied {
             link.status = LinkStatus::Applied;
             link.last_updated = SystemTime::now();
@@ -520,28 +536,20 @@ impl RouteService {
         link_reconcile_nodes: &mut HashSet<String>,
     ) {
         let (source_id, reconcile_id) = if link.source_node_id == node_id {
-            // Outgoing: refresh endpoint from the destination node.
-            if let Some(dest_node) = self.0.db.get_node(&link.dest_node_id).await
-                && let Ok((endpoint, config_data)) =
-                    self.get_connection_details(node_id, &dest_node.id).await
-            {
-                link.dest_endpoint = endpoint;
-                link.conn_config_data = config_data;
-            }
             (node_id, node_id.to_string())
         } else if link.dest_node_id == node_id {
-            // Incoming: refresh endpoint (this node's address may have changed).
-            if let Ok((endpoint, config_data)) = self
-                .get_connection_details(&link.source_node_id, node_id)
-                .await
-            {
-                link.dest_endpoint = endpoint;
-                link.conn_config_data = config_data;
-            }
-            (&*link.source_node_id, link.source_node_id.clone())
+            (link.source_node_id.as_str(), link.source_node_id.clone())
         } else {
             return;
         };
+
+        if let Ok((endpoint, config_data)) = self
+            .get_connection_details(&link.source_node_id, &link.dest_node_id)
+            .await
+        {
+            link.dest_endpoint = endpoint;
+            link.conn_config_data = config_data;
+        }
 
         if save_link(
             &self.0.db,
@@ -569,8 +577,6 @@ impl RouteService {
         let _node_guard = node_lock.lock().await;
 
         tracing::info!("route service: cleaning up state for deregistered node {node_id}");
-
-        self.0.reported_connections.write().remove(node_id);
 
         // Fetch both route sets concurrently.
         let (src_routes, dest_routes) = tokio::join!(
@@ -674,6 +680,7 @@ impl RouteService {
         node_id: &str,
         existing_links: &[crate::db::Link],
         all_nodes: &[crate::db::Node],
+        reported: &[ReportedConnection],
     ) -> (Vec<String>, Vec<crate::db::Link>) {
         let src_node = match all_nodes.iter().find(|n| n.id == node_id) {
             Some(n) => n.clone(),
@@ -682,8 +689,7 @@ impl RouteService {
                 return (vec![node_id.to_string()], vec![]);
             }
         };
-        let mut affected: HashSet<String> =
-            [node_id.to_string()].into_iter().collect();
+        let mut affected: HashSet<String> = [node_id.to_string()].into_iter().collect();
         let mut new_links: Vec<crate::db::Link> = Vec::new();
 
         let connected_peers: HashSet<String> = existing_links
@@ -714,7 +720,8 @@ impl RouteService {
             }
             let same_group = src_node.group_name == other.group_name;
             if same_group {
-                if let Some((src, link)) = self.ensure_direct_link(&src_node, other).await {
+                if let Some((src, link)) = self.ensure_direct_link(&src_node, other, reported).await
+                {
                     affected.insert(src);
                     new_links.extend(link);
                 }
@@ -727,14 +734,16 @@ impl RouteService {
                     .unwrap_or(false)
             });
             if has_dst_external {
-                if let Some((src, link)) = self.ensure_group_link(&src_node, other).await {
+                if let Some((src, link)) = self.ensure_group_link(&src_node, other, reported).await
+                {
                     affected.insert(src);
                     new_links.extend(link);
                 }
                 continue;
             }
             if has_src_external {
-                if let Some((src, link)) = self.ensure_group_link(other, &src_node).await {
+                if let Some((src, link)) = self.ensure_group_link(other, &src_node, reported).await
+                {
                     affected.insert(src);
                     new_links.extend(link);
                 }
@@ -752,9 +761,10 @@ impl RouteService {
         &self,
         src_node: &crate::db::Node,
         dst_node: &crate::db::Node,
+        reported: &[ReportedConnection],
     ) -> Option<(String, Option<crate::db::Link>)> {
         let (endpoint, config_data, link_id, status) = if let Some(rc) =
-            self.find_reported_connection_for_dest(&src_node.id, dst_node)
+            find_reported_connection_for_dest(reported, dst_node)
         {
             (
                 rc.endpoint.clone(),
@@ -807,9 +817,10 @@ impl RouteService {
         &self,
         src_node: &crate::db::Node,
         dst_node: &crate::db::Node,
+        reported: &[ReportedConnection],
     ) -> Option<(String, Option<crate::db::Link>)> {
         let (endpoint, config_data, link_id, status) =
-            if let Some(rc) = self.find_reported_connection_for_dest(&src_node.id, dst_node) {
+            if let Some(rc) = find_reported_connection_for_dest(reported, dst_node) {
                 (
                     rc.endpoint.clone(),
                     rc.config_data.clone(),
@@ -909,7 +920,15 @@ impl RouteService {
             self.0.db.get_routes_for_dest_node_id(node_id),
         );
 
-        type RouteKey = (String, String, String, String, String, Option<i64>, String);
+        type RouteKey = (
+            String,
+            String,
+            String,
+            String,
+            String,
+            Option<i64>,
+            Option<String>,
+        );
         let existing_routes: HashSet<RouteKey> = routes_as_src
             .iter()
             .chain(routes_as_dest.iter())
@@ -949,16 +968,16 @@ impl RouteService {
                 r.component1.clone(),
                 r.component2.clone(),
                 r.component_id,
-                link_id.clone(),
+                Some(link_id.clone()),
             );
             if existing_routes.contains(&key) {
                 continue;
             }
-            let new_route = crate::db::Route {
+            let new_route = Route {
                 id: String::new(),
                 source_node_id: node_id.to_string(),
                 dest_node_id: r.dest_node_id.clone(),
-                link_id,
+                link_id: Some(link_id),
                 component0: r.component0.clone(),
                 component1: r.component1.clone(),
                 component2: r.component2.clone(),
@@ -976,7 +995,7 @@ impl RouteService {
 
         // Pass 2: node_id as destination — expand wildcards targeting node_id for
         // every peer that doesn't already have a route pointing here.
-        let wildcard_for_self: Vec<&crate::db::Route> = wildcard_routes
+        let wildcard_for_self: Vec<&Route> = wildcard_routes
             .iter()
             .filter(|r| r.dest_node_id == node_id)
             .collect();
@@ -1007,16 +1026,16 @@ impl RouteService {
                     r.component1.clone(),
                     r.component2.clone(),
                     r.component_id,
-                    link_id.clone(),
+                    Some(link_id.clone()),
                 );
                 if existing_routes.contains(&key) {
                     continue;
                 }
-                let new_route = crate::db::Route {
+                let new_route = Route {
                     id: String::new(),
                     source_node_id: other.id.clone(),
                     dest_node_id: node_id.to_string(),
-                    link_id,
+                    link_id: Some(link_id),
                     component0: r.component0.clone(),
                     component1: r.component1.clone(),
                     component2: r.component2.clone(),
@@ -1137,42 +1156,6 @@ impl RouteService {
                 })?;
 
         compute_connection_details(&src_node, &dest_node)
-    }
-
-    fn find_reported_connection(
-        &self,
-        node_id: &str,
-        dest_endpoint: &str,
-    ) -> Option<ReportedConnection> {
-        let conns = self.0.reported_connections.read();
-        let node_conns = conns.get(node_id)?;
-        node_conns
-            .iter()
-            .find(|rc| endpoint_matches(&rc.endpoint, dest_endpoint))
-            .cloned()
-    }
-
-    fn find_reported_connection_for_dest(
-        &self,
-        source_node_id: &str,
-        dst_node: &crate::db::Node,
-    ) -> Option<ReportedConnection> {
-        let conns = self.0.reported_connections.read();
-        let node_conns = conns.get(source_node_id)?;
-        for rc in node_conns {
-            for detail in &dst_node.conn_details {
-                if endpoint_matches(&rc.endpoint, &detail.endpoint) {
-                    return Some(rc.clone());
-                }
-                if let Some(ext) = &detail.external_endpoint
-                    && !ext.is_empty()
-                    && endpoint_matches(&rc.endpoint, ext)
-                {
-                    return Some(rc.clone());
-                }
-            }
-        }
-        None
     }
 }
 
@@ -1315,6 +1298,35 @@ fn generate_config_data(
     };
 
     Ok((effective_endpoint, client_config))
+}
+
+fn find_reported_connection<'a>(
+    reported: &'a [ReportedConnection],
+    dest_endpoint: &str,
+) -> Option<&'a ReportedConnection> {
+    reported
+        .iter()
+        .find(|rc| endpoint_matches(&rc.endpoint, dest_endpoint))
+}
+
+fn find_reported_connection_for_dest<'a>(
+    reported: &'a [ReportedConnection],
+    dst_node: &crate::db::Node,
+) -> Option<&'a ReportedConnection> {
+    for rc in reported {
+        for detail in &dst_node.conn_details {
+            if endpoint_matches(&rc.endpoint, &detail.endpoint) {
+                return Some(rc);
+            }
+            if let Some(ext) = &detail.external_endpoint
+                && !ext.is_empty()
+                && endpoint_matches(&rc.endpoint, ext)
+            {
+                return Some(rc);
+            }
+        }
+    }
+    None
 }
 
 pub(crate) fn is_connection_not_found(msg: &str) -> bool {
@@ -1519,7 +1531,12 @@ mod tests {
         };
         let result = svc.delete_route("src", "", &route).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("destination node ID"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("destination node ID")
+        );
     }
 
     #[tokio::test]

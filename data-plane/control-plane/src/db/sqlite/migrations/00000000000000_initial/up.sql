@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS routes (
     id TEXT NOT NULL PRIMARY KEY,
     source_node_id TEXT NOT NULL,
     dest_node_id TEXT NOT NULL,
-    link_id TEXT NOT NULL,
+    link_id TEXT,
     component0 TEXT NOT NULL,
     component1 TEXT NOT NULL,
     component2 TEXT NOT NULL,

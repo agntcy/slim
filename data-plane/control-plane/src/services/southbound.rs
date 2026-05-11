@@ -236,7 +236,7 @@ async fn build_node_connections(
 async fn build_node_routes(db: &SharedDb, node_id: &str) -> Vec<ProtoRoute> {
     let mut routes = Vec::new();
     for route in db.get_routes_for_node(node_id).await {
-        if route.status == RouteStatus::Deleted || route.link_id.is_empty() {
+        if route.status == RouteStatus::Deleted || route.link_id.is_none() {
             continue;
         }
         routes.push(ProtoRoute {
@@ -244,7 +244,7 @@ async fn build_node_routes(db: &SharedDb, node_id: &str) -> Vec<ProtoRoute> {
             component_1: route.component1.clone(),
             component_2: route.component2.clone(),
             id: route.component_id.map(|v| v as u64),
-            link_id: Some(route.link_id.clone()),
+            link_id: route.link_id.clone(),
             ..Default::default()
         });
     }
@@ -288,9 +288,7 @@ async fn handle_node_messages(
             Some(Payload::ConfigCommand(cc)) => {
                 for sub in &cc.routes_to_set {
                     if sub.link_id.is_none()
-                        && let Err(e) = route_service
-                            .add_route(ALL_NODES_ID, node_id, sub)
-                            .await
+                        && let Err(e) = route_service.add_route(ALL_NODES_ID, node_id, sub).await
                     {
                         tracing::debug!("southbound: error adding route: {e}");
                     }

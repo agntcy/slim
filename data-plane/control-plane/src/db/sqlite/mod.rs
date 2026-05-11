@@ -231,20 +231,17 @@ impl DataAccess for SqliteDb {
             .values(route.clone())
             .execute(&mut conn)
             .await
-            .map_err(|e| {
-                // UNIQUE constraint violation on the primary key means the route
-                // already exists — surface the typed error so callers can match on it.
-                let msg = e.to_string();
-                if msg.contains("UNIQUE constraint failed") || msg.contains("AlreadyExists") {
-                    Error::RouteAlreadyExists {
-                        id: route.to_string(),
-                    }
-                } else {
-                    Error::DbError {
-                        context: "add_route",
-                        msg,
-                    }
-                }
+            .map_err(|e| match e {
+                diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::UniqueViolation,
+                    _,
+                ) => Error::RouteAlreadyExists {
+                    id: route.to_string(),
+                },
+                other => Error::DbError {
+                    context: "add_route",
+                    msg: other.to_string(),
+                },
             })?;
         Ok(route)
     }
@@ -314,7 +311,7 @@ impl DataAccess for SqliteDb {
         src_node_id: &str,
         name: &RouteName<'_>,
         dest_node_id: &str,
-        link_id: &str,
+        link_id: Option<&str>,
     ) -> Option<Route> {
         let Ok(mut conn) = self.pool.get().await else {
             return None;
@@ -328,8 +325,8 @@ impl DataAccess for SqliteDb {
         if !dest_node_id.is_empty() {
             q = q.filter(routes::dest_node_id.eq(dest_node_id));
         }
-        if !link_id.is_empty() {
-            q = q.filter(routes::link_id.eq(link_id));
+        if let Some(lid) = link_id {
+            q = q.filter(routes::link_id.eq(lid));
         }
         if let Some(id) = name.component_id {
             q = q.filter(routes::component_id.eq(id));
@@ -499,7 +496,7 @@ impl DataAccess for SqliteDb {
         })?;
         let n = diesel::update(routes::table.find(route_id))
             .set((
-                routes::link_id.eq(link_id),
+                routes::link_id.eq(Some(link_id)),
                 routes::status.eq(RouteStatus::Pending),
                 routes::last_updated.eq(ts),
             ))
@@ -527,7 +524,7 @@ impl DataAccess for SqliteDb {
             .set((
                 routes::status.eq(RouteStatus::Pending),
                 routes::status_msg.eq(""),
-                routes::link_id.eq(link_id),
+                routes::link_id.eq(Some(link_id)),
                 routes::last_updated.eq(ts),
             ))
             .execute(&mut conn)
@@ -915,7 +912,7 @@ mod tests {
             id: String::new(),
             source_node_id: src.to_string(),
             dest_node_id: dst.to_string(),
-            link_id: link.to_string(),
+            link_id: Some(link.to_string()),
             component0: "org".to_string(),
             component1: "ns".to_string(),
             component2: "svc".to_string(),
@@ -1079,7 +1076,7 @@ mod tests {
             component_id: Some(1),
         };
         let found = db
-            .get_route_for_src_dest_name("src", &name, "dst", "lnk")
+            .get_route_for_src_dest_name("src", &name, "dst", Some("lnk"))
             .await;
         assert!(found.is_some());
         assert_eq!(found.unwrap().id, r.id);

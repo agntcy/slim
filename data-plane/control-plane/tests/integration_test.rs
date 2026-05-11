@@ -1760,7 +1760,11 @@ async fn test_subscription_survives_cp_restart() {
     )
     .await;
 
-    print_state(&mut client, "subscription_survives_cp_restart: before CP shutdown").await;
+    print_state(
+        &mut client,
+        "subscription_survives_cp_restart: before CP shutdown",
+    )
+    .await;
 
     // Phase 2: Shut down CP, verify nodes reconnect and routes persist.
     cp.shutdown().await;
@@ -1807,7 +1811,11 @@ async fn test_subscription_survives_cp_restart() {
     )
     .await;
 
-    print_state(&mut client2, "subscription_survives_cp_restart: after CP restart").await;
+    print_state(
+        &mut client2,
+        "subscription_survives_cp_restart: after CP restart",
+    )
+    .await;
 
     app_a.shutdown().await.ok();
     app_b.shutdown().await.ok();

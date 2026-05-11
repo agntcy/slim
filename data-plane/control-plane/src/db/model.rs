@@ -285,7 +285,7 @@ pub struct Route {
     pub id: String,
     pub source_node_id: String,
     pub dest_node_id: String,
-    pub link_id: String,
+    pub link_id: Option<String>,
     pub component0: String,
     pub component1: String,
     pub component2: String,
@@ -306,12 +306,13 @@ impl Route {
         component2: &str,
         component_id: Option<i64>,
         dest_node_id: &str,
-        link_id: &str,
+        link_id: Option<&str>,
     ) -> String {
         let sep = '\x00';
         let comp_id = component_id.map(|v| v.to_string()).unwrap_or_default();
+        let lid = link_id.unwrap_or_default();
         let combined = format!(
-            "{source_node_id}{sep}{component0}{sep}{component1}{sep}{component2}{sep}{comp_id}{sep}{dest_node_id}{sep}{link_id}"
+            "{source_node_id}{sep}{component0}{sep}{component1}{sep}{component2}{sep}{comp_id}{sep}{dest_node_id}{sep}{lid}"
         );
         uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, combined.as_bytes()).to_string()
     }
@@ -324,7 +325,7 @@ impl Route {
             &self.component2,
             self.component_id,
             &self.dest_node_id,
-            &self.link_id,
+            self.link_id.as_deref(),
         )
     }
 }
@@ -340,7 +341,7 @@ impl std::fmt::Display for Route {
             self.component2,
             self.component_id,
             self.dest_node_id,
-            self.link_id,
+            self.link_id.as_deref().unwrap_or(""),
         )
     }
 }
@@ -423,7 +424,7 @@ mod tests {
             id: String::new(),
             source_node_id: src.to_string(),
             dest_node_id: dest.to_string(),
-            link_id: link.to_string(),
+            link_id: Some(link.to_string()),
             component0: "org".to_string(),
             component1: "ns".to_string(),
             component2: "type".to_string(),
@@ -439,28 +440,28 @@ mod tests {
 
     #[test]
     fn unique_id_is_deterministic() {
-        let a = Route::unique_id("src", "c0", "c1", "c2", Some(7), "dst", "link1");
-        let b = Route::unique_id("src", "c0", "c1", "c2", Some(7), "dst", "link1");
+        let a = Route::unique_id("src", "c0", "c1", "c2", Some(7), "dst", Some("link1"));
+        let b = Route::unique_id("src", "c0", "c1", "c2", Some(7), "dst", Some("link1"));
         assert_eq!(a, b);
     }
 
     #[test]
     fn unique_id_differs_for_different_inputs() {
-        let a = Route::unique_id("src", "c0", "c1", "c2", Some(1), "dst", "link1");
-        let b = Route::unique_id("src", "c0", "c1", "c2", Some(2), "dst", "link1");
+        let a = Route::unique_id("src", "c0", "c1", "c2", Some(1), "dst", Some("link1"));
+        let b = Route::unique_id("src", "c0", "c1", "c2", Some(2), "dst", Some("link1"));
         assert_ne!(a, b);
 
-        let c = Route::unique_id("src", "c0", "c1", "c2", None, "dst", "link1");
+        let c = Route::unique_id("src", "c0", "c1", "c2", None, "dst", Some("link1"));
         assert_ne!(a, c);
 
-        let d = Route::unique_id("OTHER", "c0", "c1", "c2", Some(1), "dst", "link1");
+        let d = Route::unique_id("OTHER", "c0", "c1", "c2", Some(1), "dst", Some("link1"));
         assert_ne!(a, d);
     }
 
     #[test]
     fn unique_id_is_valid_uuid() {
         for _ in 0..50 {
-            let id = Route::unique_id("s", "a", "b", "c", None, "d", "e");
+            let id = Route::unique_id("s", "a", "b", "c", None, "d", Some("e"));
             assert!(uuid::Uuid::parse_str(&id).is_ok(), "must be a valid UUID");
         }
     }
@@ -475,7 +476,7 @@ mod tests {
             &r.component2,
             r.component_id,
             &r.dest_node_id,
-            &r.link_id,
+            r.link_id.as_deref(),
         );
         assert_eq!(r.compute_id(), expected);
     }

@@ -44,7 +44,7 @@ pub trait DataAccess: Send + Sync {
         src_node_id: &str,
         name: &RouteName<'_>,
         dest_node_id: &str,
-        link_id: &str,
+        link_id: Option<&str>,
     ) -> Option<Route>;
     async fn filter_routes_by_src_dest(
         &self,

@@ -220,7 +220,7 @@ impl ControlPlaneService for NorthboundApiService {
                     id: r.id.clone(),
                     source_node_id: r.source_node_id.clone(),
                     dest_node_id: r.dest_node_id.clone(),
-                    link_id: r.link_id.clone(),
+                    link_id: r.link_id.clone().unwrap_or_default(),
                     component_0: r.component0.clone(),
                     component_1: r.component1.clone(),
                     component_2: r.component2.clone(),

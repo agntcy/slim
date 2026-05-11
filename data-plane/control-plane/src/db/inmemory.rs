@@ -48,9 +48,9 @@ impl RouteStore {
             .entry(route.dest_node_id.clone())
             .or_default()
             .insert(route.id.clone());
-        if !route.link_id.is_empty() {
+        if let Some(ref lid) = route.link_id {
             self.by_link
-                .entry(route.link_id.clone())
+                .entry(lid.clone())
                 .or_default()
                 .insert(route.id.clone());
         }
@@ -69,12 +69,12 @@ impl RouteStore {
                 self.by_dest.remove(&route.dest_node_id);
             }
         }
-        if !route.link_id.is_empty()
-            && let Some(set) = self.by_link.get_mut(&route.link_id)
+        if let Some(ref lid) = route.link_id
+            && let Some(set) = self.by_link.get_mut(lid)
         {
             set.remove(&route.id);
             if set.is_empty() {
-                self.by_link.remove(&route.link_id);
+                self.by_link.remove(lid);
             }
         }
     }
@@ -330,7 +330,7 @@ impl DataAccess for InMemoryDb {
         src_node_id: &str,
         name: &RouteName<'_>,
         dest_node_id: &str,
-        link_id: &str,
+        link_id: Option<&str>,
     ) -> Option<Route> {
         let store = self.routes.read();
         store
@@ -340,7 +340,7 @@ impl DataAccess for InMemoryDb {
             .filter_map(|id| store.primary.get(id))
             .find(|r| {
                 (dest_node_id.is_empty() || r.dest_node_id == dest_node_id)
-                    && (link_id.is_empty() || r.link_id == link_id)
+                    && (link_id.is_none() || r.link_id.as_deref() == link_id)
                     && r.component0 == name.component0
                     && r.component1 == name.component1
                     && r.component2 == name.component2
@@ -505,7 +505,7 @@ impl DataAccess for InMemoryDb {
             .ok_or_else(|| Error::RouteNotFound {
                 id: route_id.to_string(),
             })?;
-        route.link_id = link_id.to_string();
+        route.link_id = Some(link_id.to_string());
         route.status = RouteStatus::Pending;
         route.last_updated = SystemTime::now();
         Ok(())
@@ -521,7 +521,7 @@ impl DataAccess for InMemoryDb {
             })?;
         route.status = RouteStatus::Pending;
         route.status_msg = String::new();
-        route.link_id = link_id.to_string();
+        route.link_id = Some(link_id.to_string());
         route.last_updated = SystemTime::now();
         Ok(())
     }
@@ -764,7 +764,7 @@ mod tests {
             id: String::new(),
             source_node_id: src.to_string(),
             dest_node_id: dst.to_string(),
-            link_id: link.to_string(),
+            link_id: Some(link.to_string()),
             component0: "org".to_string(),
             component1: "ns".to_string(),
             component2: "svc".to_string(),
@@ -921,7 +921,7 @@ mod tests {
             component_id: Some(1),
         };
         let found = db
-            .get_route_for_src_dest_name("src", &name, "dst", "lnk")
+            .get_route_for_src_dest_name("src", &name, "dst", Some("lnk"))
             .await;
         assert!(found.is_some());
         assert_eq!(found.unwrap().id, r.id);
@@ -938,7 +938,7 @@ mod tests {
             component_id: Some(1),
         };
         // Empty dest_node_id and link_id should match any.
-        let found = db.get_route_for_src_dest_name("src", &name, "", "").await;
+        let found = db.get_route_for_src_dest_name("src", &name, "", None).await;
         assert!(found.is_some());
         assert_eq!(found.unwrap().id, r.id);
     }
