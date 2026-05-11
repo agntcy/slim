@@ -109,7 +109,7 @@ impl Connection {
 
     pub(crate) fn with_header_mac(self, header_hmac: Option<Arc<HeaderMacSession>>) -> Self {
         Self {
-            header_hmac: header_hmac,
+            header_hmac,
             ..self
         }
     }

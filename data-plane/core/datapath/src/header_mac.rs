@@ -169,7 +169,7 @@ fn encoded_name_upper_bound(name_opt: &Option<Name>) -> usize {
             const ENCODED_NAME_SIZE: usize = 32;
 
             // Byte sizs of 3 `u32` prefixes:
-            // * 3*4 byte length size prefix befor each component
+            // * 3*4 byte length size prefix before each component
             const LENGTH_PREFIXES_SIZE: usize = 12;
 
             let mut encoded_name_bound = PRESENCE_FLAGS_SIZE + ENCODED_NAME_SIZE;
