@@ -41,6 +41,10 @@ runs:
         STRIP_PATH: ${{ inputs.path }}
         MAX_DEPTH: ${{ inputs.max-depth }}
       run: |
+        if [ ! -d "$STRIP_PATH" ]; then
+          echo "strip-libraries: path does not exist, nothing to strip: $STRIP_PATH"
+          exit 0
+        fi
         depth_args=()
         if [ -n "$MAX_DEPTH" ]; then
           depth_args=(-maxdepth "$MAX_DEPTH")
@@ -48,7 +52,7 @@ runs:
         echo "✂️  Stripping shared libraries in $STRIP_PATH using llvm-strip-19..."
         find "$STRIP_PATH" "${depth_args[@]}" -type f \
           \( -name "*.so" -o -name "*.dylib" -o -name "*.dll" -o -name "*.lib" \) \
-          2>/dev/null | while read -r lib; do
+          | while read -r lib; do
           echo "  Stripping: $lib"
           case "$lib" in
             *.dylib) llvm-strip-19 -x "$lib" ;;
