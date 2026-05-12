@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.4.0-rc.2](https://github.com/agntcy/slim/compare/protoc-slimrpc-plugin-v1.3.0...protoc-slimrpc-plugin-v1.4.0-rc.2) - 2026-04-21
+## [1.4.0-rc.3](https://github.com/agntcy/slim/compare/protoc-slimrpc-plugin-v1.3.0...protoc-slimrpc-plugin-v1.4.0-rc.3) - 2026-04-21
 
 ### Fixed
 
@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Other
 
-- prepare 1.4.0-rc.2 ([#1530](https://github.com/agntcy/slim/pull/1530))
+- prepare 1.4.0-rc.3 ([#1530](https://github.com/agntcy/slim/pull/1530))
 
 ## [1.3.0](https://github.com/agntcy/slim/compare/protoc-slimrpc-plugin-v1.2.0...protoc-slimrpc-plugin-v1.3.0) - 2026-03-31
 
