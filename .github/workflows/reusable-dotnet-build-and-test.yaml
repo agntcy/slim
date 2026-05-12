@@ -97,7 +97,7 @@ jobs:
       - name: Strip native libraries
         uses: ./.github/actions/strip-libraries
         with:
-          path: ./runtimes
+          path: ${{ inputs.dotnet-bindings-dir }}/runtimes
 
       - name: Build, test and pack
         env:
