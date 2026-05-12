@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "agntcy-protoc-slimrpc-plugin"
-version = "1.4.0-rc.0"
+version = "1.4.0-rc.2"
 dependencies = [
  "anyhow",
  "heck",
@@ -14,7 +14,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim"
-version = "1.4.0-rc.0"
+version = "1.4.0-rc.2"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-service",
@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-auth"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-testing",
@@ -80,7 +80,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-bindings"
-version = "1.4.0-rc.0"
+version = "1.4.0-rc.2"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
@@ -117,7 +117,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-config"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-testing",
@@ -164,7 +164,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-controller"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -199,7 +199,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-datapath"
-version = "0.12.3"
+version = "0.13.0"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-tracing",
@@ -233,7 +233,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-mls"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
@@ -251,7 +251,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-service"
-version = "0.8.12"
+version = "0.8.13"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -276,7 +276,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-session"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
@@ -338,7 +338,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-tracing"
-version = "0.3.9"
+version = "0.3.10"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-version",
@@ -358,11 +358,11 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-version"
-version = "1.4.0-rc.0"
+version = "1.4.0-rc.2"
 
 [[package]]
 name = "agntcy-slimctl"
-version = "1.4.0-rc.0"
+version = "1.4.0-rc.2"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-config",
@@ -617,11 +617,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
+name = "aws-lc-fips-sys"
+version = "0.13.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3d619165468401dec3caa3366ebffbcb83f2f31883e5b3932f8e2dec2ddc568"
+dependencies = [
+ "bindgen",
+ "cc",
+ "cmake",
+ "dunce",
+ "fs_extra",
+ "regex",
+]
+
+[[package]]
 name = "aws-lc-rs"
 version = "1.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a054912289d18629dc78375ba2c3726a3afe3ff71b4edba9dedfca0e3446d1fc"
 dependencies = [
+ "aws-lc-fips-sys",
  "aws-lc-sys",
  "untrusted 0.7.1",
  "zeroize",
@@ -633,6 +648,7 @@ version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fa7e52a4c5c547c741610a2c6f123f3881e409b714cd27e6798ef020c514f0a"
 dependencies = [
+ "bindgen",
  "cc",
  "cmake",
  "dunce",
@@ -721,6 +737,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bf95709a440f45e986983918d0e8a1f30a9b1df04918fc828670606804ac3c09"
 dependencies = [
  "virtue",
+]
+
+[[package]]
+name = "bindgen"
+version = "0.72.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "993776b509cfb49c750f11b8f07a46fa23e0a1386ffc01fb1e7d343efc387895"
+dependencies = [
+ "bitflags",
+ "cexpr",
+ "clang-sys",
+ "itertools 0.10.5",
+ "log",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "rustc-hash",
+ "shlex",
+ "syn",
 ]
 
 [[package]]
@@ -845,6 +881,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cexpr"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6fac387a98bb7c37292057cffc56d62ecb629900026402633ae9160df93a8766"
+dependencies = [
+ "nom",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -900,6 +945,17 @@ checksum = "57663b653d948a338bfb3eeba9bb2fd5fcfaecb9e199e87e1eda4d9e8b240fd9"
 dependencies = [
  "ciborium-io",
  "half",
+]
+
+[[package]]
+name = "clang-sys"
+version = "1.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b023947811758c97c59bf9d1c188fd619ad4718dcaa767947df1cadb14f39f4"
+dependencies = [
+ "glob",
+ "libc",
+ "libloading",
 ]
 
 [[package]]
@@ -2075,6 +2131,16 @@ name = "libc"
 version = "0.2.186"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
+
+[[package]]
+name = "libloading"
+version = "0.8.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
+dependencies = [
+ "cfg-if",
+ "windows-link",
+]
 
 [[package]]
 name = "linux-raw-sys"

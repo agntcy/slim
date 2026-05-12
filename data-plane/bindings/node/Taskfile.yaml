@@ -232,17 +232,49 @@ tasks:
           *)               DYLIB_EXT="so";    DYLIB_PREFIX="lib" ;;
         esac
         CANONICAL="${DYLIB_PREFIX}${LIB_NAME}.${DYLIB_EXT}"
-        # Copy dynamic lib only (.so / .dylib / .dll); artifact may also contain .a, .rlib
-        for f in "$RELEASE_DIR"/*.so "$RELEASE_DIR"/*.dylib "$RELEASE_DIR"/*.dll; do
-          [ -f "$f" ] || continue
-          cp -v "$f" "$GEN_DIR/$CANONICAL"
-          break
-        done
-        if [ ! -f "$GEN_DIR/$CANONICAL" ]; then
-          echo "No dynamic library (*.so, *.dylib, *.dll) found in $RELEASE_DIR"
+        # Match reusable-bindings-build-and-test strip/rename: libslim_bindings_<arch>_<os>[_<abi>].<ext>
+        ARCH=$(echo "$TARGET" | cut -d'-' -f1)
+        OS=$(echo "$TARGET" | cut -d'-' -f3)
+        ABI=$(echo "$TARGET" | cut -d'-' -f4)
+        if [ -n "$ABI" ] && [ "$ABI" != "" ]; then
+          STEM="slim_bindings_${ARCH}_${OS}_${ABI}"
+        else
+          STEM="slim_bindings_${ARCH}_${OS}"
+        fi
+        VERSIONED="${DYLIB_PREFIX}${STEM}.${DYLIB_EXT}"
+        SRC=""
+        if [ -f "$RELEASE_DIR/$VERSIONED" ]; then
+          SRC="$RELEASE_DIR/$VERSIONED"
+        elif [ -f "$RELEASE_DIR/$CANONICAL" ]; then
+          SRC="$RELEASE_DIR/$CANONICAL"
+        else
+          count=0
+          first=""
+          case "$TARGET" in
+            *-apple-darwin) _glob="$RELEASE_DIR"/*.dylib ;;
+            *-linux-*) _glob="$RELEASE_DIR"/*.so ;;
+            *-windows-*|*-msvc) _glob="$RELEASE_DIR"/*.dll ;;
+            *) _glob="$RELEASE_DIR"/*.so ;;
+          esac
+          for f in $_glob; do
+            [ -f "$f" ] || continue
+            count=$((count + 1))
+            first="$f"
+          done
+          if [ "$count" -eq 1 ]; then
+            SRC="$first"
+          elif [ "$count" -gt 1 ]; then
+            echo "Multiple dynamic libraries in $RELEASE_DIR for $TARGET; refusing to guess:"
+            ls -la "$RELEASE_DIR"
+            exit 1
+          fi
+        fi
+        if [ -z "$SRC" ] || [ ! -f "$SRC" ]; then
+          echo "No dynamic library found for $TARGET (expected $VERSIONED or $CANONICAL) in $RELEASE_DIR"
           ls -la "$RELEASE_DIR/" 2>/dev/null || true
           exit 1
         fi
+        cp -v "$SRC" "$GEN_DIR/$CANONICAL"
       - mkdir -p dist
       - npx tsx {{.TASKFILE_DIR}}/scripts/pack-platform.ts "{{.TARGET}}" "{{.VERSION}}"
     silent: false

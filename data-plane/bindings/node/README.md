@@ -1,107 +1,70 @@
-# SLIM JavaScript / TypeScript bindings (`@agntcy/slim-bindings`)
+# `@agntcy/slim-bindings`
 
-This is thenpm package for using SLIM from JavaScript and TypeScript. It targets **Node.js** (≥18): servers, services, CLIs, tests, and any workflow where the native addon loads through Node.
+Node.js (≥18) bindings for **SLIM**: connect apps to a SLIM server, open sessions, and exchange messages using the same Rust core as other language bindings.
 
-Bindings are generated with [uniffi-bindgen-node](https://github.com/livekit/uniffi-bindgen-node) and talk to the Rust core via [ffi-rs](https://www.npmjs.com/package/ffi-rs).
-
-## Features
-
-- **Primary JS/TS entry point** — Install `@agntcy/slim-bindings` for Node; optional `@agntcy/slim-bindings-*` packages supply the correct native binary per OS/arch.
-- **Rust-backed core** — Same SLIM logic as other language bindings; native code ships per platform.
-- **TypeScript** — Typed surface and editor support (with known FFI quirks documented below).
-- **Authentication** — Shared secret, JWT, and SPIRE-oriented flows exposed through the generated API.
-- **Async-first** — Promise-based calls aligned with Node conventions.
-- **UniFFI** — Generated from Mozilla’s [UniFFI](https://mozilla.github.io/uniffi-rs/) bindings.
-
-## Installation
-
-Published builds install from npm only (no local Rust required):
+## Install
 
 ```bash
 npm install @agntcy/slim-bindings
 ```
 
-That pulls this package plus the matching optional native addon for your platform when a release exists for your version.
+npm installs this package and, when published for your OS/arch, the matching optional native addon (`@agntcy/slim-bindings-*`). If install fails with a native-load error, your platform/version combo may not have a published binary yet.
 
-To build from source (development or an unpublished platform), see [Build from source](#build-from-source).
+## Module shape
 
-## Prerequisites (build from source)
-
-- Rust toolchain
-- Node.js >= 18
-- [Task](https://taskfile.dev/)
-
-## Usage
-
-### 1. Generate bindings (from source)
-
-```bash
-task generate
-```
-
-### 2. Run P2P examples
-
-```bash
-# Terminal 1: Start the server
-task example:server
-
-# Terminal 2: Start Alice (receiver)
-task example:alice
-
-# Terminal 3: Start Bob (sender)
-task example:bob
-```
-
-### Available commands
-
-```bash
-task generate         # Generate bindings
-task clean            # Clean build artifacts
-task example:server   # Run server
-task example:alice    # Run Alice receiver
-task example:bob      # Run Bob sender
-```
-
-## Build process
-
-Generation applies small patches so output from `uniffi-bindgen-node` works with the shared `uniffi-bindgen-react-native` runtime dependency:
-
-- **Naming**: `FfiConverterBytes` → `FfiConverterArrayBuffer`
-- **Buffers**: Correct RustBuffer handling for byte arrays
-- **Pointers**: BigInt ↔ Number at FFI boundaries where needed
-- **Errors**: Clearer extraction from Rust error types
-
-## FFI type conversions
-
-Generated TypeScript may use `bigint` for some unsigned 64-bit values while the FFI layer returns JavaScript `number` at runtime. Normalize at your API boundary:
+The published entry loads the generated UniFFI/Node bindings (see `package.json` `main` / `types`). From TypeScript or ESM-aware tooling you typically import the default export from the package path your bundler resolves (examples in this repo import from `generated/slim-bindings-node.js` when running inside the bindings workspace).
 
 ```typescript
-const connId = await service.connectAsync(config);
-await app.subscribeAsync(name, BigInt(connId));
-app.setRoute(name, Number(connId));
+import slimBindings from '@agntcy/slim-bindings';
+
+slimBindings.initializeWithDefaults();
+const service = slimBindings.getGlobalService();
 ```
 
-- `connectAsync` often behaves like `number` at runtime → use `BigInt()` when a parameter expects `bigint`.
-- When calling through to FFI with u64 parameters → use `Number()` from `bigint` when required.
+Full TypeScript types ship under `types/` in the published package (`index.d.ts` re-exports them).
 
-## Build from source
+## Typical flow
 
-1. Install Rust and Task.
-2. Run `task generate` (builds the Rust library and emits Node bindings).
-3. Consume files under `generated/` or run examples (`task example:server`, etc.).
+1. **Initialize** crypto/runtime once per process:
 
-Optional platform packages (`@agntcy/slim-bindings-*`) are version-pinned beside this package in `package.json`. For a **local** platform tarball from `task pack:platform`, install it explicitly (for example `npm install ./dist/node-darwin-arm64.tgz`) in addition to this package.
+   `slimBindings.initializeWithDefaults()`
 
-## Publishing (maintainers)
+2. **Obtain the global service** — entry point for apps, connections, and server mode:
 
-- **Dry run**: From `data-plane/bindings/node`, run `npm pack` for the main tarball; platform bundles via `task pack:platform TARGET=<target>` → `dist/node-<platform>.tgz`.
-- **Version**: In `package.json`; release tags use `slim-bindings-v*` (see `.github/scripts/get-binding-version.sh`).
-- **Secrets**: `NPM_TOKEN` for `npm publish`.
+   `slimBindings.getGlobalService()`
 
-## Resources
+3. **Identity** — SLIM names are three segments: `organization/namespace/application` (constructor `new slimBindings.Name(org, ns, app)`).
 
-- [uniffi-bindgen-node](https://github.com/livekit/uniffi-bindgen-node)
-- [UniFFI](https://mozilla.github.io/uniffi-rs/)
-- [ffi-rs](https://www.npmjs.com/package/ffi-rs)
-- [SLIM](https://github.com/agntcy/slim)
-- [React Native bindings](../react-native/README.md)
+4. **Client: create an app** — e.g. shared-secret auth:
+
+   `service.createAppWithSecret(name, secret)`  
+   Use a secret that meets the minimum length required by your deployment (examples use a 32+ character demo string).
+
+5. **Client: connect to the SLIM server** — build a client config (see `newInsecureClientConfig(url)` for development-style HTTP to the server), then:
+
+   `await service.connectAsync(config)`  
+   Returns a connection id used for routing/subscriptions.
+
+6. **Subscribe** the app to receive traffic for its name (often passing `BigInt(connId)` if the generated API expects `bigint` — see note below).
+
+7. **Server** — for a network node that accepts clients, initialize the same way, then build a server config (e.g. `newInsecureServerConfig('0.0.0.0:46357')`) and run:
+
+   `slimBindings.getGlobalService().runServer(config)`  
+   The process must stay alive while the server runs (see examples).
+
+## Examples
+
+Runnable scripts live under `examples/` (from repo root, use the `Taskfile` targets `example:server`, `example:alice`, `example:bob`, or run them via npm from `examples/` as documented in [README_dev.md](./README_dev.md)).
+
+## `bigint` vs `number` (FFI)
+
+Some APIs are typed with `bigint` for 64-bit values, but `connectAsync` may return a JavaScript `number` at runtime. When you pass that value into a method that expects `bigint` (for example `subscribeAsync`), wrap it: `BigInt(connId)`. See [README_dev.md](./README_dev.md#ffi-type-conversions) for details.
+
+## Building from source / contributing
+
+Generator setup, Task commands, publishing, and FFI patches are documented for maintainers in **[README_dev.md](./README_dev.md)**.
+
+## Links
+
+- [SLIM repository](https://github.com/agntcy/slim)
+- [React Native bindings](../react-native/README.md) (mobile / JSI)
