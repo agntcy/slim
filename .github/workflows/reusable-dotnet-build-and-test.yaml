@@ -94,13 +94,10 @@ jobs:
         run: |
           task generate PROFILE=release
 
-      - name: Strip shared libraries
-        run: |
-          echo "✂️  Stripping shared libraries using llvm-strip-19..."
-          find ./runtimes -type f \( -name "*.so" -o -name "*.dylib" -o -name "*.dll" \) | while read -r lib; do
-            echo "  Stripping: $lib"
-            llvm-strip-19 "$lib"
-          done
+      - name: Strip native libraries
+        uses: ./.github/actions/strip-libraries
+        with:
+          path: ./runtimes
 
       - name: Build, test and pack
         env:

@@ -80,13 +80,10 @@ jobs:
           echo "Generate bindings and run tests..."
           task test PROFILE=release
 
-      - name: Strip shared libraries
-        run: |
-          echo "✂️  Stripping shared libraries using llvm-strip-19..."
-          find ./generated/jniLibs -type f \( -name "*.so" -o -name "*.dylib" -o -name "*.dll" \) | while read -r lib; do
-            echo "  Stripping: $lib"
-            llvm-strip-19 "$lib"
-          done
+      - name: Strip native libraries
+        uses: ./.github/actions/strip-libraries
+        with:
+          path: ./generated/jniLibs
 
       - name: Upload generated Kotlin code and JNI libraries
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
