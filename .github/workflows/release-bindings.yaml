@@ -333,6 +333,21 @@ jobs:
           find . -maxdepth 4 -ls 2>/dev/null | head -80
           exit 1
 
+      - name: Install LLVM
+        run: |
+          curl -L https://apt.llvm.org/llvm.sh -o /tmp/llvm.sh
+          chmod +x /tmp/llvm.sh
+          sudo /tmp/llvm.sh 19
+
+      - name: Strip dynamic library
+        run: |
+          RELEASE_DIR="data-plane/target/${{ matrix.target }}/release"
+          echo "✂️  Stripping dynamic libraries in $RELEASE_DIR using llvm-strip-19..."
+          find "$RELEASE_DIR" -maxdepth 1 -type f \( -name "*.so" -o -name "*.dylib" -o -name "*.dll" \) | while read -r lib; do
+            echo "  Stripping: $lib"
+            llvm-strip-19 --strip-unneeded "$lib"
+          done
+
       - name: Pack Node platform package
         working-directory: ./data-plane/bindings/node
         run: |
