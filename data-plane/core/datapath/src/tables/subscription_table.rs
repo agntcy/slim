@@ -3,9 +3,11 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use parking_lot::{Mutex, RwLock};
+use arc_swap::ArcSwap;
+use parking_lot::Mutex;
 use tracing::{debug, warn};
 
 use super::SubscriptionTable;
@@ -81,6 +83,15 @@ impl ConnList {
             }
         }
         None
+    }
+}
+
+impl Clone for ConnList {
+    fn clone(&self) -> Self {
+        ConnList {
+            conns: self.conns.clone(),
+            cursor: AtomicUsize::new(self.cursor.load(Ordering::Relaxed)),
+        }
     }
 }
 
@@ -294,6 +305,18 @@ impl PrefixEntry {
     }
 }
 
+impl Clone for PrefixEntry {
+    fn clone(&self) -> Self {
+        PrefixEntry {
+            ids: self.ids.clone(),
+            local: self.local.clone(),
+            remote: self.remote.clone(),
+            slot_cursor: AtomicUsize::new(self.slot_cursor.load(Ordering::Relaxed)),
+            strings: self.strings.clone(),
+        }
+    }
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // SubRecord – flat write-path record stored per subscription_id.
 // ──────────────────────────────────────────────────────────────────────────────
@@ -320,21 +343,33 @@ struct SubscriptionState {
 // ──────────────────────────────────────────────────────────────────────────────
 // SubscriptionTableImpl
 //
-// Lock ordering (must always be respected to prevent deadlock):
-//   1. subscription_state.lock() — acquired first by all writers
-//   2. routing.write()           — acquired second by all writers
-// Readers only ever acquire routing.read(); they never touch subscription_state.
+// Concurrency design:
+//   - Hot read path (match_one / match_all): lock-free via ArcSwap::load().
+//     Readers get an immutable snapshot with a single atomic pointer load.
+//   - Write path (add/remove subscription, remove connection):
+//       1. subscription_state.lock() — bookkeeping, always acquired first
+//       2. load current routing snapshot
+//       3. clone → modify → ArcSwap::store()  (no write lock held)
 // ──────────────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct SubscriptionTableImpl {
-    routing: RwLock<HashMap<[u64; 3], PrefixEntry>>, // only lock held on the hot read path
-    subscription_state: Mutex<SubscriptionState>,    // never held by match_one / match_all
+    routing: ArcSwap<HashMap<[u64; 3], PrefixEntry>>, // lock-free on the hot read path
+    subscription_state: Mutex<SubscriptionState>,     // never held by match_one / match_all
+}
+
+impl Default for SubscriptionTableImpl {
+    fn default() -> Self {
+        SubscriptionTableImpl {
+            routing: ArcSwap::from_pointee(HashMap::new()),
+            subscription_state: Mutex::default(),
+        }
+    }
 }
 
 impl Display for SubscriptionTableImpl {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let rs = self.routing.read();
+        let rs = self.routing.load();
         writeln!(f, "Subscription Table")?;
         for prefix_entry in rs.values() {
             writeln!(
@@ -376,7 +411,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
     where
         F: FnMut(&ProtoName, u64, &[u64], &[u64]),
     {
-        let rs = self.routing.read();
+        let rs = self.routing.load();
         for prefix_entry in rs.values() {
             let base_name = ProtoName::from_strings([
                 prefix_entry.strings[0].as_str(),
@@ -401,9 +436,9 @@ impl SubscriptionTable for SubscriptionTableImpl {
         let id = enc.component_3;
         let encoded = *enc;
 
-        // Lock order: write_state first, routing second.
+        // subscription_state locked first; routing updated via clone-modify-store.
         let mut ss = self.subscription_state.lock();
-        let mut rs = self.routing.write();
+        let mut rs = (**self.routing.load()).clone();
 
         // 1. Ensure PrefixEntry exists; record strings on first insertion.
         let prefix_entry = rs.entry(prefix).or_insert_with(|| {
@@ -413,6 +448,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
 
         // 2 & 3. Ensure an ID slot exists and insert conn (deduped).
         prefix_entry.insert_conn_for_id(id, conn, is_local);
+        self.routing.store(Arc::new(rs));
 
         // 4. Record the subscription (idempotent: same sub_id overwrites itself).
         ss.subscriptions.insert(
@@ -445,18 +481,20 @@ impl SubscriptionTable for SubscriptionTableImpl {
         let id = enc.component_3;
         let encoded = *enc;
 
-        // Lock order: write_state first, routing second.
+        // subscription_state locked first; routing validated then updated via clone-modify-store.
         let mut ss = self.subscription_state.lock();
-        let mut rs = self.routing.write();
 
-        // Error precedence: routing checks first.
-        if !rs.contains_key(&prefix) {
-            debug!("subscription not found {}", name);
-            return Err(DataPathError::SubscriptionNotFound(name.clone()));
-        }
-        if !rs[&prefix].has_id(id) {
-            warn!(%id, "not found");
-            return Err(DataPathError::IdNotFound(id));
+        // Error precedence: routing checks first (read snapshot, no clone yet).
+        {
+            let current = self.routing.load();
+            if !current.contains_key(&prefix) {
+                debug!("subscription not found {}", name);
+                return Err(DataPathError::SubscriptionNotFound(name.clone()));
+            }
+            if !current[&prefix].has_id(id) {
+                warn!(%id, "not found");
+                return Err(DataPathError::IdNotFound(id));
+            }
         }
 
         // Validate the subscription record.
@@ -490,8 +528,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         });
 
         if !conn_still_subscribed {
-            // Remove conn from the routing entry; drop the mutable ref before
-            // potentially calling routing.remove().
+            let mut rs = (**self.routing.load()).clone();
             let should_remove_prefix = if let Some(prefix_entry) = rs.get_mut(&prefix) {
                 prefix_entry.remove_conn_for_id(id, conn, is_local);
                 prefix_entry.retain_non_empty();
@@ -502,6 +539,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
             if should_remove_prefix {
                 rs.remove(&prefix);
             }
+            self.routing.store(Arc::new(rs));
         }
 
         // Clean up conn_subs if empty.
@@ -517,9 +555,8 @@ impl SubscriptionTable for SubscriptionTableImpl {
         conn: u64,
         is_local: bool,
     ) -> Result<HashMap<ProtoName, HashSet<u64>>, Self::Error> {
-        // Lock order: write_state first, routing second.
+        // subscription_state locked first; routing updated via clone-modify-store.
         let mut ss = self.subscription_state.lock();
-        let mut rs = self.routing.write();
 
         let sub_ids = ss
             .conn_subs
@@ -529,9 +566,10 @@ impl SubscriptionTable for SubscriptionTableImpl {
         let mut result: HashMap<ProtoName, HashSet<u64>> = HashMap::with_capacity(sub_ids.len());
 
         // Pass 1: remove each subscription record and build the result map.
-        // Track which encoded names need routing cleanup.
+        // Use a read snapshot (no clone yet) for proto_name lookups.
         let mut encoded_names: Vec<EncodedName> = Vec::new();
 
+        let current = self.routing.load();
         for sub_id in sub_ids {
             if let Some(record) = ss.subscriptions.remove(&sub_id) {
                 let prefix = [
@@ -539,7 +577,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
                     record.encoded.component_1,
                     record.encoded.component_2,
                 ];
-                let proto_name = rs
+                let proto_name = current
                     .get(&prefix)
                     .map(|pe| pe.to_proto_name(record.encoded.component_3))
                     .unwrap_or(ProtoName {
@@ -554,7 +592,9 @@ impl SubscriptionTable for SubscriptionTableImpl {
             }
         }
 
-        // Pass 2: remove conn from routing for every affected encoded name.
+        // Pass 2: clone snapshot, remove conn from routing for every affected encoded name.
+        let mut rs = (**current).clone();
+        drop(current);
         for encoded in &encoded_names {
             debug!(%conn, ?encoded, "remove subscription");
             let prefix = [
@@ -576,6 +616,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 rs.remove(&prefix);
             }
         }
+        self.routing.store(Arc::new(rs));
 
         Ok(result)
     }
@@ -587,7 +628,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
             encoded.component_2,
         ];
         let id = encoded.component_3;
-        let rs = self.routing.read();
+        let rs = self.routing.load();
 
         // ONE HashMap lookup — the same for any c3 value.
         let prefix_entry = match rs.get(&prefix) {
@@ -646,7 +687,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
             encoded.component_2,
         ];
         let id = encoded.component_3;
-        let rs = self.routing.read();
+        let rs = self.routing.load();
 
         // ONE HashMap lookup — the same for any c3 value.
         let prefix_entry = match rs.get(&prefix) {
