@@ -39,6 +39,8 @@ pub enum HeaderMacError {
     InvalidTagLength,
     #[error("SLIM header integrity verification failed")]
     VerificationFailed,
+    #[error("inter-node link key agreement failed")]
+    KeyAgreement,
 }
 
 /// Per-link HMAC state: only the key material. Preimage buffers are thread-local (see module docs).

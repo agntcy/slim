@@ -339,11 +339,6 @@ pub struct ClientConfig {
     /// Must be a valid UUID v4. Defaults to a randomly generated UUID v4.
     #[serde(default = "default_link_id")]
     pub link_id: String,
-
-    /// When set to a non-empty string of at least 32 bytes, SLIM headers on this
-    /// outbound inter-node link are authenticated with HMAC-SHA256.
-    #[serde(default)]
-    pub header_mac_key: Option<String>,
 }
 
 /// Defaults for ClientConfig
@@ -368,7 +363,6 @@ impl Default for ClientConfig {
             backoff: BackoffConfig::default(),
             metadata: None,
             link_id: default_link_id(),
-            header_mac_key: None,
         }
     }
 }
@@ -390,7 +384,7 @@ impl std::fmt::Display for ClientConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ClientConfig {{ endpoint: {}, transport: {:?}, websocket_auth_query_param: {:?}, origin: {:?}, server_name: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?}, backoff: {:?}, metadata: {:?}, link_id: {:?}, header_mac_key: {:?} }}",
+            "ClientConfig {{ endpoint: {}, transport: {:?}, websocket_auth_query_param: {:?}, origin: {:?}, server_name: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?}, backoff: {:?}, metadata: {:?}, link_id: {:?} }}",
             self.endpoint,
             self.transport,
             self.websocket_auth_query_param,
@@ -409,10 +403,6 @@ impl std::fmt::Display for ClientConfig {
             self.backoff,
             self.metadata,
             self.link_id,
-            self.header_mac_key
-                .as_ref()
-                .map(|_| "<redacted>")
-                .unwrap_or("<none>")
         )
     }
 }
@@ -440,13 +430,6 @@ impl Configuration for ClientConfig {
         // Validate the client configuration
         self.tls_setting.validate()?;
         self.validate_websocket_endpoint()?;
-
-        if let Some(ref s) = self.header_mac_key
-            && !s.is_empty()
-            && s.len() < 32
-        {
-            return Err(ConfigError::HeaderMacKeyTooShort);
-        }
 
         Ok(())
     }

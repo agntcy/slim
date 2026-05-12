@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use crate::api::proto::dataplane::v1::Message;
-use crate::header_mac::HeaderMacSession;
+use aws_lc_rs::agreement::EphemeralPrivateKey;
 use parking_lot::RwLock;
 use semver::Version;
 use slim_config::grpc::client::{ClientConfig, is_valid_uuid_v4};
@@ -12,6 +12,25 @@ use std::net::SocketAddr;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tonic::Status;
+
+use crate::header_mac::HeaderMacSession;
+
+/// Mutable inter-node crypto: outbound ECDH secret until the negotiation reply arrives,
+/// then the derived HMAC session.
+#[derive(Debug)]
+pub(crate) struct LinkCryptoState {
+    pub(crate) header_hmac: Option<Arc<HeaderMacSession>>,
+    outbound_ecdh_private: Option<EphemeralPrivateKey>,
+}
+
+impl Default for LinkCryptoState {
+    fn default() -> Self {
+        Self {
+            header_hmac: None,
+            outbound_ecdh_private: None,
+        }
+    }
+}
 
 /// Negotiation state shared between link negotiation fields.
 /// Kept under one lock so that the check-and-set is atomic.
@@ -41,8 +60,7 @@ pub(crate) enum Type {
     Unknown,
 }
 
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
+#[derive(Clone)]
 /// Connection information
 pub struct Connection {
     /// Remote address and port. Not available for local connections
@@ -66,8 +84,22 @@ pub struct Connection {
     /// Link negotiation state (link_id + remote_slim_version) under one lock for atomic check-and-set.
     negotiation: Arc<RwLock<NegotiationState>>,
 
-    /// Optional HMAC session for SLIM header integrity on this inter-node link.
-    header_hmac: Option<Arc<HeaderMacSession>>,
+    /// Per-link HMAC and transient ECDH material for inter-node links.
+    link_crypto: Arc<RwLock<LinkCryptoState>>,
+}
+
+impl std::fmt::Debug for Connection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Connection")
+            .field("remote_addr", &self.remote_addr)
+            .field("local_addr", &self.local_addr)
+            .field("channel", &self.channel)
+            .field("config_data", &self.config_data)
+            .field("connection_type", &self.connection_type)
+            .field("negotiation", &"NegotiationState")
+            .field("link_crypto", &"LinkCryptoState")
+            .finish_non_exhaustive()
+    }
 }
 
 /// Implementation of Connection
@@ -82,7 +114,7 @@ impl Connection {
             connection_type,
             cancellation_token: None,
             negotiation: Arc::new(RwLock::new(NegotiationState::default())),
-            header_hmac: None,
+            link_crypto: Arc::new(RwLock::new(LinkCryptoState::default())),
         }
     }
 
@@ -107,15 +139,20 @@ impl Connection {
         }
     }
 
-    pub(crate) fn with_header_mac(self, header_hmac: Option<Arc<HeaderMacSession>>) -> Self {
-        Self {
-            header_hmac,
-            ..self
-        }
+    pub(crate) fn header_hmac(&self) -> Option<Arc<HeaderMacSession>> {
+        self.link_crypto.read().header_hmac.clone()
     }
 
-    pub(crate) fn header_hmac(&self) -> Option<&Arc<HeaderMacSession>> {
-        self.header_hmac.as_ref()
+    pub(crate) fn take_outbound_ecdh_private(&self) -> Option<EphemeralPrivateKey> {
+        self.link_crypto.write().outbound_ecdh_private.take()
+    }
+
+    pub(crate) fn set_outbound_ecdh_private(&self, key: EphemeralPrivateKey) {
+        self.link_crypto.write().outbound_ecdh_private = Some(key);
+    }
+
+    pub(crate) fn install_header_hmac(&self, mac: Arc<HeaderMacSession>) {
+        self.link_crypto.write().header_hmac = Some(mac);
     }
 
     /// Get the remote address
@@ -226,6 +263,11 @@ impl Connection {
         }
         state.remote_slim_version = Some(version);
         true
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_install_header_mac(&self, mac: Arc<HeaderMacSession>) {
+        self.install_header_hmac(mac);
     }
 }
 

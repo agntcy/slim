@@ -43,12 +43,16 @@ tasks:
       - task -l
 
   install-uniffi-bindgen-node:
-    desc: Install uniffi-bindgen-node
+    desc: Install uniffi-bindgen-node (>= 0.1.4)
     status:
-      - which uniffi-bindgen-node
+      - |
+        command -v uniffi-bindgen-node >/dev/null || exit 1
+        v=$(uniffi-bindgen-node --version 2>/dev/null | awk '{print $2}')
+        [ -n "$v" ] || exit 1
+        printf '0.1.4\n%s\n' "$v" | sort -V -C
     cmds:
-      - echo "📦 Installing uniffi-bindgen-node..."
-      - cargo install --git https://github.com/livekit/uniffi-bindgen-node.git --tag uniffi-bindgen-node@0.1.4
+      - echo "📦 Installing uniffi-bindgen-node 0.1.4..."
+      - cargo install --force --git https://github.com/livekit/uniffi-bindgen-node.git --tag uniffi-bindgen-node@0.1.4
 
   # Only builds when library is missing (CI places it from artifact; local dev builds).
   ensure-bindings-lib:
@@ -86,30 +90,16 @@ tasks:
           *)               DYLIB_EXT="so";    DYLIB_PREFIX="lib" ;;
         esac
 
-        ARCH=$(echo "$TARGET" | cut -d'-' -f1)
-        OS=$(echo "$TARGET" | cut -d'-' -f3)
-        ABI=$(echo "$TARGET" | cut -d'-' -f4)
-
-        if [ -n "$ABI" ] && [ "$ABI" != "" ]; then
-          RENAMED_LIB="${DYLIB_PREFIX}${LIB_NAME}_${ARCH}_${OS}_${ABI}.${DYLIB_EXT}"
-        else
-          RENAMED_LIB="${DYLIB_PREFIX}${LIB_NAME}_${ARCH}_${OS}.${DYLIB_EXT}"
-        fi
         DEFAULT_LIB="${DYLIB_PREFIX}${LIB_NAME}.${DYLIB_EXT}"
 
         # Try target/TARGET/release first; when TARGET equals host, Cargo may use target/release/
         HOST_RELEASE_DIR="${TASKFILE_DIR}/../../target/${PROFILE}"
         if [ -f "${RELEASE_DIR}/${DEFAULT_LIB}" ]; then
           DYLIB_PATH="${RELEASE_DIR}/${DEFAULT_LIB}"
-        elif [ -f "${RELEASE_DIR}/${RENAMED_LIB}" ]; then
-          DYLIB_PATH="${RELEASE_DIR}/${RENAMED_LIB}"
         elif [ -f "${HOST_RELEASE_DIR}/${DEFAULT_LIB}" ]; then
           DYLIB_PATH="${HOST_RELEASE_DIR}/${DEFAULT_LIB}"
-        elif [ -f "${HOST_RELEASE_DIR}/${RENAMED_LIB}" ]; then
-          DYLIB_PATH="${HOST_RELEASE_DIR}/${RENAMED_LIB}"
         else
-          echo "❌ Error: Library not found in ${RELEASE_DIR} or ${HOST_RELEASE_DIR}"
-          echo "   Tried: ${RENAMED_LIB}, ${DEFAULT_LIB}"
+          echo "❌ Error: Library ${DEFAULT_LIB} not found in ${RELEASE_DIR} or ${HOST_RELEASE_DIR}"
           ls -la "${RELEASE_DIR}/" 2>/dev/null | grep slim || true
           ls -la "${HOST_RELEASE_DIR}/" 2>/dev/null | grep slim || true
           exit 1
@@ -232,20 +222,8 @@ tasks:
           *)               DYLIB_EXT="so";    DYLIB_PREFIX="lib" ;;
         esac
         CANONICAL="${DYLIB_PREFIX}${LIB_NAME}.${DYLIB_EXT}"
-        # Match reusable-bindings-build-and-test strip/rename: libslim_bindings_<arch>_<os>[_<abi>].<ext>
-        ARCH=$(echo "$TARGET" | cut -d'-' -f1)
-        OS=$(echo "$TARGET" | cut -d'-' -f3)
-        ABI=$(echo "$TARGET" | cut -d'-' -f4)
-        if [ -n "$ABI" ] && [ "$ABI" != "" ]; then
-          STEM="slim_bindings_${ARCH}_${OS}_${ABI}"
-        else
-          STEM="slim_bindings_${ARCH}_${OS}"
-        fi
-        VERSIONED="${DYLIB_PREFIX}${STEM}.${DYLIB_EXT}"
         SRC=""
-        if [ -f "$RELEASE_DIR/$VERSIONED" ]; then
-          SRC="$RELEASE_DIR/$VERSIONED"
-        elif [ -f "$RELEASE_DIR/$CANONICAL" ]; then
+        if [ -f "$RELEASE_DIR/$CANONICAL" ]; then
           SRC="$RELEASE_DIR/$CANONICAL"
         else
           count=0
@@ -270,7 +248,7 @@ tasks:
           fi
         fi
         if [ -z "$SRC" ] || [ ! -f "$SRC" ]; then
-          echo "No dynamic library found for $TARGET (expected $VERSIONED or $CANONICAL) in $RELEASE_DIR"
+          echo "No dynamic library found for $TARGET (expected $CANONICAL) in $RELEASE_DIR"
           ls -la "$RELEASE_DIR/" 2>/dev/null || true
           exit 1
         fi

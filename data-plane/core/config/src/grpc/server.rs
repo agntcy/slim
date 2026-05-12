@@ -124,11 +124,6 @@ pub struct ServerConfig {
 
     /// Arbitrary user-provided metadata.
     pub metadata: Option<MetadataMap>,
-
-    /// When set to a non-empty string of at least 32 bytes, SLIM headers on every
-    /// accepted inbound inter-node connection are verified with HMAC-SHA256.
-    #[serde(default)]
-    pub header_mac_key: Option<String>,
 }
 
 /// Default values for KeepaliveServerParameters
@@ -180,7 +175,6 @@ impl Default for ServerConfig {
             keepalive: KeepaliveServerParameters::default(),
             auth: AuthenticationConfig::default(),
             metadata: None,
-            header_mac_key: None,
         }
     }
 }
@@ -195,7 +189,7 @@ impl std::fmt::Display for ServerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ServerConfig {{ endpoint: {}, transport: {:?}, tls_setting: {}, http2_only: {}, max_frame_size: {:?}, max_concurrent_streams: {:?}, max_header_list_size: {:?}, read_buffer_size: {:?}, write_buffer_size: {:?}, keepalive: {:?}, auth: {:?}, metadata: {:?}, header_mac_key: {:?} }}",
+            "ServerConfig {{ endpoint: {}, transport: {:?}, tls_setting: {}, http2_only: {}, max_frame_size: {:?}, max_concurrent_streams: {:?}, max_header_list_size: {:?}, read_buffer_size: {:?}, write_buffer_size: {:?}, keepalive: {:?}, auth: {:?}, metadata: {:?} }}",
             self.endpoint,
             self.transport,
             self.tls_setting,
@@ -208,10 +202,6 @@ impl std::fmt::Display for ServerConfig {
             self.keepalive,
             self.auth,
             self.metadata,
-            self.header_mac_key
-                .as_ref()
-                .map(|_| "<redacted>")
-                .unwrap_or("<none>")
         )
     }
 }
@@ -247,13 +237,6 @@ impl Configuration for ServerConfig {
     fn validate(&self) -> Result<(), Self::Error> {
         // Validate the client configuration
         self.tls_setting.validate()?;
-
-        if let Some(ref s) = self.header_mac_key
-            && !s.is_empty()
-            && s.len() < 32
-        {
-            return Err(ConfigError::HeaderMacKeyTooShort);
-        }
 
         Ok(())
     }

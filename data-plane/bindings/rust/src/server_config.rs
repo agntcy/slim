@@ -104,9 +104,6 @@ pub struct ServerConfig {
 
     /// Arbitrary user-provided metadata as JSON string
     pub metadata: Option<String>,
-
-    /// HMAC-SHA256 key for verifying SLIM headers on inbound links (≥32 bytes when set)
-    pub header_mac_key: Option<String>,
 }
 
 impl Default for ServerConfig {
@@ -125,7 +122,6 @@ impl Default for ServerConfig {
             keepalive: None,
             auth: None,
             metadata: None,
-            header_mac_key: None,
         }
     }
 }
@@ -164,7 +160,6 @@ impl From<ServerConfig> for CoreServerConfig {
             metadata: config
                 .metadata
                 .and_then(|json| serde_json::from_str::<MetadataMap>(&json).ok()),
-            header_mac_key: config.header_mac_key,
         }
     }
 }
@@ -184,7 +179,6 @@ impl From<CoreServerConfig> for ServerConfig {
             keepalive: Some(config.keepalive.into()),
             auth: Some(config.auth.into()),
             metadata: config.metadata.and_then(|m| serde_json::to_string(&m).ok()),
-            header_mac_key: config.header_mac_key,
         }
     }
 }
@@ -348,7 +342,6 @@ mod tests {
             keepalive: Some(KeepaliveServerParameters::default()),
             auth: Some(ServerAuthenticationConfig::None),
             metadata: Some(r#"{"key":"value"}"#.to_string()),
-            header_mac_key: None,
         };
 
         let core_config: CoreServerConfig = ffi_config.into();
@@ -401,7 +394,6 @@ mod tests {
             keepalive: Some(KeepaliveServerParameters::default()),
             auth: Some(ServerAuthenticationConfig::None),
             metadata: None,
-            header_mac_key: None,
         };
 
         // FFI -> Core -> FFI using the new From implementation

@@ -10,6 +10,7 @@ pub mod tables;
 mod connection;
 mod forwarder;
 mod header_mac;
+mod link_ecdh;
 #[cfg(feature = "otel_tracing")]
 mod otel_tracing;
 mod recovery;

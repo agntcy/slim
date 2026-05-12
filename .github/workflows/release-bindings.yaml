@@ -59,20 +59,14 @@ jobs:
           echo "📦 Downloaded artifacts:"
           find ./artifacts -type f -ls
 
-      - name: Install LLVM
-        run: |
-          curl -L https://apt.llvm.org/llvm.sh -o /tmp/llvm.sh
-          chmod +x /tmp/llvm.sh
-          sudo /tmp/llvm.sh 19
+      - name: Strip native libraries
+        uses: ./.github/actions/strip-libraries
+        with:
+          path: ./artifacts
 
       - name: Prepare release artifacts
         run: |
           mkdir -p ./release-artifacts
-
-          # Strip symbols from dynamic/shared libraries to reduce size
-          echo "Stripping dynamic libraries..."
-          find ./artifacts -type f \( -name "*.so" -o -name "*.dylib" -o -name "*.dll" -o -name "*.lib" \) -exec llvm-strip-19 --strip-unneeded {} \;
-          echo "Stripped .so, .dylib, .dll, .lib files"
 
           # The download-artifact action already organizes files by artifact name
           # Each platform's libraries are in ./artifacts/bindings-<target>/
@@ -332,6 +326,12 @@ jobs:
           echo "No library files found after download."
           find . -maxdepth 4 -ls 2>/dev/null | head -80
           exit 1
+
+      - name: Strip native libraries
+        uses: ./.github/actions/strip-libraries
+        with:
+          path: data-plane/target/${{ matrix.target }}/release
+          max-depth: '1'
 
       - name: Pack Node platform package
         working-directory: ./data-plane/bindings/node

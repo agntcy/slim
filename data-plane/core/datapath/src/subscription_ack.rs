@@ -62,11 +62,13 @@ impl RemoteSubAckManager {
     }
 }
 
-/// Returns `true` if the remote peer supports subscription ACKs (version ≥ 1.2.0).
+/// Returns `true` when the remote peer supports subscription ACKs (version ≥ 1.2.0)
+/// **and** inter-node header HMAC is active (ECDH completed on this link).
 pub(crate) fn supports(conn: &Connection) -> bool {
     debug!(version = ?conn.remote_slim_version(), min = %min_version(), "checking remote subscription-ack support");
     conn.remote_slim_version()
         .is_some_and(|v| v >= min_version())
+        && conn.header_hmac().is_some()
 }
 
 /// Wait/retry loop for a remote subscription ACK.
@@ -128,6 +130,8 @@ pub(crate) async fn retry_loop(
 mod tests {
     use super::*;
     use crate::connection::{Channel, Type as ConnectionType};
+    use crate::header_mac::HeaderMacSession;
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn test_register_and_resolve_delivers_ok() {
@@ -202,6 +206,10 @@ mod tests {
             &uuid::Uuid::new_v4().to_string(),
             semver::Version::new(1, 2, 0),
         );
+        assert!(!supports(&conn));
+        conn.test_install_header_mac(Arc::new(
+            HeaderMacSession::new(b"01234567890123456789012345678901").unwrap(),
+        ));
         assert!(supports(&conn));
     }
 
@@ -214,6 +222,9 @@ mod tests {
             &uuid::Uuid::new_v4().to_string(),
             semver::Version::new(2, 0, 0),
         );
+        conn.test_install_header_mac(Arc::new(
+            HeaderMacSession::new(b"01234567890123456789012345678901").unwrap(),
+        ));
         assert!(supports(&conn));
     }
 }

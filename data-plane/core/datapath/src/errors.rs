@@ -78,6 +78,9 @@ pub enum DataPathError {
 
     #[error("header MAC requires completed link negotiation on connection {0}")]
     HeaderMacAwaitingLinkNegotiation(u64),
+
+    #[error("inter-node ephemeral key generation failed")]
+    LinkKeyGeneration,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

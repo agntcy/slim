@@ -143,17 +143,23 @@ async fn main() {
     // run the service - this will create all the connections provided via the config file.
     svc.run().await.unwrap();
 
-    // get the connection id
-    let conn_id = svc
-        .get_connection_id(&svc.config().dataplane_clients()[0].endpoint)
-        .unwrap();
+    let default_conn = || {
+        svc.get_connection_id(&svc.config().dataplane_clients()[0].endpoint)
+            .expect("dataplane client connection id")
+    };
+    let subscribe_forward_conn = args.dataplane_forward_conn().unwrap_or_else(default_conn);
+    let route_recv_conn = args.dataplane_recv_conn().unwrap_or_else(default_conn);
 
-    app.subscribe(app.app_name(), Some(conn_id)).await.unwrap();
+    app.subscribe(app.app_name(), Some(subscribe_forward_conn))
+        .await
+        .unwrap();
 
     // Set a route for the remote app
     let remote_app_name = Name::from_strings(["org", "default", remote_name]);
     info!(remote_app = %remote_app_name, "allowing messages to remote app");
-    app.set_route(&remote_app_name, conn_id).await.unwrap();
+    app.set_route(&remote_app_name, route_recv_conn)
+        .await
+        .unwrap();
 
     // wait for the connection to be established
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;

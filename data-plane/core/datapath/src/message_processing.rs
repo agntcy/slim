@@ -3,7 +3,8 @@
 
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
-use std::{pin::Pin, sync::Arc};
+use std::pin::Pin;
+use std::sync::Arc;
 
 use crate::api::DataPlaneServiceServer;
 use display_error_chain::ErrorChainExt;
@@ -28,7 +29,7 @@ use crate::api::ProtoPublishType as PublishType;
 use crate::api::ProtoSubscribeType as SubscribeType;
 use crate::api::ProtoSubscriptionAckType as SubscriptionAckType;
 use crate::api::ProtoUnsubscribeType as UnsubscribeType;
-use crate::api::proto::dataplane::v1::Message;
+use crate::api::proto::dataplane::v1::{Message, StringName};
 use crate::api::{
     LinkNegotiationPayload, ProtoLink, ProtoLinkMessageType as LinkType, ProtoLinkType,
 };
@@ -39,7 +40,7 @@ use crate::api::proto::dataplane::v1::data_plane_service_server::DataPlaneServic
 use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::{DataPathError, MessageContext};
 use crate::forwarder::Forwarder;
-use crate::header_mac::HeaderMacSession;
+use crate::link_ecdh::{self, X25519_PUBLIC_KEY_LEN};
 use crate::messages::Name;
 use crate::messages::utils::SlimHeaderFlags;
 use crate::recovery::RecoveryTable;
@@ -73,9 +74,6 @@ struct MessageProcessorInternal {
 
     /// Service ID for tracing
     service_id: String,
-
-    /// Optional HMAC session applied to every **accepted** inbound inter-node connection.
-    inbound_header_mac: RwLock<Option<Arc<HeaderMacSession>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -108,7 +106,6 @@ impl MessageProcessor {
             recovery_table,
             sub_ack_manager: crate::subscription_ack::RemoteSubAckManager::new(),
             service_id,
-            inbound_header_mac: RwLock::new(None),
         };
         Self {
             internal: Arc::new(internal),
@@ -126,13 +123,6 @@ impl MessageProcessor {
         config: &ServerConfig,
     ) -> Result<CancellationToken, DataPathError> {
         debug!(%config, "starting dataplane server");
-        let inbound_mac = match config.header_mac_key.as_deref() {
-            None | Some("") => None,
-            Some(secret) => Some(Arc::new(
-                HeaderMacSession::new(secret.as_bytes()).map_err(DataPathError::HeaderIntegrity)?,
-            )),
-        };
-        *self.internal.inbound_header_mac.write() = inbound_mac;
 
         let watch = self.get_drain_watch()?;
         // Wrap self in an Arc since the server builder expects an Arc<MessageProcessor>
@@ -176,12 +166,8 @@ impl MessageProcessor {
         &self.internal.forwarder
     }
 
-    fn inbound_header_mac(&self) -> Option<Arc<HeaderMacSession>> {
-        self.internal.inbound_header_mac.read().clone()
-    }
-
     /// Verify SLIM header MAC for inter-node traffic only (local app connections skip this).
-    fn verify_remote_header_mac(
+    pub(crate) fn verify_remote_header_mac(
         &self,
         conn_index: u64,
         message: &Message,
@@ -193,16 +179,32 @@ impl MessageProcessor {
         if !matches!(*conn.connection_type(), ConnectionType::Remote) {
             return Ok(());
         }
+        let header = message
+            .try_get_slim_header()
+            .ok_or(DataPathError::UnknownMsgType)?;
+        let has_wire_mac = header.header_mac.as_ref().is_some_and(|m| !m.is_empty());
+
+        // Publishes must carry a MAC once the inter-node session has derived a key.  Control
+        // messages (subscribe / unsubscribe) may still traverse the same gRPC stream without a
+        // tag on some federation paths; skipping verification only when the tag is absent keeps
+        // tamper detection for application traffic.
+        if (message.is_subscribe() || message.is_unsubscribe()) && !has_wire_mac {
+            return Ok(());
+        }
+
         let Some(mac) = conn.header_hmac() else {
+            // Do not accept inter-node publishes that already carry an integrity tag until this
+            // side has derived the link MAC; otherwise verification is silently skipped and peers
+            // never see `HeaderIntegrity` failures (including tampered test traffic).
+            if message.is_publish() && has_wire_mac {
+                return Err(DataPathError::HeaderMacAwaitingLinkNegotiation(conn_index));
+            }
             return Ok(());
         };
         let link_id = conn
             .link_id()
             .filter(|id| slim_config::grpc::client::is_valid_uuid_v4(id))
             .ok_or(DataPathError::HeaderMacAwaitingLinkNegotiation(conn_index))?;
-        let header = message
-            .try_get_slim_header()
-            .ok_or(DataPathError::UnknownMsgType)?;
         mac.verify_slim_header(header, &link_id)
             .map_err(DataPathError::HeaderIntegrity)
     }
@@ -291,21 +293,18 @@ impl MessageProcessor {
         let link_id = client_config.link_id.clone();
 
         let cancellation_token = CancellationToken::new();
-        let header_mac: Option<Arc<HeaderMacSession>> =
-            match client_config.header_mac_key.as_deref() {
-                None | Some("") => None,
-                Some(secret) => Some(Arc::new(
-                    HeaderMacSession::new(secret.as_bytes())
-                        .map_err(DataPathError::HeaderIntegrity)?,
-                )),
-            };
+
+        let (ecdh_sk, ecdh_pk) =
+            link_ecdh::generate_x25519_ephemeral().map_err(|_| DataPathError::LinkKeyGeneration)?;
+
         let connection = Connection::new(ConnectionType::Remote, Channel::Client(tx))
             .with_local_addr(local)
             .with_remote_addr(remote)
             .with_config_data(Some(client_config.clone()))
             .with_cancellation_token(Some(cancellation_token.clone()))
-            .with_link_id(link_id.clone())
-            .with_header_mac(header_mac);
+            .with_link_id(link_id.clone());
+
+        connection.set_outbound_ecdh_private(ecdh_sk);
 
         debug!(
             remote = ?connection.remote_addr(),
@@ -337,12 +336,15 @@ impl MessageProcessor {
 
         // Send the link negotiation message to the remote peer.
         // Old SLIM instances that do not understand this message will silently drop it.
-        let negotiation_msg =
-            ProtoMessage::builder().build_link_negotiation(&link_id, local_version(), false);
-        if let Err(e) = self.send_msg(negotiation_msg, conn_index).await {
+        let negotiation_msg = ProtoMessage::builder().build_link_negotiation(
+            &link_id,
+            local_version(),
+            false,
+            Some(ecdh_pk),
+        );
+        if self.send_msg(negotiation_msg, conn_index).await.is_err() {
             debug!(
                 %conn_index,
-                error = %e.chain(),
                 "failed to send link negotiation (remote may be an older SLIM instance)",
             );
         }
@@ -485,18 +487,29 @@ impl MessageProcessor {
                         // Must run *after* sign so the tag does not cover the mutated preimage fields.
                         #[cfg(debug_assertions)]
                         if std::env::var("SLIM_TEST_TAMPER_DESTINATION").is_ok() {
-                            use crate::api::ProtoName;
-
-                            if let Some(ref destination) = header.destination {
-                                let current = Name::from(destination);
-                                let tampered = Name::from_strings(["org", "ns", "malicious"])
-                                    .with_id(current.id());
-                                header.destination = Some(ProtoName::from(&tampered));
+                            if let Some(dest) = header.destination.as_mut() {
+                                if let Some(sn) = dest.str_name.as_mut() {
+                                    sn.str_component_2.push_str("-integrity-test-tamper");
+                                } else {
+                                    dest.str_name = Some(StringName {
+                                        str_component_0: String::new(),
+                                        str_component_1: String::new(),
+                                        str_component_2: "-integrity-test-tamper".into(),
+                                    });
+                                }
                             }
                         }
                     } else {
                         return Err(DataPathError::HeaderMacAwaitingLinkNegotiation(out_conn));
                     }
+                }
+
+                if !msg.is_link()
+                    && !msg.is_subscription_ack()
+                    && matches!(conn.channel(), Channel::Server(_))
+                    && matches!(conn.connection_type(), ConnectionType::Local)
+                {
+                    msg.get_slim_header_mut().header_mac = None;
                 }
 
                 match conn.channel() {
@@ -655,17 +668,59 @@ impl MessageProcessor {
         };
 
         if payload.is_reply {
-            // Client path: verifies the echoed link_id matches what we sent and stores the remote
-            // version atomically (replay-protected).
             if !conn.complete_negotiation_as_client(link_id, version) {
                 debug!(%in_connection, %link_id, "ignoring link negotiation reply");
+                return Ok(());
+            }
+
+            if payload.link_ecdh_public_key.len() == X25519_PUBLIC_KEY_LEN {
+                if let Some(sk) = conn.take_outbound_ecdh_private() {
+                    match link_ecdh::derive_header_mac_from_ecdh(
+                        sk,
+                        payload.link_ecdh_public_key.as_slice(),
+                        link_id,
+                    ) {
+                        Ok(mac) => conn.install_header_hmac(mac),
+                        Err(e) => {
+                            error!(
+                                %in_connection,
+                                error = %e,
+                                "link ECDH key derivation failed (client path)",
+                            );
+                        }
+                    }
+                }
             }
         } else {
-            // Server path: validates link_id as UUID v4, stores it together with the remote
-            // version atomically (replay-protected), then echoes a reply.
             if !conn.complete_negotiation_as_server(link_id, version) {
                 debug!(%in_connection, %link_id, "ignoring link negotiation request");
                 return Ok(());
+            }
+
+            let peer_ecdh = payload.link_ecdh_public_key.as_slice();
+            let mut server_reply_ecdh: Option<Vec<u8>> = None;
+            if peer_ecdh.len() == X25519_PUBLIC_KEY_LEN {
+                match link_ecdh::generate_x25519_ephemeral() {
+                    Ok((server_sk, server_pk)) => {
+                        match link_ecdh::derive_header_mac_from_ecdh(server_sk, peer_ecdh, link_id)
+                        {
+                            Ok(mac) => {
+                                conn.install_header_hmac(mac);
+                                server_reply_ecdh = Some(server_pk);
+                            }
+                            Err(e) => {
+                                error!(
+                                    %in_connection,
+                                    error = %e,
+                                    "link ECDH key derivation failed (server path)",
+                                );
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        error!(%in_connection, "failed to generate server link ECDH key");
+                    }
+                }
             }
 
             // Route recovery: if the peer reconnected with a known link_id, restore all
@@ -701,8 +756,12 @@ impl MessageProcessor {
             }
 
             // Send reply only after state is committed.
-            let reply =
-                ProtoMessage::builder().build_link_negotiation(link_id, local_version(), true);
+            let reply = ProtoMessage::builder().build_link_negotiation(
+                link_id,
+                local_version(),
+                true,
+                server_reply_ecdh,
+            );
             if let Err(e) = self.send_msg(reply, in_connection).await {
                 debug!(
                     %in_connection,
@@ -1405,11 +1464,9 @@ impl DataPlaneService for MessageProcessor {
         let stream = request.into_inner();
         let (tx, rx) = mpsc::channel(128);
 
-        let header_mac = self.inbound_header_mac();
         let connection = Connection::new(ConnectionType::Remote, Channel::Server(tx))
             .with_remote_addr(remote_addr)
-            .with_local_addr(local_addr)
-            .with_header_mac(header_mac);
+            .with_local_addr(local_addr);
 
         debug!(
             remote = ?connection.remote_addr(),
@@ -1447,10 +1504,12 @@ impl DataPlaneService for MessageProcessor {
 #[cfg(test)]
 mod tests {
     use slim_config::grpc::client::is_valid_uuid_v4;
+    use std::sync::Arc;
     use std::time::Duration;
 
     use super::*;
     use crate::api::ProtoSubscriptionAck;
+    use crate::header_mac::HeaderMacSession;
     use crate::tables::remote_subscription_table::SubscriptionInfo;
     use tonic::Status;
 
@@ -1578,6 +1637,7 @@ mod tests {
             link_id: uuid::Uuid::new_v4().to_string(),
             slim_version: "1.0.0".into(),
             is_reply: false,
+            link_ecdh_public_key: vec![],
         };
         assert!(
             processor
@@ -1595,6 +1655,7 @@ mod tests {
             link_id: uuid::Uuid::new_v4().to_string(),
             slim_version: "1.0.0".into(),
             is_reply: false, // request on outgoing connection → ignored
+            link_ecdh_public_key: vec![],
         };
         assert!(
             processor
@@ -1620,6 +1681,7 @@ mod tests {
             link_id: uuid::Uuid::new_v4().to_string(),
             slim_version: "1.0.0".into(),
             is_reply: true, // reply on incoming connection → ignored
+            link_ecdh_public_key: vec![],
         };
         assert!(
             processor
@@ -1645,6 +1707,7 @@ mod tests {
             link_id: uuid::Uuid::new_v4().to_string(),
             slim_version: "not-semver".into(),
             is_reply: false,
+            link_ecdh_public_key: vec![],
         };
         assert!(
             processor
@@ -1670,6 +1733,7 @@ mod tests {
             link_id: "not-a-uuid".into(),
             slim_version: "1.0.0".into(),
             is_reply: false,
+            link_ecdh_public_key: vec![],
         };
         assert!(
             processor
@@ -1696,6 +1760,7 @@ mod tests {
             link_id: link_id.clone(),
             slim_version: "1.2.3".into(),
             is_reply: false,
+            link_ecdh_public_key: vec![],
         };
         assert!(
             processor
@@ -1723,6 +1788,7 @@ mod tests {
             link_id: link_id.clone(),
             slim_version: "1.0.0".into(),
             is_reply: false,
+            link_ecdh_public_key: vec![],
         };
         // First request: accepted, reply sent.
         assert!(
@@ -1753,6 +1819,7 @@ mod tests {
             link_id: link_id.clone(),
             slim_version: "2.0.0".into(),
             is_reply: true,
+            link_ecdh_public_key: vec![],
         };
         assert!(
             processor
@@ -1776,6 +1843,7 @@ mod tests {
             link_id: "wrong-id".into(),
             slim_version: "1.0.0".into(),
             is_reply: true,
+            link_ecdh_public_key: vec![],
         };
         assert!(
             processor
@@ -1797,6 +1865,7 @@ mod tests {
             link_id: link_id.clone(),
             slim_version: "1.0.0".into(),
             is_reply: true,
+            link_ecdh_public_key: vec![],
         };
         // First reply: accepted.
         assert!(
@@ -1819,14 +1888,93 @@ mod tests {
 
     // ── process_subscription: remote ack path ─────────────────────────────────
 
-    /// Helper: negotiate a server connection to version `v` so
-    /// `subscription_ack::supports` returns the expected value.
+    /// Helper: negotiate a server connection to version `v` and install a test HMAC session
+    /// so `subscription_ack::supports` matches a fully established inter-node link.
     fn negotiate_conn(processor: &MessageProcessor, conn_id: u64, version: &str) {
         let c = processor.forwarder().get_connection(conn_id).unwrap();
         c.complete_negotiation_as_server(
             &uuid::Uuid::new_v4().to_string(),
             semver::Version::parse(version).unwrap(),
         );
+        c.test_install_header_mac(Arc::new(
+            HeaderMacSession::new(b"01234567890123456789012345678901").unwrap(),
+        ));
+    }
+
+    #[test]
+    fn verify_remote_header_mac_accepts_signed_inter_node_publish() {
+        let processor = MessageProcessor::new();
+        let (remote_conn, _rx) = make_server_conn(&processor);
+        negotiate_conn(&processor, remote_conn, "1.2.0");
+        let link_id = processor
+            .forwarder()
+            .get_connection(remote_conn)
+            .unwrap()
+            .link_id()
+            .expect("link id after negotiation");
+
+        let source = Name::from_strings(["org", "default", "a"]).with_id(1);
+        let dest = Name::from_strings(["org", "default", "b"]).with_id(2);
+        let mut msg = ProtoMessage::builder()
+            .source(source)
+            .destination(dest)
+            .application_payload("text/plain", b"hey".to_vec())
+            .build_publish()
+            .expect("publish");
+
+        let mac = HeaderMacSession::new(b"01234567890123456789012345678901").unwrap();
+        mac.sign_slim_header(msg.get_slim_header_mut(), &link_id)
+            .expect("sign header");
+
+        assert!(
+            processor
+                .verify_remote_header_mac(remote_conn, &msg)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn verify_remote_header_mac_rejects_destination_tamper_after_sign() {
+        let processor = MessageProcessor::new();
+        let (remote_conn, _rx) = make_server_conn(&processor);
+        negotiate_conn(&processor, remote_conn, "1.2.0");
+        let link_id = processor
+            .forwarder()
+            .get_connection(remote_conn)
+            .unwrap()
+            .link_id()
+            .expect("link id after negotiation");
+
+        let source = Name::from_strings(["org", "default", "a"]).with_id(1);
+        let dest = Name::from_strings(["org", "default", "b"]).with_id(2);
+        let mut msg = ProtoMessage::builder()
+            .source(source)
+            .destination(dest)
+            .application_payload("text/plain", b"hey".to_vec())
+            .build_publish()
+            .expect("publish");
+
+        let mac = HeaderMacSession::new(b"01234567890123456789012345678901").unwrap();
+        mac.sign_slim_header(msg.get_slim_header_mut(), &link_id)
+            .expect("sign header");
+
+        let header = msg.get_slim_header_mut();
+        if let Some(dest) = header.destination.as_mut() {
+            if let Some(sn) = dest.str_name.as_mut() {
+                sn.str_component_2.push_str("-integrity-test-tamper");
+            } else {
+                dest.str_name = Some(StringName {
+                    str_component_0: String::new(),
+                    str_component_1: String::new(),
+                    str_component_2: "-integrity-test-tamper".into(),
+                });
+            }
+        }
+
+        let err = processor
+            .verify_remote_header_mac(remote_conn, &msg)
+            .expect_err("tampered header must fail MAC verify");
+        assert!(matches!(err, DataPathError::HeaderIntegrity(_)));
     }
 
     #[tokio::test]
@@ -2397,6 +2545,7 @@ mod tests {
             link_id: link_id.clone(),
             slim_version: "1.0.0".into(),
             is_reply: false,
+            link_ecdh_public_key: vec![],
         };
         processor
             .handle_link_negotiation(&payload, conn_id)
@@ -2434,6 +2583,7 @@ mod tests {
             link_id: link_id.clone(),
             slim_version: "1.0.0".into(),
             is_reply: false,
+            link_ecdh_public_key: vec![],
         };
         processor
             .handle_link_negotiation(&payload, conn_id)
@@ -2458,6 +2608,7 @@ mod tests {
             link_id: link_id.clone(),
             slim_version: "1.0.0".into(),
             is_reply: false,
+            link_ecdh_public_key: vec![],
         };
         processor
             .handle_link_negotiation(&payload, conn_id)
