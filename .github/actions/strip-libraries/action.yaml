@@ -1,0 +1,57 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+
+name: Strip Native Libraries
+description: >-
+  Install llvm-strip-19 (if missing) and strip symbols from native shared
+  libraries under a given path. Uses --strip-unneeded for ELF/COFF and -x for
+  Mach-O (--strip-unneeded is unsupported on Mach-O).
+inputs:
+  path:
+    description: Directory to search for libraries.
+    required: true
+  max-depth:
+    description: Optional find -maxdepth value. Empty means recurse.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Install LLVM 19
+      shell: bash
+      run: |
+        if command -v llvm-strip-19 >/dev/null 2>&1; then
+          echo "llvm-strip-19 already installed."
+          exit 0
+        fi
+        if [ "$(uname -s)" != "Linux" ]; then
+          echo "strip-libraries action only supports Linux runners (got $(uname -s))" >&2
+          exit 1
+        fi
+        curl -fsSL https://apt.llvm.org/llvm.sh -o /tmp/llvm.sh
+        chmod +x /tmp/llvm.sh
+        sudo /tmp/llvm.sh 19
+
+    - name: Strip libraries
+      shell: bash
+      env:
+        STRIP_PATH: ${{ inputs.path }}
+        MAX_DEPTH: ${{ inputs.max-depth }}
+      run: |
+        depth_args=()
+        if [ -n "$MAX_DEPTH" ]; then
+          depth_args=(-maxdepth "$MAX_DEPTH")
+        fi
+        echo "✂️  Stripping shared libraries in $STRIP_PATH using llvm-strip-19..."
+        find "$STRIP_PATH" "${depth_args[@]}" -type f \
+          \( -name "*.so" -o -name "*.dylib" -o -name "*.dll" -o -name "*.lib" \) \
+          2>/dev/null | while read -r lib; do
+          echo "  Stripping: $lib"
+          case "$lib" in
+            *.dylib) llvm-strip-19 -x "$lib" ;;
+            *)       llvm-strip-19 --strip-unneeded "$lib" ;;
+          esac
+        done
