@@ -280,7 +280,7 @@ tasks:
     cmds:
       - |
         echo "Stopping Kind cloud provider for LoadBalancer support..."
-        kill -9 $(ps aux | grep [c]loud-provider-kind | awk '{print $2}')
+        kill -TERM $(ps aux | grep [c]loud-provider-kind | awk '{print $2}')
   
   test.sender:deploy:
     desc: Deploy sender application (example pod)

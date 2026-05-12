@@ -83,4 +83,5 @@ slim:
 spire:
   enabled: true
   # trustedDomains:
-  # - spiffe://cluster-a.example 
+  # - spiffe://cluster-a.example
+
