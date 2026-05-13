@@ -1,0 +1,22 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+# Values for ingress-nginx Helm chart:
+#   helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+#   helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx -n ingress-nginx -f ingress-values.yaml
+#
+# On KIND, Service type LoadBalancer is fulfilled if cloud-provider-kind is running
+# (see task multi-cluster:lb:up in this folder).
+
+controller:
+  allowSnippetAnnotations: true
+
+  # Required for nginx.ingress.kubernetes.io/ssl-passthrough (SPIRE gRPC to root server).
+  extraArgs:
+    enable-ssl-passthrough: ""
+
+  config:
+    annotations-risk-level: Critical
+
+  service:
+    type: LoadBalancer

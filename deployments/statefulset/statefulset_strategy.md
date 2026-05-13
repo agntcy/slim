@@ -84,11 +84,13 @@ Here's an example of the default `ClusterSPIFFEID` which applies to all pods unl
 
 The Spire agent exposes a local API endpoint on each node, used by applications to fetch certificates and certificate bundles. SLIM nodes (server nodes and python clients) and Controller support Spire natively.
 
-For troubleshooting connection problems, use the following command to list created entries:
+For troubleshooting connection problems, use the following command to list created registration entries:
 
 ```bash
-kubectl exec -n spire spire-server-0 -- /opt/spire/bin/spire-server entry
+kubectl exec -n spire spire-server-0 -- /opt/spire/bin/spire-server entry list
 ```
+
+Adjust namespace and pod name if your cluster uses a different SPIRE layout. Use `spire-server entry show -entryID <id>` to print a single entry.
 
 Find out more on [Spire on Kubernetes](https://spiffe.io/docs/latest/try/getting-started-k8s/) and [ClusterSPIFFEID](https://github.com/spiffe/spire-controller-manager/blob/main/docs/clusterspiffeid-crd.md) resource.
 
@@ -144,7 +146,7 @@ SLIM nodes must be configured to use MTLS with Spire:
         node_id: ${env:SLIM_SVC_ID}
         dataplane:
           servers:
-            - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
+            - endpoint: "0.0.0.0:{{ (index .Values.slim.service.data 0).port }}"
               tls: 
                 source:
                   type: spire
@@ -226,7 +228,7 @@ In case of connection problems, check the following:
 * List registration entries on each cluster:
 
     ```bash
-    kubectl exec -n spire spire-server-0 -- /opt/spire/bin/spire-server entry show
+    kubectl exec -n spire spire-server-0 -- /opt/spire/bin/spire-server entry list
     ```
 
     There should be an entry for Controller, one entry for each SLIM node.
