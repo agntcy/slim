@@ -1167,12 +1167,21 @@ where
                 id = %msg_id,
                 "process group ack. try to close task",
             );
+            // `is_still_pending` returns false for any ID that is not actively
+            // tracked — including IDs that were already cleaned up when a task
+            // completed or failed.  Guard against a late / retransmitted GroupAck
+            // arriving after the task has been cleared; such an ACK is harmless
+            // and should be silently discarded rather than causing a panic.
+            let Some(task) = self.current_task.as_mut() else {
+                debug!(
+                    id = %msg_id,
+                    "received group ack for completed/unknown task, ignoring",
+                );
+                return Ok(());
+            };
             // we received all the messages related to this timer
             // check if we are done and move on
-            self.current_task
-                .as_mut()
-                .unwrap()
-                .update_phase_completed(msg_id)?;
+            task.update_phase_completed(msg_id)?;
 
             // check if the task is finished.
             if !self.current_task.as_mut().unwrap().task_complete() {
