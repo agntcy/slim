@@ -13,7 +13,6 @@ import (
 	"time"
 
 	slim_bindings "github.com/agntcy/slim-bindings-go"
-
 	"github.com/agntcy/slim/bindings/go/examples/common"
 	pb "github.com/agntcy/slim/bindings/go/examples/slimrpc/simple/types"
 )

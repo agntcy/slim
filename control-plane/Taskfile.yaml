@@ -66,20 +66,19 @@ tasks:
         vars:
           CMD: "echo ${PWD} && {{.TOOLS_INSTALL_DIR}}/golangci-lint run"
 
-  control-plane:impi:
-    desc: Run go impi
+  control-plane:fmt:
+    desc: Run golangci-lint fmt
     deps:
       - tools:all
     cmds:
-      - task: control-plane:gogen
-      - task: control-plane:foreach-module
-        vars:
-          CMD: |
-            {{.TOOLS_INSTALL_DIR}}/impi \
-              --local github.com/agntcy/slim \
-              --ignore-generated=true \
-              --scheme stdThirdPartyLocal \
-              ./...
+      - "{{.TOOLS_INSTALL_DIR}}/golangci-lint fmt ./..."
+
+  control-plane:fmt:diff:
+    desc: Run golangci-lint fmt diff
+    deps:
+      - tools:all
+    cmds:
+      - "{{.TOOLS_INSTALL_DIR}}/golangci-lint fmt --diff ./..."
 
   control-plane:vuln:
     desc: Run go govulncheck
