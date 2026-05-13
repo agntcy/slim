@@ -19,12 +19,19 @@ vars:
   CARGO_COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete cargo-deny typos-cli"
 
 tasks:
-  data-plane:bindings:lint:
+  data-plane:bindings:python:lint:
     desc: "Python linter"
     internal: true
     dir: ./bindings/python
     cmds:
       - task python:bindings:lint
+
+  data-plane:bindings:go:lint:
+    desc: "Go linter"
+    internal: true
+    dir: ./bindings/go
+    cmds:
+      - task lint
 
   data-plane:bindings:dotnet:lint:
     desc: ".NET linter"
@@ -37,7 +44,8 @@ tasks:
     desc: "Run the linter"
     cmds:
       - task: data-plane:lintall
-      - task: data-plane:bindings:lint
+      - task: data-plane:bindings:python:lint
+      - task: data-plane:bindings:go:lint
       - task: data-plane:bindings:dotnet:lint
 
   data-plane:build:strip:
