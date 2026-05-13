@@ -175,12 +175,19 @@ Optional: pre-set `SPIRE_JOIN_TOKEN` if you do not want the task to `kubectl exe
 
 ### 5. Deploy example receiver and sender
 
+The centralized Controller automatically creates routes when Alice subscribes, enabling Bob's messages to reach Alice across clusters through the admin cluster coordination.
+  
 ```bash
-task test.receiver:deploy
-task test.sender:deploy
+# Deploy receiver (Alice) on cluster-a
+kubectl config use-context kind-cluster-a.example
+task test:receiver:deploy
+
+# Deploy sender (Bob) on cluster-b
+kubectl config use-context kind-cluster-b.example
+task test:sender:deploy
 ```
 
-These use the included `client_apps` Taskfile to prepare bindings and apply `receiver-pod.yaml` / `sender-pod.yaml` (default namespace). They expect both cluster names in `KIND_CLUSTER_NAMES`.
+These use the included `client_apps` Taskfile to prepare bindings and apply `receiver-pod.yaml` / `sender-pod.yaml` (default namespace). 
 
 ### 6. Deploy A2A echo agent (optional)
 

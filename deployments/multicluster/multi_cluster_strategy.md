@@ -288,10 +288,16 @@ services:
     group_name: "cluster-a.example"
     dataplane:
       servers:
-        - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
+        - endpoint: "0.0.0.0:{{ (index .Values.slim.service.data 0).port }}"
           metadata:
             local_endpoint: ${env:MY_POD_IP}
-            external_endpoint: "slim.cluster-a.example:{{ .Values.slim.service.data.port }}"             
+            external_endpoint: "slim.cluster-a.example:{{ (index .Values.slim.service.data 0).port }}"  
+            client_config:
+              tls:
+                insecure_skip_verify: true
+                source:
+                  type: spire
+                  socket_path: unix:/tmp/spire-agent/public/api.sock                             
           tls:
             #insecure: true
             insecure_skip_verify: false   
