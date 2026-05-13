@@ -71,6 +71,7 @@ tasks:
         spire \
         spire \
         --repo https://spiffe.github.io/helm-charts-hardened/ \
+        --set spire-server.image.tag=1.14.5 \
         --set global.spire.trustDomain="example.local" \
         --set global.spire.clusterName="slim-cluster" \
         --namespace {{ .SPIRE_NAMESPACE }} \
