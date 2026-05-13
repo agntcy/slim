@@ -56,10 +56,6 @@ All notable changes to this project will be documented in this file.
 - Add linters to Go, Java, and Kotlin bindings and generalize tooling ([#1502](https://github.com/agntcy/slim/pull/1502))
 - Fix React Native npm package layout ([#1610](https://github.com/agntcy/slim/pull/1610), [#1613](https://github.com/agntcy/slim/pull/1613))
 
-##### slimctl
-
-- Correct `writable` test-name spelling ([#1464](https://github.com/agntcy/slim/pull/1464))
-
 ##### Helm Charts
 
 - Add configmap checksum annotation for automatic pod reload on config change ([#1493](https://github.com/agntcy/slim/pull/1493))
@@ -103,6 +99,7 @@ All notable changes to this project will be documented in this file.
   - `slim-bindings==1.4.0`
 - **JavaScript / TypeScript Packages**: Published to npm
   - `@agntcy/slim-bindings@1.4.0`
+  - `@agntcy/slim-bindings-react-native@1.4.0`
 - **Java Packages**: Published to GitHub Packages (Maven/Gradle)
   - `io.agntcy:slim-bindings:1.4.0`
 - **Kotlin Packages**: Published to GitHub Packages (Maven/Gradle)
@@ -117,9 +114,10 @@ All notable changes to this project will be documented in this file.
 
 ### Compatibility Matrix
 
-All core components with the same major version (v1.x.x) are compatible with each other.
+All core components with the same major version (v1.x.x) are compatible with each other, with the exception of
+control plane v1.4.0, which requires slim data plane v1.4.0, and viceversa.
 
-| Component                    | Version | Compatible With                                                                       |
+| Component                    | Version | Description                                                                           |
 | ---------------------------- | ------- | ------------------------------------------------------------------------------------- |
 | **slim**                     | v1.4.0  | Data plane runtime                                                                    |
 | **slim-bindings**            | v1.4.0  | Python 3.10+, Go 1.21+ (with CGO), Java 21+, Kotlin (JVM 17+), .NET 8.0+, Node.js 20+ |
@@ -132,7 +130,7 @@ All core components with the same major version (v1.x.x) are compatible with eac
 
 - **slim-bindings v1.4.0** adds JavaScript / TypeScript bindings (including React Native) alongside the existing Python, Go, Java, Kotlin, and .NET support.
 - **protoc-slimrpc-plugin v1.4.0** adds Kotlin code generation.
-- All SLIM components remain backward compatible with v1.3.x; the SLIMRPC protocol is unchanged from v1.3.0.
+- All SLIM data-plane components remain backward compatible with v1.3.x; the SLIMRPC protocol is unchanged from v1.3.0.
 
 ### Migration Notes
 
@@ -146,11 +144,7 @@ A new `protoc-gen-slimrpc-kotlin` plugin is available for generating SLIMRPC cli
 
 #### slim-spire Helm Chart
 
-A new `helm-slim-spire` chart is available for deploying SLIM with SPIRE-based workload identity. Use it in place of (or alongside) the existing `helm-slim` chart when running with SPIRE.
-
-#### SPIRE 0.12
-
-The data plane and helm charts now target SPIRE 0.12. If you operate your own SPIRE deployment, ensure your server and agents are upgraded accordingly before adopting v1.4.0.
+A new `helm-slim-spire` chart is available for deploying SLIM with SPIRE-based workload identity in private environments, where spire federation does not work.
 
 ## v1.3.0 (31 March 2026)
 
