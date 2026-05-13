@@ -1167,12 +1167,21 @@ where
                 id = %msg_id,
                 "process group ack. try to close task",
             );
+            // `is_still_pending` returns false for any ID that is not actively
+            // tracked — including IDs that were already cleaned up when a task
+            // completed or failed.  Guard against a late / retransmitted GroupAck
+            // arriving after the task has been cleared; such an ACK is harmless
+            // and should be silently discarded rather than causing a panic.
+            let Some(task) = self.current_task.as_mut() else {
+                debug!(
+                    id = %msg_id,
+                    "received group ack for completed/unknown task, ignoring",
+                );
+                return Ok(());
+            };
             // we received all the messages related to this timer
             // check if we are done and move on
-            self.current_task
-                .as_mut()
-                .unwrap()
-                .update_phase_completed(msg_id)?;
+            task.update_phase_completed(msg_id)?;
 
             // check if the task is finished.
             if !self.current_task.as_mut().unwrap().task_complete() {
@@ -2124,5 +2133,42 @@ mod tests {
             moderator.group_list.contains_key(&participant2),
             "Participant2 should still be in group (task queued, not processed)"
         );
+    }
+
+    /// A late or retransmitted GroupAck arriving when `current_task` is `None`
+    /// must be silently discarded instead of panicking.
+    #[tokio::test]
+    async fn test_group_ack_ignored_when_no_current_task() {
+        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        // Sanity-check: no task is active.
+        assert!(moderator.current_task.is_none());
+
+        let source = make_name(&["participant", "app", "v1"]).with_id(300);
+        let destination = moderator.common.settings.source.clone();
+
+        // Build a GroupAck whose message_id was never registered with the sender,
+        // so `is_still_pending` returns false and the guard is exercised.
+        let group_ack = Message::builder()
+            .source(source)
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::GroupAck)
+            .session_id(1)
+            .message_id(999)
+            .payload(CommandPayload::builder().group_ack().as_content())
+            .build_publish()
+            .unwrap();
+
+        // Must not panic; the stale ACK is discarded and Ok(()) is returned.
+        let result = moderator.process_control_message(group_ack, None).await;
+        assert!(result.is_ok());
+
+        // State is unchanged.
+        assert!(moderator.current_task.is_none());
     }
 }
