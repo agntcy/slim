@@ -2134,4 +2134,41 @@ mod tests {
             "Participant2 should still be in group (task queued, not processed)"
         );
     }
+
+    /// A late or retransmitted GroupAck arriving when `current_task` is `None`
+    /// must be silently discarded instead of panicking.
+    #[tokio::test]
+    async fn test_group_ack_ignored_when_no_current_task() {
+        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        // Sanity-check: no task is active.
+        assert!(moderator.current_task.is_none());
+
+        let source = make_name(&["participant", "app", "v1"]).with_id(300);
+        let destination = moderator.common.settings.source.clone();
+
+        // Build a GroupAck whose message_id was never registered with the sender,
+        // so `is_still_pending` returns false and the guard is exercised.
+        let group_ack = Message::builder()
+            .source(source)
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::GroupAck)
+            .session_id(1)
+            .message_id(999)
+            .payload(CommandPayload::builder().group_ack().as_content())
+            .build_publish()
+            .unwrap();
+
+        // Must not panic; the stale ACK is discarded and Ok(()) is returned.
+        let result = moderator.process_control_message(group_ack, None).await;
+        assert!(result.is_ok());
+
+        // State is unchanged.
+        assert!(moderator.current_task.is_none());
+    }
 }
