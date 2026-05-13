@@ -81,14 +81,14 @@ All notable changes to this project will be documented in this file.
 
 | Component                   | Latest Version | Release Date |
 | --------------------------- | -------------- | ------------ |
-| slim                        | v1.4.0         | 2026-05-11   |
-| slim-bindings               | v1.4.0         | 2026-05-11   |
-| protoc-slimrpc-plugin       | v1.4.0         | 2026-05-11   |
-| slimctl                     | v1.4.0         | 2026-05-11   |
-| control-plane               | v1.4.0         | 2026-05-11   |
-| helm-slim                   | v1.4.1         | 2026-05-11   |
-| helm-slim-control-plane     | v1.4.0         | 2026-05-11   |
-| helm-slim-spire             | v1.4.0         | 2026-05-11   |
+| slim                        | v1.4.0         | 2026-05-13   |
+| slim-bindings               | v1.4.0         | 2026-05-13   |
+| protoc-slimrpc-plugin       | v1.4.0         | 2026-05-13   |
+| slimctl                     | v1.4.0         | 2026-05-13   |
+| control-plane               | v1.4.0         | 2026-05-13   |
+| helm-slim                   | v1.4.1         | 2026-05-13   |
+| helm-slim-control-plane     | v1.4.0         | 2026-05-13   |
+| helm-slim-spire             | v1.4.0         | 2026-05-13   |
 
 ### Release Artifacts
 
