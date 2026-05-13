@@ -1,10 +1,18 @@
 # Changelog
 
-## [1.4.0-rc.0](https://github.com/agntcy/slim/compare/control-plane-v1.4.0-rc.0...control-plane-v1.0.0) (2026-04-21)
+## [1.4.0](https://github.com/agntcy/slim/compare/control-plane-v1.4.0...control-plane-v1.0.0) (2026-05-13)
+
 
 ### Features
 
+* Bindings uniffi version updates ([#1590](https://github.com/agntcy/slim/issues/1590)) ([442a334](https://github.com/agntcy/slim/commit/442a334a79e389fb8b57874071e36a527b9c441d))
+
 * update controller connection ([#1485](https://github.com/agntcy/slim/issues/1485)) ([f1ef1a8](https://github.com/agntcy/slim/commit/f1ef1a85040af6947f1d865bdcd0db3ed62c97c7))
+
+### Bug Fixes
+
+* replace deprecated go-acc with integrated coverage tool ([#1526](https://github.com/agntcy/slim/issues/1526)) ([d55cc27](https://github.com/agntcy/slim/commit/d55cc27cdf2230aabc98b273befbfebf4ca39170))
+* update go-grpc dependency versions ([#1591](https://github.com/agntcy/slim/issues/1591)) ([f143f9b](https://github.com/agntcy/slim/commit/f143f9ba4b1d8559e8d57f65cf911141a123cda3))
 
 ## [1.0.0](https://github.com/agntcy/slim/compare/control-plane-v0.7.1...control-plane-v1.0.0) (2026-01-30)
 
