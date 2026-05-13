@@ -1,6 +1,7 @@
 # Changelog
 
-## [1.4.0-rc.0](https://github.com/agntcy/slim/compare/helm-slim-spire-v1.4.0-rc.0...helm-slim-spire-v1.4.0-rc.0) (2026-04-24)
+
+## [1.4.0](https://github.com/agntcy/slim/compare/helm-slim-spire-v1.4.0...helm-slim-spire-v1.4.0) (2026-04-24)
 
 
 ### Features
