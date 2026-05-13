@@ -408,11 +408,13 @@ kubectl logs -n slim slim-1 slim
 
 In case of connection problems check the following:
 
-1. List registration entries on each cluster:
+1. List registration entries on each cluster (use the correct `kubectl` context per cluster; adjust namespace/pod name if your SPIRE install differs, for example `spire-system`):
 
     ```bash
-    kubectl exec -n spire spire-server-0 -- /opt/spire/bin/spire-server entry show
+    kubectl exec -n spire spire-server-0 -- /opt/spire/bin/spire-server entry list
     ```
+
+    To inspect one entry by ID, use `spire-server entry show -entryID <id>`.
 
     There should be an entry for Controller on admin.example cluster, one entry for each SLIM node on worker clusters,
     one entry for Bob on cluster-b and one entry for Alice on cluster-a.
