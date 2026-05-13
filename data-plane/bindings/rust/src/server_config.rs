@@ -73,46 +73,36 @@ pub struct ServerConfig {
     pub endpoint: String,
 
     /// Transport protocol to use (defaults to gRPC in core config when omitted)
-    #[uniffi(default = None)]
     pub transport: Option<TransportProtocol>,
 
     /// TLS server configuration
     pub tls: TlsServerConfig,
 
     /// Use HTTP/2 only (default: true)
-    #[uniffi(default = None)]
     pub http2_only: Option<bool>,
 
     /// Maximum size (in MiB) of messages accepted by the server
-    #[uniffi(default = None)]
     pub max_frame_size: Option<u32>,
 
     /// Maximum number of concurrent streams per connection
-    #[uniffi(default = None)]
     pub max_concurrent_streams: Option<u32>,
 
     /// Maximum header list size in bytes
-    #[uniffi(default = None)]
     pub max_header_list_size: Option<u32>,
 
     /// Read buffer size in bytes
-    #[uniffi(default = None)]
     pub read_buffer_size: Option<u64>,
 
     /// Write buffer size in bytes
-    #[uniffi(default = None)]
     pub write_buffer_size: Option<u64>,
 
     /// Keepalive parameters
-    #[uniffi(default = None)]
     pub keepalive: Option<KeepaliveServerParameters>,
 
     /// Authentication configuration for incoming requests
-    #[uniffi(default = None)]
     pub auth: Option<ServerAuthenticationConfig>,
 
     /// Arbitrary user-provided metadata as JSON string
-    #[uniffi(default = None)]
     pub metadata: Option<String>,
 }
 

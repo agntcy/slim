@@ -16,32 +16,6 @@ import (
 	"github.com/onsi/gomega/gexec"
 )
 
-// extractSubscriptionName finds a subscription matching prefix in the route
-// list output and returns "prefix/id". Returns "" if not found.
-func extractSubscriptionName(routeListOutput, prefix string) string {
-	for _, line := range strings.Split(routeListOutput, "\n") {
-		if !strings.Contains(line, prefix) {
-			continue
-		}
-		parts := strings.Fields(line)
-		if len(parts) == 0 {
-			continue
-		}
-		nameWithoutID := parts[0]
-		for _, part := range parts {
-			idStr, ok := strings.CutPrefix(part, "id=")
-			if !ok {
-				continue
-			}
-			idStr, _ = strings.CutPrefix(idStr, "Some(")
-			idStr, _ = strings.CutPrefix(idStr, "{value:")
-			idStr = strings.TrimRight(idStr, ")}")
-			return fmt.Sprintf("%s/%s", nameWithoutID, idStr)
-		}
-	}
-	return ""
-}
-
 var _ = Describe("Group management through control plane with timeout", func() {
 	var (
 		controlPlaneSession *gexec.Session

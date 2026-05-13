@@ -265,66 +265,51 @@ pub struct ClientConfig {
     pub endpoint: String,
 
     /// Transport protocol to use (defaults to gRPC in core config when omitted)
-    #[uniffi(default = None)]
     pub transport: Option<TransportProtocol>,
 
     /// Optional websocket authentication query parameter key
-    #[uniffi(default = None)]
     pub websocket_auth_query_param: Option<String>,
 
     /// TLS client configuration
     pub tls: TlsClientConfig,
 
     /// Origin (HTTP Host authority override) for the client
-    #[uniffi(default = None)]
     pub origin: Option<String>,
 
     /// Optional TLS SNI server name override
-    #[uniffi(default = None)]
     pub server_name: Option<String>,
 
     /// Compression type
-    #[uniffi(default = None)]
     pub compression: Option<CompressionType>,
 
     /// Rate limit string (e.g., "100/s" for 100 requests per second)
-    #[uniffi(default = None)]
     pub rate_limit: Option<String>,
 
     /// Keepalive parameters
-    #[uniffi(default = None)]
     pub keepalive: Option<KeepaliveConfig>,
 
     /// HTTP Proxy configuration
-    #[uniffi(default = None)]
     pub proxy: Option<ProxyConfig>,
 
     /// Connection timeout
-    #[uniffi(default = None)]
     pub connect_timeout: Option<Duration>,
 
     /// Request timeout
-    #[uniffi(default = None)]
     pub request_timeout: Option<Duration>,
 
     /// Read buffer size in bytes
-    #[uniffi(default = None)]
     pub buffer_size: Option<u64>,
 
     /// Headers associated with gRPC requests
-    #[uniffi(default = None)]
     pub headers: Option<HashMap<String, String>>,
 
     /// Authentication configuration for outgoing RPCs
-    #[uniffi(default = None)]
     pub auth: Option<ClientAuthenticationConfig>,
 
     /// Backoff retry configuration
-    #[uniffi(default = None)]
     pub backoff: Option<BackoffConfig>,
 
     /// Arbitrary user-provided metadata as JSON string
-    #[uniffi(default = None)]
     pub metadata: Option<String>,
 }
 

@@ -113,8 +113,9 @@ tasks:
     vars:
       COVERAGE_PROFILE: "{{.REPO_ROOT}}/control-plane/.coverage/profile"
     cmds:
-      - cd "{{.REPO_ROOT}}/control-plane/control-plane" && go tool cover
-        -html={{.COVERAGE_PROFILE}}
+      # Run cover from a module that replace-requires control-plane/common so merged
+      # profiles resolve (flattened includes use dir: ./control-plane, which has no go.mod).
+      - cd "{{.REPO_ROOT}}/control-plane/control-plane" && go tool cover -html={{.COVERAGE_PROFILE}}
 
   control-plane:test:
     desc: Run go tests

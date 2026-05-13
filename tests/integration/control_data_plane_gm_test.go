@@ -98,9 +98,9 @@ var _ = Describe("Group management through control plane", func() {
 		)
 		Expect(errModerator).NotTo(HaveOccurred())
 
-		// Poll the route list until the moderator subscription appears.
-		// slimctl exits 0 even when the list is still empty; runCombinedOutputWithRetry
-		// only retries on command failure, so we must poll until the name is parseable.
+		// Poll until the moderator subscription appears; a single query right after
+		// start may not yet show it, and slimctl prints id= using Rust Debug (which
+		// can include spaces inside Some(UInt64Value { value: N })).
 		Eventually(func() string {
 			out, err := exec.Command(
 				slimctlPath,
@@ -112,7 +112,7 @@ var _ = Describe("Group management through control plane", func() {
 				return ""
 			}
 			return extractSubscriptionName(string(out), "org/default/moderator1")
-		}, 30*time.Second, 1*time.Second).ShouldNot(BeEmpty(),
+		}, 30*time.Second, 500*time.Millisecond).ShouldNot(BeEmpty(),
 			"moderator subscription did not appear in route list within 30s")
 
 		routeListOut := runCombinedOutputWithRetry(10*time.Second, func() *exec.Cmd {
@@ -127,6 +127,7 @@ var _ = Describe("Group management through control plane", func() {
 		fmt.Fprintf(GinkgoWriter, "Route list output:\n%s\n", routeListOutput)
 
 		moderatorName = extractSubscriptionName(routeListOutput, "org/default/moderator1")
+		Expect(moderatorName).NotTo(BeEmpty(), "failed to extract moderator name from route list")
 		fmt.Fprintf(GinkgoWriter, "Extracted moderator name: %s\n", moderatorName)
 
 		// start clients

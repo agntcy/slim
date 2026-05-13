@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.11](https://github.com/agntcy/slim/compare/slim-tracing-v0.3.10...slim-tracing-v0.3.11) - 2026-05-12
+
+### Other
+
+- updated the following local packages: agntcy-slim-config
+
+## [0.3.10](https://github.com/agntcy/slim/compare/slim-tracing-v0.3.9...slim-tracing-v0.3.10) - 2026-05-11
+
+### Other
+
+- *(datapath)* gate message OTEL propagation on OTLP config ([#1503](https://github.com/agntcy/slim/pull/1503))
+
 ## [0.3.9](https://github.com/agntcy/slim/compare/slim-tracing-v0.3.8...slim-tracing-v0.3.9) - 2026-04-21
 
 ### Other
