@@ -486,17 +486,17 @@ impl MessageProcessor {
                         // Debug / integration-test builds only (`--release` omits this; env var is inert).
                         // Must run *after* sign so the tag does not cover the mutated preimage fields.
                         #[cfg(debug_assertions)]
-                        if std::env::var("SLIM_TEST_TAMPER_DESTINATION").is_ok() {
-                            if let Some(dest) = header.destination.as_mut() {
-                                if let Some(sn) = dest.str_name.as_mut() {
-                                    sn.str_component_2.push_str("-integrity-test-tamper");
-                                } else {
-                                    dest.str_name = Some(StringName {
-                                        str_component_0: String::new(),
-                                        str_component_1: String::new(),
-                                        str_component_2: "-integrity-test-tamper".into(),
-                                    });
-                                }
+                        if std::env::var("SLIM_TEST_TAMPER_DESTINATION").is_ok()
+                            && let Some(dest) = header.destination.as_mut()
+                        {
+                            if let Some(sn) = dest.str_name.as_mut() {
+                                sn.str_component_2.push_str("-integrity-test-tamper");
+                            } else {
+                                dest.str_name = Some(StringName {
+                                    str_component_0: String::new(),
+                                    str_component_1: String::new(),
+                                    str_component_2: "-integrity-test-tamper".into(),
+                                });
                             }
                         }
                     } else {
@@ -673,21 +673,21 @@ impl MessageProcessor {
                 return Ok(());
             }
 
-            if payload.link_ecdh_public_key.len() == X25519_PUBLIC_KEY_LEN {
-                if let Some(sk) = conn.take_outbound_ecdh_private() {
-                    match link_ecdh::derive_header_mac_from_ecdh(
-                        sk,
-                        payload.link_ecdh_public_key.as_slice(),
-                        link_id,
-                    ) {
-                        Ok(mac) => conn.install_header_hmac(mac),
-                        Err(e) => {
-                            error!(
-                                %in_connection,
-                                error = %e,
-                                "link ECDH key derivation failed (client path)",
-                            );
-                        }
+            if payload.link_ecdh_public_key.len() == X25519_PUBLIC_KEY_LEN
+                && let Some(sk) = conn.take_outbound_ecdh_private()
+            {
+                match link_ecdh::derive_header_mac_from_ecdh(
+                    sk,
+                    payload.link_ecdh_public_key.as_slice(),
+                    link_id,
+                ) {
+                    Ok(mac) => conn.install_header_hmac(mac),
+                    Err(e) => {
+                        error!(
+                            %in_connection,
+                            error = %e,
+                            "link ECDH key derivation failed (client path)",
+                        );
                     }
                 }
             }

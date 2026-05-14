@@ -17,19 +17,10 @@ use crate::header_mac::HeaderMacSession;
 
 /// Mutable inter-node crypto: outbound ECDH secret until the negotiation reply arrives,
 /// then the derived HMAC session.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct LinkCryptoState {
     pub(crate) header_hmac: Option<Arc<HeaderMacSession>>,
     outbound_ecdh_private: Option<EphemeralPrivateKey>,
-}
-
-impl Default for LinkCryptoState {
-    fn default() -> Self {
-        Self {
-            header_hmac: None,
-            outbound_ecdh_private: None,
-        }
-    }
 }
 
 /// Negotiation state shared between link negotiation fields.
