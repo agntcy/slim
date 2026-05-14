@@ -204,18 +204,14 @@ impl SlimHeader {
     ) -> Self {
         let flags = flags.unwrap_or_default();
 
-        // When source and destination are the same `&Name` (same pointer), build one ProtoName
+        // When source and destination are the same `&ProtoName` (same pointer), build one ProtoName
         // and clone it. Avoids a second `ProtoName::from` that would re-clone all string fields.
-        let (source, destination) =
-            if std::ptr::eq(source as *const Name, destination as *const Name) {
-                let endpoint = ProtoName::from(source);
-                (Some(endpoint.clone()), Some(endpoint))
-            } else {
-                (
-                    Some(ProtoName::from(source)),
-                    Some(ProtoName::from(destination)),
-                )
-            };
+        let (source, destination) = if std::ptr::eq(&source, &destination) {
+            let endpoint = source;
+            (Some(endpoint.clone()), Some(endpoint))
+        } else {
+            (Some(source), Some(destination))
+        };
 
         Self {
             source,
@@ -898,15 +894,15 @@ impl ProtoMessage {
     ///
     /// Returns [`None`] for non-subscribe/unsubscribe types or if the header or destination is missing.
     pub fn rebuild_header_for_control_plane(&self) -> Option<ProtoMessage> {
-        let dst = Name::from(self.try_get_slim_header()?.destination.as_ref()?);
+        let dst = self.try_get_slim_header()?.destination.clone()?;
         match &self.message_type {
             Some(ProtoSubscribeType(s)) => {
-                let mut sub = ProtoSubscribe::new(&dst, &dst, None, None);
+                let mut sub = ProtoSubscribe::new(dst.clone(), dst.clone(), None, None);
                 sub.subscription_id = s.subscription_id;
                 Some(ProtoMessage::new(HashMap::new(), ProtoSubscribeType(sub)))
             }
             Some(ProtoUnsubscribeType(u)) => {
-                let mut unsub = ProtoUnsubscribe::new(&dst, &dst, None, None);
+                let mut unsub = ProtoUnsubscribe::new(dst.clone(), dst.clone(), None, None);
                 unsub.subscription_id = u.subscription_id;
                 Some(ProtoMessage::new(
                     HashMap::new(),
@@ -1681,8 +1677,6 @@ impl ProtoMessage {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::{api::proto::dataplane::v1::SessionMessageType, messages::encoder::Name};
-
     use super::*;
 
     fn test_subscription_template(
@@ -1830,8 +1824,8 @@ mod tests {
 
     #[test]
     fn rebuild_header_for_control_plane_subscribe() {
-        let source = Name::from_strings(["org", "ns", "app"]).with_id(10);
-        let dst = Name::from_strings(["org", "ns", "topic"]).with_id(20);
+        let source = ProtoName::from_strings(["org", "ns", "app"]).with_id(10);
+        let dst = ProtoName::from_strings(["org", "ns", "topic"]).with_id(20);
         let sub_id = 0xfeed_beef_u64;
         let msg = ProtoMessage::builder()
             .source(source.clone())
@@ -1856,8 +1850,8 @@ mod tests {
 
     #[test]
     fn rebuild_header_for_control_plane_unsubscribe() {
-        let source = Name::from_strings(["org", "ns", "app"]).with_id(1);
-        let dst = Name::from_strings(["org", "ns", "chan"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "app"]).with_id(1);
+        let dst = ProtoName::from_strings(["org", "ns", "chan"]).with_id(2);
         let sub_id = 42_u64;
         let msg = ProtoMessage::builder()
             .source(source)
@@ -1880,7 +1874,7 @@ mod tests {
 
     #[test]
     fn rebuild_header_for_control_plane_subscribe_zero_subscription_id() {
-        let dst = Name::from_strings(["a", "b", "c"]);
+        let dst = ProtoName::from_strings(["a", "b", "c"]);
         let msg = ProtoMessage::builder()
             .source(dst.clone())
             .destination(dst.clone())
@@ -1898,8 +1892,8 @@ mod tests {
     #[test]
     fn rebuild_header_for_control_plane_publish_returns_none() {
         let msg = ProtoMessage::builder()
-            .source(Name::from_strings(["o", "n", "s"]))
-            .destination(Name::from_strings(["o", "n", "d"]))
+            .source(ProtoName::from_strings(["o", "n", "s"]))
+            .destination(ProtoName::from_strings(["o", "n", "d"]))
             .application_payload("t", vec![1, 2])
             .build_publish()
             .unwrap();
@@ -1933,9 +1927,9 @@ mod tests {
 
     #[test]
     fn rebuild_header_for_control_plane_subscribe_missing_destination() {
-        let name = Name::from_strings(["x", "y", "z"]);
+        let name = ProtoName::from_strings(["x", "y", "z"]);
         let hdr = SlimHeader {
-            source: Some(ProtoName::from(&name)),
+            source: Some(name.clone()),
             destination: None,
             identity: String::new(),
             fanout: 1,

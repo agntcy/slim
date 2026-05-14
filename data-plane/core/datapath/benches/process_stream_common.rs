@@ -6,9 +6,8 @@
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use slim_datapath::api::ProtoMessage;
+use slim_datapath::api::{ProtoMessage, ProtoName};
 use slim_datapath::message_processing::MessageProcessor;
-use slim_datapath::messages::Name;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -19,13 +18,13 @@ pub fn runtime() -> &'static Runtime {
     RT.get_or_init(|| Runtime::new().expect("tokio runtime"))
 }
 
-pub fn bench_destination() -> Name {
-    Name::from_strings(["org", "ns", "bench-dst"]).with_id(2)
+pub fn bench_destination() -> ProtoName {
+    ProtoName::from_strings(["org", "ns", "bench-dst"]).with_id(2)
 }
 
 /// Inbound subscribe from a remote peer (valid SLIM header so rebuild returns `Some`).
 pub fn make_remote_subscribe_for_cp_mirror() -> ProtoMessage {
-    let source = Name::from_strings(["org", "ns", "bench-src"]).with_id(1);
+    let source = ProtoName::from_strings(["org", "ns", "bench-src"]).with_id(1);
     ProtoMessage::builder()
         .source(source)
         .destination(bench_destination())
