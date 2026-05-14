@@ -354,10 +354,10 @@ impl ReceiverBuffer {
 // tests
 #[cfg(test)]
 mod tests {
+    use slim_datapath::api::ProtoName as Name;
     use slim_datapath::api::{
         ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader,
     };
-    use slim_datapath::messages::encoder::Name;
     use tracing_test::traced_test;
 
     use super::*;
@@ -369,7 +369,7 @@ mod tests {
         let src_id = src.to_string();
         let name_type = Name::from_strings(["org", "ns", "type"]).with_id(1);
 
-        let slim_header = SlimHeader::new(&src, &name_type, &src_id, None);
+        let slim_header = SlimHeader::new(src, name_type, &src_id, None);
 
         let h0 = SessionHeader::new(
             ProtoSessionType::PointToPoint.into(),
@@ -729,7 +729,7 @@ mod tests {
         let src_id = src.to_string();
         let name_type = Name::from_strings(["org", "ns", "type"]).with_id(1);
 
-        let slim_header = SlimHeader::new(&src, &name_type, &src_id, None);
+        let slim_header = SlimHeader::new(src, name_type, &src_id, None);
 
         // Create messages near MAX_PUBLISH_ID and wrapping around to 0
         let id_max_minus_1 = MAX_PUBLISH_ID - 1;

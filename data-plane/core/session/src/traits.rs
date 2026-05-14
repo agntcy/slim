@@ -49,14 +49,14 @@ pub trait MessageHandler: Send + Sync {
     /// Default implementation does nothing for layers that don't manage endpoints.
     async fn add_endpoint(
         &mut self,
-        _endpoint: &slim_datapath::messages::Name,
+        _endpoint: &slim_datapath::api::ProtoName,
     ) -> Result<(), SessionError> {
         Ok(())
     }
 
     /// Remove an endpoint from the session.
     /// Default implementation does nothing for layers that don't manage endpoints.
-    fn remove_endpoint(&mut self, _endpoint: &slim_datapath::messages::Name) {
+    fn remove_endpoint(&mut self, _endpoint: &slim_datapath::api::ProtoName) {
         // Default: do nothing
     }
 
@@ -80,7 +80,7 @@ pub trait MessageHandler: Send + Sync {
 
     /// Get the current participants list (participants in the session)
     /// Default implementation returns an empty list.
-    fn participants_list(&self) -> Vec<slim_datapath::messages::Name> {
+    fn participants_list(&self) -> Vec<slim_datapath::api::ProtoName> {
         vec![]
     }
 }

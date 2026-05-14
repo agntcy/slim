@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use clap::Parser;
-use slim_datapath::messages::Name;
+use slim_datapath::api::ProtoName as Name;
 use slim_service::{ServiceError, SlimHeaderFlags};
 use slim_session::{Notification, SessionConfig};
 use slim_testing::build_client_service;
@@ -70,7 +70,7 @@ async fn run_participant_task(name: Name, port: u16) -> Result<(), ServiceError>
                                                         let msg_id = msg.get_id();
                                                         let blob = &publish.get_payload().as_application_payload().unwrap().blob;
                                                         if let Ok(val) = String::from_utf8(blob.to_vec()) {
-                                                            if publisher.components_strings() == session_moderator_clone.components_strings() {
+                                                            if publisher.str_components() == session_moderator_clone.str_components() {
                                                                 if val != *"hello there" { continue; }
                                                                 info!(msg_id, "received message from moderator, sending ack");
                                                                 let payload = msg_id.to_ne_bytes().to_vec();
@@ -296,8 +296,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "Expected {} participants in the moderator session",
                 tot_participants - 1
             );
-            assert!(list.iter().all(|n| n.components_strings() != participants[to_remove].components_strings()),
-                "Participants to remove is still present in the session");
+            assert!(
+                list.iter()
+                    .all(|n| n.str_components() != participants[to_remove].str_components()),
+                "Participants to remove is still present in the session"
+            );
 
             let handler = session_arc
                 .invite_participant(&participants[to_add])
@@ -317,7 +320,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             assert!(
                 list.iter()
-                    .any(|n| n.components_strings() == participants[to_add].components_strings()),
+                    .any(|n| n.str_components() == participants[to_add].str_components()),
                 "Participants to add is not present in the session"
             );
 

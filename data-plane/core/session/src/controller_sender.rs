@@ -7,9 +7,8 @@ use std::{
 };
 
 use display_error_chain::ErrorChainExt;
-use slim_datapath::{
-    api::{CommandPayload, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType},
-    messages::Name,
+use slim_datapath::api::{
+    CommandPayload, ProtoMessage as Message, ProtoName, ProtoSessionMessageType, ProtoSessionType,
 };
 use tokio::sync::mpsc::Sender;
 use tracing::debug;
@@ -27,8 +26,8 @@ pub const PING_INTERVAL: Duration = Duration::from_secs(10);
 /// Maximum number of consecutive ping failures before a participant is considered disconnected.
 const MAX_PING_FAILURE: u32 = 3;
 /// Synthetic moderator name used by participants to track ping reception
-static MODERATOR_NAME: std::sync::LazyLock<Name> =
-    std::sync::LazyLock::new(|| Name::from_strings(["agntcy", "ns", "moderator"]));
+static MODERATOR_NAME: std::sync::LazyLock<ProtoName> =
+    std::sync::LazyLock::new(|| ProtoName::from_strings(["agntcy", "ns", "moderator"]));
 
 /// used a result in OnMessage function
 #[derive(PartialEq, Clone, Debug)]
@@ -42,7 +41,7 @@ struct PendingReply {
     /// Missing replies
     /// Keep track of the names so that if we get  multiple acks from
     /// the same endpoint we don't count it twice
-    missing_replies: HashSet<Name>,
+    missing_replies: HashSet<ProtoName>,
 
     /// Message to resend in case of timeout
     message: Message,
@@ -74,7 +73,7 @@ struct PingState {
     /// Participant mode:
     /// The map keeps track only of the moderator and checks for how many
     /// interval the moderator was silent
-    missing_pings: HashMap<Name, u32>,
+    missing_pings: HashMap<ProtoName, u32>,
 
     /// The ping timer
     /// this timer is used only for the pings and it is not connected to
@@ -87,12 +86,12 @@ pub struct ControllerSender {
     timer_factory: TimerFactory,
 
     /// local name to be removed in the missing replies set
-    local_name: Name,
+    local_name: ProtoName,
 
     /// group name is set on the first join request message
     /// in p2p session is equal to the remote name of the join request
     /// while in multicast session is specified in the payload
-    group_name: Option<Name>,
+    group_name: Option<ProtoName>,
 
     /// session type
     session_type: ProtoSessionType,
@@ -112,7 +111,7 @@ pub struct ControllerSender {
 
     /// group list
     /// list of participants to the group
-    group_list: HashSet<Name>,
+    group_list: HashSet<ProtoName>,
 
     /// send packets to slim or the app
     tx: SessionTransmitter,
@@ -128,7 +127,7 @@ impl ControllerSender {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         timer_settings: TimerSettings,
-        local_name: Name,
+        local_name: ProtoName,
         session_type: ProtoSessionType,
         session_id: u32,
         ping_interval: Option<Duration>,
@@ -216,12 +215,12 @@ impl ControllerSender {
                     } else {
                         // in multicast session the group name is specified in the
                         // payload of the message
-                        let name = message
+                        let group_name = message
                             .extract_join_request()?
                             .channel
                             .as_ref()
-                            .ok_or(SessionError::MissingGroupNameInJoinRequest)?;
-                        let group_name = Name::from(name);
+                            .ok_or(SessionError::MissingGroupNameInJoinRequest)?
+                            .clone();
                         debug!(
                             destination = %group_name,
                             "update group name on join request message for multicast session",
@@ -308,12 +307,11 @@ impl ControllerSender {
                 // remove the endpoint also from the group list
                 let payload = message.extract_group_remove()?;
 
-                let to_remove = Name::from(
-                    payload
-                        .removed_participant
-                        .as_ref()
-                        .ok_or(SessionError::MissingRemovedParticipantInGroupRemove)?,
-                );
+                let to_remove = payload
+                    .removed_participant
+                    .as_ref()
+                    .ok_or(SessionError::MissingRemovedParticipantInGroupRemove)?
+                    .clone();
 
                 self.group_list.remove(&to_remove);
 
@@ -342,7 +340,7 @@ impl ControllerSender {
     async fn on_send_message(
         &mut self,
         message: &Message,
-        missing_replies: HashSet<Name>,
+        missing_replies: HashSet<ProtoName>,
     ) -> Result<(), SessionError> {
         let id = message.get_id();
 
@@ -655,7 +653,7 @@ impl ControllerSender {
         self.draining_state = ControllerSenderDrainStatus::Initiated;
     }
 
-    pub fn remove_participant(&mut self, name: &Name) {
+    pub fn remove_participant(&mut self, name: &ProtoName) {
         // this is used only by the moderator when a participant closes its
         // session remotely. This remove is needed so that the moderator
         // will not expect acks from the participant that is leaving the
@@ -687,10 +685,7 @@ mod tests {
     use crate::transmitter::SessionTransmitter;
 
     use super::*;
-    use slim_datapath::{
-        api::{CommandPayload, ProtoSessionMessageType, ProtoSessionType},
-        messages::Name,
-    };
+    use slim_datapath::api::{CommandPayload, ProtoSessionMessageType, ProtoSessionType};
     use std::time::Duration;
     use tokio::time::timeout;
     use tracing_test::traced_test;
@@ -707,8 +702,8 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let source = Name::from_strings(["org", "ns", "source"]);
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
         let session_id = 1;
 
         let mut sender = ControllerSender::new(
@@ -826,9 +821,9 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let source = Name::from_strings(["org", "ns", "source"]);
-        let remote = Name::from_strings(["org", "ns", "remote"]);
-        let channel = Name::from_strings(["org", "ns", "channel"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
+        let channel = ProtoName::from_strings(["org", "ns", "channel"]);
         let session_id = 1;
 
         let mut sender = ControllerSender::new(
@@ -951,8 +946,8 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let source = Name::from_strings(["org", "ns", "source"]);
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
         let session_id = 1;
 
         let mut sender = ControllerSender::new(
@@ -1069,8 +1064,8 @@ mod tests {
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let source = Name::from_strings(["org", "ns", "source"]);
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
         let session_id = 1;
 
         let mut sender = ControllerSender::new(
@@ -1085,7 +1080,7 @@ mod tests {
         );
 
         // Create a group welcome message
-        let participant = Name::from_strings(["org", "ns", "participant"]);
+        let participant = ProtoName::from_strings(["org", "ns", "participant"]);
         let payload = CommandPayload::builder()
             .group_welcome(vec![participant.clone(), source.clone()], None);
 
@@ -1187,8 +1182,8 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let source = Name::from_strings(["org", "ns", "source"]);
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
         let session_id = 1;
 
         let mut sender = ControllerSender::new(
@@ -1203,12 +1198,12 @@ mod tests {
         );
 
         // First add participant2 to establish a group with 2 members (source + participant2)
-        let participant2 = Name::from_strings(["org", "ns", "participant2"]);
+        let participant2 = ProtoName::from_strings(["org", "ns", "participant2"]);
         sender.group_list.insert(participant2.clone());
 
         // Now create a group add message to add participant1
         // This should wait for acks from both participant2 (already in group) and participant1 (being added)
-        let participant1 = Name::from_strings(["org", "ns", "participant1"]);
+        let participant1 = ProtoName::from_strings(["org", "ns", "participant1"]);
         let payload = CommandPayload::builder().group_add(
             participant1.clone(),
             vec![participant1.clone(), participant2.clone(), source.clone()],
@@ -1338,8 +1333,8 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let source = Name::from_strings(["org", "ns", "source"]);
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
         let session_id = 1;
 
         let mut sender = ControllerSender::new(
@@ -1354,12 +1349,12 @@ mod tests {
         );
 
         // First add participant2 to establish a group with 2 members (source + participant2)
-        let participant2 = Name::from_strings(["org", "ns", "participant2"]);
+        let participant2 = ProtoName::from_strings(["org", "ns", "participant2"]);
         sender.group_list.insert(participant2.clone());
 
         // Now create a group add message to add participant1
         // This should wait for acks from both participant2 (already in group) and participant1 (being added)
-        let participant1 = Name::from_strings(["org", "ns", "participant1"]);
+        let participant1 = ProtoName::from_strings(["org", "ns", "participant1"]);
         let payload = CommandPayload::builder().group_add(
             participant1.clone(),
             vec![participant1.clone(), participant2.clone(), source.clone()],
@@ -1547,8 +1542,8 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let source = Name::from_strings(["org", "ns", "source"]);
-        let participant = Name::from_strings(["org", "ns", "participant"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
+        let participant = ProtoName::from_strings(["org", "ns", "participant"]);
         let session_id = 1;
 
         let mut sender = ControllerSender::new(
@@ -1941,9 +1936,9 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let participant_name = Name::from_strings(["org", "ns", "participant"]);
-        let moderator_name = Name::from_strings(["org", "ns", "moderator"]);
-        let channel_name = Name::from_strings(["org", "ns", "channel"]);
+        let participant_name = ProtoName::from_strings(["org", "ns", "participant"]);
+        let moderator_name = ProtoName::from_strings(["org", "ns", "moderator"]);
+        let channel_name = ProtoName::from_strings(["org", "ns", "channel"]);
         let session_id = 1;
 
         // Create participant (initiator=false)
@@ -2139,10 +2134,10 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let moderator = Name::from_strings(["org", "ns", "moderator"]);
-        let participant1 = Name::from_strings(["org", "ns", "participant1"]);
-        let participant2 = Name::from_strings(["org", "ns", "participant2"]);
-        let group_name = Name::from_strings(["org", "ns", "group"]);
+        let moderator = ProtoName::from_strings(["org", "ns", "moderator"]);
+        let participant1 = ProtoName::from_strings(["org", "ns", "participant1"]);
+        let participant2 = ProtoName::from_strings(["org", "ns", "participant2"]);
+        let group_name = ProtoName::from_strings(["org", "ns", "group"]);
         let session_id = 1;
 
         // Create moderator (initiator=true) with 2 participants
@@ -2371,8 +2366,8 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let source = Name::from_strings(["org", "ns", "source"]);
-        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
         let session_id = 1;
 
         // Create P2P session with ping enabled
@@ -2506,9 +2501,9 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let source = Name::from_strings(["org", "ns", "source"]);
-        let channel_name = Name::from_strings(["org", "ns", "channel"]);
-        let participant = Name::from_strings(["org", "ns", "participant"]);
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
+        let channel_name = ProtoName::from_strings(["org", "ns", "channel"]);
+        let participant = ProtoName::from_strings(["org", "ns", "participant"]);
         let session_id = 1;
 
         // Create multicast session with ping enabled

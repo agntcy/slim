@@ -8,7 +8,7 @@ use std::time::Duration;
 use clap::Parser;
 use parking_lot::RwLock;
 
-use slim_datapath::messages::Name;
+use slim_datapath::api::ProtoName as Name;
 use slim_service::ServiceError;
 use slim_session::{Notification, SessionConfig};
 use slim_testing::build_client_service;
@@ -99,9 +99,9 @@ async fn run_client_task(name: Name, moderator_name: Name, port: u16) -> Result<
                                 println!("Participant {}: session participants: {:?}", name_clone_session, list);
                                 // check participants list
                                 assert_eq!(list.len(), 2, "Expected 2 participants in the session");
-                                assert!(list.iter().any(|n| n.components_strings() == name_clone_session.components_strings()),
+                                assert!(list.iter().any(|n| n.str_components() == name_clone_session.str_components()),
                                     "Participants list should contain the client name");
-                                assert!(list.iter().any(|n| n.components_strings() == moderator_name.components_strings()),
+                                assert!(list.iter().any(|n| n.str_components() == moderator_name.str_components()),
                                     "Participants list should contain the moderator name");
 
                                 session_ctx.spawn_receiver(move |mut rx, weak| async move {
@@ -282,14 +282,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             assert!(
                 list.iter()
-                    .any(|n| n.components_strings() == moderator_name.components_strings()),
+                    .any(|n| n.str_components() == moderator_name.str_components()),
                 "Participants list should contain the moderator name"
             );
             assert!(
-                list.iter().any(
-                    |n| n.components_strings() == client_1_name.components_strings()
-                        || n.components_strings() == client_2_name.components_strings()
-                ),
+                list.iter()
+                    .any(|n| n.str_components() == client_1_name.str_components()
+                        || n.str_components() == client_2_name.str_components()),
                 "Participants list should contain the client name"
             );
         } else {
@@ -301,12 +300,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             assert!(
                 list.iter()
-                    .any(|n| n.components_strings() == moderator_name.components_strings()),
+                    .any(|n| n.str_components() == moderator_name.str_components()),
                 "Participants list should contain the moderator name"
             );
             assert!(
                 list.iter()
-                    .any(|n| n.components_strings() == client_1_name.components_strings()),
+                    .any(|n| n.str_components() == client_1_name.str_components()),
                 "Participants list should contain the client-1 name"
             );
         }
@@ -493,10 +492,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if multiple_remotes {
         let name_1 = found_sender
             .iter()
-            .find(|n| n.components_strings() == client_1_name.clone().components_strings());
+            .find(|n| n.str_components() == client_1_name.clone().str_components());
         let name_2 = found_sender
             .iter()
-            .find(|n| n.components_strings() == client_2_name.clone().components_strings());
+            .find(|n| n.str_components() == client_2_name.clone().str_components());
         if found_sender.len() != 2 || name_1.is_none() || name_2.is_none() {
             println!(
                 "expected messages from 2 clients, but got messages from {} clients. test failed",
@@ -507,7 +506,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         let name = found_sender
             .iter()
-            .find(|n| n.components_strings() == client_1_name.clone().components_strings());
+            .find(|n| n.str_components() == client_1_name.clone().str_components());
         if name.is_none() || found_sender.len() != 1 {
             println!(
                 "expected messages only from {}, but got messages from {:?}. test failed",

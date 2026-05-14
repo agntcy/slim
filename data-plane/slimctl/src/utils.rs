@@ -3,7 +3,7 @@
 
 use anyhow::{Result, bail};
 
-use slim_datapath::messages::encoder::Name;
+use slim_datapath::api::ProtoName;
 
 use crate::proto::controller::proto::v1::Connection;
 
@@ -13,7 +13,7 @@ pub const VIA_KEYWORD: &str = "via";
 /// Parse a route string `"org/namespace/agentname[/agentid]"` into its components.
 ///
 /// The fourth component (`agentid`) is optional; when omitted it defaults to
-/// [`Name::NULL_COMPONENT`] (`u64::MAX`), matching the behaviour of the data-plane
+/// [`ProtoName::NULL_COMPONENT`] (`u64::MAX`), matching the behaviour of the data-plane
 /// when no specific instance is targeted.
 ///
 /// Returns `(organization, namespace, agent_type, agent_id)`.
@@ -42,7 +42,7 @@ pub fn parse_route(route: &str) -> Result<(String, String, String, u64)> {
             .parse()
             .map_err(|_| anyhow::anyhow!("invalid agent instance ID (must be u64): '{}'", id_str))?
     } else {
-        Name::NULL_COMPONENT
+        ProtoName::NULL_COMPONENT
     };
     Ok((
         parts[0].to_string(),
@@ -160,7 +160,7 @@ mod tests {
         assert_eq!(org, "myorg");
         assert_eq!(ns, "mynamespace");
         assert_eq!(agent, "myagent");
-        assert_eq!(id, Name::NULL_COMPONENT);
+        assert_eq!(id, ProtoName::NULL_COMPONENT);
     }
 
     #[test]

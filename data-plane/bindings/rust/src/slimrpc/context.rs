@@ -11,7 +11,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use slim_datapath::messages::Name;
+use slim_datapath::api::ProtoName as Name;
 use slim_session::context::SessionContext as SlimSessionContext;
 
 use super::{DEADLINE_KEY, SessionTx, calculate_deadline};
