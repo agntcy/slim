@@ -30,10 +30,6 @@ use crate::api::ProtoSubscribeType as SubscribeType;
 use crate::api::ProtoSubscriptionAckType as SubscriptionAckType;
 use crate::api::ProtoUnsubscribeType as UnsubscribeType;
 use crate::api::proto::dataplane::v1::{Message, StringName};
-use crate::api::{
-    LinkNegotiationPayload, ProtoLink, ProtoLinkMessageType as LinkType, ProtoLinkType,
-};
-use semver;
 
 use crate::api::proto::dataplane::v1::data_plane_service_client::DataPlaneServiceClient;
 use crate::api::proto::dataplane::v1::data_plane_service_server::DataPlaneService;
@@ -44,13 +40,11 @@ use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::{DataPathError, MessageContext};
 use crate::forwarder::Forwarder;
 use crate::link_ecdh::{self, X25519_PUBLIC_KEY_LEN};
-use crate::messages::Name;
 use crate::messages::utils::SlimHeaderFlags;
 use crate::recovery::RecoveryTable;
 use crate::tables::connection_table::ConnectionTable;
 use crate::tables::remote_subscription_table::SubscriptionInfo;
 use crate::tables::subscription_table::SubscriptionTableImpl;
-use semver;
 
 fn local_version() -> &'static str {
     slim_version::version()
@@ -1507,8 +1501,8 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::header_mac::HeaderMacSession;
     use crate::api::{ProtoName, ProtoSubscriptionAck};
+    use crate::header_mac::HeaderMacSession;
     use crate::tables::remote_subscription_table::SubscriptionInfo;
     use tonic::Status;
 
@@ -1912,8 +1906,8 @@ mod tests {
             .link_id()
             .expect("link id after negotiation");
 
-        let source = Name::from_strings(["org", "default", "a"]).with_id(1);
-        let dest = Name::from_strings(["org", "default", "b"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "default", "a"]).with_id(1);
+        let dest = ProtoName::from_strings(["org", "default", "b"]).with_id(2);
         let mut msg = ProtoMessage::builder()
             .source(source)
             .destination(dest)
@@ -1944,8 +1938,8 @@ mod tests {
             .link_id()
             .expect("link id after negotiation");
 
-        let source = Name::from_strings(["org", "default", "a"]).with_id(1);
-        let dest = Name::from_strings(["org", "default", "b"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "default", "a"]).with_id(1);
+        let dest = ProtoName::from_strings(["org", "default", "b"]).with_id(2);
         let mut msg = ProtoMessage::builder()
             .source(source)
             .destination(dest)

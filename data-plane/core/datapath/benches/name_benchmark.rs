@@ -35,6 +35,7 @@ fn make_slim_header() -> SlimHeader {
         forward_to: None,
         incoming_conn: None,
         error: None,
+        header_mac: None,
     }
 }
 
