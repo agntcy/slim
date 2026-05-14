@@ -2226,7 +2226,7 @@ mod tests {
 
     #[test]
     fn test_validate_subscribe_missing_source_encoded_name() {
-        let valid = ProtoName::from(&Name::from_strings(["org", "ns", "agent"]));
+        let valid = ProtoName::from_strings(["org", "ns", "agent"]);
         let hdr = SlimHeader {
             source: Some(ProtoName {
                 name: None,
@@ -2250,7 +2250,7 @@ mod tests {
 
     #[test]
     fn test_validate_subscribe_missing_destination_encoded_name() {
-        let valid = ProtoName::from(&Name::from_strings(["org", "ns", "agent"]));
+        let valid = ProtoName::from_strings(["org", "ns", "agent"]);
         let hdr = SlimHeader {
             source: Some(valid),
             destination: Some(ProtoName {
