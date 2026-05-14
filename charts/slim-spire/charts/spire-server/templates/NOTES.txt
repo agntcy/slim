@@ -3,7 +3,7 @@ Installed {{ .Chart.Name }}…
 Get the currently registered SPIFFE entries from the server:
 
   kubectl exec -n {{ include "spire-server.namespace" . }} {{ include "spire-server.fullname" . }}-0 -c spire-server -- \
-    spire-server entry show
+    spire-server entry list
 
 {{- if eq (.Values.tornjak.enabled | toString) "true" }}
 

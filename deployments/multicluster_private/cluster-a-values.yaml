@@ -1,0 +1,109 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+slim:
+  # Deploy as DaemonSet instead of StatefulSet
+  daemonset: false
+  # This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
+  replicaCount: 1
+
+  # This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
+  image:
+    repository: ghcr.io/agntcy/slim
+    # This sets the pull policy for images.
+    pullPolicy: IfNotPresent
+    # Overrides the image tag whose default is the chart appVersion.
+    tag: ""
+
+  # This is for overriding the default config below
+  overrideConfig:
+
+  config:
+    tracing:
+      log_level: debug
+      display_thread_names: true
+      display_thread_ids: true
+
+    runtime:
+      n_cores: 0
+      thread_name: "slim-data-plane"
+      drain_timeout: 10s
+
+    services:
+      slim/0:
+        node_id: ${env:SLIM_SVC_ID}
+        group_name: "cluster-a.example"
+        dataplane:
+          servers:
+            - endpoint: "0.0.0.0:{{ (index .Values.slim.service.data 0).port }}"
+              metadata:
+                local_endpoint: ${env:MY_POD_IP}          
+              tls:
+                insecure: true
+            - endpoint: "0.0.0.0:{{ (index .Values.slim.service.data 1).port }}"
+              keepalive:
+                time: "20s"
+              metadata:
+                external_endpoint: "slim.cluster-a.example:443"   
+                client_config:
+                  keepalive:
+                    keep_alive_while_idle: true
+                  tls:
+                    insecure: false
+                    # because we are using self-signed certificate
+                    insecure_skip_verify: true
+                    include_system_ca_certs_pool: true
+              tls:
+                insecure: true                    
+        controller:
+          clients:
+            - endpoint: "https://slim-control:50052"
+              tls:
+                insecure: true
+
+  # This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
+  service:
+    data:
+      - port: 46357
+        name: dp-internal
+      # port for external dataplane endpoint (used for ingress)
+      - port: 46368
+        name: dp-external
+
+  # This block is for setting up the ingress for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/
+  ingresses:
+    - enabled: true
+      portName: dp-external
+      className: "nginx"
+      annotations:
+        cert-manager.io/cluster-issuer: selfsigned-issuer
+        nginx.ingress.kubernetes.io/ssl-redirect: "true"
+        nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+        nginx.ingress.kubernetes.io/use-regex: "true"
+        nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+        nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+        nginx.ingress.kubernetes.io/proxy-stream-timeout: "3600"
+        nginx.ingress.kubernetes.io/server-snippet: |
+          grpc_socket_keepalive on;
+          keepalive_timeout 3600s;
+          grpc_read_timeout 3600s;
+          grpc_send_timeout 3600s;
+          client_header_timeout 60m;
+          client_body_timeout 60m;
+          http2_max_requests 10000;
+          http2_max_concurrent_streams 128; 
+      hosts:
+        - host: slim.cluster-a.example
+          paths:
+            - path: /
+              pathType: Prefix
+              port: "{{ (index .Values.slim.service.data 1).port }}"
+      tls:
+        - secretName: slim-dataplane-tls
+          hosts:
+            - slim.cluster-a.example
+
+spire:
+  enabled: true
+  # trustedDomains:
+  # - spiffe://cluster-b.example

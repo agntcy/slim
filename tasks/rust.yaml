@@ -337,4 +337,4 @@ tasks:
     status:
       - cargo binstall --help >/dev/null 2>&1
     cmds:
-      - cargo install cargo-binstall
+      - cargo install cargo-binstall --locked
