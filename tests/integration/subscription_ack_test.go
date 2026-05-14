@@ -13,12 +13,9 @@ package integration
 // app A; app A replies "hello from the a", and app B must receive that reply.
 //
 // Scenarios:
-//   - new app ↔ new relay: remote ACK path (assert "subscription: remote ack received" when
-//     every hop is current slim + sdk-mock with ECDH-backed header MAC).
+//   - new app ↔ new relay: remote ACK path.
 //   - new app ↔ old relay: default path.
-//   - old relay as client of new relay: mixed paths (do not require remote ACK log only).
-//   - Legacy sdk-mock (pre-1.2.0) interoperability with old and new relays.
-
+//   - old relay as client of new relay.
 import (
 	"fmt"
 	"os"
@@ -170,12 +167,12 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 		})
 	})
 
-	// ── old relay as client of new relay ───────────────────────────────────
+	// ── old relay as upstream of new relay ───────────────────────────────────
 	//
-	// New apps connect to new relay (≥ 1.2.0) while a legacy slim client is also
-	// connected as relay-to-relay traffic. We do not require the log line
-	// "subscription: remote ack received" alone; the subscribe handshake is gated
-	// on any of several dataplane debug messages (remote ACK, immediate ack, or upstream forward).
+	// New app connects to new relay (≥ 1.2.0).  The embedded relay upgrades
+	// the subscription to the remote ack path after link negotiation completes.
+	// An unrelated old relay is also connected to the new relay to verify
+	// mixed-version topologies don't break anything.
 	Describe("old relay as client of new relay, new app on new relay", func() {
 		It("delivers messages with a legacy relay client attached to the new relay", func() {
 			newRelayPort := reservePort()
@@ -220,9 +217,9 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			Expect(err).NotTo(HaveOccurred())
 			defer terminateSession(appASession, 5*time.Second)
 
-			Eventually(appASession.Out, 15*time.Second).Should(gbytes.Say("allowing messages to remote app"))
-			Eventually(func() string { return string(appASession.Out.Contents()) }, 20*time.Second, 100*time.Millisecond).
-				Should(MatchRegexp(`(?s)(subscription: remote ack received|forwarding subscription ack to upstream|sending immediate subscription ack)`))
+			// After link negotiation completes the embedded relay upgrades the
+			// forwarded subscription and the retry_loop receives the remote ACK.
+			Eventually(appASession.Out, 10*time.Second).Should(gbytes.Say("subscription: remote ack received"))
 
 			// App B: sender, also on the new relay.
 			appBConfig := writeTempConfig(tempDir, "./testdata/client.yaml", "app-b.yaml", replacements)
@@ -238,9 +235,10 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 			Expect(err).NotTo(HaveOccurred())
 			defer terminateSession(appBSession, 5*time.Second)
 
-			Eventually(appASession.Out, 15*time.Second).Should(gbytes.Say("Queueing reply"))
-			Eventually(appBSession.Out, 15*time.Second).Should(gbytes.Say("hello from the a"))
+			Eventually(appASession.Out, 10*time.Second).Should(gbytes.Say("Queueing reply"))
+			Eventually(appBSession.Out, 10*time.Second).Should(gbytes.Say("hello from the a"))
 
+			// Old relay must keep running throughout.
 			Consistently(legacyClientSession, 500*time.Millisecond).ShouldNot(gexec.Exit())
 		})
 	})

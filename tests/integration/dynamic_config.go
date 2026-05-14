@@ -23,15 +23,9 @@ func reservePort() int {
 }
 
 func newTempDir(prefix string) string {
-	if prefix != "" {
-		dir, err := os.MkdirTemp("", prefix)
-		Expect(err).NotTo(HaveOccurred())
-		return dir
-	} else {
-		res, err := os.MkdirTemp("/tmp", "tempDir")
-		Expect(err).NotTo(HaveOccurred())
-		return res
-	}
+	dir, err := os.MkdirTemp("", prefix)
+	Expect(err).NotTo(HaveOccurred())
+	return dir
 }
 
 func writeTempConfig(dir, srcPath, dstName string, replacements map[string]string) string {
