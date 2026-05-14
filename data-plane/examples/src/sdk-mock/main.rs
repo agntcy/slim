@@ -143,21 +143,18 @@ async fn main() {
     // run the service - this will create all the connections provided via the config file.
     svc.run().await.unwrap();
 
-    let default_conn = || {
-        svc.get_connection_id(&svc.config().dataplane_clients()[0].endpoint)
-            .expect("dataplane client connection id")
-    };
-    let subscribe_forward_conn = args.dataplane_forward_conn().unwrap_or_else(default_conn);
-    let route_recv_conn = args.dataplane_recv_conn().unwrap_or_else(default_conn);
+    let default_conn = svc
+        .get_connection_id(&svc.config().dataplane_clients()[0].endpoint)
+        .expect("dataplane client connection id");
 
-    app.subscribe(app.app_name(), Some(subscribe_forward_conn))
+    app.subscribe(app.app_name(), Some(default_conn))
         .await
         .unwrap();
 
     // Set a route for the remote app
     let remote_app_name = Name::from_strings(["org", "default", remote_name]);
     info!(remote_app = %remote_app_name, "allowing messages to remote app");
-    app.set_route(&remote_app_name, route_recv_conn)
+    app.set_route(&remote_app_name, default_conn)
         .await
         .unwrap();
 

@@ -87,6 +87,7 @@ impl std::fmt::Debug for Connection {
             .field("channel", &self.channel)
             .field("config_data", &self.config_data)
             .field("connection_type", &self.connection_type)
+            // Not printing sensitive data
             .field("negotiation", &"NegotiationState")
             .field("link_crypto", &"LinkCryptoState")
             .finish_non_exhaustive()
