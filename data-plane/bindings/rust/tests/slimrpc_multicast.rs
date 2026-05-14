@@ -29,7 +29,7 @@ use futures::stream;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::shared_secret::SharedSecret;
 use slim_config::component::id::{ID, Kind};
-use slim_datapath::messages::Name;
+use slim_datapath::api::ProtoName as Name;
 use slim_service::service::Service;
 use slim_testing::utils::TEST_VALID_SECRET;
 

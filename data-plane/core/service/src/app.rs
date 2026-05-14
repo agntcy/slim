@@ -16,7 +16,7 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::Status;
 use slim_datapath::api::MessageType;
 use slim_datapath::api::ProtoMessage as Message;
-use slim_datapath::messages::Name;
+use slim_datapath::api::ProtoName;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 
 use slim_session::{SessionConfig, session_controller::SessionController};
@@ -36,7 +36,7 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     /// App name provided when creating the app
-    app_name: Name,
+    app_name: ProtoName,
 
     /// Service ID for tracing
     service_id: String,
@@ -80,7 +80,7 @@ where
     /// Create new App instance
     #[allow(dead_code)]
     pub(crate) fn new(
-        app_name: &Name,
+        app_name: &ProtoName,
         identity_provider: P,
         identity_verifier: V,
         conn_id: u64,
@@ -103,7 +103,7 @@ where
     /// Create new App instance with direction
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_with_direction(
-        app_name: &Name,
+        app_name: &ProtoName,
         identity_provider: P,
         identity_verifier: V,
         conn_id: u64,
@@ -182,7 +182,7 @@ where
     pub async fn create_session(
         &self,
         session_config: SessionConfig,
-        destination: Name,
+        destination: ProtoName,
         id: Option<u32>,
     ) -> Result<(SessionContext, slim_session::CompletionHandle), SessionError> {
         self.session_layer
@@ -202,7 +202,7 @@ where
     ///
     /// Returns a reference to the name that was provided when the App was created.
     /// This name is used for session management and message routing.
-    pub fn app_name(&self) -> &Name {
+    pub fn app_name(&self) -> &ProtoName {
         &self.app_name
     }
 
@@ -224,7 +224,7 @@ where
     }
 
     /// Subscribe the app to receive messages for a name
-    pub async fn subscribe(&self, name: &Name, conn: Option<u64>) -> Result<(), ServiceError> {
+    pub async fn subscribe(&self, name: &ProtoName, conn: Option<u64>) -> Result<(), ServiceError> {
         debug!(?name, ?conn, "subscribe");
 
         // Set the ID in the name to be the one of this app
@@ -260,7 +260,11 @@ where
     }
 
     /// Unsubscribe the app
-    pub async fn unsubscribe(&self, name: &Name, conn: Option<u64>) -> Result<(), ServiceError> {
+    pub async fn unsubscribe(
+        &self,
+        name: &ProtoName,
+        conn: Option<u64>,
+    ) -> Result<(), ServiceError> {
         debug!(?name, ?conn, "unsubscribe");
 
         let subscription_id = self.session_layer.remove_app_name(name);
@@ -300,7 +304,7 @@ where
     }
 
     /// Set a route towards another app
-    pub async fn set_route(&self, name: &Name, conn: u64) -> Result<(), ServiceError> {
+    pub async fn set_route(&self, name: &ProtoName, conn: u64) -> Result<(), ServiceError> {
         debug!(%name, %conn, "set route");
 
         let msg = Message::builder()
@@ -314,7 +318,7 @@ where
     }
 
     /// Remove a route towards another app
-    pub async fn remove_route(&self, name: &Name, conn: u64) -> Result<(), ServiceError> {
+    pub async fn remove_route(&self, name: &ProtoName, conn: u64) -> Result<(), ServiceError> {
         debug!(%name, %conn, "remove route");
 
         let msg = Message::builder()
@@ -484,14 +488,14 @@ mod tests {
     }
 
     /// Helper: Create a test app name
-    fn create_test_name(suffix: &str) -> Name {
-        Name::from_strings(["org", "ns", suffix])
+    fn create_test_name(suffix: &str) -> ProtoName {
+        ProtoName::from_strings(["org", "ns", suffix])
     }
 
     /// Helper: Create a test app with SharedSecret auth
     fn create_test_app(
         service: &crate::service::Service,
-        name: &Name,
+        name: &ProtoName,
         secret: &str,
     ) -> (
         App<SharedSecret, SharedSecret>,
@@ -510,7 +514,7 @@ mod tests {
     async fn create_and_complete_session(
         app: &App<SharedSecret, SharedSecret>,
         config: SessionConfig,
-        destination: Name,
+        destination: ProtoName,
     ) -> slim_session::context::SessionContext {
         let (session_ctx, completion_handle) =
             app.create_session(config, destination, None).await.unwrap();
@@ -991,8 +995,8 @@ mod tests {
     async fn run_p2p_subscription_test(config: P2PTestConfig) {
         let service = create_test_service(config.test_name);
 
-        let subscriber_name = Name::from_strings(["org", "ns", config.subscriber_suffix]);
-        let publisher_name = Name::from_strings(["org", "ns", config.publisher_suffix]);
+        let subscriber_name = ProtoName::from_strings(["org", "ns", config.subscriber_suffix]);
+        let publisher_name = ProtoName::from_strings(["org", "ns", config.publisher_suffix]);
 
         let (subscriber_app, mut subscriber_notifications) =
             create_test_app(&service, &subscriber_name, "a");
@@ -1000,7 +1004,7 @@ mod tests {
             create_test_app(&service, &publisher_name, "a");
 
         // Generate subscription names based on configuration
-        let subscription_names: Vec<Name> = if config.subscription_names.len() == 1
+        let subscription_names: Vec<ProtoName> = if config.subscription_names.len() == 1
             && config.subscription_names[0] == "subscriber"
         {
             // Special case: subscribe to the subscriber's own name
@@ -1011,7 +1015,7 @@ mod tests {
                 .subscription_names
                 .iter()
                 .map(|suffix| {
-                    Name::from_strings(["org", "ns", suffix])
+                    ProtoName::from_strings(["org", "ns", suffix])
                         .with_id(subscriber_app.app_name().id())
                 })
                 .collect()
@@ -1132,7 +1136,8 @@ mod tests {
         let service = create_test_service(config.test_name);
 
         // Create moderator app
-        let moderator_name = Name::from_strings(["org", "ns", config.moderator_suffix]).with_id(0);
+        let moderator_name =
+            ProtoName::from_strings(["org", "ns", config.moderator_suffix]).with_id(0);
         let (moderator_app, mut _moderator_notifications) =
             create_test_app(&service, &moderator_name, "a");
 
@@ -1142,7 +1147,7 @@ mod tests {
         let mut participant_names = Vec::new();
 
         for suffix in &config.participant_suffixes {
-            let participant_name = Name::from_strings(["org", "ns", suffix]).with_id(0);
+            let participant_name = ProtoName::from_strings(["org", "ns", suffix]).with_id(0);
             let (app, notifications) = create_test_app(&service, &participant_name, "a");
 
             participant_apps.push(app);
@@ -1151,7 +1156,7 @@ mod tests {
         }
 
         // Create multicast channel name
-        let channel_name = Name::from_strings(["org", "ns", config.channel_suffix]);
+        let channel_name = ProtoName::from_strings(["org", "ns", config.channel_suffix]);
 
         // Have all participants subscribe for their own name
         for app in &participant_apps {
@@ -1451,7 +1456,7 @@ mod tests {
 
         // TEST 1: Try to invite a non-existent participant
         tracing::info!("TEST 1: Invite non-existent participant");
-        let nonexistent_participant = Name::from_strings(["org", "ns", "ghost"]).with_id(0);
+        let nonexistent_participant = ProtoName::from_strings(["org", "ns", "ghost"]).with_id(0);
 
         let invite_ghost_rx = moderator_controller
             .invite_participant(&nonexistent_participant)
@@ -1530,7 +1535,7 @@ mod tests {
     // Helper: Create a spy connection that intercepts raw messages
     async fn create_spy(
         service: &crate::service::Service,
-        channel_name: &Name,
+        channel_name: &ProtoName,
     ) -> (
         tokio::sync::mpsc::Sender<Result<ProtoMessage, slim_datapath::Status>>,
         tokio::sync::mpsc::Receiver<Result<ProtoMessage, slim_datapath::Status>>,
@@ -1541,7 +1546,7 @@ mod tests {
             .unwrap();
 
         let spy_subscribe_msg = ProtoMessage::builder()
-            .source(Name::from_strings(["org", "ns", "spy"]).with_id(0))
+            .source(ProtoName::from_strings(["org", "ns", "spy"]).with_id(0))
             .destination(channel_name.clone())
             .identity("")
             .incoming_conn(spy_conn_id)

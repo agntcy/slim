@@ -12,18 +12,18 @@ pub mod subscription_table;
 
 pub mod pool;
 
-use crate::messages::Name;
+use crate::api::{EncodedName, ProtoName};
 
 pub trait SubscriptionTable {
     type Error;
 
     fn for_each<F>(&self, f: F)
     where
-        F: FnMut(&Name, u64, &[u64], &[u64]);
+        F: FnMut(&ProtoName, u64, &[u64], &[u64]);
 
     fn add_subscription(
         &self,
-        name: Name,
+        name: ProtoName,
         conn: u64,
         is_local: bool,
         subscription_id: u64,
@@ -31,7 +31,7 @@ pub trait SubscriptionTable {
 
     fn remove_subscription(
         &self,
-        name: &Name,
+        name: &ProtoName,
         conn: u64,
         is_local: bool,
         subscription_id: u64,
@@ -43,9 +43,10 @@ pub trait SubscriptionTable {
         &self,
         conn: u64,
         is_local: bool,
-    ) -> Result<HashMap<Name, HashSet<u64>>, Self::Error>;
+    ) -> Result<HashMap<ProtoName, HashSet<u64>>, Self::Error>;
 
-    fn match_one(&self, name: &Name, incoming_conn: u64) -> Result<u64, Self::Error>;
+    fn match_one(&self, encoded: &EncodedName, incoming_conn: u64) -> Result<u64, Self::Error>;
 
-    fn match_all(&self, name: &Name, incoming_conn: u64) -> Result<Vec<u64>, Self::Error>;
+    fn match_all(&self, encoded: &EncodedName, incoming_conn: u64)
+    -> Result<Vec<u64>, Self::Error>;
 }

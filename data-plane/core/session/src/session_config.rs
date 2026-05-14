@@ -76,7 +76,7 @@ impl SessionConfig {
 mod tests {
     use super::*;
     use slim_datapath::api::CommandPayload;
-    use slim_datapath::messages::Name;
+    use slim_datapath::api::ProtoName as Name;
     use slim_datapath::messages::utils::MessageError;
     use std::time::Duration;
 

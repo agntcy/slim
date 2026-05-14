@@ -19,7 +19,7 @@ use slim_config::component::id::{ID, Kind};
 use slim_config::grpc::client::ClientConfig as CoreClientConfig;
 use slim_config::grpc::server::ServerConfig as CoreServerConfig;
 use slim_controller::config::Config as CoreControllerConfig;
-use slim_datapath::messages::Name as SlimName;
+use slim_datapath::api::ProtoName as SlimName;
 use slim_service::{
     KIND, Service as SlimService, ServiceConfiguration as SlimServiceConfiguration,
 };
@@ -515,7 +515,7 @@ pub fn create_service_with_config(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slim_datapath::messages::Name as SlimName;
+    use slim_datapath::api::ProtoName as SlimName;
     use slim_testing::utils::TEST_VALID_SECRET;
 
     use crate::app::App;
